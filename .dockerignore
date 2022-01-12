@@ -1,0 +1,9 @@
+.devcontainer/
+.dockerignore
+.git/
+.gitignore
+.vscode/
+deploy/
+Dockerfile
+Makefile
+README.md

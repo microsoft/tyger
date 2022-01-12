@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tyger.fullname" . }}-storage
+spec:
+  selector:
+    matchLabels:
+      component: {{ include "tyger.fullname" . }}-storage
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        component: {{ include "tyger.fullname" . }}-storage
+    spec:
+      initContainers:
+        - name: check-db-ready
+          image: jbergknoff/postgresql-client
+          command:
+            - 'sh'
+            - '-c'
+            - |
+              until pg_isready -U {{ template "postgresql.username" .Subcharts.storagedb }} -d {{ .Values.storagedb.postgresqlDatabase }} -h {{ template "common.names.fullname" .Subcharts.storagedb }} -p 5432; do
+                echo waiting for database
+                sleep 2
+              done
+        {{- if .Values.storageEmulator.enabled }}
+        - name: check-azurite-ready
+          image: yauritux/busybox-curl
+          command:
+            - 'sh'
+            - '-c'
+            - |
+              until curl http://devstoreaccount1.{{ .Release.Namespace }}:10000/; do
+                echo waiting for azurite
+                sleep 2
+              done
+        {{- end }}
+      containers:
+        - name: mrd-storage-server
+          image: ghcr.io/ismrmrd/mrd-storage-server:v0.0.4
+          env:
+            - name: MRD_STORAGE_SERVER_DATABASE_PROVIDER
+              value: postgresql
+            - name: MRD_STORAGE_SERVER_DATABASE_CONNECTION_STRING
+              value: host={{ template "common.names.fullname" .Subcharts.storagedb }} dbname={{ .Values.storagedb.postgresqlDatabase }} port=5432 user={{ template "postgresql.username" .Subcharts.storagedb }}
+            - name: MRD_STORAGE_SERVER_DATABASE_PASSWORD_FILE
+              value: /etc/secrets/postgresql-password
+            - name: MRD_STORAGE_SERVER_STORAGE_PROVIDER
+              value: azureblob
+          {{- if .Values.storageEmulator.enabled }}
+            - name: MRD_STORAGE_SERVER_STORAGE_CONNECTION_STRING
+              value: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://devstoreaccount1.{{ .Release.Namespace }}:10000/
+          {{- end }}
+          volumeMounts:
+          - name: postgresql-password
+            mountPath: /etc/secrets
+            readOnly: true
+      volumes:
+      - name: postgresql-password
+        secret:
+          secretName: {{ template "common.names.fullname" .Subcharts.storagedb  }}
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: {{ include "tyger.fullname" . }}-storage
+spec:
+  selector:
+    component: {{ include "tyger.fullname" . }}-storage
+  ports:
+    - name: storage
+      protocol: TCP
+      port: 8080
+      targetPort: 3333

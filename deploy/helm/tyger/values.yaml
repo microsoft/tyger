@@ -1,0 +1,58 @@
+nameOverride: ""
+fullnameOverride: ""
+
+tyger:
+  replicaCount: 1
+
+  image: tyger
+  imagePullPolicy: IfNotPresent
+
+  hostname:
+
+  storageAccountUri:
+
+  imagePullSecrets: []
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podSecurityContext: {}
+  securityContext: {}
+  resources: {}
+
+storageServer:
+  replicaCount: 1
+
+  image: ghcr.io/ismrmrd/mrd-storage-server:latest
+  imagePullPolicy: Always
+
+  storageAccountUri:
+
+  imagePullSecrets: []
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podSecurityContext: {}
+  securityContext: {}
+  resources: {}
+
+storageEmulator:
+  enabled: false
+  hostname:
+
+tygerdb:
+  usePasswordFile: true
+  postgresqlDatabase: tyger
+
+storagedb:
+  usePasswordFile: true
+  postgresqlDatabase: mrd-storage-server
+
+traefik:
+  logs:
+    general:
+      format: json
+    access:
+      enabled: true
+      format: json

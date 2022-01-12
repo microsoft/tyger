@@ -1,0 +1,55 @@
+{{- if .Values.storageEmulator.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tyger.fullname" . }}-azurite
+spec:
+  selector:
+    matchLabels:
+      component: azurite
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        component: azurite
+    spec:
+      containers:
+        - name: azurite
+          image: mcr.microsoft.com/azure-storage/azurite:3.15.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - azurite-blob
+            - --blobHost
+            - "0.0.0.0"
+            - --blobPort
+            - "10000"
+            - --debug
+            - /debug.log
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: devstoreaccount1
+spec:
+  selector:
+    component: azurite
+  ports:
+    - name: blob
+      protocol: TCP
+      port: 10000
+      targetPort: 10000
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ include "tyger.fullname" . }}-azurite
+spec:
+  entryPoints:
+  - web
+  routes:
+  - kind: Rule
+    match: Host(`{{ required "A value for storageEmulator.hostname is required." .Values.storageEmulator.hostname }}`)
+    services:
+    - name: devstoreaccount1
+      port: 10000
+{{- end }}
