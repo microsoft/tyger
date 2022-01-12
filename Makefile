@@ -8,7 +8,7 @@ HELM_CHART_DIR=./deploy/helm/tyger
 TYGER_HOSTNAME=tyger.localdev.me
 AZURITE_HOSTNAME=devstoreaccount1.azurite.localdev.me
 
-.SILENT: set-env run docker-build up get-namespace
+.SILENT: set-env run docker-build up get-namespace unit-test
 
 generate:
 	go generate ./...
@@ -36,7 +36,8 @@ run: set-env
 	go run ./cmd/app -p
 
 unit-test:
-	go test ./...
+	echo "Running unit tests..."
+	go test ./... | grep -v "\\[[no test files\\]"
 
 docker-build:
 	export DOCKER_BUILDKIT=1

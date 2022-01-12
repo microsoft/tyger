@@ -9,9 +9,10 @@ import (
 )
 
 func (api *Api) CreateBuffer(w http.ResponseWriter, r *http.Request) {
+	log.Ctx(r.Context()).Info().Msg("foo")
 	id, err := api.bufferManager.CreateBuffer(r.Context())
 	if err != nil {
-		log.Error().Err(err).Msg("Unable to create container")
+		log.Ctx(r.Context()).Error().Err(err).Msg("Unable to create container")
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -29,8 +30,8 @@ func (api *Api) GetBufferByID(w http.ResponseWriter, r *http.Request, id string)
 			return
 		}
 
-		log.Err(err).Send()
-		writeInternalServerError(w, err)
+		log.Ctx(r.Context()).Err(err).Send()
+		writeInternalServerError(w, r, err)
 		return
 	}
 
@@ -46,7 +47,7 @@ func (api *Api) GetBufferAccessUri(w http.ResponseWriter, r *http.Request, id st
 			return
 		}
 
-		log.Err(err).Send()
+		log.Ctx(r.Context()).Err(err).Send()
 		return
 	}
 

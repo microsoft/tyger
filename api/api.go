@@ -13,6 +13,7 @@ import (
 	"dev.azure.com/msresearch/compimag/_git/tyger/internal/config"
 	"dev.azure.com/msresearch/compimag/_git/tyger/internal/database"
 	"dev.azure.com/msresearch/compimag/_git/tyger/internal/k8s"
+	"dev.azure.com/msresearch/compimag/_git/tyger/internal/requestid"
 	oapimiddleware "github.com/deepmap/oapi-codegen/pkg/chi-middleware"
 	"github.com/etherlabsio/healthcheck"
 	"github.com/go-chi/chi/v5"
@@ -51,6 +52,7 @@ func BuildRouter(config config.ConfigSpec, repository database.Repository, buffe
 	// before chi.
 
 	r.Use(
+		requestid.Middleware,
 		createLoggerMiddleware(log.Logger),
 		middleware.Recoverer,
 	)
@@ -81,11 +83,11 @@ func BuildRouter(config config.ConfigSpec, repository database.Repository, buffe
 			// TODO: create a healthcheck endpoint on the storage server
 			resp, err := http.Get(fmt.Sprintf("%s/v1/blobs?subject=0000000000000000000000000000000000000000&_limit=1", config.MrdStorageUri))
 			if err != nil {
-				log.Err(err).Msg("storage server health check failed")
+				log.Ctx(ctx).Err(err).Msg("storage server health check failed")
 				return errors.New("unable to connect to storage server")
 			}
 			if resp.StatusCode != http.StatusOK {
-				log.Err(fmt.Errorf("storage server response: %d", resp.StatusCode)).Msg("storage server health check failed")
+				log.Ctx(ctx).Err(fmt.Errorf("storage server response: %d", resp.StatusCode)).Msg("storage server health check failed")
 				return errors.New("unable to connect to storage server")
 			}
 			return nil
@@ -103,8 +105,8 @@ func (api *Api) HandleRouteNotFound(w http.ResponseWriter, r *http.Request) {
 	writeError(w, http.StatusBadRequest, "RouteNotFound", "The provided URI pattern is not recognized.")
 }
 
-func writeInternalServerError(w http.ResponseWriter, err error) {
-	log.Err(err).Send()
+func writeInternalServerError(w http.ResponseWriter, r *http.Request, err error) {
+	log.Ctx(r.Context()).Err(err).Send()
 	writeError(w, http.StatusInternalServerError, "InternalServerError", "An internal error has occured.")
 }
 
@@ -141,7 +143,7 @@ func createLoggerMiddleware(logger zerolog.Logger) func(http.Handler) http.Handl
 			ww := middleware.NewWrapResponseWriter(rw, r.ProtoMajor)
 			start := time.Now().UTC()
 			defer func() {
-				logger.Info().
+				log.Ctx(r.Context()).Info().
 					Int("status", ww.Status()).
 					Int("bytes", ww.BytesWritten()).
 					Str("method", r.Method).

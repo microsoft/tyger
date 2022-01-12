@@ -112,7 +112,7 @@ func (m manager) GetSasUri(ctx context.Context, bufferId string, writeable bool,
 func (m manager) HealthCheck(ctx context.Context) error {
 	_, err := m.serviceClient.GetProperties(ctx)
 	if err != nil {
-		log.Err(err).Send()
+		log.Ctx(ctx).Err(err).Send()
 		return errors.New("error accessing storage")
 	}
 

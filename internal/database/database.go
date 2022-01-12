@@ -138,7 +138,7 @@ func (r repository) HealthCheck(ctx context.Context) error {
 	s := r.db.Exec("SELECT NULL from codespecs LIMIT 1")
 	err := s.Error
 	if err != nil {
-		log.Err(err).Msg("Database health check failed")
+		log.Ctx(ctx).Err(err).Msg("Database health check failed")
 		return errors.New("failed to connect to database")
 	}
 	return nil

@@ -17,13 +17,13 @@ func (api *Api) CreateRun(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		writeInternalServerError(w, err)
+		writeInternalServerError(w, r, err)
 		return
 	}
 
 	responseRun, err := api.k8sManager.CreateRun(r.Context(), run)
 	if err != nil {
-		writeInternalServerError(w, err)
+		writeInternalServerError(w, r, err)
 		return
 	}
 
@@ -37,7 +37,7 @@ func (api *Api) GetRun(w http.ResponseWriter, r *http.Request, id string) {
 			writeNotFound(w)
 			return
 		}
-		writeInternalServerError(w, err)
+		writeInternalServerError(w, r, err)
 		return
 	}
 

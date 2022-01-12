@@ -19,13 +19,13 @@ func (api *Api) UpsertCodespec(w http.ResponseWriter, r *http.Request, name stri
 			return
 		}
 
-		writeInternalServerError(w, err)
+		writeInternalServerError(w, r, err)
 		return
 	}
 
 	version, err := api.repository.UpsertCodespec(r.Context(), name, codespec)
 	if err != nil {
-		writeInternalServerError(w, err)
+		writeInternalServerError(w, r, err)
 		return
 	}
 	w.Header().Add("Location", fmt.Sprintf("v1/codespecs/%s/versions/%d", name, version))
@@ -44,7 +44,7 @@ func (api *Api) GetLatestCodespec(w http.ResponseWriter, r *http.Request, name s
 			return
 		}
 
-		writeInternalServerError(w, err)
+		writeInternalServerError(w, r, err)
 		return
 	}
 
@@ -60,7 +60,7 @@ func (api *Api) GetCodespecVersion(w http.ResponseWriter, r *http.Request, name 
 			return
 		}
 
-		writeInternalServerError(w, err)
+		writeInternalServerError(w, r, err)
 		return
 	}
 

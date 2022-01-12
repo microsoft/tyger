@@ -83,6 +83,8 @@ func configureZerolog(args Args) {
 	if args.PrettyPrint {
 		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 	}
+
+	zerolog.DefaultContextLogger = &log.Logger
 }
 
 func NewId() string {

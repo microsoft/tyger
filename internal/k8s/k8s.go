@@ -96,6 +96,8 @@ func (m manager) CreateRun(ctx context.Context, run model.Run) (*model.Run, erro
 		return nil, err
 	}
 
+	log.Ctx(ctx).Info().Msgf("Created secret %s", k8sId)
+
 	env := make([]v1.EnvVar, 0)
 	for k, v := range codespec.Env {
 		env = append(env, v1.EnvVar{Name: k, Value: v})
@@ -154,6 +156,8 @@ func (m manager) CreateRun(ctx context.Context, run model.Run) (*model.Run, erro
 		return &run, err
 	}
 
+	log.Ctx(ctx).Info().Msgf("Created run %s", k8sId)
+
 	run.Id = id
 	return &run, nil
 }
@@ -174,11 +178,11 @@ func (m manager) GetRun(ctx context.Context, id string) (*model.Run, error) {
 		return nil, fmt.Errorf("read annotation: %v", err)
 	}
 
-	run.Status = getPodStatus(pod)
+	run.Status = getPodStatus(ctx, pod)
 	return &run, nil
 }
 
-func getPodStatus(pod *v1.Pod) string {
+func getPodStatus(ctx context.Context, pod *v1.Pod) string {
 	if pod.Status.Phase == "Pending" {
 		return "Pending"
 	}
@@ -194,7 +198,7 @@ func getPodStatus(pod *v1.Pod) string {
 		return state.Terminated.Reason
 	}
 
-	log.Err(fmt.Errorf("unknown pod container state"))
+	log.Ctx(ctx).Err(fmt.Errorf("unknown pod container state"))
 	return string(pod.Status.Phase)
 }
 
@@ -270,7 +274,7 @@ func (m manager) HealthCheck(ctx context.Context) error {
 	res := m.clientset.Discovery().RESTClient().Get().AbsPath(path).Do(ctx)
 	err := res.Error()
 	if err != nil {
-		log.Err(err).Msg("kubernetes health check failed")
+		log.Ctx(ctx).Err(err).Msg("kubernetes health check failed")
 		return errors.New("kubernetes health check failed")
 	}
 

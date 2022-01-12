@@ -130,3 +130,10 @@ func TestEndToEnd(t *testing.T) {
 
 	require.Equal("Hello: Bonjour", string(outputBytes))
 }
+
+func TestResponseContainsRequestIdHeader(t *testing.T) {
+	require := require.New(t)
+	resp, err := client.GetLatestCodespec(context.Background(), "missing")
+	require.Nil(err)
+	require.NotEmpty(resp.Header.Get("X-Request-ID"))
+}
