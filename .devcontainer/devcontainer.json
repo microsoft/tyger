@@ -71,6 +71,7 @@
 			"helm": "latest",
 			"minikube": "none"
 		},
-		"git": "os-provided"
+		"git": "os-provided",
+		"azure-cli": "latest"
 	}
 }

@@ -1,10 +1,10 @@
 nameOverride: ""
 fullnameOverride: ""
 
-tyger:
+server:
   replicaCount: 1
 
-  image: tyger
+  image: tyger-server
   imagePullPolicy: IfNotPresent
 
   hostname:
@@ -41,7 +41,7 @@ storageEmulator:
   enabled: false
   hostname:
 
-tygerdb:
+db:
   usePasswordFile: true
   postgresqlDatabase: tyger
 

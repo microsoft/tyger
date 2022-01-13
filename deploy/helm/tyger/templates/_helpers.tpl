@@ -54,9 +54,9 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 Create the name of the service account to use
 */}}
 {{- define "tyger.serviceAccountName" -}}
-{{- if .Values.tyger.serviceAccount.create }}
-{{- default (include "tyger.fullname" .) .Values.tyger.serviceAccount.name }}
+{{- if .Values.server.serviceAccount.create }}
+{{- default (include "tyger.fullname" .) .Values.server.serviceAccount.name }}
 {{- else }}
-{{- default "default" .Values.tyger.serviceAccount.name }}
+{{- default "default" .Values.server.serviceAccount.name }}
 {{- end }}
 {{- end }}

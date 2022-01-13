@@ -1,13 +1,13 @@
-{{ $tygerValues := index .Values "tyger" }}
+{{ $serverValues := index .Values "server" }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: {{ include "tyger.fullname" . }}-api
+  name: {{ include "tyger.fullname" . }}-server
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "tyger.fullname" . }}-api
+  name: {{ include "tyger.fullname" . }}-server
 rules:
 - apiGroups: [""]
   resources: ["pods"]
@@ -19,31 +19,31 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "tyger.fullname" . }}-api
+  name: {{ include "tyger.fullname" . }}-server
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ include "tyger.fullname" . }}-api
+  name: {{ include "tyger.fullname" . }}-server
 subjects:
 - kind: ServiceAccount
-  name: {{ include "tyger.fullname" . }}-api
+  name: {{ include "tyger.fullname" . }}-server
   namespace: {{ .Release.Namespace }}
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "tyger.fullname" . }}-api
+  name: {{ include "tyger.fullname" . }}-server
 spec:
   selector:
     matchLabels:
-      component: {{ include "tyger.fullname" . }}-api
-  replicas: {{ $tygerValues.replicas }}
+      component: {{ include "tyger.fullname" . }}-server
+  replicas: {{ $serverValues.replicas }}
   strategy:
     type: Recreate # For inner-loop local development. TODO: parameterize
   template:
     metadata:
       labels:
-        component: {{ include "tyger.fullname" . }}-api
+        component: {{ include "tyger.fullname" . }}-server
     spec:
       initContainers:
         - name: check-db-ready
@@ -52,7 +52,7 @@ spec:
             - 'sh'
             - '-c'
             - |
-              until pg_isready -U {{ template "postgresql.username" .Subcharts.tygerdb }} -d {{ .Values.tygerdb.postgresqlDatabase }} -h {{ template "common.names.fullname" .Subcharts.tygerdb }} -p 5432; do
+              until pg_isready -U {{ template "postgresql.username" .Subcharts.db }} -d {{ .Values.db.postgresqlDatabase }} -h {{ template "common.names.fullname" .Subcharts.db }} -p 5432; do
                 echo waiting for database
                 sleep 2
               done
@@ -71,8 +71,8 @@ spec:
 
       containers:
         - name: tyger
-          image: {{ $tygerValues.image | quote }}
-          imagePullPolicy: {{ $tygerValues.pullPolicy }}
+          image: {{ $serverValues.image | quote }}
+          imagePullPolicy: {{ $serverValues.pullPolicy }}
           ports:
             - containerPort: 3000
           env:
@@ -85,13 +85,13 @@ spec:
             - name: TYGER_KUBERNETES_NAMESPACE
               value: {{ .Release.Namespace }}
             - name: TYGER_DATABASE_CONNECTION_STRING
-              value: host={{ template "common.names.fullname" .Subcharts.tygerdb }} dbname={{ .Values.tygerdb.postgresqlDatabase }} port=5432 user={{ template "postgresql.username" .Subcharts.tygerdb }}
+              value: host={{ template "common.names.fullname" .Subcharts.db }} dbname={{ .Values.db.postgresqlDatabase }} port=5432 user={{ template "postgresql.username" .Subcharts.db }}
             - name: TYGER_DATABASE_PASSWORD_FILE
               value: /etc/secrets/postgresql-password
             - name: TYGER_DATABASE_NAME
-              value: {{ .Values.tygerdb.postgresqlDatabase }}
+              value: {{ .Values.db.postgresqlDatabase }}
             - name: TYGER_DATABASE_USER
-              value: {{ .Values.tygerdb.postgresqlUsername }}
+              value: {{ .Values.db.postgresqlUsername }}
             - name: TYGER_RUNNING_WITHIN_CLUSTER
               value: "true"
             - name: TYGER_MRD_STORAGE_URI
@@ -109,16 +109,16 @@ spec:
             mountPath: /etc/secrets
             readOnly: true
 
-      serviceAccount: {{ include "tyger.fullname" . }}-api
-      {{- with $tygerValues.nodeSelector }}
+      serviceAccount: {{ include "tyger.fullname" . }}-server
+      {{- with $serverValues.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with $tygerValues.affinity }}
+      {{- with $serverValues.affinity }}
       affinity:fo
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with $tygerValues.tolerations }}
+      {{- with $serverValues.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -126,15 +126,15 @@ spec:
       volumes:
       - name: postgresql-password
         secret:
-          secretName: {{ template "common.names.fullname" .Subcharts.tygerdb  }}
+          secretName: {{ template "common.names.fullname" .Subcharts.db  }}
 ---
 kind: Service
 apiVersion: v1
 metadata:
-  name: {{ include "tyger.fullname" . }}-api
+  name: {{ include "tyger.fullname" . }}-server
 spec:
   selector:
-    component: {{ include "tyger.fullname" . }}-api
+    component: {{ include "tyger.fullname" . }}-server
   ports:
     - name: tyger
       protocol: TCP
@@ -144,13 +144,13 @@ spec:
 apiVersion: traefik.containo.us/v1alpha1
 kind: IngressRoute
 metadata:
-  name: {{ include "tyger.fullname" . }}-api
+  name: {{ include "tyger.fullname" . }}-server
 spec:
   entryPoints:
   - web
   routes:
   - kind: Rule
-    match: Host(`{{ required "A value for tyger.hostname is required." $tygerValues.hostname }}`)
+    match: Host(`{{ required "A value for server.hostname is required." $serverValues.hostname }}`)
     services:
-    - name: {{ include "tyger.fullname" . }}-api
+    - name: {{ include "tyger.fullname" . }}-server
       port: 8080

@@ -28,7 +28,7 @@ dependencies:
   version: ~10.9.1
   repository: https://helm.traefik.io/traefik
 - name: postgresql
-  alias: tygerdb
+  alias: db
   version: 10.14.4
   repository: https://charts.bitnami.com/bitnami
 - name: postgresql

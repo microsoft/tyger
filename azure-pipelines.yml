@@ -1,0 +1,47 @@
+# Trigger on changes to the "main" branch
+trigger:
+- main
+
+# Trigger for PRs that target the "main" branch
+pr:
+- main
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  DOCKER_BUILDKIT: 1
+  isPR: $[eq(variables['Build.Reason'], 'PullRequest')]
+  isCI: $[or(eq(variables['Build.Reason'], 'IndividualCI'), eq(variables['Build.Reason'], 'BatchedCI'))]
+  KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+jobs:
+- job: buildAndTest
+  displayName: "Build and run tests"
+
+  steps:
+
+  - script: |
+      set -euo pipefail
+      ./.devcontainer/install-k3s.sh
+    displayName: "Install k3s"
+
+  - task: GoTool@0
+    inputs:
+      version: '1.17.3'
+
+  - script: |
+      set -euo pipefail
+      make e2e
+    displayName: Build and run tests
+
+  - task: AzureCLI@2
+    condition: and(succeeded(), eq(variables.isCI, 'true'))
+    displayName: Push Images
+    inputs:
+      azureSubscription: BiomedicalImaging-NonProd
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        set -euo pipefail
+        scripts/build-images.sh --push --use-git-hash-as-tag --compress
