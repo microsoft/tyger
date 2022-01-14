@@ -101,14 +101,17 @@ if [[ -z "${image_tag:-}" ]]; then
   exit 1
 fi
 
-  # Ensure we are logged in to the ACR resource, but avoid calling az acr login if an existing token is still valid.
-  token_file="${HOME}/.docker/config.json"
-
-  tokenExpiration=$([[ ! -f "${token_file}" ]] || decode_base64url "$(< "${token_file}" jq --arg registry "${container_registry_fqdn}" -r '.auths[$registry].identitytoken' | cut -d "." -f 2)" | jq .exp 2> /dev/null || true)
-  currentTime=$(date +%s)
-  if (((tokenExpiration - currentTime) < 900)); then
-      az acr login -n "${container_registry_name}"
-  fi
+# Ensure we are logged in to the ACR resource, but avoid calling az acr login if an existing token is still valid.
+token_file="${HOME}/.docker/config.json"
+username="00000000-0000-0000-0000-000000000000"
+token=$([[ ! -f "${token_file}" ]] || jq <"${token_file}" --arg registry "${container_registry_fqdn}" -r '.auths[$registry].identitytoken' 2>/dev/null || true)
+tokenExpiration=$([[ -z "${token}" ]] || decode_base64url "$(echo "${token}" | cut -d "." -f 2)" | jq .exp 2>/dev/null || true)
+currentTime=$(date +%s)
+if (((tokenExpiration - currentTime) < 900)); then
+  echo "logging in to acr.."
+  token=$(az acr login --name "${container_registry_name}" --expose-token --output tsv --query accessToken --only-show-errors)
+  echo "${token}" | docker login ${container_registry_fqdn} -u "${username}" --password-stdin
+fi
 
 if [[ -z "${force:-}" ]]; then
   # First try to pull the image
@@ -127,6 +130,8 @@ chart_dir=${repo_root_dir}/deploy/helm/tyger
 chart_version=$(yq e '.version' "${chart_dir}/Chart.yaml")
 updated_chart_version="${chart_version}-${image_tag}"
 package_dir=$(mktemp -d)
+
+echo "${token}" | helm registry login ${container_registry_fqdn} --username "${username}" --password-stdin
 
 if [[ -z "${force:-}" ]]; then
   # Check to see if this chart already exists in the registry
