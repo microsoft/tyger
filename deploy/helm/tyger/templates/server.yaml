@@ -71,7 +71,7 @@ spec:
 
       containers:
         - name: tyger
-          image: {{ $serverValues.image | quote }}
+          image: "{{ $serverValues.image | default (printf "eminence.azurecr.io/tyger-server:%s" .Chart.AppVersion) }}"
           imagePullPolicy: {{ $serverValues.pullPolicy }}
           ports:
             - containerPort: 3000

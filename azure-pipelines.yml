@@ -26,6 +26,11 @@ jobs:
       ./.devcontainer/install-k3s.sh
     displayName: "Install k3s"
 
+  - script: |
+      set -euo pipefail
+      sudo ./.devcontainer/install-tools.sh
+    displayName: "Install tools"
+
   - task: GoTool@0
     inputs:
       version: '1.17.3'
