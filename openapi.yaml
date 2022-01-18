@@ -308,23 +308,23 @@ components:
           format: uri
           description: The URI to read or write to the buffer
 
-    BufferParameter:
-      required:
-        - name
+    BufferParameters:
       properties:
-        name:
-          type: string
-        writeable:
-          type: boolean
+        inputs:
+          type: array
+          items:
+            type: string
+        outputs:
+          type: array
+          items:
+            type: string
 
     Codespec:
       required:
         - image
       properties:
-        bufferParameters:
-          type: array
-          items:
-            $ref: '#/components/schemas/BufferParameter'
+        buffers:
+          $ref: '#/components/schemas/BufferParameters'
         image:
           type: string
           description: The container image to run

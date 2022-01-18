@@ -23,6 +23,11 @@ func (api *Api) UpsertCodespec(w http.ResponseWriter, r *http.Request, name stri
 		return
 	}
 
+	if err := codespec.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, "InvalidInput", err.Error())
+		return
+	}
+
 	version, err := api.repository.UpsertCodespec(r.Context(), name, codespec)
 	if err != nil {
 		writeInternalServerError(w, r, err)

@@ -76,7 +76,7 @@ func (m manager) CreateRun(ctx context.Context, run model.Run) (*model.Run, erro
 		return nil, err
 	}
 
-	bufferMap, err := m.getBufferInputMap(ctx, codespec.BufferParameters, run.Buffers)
+	bufferMap, err := m.getBufferMap(ctx, codespec.Buffers, run.Buffers)
 	if err != nil {
 		return nil, err
 	}
@@ -202,15 +202,30 @@ func getPodStatus(ctx context.Context, pod *v1.Pod) string {
 	return string(pod.Status.Phase)
 }
 
-func (m manager) getBufferInputMap(ctx context.Context, parameters []model.BufferParameter, arguments map[string]string) (map[string]string, error) {
+func (m manager) getBufferMap(ctx context.Context, parameters *model.BufferParameters, arguments map[string]string) (map[string]string, error) {
 
 	argumentsCopy := make(map[string]string, len(arguments))
 	for k, v := range arguments {
 		argumentsCopy[k] = v
 	}
 
+	type parameter struct {
+		Name      string
+		Writeable bool
+	}
+
+	combinedParameters := make([]parameter, 0)
+	if parameters != nil {
+		for _, v := range parameters.Inputs {
+			combinedParameters = append(combinedParameters, parameter{v, false})
+		}
+		for _, v := range parameters.Outputs {
+			combinedParameters = append(combinedParameters, parameter{v, true})
+		}
+	}
+
 	outputMap := make(map[string]string)
-	for _, p := range parameters {
+	for _, p := range combinedParameters {
 		buffer, ok := argumentsCopy[p.Name]
 		if !ok {
 			return nil, &model.ValidationError{Message: fmt.Sprintf("Run is missing required buffer argument '%s'", p.Name)}

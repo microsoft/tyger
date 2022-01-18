@@ -1,23 +1,58 @@
 package model
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+	"strings"
+)
 
 var (
 	ErrNotFound = errors.New("the resource was not found")
 )
 
-type BufferParameter struct {
-	Name      string `json:"name"`
-	Writeable bool   `json:"writeable"`
+type BufferParameters struct {
+	Inputs  []string `json:"inputs,omitempty"`
+	Outputs []string `json:"outputs,omitempty"`
 }
 
 type Codespec struct {
-	BufferParameters []BufferParameter `json:"bufferParameters,omitempty"`
-	Image            string            `json:"image"`
-	Command          []string          `json:"command,omitempty"`
-	Args             []string          `json:"args,omitempty"`
-	WorkingDir       string            `json:"workingDir,omitempty"`
-	Env              map[string]string `json:"env,omitempty"`
+	Buffers    *BufferParameters `json:"buffers,omitempty"`
+	Image      string            `json:"image"`
+	Command    []string          `json:"command,omitempty"`
+	Args       []string          `json:"args,omitempty"`
+	WorkingDir string            `json:"workingDir,omitempty"`
+	Env        map[string]string `json:"env,omitempty"`
+}
+
+func (c Codespec) Validate() error {
+	if c.Image == "" {
+		return &ValidationError{Message: "The image property cannot be empty"}
+	}
+
+	if c.Buffers != nil {
+		lowerNames := make(map[string]string)
+		combined := make([]string, 0)
+		combined = append(combined, c.Buffers.Inputs...)
+		combined = append(combined, c.Buffers.Outputs...)
+		for _, v := range combined {
+			if v == "" {
+				return &ValidationError{Message: "A buffer name cannot be empty"}
+			}
+
+			if strings.Contains(v, "/") {
+				return &ValidationError{Message: fmt.Sprintf("The buffer named '%s' cannot contain '/'", v)}
+			}
+
+			lowerV := strings.ToLower(v)
+			if _, found := lowerNames[lowerV]; found {
+				return &ValidationError{Message: fmt.Sprintf("All buffer names must be unique across inputs and outputs. Buffer names are case-insensitive. '%s' is duplicated", v)}
+			}
+
+			lowerNames[strings.ToLower(v)] = v
+		}
+	}
+
+	return nil
 }
 
 type Run struct {

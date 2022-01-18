@@ -35,15 +35,13 @@ func TestEndToEnd(t *testing.T) {
 	// create a codespec
 	const codespecName = "testcodespec"
 
-	bufferPrameters := []e2e.BufferParameter{
-		{Name: "input"},
-		{Name: "output", Writeable: pointer.Bool(true)},
-	}
-	args := []string{"-r", "$(INPUT_BUFFER_URI_FILE)", "-w", "$(OUTPUT_BUFFER_URI_FILE)"}
 	codespec := e2e.Codespec{
-		BufferParameters: &bufferPrameters,
-		Image:            "testrecon:test",
-		Args:             &args,
+		Buffers: &e2e.BufferParameters{
+			Inputs:  &[]string{"input"},
+			Outputs: &[]string{"output"},
+		},
+		Image: "testrecon:test",
+		Args:  &[]string{"-r", "$(INPUT_BUFFER_URI_FILE)", "-w", "$(OUTPUT_BUFFER_URI_FILE)"},
 	}
 
 	codespecResponse, err := client.UpsertCodespecWithResponse(context.Background(), codespecName, e2e.UpsertCodespecJSONRequestBody(codespec))

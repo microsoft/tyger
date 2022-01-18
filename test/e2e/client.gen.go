@@ -29,18 +29,18 @@ type BufferAccess struct {
 	Uri string `json:"uri"`
 }
 
-// BufferParameter defines model for BufferParameter.
-type BufferParameter struct {
-	Name      string `json:"name"`
-	Writeable *bool  `json:"writeable,omitempty"`
+// BufferParameters defines model for BufferParameters.
+type BufferParameters struct {
+	Inputs  *[]string `json:"inputs,omitempty"`
+	Outputs *[]string `json:"outputs,omitempty"`
 }
 
 // Codespec defines model for Codespec.
 type Codespec struct {
-	Args             *[]string          `json:"args,omitempty"`
-	BufferParameters *[]BufferParameter `json:"bufferParameters,omitempty"`
-	Command          *[]string          `json:"command,omitempty"`
-	Env              *Codespec_Env      `json:"env,omitempty"`
+	Args    *[]string         `json:"args,omitempty"`
+	Buffers *BufferParameters `json:"buffers,omitempty"`
+	Command *[]string         `json:"command,omitempty"`
+	Env     *Codespec_Env     `json:"env,omitempty"`
 
 	// The container image to run
 	Image string `json:"image"`
