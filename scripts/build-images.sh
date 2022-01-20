@@ -113,6 +113,9 @@ if (((tokenExpiration - currentTime) < 900)); then
   echo "${token}" | docker login ${container_registry_fqdn} -u "${username}" --password-stdin
 fi
 
+############################
+# Pushing tyger server image
+############################
 if [[ -z "${force:-}" ]]; then
   # First try to pull the image
   image_exists=$(docker pull "$tyger_server_full_image_name" 2>/dev/null || true)
@@ -126,6 +129,9 @@ fi
 docker tag "${tyger_server_image_short_name}" "$tyger_server_full_image_name"
 docker push "$tyger_server_full_image_name"
 
+############################
+# Pushing tyger helm chart
+############################
 chart_dir=${repo_root_dir}/deploy/helm/tyger
 chart_version=$(yq e '.version' "${chart_dir}/Chart.yaml")
 updated_chart_version="${chart_version}-${image_tag}"
@@ -150,3 +156,26 @@ package_name=$(ls "${package_dir}")
 helm push "${package_dir}/${package_name}" ${helm_repo_namespace}
 
 rm -rf "${package_dir}"
+
+############################
+# Pushing tyger CLI
+############################
+tyger_cli_full_artifacts_name="${container_registry_fqdn}/app/tyger:${image_tag:-}"
+oci_media_type="application/vnd.unknown.layer.v1+bin"
+
+if [[ -z "${force:-}" ]]; then
+  # Check to see if this chart already exists in the registry
+  cli_artifact_exists=$(oras pull "$tyger_cli_full_artifacts_name" --media-type "$oci_media_type" 2>/dev/null || true)
+  if [[ -n "$cli_artifact_exists" ]]; then
+    echo "Attempting to push an OCI tyger CLI that already exists that already exists: ${tyger_cli_full_artifacts_name}"
+    echo "Use \"--push-force\" to overwrite an existing artifact"
+    exit 1
+  fi
+fi
+
+# Build the executable and push it
+# Note: using an absolute path fails with oras so we copy local and push
+make -f "$(dirname "$0")/../Makefile" install-cli
+cp "$(which tyger)" "./tyger"
+oras push  "$tyger_cli_full_artifacts_name" --manifest-config /dev/null:application/vnd.unknown.config.v1+json "./tyger:${oci_media_type}"
+rm -rf "./tyger"

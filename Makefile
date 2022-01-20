@@ -14,9 +14,6 @@ generate:
 	go generate ./...
 	go generate -tags=e2e ./...
 
-build:
-	go build -o bin/server ./cmd/server/
-
 set-env:
 	if [[ $$(helm list -n "${HELM_NAMESPACE}" -l name=${HELM_RELEASE} -o json | jq length) == 0 ]]; then
 		echo "Run 'make up' before this target"; exit 1
@@ -70,7 +67,7 @@ down:
 	kubectl delete pvc -n "${HELM_NAMESPACE}" -l app.kubernetes.io/instance=tyger
 
 install-cli:
-	go install ./cmd/tyger
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go install -ldflags="-s -w" -v ./cmd/tyger/
 
 e2e-no-up: install-cli
 	cd test/e2e
