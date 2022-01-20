@@ -69,7 +69,10 @@ down:
 
 	kubectl delete pvc -n "${HELM_NAMESPACE}" -l app.kubernetes.io/instance=tyger
 
-e2e-no-up:
+install-cli:
+	go install ./cmd/tyger
+
+e2e-no-up: install-cli
 	cd test/e2e
 	go test -tags=e2e
 

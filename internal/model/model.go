@@ -10,6 +10,14 @@ var (
 	ErrNotFound = errors.New("the resource was not found")
 )
 
+type Buffer struct {
+	Id string `json:"id"`
+}
+
+type BufferAccess struct {
+	Uri string `json:"uri"`
+}
+
 type BufferParameters struct {
 	Inputs  []string `json:"inputs,omitempty"`
 	Outputs []string `json:"outputs,omitempty"`
@@ -58,7 +66,7 @@ func (c Codespec) Validate() error {
 type Run struct {
 	Id       string            `json:"id,omitempty"`
 	Buffers  map[string]string `json:"buffers,omitempty"`
-	CodeSpec string            `json:"codeSpec"`
+	Codespec string            `json:"codespec"`
 	Status   string            `json:"status,omitempty"`
 }
 
@@ -68,4 +76,13 @@ type ValidationError struct {
 
 func (mr *ValidationError) Error() string {
 	return mr.Message
+}
+
+type ErrorResponse struct {
+	Error ErrorInfo `json:"error"`
+}
+
+type ErrorInfo struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }

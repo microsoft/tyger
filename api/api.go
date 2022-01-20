@@ -15,6 +15,7 @@ import (
 	"dev.azure.com/msresearch/compimag/_git/tyger/internal/config"
 	"dev.azure.com/msresearch/compimag/_git/tyger/internal/database"
 	"dev.azure.com/msresearch/compimag/_git/tyger/internal/k8s"
+	"dev.azure.com/msresearch/compimag/_git/tyger/internal/model"
 	"dev.azure.com/msresearch/compimag/_git/tyger/internal/requestid"
 	oapimiddleware "github.com/deepmap/oapi-codegen/pkg/chi-middleware"
 	"github.com/etherlabsio/healthcheck"
@@ -117,7 +118,7 @@ func writeNotFound(w http.ResponseWriter) {
 }
 
 func writeError(w http.ResponseWriter, statusCode int, errorCode, message string) {
-	writeJson(w, statusCode, Error{ErrorInfo{errorCode, message}})
+	writeJson(w, statusCode, model.ErrorResponse{Error: model.ErrorInfo{Code: errorCode, Message: message}})
 }
 
 func writeJson(w http.ResponseWriter, statusCode int, v interface{}) {

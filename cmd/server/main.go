@@ -1,11 +1,9 @@
 package main
 
 import (
-	"encoding/base32"
 	"fmt"
 	"net/http"
 	"os"
-	"strings"
 
 	"dev.azure.com/msresearch/compimag/_git/tyger/api"
 	"dev.azure.com/msresearch/compimag/_git/tyger/internal/buffers"
@@ -13,7 +11,6 @@ import (
 	"dev.azure.com/msresearch/compimag/_git/tyger/internal/database"
 	"dev.azure.com/msresearch/compimag/_git/tyger/internal/k8s"
 	"github.com/alecthomas/kong"
-	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -85,13 +82,4 @@ func configureZerolog(args Args) {
 	}
 
 	zerolog.DefaultContextLogger = &log.Logger
-}
-
-func NewId() string {
-	uuidBytes, err := uuid.New().MarshalBinary()
-	if err != nil {
-		log.Panic().Err(err).Send()
-	}
-
-	return strings.ToLower(strings.TrimRight(base32.StdEncoding.EncodeToString(uuidBytes), "="))
 }

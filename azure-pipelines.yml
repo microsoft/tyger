@@ -14,6 +14,7 @@ variables:
   isPR: $[eq(variables['Build.Reason'], 'PullRequest')]
   isCI: $[or(eq(variables['Build.Reason'], 'IndividualCI'), eq(variables['Build.Reason'], 'BatchedCI'))]
   KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  GOBIN: '$(Agent.TempDirectory)/go/bin'
 
 jobs:
 - job: buildAndTest
@@ -34,6 +35,9 @@ jobs:
   - task: GoTool@0
     inputs:
       version: '1.17.3'
+
+  - script: echo '##vso[task.prependpath]$(GOBIN)'
+    displayName: "Add GOBIN to PATH"
 
   - script: |
       set -euo pipefail

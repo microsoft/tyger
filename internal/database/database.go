@@ -121,7 +121,7 @@ func (r repository) GetLatestCodespec(ctx context.Context, name string) (*model.
 
 func (r repository) GetCodespecVersion(ctx context.Context, name string, version int) (*model.Codespec, error) {
 	row := codespec{Name: name, Version: version}
-	if err := r.db.Find(&row).Error; err != nil {
+	if err := r.db.First(&row).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrNotFound
 		}

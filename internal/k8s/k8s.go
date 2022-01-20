@@ -60,7 +60,7 @@ func NewK8sManager(config config.ConfigSpec, repository database.Repository, buf
 
 func (m manager) CreateRun(ctx context.Context, run model.Run) (*model.Run, error) {
 
-	codespec, normalizedCodespecRef, err := m.getCodespec(ctx, run.CodeSpec)
+	codespec, normalizedCodespecRef, err := m.getCodespec(ctx, run.Codespec)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +69,7 @@ func (m manager) CreateRun(ctx context.Context, run model.Run) (*model.Run, erro
 	k8sId := fmt.Sprintf("run-%s", id)
 
 	run.Id = id
-	run.CodeSpec = *normalizedCodespecRef
+	run.Codespec = *normalizedCodespecRef
 
 	annotationBytes, err := json.Marshal(run)
 	if err != nil {
@@ -183,19 +183,21 @@ func (m manager) GetRun(ctx context.Context, id string) (*model.Run, error) {
 }
 
 func getPodStatus(ctx context.Context, pod *v1.Pod) string {
-	if pod.Status.Phase == "Pending" {
-		return "Pending"
+	if len(pod.Status.ContainerStatuses) == 1 {
+		state := pod.Status.ContainerStatuses[0].State
+		if state.Waiting != nil {
+			return state.Waiting.Reason
+		}
+		if state.Running != nil {
+			return "Running"
+		}
+		if state.Terminated != nil {
+			return state.Terminated.Reason
+		}
 	}
 
-	state := pod.Status.ContainerStatuses[0].State
-	if state.Waiting != nil {
-		return state.Waiting.Reason
-	}
-	if state.Running != nil {
-		return "Running"
-	}
-	if state.Terminated != nil {
-		return state.Terminated.Reason
+	if pod.Status.Phase == "Pending" {
+		return "Pending"
 	}
 
 	log.Ctx(ctx).Err(fmt.Errorf("unknown pod container state"))
@@ -258,28 +260,58 @@ func (m manager) getCodespec(ctx context.Context, codespecRef string) (spec *mod
 	switch len(codespecTokens) {
 	case 1:
 		codespec, version, err = m.repository.GetLatestCodespec(ctx, codespecTokens[0])
-	case 2:
-		*version, err = strconv.Atoi(codespecTokens[1])
 		if err != nil {
-			err = database.ErrNotFound
-		} else {
-			codespec, err = m.repository.GetCodespecVersion(ctx, codespecTokens[0], *version)
+			if errors.Is(err, database.ErrNotFound) {
+				return nil, nil, &model.ValidationError{
+					Message: fmt.Sprintf("The codespec '%s' was not found.", codespecTokens[0]),
+				}
+			}
+			return nil, nil, err
 		}
-	default:
-		err = database.ErrNotFound
-	}
 
-	if err != nil {
-		if errors.Is(err, database.ErrNotFound) {
+	case 2:
+		var v int
+		v, err = strconv.Atoi(codespecTokens[1])
+		if err != nil {
 			return nil, nil, &model.ValidationError{
-				Message: fmt.Sprintf(
-					"The codespec '%s' was not found. The value should be in the form '<codespec_name>' or '<codespec_name>/versions/<version_number>'.",
-					codespecRef)}
+				Message: fmt.Sprintf("'%s' is not a valid codespec version.", codespecTokens[1]),
+			}
 		}
-		return nil, nil, err
+
+		version = &v
+		codespec, err = m.repository.GetCodespecVersion(ctx, codespecTokens[0], *version)
+		if err != nil {
+			if errors.Is(err, database.ErrNotFound) {
+
+				// See if it's just the version number was was not found
+				_, latestVersion, err := m.repository.GetLatestCodespec(ctx, codespecTokens[0])
+				if err != nil {
+					if errors.Is(err, database.ErrNotFound) {
+						return nil, nil, &model.ValidationError{
+							Message: fmt.Sprintf("The codespec '%s' was not found.", codespecTokens[0]),
+						}
+					}
+
+					return nil, nil, err
+				}
+
+				return nil, nil, &model.ValidationError{
+					Message: fmt.Sprintf("The version '%d' of codespec '%s' was not found. The latest version is '%d' ", v, codespecTokens[0], *latestVersion),
+				}
+			}
+			return nil, nil, err
+		}
+
+	default:
+		return nil, nil, &model.ValidationError{
+			Message: fmt.Sprintf(
+				"The codespec '%s' is invalid. The value should be in the form '<codespec_name>' or '<codespec_name>/versions/<version_number>'.",
+				codespecRef)}
 	}
 
 	normalizedRef = pointer.String(fmt.Sprintf("%s/versions/%d", codespecTokens[0], *version))
+
+	log.Ctx(ctx).Info().Msgf("Found codespec %s", *normalizedRef)
 
 	return codespec, normalizedRef, nil
 }

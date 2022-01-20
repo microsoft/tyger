@@ -23,6 +23,11 @@ func (api *Api) CreateRun(w http.ResponseWriter, r *http.Request) {
 
 	responseRun, err := api.k8sManager.CreateRun(r.Context(), run)
 	if err != nil {
+		var validationError *model.ValidationError
+		if errors.As(err, &validationError) {
+			writeError(w, http.StatusBadRequest, "InvalidInput", validationError.Message)
+			return
+		}
 		writeInternalServerError(w, r, err)
 		return
 	}

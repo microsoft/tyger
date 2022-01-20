@@ -1,30 +1,31 @@
 //go:build e2e
 
-//go:generate go run github.com/deepmap/oapi-codegen/cmd/oapi-codegen --package=e2e --generate types,client -o client.gen.go ../../openapi.yaml
 package e2e_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"log"
-	"net/http"
+	"os"
+	"os/exec"
 	"testing"
 	"time"
 
-	"dev.azure.com/msresearch/compimag/_git/tyger/test/e2e"
+	"dev.azure.com/msresearch/compimag/_git/tyger/internal/model"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/stretchr/testify/require"
-	"k8s.io/utils/pointer"
 )
 
-var (
-	client *e2e.ClientWithResponses
-)
+const serverUri = "http://tyger.localdev.me"
 
 func init() {
-	var err error
-	client, err = e2e.NewClientWithResponses("http://tyger.localdev.me")
+	stdout, stderr, err := runTyger("login", serverUri)
 	if err != nil {
+		fmt.Fprintln(os.Stderr, stderr, stdout)
 		log.Fatal(err)
 	}
 }
@@ -35,38 +36,20 @@ func TestEndToEnd(t *testing.T) {
 	// create a codespec
 	const codespecName = "testcodespec"
 
-	codespec := e2e.Codespec{
-		Buffers: &e2e.BufferParameters{
-			Inputs:  &[]string{"input"},
-			Outputs: &[]string{"output"},
-		},
-		Image: "testrecon:test",
-		Args:  &[]string{"-r", "$(INPUT_BUFFER_URI_FILE)", "-w", "$(OUTPUT_BUFFER_URI_FILE)"},
-	}
+	runTygerSuceeds(t,
+		"create", "codespec", codespecName,
+		"-i=input", "-o=output",
+		"--image", "testrecon:test",
+		"--",
+		"-r", "$(INPUT_BUFFER_URI_FILE)", "-w", "$(OUTPUT_BUFFER_URI_FILE)")
 
-	codespecResponse, err := client.UpsertCodespecWithResponse(context.Background(), codespecName, e2e.UpsertCodespecJSONRequestBody(codespec))
-	require.Nil(err)
-	require.True(codespecResponse.StatusCode() == http.StatusCreated || codespecResponse.StatusCode() == http.StatusOK, "unexpected status code %d", codespecResponse.StatusCode())
+	// create an input buffer and a SAS token to be able to write to it
+	inputBufferId := runTygerSuceeds(t, "create", "buffer")
+	inputSasUri := runTygerSuceeds(t, "access", "buffer", inputBufferId, "-w")
 
-	// create an input buffer
-	createBufferResponse, err := client.CreateBufferWithResponse(context.Background(), new(e2e.CreateBufferJSONRequestBody))
-	require.Nil(err)
-	inputBufferId := createBufferResponse.JSON201.Id
-
-	// get a SAS token to be able to write to it
-	sasResponse, err := client.GetBufferAccessUriWithResponse(context.Background(), inputBufferId, &e2e.GetBufferAccessUriParams{Writeable: pointer.Bool(true)})
-	require.Nil(err)
-	inputSasUri := sasResponse.JSON201.Uri
-
-	// create an output buffer
-	createBufferResponse, err = client.CreateBufferWithResponse(context.Background(), new(e2e.CreateBufferJSONRequestBody))
-	require.Nil(err)
-	outputBufferId := createBufferResponse.JSON201.Id
-
-	// get a SAS token to be able to read from it
-	sasResponse, err = client.GetBufferAccessUriWithResponse(context.Background(), outputBufferId, &e2e.GetBufferAccessUriParams{Writeable: pointer.Bool(false)})
-	require.Nil(err)
-	outputSasUri := sasResponse.JSON201.Uri
+	// create and output buffer and a SAS token to be able to read from it
+	outputBufferId := runTygerSuceeds(t, "create", "buffer")
+	outputSasUri := runTygerSuceeds(t, "access", "buffer", outputBufferId)
 
 	// write to the input buffer using the SAS URI
 	inputContainerClient, err := azblob.NewContainerClientWithNoCredential(inputSasUri, nil)
@@ -76,37 +59,22 @@ func TestEndToEnd(t *testing.T) {
 	require.Nil(err, err)
 
 	// create run
-	bufferArgs := e2e.NewRun_Buffers{
-		AdditionalProperties: map[string]string{
-			"input":  inputBufferId,
-			"output": outputBufferId,
-		},
-	}
-
-	newRun := e2e.NewRun{
-		Buffers:  &bufferArgs,
-		Codespec: codespecName,
-	}
-
-	createRunResponse, err := client.CreateRunWithResponse(context.Background(), e2e.CreateRunJSONRequestBody(newRun))
-	require.Nil(err)
-	require.Equal(http.StatusCreated, createRunResponse.StatusCode())
-
-	runId := createRunResponse.JSON201.Id
+	runId := runTygerSuceeds(t, "create", "run", "--codespec", codespecName,
+		"-b", fmt.Sprintf("input=%s", inputBufferId),
+		"-b", fmt.Sprintf("output=%s", outputBufferId))
 
 	for i := 0; ; i++ {
-		runResponse, err := client.GetRunWithResponse(context.Background(), runId)
-		require.Nil(err)
-		require.Equal(http.StatusOK, runResponse.StatusCode())
-
-		if runResponse.JSON200.Status != nil && *runResponse.JSON200.Status == "Completed" {
+		runJson := runTygerSuceeds(t, "get", "run", runId)
+		run := model.Run{}
+		require.Nil(json.Unmarshal([]byte(runJson), &run))
+		if run.Status == "Completed" {
 			break
 		}
 
 		time.Sleep(time.Millisecond * 200)
 
 		if i == 100 {
-			require.FailNowf("run failed to complete.", "Last status: %v", *runResponse.JSON200.Status)
+			require.FailNowf("run failed to complete.", "Last status: %s", run.Status)
 		}
 	}
 
@@ -131,7 +99,38 @@ func TestEndToEnd(t *testing.T) {
 
 func TestResponseContainsRequestIdHeader(t *testing.T) {
 	require := require.New(t)
-	resp, err := client.GetLatestCodespec(context.Background(), "missing")
-	require.Nil(err)
-	require.NotEmpty(resp.Header.Get("X-Request-ID"))
+	_, stderr, _ := runTyger("get", "codespec", "missing", "-v")
+
+	require.Contains(stderr, "X-Request-Id")
+}
+
+func runTyger(args ...string) (stdout string, stderr string, err error) {
+	cmd := exec.Command("tyger", args...)
+	var outb, errb bytes.Buffer
+	cmd.Stdout = &outb
+	cmd.Stderr = &errb
+	err = cmd.Run()
+
+	// strip away newline suffix
+	stdout = string(bytes.TrimSuffix(outb.Bytes(), []byte{'\n'}))
+
+	stderr = string(errb.String())
+	return
+}
+
+func runTygerSuceeds(t *testing.T, args ...string) string {
+	stdout, stderr, err := runTyger(args...)
+	if err != nil {
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) {
+			t.Log(stderr)
+			t.Log(stdout)
+			t.Errorf("Unexpected error code %d", exitError.ExitCode())
+			t.FailNow()
+		}
+		t.Errorf("Failure executing tyger: %v", err)
+		t.FailNow()
+	}
+
+	return stdout
 }

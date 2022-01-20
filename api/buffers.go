@@ -35,7 +35,7 @@ func (api *Api) GetBufferByID(w http.ResponseWriter, r *http.Request, id string)
 		return
 	}
 
-	writeJson(w, http.StatusOK, Buffer{Id: id})
+	writeJson(w, http.StatusOK, model.Buffer{Id: id})
 }
 
 func (api *Api) GetBufferAccessUri(w http.ResponseWriter, r *http.Request, id string, params GetBufferAccessUriParams) {
@@ -51,5 +51,5 @@ func (api *Api) GetBufferAccessUri(w http.ResponseWriter, r *http.Request, id st
 		return
 	}
 
-	writeJson(w, http.StatusCreated, BufferAccess{Uri: uri})
+	writeJson(w, http.StatusCreated, model.BufferAccess{Uri: uri})
 }
