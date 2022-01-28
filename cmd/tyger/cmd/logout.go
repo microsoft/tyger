@@ -13,7 +13,7 @@ func newLogoutCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return clicontext.WriteCliContext(clicontext.CliContext{})
+			return clicontext.Logout()
 		},
 	}
 }

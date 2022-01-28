@@ -84,6 +84,14 @@ spec:
           {{- end }}
             - name: TYGER_KUBERNETES_NAMESPACE
               value: {{ .Release.Namespace }}
+            - name: TYGER_SECURITY_ENABLED
+              value: "{{ .Values.server.security.enabled }}"
+          {{- if $serverValues.security.enabled }}
+            - name: TYGER_SECURITY_AUTHORITY
+              value: {{ required "When server.security.enabled is true, a value for server.security.authority is required" $serverValues.security.authority }}
+            - name: TYGER_SECURITY_AUDIENCE
+              value: {{ required "When server.security.enabled is true, a value for server.security.audience is required" $serverValues.security.audience }}
+          {{- end }}
             - name: TYGER_DATABASE_CONNECTION_STRING
               value: host={{ template "common.names.fullname" .Subcharts.db }} dbname={{ .Values.db.postgresqlDatabase }} port=5432 user={{ template "postgresql.username" .Subcharts.db }}
             - name: TYGER_DATABASE_PASSWORD_FILE

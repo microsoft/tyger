@@ -26,27 +26,29 @@ import (
 )
 
 type Api struct {
-	baseUri       string
-	repository    database.Repository
-	bufferManager buffers.BufferManager
-	k8sManager    k8s.K8sManager
+	baseUri               string
+	securityConfiguration config.SecurityConfigSpec
+	repository            database.Repository
+	bufferManager         buffers.BufferManager
+	k8sManager            k8s.K8sManager
 }
 
 // make sure we conform to ServerInterface
 var _ ServerInterface = (*Api)(nil)
 
-func NewApi(baseUri string, repository database.Repository, bufferManager buffers.BufferManager, k8sManager k8s.K8sManager) *Api {
+func NewApi(baseUri string, securityConfiguration config.SecurityConfigSpec, repository database.Repository, bufferManager buffers.BufferManager, k8sManager k8s.K8sManager) *Api {
 	return &Api{
-		baseUri:       baseUri,
-		repository:    repository,
-		bufferManager: bufferManager,
-		k8sManager:    k8sManager,
+		baseUri:               baseUri,
+		securityConfiguration: securityConfiguration,
+		repository:            repository,
+		bufferManager:         bufferManager,
+		k8sManager:            k8sManager,
 	}
 }
 
 func BuildRouter(config config.ConfigSpec, repository database.Repository, bufferManager buffers.BufferManager, k8sManager k8s.K8sManager) (http.Handler, error) {
 
-	api := NewApi(config.BaseUri, repository, bufferManager, k8sManager)
+	api := NewApi(config.BaseUri, config.Security, repository, bufferManager, k8sManager)
 
 	r := chi.NewRouter()
 
@@ -102,6 +104,15 @@ func BuildRouter(config config.ConfigSpec, repository database.Repository, buffe
 	handler := stripSlashesMiddleware(r)
 
 	return handler, nil
+}
+
+func (api *Api) GetServiceMetadata(w http.ResponseWriter, r *http.Request) {
+	metadata := model.ServiceMetadata{
+		Authority: api.securityConfiguration.Authority,
+		Audience:  api.securityConfiguration.Audience,
+	}
+
+	writeJson(w, http.StatusOK, metadata)
 }
 
 func (api *Api) HandleRouteNotFound(w http.ResponseWriter, r *http.Request) {

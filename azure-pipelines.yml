@@ -39,10 +39,19 @@ jobs:
   - script: echo '##vso[task.prependpath]$(GOBIN)'
     displayName: "Add GOBIN to PATH"
 
-  - script: |
-      set -euo pipefail
-      make e2e
+  - task: AzureCLI@2
     displayName: Build and run tests
+    inputs:
+      azureSubscription: BiomedicalImaging-NonProd
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        set -euo pipefail
+        make up
+        make install-cli
+        make download-test-client-cert
+        make login-service-principal
+        make test-no-up
 
   - task: AzureCLI@2
     condition: and(succeeded(), eq(variables.isCI, 'true'))

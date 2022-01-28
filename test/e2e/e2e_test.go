@@ -23,7 +23,7 @@ import (
 const serverUri = "http://tyger.localdev.me"
 
 func init() {
-	stdout, stderr, err := runTyger("login", serverUri)
+	stdout, stderr, err := runTyger("login", "status")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, stderr, stdout)
 		log.Fatal(err)

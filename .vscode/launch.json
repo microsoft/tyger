@@ -19,7 +19,7 @@
             "mode": "auto",
             "program": "cmd/tyger",
             "cwd": "${workspaceFolder}",
-            "args": ["create"]
+            "args": ["login", "http://tyger.localdev.me"]
         }
     ]
 }

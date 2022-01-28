@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,16 +29,21 @@ func exactlyOneArg(argName string) func(cmd *cobra.Command, args []string) error
 }
 
 func invokeRequest(method string, relativeUri string, input interface{}, output interface{}, verbose bool) (*http.Response, error) {
-	context, err := clicontext.GetCliContext()
+	ctx, err := clicontext.GetCliContext()
 	if err != nil {
 		return nil, err
 	}
 
-	if uri, err := url.Parse(context.ServerUri); err != nil || !uri.IsAbs() {
-		return nil, fmt.Errorf("run 'tyger login' to connect to a Tyger server")
+	if uri, err := url.Parse(ctx.GetServerUri()); err != nil || !uri.IsAbs() {
+		return nil, errors.New("run 'tyger login' to connect to a Tyger server")
 	}
 
-	absoluteUri := fmt.Sprintf("%s/%s", context.ServerUri, relativeUri)
+	token, err := ctx.GetAccessToken()
+	if err != nil {
+		return nil, fmt.Errorf("run 'tyger login' to connect to a Tyger server: %v", err)
+	}
+
+	absoluteUri := fmt.Sprintf("%s/%s", ctx.GetServerUri(), relativeUri)
 	var body io.Reader = nil
 	if input != nil {
 		serializedBody, err := json.Marshal(input)
@@ -54,10 +60,18 @@ func invokeRequest(method string, relativeUri string, input interface{}, output 
 	req.Header.Set("Content-Type", "application/json")
 
 	if verbose {
+		if token != "" {
+			req.Header.Add("Authorization", "Bearer --REDACTED--")
+		}
 		if debugOutput, err := httputil.DumpRequestOut(req, true); err == nil {
 			fmt.Fprintln(os.Stderr, "====REQUEST====")
 			fmt.Fprintln(os.Stderr, string(debugOutput))
 		}
+	}
+
+	// add the Authorization token after dumping the request so we don't write out the token
+	if token != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 	}
 
 	resp, err := http.DefaultClient.Do(req)

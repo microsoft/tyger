@@ -74,5 +74,8 @@
 		},
 		"git": "os-provided",
 		"azure-cli": "latest"
-	}
+	},
+	"forwardPorts": [
+		41087 // This is port the tyger cli uses for interactive login callback.
+	]
 }

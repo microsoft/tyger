@@ -10,6 +10,11 @@ var (
 	ErrNotFound = errors.New("the resource was not found")
 )
 
+type ServiceMetadata struct {
+	Authority string `json:"authority"`
+	Audience  string `json:"audience"`
+}
+
 type Buffer struct {
 	Id string `json:"id"`
 }

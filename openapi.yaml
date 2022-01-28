@@ -4,6 +4,19 @@ info:
   title: Tyger
   description: Control plane for cloud-based signal processing.
 paths:
+  /v1/metadata:
+    get:
+      summary: Get metadata about the service
+      description: Gets information about the service
+      operationId: getServiceMetadata
+      responses:
+        '200':
+          description: The service metadata response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceMetadata'
+
   /v1/buffers:
     post:
       summary: Creates a new buffer.
@@ -291,6 +304,17 @@ paths:
                 $ref: '#/components/schemas/Error'
 components:
   schemas:
+
+    ServiceMetadata:
+      properties:
+        authority:
+          type: string
+          format: uri
+          description: The OAuth 2 authority.
+        audience:
+          type: string
+          description: The OAuth2 audience.
+
     Buffer:
       required:
         - id
