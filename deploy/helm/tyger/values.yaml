@@ -7,6 +7,11 @@ server:
   image:
   imagePullPolicy: IfNotPresent
 
+  security:
+    enabled: true
+    authority:
+    audience:
+
   hostname:
 
   storageAccountUri:
@@ -25,11 +30,6 @@ storageServer:
 
   image: ghcr.io/ismrmrd/mrd-storage-server:latest
   imagePullPolicy: Always
-
-  security:
-    enabled: true
-    authority:
-    audience:
 
   storageAccountUri:
 
