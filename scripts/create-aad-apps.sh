@@ -77,7 +77,7 @@ cli_spec=$(cat  <<EOF | jq -c
             "http://localhost"
         ]
     },
-    "signInAudience": "AzureADMyOrg"
+    "signInAudience": "AzureADMultipleOrgs"
 }
 EOF
 )
@@ -93,3 +93,5 @@ cli_app_id=$(get_app_by_identifier_uri 'api://tyger-cli' | jq -r '.value[] | .ap
 if [[ $(az rest --url "https://graph.microsoft.com/beta/servicePrincipals/?\$filter=appId eq '${cli_app_id}'" | jq '.value | length') == 0 ]]; then
     az rest --method post --body "{\"appId\": \"${cli_app_id}\"}" --url https://graph.microsoft.com/beta/servicePrincipals
 fi
+
+echo "The tyger cli app ID is '${cli_app_id}'. Ensure that this is the ID the app is using."

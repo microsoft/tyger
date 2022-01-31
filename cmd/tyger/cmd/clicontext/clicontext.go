@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	cliIdentifierUri                    = "api://tyger-cli"
+	cliClientId                         = "d81fc78a-b30f-49ee-8697-54775895e218" // this needs to be the app ID and not the identifier URI, otherwise the refresh tokens will not work.
 	userScope                           = "Read.Write"
 	servicePrincipalScope               = ".default"
 	discardTokenIfExpiringWithinSeconds = 10 * 60
@@ -122,7 +122,7 @@ func (c *cliContext) GetAccessToken() (string, error) {
 	} else {
 		// fall back to using the refresh token from the cache
 		client, err := public.New(
-			cliIdentifierUri,
+			cliClientId,
 			public.WithAuthority(c.Authority),
 			public.WithCache(c),
 		)
@@ -238,7 +238,7 @@ func (ctx *cliContext) performServicePrincipalLogin() (authResult confidential.A
 
 func (ctx *cliContext) performUserLogin(useDeviceCode bool) (authResult public.AuthResult, err error) {
 	client, err := public.New(
-		cliIdentifierUri,
+		cliClientId,
 		public.WithAuthority(ctx.Authority),
 		public.WithCache(ctx),
 	)
