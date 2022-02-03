@@ -53,11 +53,3 @@ db:
 storagedb:
   usePasswordFile: true
   postgresqlDatabase: mrd-storage-server
-
-traefik:
-  logs:
-    general:
-      format: json
-    access:
-      enabled: true
-      format: json

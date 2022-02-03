@@ -24,9 +24,6 @@ version: 0.1.0
 appVersion: "latest"
 
 dependencies:
-- name: traefik
-  version: ~10.9.1
-  repository: https://helm.traefik.io/traefik
 - name: postgresql
   alias: db
   version: 10.14.4
