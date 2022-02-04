@@ -16,4 +16,10 @@
 # build output directory
 bin/
 
-.env
+localsettings.ini
+
+[Dd]ebug/
+[Rr]elease/
+x64/
+[Bb]in/
+[Oo]bj/

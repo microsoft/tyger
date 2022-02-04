@@ -74,44 +74,42 @@ spec:
           image: "{{ $serverValues.image | default (printf "eminence.azurecr.io/tyger-server:%s" .Chart.AppVersion) }}"
           imagePullPolicy: {{ $serverValues.pullPolicy }}
           ports:
-            - containerPort: 3000
+            - containerPort: 5000
           env:
-          {{- if .Values.storageEmulator.enabled }}
-            - name: TYGER_STORAGE_EMULATOR_EXTERNAL_HOST
-              value: {{ .Values.storageEmulator.hostname }}
-            - name: TYGER_STORAGE_ACCOUNT_CONNECTION_STRING
-              value: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://devstoreaccount1.{{ .Release.Namespace }}:10000/
-          {{- end }}
-            - name: TYGER_KUBERNETES_NAMESPACE
-              value: {{ .Release.Namespace }}
-            - name: TYGER_SECURITY_ENABLED
+            - name: ASPNETCORE_URLS
+              value: http://+:5000
+            - name: Tyger__KeyPerFileDirectory
+              value: /etc/secrets/
+            - name: Tyger__Logging__Console__FormatterName
+              value: Tyger.Server.Logging.LogFormatter
+            - name: Tyger__Auth__Enabled
               value: "{{ .Values.server.security.enabled }}"
           {{- if $serverValues.security.enabled }}
-            - name: TYGER_SECURITY_AUTHORITY
+            - name: Tyger__Auth__Authority
               value: {{ required "When server.security.enabled is true, a value for server.security.authority is required" $serverValues.security.authority }}
-            - name: TYGER_SECURITY_AUDIENCE
+            - name: Tyger__Auth__Audience
               value: {{ required "When server.security.enabled is true, a value for server.security.audience is required" $serverValues.security.audience }}
           {{- end }}
-            - name: TYGER_DATABASE_CONNECTION_STRING
-              value: host={{ template "common.names.fullname" .Subcharts.db }} dbname={{ .Values.db.postgresqlDatabase }} port=5432 user={{ template "postgresql.username" .Subcharts.db }}
-            - name: TYGER_DATABASE_PASSWORD_FILE
-              value: /etc/secrets/postgresql-password
-            - name: TYGER_DATABASE_NAME
-              value: {{ .Values.db.postgresqlDatabase }}
-            - name: TYGER_DATABASE_USER
-              value: {{ .Values.db.postgresqlUsername }}
-            - name: TYGER_RUNNING_WITHIN_CLUSTER
-              value: "true"
-            - name: TYGER_MRD_STORAGE_URI
+          {{- if .Values.storageEmulator.enabled }}
+            - name: Tyger__BlobStorage__EmulatorExternalEndpoint
+              value: http://{{ .Values.storageEmulator.hostname }}
+            - name: Tyger__BlobStorage__AccountEndpoint
+              value: http://devstoreaccount1.{{ .Release.Namespace }}:10000/
+          {{- end }}
+            - name: Tyger__Kubernetes_Namespace
+              value: {{ .Release.Namespace }}
+            - name: Tyger__Database__ConnectionString
+              value: Host={{ template "common.names.fullname" .Subcharts.db }}; Database={{ .Values.db.postgresqlDatabase }}; Port=5432; Username={{ template "postgresql.username" .Subcharts.db }}
+            - name: Tyger__StorageServer__Uri
               value: http://{{ include "tyger.fullname" . }}-storage.{{ .Release.Namespace }}:8080
           readinessProbe:
             httpGet:
               path: /healthcheck
-              port: 3000
+              port: 5000
           livenessProbe:
             httpGet:
               path: /healthcheck
-              port: 3000
+              port: 5000
           volumeMounts:
           - name: postgresql-password
             mountPath: /etc/secrets
@@ -135,6 +133,9 @@ spec:
       - name: postgresql-password
         secret:
           secretName: {{ template "common.names.fullname" .Subcharts.db  }}
+          items:
+          - key: postgresql-password
+            path: database__password
 ---
 kind: Service
 apiVersion: v1
@@ -147,7 +148,7 @@ spec:
     - name: tyger
       protocol: TCP
       port: 8080
-      targetPort: 3000
+      targetPort: 5000
 ---
 apiVersion: traefik.containo.us/v1alpha1
 kind: IngressRoute

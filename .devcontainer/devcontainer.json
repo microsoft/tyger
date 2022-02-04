@@ -1,81 +1,90 @@
 // For format details, see https://aka.ms/devcontainer.json. For config options, see the README at:
 // https://github.com/microsoft/vscode-dev-containers/tree/v0.205.2/containers/go
 {
-	"name": "Tyger",
+  "name": "Tyger",
 
-	"build": {
-		"dockerfile": "Dockerfile",
-		"context": ".",
-		"args": {
-			// Update the VARIANT arg to pick a version of Go: 1, 1.16, 1.17
-			// Append -bullseye or -buster to pin to an OS version.
-			// Use -bullseye variants on local arm64/Apple Silicon.
-			"VARIANT": "1.17-bullseye",
-		},
-	},
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".",
+    "args": {
+      // Update the VARIANT arg to pick a version of Go: 1, 1.16, 1.17
+      // Append -bullseye or -buster to pin to an OS version.
+      // Use -bullseye variants on local arm64/Apple Silicon.
+      "VARIANT": "1.17-bullseye"
+    }
+  },
 
-	"runArgs": [
-		"--cap-add=SYS_PTRACE",
-		"--security-opt",
-		"seccomp=unconfined",
-		"--network=host",
-		"--add-host=tyger.localdev.me:host-gateway",
-		"--add-host=devstoreaccount1.azurite.localdev.me:host-gateway"
-	],
+  "runArgs": [
+    "--cap-add=SYS_PTRACE",
+    "--security-opt",
+    "seccomp=unconfined",
+    "--network=host",
+    "--add-host=tyger.localdev.me:host-gateway",
+    "--add-host=devstoreaccount1.azurite.localdev.me:host-gateway"
+  ],
 
-	// Set *default* container specific settings.json values on container create.
-	"settings": {
-		"files.trimFinalNewlines": true,
-		"files.trimTrailingWhitespace": true,
-		"files.insertFinalNewline": true,
+  // Set *default* container specific settings.json values on container create.
+  "settings": {
+    "editor.formatOnType": true,
+    "files.trimFinalNewlines": true,
+    "files.trimTrailingWhitespace": true,
+    "files.insertFinalNewline": true,
 
-		"go.toolsManagement.checkForUpdates": "local",
-		"go.useLanguageServer": true,
-		"go.gopath": "/go",
-		"go.goroot": "/usr/local/go",
-		"gopls": {
-			"build.buildFlags": ["-tags=e2e"],
-		},
+    "[csharp]": {
+      "editor.formatOnSave": true
+    },
 
-		"indentRainbow.includedLanguages": ["yaml", "helm"],
+    "[makefile]": {
+      "files.trimTrailingWhitespace": false
+    },
 
-		"shellcheck.customArgs": ["-x"],
-		"shellcheck.useWorkspaceRootAsCwd": true,
-	},
+    "go.toolsManagement.checkForUpdates": "local",
+    "go.useLanguageServer": true,
+    "go.gopath": "/go",
+    "go.goroot": "/usr/local/go",
+    "gopls": {
+      "build.buildFlags": ["-tags=e2e"]
+    },
 
-	// Add the IDs of extensions you want installed when the container is created.
-	"extensions": [
-		"azurite.azurite",
-		"eamodio.gitlens",
-		"esbenp.prettier-vscode",
-		"humao.rest-client",
-		"golang.go",
-		"mhutchie.git-graph",
-		"ms-azuretools.vscode-azurestorage",
-		"ms-azuretools.vscode-docker",
-		"ms-kubernetes-tools.vscode-kubernetes-tools",
-		"oderwat.indent-rainbow",
-		"timonwong.shellcheck",
-	],
+    "indentRainbow.includedLanguages": ["yaml", "helm"],
 
-	"mounts": [
-		// For cloning cloning the host's ~/.kube/config into the devcontainer
-		"source=${env:HOME}${env:USERPROFILE}/.kube-snapshot,target=/home/vscode/.kube-host,type=bind"
-	],
-	"remoteUser": "vscode",
-	"initializeCommand": ".devcontainer/initialize-host.sh",
-	"postCreateCommand": ".devcontainer/devcontainer-post-create.sh",
-	"features": {
-		"docker-from-docker": "20.10",
-		"kubectl-helm-minikube": {
-			"version": "latest",
-			"helm": "latest",
-			"minikube": "none"
-		},
-		"git": "os-provided",
-		"azure-cli": "latest"
-	},
-	"forwardPorts": [
-		41087 // This is port the tyger cli uses for interactive login callback.
-	]
+    "shellcheck.customArgs": ["-x"],
+    "shellcheck.useWorkspaceRootAsCwd": true,
+
+    "files.exclude": {
+      "**/bin/": true,
+      "**/obj/": true
+    }
+  },
+
+  // Add the IDs of extensions you want installed when the container is created.
+  "extensions": [
+    "azurite.azurite",
+    "eamodio.gitlens",
+    "esbenp.prettier-vscode",
+    "humao.rest-client",
+    "golang.go",
+    "mhutchie.git-graph",
+    "ms-azuretools.vscode-azurestorage",
+    "ms-azuretools.vscode-docker",
+    "ms-dotnettools.csharp",
+    "ms-kubernetes-tools.vscode-kubernetes-tools",
+    "oderwat.indent-rainbow",
+    "timonwong.shellcheck"
+  ],
+
+  "mounts": [
+    // For cloning cloning the host's ~/.kube/config into the devcontainer
+    "source=${env:HOME}${env:USERPROFILE}/.kube-snapshot,target=/home/vscode/.kube-host,type=bind"
+  ],
+  "remoteUser": "vscode",
+  "initializeCommand": ".devcontainer/initialize-host.sh",
+  "onCreateCommand": ".devcontainer/devcontainer-on-create.sh",
+  "features": {
+    "docker-from-docker": "20.10",
+    "git": "os-provided"
+  },
+  "forwardPorts": [
+    41087 // This is port the tyger cli uses for interactive login callback.
+  ]
 }

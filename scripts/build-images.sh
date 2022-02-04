@@ -88,8 +88,8 @@ tyger_server_image_short_name=tyger-server
 tyger_server_full_image_name="${container_registry_fqdn}/${tyger_server_image_short_name}:${image_tag:-}"
 helm_repo_namespace="oci://${container_registry_fqdn}/helm"
 
-docker build -t ${tyger_server_image_short_name} --target ${tyger_server_image_short_name} --build-arg COMPRESS="${compress:-}" "${repo_root_dir}"
-docker build -t testrecon:test --target testrecon "${repo_root_dir}"
+docker build -f "${repo_root_dir}/server/Dockerfile" -t ${tyger_server_image_short_name} "${repo_root_dir}/server"
+docker build -f "${repo_root_dir}/cli/test/testrecon/Dockerfile" -t testrecon:test --target testrecon "${repo_root_dir}/cli"
 
 if [[ -z "${push:-}" ]]; then
   exit 0

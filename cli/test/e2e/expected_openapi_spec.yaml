@@ -1,0 +1,285 @@
+openapi: 3.0.1
+info:
+  title: tyger.server
+  version: '1.0'
+paths:
+  /v1/buffers:
+    post:
+      tags:
+        - tyger.server
+      operationId: createBuffer
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Buffer'
+  '/v1/buffers/{id}':
+    get:
+      tags:
+        - tyger.server
+      operationId: getBufferById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Buffer'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  '/v1/buffers/{id}/access':
+    post:
+      tags:
+        - tyger.server
+      operationId: getBufferAccessString
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: writeable
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BufferAccess'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  '/v1/codespecs/{name}':
+    put:
+      tags:
+        - tyger.server
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Codespec'
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Codespec'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+    get:
+      tags:
+        - tyger.server
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Codespec'
+  '/v1/codespecs/{name}/versions/{version}':
+    get:
+      tags:
+        - tyger.server
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Codespec'
+  /v1/runs:
+    post:
+      tags:
+        - tyger.server
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Run'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  '/v1/runs/{runId}':
+    get:
+      tags:
+        - tyger.server
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /v1/metadata:
+    get:
+      tags:
+        - tyger.server
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Metadata'
+components:
+  schemas:
+    Buffer:
+      type: object
+      properties:
+        id:
+          type: string
+          nullable: true
+      additionalProperties: false
+    BufferAccess:
+      type: object
+      properties:
+        uri:
+          type: string
+          format: uri
+          nullable: true
+      additionalProperties: false
+    BufferParameters:
+      type: object
+      properties:
+        inputs:
+          type: array
+          items:
+            type: string
+          nullable: true
+        outputs:
+          type: array
+          items:
+            type: string
+          nullable: true
+      additionalProperties: false
+    Codespec:
+      required:
+        - image
+      type: object
+      properties:
+        buffers:
+          $ref: '#/components/schemas/BufferParameters'
+        image:
+          type: string
+        command:
+          type: array
+          items:
+            type: string
+          nullable: true
+        args:
+          type: array
+          items:
+            type: string
+          nullable: true
+        workingDir:
+          type: string
+          nullable: true
+        env:
+          type: object
+          additionalProperties:
+            type: string
+          nullable: true
+      additionalProperties: false
+    ErrorBody:
+      type: object
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorInfo'
+      additionalProperties: false
+    ErrorInfo:
+      type: object
+      properties:
+        code:
+          type: string
+          nullable: true
+        message:
+          type: string
+          nullable: true
+      additionalProperties: false
+    Metadata:
+      type: object
+      properties:
+        authority:
+          type: string
+          nullable: true
+        audience:
+          type: string
+          nullable: true
+      additionalProperties: false
+    Run:
+      required:
+        - codespec
+      type: object
+      properties:
+        id:
+          type: string
+          nullable: true
+        buffers:
+          type: object
+          additionalProperties:
+            type: string
+          nullable: true
+        codespec:
+          type: string
+        status:
+          type: string
+          nullable: true
+      additionalProperties: false
