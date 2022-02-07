@@ -33,10 +33,12 @@ public record Codespec : IValidatableObject
                     yield return new ValidationResult("A buffer name cannot be empty");
                     continue;
                 }
+
                 if (group.Count() > 1)
                 {
                     yield return new ValidationResult(string.Format(CultureInfo.InvariantCulture, "All buffer names must be unique across inputs and outputs. Buffer names are case-insensitive. '{0}' is duplicated", group.Key));
                 }
+
                 if (group.Key.Contains('/'))
                 {
                     yield return new ValidationResult(string.Format(CultureInfo.InvariantCulture, "The buffer '{0}' cannot contain '/' in its name.", group.Key));
@@ -55,11 +57,10 @@ public record Run
     public string? Status { get; init; }
 }
 
-
 public record ErrorBody
 {
-    public ErrorBody(string code, String message) => Error = new ErrorInfo(code, message);
+    public ErrorBody(string code, string message) => Error = new ErrorInfo(code, message);
 
     public ErrorInfo Error { get; init; }
-    public record ErrorInfo(string Code, String Message);
+    public record ErrorInfo(string Code, string Message);
 }

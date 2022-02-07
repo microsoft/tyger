@@ -26,8 +26,8 @@ public static class Middleware
 /// </summary>
 public class ExceptionHandler
 {
-    private RequestDelegate _next;
-    private ILogger<ExceptionHandler> _logger;
+    private readonly RequestDelegate _next;
+    private readonly ILogger<ExceptionHandler> _logger;
 
     public ExceptionHandler(RequestDelegate next, ILogger<ExceptionHandler> logger)
     {
@@ -60,8 +60,8 @@ public class ExceptionHandler
 /// </summary>
 public class RequestLogging
 {
-    private RequestDelegate _next;
-    private ILogger<RequestLogging> _logger;
+    private readonly RequestDelegate _next;
+    private readonly ILogger<RequestLogging> _logger;
 
     public RequestLogging(RequestDelegate next, ILogger<RequestLogging> logger)
     {

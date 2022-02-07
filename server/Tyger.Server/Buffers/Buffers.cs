@@ -30,6 +30,7 @@ public static class Buffers
                 {
                     return Results.Ok(buffer);
                 }
+
                 return Results.NotFound();
             })
             .WithName("getBufferById")

@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
 
-namespace Tyger.Server.Security;
+namespace Tyger.Server.Auth;
 
 public static class Auth
 {

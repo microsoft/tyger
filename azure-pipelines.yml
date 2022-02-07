@@ -22,6 +22,24 @@ jobs:
 
   steps:
 
+  - task: GoTool@0
+    inputs:
+      version: '1.17.3'
+
+  - script: echo '##vso[task.prependpath]$(GOBIN)'
+    displayName: "Add GOBIN to PATH"
+
+  - task: UseDotNet@2
+    displayName: 'Use .NET Core sdk'
+    inputs:
+      useGlobalJson: true
+      workingDirectory: $(system.DefaultWorkingDirectory)/server
+
+  - script: |
+      set -euo pipefail
+      make verify-format
+    displayName: "Build and verify formatting"
+
   - script: |
       set -euo pipefail
       ./.devcontainer/install-k3s.sh
@@ -32,15 +50,8 @@ jobs:
       sudo ./.devcontainer/install-tools.sh
     displayName: "Install tools"
 
-  - task: GoTool@0
-    inputs:
-      version: '1.17.3'
-
-  - script: echo '##vso[task.prependpath]$(GOBIN)'
-    displayName: "Add GOBIN to PATH"
-
   - task: AzureCLI@2
-    displayName: Build and run tests
+    displayName: Deploy and run tests
     inputs:
       azureSubscription: BiomedicalImaging-NonProd
       scriptType: bash

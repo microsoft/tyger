@@ -1,9 +1,9 @@
 using Azure;
 using Azure.Storage.Blobs;
 using Azure.Storage.Sas;
-using Tyger.Server.Model;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
+using Tyger.Server.Model;
 using Buffer = Tyger.Server.Model.Buffer;
 
 namespace Tyger.Server.Buffers;
@@ -12,8 +12,8 @@ public class BufferManager : IHealthCheck
 {
     private readonly BlobStorageOptions _config;
     private readonly ILogger<BufferManager> _logger;
-    private BlobServiceClient _serviceClient;
-    private BlobServiceClient? _externalSasServiceClient;
+    private readonly BlobServiceClient _serviceClient;
+    private readonly BlobServiceClient? _externalSasServiceClient;
 
     public BufferManager(IOptions<BlobStorageOptions> config, ILogger<BufferManager> logger)
     {
@@ -44,7 +44,7 @@ public class BufferManager : IHealthCheck
     {
         string id = UniqueId.Create();
         _logger.CreatingBuffer(id);
-        var result = await _serviceClient.CreateBlobContainerAsync(id, cancellationToken: cancellationToken);
+        _ = await _serviceClient.CreateBlobContainerAsync(id, cancellationToken: cancellationToken);
         return new Buffer(id);
     }
 
@@ -72,11 +72,16 @@ public class BufferManager : IHealthCheck
             return null;
         }
 
-        var permissions = BlobContainerSasPermissions.Read | BlobContainerSasPermissions.Write;
+        var permissions = BlobContainerSasPermissions.Read;
+        if (writeable)
+        {
+            permissions |= BlobContainerSasPermissions.Write;
+        }
+
         var containerClient = (_externalSasServiceClient ?? _serviceClient).GetBlobContainerClient(id);
 
         // Create a SAS token that's valid for one hour.
-        BlobSasBuilder sasBuilder = new BlobSasBuilder()
+        BlobSasBuilder sasBuilder = new()
         {
             BlobContainerName = containerClient.Name,
             Resource = "c"

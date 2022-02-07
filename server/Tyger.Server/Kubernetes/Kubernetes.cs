@@ -1,7 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using k8s;
 using Microsoft.Extensions.Options;
-using Tyger.Server.Model;
 
 namespace Tyger.Server.Kubernetes;
 

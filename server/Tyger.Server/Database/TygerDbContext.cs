@@ -27,7 +27,6 @@ public class TygerDbContext : DbContext
     }
 }
 
-
 public class CodespecEntity
 {
     public string Name { get; set; } = null!;

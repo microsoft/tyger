@@ -24,7 +24,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\tyger.server\tyger.server.csproj" />
+    <ProjectReference Include="..\Tyger.Server\Tyger.Server.csproj" />
   </ItemGroup>
 
 </Project>

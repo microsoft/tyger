@@ -2,7 +2,6 @@ using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 using System.Text.Json;
 using k8s;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using Tyger.Server.Buffers;
 using Tyger.Server.Database;
@@ -171,7 +170,7 @@ public class KubernetesManager : IKubernetesManager
     {
         arguments = new Dictionary<string, string>(arguments, StringComparer.OrdinalIgnoreCase);
         IEnumerable<(string param, bool writeable)> combinedParameters = (parameters.Inputs?.Select(param => (param, false)) ?? Enumerable.Empty<(string, bool)>())
-            .Concat(parameters.Outputs?.Select(param => (param, false)) ?? Enumerable.Empty<(string, bool)>());
+            .Concat(parameters.Outputs?.Select(param => (param, true)) ?? Enumerable.Empty<(string, bool)>());
 
         var outputMap = new Dictionary<string, Uri>();
 
@@ -210,6 +209,7 @@ public class KubernetesManager : IKubernetesManager
         {
             return null;
         }
+
         var run = JsonSerializer.Deserialize<Run>(serializedRun);
         if (run == null)
         {

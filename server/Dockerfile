@@ -1,11 +1,11 @@
 FROM mcr.microsoft.com/dotnet/sdk:6.0-cbl-mariner1.0 as build
 WORKDIR /src
 
-COPY tyger.server/tyger.server.csproj tyger.server/
-RUN dotnet restore tyger.server/tyger.server.csproj
+COPY Tyger.Server/Tyger.Server.csproj Tyger.Server/
+RUN dotnet restore Tyger.Server/Tyger.Server.csproj
 
 COPY . .
-WORKDIR /src/tyger.server
+WORKDIR /src/Tyger.Server
 RUN dotnet publish --no-restore -c release -o /app
 
 

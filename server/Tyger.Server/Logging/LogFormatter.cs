@@ -42,52 +42,50 @@ internal sealed class LogFormatter : ConsoleFormatter
             return;
         }
 
-        using (var output = new PooledByteBufferWriter(1024))
-        using (var writer = new Utf8JsonWriter(output, new JsonWriterOptions { Indented = false }))
+        using var output = new PooledByteBufferWriter(1024);
+        using var writer = new Utf8JsonWriter(output, new JsonWriterOptions { Indented = false });
+        writer.WriteStartObject();
+        writer.WriteString("timestamp", DateTimeOffset.UtcNow);
+        writer.WriteNumber("level", (int)logEntry.LogLevel);
+        writer.WriteString("category", $"{logEntry.Category}[{logEntry.EventId}]");
+
+        scopeProvider.ForEachScope((object? scope, object? state) =>
         {
-            writer.WriteStartObject();
-            writer.WriteString("timestamp", DateTimeOffset.UtcNow);
-            writer.WriteNumber("level", (int)logEntry.LogLevel);
-            writer.WriteString("category", $"{logEntry.Category}[{logEntry.EventId}]");
-
-            scopeProvider.ForEachScope((object? scope, object? state) =>
+            if (scope is IEnumerable<KeyValuePair<string, object>> values)
             {
-                if (scope is IEnumerable<KeyValuePair<string, object>> values)
+                foreach (var value in values)
                 {
-                    foreach (var value in values)
+                    if (!s_scopeFieldsToIgnore.Contains(value.Key))
                     {
-                        if (!s_scopeFieldsToIgnore.Contains(value.Key))
-                        {
-                            WriteItemCheckKeyCase(writer, value.Key, value.Value);
-                        }
+                        WriteItemCheckKeyCase(writer, value.Key, value.Value);
                     }
                 }
-            }, null);
-
-
-            writer.WriteString("message", message);
-            if (logEntry.Exception != null)
-            {
-                writer.WriteString("exception", logEntry.Exception.ToString());
             }
+        }, null);
 
-            if (logEntry.State is IEnumerable<KeyValuePair<string, object>> args)
+        writer.WriteString("message", message);
+        if (logEntry.Exception != null)
+        {
+            writer.WriteString("exception", logEntry.Exception.ToString());
+        }
+
+        if (logEntry.State is IEnumerable<KeyValuePair<string, object>> args)
+        {
+            writer.WriteStartObject("args");
+            foreach (var arg in args)
             {
-                writer.WriteStartObject("args");
-                foreach (var arg in args)
+                if (!s_stateFieldsToIgnore.Contains(arg.Key))
                 {
-                    if (!s_stateFieldsToIgnore.Contains(arg.Key))
-                    {
-                        WriteItem(writer, arg.Key, arg.Value);
-                    }
+                    WriteItem(writer, arg.Key, arg.Value);
                 }
-                writer.WriteEndObject();
             }
 
             writer.WriteEndObject();
-            writer.Flush();
-            textWriter.WriteLine(Encoding.UTF8.GetString(output.WrittenMemory.Span));
         }
+
+        writer.WriteEndObject();
+        writer.Flush();
+        textWriter.WriteLine(Encoding.UTF8.GetString(output.WrittenMemory.Span));
     }
 
     private static void WriteItemCheckKeyCase(Utf8JsonWriter writer, string key, object value)

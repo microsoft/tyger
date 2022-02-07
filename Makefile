@@ -2,7 +2,7 @@
 SHELL = /bin/bash
 .SHELLFLAGS = -ecuo pipefail
 
-SERVER_PATH=server/tyger.server
+SERVER_PATH=server/Tyger.Server
 
 SECURITY_ENABLED=true
 AUTHORITY=https://login.microsoftonline.com/76d3279b-830e-4bea-baf8-12863cdeba4c/
@@ -66,10 +66,10 @@ watch: set-ini check-forwarding
 
 unit-test:
 	echo "Running unit tests..."
+	find server -name *csproj | xargs -L 1 dotnet test
+	
 	cd cli
 	go test ./... | { grep -v "\\[[no test files\\]" || true; }
-	cd ../server/tyger.server.unittests
-	dotnet test
 
 docker-build:
 	scripts/build-images.sh
@@ -151,3 +151,9 @@ restore:
 	go mod download
 	cd ..
 	find server -name *csproj | xargs -L 1 dotnet restore
+
+format:
+	find server -name *csproj | xargs -L 1 dotnet format
+
+verify-format:
+	find server -name *csproj | xargs -i sh -c 'dotnet build -p:EnforceCodeStyleInBuild=true {} && dotnet format --verify-no-changes {}'

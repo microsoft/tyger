@@ -5,7 +5,6 @@ using Tyger.Server.Model;
 
 namespace Tyger.Server.Database;
 
-
 public interface IRepository
 {
     Task<int> UpsertCodespec(string name, Codespec codespec, CancellationToken cancellationToken);
