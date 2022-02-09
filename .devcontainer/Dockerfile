@@ -12,11 +12,11 @@ ARG KUBECTL_VERSION=1.23.3
 ARG HELM_VERSION=3.8.0
 RUN script=$(curl -fsSL "https://raw.githubusercontent.com/microsoft/vscode-dev-containers/${VSCODE_DEV_CONTAINERS_SCRIPT_LIBRARY_VERSION}/script-library/kubectl-helm-debian.sh") && bash -c "$script" -- "${KUBECTL_VERSION}" "${HELM_VERSION}"
 
-ARG DOTNET_VERSION=6.0.101
-RUN script=$(curl -fsSL "https://raw.githubusercontent.com/microsoft/vscode-dev-containers/${VSCODE_DEV_CONTAINERS_SCRIPT_LIBRARY_VERSION}/script-library/dotnet-debian.sh") && bash -c "$script" -- "${DOTNET_VERSION}"
+ARG DOTNET_SDK_VERSION=6.0.102
+ARG DOTNET_RUNTIME_VERSION=6.0.2
+RUN script=$(curl -fsSL "https://raw.githubusercontent.com/microsoft/vscode-dev-containers/${VSCODE_DEV_CONTAINERS_SCRIPT_LIBRARY_VERSION}/script-library/dotnet-debian.sh") && bash -c "$script" -- "${DOTNET_SDK_VERSION}"
 
 # Download symbols
-ARG DOTNET_RUNTIME_VERSION=6.0.1
 RUN dotnet tool install dotnet-symbol --tool-path /opt/tools
 RUN /opt/tools/dotnet-symbol --symbols /usr/share/dotnet/shared/Microsoft.NETCore.App/${DOTNET_RUNTIME_VERSION}/* \
     && /opt/tools/dotnet-symbol --symbols /usr/share/dotnet/shared/Microsoft.AspNetCore.App/${DOTNET_RUNTIME_VERSION}/*

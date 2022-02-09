@@ -17,7 +17,6 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Configuration
 builder.Configuration.AddIniFile("localsettings.ini", optional: true);
-builder.Configuration.AddEnvironmentVariables("TYGER__");
 builder.Configuration.AddKeyPerFile(builder.Configuration.GetValue<string>("KeyPerFileDirectory"), optional: true);
 
 // Logging

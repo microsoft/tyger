@@ -78,29 +78,29 @@ spec:
           env:
             - name: ASPNETCORE_URLS
               value: http://+:5000
-            - name: Tyger__KeyPerFileDirectory
+            - name: KeyPerFileDirectory
               value: /etc/secrets/
-            - name: Tyger__Logging__Console__FormatterName
+            - name: Logging__Console__FormatterName
               value: Tyger.Server.Logging.LogFormatter
-            - name: Tyger__Auth__Enabled
+            - name: Auth__Enabled
               value: "{{ .Values.server.security.enabled }}"
           {{- if $serverValues.security.enabled }}
-            - name: Tyger__Auth__Authority
+            - name: Auth__Authority
               value: {{ required "When server.security.enabled is true, a value for server.security.authority is required" $serverValues.security.authority }}
-            - name: Tyger__Auth__Audience
+            - name: Auth__Audience
               value: {{ required "When server.security.enabled is true, a value for server.security.audience is required" $serverValues.security.audience }}
           {{- end }}
           {{- if .Values.storageEmulator.enabled }}
-            - name: Tyger__BlobStorage__EmulatorExternalEndpoint
+            - name: BlobStorage__EmulatorExternalEndpoint
               value: http://{{ .Values.storageEmulator.hostname }}
-            - name: Tyger__BlobStorage__AccountEndpoint
+            - name: BlobStorage__AccountEndpoint
               value: http://devstoreaccount1.{{ .Release.Namespace }}:10000/
           {{- end }}
-            - name: Tyger__Kubernetes_Namespace
+            - name: Kubernetes_Namespace
               value: {{ .Release.Namespace }}
-            - name: Tyger__Database__ConnectionString
+            - name: Database__ConnectionString
               value: Host={{ template "common.names.fullname" .Subcharts.db }}; Database={{ .Values.db.postgresqlDatabase }}; Port=5432; Username={{ template "postgresql.username" .Subcharts.db }}
-            - name: Tyger__StorageServer__Uri
+            - name: StorageServer__Uri
               value: http://{{ include "tyger.fullname" . }}-storage.{{ .Release.Namespace }}:8080
           readinessProbe:
             httpGet:
