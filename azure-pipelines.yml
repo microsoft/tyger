@@ -73,4 +73,4 @@ jobs:
       scriptLocation: inlineScript
       inlineScript: |
         set -euo pipefail
-        scripts/build-images.sh --push --use-git-hash-as-tag --compress
+        scripts/build-images.sh --push --use-git-hash-as-tag
