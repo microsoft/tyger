@@ -7,7 +7,7 @@
             "type": "process",
             "args": [
                 "build",
-                "${workspaceFolder}/server/tyger.server/tyger.server.csproj",
+                "${workspaceFolder}/server/Tyger.Server/Tyger.Server.csproj",
                 "/property:GenerateFullPaths=true",
                 "/consoleloggerparameters:NoSummary"
             ],

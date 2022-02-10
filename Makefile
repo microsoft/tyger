@@ -23,7 +23,8 @@ set-ini:
 		echo "Run 'make up' before this target"; exit 1
 	fi
 
-	postgres_password=$(shell kubectl get secrets ${HELM_RELEASE}-db -o jsonpath="{.data.postgresql-password}" | base64 -d)
+	postgres_password="$(shell kubectl get secrets ${HELM_RELEASE}-db -o jsonpath="{.data.postgresql-password}" | base64 -d)"
+	azurite_connection_string="$(shell kubectl get secrets ${HELM_RELEASE}-azurite-connection-string -o jsonpath="{.data.connectionString}" | base64 -d)"
 	cat <<- EOF > ${SERVER_PATH}/localsettings.ini
 		[Logging:Console]
 		FormatterName=simple
@@ -38,7 +39,7 @@ set-ini:
 		Namespace=${HELM_NAMESPACE}
 		 
 		[BlobStorage]
-		AccountEndpoint=http://devstoreaccount1.${HELM_NAMESPACE}:10000/
+		ConnectionString="$${azurite_connection_string}"
 		EmulatorExternalEndpoint=http://${AZURITE_HOSTNAME}
 		 
 		[Database]
@@ -87,6 +88,7 @@ up: docker-build
 				--set server.security.authority="${AUTHORITY}" \
 				--set server.security.audience="${AUDIENCE}" \
 				--set server.hostname="${TYGER_SERVER_HOSTNAME}" \
+				--set server.tlsEnabled=false \
 				--set storageEmulator.enabled=true \
 				--set storageEmulator.hostname="${AZURITE_HOSTNAME}" \
 				--atomic

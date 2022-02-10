@@ -19,25 +19,11 @@ public class BufferManager : IHealthCheck
     {
         _config = config.Value;
         _logger = logger;
-
-        if (_config.AccountEndpoint.StartsWith("http://", StringComparison.Ordinal))
+        _serviceClient = new BlobServiceClient(_config.ConnectionString);
+        if (!string.IsNullOrEmpty(_config.EmulatorExternalEndpoint))
         {
-            // assume this refers to the local emulator
-            _serviceClient = new BlobServiceClient(CreateEmulatorConnectionString(_config.AccountEndpoint));
-            if (!string.IsNullOrEmpty(_config.EmulatorExternalEndpoint))
-            {
-                _externalSasServiceClient = new BlobServiceClient(CreateEmulatorConnectionString(_config.EmulatorExternalEndpoint));
-            }
-
-            return;
+            _externalSasServiceClient = new BlobServiceClient(ReplaceEndpointInConnectionString(_config.ConnectionString, _config.EmulatorExternalEndpoint));
         }
-
-        _serviceClient = new BlobServiceClient(_config.AccountEndpoint);
-    }
-
-    private static string CreateEmulatorConnectionString(string endpoint)
-    {
-        return $"DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint={endpoint}";
     }
 
     public async Task<Buffer> CreateBuffer(CancellationToken cancellationToken)
@@ -108,5 +94,12 @@ public class BufferManager : IHealthCheck
     {
         await _serviceClient.GetPropertiesAsync(cancellationToken);
         return HealthCheckResult.Healthy();
+    }
+
+    private static string ReplaceEndpointInConnectionString(string connectionString, string newEndpoint)
+    {
+        var connectionStringComponents = connectionString.Split(";").Select(t => t.Split("=", 2)).ToDictionary(t => t[0].Trim(), t => t[1].Trim(), StringComparer.OrdinalIgnoreCase);
+        connectionStringComponents["BlobEndpoint"] = newEndpoint;
+        return string.Join(';', connectionStringComponents.Select(p => $"{p.Key}={p.Value}"));
     }
 }

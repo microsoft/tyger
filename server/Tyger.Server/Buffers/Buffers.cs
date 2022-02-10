@@ -56,7 +56,7 @@ public static class Buffers
 public class BlobStorageOptions
 {
     [Required]
-    public string AccountEndpoint { get; init; } = "";
+    public string ConnectionString { get; init; } = "";
 
     public string? EmulatorExternalEndpoint { get; set; }
 }

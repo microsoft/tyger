@@ -93,10 +93,8 @@ spec:
           {{- if .Values.storageEmulator.enabled }}
             - name: BlobStorage__EmulatorExternalEndpoint
               value: http://{{ .Values.storageEmulator.hostname }}
-            - name: BlobStorage__AccountEndpoint
-              value: http://devstoreaccount1.{{ .Release.Namespace }}:10000/
           {{- end }}
-            - name: Kubernetes_Namespace
+            - name: Tyger__Kubernetes__Namespace
               value: {{ .Release.Namespace }}
             - name: Database__ConnectionString
               value: Host={{ template "common.names.fullname" .Subcharts.db }}; Database={{ .Values.db.postgresqlDatabase }}; Port=5432; Username={{ template "postgresql.username" .Subcharts.db }}
@@ -111,7 +109,7 @@ spec:
               path: /healthcheck
               port: 5000
           volumeMounts:
-          - name: postgresql-password
+          - name: secrets
             mountPath: /etc/secrets
             readOnly: true
 
@@ -130,12 +128,25 @@ spec:
       {{- end }}
 
       volumes:
-      - name: postgresql-password
-        secret:
-          secretName: {{ template "common.names.fullname" .Subcharts.db  }}
-          items:
-          - key: postgresql-password
-            path: database__password
+      - name: secrets
+        projected:
+          sources:
+          - secret:
+              name: {{ template "common.names.fullname" .Subcharts.db  }}
+              items:
+              - key: postgresql-password
+                path: database__password
+          - secret:
+              {{- if .Values.storageEmulator.enabled }}
+              name: {{ include "tyger.fullname" . }}-azurite-connection-string
+              items:
+                - key: connectionString
+              {{- else }}
+              name: {{ required "A value for server.storageAccountConnectionStringSecretName" $serverValues.storageAccountConnectionStringSecretName }}
+              items:
+                - key: {{ $serverValues.storageAccountConnectionStringSecretDataKey }}
+              {{- end }}
+                  path: "blobStorage__connectionString"
 ---
 kind: Service
 apiVersion: v1
@@ -155,8 +166,14 @@ kind: IngressRoute
 metadata:
   name: {{ include "tyger.fullname" . }}-server
 spec:
+  {{- if $serverValues.tlsEnabled }}
+  entryPoints:
+  - websecure
+  tls: {}
+  {{- else }}
   entryPoints:
   - web
+  {{- end }}
   routes:
   - kind: Rule
     match: Host(`{{ required "A value for server.hostname is required." $serverValues.hostname }}`)

@@ -26,6 +26,14 @@ spec:
             - --debug
             - /debug.log
 ---
+apiVersion: v1
+kind: Secret
+type: Opaque
+metadata:
+  name: {{ include "tyger.fullname" . }}-azurite-connection-string
+data:
+  connectionString: {{ printf "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://devstoreaccount1.%s:10000" .Release.Namespace | b64enc}}
+---
 kind: Service
 apiVersion: v1
 metadata:

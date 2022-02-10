@@ -13,8 +13,10 @@ server:
     audience:
 
   hostname:
+  tlsEnabled: true
 
-  storageAccountUri:
+  storageAccountConnectionStringSecretName:
+  storageAccountConnectionStringSecretDataKey: connectionString
 
   imagePullSecrets: []
   podAnnotations: {}
@@ -28,10 +30,11 @@ server:
 storageServer:
   replicaCount: 1
 
-  image: ghcr.io/ismrmrd/mrd-storage-server:latest
-  imagePullPolicy: Always
+  image: ghcr.io/ismrmrd/mrd-storage-server:v0.0.7
+  imagePullPolicy: IfNotPresent
 
-  storageAccountUri:
+  storageAccountConnectionStringSecretName:
+  storageAccountConnectionStringSecretDataKey: connectionString
 
   imagePullSecrets: []
   podAnnotations: {}

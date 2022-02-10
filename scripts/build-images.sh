@@ -10,7 +10,6 @@ Builds runtime images
 Usage: $0 [options]
 
 Options:
-  --compress                       Compress the runtime binaries with upx
   --push                           Push runtime images (requires --tag or --use-git-hash-as-tag)
   --push-force                     Force runtime images, will overwrite images with same tag (requires --tag or --use-git-hash-as-tag)
   --tag <tag>                      Tag for runtime images
@@ -44,10 +43,6 @@ while [[ $# -gt 0 ]]; do
   key="$1"
 
   case $key in
-  --compress)
-    compress=1
-    shift
-    ;;
   --push)
     push=1
     shift
