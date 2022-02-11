@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/model"
@@ -62,6 +64,11 @@ func (c *cliContext) GetPrincipal() string {
 }
 
 func Login(options LoginOptions) error {
+	normalizedServerUri, err := normalizeServerUri(options.ServerUri)
+	if err != nil {
+		return err
+	}
+	options.ServerUri = normalizedServerUri
 	serviceMetadata, err := getServiceMetadata(options.ServerUri)
 	if err != nil {
 		return err
@@ -97,6 +104,16 @@ func Login(options LoginOptions) error {
 	}
 
 	return ctx.writeCliContext()
+}
+
+func normalizeServerUri(uri string) (string, error) {
+	uri = strings.TrimRight(uri, "/")
+	parsedUrl, err := url.Parse(uri)
+	if err != nil || !parsedUrl.IsAbs() {
+		return uri, errors.New("a valid absolute uri is required")
+	}
+
+	return uri, err
 }
 
 func Logout() error {

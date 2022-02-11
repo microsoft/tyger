@@ -24,7 +24,7 @@ func newLoginStatusCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 			if err == nil {
 				err = context.Validate()
 				if err == nil {
-					fmt.Printf("you are logged into %s as %s\n", context.GetServerUri(), context.GetPrincipal())
+					fmt.Printf("You are logged into %s as %s\n", context.GetServerUri(), context.GetPrincipal())
 					return nil
 				}
 			}
