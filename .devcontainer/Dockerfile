@@ -26,4 +26,6 @@ COPY install-tools.sh .
 RUN ./install-tools.sh
 
 RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
-    && apt-get -y install --no-install-recommends iputils-ping
+    && apt-get -y install --no-install-recommends iputils-ping python3-pip
+
+RUN pip3 install jsonschema==4.2.0
