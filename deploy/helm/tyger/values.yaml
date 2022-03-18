@@ -30,7 +30,7 @@ server:
 storageServer:
   replicaCount: 1
 
-  image: ghcr.io/ismrmrd/mrd-storage-server:v0.0.7
+  image: ghcr.io/ismrmrd/mrd-storage-server:v0.0.8
   imagePullPolicy: IfNotPresent
 
   storageAccountConnectionStringSecretName:

@@ -49,6 +49,14 @@ spec:
               value: azureblob
             - name: MRD_STORAGE_SERVER_STORAGE_CONNECTION_STRING_FILE
               value: /etc/secrets/storage-connection-string
+          readinessProbe:
+            httpGet:
+              path: /healthcheck
+              port: 3333
+          livenessProbe:
+            httpGet:
+              path: /healthcheck
+              port: 3333
           volumeMounts:
           - name: secrets
             mountPath: /etc/secrets

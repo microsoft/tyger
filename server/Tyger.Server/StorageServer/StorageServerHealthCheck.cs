@@ -18,7 +18,7 @@ internal class StorageServerHealthCheck : IHealthCheck
     {
         using var client = _httpClientFactory.CreateClient();
 
-        var response = await client.GetAsync($"{_options.Uri}/v1/blobs?subject=0000000000000000000000000000000000000000&_limit=1", cancellationToken);
+        var response = await client.GetAsync($"{_options.Uri}/healthcheck", cancellationToken);
         response.EnsureSuccessStatusCode();
         return HealthCheckResult.Healthy();
     }
