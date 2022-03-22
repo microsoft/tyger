@@ -23,8 +23,8 @@ set-ini:
 		echo "Run 'make up' before this target"; exit 1
 	fi
 
-	postgres_password="$(shell kubectl get secrets ${HELM_RELEASE}-db -o jsonpath="{.data.postgresql-password}" | base64 -d)"
-	azurite_connection_string="$(shell kubectl get secrets ${HELM_RELEASE}-azurite-connection-string -o jsonpath="{.data.connectionString}" | base64 -d)"
+	postgres_password="$(shell kubectl get secrets -n ${HELM_NAMESPACE} ${HELM_RELEASE}-db -o jsonpath="{.data.postgresql-password}" | base64 -d)"
+	azurite_connection_string="$(shell kubectl get secrets -n ${HELM_NAMESPACE} ${HELM_RELEASE}-azurite-connection-string -o jsonpath="{.data.connectionString}" | base64 -d)"
 	cat <<- EOF > ${SERVER_PATH}/localsettings.ini
 		[Logging:Console]
 		FormatterName=simple

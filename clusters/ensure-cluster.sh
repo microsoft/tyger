@@ -117,7 +117,7 @@ else
     --generate-ssh-keys
 fi
 
-az aks get-credentials -n "$cluster_name" -g "$rg_name"
+az aks get-credentials -n "$cluster_name" -g "$rg_name" --overwrite-existing
 
 # Nodepools
 nodepools="$(echo "$merged_config" | jq -r '.userNodePools[].name')"
@@ -142,7 +142,8 @@ for p in $nodepools; do
         --min-count "$(echo "$pool" | jq -r .minCount)" \
         --max-count "$(echo "$pool" | jq -r .maxCount)" \
         --node-vm-size "$vm_size" \
-        --node-taints sku=gpu:NoSchedule \
+        --labels tyger=run \
+        --node-taints tyger=run:NoSchedule,sku=gpu:NoSchedule \
         --aks-custom-headers UseGPUDedicatedVHD=true
     else
       az aks nodepool add -n "$p" --cluster-name "$cluster_name" -g "$rg_name" \
@@ -151,7 +152,9 @@ for p in $nodepools; do
         --node-count 1 \
         --min-count "$(echo "$pool" | jq -r .minCount)" \
         --max-count "$(echo "$pool" | jq -r .maxCount)" \
-        --node-vm-size "$vm_size"
+        --node-vm-size "$vm_size" \
+        --labels tyger=run \
+        --node-taints tyger=run:NoSchedule
     fi
   fi
 done

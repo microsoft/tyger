@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/clicontext"
+	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/cmd"
 	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/model"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/andreyvit/diff"
@@ -99,6 +100,19 @@ func TestEndToEnd(t *testing.T) {
 	}
 
 	require.Equal("Hello: Bonjour", string(outputBytes))
+}
+
+func TestUnrecognizedFieldsRejected(t *testing.T) {
+	require := require.New(t)
+
+	codespec := model.Codespec{}
+	requestBody := map[string]string{"image": "x"}
+	_, err := cmd.InvokeRequest(http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec, false)
+	require.Nil(err)
+
+	requestBody["unknownField"] = "y"
+	_, err = cmd.InvokeRequest(http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec, false)
+	require.NotNil(err)
 }
 
 func TestResponseContainsRequestIdHeader(t *testing.T) {

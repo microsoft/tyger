@@ -28,7 +28,7 @@ func exactlyOneArg(argName string) func(cmd *cobra.Command, args []string) error
 	}
 }
 
-func invokeRequest(method string, relativeUri string, input interface{}, output interface{}, verbose bool) (*http.Response, error) {
+func InvokeRequest(method string, relativeUri string, input interface{}, output interface{}, verbose bool) (*http.Response, error) {
 	ctx, err := clicontext.GetCliContext()
 	if err != nil {
 		return nil, err

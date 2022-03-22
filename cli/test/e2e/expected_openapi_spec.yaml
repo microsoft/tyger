@@ -237,6 +237,21 @@ components:
           additionalProperties:
             type: string
           nullable: true
+        resources:
+          $ref: '#/components/schemas/CodespecResources'
+      additionalProperties: false
+    CodespecResources:
+      type: object
+      properties:
+        cpu:
+          type: string
+          nullable: true
+        memory:
+          type: string
+          nullable: true
+        gpu:
+          type: string
+          nullable: true
       additionalProperties: false
     ErrorBody:
       type: object

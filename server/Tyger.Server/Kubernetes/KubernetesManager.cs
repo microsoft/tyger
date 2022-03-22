@@ -91,6 +91,27 @@ public class KubernetesManager : IKubernetesManager
             }
         };
 
+        if (codespec.Resources != null)
+        {
+            var resources = new Dictionary<string, k8s.Models.ResourceQuantity>();
+            if (codespec.Resources.Cpu != null)
+            {
+                resources["cpu"] = codespec.Resources.Cpu;
+            }
+
+            if (codespec.Resources.Memory != null)
+            {
+                resources["memory"] = codespec.Resources.Memory;
+            }
+
+            if (codespec.Resources.Gpu != null)
+            {
+                resources["nvidia.com/gpu"] = codespec.Resources.Gpu;
+            }
+
+            container.Resources = new() { Limits = resources, Requests = resources };
+        }
+
         var pod = new k8s.Models.V1Pod
         {
             Metadata = new()
@@ -110,9 +131,19 @@ public class KubernetesManager : IKubernetesManager
                         Name = "buffers",
                         Secret = new() {SecretName = k8sId}
                     }
-                }
+                },
+                Tolerations = new List<k8s.Models.V1Toleration>
+                {
+                    new() { Key = "tyger", OperatorProperty= "Equal", Value = "run", Effect = "NoSchedule" } // allow this to run on a user nodepools
+                },
+                NodeSelector = new Dictionary<string, string> { { "tyger", "run" } } // require this to run on a user nodepool
             }
         };
+
+        if (codespec.Resources?.Gpu != null)
+        {
+            pod.Spec.Tolerations.Add(new() { Key = "sku", OperatorProperty = "Equal", Value = "gpu", Effect = "NoSchedule" });
+        }
 
         await _client.CreateNamespacedPodAsync(pod, _k8sOptions.Namespace, cancellationToken: cancellationToken);
         _logger.CreatedRun(k8sId);

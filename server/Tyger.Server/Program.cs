@@ -10,6 +10,7 @@ using Tyger.Server.Kubernetes;
 using Tyger.Server.Logging;
 using Tyger.Server.Middleware;
 using Tyger.Server.Model;
+using Tyger.Server.OpenApi;
 using Tyger.Server.Runs;
 using Tyger.Server.StorageServer;
 
@@ -29,10 +30,7 @@ builder.Services.AddKubernetes();
 builder.Services.AddAuth();
 builder.Services.AddBuffers();
 builder.Services.AddStorageServer();
-
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
-
+builder.Services.AddOpenApi();
 builder.Services.AddHealthChecks();
 
 builder.Services.Configure<JsonOptions>(options =>
@@ -48,8 +46,7 @@ app.UseRequestLogging();
 app.UseRequestId();
 app.UseExceptionHandling();
 
-app.UseSwagger();
-app.UseSwaggerUI();
+app.UseOpenApi();
 app.UseAuth();
 
 app.MapBuffers();

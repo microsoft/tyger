@@ -22,7 +22,7 @@ func newAccessBufferCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			bufferAccess := model.BufferAccess{}
 			uri := fmt.Sprintf("v1/buffers/%s/access?writeable=%t", args[0], flags.writeable)
-			_, err := invokeRequest(http.MethodPost, uri, nil, &bufferAccess, rootFlags.verbose)
+			_, err := InvokeRequest(http.MethodPost, uri, nil, &bufferAccess, rootFlags.verbose)
 
 			if err != nil {
 				return err

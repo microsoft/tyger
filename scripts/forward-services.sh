@@ -64,7 +64,7 @@ for svc in "${services_to_forward[@]}"; do
   echo "${ip} ${name}.${namespace}.svc.cluster.local ${name}.${namespace} ${name}" | sudo tee -a /etc/hosts > /dev/null
   mapfile -t ports < <(echo "${svc}" | jq -r '.ports | .[]')
   for port in "${ports[@]}"; do
-    kubectl port-forward "svc/${name}" --address "${ip}" "${port}:${port}" | tail -n +2 &
+    kubectl port-forward -n "${namespace}" "svc/${name}" --address "${ip}" "${port}:${port}" | tail -n +2 &
   done
 
   forwards+=("Forwarding ${name} [${ports[*]}] ${ip}")
@@ -80,7 +80,7 @@ for pod in "${pods_to_forward[@]}"; do
   echo "${ip} ${hostname}.${subdomain}.${namespace}.svc.cluster.local ${hostname}.${subdomain}.${namespace} ${hostname}.${subdomain}" | sudo tee -a /etc/hosts > /dev/null
   mapfile -t ports < <(echo "${pod}" | jq -r '.ports | .[]')
   for port in "${ports[@]}"; do
-    kubectl port-forward "pod/${name}" --address "${ip}" "${port}:${port}" | tail -n +2 &
+    kubectl port-forward -n "${namespace}" "pod/${name}" --address "${ip}" "${port}:${port}" | tail -n +2 &
   done
 
   forwards+=("Forwarding ${name} [${ports[*]}]")

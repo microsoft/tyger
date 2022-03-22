@@ -1,7 +1,7 @@
 #!/bin/bash
 
 set -euo pipefail
-curl -sfL https://get.k3s.io | sh -s - --docker --write-kubeconfig-mode 600
+curl -sfL https://get.k3s.io | sh -s - --docker --write-kubeconfig-mode 600 --node-label tyger=run
 sudo chown "$USER:$(user -g)" /etc/rancher/k3s/k3s.yaml
 
 # Here we add any additional config changes to traefik

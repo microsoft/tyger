@@ -34,7 +34,7 @@ func newCreateRunCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 				Buffers:  flags.buffers,
 			}
 
-			_, err := invokeRequest(http.MethodPost, "v1/runs", run, &run, rootFlags.verbose)
+			_, err := InvokeRequest(http.MethodPost, "v1/runs", run, &run, rootFlags.verbose)
 			if err != nil {
 				return err
 			}

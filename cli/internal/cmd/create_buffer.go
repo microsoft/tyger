@@ -16,7 +16,7 @@ func newCreateBufferCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			bufferResponse := model.Buffer{}
-			_, err := invokeRequest(http.MethodPost, "v1/buffers", nil, &bufferResponse, rootFlags.verbose)
+			_, err := InvokeRequest(http.MethodPost, "v1/buffers", nil, &bufferResponse, rootFlags.verbose)
 			if err != nil {
 				return err
 			}

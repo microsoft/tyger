@@ -18,13 +18,20 @@ type BufferParameters struct {
 	Outputs []string `json:"outputs,omitempty"`
 }
 
+type CodespecResources struct {
+	Cpu    *string `json:"cpu,omitempty"`
+	Memory *string `json:"memory,omitempty"`
+	Gpu    *string `json:"gpu,omitempty"`
+}
+
 type Codespec struct {
-	Buffers    *BufferParameters `json:"buffers,omitempty"`
-	Image      string            `json:"image"`
-	Command    []string          `json:"command,omitempty"`
-	Args       []string          `json:"args,omitempty"`
-	WorkingDir string            `json:"workingDir,omitempty"`
-	Env        map[string]string `json:"env,omitempty"`
+	Buffers    *BufferParameters  `json:"buffers,omitempty"`
+	Image      string             `json:"image"`
+	Command    []string           `json:"command,omitempty"`
+	Args       []string           `json:"args,omitempty"`
+	WorkingDir string             `json:"workingDir,omitempty"`
+	Env        map[string]string  `json:"env,omitempty"`
+	Resources  *CodespecResources `json:"resources,omitempty"`
 }
 
 type Run struct {

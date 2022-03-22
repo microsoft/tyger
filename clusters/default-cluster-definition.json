@@ -11,7 +11,7 @@
     },
     {
       "name": "gpunp",
-      "vmSize": "Standard_NC6_promo",
+      "vmSize": "Standard_NC6s_v3",
       "minCount": 0,
       "maxCount": 10
     }

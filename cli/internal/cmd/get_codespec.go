@@ -31,7 +31,7 @@ func newGetCodespecCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 			}
 
 			codespec := model.Codespec{}
-			resp, err := invokeRequest(http.MethodGet, relativeUri, nil, &codespec, rootFlags.verbose)
+			resp, err := InvokeRequest(http.MethodGet, relativeUri, nil, &codespec, rootFlags.verbose)
 			if err != nil {
 				return err
 			}

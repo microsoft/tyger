@@ -6,7 +6,7 @@ namespace Tyger.Server;
 public static class RequestBody
 {
     public static async ValueTask<TValue> ReadAndValidateJson<TValue>(this HttpRequest request, CancellationToken cancellationToken)
-    where TValue : new()
+        where TValue : new()
     {
         TValue value;
         try
@@ -15,9 +15,15 @@ public static class RequestBody
             Validator.ValidateObject(value, new ValidationContext(value), validateAllProperties: true);
             return value;
         }
-        catch (JsonException)
+        catch (JsonException e)
         {
-            throw new ValidationException("The input is syntactically invalid");
+            var message = e.Message;
+            if (e.Path != null && !message.Contains("Path:"))
+            {
+                message += $"{(message[^1] == '.' ? null : '.')} Path: {e.Path}";
+            }
+
+            throw new ValidationException("Error deserializing input: " + message);
         }
     }
 }
