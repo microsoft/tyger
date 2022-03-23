@@ -8,3 +8,5 @@ scripts/
 Dockerfile
 Makefile
 README.md
+
+!.devcontainer/install-tools.sh

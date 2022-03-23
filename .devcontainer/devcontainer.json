@@ -5,13 +5,7 @@
 
   "build": {
     "dockerfile": "Dockerfile",
-    "context": ".",
-    "args": {
-      // Update the VARIANT arg to pick a version of Go: 1, 1.16, 1.17
-      // Append -bullseye or -buster to pin to an OS version.
-      // Use -bullseye variants on local arm64/Apple Silicon.
-      "VARIANT": "1.17-bullseye"
-    }
+    "context": "../"
   },
 
   "runArgs": [
@@ -40,8 +34,6 @@
 
     "go.toolsManagement.checkForUpdates": "local",
     "go.useLanguageServer": true,
-    "go.gopath": "/go",
-    "go.goroot": "/usr/local/go",
     "gopls": {
       "build.buildFlags": ["-tags=e2e"]
     },

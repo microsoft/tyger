@@ -1,0 +1,33 @@
+name: tyger
+channels:
+  - gadgetron
+  - conda-forge
+  - defaults
+dependencies:
+  - autopep8=1.6.0
+  - bash-completion=2.11
+  - dotnet=6.0.102
+  - dvc-azure=2.8.2
+  - go-cgo=1.17.8
+  - h5py=3.2.1
+  - hdf5=1.10.6
+  - ismrmrd=1.7.1
+  - ismrmrd-python=1.9.8
+  - jupyter=1.0.0
+  - jsonschema=4.2.0
+  - kubernetes-client=1.23.5
+  - kubernetes-helm=3.8.1
+  - libblas=*=*mkl
+  - make=4.3
+  - matplotlib=3.4.3
+  - numpy=1.22.0
+  - pip=21.2.4
+  - pugixml=1.11.4
+  - pylint=2.11.1
+  - pytest=6.2.5
+  - pytest-lazy-fixture=0.6.3
+  - python=3.9.7
+  - scipy=1.7.1
+  - shellcheck=0.7.2
+  - pip:
+    - azure-cli==2.32.0

@@ -29,12 +29,12 @@ kubectl create namespace "${helm_namespace}" --dry-run=client -o yaml | kubectl 
 kubectl config set-context --current --namespace="${helm_namespace}"
 
 # allow kubectl to port forward from port <1024
-sudo setcap CAP_NET_BIND_SERVICE=+eip /usr/local/bin/kubectl
+sudo setcap CAP_NET_BIND_SERVICE=+eip /opt/conda/envs/tyger/bin/kubectl
 
 # download go and nuget packages
 make -f "$(dirname "$0")/../Makefile" restore
 
 # trust the dotnet dev cert
 dotnet dev-certs https
-sudo -E dotnet dev-certs https -ep /usr/local/share/ca-certificates/aspnet/https.crt --format PEM
+sudo -E "$(which dotnet)" dev-certs https -ep /usr/local/share/ca-certificates/aspnet/https.crt --format PEM
 sudo update-ca-certificates
