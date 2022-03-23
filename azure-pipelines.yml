@@ -22,6 +22,28 @@ jobs:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
     GOBIN: '$(Agent.TempDirectory)/go/bin'
   steps:
+
+  - script: |
+      set -euo pipefail
+      image=$(.devcontainer/get-devcontainer-image.sh)
+      echo "##vso[task.setvariable variable=DEVCONTAINER_IMAGE]${image}"
+    displayName: Read devcontainer.json
+
+  - script: |
+      set -euo pipefail
+      docker pull ${DEVCONTAINER_IMAGE}
+    displayName: Pull devcontainer image
+
+  - script: |
+      set -euo pipefail
+      docker build -f .devcontainer/Dockerfile --target devcontainer -t devcontainer --build-arg BUILDKIT_INLINE_CACHE=1 --cache-from ${DEVCONTAINER_IMAGE} .
+
+      if ! .devcontainer/diff-container-images.sh "${DEVCONTAINER_IMAGE}" devcontainer; then
+        echo 'Error: the "image" field in devcontainer.json does not reflect the current "devcontainer" target of the Dockerfile. Run .devcontainer/update-devcontainer-image.sh to correct this.'
+        exit 1
+      fi
+    displayName: Verify devcontainer.json
+
   - task: GoTool@0
     inputs:
       version: '1.17.3'

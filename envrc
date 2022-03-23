@@ -1,0 +1,24 @@
+#!/bin/bash
+
+REPO_ROOT="$(readlink -f "$(dirname "${BASH_SOURCE[0]}")")"
+export REPO_ROOT
+
+export AZURE_SUBSCRIPTION="BiomedicalImaging-NonProd"
+
+export DEVCONTAINER_REGISTRY_SUBDOMAIN=compimagdevcontainers
+export DEVCONTAINER_REGISTRY="${DEVCONTAINER_REGISTRY_SUBDOMAIN}.azurecr.io"
+export DEVCONTAINER_REPOSITORY="${DEVCONTAINER_REGISTRY}/tyger"
+export RUNTIMECONTAINER_REGISTRY_SUBDOMAIN=eminence
+export RUNTIMECONTAINER_REGISTRY="${RUNTIMECONTAINER_REGISTRY_SUBDOMAIN}.azurecr.io"
+export DOCKER_BUILDKIT=1
+
+if [[ -z "${HOST_WORKSPACE_DIR:-}" ]]; then
+  export HOST_WORKSPACE_DIR="$REPO_ROOT"
+fi
+
+HELM_NAMESPACE="default"
+export HELM_NAMESPACE
+
+if [[ -f "${REPO_ROOT}/envrc-override" ]]; then
+  source "${REPO_ROOT}/envrc-override"
+fi

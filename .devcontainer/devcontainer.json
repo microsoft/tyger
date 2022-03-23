@@ -3,12 +3,10 @@
 {
   "name": "Tyger",
 
-  "build": {
-    "dockerfile": "Dockerfile",
-    "context": "../"
-  },
+  "image": "compimagdevcontainers.azurecr.io/tyger@sha256:7d1ac1dc09af48a57e7f6c37c062075cb420a8169f02127d155d6e33857defc7",
 
   "runArgs": [
+    "--init",
     "--cap-add=SYS_PTRACE",
     "--security-opt",
     "seccomp=unconfined",
@@ -67,16 +65,17 @@
 
   "mounts": [
     // For cloning cloning the host's ~/.kube/config into the devcontainer
-    "source=${env:HOME}${env:USERPROFILE}/.kube-snapshot,target=/home/vscode/.kube-host,type=bind"
+    "source=${env:HOME}${env:USERPROFILE}/.kube-snapshot,target=/home/vscode/.kube-host,type=bind",
+
+    // Bind mount docker socket under an alias to support docker-from-docker
+    "source=/var/run/docker.sock,target=/var/run/docker-host.sock,type=bind"
   ],
+
   "remoteUser": "vscode",
+  "overrideCommand": false,
   "initializeCommand": ".devcontainer/initialize-host.sh",
   "onCreateCommand": ".devcontainer/devcontainer-on-create.sh",
-  "features": {
-    "docker-from-docker": "20.10",
-    "git": "os-provided"
-  },
   "forwardPorts": [
-    41087 // This is port the tyger cli uses for interactive login callback.
+    41087 // This is the port the tyger cli uses for interactive login callback.
   ]
 }

@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/vscode/devcontainers/base:0.201.8-focal AS devcontainerbase
+FROM mcr.microsoft.com/vscode/devcontainers/base:0.201.8-focal AS devcontainer
 
 # Install needed packages and setup non-root user.
 ARG USERNAME="vscode"
@@ -7,9 +7,21 @@ ARG USER_GID=$USER_UID
 ARG CONDA_GID=900
 ARG HOME=/home/$USERNAME
 ARG CONDA_ENVIRONMENT_NAME=tyger
+ARG VSCODE_DEV_CONTAINERS_SCRIPT_LIBRARY_VERSION=v0.229.0
 
-# The version of conda to use
-ARG CONDA_VERSION=4.11.0
+# Enable non-root Docker access in container
+ARG ENABLE_NONROOT_DOCKER="true"
+# Use the OSS Moby CLI instead of the licensed Docker CLI
+ARG USE_MOBY="false"
+RUN script=$(curl -fsSL "https://raw.githubusercontent.com/microsoft/vscode-dev-containers/${VSCODE_DEV_CONTAINERS_SCRIPT_LIBRARY_VERSION}/script-library/docker-debian.sh") && bash -c "$script" -- "${ENABLE_NONROOT_DOCKER}" "/var/run/docker-host.sock" "/var/run/docker.sock" "${USERNAME}" "${USE_MOBY}"
+
+# Setting the ENTRYPOINT to docker-init.sh will configure non-root access to
+# the Docker socket if "overrideCommand": false is set in devcontainer.json.
+# The script will also execute CMD if you need to alter startup behaviors.
+ENTRYPOINT [ "/usr/local/share/docker-init.sh" ]
+CMD [ "sleep", "infinity" ]
+
+ARG MAMBA_VERSION=0.22.1
 
 # Based on https://github.com/ContinuumIO/docker-images/blob/master/miniconda3/debian/Dockerfile.
 RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh \
@@ -18,7 +30,7 @@ RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86
     && ln -s /opt/conda/etc/profile.d/conda.sh /etc/profile.d/conda.sh \
     && find /opt/conda/ -follow -type f -name '*.a' -delete \
     && find /opt/conda/ -follow -type f -name '*.js.map' -delete \
-    && [ -z "$CONDA_VERSION" ] || /opt/conda/bin/conda install -n base conda=$CONDA_VERSION \
+    && /opt/conda/bin/conda install -n base -c conda-forge mamba=${MAMBA_VERSION} \
     && /opt/conda/bin/conda clean -afy \
     && groupadd -r conda --gid ${CONDA_GID} \
     && usermod -aG conda ${USERNAME} \
@@ -38,7 +50,9 @@ fi\n" >> /etc/bash.bashrc
 
 # Create a conda environment from the environment file in the repo root.
 COPY --chown=$USER_UID:conda environment.yml /tmp/build/
-RUN umask 0002 && /opt/conda/bin/conda env create -f /tmp/build/environment.yml \
+RUN umask 0002 \
+    && /opt/conda/bin/mamba env create -f /tmp/build/environment.yml \
+    && /opt/conda/bin/mamba clean -fy \
     && sudo chown -R :conda /opt/conda/envs \
     && sudo chown -R :conda ${HOME}/.conda
 
@@ -61,9 +75,7 @@ ENV PATH=${PATH}:/home/vscode/.dotnet/tools
 RUN umask 0002 \
     && . /opt/conda/etc/profile.d/conda.sh \
     && conda activate ${CONDA_ENVIRONMENT_NAME} \
-    && dotnet tool install dotnet-symbol --global \
-    && dotnet-symbol --symbols /opt/conda/envs/${CONDA_ENVIRONMENT_NAME}/lib/dotnet/shared/Microsoft.NETCore.App/${DOTNET_RUNTIME_VERSION}/* \
-    && dotnet-symbol --symbols /opt/conda/envs/${CONDA_ENVIRONMENT_NAME}/lib/dotnet/shared//Microsoft.AspNetCore.App/${DOTNET_RUNTIME_VERSION}/*
+    && dotnet tool install dotnet-symbol --global
 
 # Install go developer tools
 RUN . /opt/conda/etc/profile.d/conda.sh \
