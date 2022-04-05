@@ -17,8 +17,12 @@ using Tyger.Server.StorageServer;
 var builder = WebApplication.CreateBuilder(args);
 
 // Configuration
-builder.Configuration.AddIniFile("localsettings.ini", optional: true);
+builder.Configuration.AddJsonFile("appsettings.local.json", optional: true);
 builder.Configuration.AddKeyPerFile(builder.Configuration.GetValue<string>("KeyPerFileDirectory"), optional: true);
+if (builder.Configuration.GetValue<string>("AppSettingsDirectory") is string settingsDir)
+{
+    builder.Configuration.AddJsonFile(Path.Combine(settingsDir, "appsettings.json"), optional: false);
+}
 
 // Logging
 builder.Logging.AddConsoleFormatter<LogFormatter, ConsoleFormatterOptions>();
@@ -49,6 +53,7 @@ app.UseExceptionHandling();
 app.UseOpenApi();
 app.UseAuth();
 
+app.MapClusters();
 app.MapBuffers();
 app.MapCodespecs();
 app.MapRuns();

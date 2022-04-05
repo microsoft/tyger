@@ -13,15 +13,55 @@ variables:
   DOCKER_BUILDKIT: 1
   isPR: $[eq(variables['Build.Reason'], 'PullRequest')]
   isCI: $[or(eq(variables['Build.Reason'], 'IndividualCI'), eq(variables['Build.Reason'], 'BatchedCI'))]
-  testEnvironmentName: 'tyger-pr-$(System.PullRequest.PullRequestId)'
+  ${{ if eq(variables.isPR, 'true') }}:
+    TYGER_ENVIRONMENT_NAME: 'tyger-pr$(System.PullRequest.PullRequestId)'
+  ${{ else }}:
+    TYGER_ENVIRONMENT_NAME: 'tygerwestus2'
 
 jobs:
 - job: buildAndTest
   displayName: "Build and run tests"
   variables:
-    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
     GOBIN: '$(Agent.TempDirectory)/go/bin'
   steps:
+
+  - task: GoTool@0
+    inputs:
+      version: '1.17.3'
+
+  - script: echo '##vso[task.prependpath]$(GOBIN)'
+    displayName: "Add GOBIN to PATH"
+
+  - task: UseDotNet@2
+    displayName: 'Use .NET Core sdk'
+    inputs:
+      useGlobalJson: true
+      workingDirectory: $(system.DefaultWorkingDirectory)/server
+
+  - script: |
+      set -euo pipefail
+      go install cuelang.org/go/cmd/cue@v0.4.2
+    displayName: Install tools
+
+  - script: |
+      set -euo pipefail
+      make verify-format
+    displayName: "Build and verify formatting"
+
+  - task: AzureCLI@2
+    displayName: Up
+    inputs:
+      azureSubscription: BiomedicalImaging-NonProd
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        set -euo pipefail
+        make ensure-environment
+        make up
+        make install-cli
+        make download-test-client-cert
+        make login-service-principal
+        make test-no-up
 
   - script: |
       set -euo pipefail
@@ -44,47 +84,17 @@ jobs:
       fi
     displayName: Verify devcontainer.json
 
-  - task: GoTool@0
-    inputs:
-      version: '1.17.3'
-
-  - script: echo '##vso[task.prependpath]$(GOBIN)'
-    displayName: "Add GOBIN to PATH"
-
-  - task: UseDotNet@2
-    displayName: 'Use .NET Core sdk'
-    inputs:
-      useGlobalJson: true
-      workingDirectory: $(system.DefaultWorkingDirectory)/server
-
-  - script: |
-      set -euo pipefail
-      make verify-format
-    displayName: "Build and verify formatting"
-
-  - script: |
-      set -euo pipefail
-      ./.devcontainer/install-k3s.sh
-    displayName: "Install k3s"
-
-  - script: |
-      set -euo pipefail
-      sudo ./.devcontainer/install-tools.sh
-    displayName: "Install tools"
-
   - task: AzureCLI@2
-    displayName: Deploy and run tests
+    condition: and(succeeded(), eq(variables.isPR, 'true'))
+    displayName: Remove environment
     inputs:
       azureSubscription: BiomedicalImaging-NonProd
       scriptType: bash
       scriptLocation: inlineScript
       inlineScript: |
         set -euo pipefail
-        make up
-        make install-cli
-        make download-test-client-cert
-        make login-service-principal
-        make test-no-up
+        make down
+        make remove-environment
 
   - task: AzureCLI@2
     condition: and(succeeded(), eq(variables.isCI, 'true'))
@@ -96,54 +106,3 @@ jobs:
       inlineScript: |
         set -euo pipefail
         scripts/build-images.sh --push --use-git-hash-as-tag
-
-- job: ClusterDeployment
-  displayName: Deploy clusters
-  steps:
-  - script: |
-      pip install jsonschema==4.2.0
-    displayName: "Install dependencies"
-
-  - task: KubectlInstaller@0
-    inputs:
-      kubectlVersion: 'latest'
-
-  - script: |
-      set -euo pipefail
-      mkdir -p clusters/configs
-      saprefix=$(echo "$(testEnvironmentName)" | tr '[:upper:]' '[:lower:]' | tr -d '-')
-      cat >clusters/configs/pr-test.json <<EOF
-      {
-        "clusterName": "$(testEnvironmentName)",
-        "isEphemeral": true,
-        "location": "westus2",
-        "storageAccounts": {
-          "buffers": "${saprefix}buffers",
-          "storageServer": "${saprefix}storage"
-        }
-      }
-      EOF
-    displayName: "Generate test cluster name"
-  - task: AzureCLI@2
-    condition: and(succeeded(), eq(variables.isPR, 'true'))
-    displayName: Test cluster deployment
-    inputs:
-      azureSubscription: BiomedicalImaging-NonProd
-      scriptType: bash
-      scriptLocation: inlineScript
-      inlineScript: |
-        set -euo pipefail
-        ./clusters/validate-cluster-configs.sh
-        ./clusters/ensure-cluster.sh -c clusters/configs/pr-test.json --verbose
-        ./clusters/configure-cluster.sh
-
-  - task: AzureCLI@2
-    condition: and(succeeded(), eq(variables.isPR, 'true'))
-    displayName: Remove test cluster deployment
-    inputs:
-      azureSubscription: BiomedicalImaging-NonProd
-      scriptType: bash
-      scriptLocation: inlineScript
-      inlineScript: |
-        set -euo pipefail
-        ./clusters/remove-cluster.sh -c clusters/configs/pr-test.json

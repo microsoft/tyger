@@ -3,6 +3,42 @@ info:
   title: tyger.server
   version: '1.0'
 paths:
+  /v1/clusters/:
+    get:
+      tags:
+        - tyger.server
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Cluster'
+  '/v1/clusters/{name}':
+    get:
+      tags:
+        - tyger.server
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cluster'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
   /v1/buffers:
     post:
       tags:
@@ -210,6 +246,21 @@ components:
             type: string
           nullable: true
       additionalProperties: false
+    Cluster:
+      type: object
+      properties:
+        name:
+          type: string
+          nullable: true
+        region:
+          type: string
+          nullable: true
+        nodePools:
+          type: array
+          items:
+            $ref: '#/components/schemas/NodePool'
+          nullable: true
+      additionalProperties: false
     Codespec:
       required:
         - image
@@ -279,6 +330,16 @@ components:
           type: string
           nullable: true
       additionalProperties: false
+    NodePool:
+      type: object
+      properties:
+        name:
+          type: string
+          nullable: true
+        vmSize:
+          type: string
+          nullable: true
+      additionalProperties: false
     Run:
       required:
         - codespec
@@ -295,6 +356,18 @@ components:
         codespec:
           type: string
         status:
+          type: string
+          nullable: true
+        computeTarget:
+          $ref: '#/components/schemas/RunComputeTarget'
+      additionalProperties: false
+    RunComputeTarget:
+      type: object
+      properties:
+        cluster:
+          type: string
+          nullable: true
+        nodePool:
           type: string
           nullable: true
       additionalProperties: false

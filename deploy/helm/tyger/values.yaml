@@ -18,6 +18,8 @@ server:
   storageAccountConnectionStringSecretName:
   storageAccountConnectionStringSecretDataKey: connectionString
 
+  clusterConfigurationJson: "{}"
+
   imagePullSecrets: []
   podAnnotations: {}
   nodeSelector: {}
@@ -44,10 +46,6 @@ storageServer:
   podSecurityContext: {}
   securityContext: {}
   resources: {}
-
-storageEmulator:
-  enabled: false
-  hostname:
 
 db:
   usePasswordFile: true

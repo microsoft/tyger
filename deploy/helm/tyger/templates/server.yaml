@@ -29,6 +29,19 @@ subjects:
   name: {{ include "tyger.fullname" . }}-server
   namespace: {{ .Release.Namespace }}
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "tyger.fullname" . }}-server
+data:
+  appsettings.json: |-
+    {
+      "kubernetes": {
+        "clusters":
+          {{ $serverValues.clusterConfigurationJson }}
+      }
+    }
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -56,18 +69,6 @@ spec:
                 echo waiting for database
                 sleep 2
               done
-        {{- if .Values.storageEmulator.enabled }}
-        - name: check-azurite-ready
-          image: yauritux/busybox-curl
-          command:
-            - 'sh'
-            - '-c'
-            - |
-              until curl http://devstoreaccount1.{{ .Release.Namespace }}:10000/; do
-                echo waiting for azurite
-                sleep 2
-              done
-        {{- end }}
 
       containers:
         - name: tyger
@@ -80,6 +81,8 @@ spec:
               value: http://+:5000
             - name: KeyPerFileDirectory
               value: /etc/secrets/
+            - name: AppSettingsDirectory
+              value: /etc/config/
             - name: Logging__Console__FormatterName
               value: Tyger.Server.Logging.LogFormatter
             - name: Auth__Enabled
@@ -90,11 +93,7 @@ spec:
             - name: Auth__Audience
               value: {{ required "When server.security.enabled is true, a value for server.security.audience is required" $serverValues.security.audience }}
           {{- end }}
-          {{- if .Values.storageEmulator.enabled }}
-            - name: BlobStorage__EmulatorExternalEndpoint
-              value: http://{{ .Values.storageEmulator.hostname }}
-          {{- end }}
-            - name: Tyger__Kubernetes__Namespace
+            - name: Kubernetes__Namespace
               value: {{ .Release.Namespace }}
             - name: Database__ConnectionString
               value: Host={{ template "common.names.fullname" .Subcharts.db }}; Database={{ .Values.db.postgresqlDatabase }}; Port=5432; Username={{ template "postgresql.username" .Subcharts.db }}
@@ -111,6 +110,9 @@ spec:
           volumeMounts:
           - name: secrets
             mountPath: /etc/secrets
+            readOnly: true
+          - name: config
+            mountPath: /etc/config
             readOnly: true
 
       serviceAccount: {{ include "tyger.fullname" . }}-server
@@ -137,16 +139,13 @@ spec:
               - key: postgresql-password
                 path: database__password
           - secret:
-              {{- if .Values.storageEmulator.enabled }}
-              name: {{ include "tyger.fullname" . }}-azurite-connection-string
-              items:
-                - key: connectionString
-              {{- else }}
               name: {{ required "A value for server.storageAccountConnectionStringSecretName" $serverValues.storageAccountConnectionStringSecretName }}
               items:
                 - key: {{ $serverValues.storageAccountConnectionStringSecretDataKey }}
-              {{- end }}
                   path: "blobStorage__connectionString"
+      - name: config
+        configMap:
+          name: {{ include "tyger.fullname" . }}-server
 ---
 kind: Service
 apiVersion: v1

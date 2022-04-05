@@ -46,6 +46,7 @@ RUN echo "\n\
 if ! grep -q \"^source /opt/conda/etc/profile.d/conda.sh\" ${HOME}/.bashrc; then\n\
 	echo \"source /opt/conda/etc/profile.d/conda.sh\" >> ${HOME}/.bashrc\n\
 	echo \"conda activate ${CONDA_ENVIRONMENT_NAME}\" >> ${HOME}/.bashrc\n\
+    echo \"source <(kubectl completion bash)\" >> ${HOME}/.bashrc\n\
 fi\n" >> /etc/bash.bashrc
 
 # Create a conda environment from the environment file in the repo root.
@@ -63,9 +64,6 @@ WORKDIR /opt/temp
 COPY .devcontainer/install-tools.sh .
 RUN ./install-tools.sh
 
-RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
-    && apt-get -y install --no-install-recommends iputils-ping
-
 USER vscode:conda
 SHELL ["/bin/bash", "-e", "-c"]
 
@@ -77,10 +75,12 @@ RUN umask 0002 \
     && conda activate ${CONDA_ENVIRONMENT_NAME} \
     && dotnet tool install dotnet-symbol --global
 
-# Install go developer tools
+# Install go tools
+ARG CUE_VERSION=v0.4.2
 RUN . /opt/conda/etc/profile.d/conda.sh \
     && conda activate ${CONDA_ENVIRONMENT_NAME}; \
     GO_TOOLS="\
+        cuelang.org/go/cmd/cue@${CUE_VERSION} \
         golang.org/x/tools/gopls@latest \
         honnef.co/go/tools/cmd/staticcheck@latest \
         golang.org/x/lint/golint@latest \
@@ -90,3 +90,5 @@ RUN . /opt/conda/etc/profile.d/conda.sh \
         github.com/go-delve/delve/cmd/dlv@latest \
         github.com/golangci/golangci-lint/cmd/golangci-lint@latest"; \
     echo "${GO_TOOLS}" | xargs -n 1 go install
+
+ENV DOCKER_BUILDKIT=1

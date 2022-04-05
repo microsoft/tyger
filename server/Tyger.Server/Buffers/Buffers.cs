@@ -39,7 +39,7 @@ public static class Buffers
 
         app.MapPost("/v1/buffers/{id}/access", async (BufferManager manager, string id, bool? writeable, CancellationToken cancellationToken) =>
             {
-                var bufferAccess = await manager.CreateBufferAccessString(id, writeable == true, external: true, cancellationToken);
+                var bufferAccess = await manager.CreateBufferAccessString(id, writeable == true, cancellationToken);
                 if (bufferAccess is null)
                 {
                     return Responses.NotFound();
@@ -57,6 +57,4 @@ public class BlobStorageOptions
 {
     [Required]
     public string ConnectionString { get; init; } = "";
-
-    public string? EmulatorExternalEndpoint { get; set; }
 }

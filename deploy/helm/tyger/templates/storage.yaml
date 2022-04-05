@@ -23,18 +23,6 @@ spec:
                 echo waiting for database
                 sleep 2
               done
-        {{- if .Values.storageEmulator.enabled }}
-        - name: check-azurite-ready
-          image: yauritux/busybox-curl
-          command:
-            - 'sh'
-            - '-c'
-            - |
-              until curl http://devstoreaccount1.{{ .Release.Namespace }}:10000/; do
-                echo waiting for azurite
-                sleep 2
-              done
-        {{- end }}
       containers:
         - name: mrd-storage-server
           image: {{ .Values.storageServer.image }}
@@ -68,15 +56,9 @@ spec:
           - secret:
               name: {{ template "common.names.fullname" .Subcharts.storagedb  }}
           - secret:
-              {{- if .Values.storageEmulator.enabled }}
-              name: {{ include "tyger.fullname" . }}-azurite-connection-string
-              items:
-                - key: connectionString
-              {{- else }}
               name: {{ required "A value for storagedb.storageAccountConnectionStringSecretName" .Values.storageServer.storageAccountConnectionStringSecretName }}
               items:
                 - key: {{ .Values.storageServer.storageAccountConnectionStringSecretDataKey }}
-              {{- end }}
                   path: storage-connection-string
 ---
 kind: Service

@@ -13,17 +13,12 @@ public class BufferManager : IHealthCheck
     private readonly BlobStorageOptions _config;
     private readonly ILogger<BufferManager> _logger;
     private readonly BlobServiceClient _serviceClient;
-    private readonly BlobServiceClient? _externalSasServiceClient;
 
     public BufferManager(IOptions<BlobStorageOptions> config, ILogger<BufferManager> logger)
     {
         _config = config.Value;
         _logger = logger;
         _serviceClient = new BlobServiceClient(_config.ConnectionString);
-        if (!string.IsNullOrEmpty(_config.EmulatorExternalEndpoint))
-        {
-            _externalSasServiceClient = new BlobServiceClient(ReplaceEndpointInConnectionString(_config.ConnectionString, _config.EmulatorExternalEndpoint));
-        }
     }
 
     public async Task<Buffer> CreateBuffer(CancellationToken cancellationToken)
@@ -51,7 +46,7 @@ public class BufferManager : IHealthCheck
         return null;
     }
 
-    internal async Task<BufferAccess?> CreateBufferAccessString(string id, bool writeable, bool external, CancellationToken cancellationToken)
+    internal async Task<BufferAccess?> CreateBufferAccessString(string id, bool writeable, CancellationToken cancellationToken)
     {
         if (await GetBufferById(id, cancellationToken) is null)
         {
@@ -64,7 +59,7 @@ public class BufferManager : IHealthCheck
             permissions |= BlobContainerSasPermissions.Write;
         }
 
-        var containerClient = (_externalSasServiceClient ?? _serviceClient).GetBlobContainerClient(id);
+        var containerClient = _serviceClient.GetBlobContainerClient(id);
 
         // Create a SAS token that's valid for one hour.
         BlobSasBuilder sasBuilder = new()
@@ -77,16 +72,6 @@ public class BufferManager : IHealthCheck
         sasBuilder.SetPermissions(permissions);
 
         Uri uri = containerClient.GenerateSasUri(sasBuilder);
-
-        if (!external && _externalSasServiceClient != null)
-        {
-            uri = new UriBuilder(_serviceClient.Uri)
-            {
-                Path = uri.AbsolutePath,
-                Query = uri.Query
-            }.Uri;
-        }
-
         return new BufferAccess(uri);
     }
 
@@ -94,12 +79,5 @@ public class BufferManager : IHealthCheck
     {
         await _serviceClient.GetPropertiesAsync(cancellationToken);
         return HealthCheckResult.Healthy();
-    }
-
-    private static string ReplaceEndpointInConnectionString(string connectionString, string newEndpoint)
-    {
-        var connectionStringComponents = connectionString.Split(";").Select(t => t.Split("=", 2)).ToDictionary(t => t[0].Trim(), t => t[1].Trim(), StringComparer.OrdinalIgnoreCase);
-        connectionStringComponents["BlobEndpoint"] = newEndpoint;
-        return string.Join(';', connectionStringComponents.Select(p => $"{p.Key}={p.Value}"));
     }
 }

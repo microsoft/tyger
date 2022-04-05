@@ -35,10 +35,16 @@ type Codespec struct {
 }
 
 type Run struct {
-	Id       string            `json:"id,omitempty"`
-	Buffers  map[string]string `json:"buffers,omitempty"`
-	Codespec string            `json:"codespec"`
-	Status   string            `json:"status,omitempty"`
+	Id            string            `json:"id,omitempty"`
+	Buffers       map[string]string `json:"buffers,omitempty"`
+	Codespec      string            `json:"codespec"`
+	Status        string            `json:"status,omitempty"`
+	ComputeTarget *RunComputeTarget `json:"computeTarget,omitempty"`
+}
+
+type RunComputeTarget struct {
+	Cluster  string `json:"cluster,omitempty"`
+	NodePool string `json:"nodePool,omitempty"`
 }
 
 type ErrorResponse struct {
@@ -48,4 +54,14 @@ type ErrorResponse struct {
 type ErrorInfo struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+}
+
+type NodePool struct {
+	Name   string `json:"name"`
+	VmSize string `json:"vmSize"`
+}
+
+type Cluster struct {
+	Name      string     `json:"name"`
+	NodePools []NodePool `json:"nodePools"`
 }

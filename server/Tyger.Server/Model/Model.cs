@@ -118,7 +118,14 @@ public record Run : ModelBase
     [Required]
     public string Codespec { get; init; } = "";
     public string? Status { get; init; }
+    public RunComputeTarget? ComputeTarget { get; init; }
 }
+
+public record RunComputeTarget(string? Cluster, string? NodePool);
+
+public record Cluster(string Name, string Region, IReadOnlyList<NodePool> NodePools);
+
+public record NodePool(string Name, string VmSize);
 
 public record ErrorBody
 {

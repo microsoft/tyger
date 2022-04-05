@@ -3,16 +3,13 @@
 {
   "name": "Tyger",
 
-  "image": "compimagdevcontainers.azurecr.io/tyger@sha256:7d1ac1dc09af48a57e7f6c37c062075cb420a8169f02127d155d6e33857defc7",
+  "image": "compimagdevcontainers.azurecr.io/tyger@sha256:a6bee28acf5a823ecdccbc1b98e5329083a401b11d125bcfc833c851ff322769",
 
   "runArgs": [
     "--init",
     "--cap-add=SYS_PTRACE",
     "--security-opt",
-    "seccomp=unconfined",
-    "--network=host",
-    "--add-host=tyger.localdev.me:host-gateway",
-    "--add-host=devstoreaccount1.azurite.localdev.me:host-gateway"
+    "seccomp=unconfined"
   ],
 
   // Set *default* container specific settings.json values on container create.
@@ -28,6 +25,23 @@
 
     "[makefile]": {
       "files.trimTrailingWhitespace": false
+    },
+
+    "[jsonc]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode",
+      "editor.formatOnSave": true,
+      "editor.tabSize": 2
+    },
+
+    "[json]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode",
+      "editor.formatOnSave": true,
+      "editor.tabSize": 2
+    },
+
+    "[python]": {
+      "editor.formatOnSave": true,
+      "editor.tabSize": 4
     },
 
     "go.toolsManagement.checkForUpdates": "local",
@@ -49,13 +63,13 @@
 
   // Add the IDs of extensions you want installed when the container is created.
   "extensions": [
-    "azurite.azurite",
     "eamodio.gitlens",
     "esbenp.prettier-vscode",
-    "humao.rest-client",
+    "foxundermoon.shell-format",
     "golang.go",
+    "humao.rest-client",
+    "jallen7usa.vscode-cue-fmt",
     "mhutchie.git-graph",
-    "ms-azuretools.vscode-azurestorage",
     "ms-azuretools.vscode-docker",
     "ms-dotnettools.csharp",
     "ms-kubernetes-tools.vscode-kubernetes-tools",
@@ -64,16 +78,12 @@
   ],
 
   "mounts": [
-    // For cloning cloning the host's ~/.kube/config into the devcontainer
-    "source=${env:HOME}${env:USERPROFILE}/.kube-snapshot,target=/home/vscode/.kube-host,type=bind",
-
     // Bind mount docker socket under an alias to support docker-from-docker
     "source=/var/run/docker.sock,target=/var/run/docker-host.sock,type=bind"
   ],
 
   "remoteUser": "vscode",
   "overrideCommand": false,
-  "initializeCommand": ".devcontainer/initialize-host.sh",
   "onCreateCommand": ".devcontainer/devcontainer-on-create.sh",
   "forwardPorts": [
     41087 // This is the port the tyger cli uses for interactive login callback.

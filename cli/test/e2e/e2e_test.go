@@ -36,15 +36,17 @@ func init() {
 }
 
 func TestEndToEnd(t *testing.T) {
+	t.Parallel()
 	require := require.New(t)
 
 	// create a codespec
 	const codespecName = "testcodespec"
+	digest := runCommandSuceeds(t, "docker", "inspect", "testrecon", "--format", "{{ index .RepoDigests 0 }}")
 
 	runTygerSuceeds(t,
 		"create", "codespec", codespecName,
 		"-i=input", "-o=output",
-		"--image", "testrecon:test",
+		"--image", digest,
 		"--",
 		"-r", "$(INPUT_BUFFER_URI_FILE)", "-w", "$(OUTPUT_BUFFER_URI_FILE)")
 
@@ -68,20 +70,7 @@ func TestEndToEnd(t *testing.T) {
 		"-b", fmt.Sprintf("input=%s", inputBufferId),
 		"-b", fmt.Sprintf("output=%s", outputBufferId))
 
-	for i := 0; ; i++ {
-		runJson := runTygerSuceeds(t, "get", "run", runId)
-		run := model.Run{}
-		require.Nil(json.Unmarshal([]byte(runJson), &run))
-		if run.Status == "Completed" {
-			break
-		}
-
-		time.Sleep(time.Millisecond * 200)
-
-		if i == 100 {
-			require.FailNowf("run failed to complete.", "Last status: %s", run.Status)
-		}
-	}
+	waitForRunSuccess(t, runId)
 
 	outputContainerClient, err := azblob.NewContainerClientWithNoCredential(outputSasUri, nil)
 	if err != nil {
@@ -102,7 +91,118 @@ func TestEndToEnd(t *testing.T) {
 	require.Equal("Hello: Bonjour", string(outputBytes))
 }
 
+// Verify that a run using a codespec that requires a GPU
+// is scheduled on a node with one.
+func TestGpuResourceRequirement(t *testing.T) {
+	t.Parallel()
+
+	const codespecName = "gputestcodespec"
+	runTygerSuceeds(t,
+		"create", "codespec", codespecName,
+		"--image", "nvidia/cuda:11.0-base",
+		"--gpu", "1",
+		"--command",
+		"--",
+		"bash", "-c", "[[ $(nvidia-smi -L | wc -l) == 1 ]]") // verify that a GPU is available
+
+	// create run
+	runId := runTygerSuceeds(t, "create", "run", "--codespec", codespecName)
+
+	waitForRunSuccess(t, runId)
+}
+
+// Verify that a run using a codespec that does not require a GPU
+// is not scheduled on a node with one.
+func TestNoGpuResourceRequirement(t *testing.T) {
+	t.Parallel()
+
+	const codespecName = "nogputestcodespec"
+	runTygerSuceeds(t,
+		"create", "codespec", codespecName,
+		"--image", "nvidia/cuda:11.0-base",
+		"--command",
+		"--",
+		"bash", "-c", "[[ ! $(nvidia-smi) ]]") // verify that no GPU is available
+
+	// create run
+	runId := runTygerSuceeds(t, "create", "run", "--codespec", codespecName)
+
+	waitForRunSuccess(t, runId)
+}
+
+func TestTargetGpuNodePool(t *testing.T) {
+	t.Parallel()
+
+	codespecName := t.Name()
+	runTygerSuceeds(t,
+		"create", "codespec", codespecName,
+		"--image", "nvidia/cuda:11.0-base",
+		"--command",
+		"--",
+		"bash", "-c", "[[ $(nvidia-smi -L | wc -l) == 1 ]]") // verify that a GPU is available
+
+	// create run
+	runId := runTygerSuceeds(t, "create", "run", "--codespec", codespecName, "--node-pool", "gpunp")
+
+	waitForRunSuccess(t, runId)
+}
+
+func TestTargetCpuNodePool(t *testing.T) {
+	t.Parallel()
+
+	codespecName := t.Name()
+	runTygerSuceeds(t,
+		"create", "codespec", codespecName,
+		"--image", "nvidia/cuda:11.0-base",
+		"--command",
+		"--",
+		"bash", "-c", "[[ ! $(nvidia-smi) ]]") // verify that no GPU is available
+
+	// create run
+	runId := runTygerSuceeds(t, "create", "run", "--codespec", codespecName, "--node-pool", "cpunp")
+
+	waitForRunSuccess(t, runId)
+}
+
+func TestTargetingInvalidClusterReturnsError(t *testing.T) {
+	t.Parallel()
+
+	codespecName := t.Name()
+	runTygerSuceeds(t,
+		"create", "codespec", codespecName,
+		"--image", "ubuntu")
+
+	_, stderr, _ := runTyger("create", "run", "--codespec", codespecName, "--cluster", "invalid")
+	require.Contains(t, stderr, "Unknown cluster")
+}
+
+func TestTargetingInvalidNodePoolReturnsError(t *testing.T) {
+	t.Parallel()
+
+	codespecName := t.Name()
+	runTygerSuceeds(t,
+		"create", "codespec", codespecName,
+		"--image", "ubuntu")
+
+	_, stderr, _ := runTyger("create", "run", "--codespec", codespecName, "--node-pool", "invalid")
+	require.Contains(t, stderr, "Unknown nodepool")
+}
+
+func TestTargetCpuNodePoolWithGpuResourcesReturnsError(t *testing.T) {
+	t.Parallel()
+
+	codespecName := t.Name()
+	runTygerSuceeds(t,
+		"create", "codespec", codespecName,
+		"--image", "ubuntu",
+		"--gpu", "1")
+
+	_, stderr, _ := runTyger("create", "run", "--codespec", codespecName, "--node-pool", "cpunp")
+	require.Contains(t, stderr, "does not have GPUs and cannot satisfy GPU request")
+}
+
 func TestUnrecognizedFieldsRejected(t *testing.T) {
+	t.Parallel()
 	require := require.New(t)
 
 	codespec := model.Codespec{}
@@ -116,6 +216,7 @@ func TestUnrecognizedFieldsRejected(t *testing.T) {
 }
 
 func TestResponseContainsRequestIdHeader(t *testing.T) {
+	t.Parallel()
 	require := require.New(t)
 	_, stderr, _ := runTyger("get", "codespec", "missing")
 
@@ -123,6 +224,7 @@ func TestResponseContainsRequestIdHeader(t *testing.T) {
 }
 
 func TestOpenApiSpecIsAsExpected(t *testing.T) {
+	t.Parallel()
 	ctx, err := clicontext.GetCliContext()
 	require.Nil(t, err)
 	swaggerUri := fmt.Sprintf("%s/swagger/v1/swagger.yaml", ctx.GetServerUri())
@@ -145,6 +247,7 @@ func TestOpenApiSpecIsAsExpected(t *testing.T) {
 }
 
 func TestAuthenticationRequired(t *testing.T) {
+	t.Parallel()
 	ctx, err := clicontext.GetCliContext()
 	require.Nil(t, err)
 	resp, err := http.Get(fmt.Sprintf("%s/v1/runs/abc", ctx.GetServerUri()))
@@ -152,9 +255,8 @@ func TestAuthenticationRequired(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
 
-func runTyger(args ...string) (stdout string, stderr string, err error) {
-	args = append([]string{"-v"}, args...)
-	cmd := exec.Command("tyger", args...)
+func runCommand(command string, args ...string) (stdout string, stderr string, err error) {
+	cmd := exec.Command(command, args...)
 	var outb, errb bytes.Buffer
 	cmd.Stdout = &outb
 	cmd.Stderr = &errb
@@ -167,8 +269,8 @@ func runTyger(args ...string) (stdout string, stderr string, err error) {
 	return
 }
 
-func runTygerSuceeds(t *testing.T, args ...string) string {
-	stdout, stderr, err := runTyger(args...)
+func runCommandSuceeds(t *testing.T, command string, args ...string) string {
+	stdout, stderr, err := runCommand(command, args...)
 	if err != nil {
 		var exitError *exec.ExitError
 		if errors.As(err, &exitError) {
@@ -177,9 +279,53 @@ func runTygerSuceeds(t *testing.T, args ...string) string {
 			t.Errorf("Unexpected error code %d", exitError.ExitCode())
 			t.FailNow()
 		}
-		t.Errorf("Failure executing tyger: %v", err)
+		t.Errorf("Failure executing %s: %v", command, err)
 		t.FailNow()
 	}
 
 	return stdout
+}
+
+func runTyger(args ...string) (stdout string, stderr string, err error) {
+	args = append([]string{"-v"}, args...)
+	return runCommand("tyger", args...)
+}
+
+func runTygerSuceeds(t *testing.T, args ...string) string {
+	args = append([]string{"-v"}, args...)
+	return runCommandSuceeds(t, "tyger", args...)
+}
+
+func waitForRunSuccess(t *testing.T, runId string) {
+	start := time.Now()
+	for {
+		runJson := runTygerSuceeds(t, "get", "run", runId)
+		run := model.Run{}
+		require.Nil(t, json.Unmarshal([]byte(runJson), &run))
+		if run.Status == "Completed" {
+			break
+		}
+
+		switch run.Status {
+		case "Pending":
+		case "ContainerCreating":
+		case "Running":
+			break
+		default:
+			require.FailNowf(t, "run failed.", "Run '%s'. Last status: %s", run.Id, run.Status)
+		}
+
+		elapsed := time.Now().Sub(start)
+
+		switch {
+		case elapsed < 10*time.Second:
+			time.Sleep(time.Millisecond * 250)
+		case elapsed < time.Minute:
+			time.Sleep(time.Second)
+		case elapsed < 15*time.Minute:
+			time.Sleep(10 * time.Second)
+		default:
+			require.FailNowf(t, "timed out waiting for run %s.", "Run '%s'. Last status: %s", run.Id, run.Status)
+		}
+	}
 }

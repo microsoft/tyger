@@ -47,6 +47,43 @@ public class KubernetesManager : IKubernetesManager
     {
         (var codespec, var normalizedCodespecRef) = await GetCodespec(newRun.Codespec, cancellationToken);
 
+        string? targetNodePool = null;
+        bool targetsGpuNodePool = false;
+        if (newRun.ComputeTarget != null)
+        {
+            IEnumerable<ClusterOptions> candidateClusters;
+            if (!string.IsNullOrEmpty(newRun.ComputeTarget.Cluster))
+            {
+                if (!_k8sOptions.Clusters.TryGetValue(newRun.ComputeTarget.Cluster, out var cluster))
+                {
+                    throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "Unknown cluster '{0}'", newRun.ComputeTarget.Cluster));
+                }
+
+                candidateClusters = new[] { cluster };
+            }
+            else
+            {
+                candidateClusters = _k8sOptions.Clusters.Values;
+            }
+
+            if (!string.IsNullOrEmpty(newRun.ComputeTarget.NodePool))
+            {
+                targetNodePool = newRun.ComputeTarget.NodePool;
+                var pool = candidateClusters.Aggregate(default(NodePoolOptions), (found, curr) => curr.UserNodePools.TryGetValue(targetNodePool, out var np) ? np : found);
+                if (pool == null)
+                {
+                    throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "Unknown nodepool '{0}'", targetNodePool));
+                }
+
+                targetsGpuNodePool = DoesVmHaveSupportedGpu(pool.VmSize);
+
+                if (!targetsGpuNodePool && codespec.Resources?.Gpu is k8s.Models.ResourceQuantity q && q.ToDecimal() != 0)
+                {
+                    throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "Nodepool '{0}' does not have GPUs and cannot satisfy GPU request '{1}'", targetNodePool, q));
+                }
+            }
+        }
+
         var id = UniqueId.Create();
         var k8sId = K8sIdFromId(id);
         var run = newRun with { Codespec = normalizedCodespecRef, Id = id };
@@ -140,7 +177,12 @@ public class KubernetesManager : IKubernetesManager
             }
         };
 
-        if (codespec.Resources?.Gpu != null)
+        if (targetNodePool != null)
+        {
+            pod.Spec.NodeSelector.Add("agentpool", targetNodePool);
+        }
+
+        if (codespec.Resources?.Gpu != null || targetsGpuNodePool)
         {
             pod.Spec.Tolerations.Add(new() { Key = "sku", OperatorProperty = "Equal", Value = "gpu", Effect = "NoSchedule" });
         }
@@ -148,6 +190,12 @@ public class KubernetesManager : IKubernetesManager
         await _client.CreateNamespacedPodAsync(pod, _k8sOptions.Namespace, cancellationToken: cancellationToken);
         _logger.CreatedRun(k8sId);
         return run;
+    }
+
+    private static bool DoesVmHaveSupportedGpu(string vmSize)
+    {
+        return vmSize.StartsWith("Standard_N", StringComparison.OrdinalIgnoreCase) &&
+            !vmSize.EndsWith("_v4", StringComparison.OrdinalIgnoreCase); // unsupported AMD GPU
     }
 
     private async Task<(Codespec codespec, string normalizedRef)> GetCodespec(string codespecRef, CancellationToken cancellationToken)
@@ -212,7 +260,7 @@ public class KubernetesManager : IKubernetesManager
                 throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The run is missing required buffer argument '{0}'", param.param));
             }
 
-            var bufferAccess = await _bufferManager.CreateBufferAccessString(bufferId, param.writeable, external: false, cancellationToken);
+            var bufferAccess = await _bufferManager.CreateBufferAccessString(bufferId, param.writeable, cancellationToken);
             if (bufferAccess == null)
             {
                 throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The buffer '{0}' was not found", bufferId));

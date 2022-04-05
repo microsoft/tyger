@@ -1,4 +1,4 @@
 **/obj/
 **/bin/
-localsettings.ini
+**/appsettings.local.json
 Dockerfile

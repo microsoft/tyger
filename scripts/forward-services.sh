@@ -13,7 +13,7 @@ these endpoints from your development environment as if you were running in a po
 Usage: $0 [options]
 
 Options:
-  --namespace,-n <namespace>    The namespace of services and pods to forward to. Defaults to $HELM_NAMESPACE defined in envrc.
+  --namespace,-n <namespace>    The namespace of services and pods to forward to, otherwise the current context's default
   -h, --help                    Brings up this menu
 EOF
 }

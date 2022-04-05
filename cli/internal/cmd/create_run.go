@@ -14,6 +14,8 @@ func newCreateRunCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 		codespec        string
 		codespecVersion int
 		buffers         map[string]string
+		cluster         string
+		nodePool        string
 	}
 
 	cmd := &cobra.Command{
@@ -33,6 +35,9 @@ func newCreateRunCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 				Codespec: codespecRef,
 				Buffers:  flags.buffers,
 			}
+			if flags.cluster != "" || flags.nodePool != "" {
+				run.ComputeTarget = &model.RunComputeTarget{Cluster: flags.cluster, NodePool: flags.nodePool}
+			}
 
 			_, err := InvokeRequest(http.MethodPost, "v1/runs", run, &run, rootFlags.verbose)
 			if err != nil {
@@ -45,6 +50,8 @@ func newCreateRunCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&flags.codespec, "codespec", "c", "", "The name of the codespec to execute")
+	cmd.Flags().StringVar(&flags.cluster, "cluster", "", "The name of the cluster to execute in")
+	cmd.Flags().StringVar(&flags.nodePool, "node-pool", "", "The name of the nodepool to execute in")
 	if err := cmd.MarkFlagRequired("codespec"); err != nil {
 		log.Panicln(err)
 	}
