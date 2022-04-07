@@ -66,7 +66,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	inputBytes, err := io.ReadAll(inputResp.Body(azblob.RetryReaderOptions{}))
+	inputBytes, err := io.ReadAll(inputResp.Body(&azblob.RetryReaderOptions{}))
 	if err != nil {
 		log.Fatal(err)
 	}

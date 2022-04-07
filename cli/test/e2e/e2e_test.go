@@ -83,7 +83,7 @@ func TestEndToEnd(t *testing.T) {
 		log.Fatal(err)
 	}
 
-	outputBytes, err := io.ReadAll(inputResp.Body(azblob.RetryReaderOptions{}))
+	outputBytes, err := io.ReadAll(inputResp.Body(&azblob.RetryReaderOptions{}))
 	if err != nil {
 		log.Fatal(err)
 	}
