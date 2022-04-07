@@ -25,3 +25,7 @@ x64/
 [Oo]bj/
 
 *.http
+
+out*.h5
+**/__pycache__/
+**/.pytest_cache/

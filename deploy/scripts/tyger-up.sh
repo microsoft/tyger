@@ -63,6 +63,7 @@ for organization_name in $(echo "${environment_definition}" | jq -r '.organizati
     hostname="${subdomain}.${dns_zone}"
     helm_release="tyger"
     cluster_config=$(echo "${environment_definition}" | jq -c '.clusters')
+    storage_server_image=$(jq -r -c '.dependencies | .[] | select(.name == "mrd-storage-server") | (.repository + ":" + .tag)' "$(dirname "$0")/../../dependencies.json")
 
     # TODO: note that more than one buffer storage account is not currently implemented.
 
@@ -80,22 +81,24 @@ server:
         ${cluster_config}
 
 storageServer:
+    image: "${storage_server_image}"
     storageAccountConnectionStringSecretName: $(echo "${organization}" | jq -r '.storage.storageServer.name')
 END
     )
 
-    echo
-    echo "Installing Helm chart..."
-    helm_version=$(echo "${values}" \
-        | helm upgrade --install \
-            --create-namespace -n "${namespace}" \
-            "${helm_release}" "${tyger_chart_location}" \
-            --atomic --output json -f - \
-        | jq -r '.version')
+    if [[ $(helm list -n "${namespace}" -l name="${helm_release}" -o json | jq length) != 0 ]]; then
+        # The release exits. Roll back the changes if the upgrade is unsuccessful.
+        wait_or_atomic="--atomic"
+    else
+        # This is the initial release. In case of failure, we do not want to roll back, since the database PVCs
+        # are not deleted and the subsequent installation will create new new secrets that will not be the same
+        # as the passwords stored in the PVCs.
 
-    if [[ "${helm_version}" == "1" ]]; then
+        wait_or_atomic="--wait"
         subscription=$(echo "${environment_definition}" | jq -r '.dependencies.subscription')
         dns_resource_group=$(echo "${environment_definition}" | jq -r '.dependencies.dnsZone.resourceGroup')
+
+        # Create a DNS record for the service
 
         # Figure out DNS name for CNAME
         public_ip=$(kubectl get -n traefik svc -o json | jq -r .items[0].status.loadBalancer.ingress[0].ip)
@@ -105,6 +108,14 @@ END
         az network dns record-set cname create -g "${dns_resource_group}" -z "${dns_zone}" -n "${subdomain}" --subscription "${subscription}"
         az network dns record-set cname set-record -g "${dns_resource_group}" -z "${dns_zone}" -n "${subdomain}" -c "$fqdn" --subscription "${subscription}"
     fi
+
+    echo
+    echo "Installing Helm chart..."
+    echo "${values}" \
+        | helm upgrade --install \
+            --create-namespace -n "${namespace}" \
+            "${helm_release}" "${tyger_chart_location}" \
+            ${wait_or_atomic} -f -
 
     health_check_endpoint="https://${hostname}/healthcheck"
     echo "Waiting for successful health check at ${health_check_endpoint}"

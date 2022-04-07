@@ -10,3 +10,4 @@ Makefile
 README.md
 
 !.devcontainer/install-tools.sh
+!.devcontainer/devcontainer.bashrc

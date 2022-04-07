@@ -5,7 +5,6 @@ ARG USERNAME="vscode"
 ARG USER_UID=1000
 ARG USER_GID=$USER_UID
 ARG CONDA_GID=900
-ARG HOME=/home/$USERNAME
 ARG CONDA_ENVIRONMENT_NAME=tyger
 ARG VSCODE_DEV_CONTAINERS_SCRIPT_LIBRARY_VERSION=v0.229.0
 
@@ -38,47 +37,23 @@ RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86
     && chmod -R g+w /opt/conda \
     && find /opt -type d | xargs -n 1 chmod g+s
 
-# Add a section to /etc/bash.bashrc that ensures that a section is present at the end of ~/.bashrc.
-# We can't just write to .bashrc from here because it will be overwritten if the vscode user has
-# opted to use their own dotfiles repo. The dotfiles repo is cloned after the postCreateCommand
-# in the devcontainer.json file is executed.
-RUN echo "\n\
-if ! grep -q \"^source /opt/conda/etc/profile.d/conda.sh\" ${HOME}/.bashrc; then\n\
-	echo \"source /opt/conda/etc/profile.d/conda.sh\" >> ${HOME}/.bashrc\n\
-	echo \"conda activate ${CONDA_ENVIRONMENT_NAME}\" >> ${HOME}/.bashrc\n\
-    echo \"source <(kubectl completion bash)\" >> ${HOME}/.bashrc\n\
-fi\n" >> /etc/bash.bashrc
-
 # Create a conda environment from the environment file in the repo root.
 COPY --chown=$USER_UID:conda environment.yml /tmp/build/
 RUN umask 0002 \
     && /opt/conda/bin/mamba env create -f /tmp/build/environment.yml \
     && /opt/conda/bin/mamba clean -fy \
-    && sudo chown -R :conda /opt/conda/envs \
-    && sudo chown -R :conda ${HOME}/.conda
-
-RUN umask 0002 && mkdir -p /go && chown -R :conda /go
-ENV PATH=${PATH}:/home/vscode/go/bin/
+    && sudo chown -R :conda /opt/conda/envs
 
 WORKDIR /opt/temp
 COPY .devcontainer/install-tools.sh .
 RUN ./install-tools.sh
 
-USER vscode:conda
-SHELL ["/bin/bash", "-e", "-c"]
-
-# .NET Download symbols
-ARG DOTNET_RUNTIME_VERSION=6.0.2
-ENV PATH=${PATH}:/home/vscode/.dotnet/tools
-RUN umask 0002 \
-    && . /opt/conda/etc/profile.d/conda.sh \
-    && conda activate ${CONDA_ENVIRONMENT_NAME} \
-    && dotnet tool install dotnet-symbol --global
-
 # Install go tools
 ARG CUE_VERSION=v0.4.2
+SHELL ["/bin/bash", "-e", "-c"]
 RUN . /opt/conda/etc/profile.d/conda.sh \
     && conda activate ${CONDA_ENVIRONMENT_NAME}; \
+    export GOBIN=/opt/conda/envs/${CONDA_ENVIRONMENT_NAME}/bin; \
     GO_TOOLS="\
         cuelang.org/go/cmd/cue@${CUE_VERSION} \
         golang.org/x/tools/gopls@latest \
@@ -91,4 +66,26 @@ RUN . /opt/conda/etc/profile.d/conda.sh \
         github.com/golangci/golangci-lint/cmd/golangci-lint@latest"; \
     echo "${GO_TOOLS}" | xargs -n 1 go install
 
-ENV DOCKER_BUILDKIT=1
+USER vscode:conda
+
+# .NET Download symbols
+ARG DOTNET_RUNTIME_VERSION=6.0.2
+ENV PATH=${PATH}:/home/vscode/.dotnet/tools
+RUN umask 0002 \
+    && . /opt/conda/etc/profile.d/conda.sh \
+    && conda activate ${CONDA_ENVIRONMENT_NAME} \
+    && dotnet tool install dotnet-symbol --global
+
+USER root
+
+# Add a file that is to be sourced from .bashrc and from the devops pipeline stages
+COPY .devcontainer/devcontainer.bashrc /opt/devcontainer/
+
+# Add a section to /etc/bash.bashrc that ensures that a section is present at the end of ~/.bashrc.
+# We can't just write to .bashrc from here because it will be overwritten if the devcontainer user has
+# opted to use their own dotfiles repo. The dotfiles repo is cloned after the postCreateCommand
+# in the devcontainer.json file is executed.
+RUN echo -e "\n\
+if ! grep -q \"^source /opt/devcontainer/devcontainer.bashrc\" \${HOME}/.bashrc; then\n\
+	echo \"source /opt/devcontainer/devcontainer.bashrc\" >> \${HOME}/.bashrc\n\
+fi\n" >> /etc/bash.bashrc

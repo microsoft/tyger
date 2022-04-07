@@ -12,8 +12,6 @@ TEST_CLIENT_CERT_FILE=~/tyger_test_client_cert.pem
 TEST_CLIENT_IDENTIFIER_URI=api://tyger-test-client
 AZURE_SUBSCRIPTION=BiomedicalImaging-NonProd
 
-.SILENT: set-localsettings run docker-build up get-namespace unit-test check-forwarding
-
 ensure-environment:
 	scripts/get-context-environment-config.sh | deploy/scripts/ensure-environment.sh -c -
 
@@ -103,8 +101,13 @@ install-cli:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go install -ldflags="-s -w" -v ./cmd/tyger
 
 e2e-no-up: docker-build-test
-	cd cli/test/e2e
+	pushd cli/test/e2e
 	go test -tags=e2e
+
+	popd
+	scripts/check-login.sh
+	dvc pull
+	pytest eminence
 
 e2e: up e2e-no-up
 
@@ -128,6 +131,10 @@ download-test-client-cert:
 
 check-test-client-cert:
 	[ -f ${TEST_CLIENT_CERT_FILE} ]
+
+get-tyger-uri:
+	environment_config=$$(scripts/get-context-environment-config.sh)
+	echo "https://$$(echo "$${environment_config}" | jq -r '.organizations["${DEFAULT_ORGANIATION}"].subdomain').$$(echo "$${environment_config}" | jq -r '.dependencies.dnsZone.name')"
 
 login-service-principal:
 	environment_config=$$(scripts/get-context-environment-config.sh)

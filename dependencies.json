@@ -1,0 +1,29 @@
+{
+  "dependencies": [
+    {
+      "name": "python_recon",
+      "type": "acrImage",
+      "repository": "eminence.azurecr.io/python_recon",
+      "tag": "0901f22895a9317d5c0a780680b693c3d899ecbd"
+    },
+    {
+      "name": "recon",
+      "type": "acrImage",
+      "repository": "eminence.azurecr.io/recon",
+      "tag": "0901f22895a9317d5c0a780680b693c3d899ecbd"
+    },
+    {
+      "name": "scanner",
+      "type": "acrImage",
+      "repository": "eminence.azurecr.io/scanner",
+      "tag": "0901f22895a9317d5c0a780680b693c3d899ecbd"
+    },
+    {
+      "name": "mrd-storage-server",
+      "type": "gcrImage",
+      "repository": "ghcr.io/ismrmrd/mrd-storage-server",
+      "tag": "v0.0.8",
+      "releaseUrl": "https://api.github.com/repos/ismrmrd/mrd-storage-server/releases/latest"
+    }
+  ]
+}

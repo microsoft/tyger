@@ -64,8 +64,10 @@ func InvokeRequest(method string, relativeUri string, input interface{}, output 
 			req.Header.Add("Authorization", "Bearer --REDACTED--")
 		}
 		if debugOutput, err := httputil.DumpRequestOut(req, true); err == nil {
-			fmt.Fprintln(os.Stderr, "====REQUEST====")
+			fmt.Fprintln(os.Stderr, "====REQUEST=====")
 			fmt.Fprintln(os.Stderr, string(debugOutput))
+			fmt.Fprintln(os.Stderr, "==END REQUEST===")
+			fmt.Fprintln(os.Stderr)
 		}
 	}
 
@@ -83,6 +85,8 @@ func InvokeRequest(method string, relativeUri string, input interface{}, output 
 		if debugOutput, err := httputil.DumpResponse(resp, true); err == nil {
 			fmt.Fprintln(os.Stderr, "====RESPONSE====")
 			fmt.Fprintln(os.Stderr, string(debugOutput))
+			fmt.Fprintln(os.Stderr, "==END RESPONSE==")
+			fmt.Fprintln(os.Stderr)
 		}
 	}
 

@@ -8,6 +8,7 @@ if ! make -f "$(dirname "$0")/../Makefile" check-test-client-cert; then
     make -f "$(dirname "$0")/../Makefile" download-test-client-cert
 fi
 make -f "$(dirname "$0")/../Makefile" login-service-service-principal
+uri=$(make -s -f "$(dirname "$0")/../Makefile" get-tyger-uri)
 
 set -euo pipefail
 
@@ -22,7 +23,7 @@ tyger login status
 
 printf "\n===DEVICE CODE LOGIN===\n\n"
 
-tyger login http://tyger.localdev.me --use-device-code
+tyger login "${uri}" --use-device-code
 tyger login status
 
 # expire token
@@ -31,7 +32,7 @@ tyger login status
 
 printf "\n===INTERACTIVE LOGIN===\n\n"
 
-tyger login http://tyger.localdev.me
+tyger login "${uri}"
 tyger login status
 
 # expire token
@@ -46,7 +47,7 @@ tee=$(which tee)
 export PATH="$restricted_path"
 unset BROWSER
 
-contains_devicelogin=$(tyger login http://tyger.localdev.me | $tee /dev/tty | { $grep /devicelogin || true; })
+contains_devicelogin=$(tyger login "${uri}" | $tee /dev/tty | { $grep /devicelogin || true; })
 if [[ -z "${contains_devicelogin}" ]]; then
     echo "Failed to fall back to device login"
     exit 1

@@ -25,7 +25,7 @@ spec:
               done
       containers:
         - name: mrd-storage-server
-          image: {{ .Values.storageServer.image }}
+          image: {{ required "A value for storageServer.image is required" .Values.storageServer.image  }}
           env:
             - name: MRD_STORAGE_SERVER_DATABASE_PROVIDER
               value: postgresql
@@ -56,7 +56,7 @@ spec:
           - secret:
               name: {{ template "common.names.fullname" .Subcharts.storagedb  }}
           - secret:
-              name: {{ required "A value for storagedb.storageAccountConnectionStringSecretName" .Values.storageServer.storageAccountConnectionStringSecretName }}
+              name: {{ required "A value for storagedb.storageAccountConnectionStringSecretName is required" .Values.storageServer.storageAccountConnectionStringSecretName }}
               items:
                 - key: {{ .Values.storageServer.storageAccountConnectionStringSecretDataKey }}
                   path: storage-connection-string

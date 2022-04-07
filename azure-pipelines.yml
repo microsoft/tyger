@@ -11,71 +11,33 @@ pool:
 
 variables:
   DOCKER_BUILDKIT: 1
-  isPR: $[eq(variables['Build.Reason'], 'PullRequest')]
-  isCI: $[or(eq(variables['Build.Reason'], 'IndividualCI'), eq(variables['Build.Reason'], 'BatchedCI'))]
-  ${{ if eq(variables.isPR, 'true') }}:
-    TYGER_ENVIRONMENT_NAME: 'tyger-pr$(System.PullRequest.PullRequestId)'
-  ${{ else }}:
-    TYGER_ENVIRONMENT_NAME: 'tygerwestus2'
+  IS_PR: $[ne(variables['System.PullRequest.PullRequestId'], '')]
+  IS_CI: $[or(eq(variables['Build.Reason'], 'IndividualCI'), eq(variables['Build.Reason'], 'BatchedCI'))]
 
 jobs:
+- job: devcontainerMetadata
+  displayName: "Get devcontainer metadata"
+  steps:
+    - script: |
+        echo "##vso[task.setvariable variable=DEVCONTAINER_IMAGE;isOutput=true]$(.devcontainer/get-devcontainer-image.sh)"
+      displayName: Get devcontainer image name
+      name: getImage
+
+
 - job: buildAndTest
-  displayName: "Build and run tests"
+  displayName: "Deploy and run tests"
+  dependsOn: devcontainerMetadata
+  container:
+    image: $(DEVCONTAINER_IMAGE)
   variables:
-    GOBIN: '$(Agent.TempDirectory)/go/bin'
+    BASH_ENV: /opt/devcontainer/devcontainer.bashrc
+    DEVCONTAINER_IMAGE: $[ dependencies.devcontainerMetadata.outputs['getImage.DEVCONTAINER_IMAGE'] ]
+
   steps:
 
-  - task: GoTool@0
-    inputs:
-      version: '1.17.3'
-
-  - script: echo '##vso[task.prependpath]$(GOBIN)'
-    displayName: "Add GOBIN to PATH"
-
-  - task: UseDotNet@2
-    displayName: 'Use .NET Core sdk'
-    inputs:
-      useGlobalJson: true
-      workingDirectory: $(system.DefaultWorkingDirectory)/server
-
   - script: |
       set -euo pipefail
-      go install cuelang.org/go/cmd/cue@v0.4.2
-    displayName: Install tools
 
-  - script: |
-      set -euo pipefail
-      make verify-format
-    displayName: "Build and verify formatting"
-
-  - task: AzureCLI@2
-    displayName: Up
-    inputs:
-      azureSubscription: BiomedicalImaging-NonProd
-      scriptType: bash
-      scriptLocation: inlineScript
-      inlineScript: |
-        set -euo pipefail
-        make ensure-environment
-        make up
-        make install-cli
-        make download-test-client-cert
-        make login-service-principal
-        make test-no-up
-
-  - script: |
-      set -euo pipefail
-      image=$(.devcontainer/get-devcontainer-image.sh)
-      echo "##vso[task.setvariable variable=DEVCONTAINER_IMAGE]${image}"
-    displayName: Read devcontainer.json
-
-  - script: |
-      set -euo pipefail
-      docker pull ${DEVCONTAINER_IMAGE}
-    displayName: Pull devcontainer image
-
-  - script: |
-      set -euo pipefail
       docker build -f .devcontainer/Dockerfile --target devcontainer -t devcontainer --build-arg BUILDKIT_INLINE_CACHE=1 --cache-from ${DEVCONTAINER_IMAGE} .
 
       if ! .devcontainer/diff-container-images.sh "${DEVCONTAINER_IMAGE}" devcontainer; then
@@ -84,8 +46,74 @@ jobs:
       fi
     displayName: Verify devcontainer.json
 
+  - script: |
+      make verify-format
+    displayName: "Build and verify formatting"
+
+  - script: |
+      # The AzureCLI@2 task needs to be able to execute the az command in the container, before running
+      # our script, without activating the conda environment
+      echo '##vso[task.prependpath]/opt/conda/envs/tyger/bin'
+
+      # Determine the envionment name to use
+      if [[ "${IS_PR}" == "True" ]]; then
+        environment_name="tyger-pr${SYSTEM_PULLREQUEST_PULLREQUESTID}"
+      else
+        environment_name="tygerwestus2"
+      fi
+
+      echo "##vso[task.setvariable variable=TYGER_ENVIRONMENT_NAME]${environment_name}"
+
+      env | sort
+
+    displayName: Set variables
+
   - task: AzureCLI@2
-    condition: and(succeeded(), eq(variables.isPR, 'true'))
+    displayName: Ensure environment
+    inputs:
+      azureSubscription: BiomedicalImaging-NonProd
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        make ensure-environment
+
+  - task: AzureCLI@2
+    displayName: Build and install Helm chart
+    inputs:
+      azureSubscription: BiomedicalImaging-NonProd
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        make up
+
+  - task: AzureCLI@2
+    displayName: Prepare tyger CLI
+    inputs:
+      azureSubscription: BiomedicalImaging-NonProd
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        make install-cli
+        make download-test-client-cert
+        make login-service-principal
+
+  - task: AzureCLI@2
+    displayName: Run tests
+    inputs:
+      azureSubscription: BiomedicalImaging-NonProd
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        set -euo pipefail
+
+        # Allow repo to be properly bind mounted in test container
+        export CONTAINER_WORKSPACE_DIR=$(pwd)
+        export HOST_WORKSPACE_DIR=$(.devcontainer/get-host-workspace-directory.sh)
+
+        make test-no-up
+
+  - task: AzureCLI@2
+    condition: and(succeeded(), eq(variables.IS_PR, 'true'))
     displayName: Remove environment
     inputs:
       azureSubscription: BiomedicalImaging-NonProd
@@ -95,14 +123,3 @@ jobs:
         set -euo pipefail
         make down
         make remove-environment
-
-  - task: AzureCLI@2
-    condition: and(succeeded(), eq(variables.isCI, 'true'))
-    displayName: Push Images
-    inputs:
-      azureSubscription: BiomedicalImaging-NonProd
-      scriptType: bash
-      scriptLocation: inlineScript
-      inlineScript: |
-        set -euo pipefail
-        scripts/build-images.sh --push --use-git-hash-as-tag
