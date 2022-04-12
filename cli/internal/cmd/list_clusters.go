@@ -10,8 +10,12 @@ import (
 )
 
 func newListClustersCommand(rootFlags *rootPersistentFlags) *cobra.Command {
-	return &cobra.Command{
-		Use:                   "clusters",
+	var flags struct {
+		limit uint
+	}
+
+	cmd := &cobra.Command{
+		Use:                   "clusters [--limit LIMIT]",
 		Short:                 "List clusters",
 		Long:                  `List clusters.`,
 		DisableFlagsInUseLine: true,
@@ -22,13 +26,16 @@ func newListClustersCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 				return err
 			}
 
-			formattedRun, err := json.MarshalIndent(clusters, "", "  ")
+			formattedClusters, err := json.MarshalIndent(clusters, "", "  ")
 			if err != nil {
 				return err
 			}
 
-			fmt.Println(string(formattedRun))
+			fmt.Println(string(formattedClusters))
 			return nil
 		},
 	}
+
+	cmd.Flags().UintVarP(&flags.limit, "limit", "l", 20, "The maximum number of runs to retrieve")
+	return cmd
 }

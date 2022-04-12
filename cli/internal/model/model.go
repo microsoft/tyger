@@ -1,5 +1,7 @@
 package model
 
+import "time"
+
 type ServiceMetadata struct {
 	Authority string `json:"authority"`
 	Audience  string `json:"audience"`
@@ -34,17 +36,30 @@ type Codespec struct {
 	Resources  *CodespecResources `json:"resources,omitempty"`
 }
 
+type NewRun struct {
+	Buffers        map[string]string `json:"buffers,omitempty"`
+	Codespec       string            `json:"codespec"`
+	ComputeTarget  *RunComputeTarget `json:"computeTarget,omitempty"`
+	TimeoutSeconds *int              `json:"timeoutSeconds,omitempty"`
+}
+
 type Run struct {
-	Id            string            `json:"id,omitempty"`
-	Buffers       map[string]string `json:"buffers,omitempty"`
-	Codespec      string            `json:"codespec"`
-	Status        string            `json:"status,omitempty"`
-	ComputeTarget *RunComputeTarget `json:"computeTarget,omitempty"`
+	Id         int64      `json:"id,omitempty"`
+	Status     string     `json:"status,omitempty"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	StartedAt  *time.Time `json:"startedAt"`
+	FinishedAt *time.Time `json:"finishedAt"`
+	NewRun
 }
 
 type RunComputeTarget struct {
 	Cluster  string `json:"cluster,omitempty"`
 	NodePool string `json:"nodePool,omitempty"`
+}
+
+type RunPage struct {
+	Items    []Run  `json:"items"`
+	NextLink string `json:"nextLink,omitempty"`
 }
 
 type ErrorResponse struct {

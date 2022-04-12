@@ -143,6 +143,13 @@ login-service-principal:
 	
 	tyger login "$${uri}" --service-principal ${TEST_CLIENT_IDENTIFIER_URI} --cert ${TEST_CLIENT_CERT_FILE}
 
+login:
+	environment_config=$$(scripts/get-context-environment-config.sh)
+	uri="https://$$(echo "$${environment_config}" | jq -r '.organizations["${DEFAULT_ORGANIATION}"].subdomain').$$(echo "$${environment_config}" | jq -r '.dependencies.dnsZone.name')"
+
+	
+	tyger login "$${uri}"	
+
 connect-db:
 	postgres_password=$(shell kubectl get secrets ${HELM_RELEASE}-db -o jsonpath="{.data.postgresql-password}" | base64 -d)
 	cmd="PGPASSWORD=$${postgres_password} psql -d tyger -U postgres"

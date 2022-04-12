@@ -58,13 +58,20 @@ for organization_name in $(echo "${environment_definition}" | jq -r '.organizati
     namespace=$(echo "${organization}" | jq -r '.namespace')
     helm_release="tyger"
 
-    kubectl delete secret -n "${namespace}" -l tyger=run
-    kubectl delete pod -n "${namespace}" -l tyger=run
     if [[ $(helm list -n "${namespace}" -l name="${helm_release}" -o json | jq length) != 0 ]]; then
         helm delete -n "${namespace}" "${helm_release}"
     fi
 
     kubectl delete pvc -n "${namespace}" -l app.kubernetes.io/instance="${helm_release}"
+
+    for pod in $(kubectl get pod -n "${namespace}" -l tyger=run -o go-template='{{range .items}}{{.metadata.name}}{{"\n"}}{{end}}'); do
+        kubectl patch pod -n "${namespace}" "${pod}" \
+            --type json \
+            --patch='[ { "op": "remove", "path": "/metadata/finalizers" } ]'
+    done
+
+    kubectl delete secret -n "${namespace}" -l tyger=run --cascade=foreground
+    kubectl delete pod -n "${namespace}" -l tyger=run
 
     subscription=$(echo "${environment_definition}" | jq -r '.dependencies.subscription')
     dns_zone=$(echo "${environment_definition}" | jq -r '.dependencies.dnsZone.name')

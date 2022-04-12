@@ -39,7 +39,7 @@ def run_eminence(arguments: List[str], timeout_seconds=600):
         raise
 
 
-def verify_basic_recon_results(testdata_filename, recon_filename, image_variable_name:str = "image_0"):
+def verify_basic_recon_results(testdata_filename, recon_filename, image_variable_name: str = "image_0"):
     input_data: Any = h5py.File(str(testdata_filename))
     coil_images = input_data['dataset']['coil_images']
     coil_images = np.squeeze(coil_images['real'] + 1j*coil_images['imag'])
@@ -63,16 +63,18 @@ def verify_basic_recon_results(testdata_filename, recon_filename, image_variable
 def test_simple_reconstruction(data_dir: Path, temp_output_filename: str, image: str, recon_args: List[str], image_variable_name):
     test_file = str(data_dir/"testdata.h5")
     args = [
-            "-f", test_file,
-            "-o", temp_output_filename,
-            "-i", image,
-        ]
+        "-f", test_file,
+        "-o", temp_output_filename,
+        "-i", image,
+        "-t", "30m"
+    ]
 
     if len(recon_args):
         args = args + ["--"] + recon_args
 
     run_eminence(args)
     verify_basic_recon_results(test_file, temp_output_filename, image_variable_name)
+
 
 @pytest.mark.parametrize(
     "image,recon_args,image_variable_name",
@@ -91,7 +93,8 @@ def test_noise_dependency_reconstruction(data_dir: Path, temp_output_filename: s
             "-i", image,
             "-o", "out_dummy.h5",
             "-s", scanner_session_id,
-        ] + ["--"] + recon_args_noise )
+            "-t", "30m"
+        ] + ["--"] + recon_args_noise)
 
     Path("out_dummy.h5").unlink()
 
@@ -100,7 +103,8 @@ def test_noise_dependency_reconstruction(data_dir: Path, temp_output_filename: s
             "-f", data_file,
             "-o", temp_output_filename,
             "-i", image,
-            "-s", scanner_session_id
+            "-s", scanner_session_id,
+            "-t", "30m"
         ] + ["--"] + recon_args_main)
 
     # Within the object being scanned, the standard deviation across repetitions

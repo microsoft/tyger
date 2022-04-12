@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/model"
 	"github.com/spf13/cobra"
@@ -16,6 +17,7 @@ func newCreateRunCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 		buffers         map[string]string
 		cluster         string
 		nodePool        string
+		timeout         string
 	}
 
 	cmd := &cobra.Command{
@@ -31,15 +33,26 @@ func newCreateRunCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 				codespecRef = fmt.Sprintf("%s/versions/%d", codespecRef, flags.codespecVersion)
 			}
 
-			run := model.Run{
+			newRun := model.NewRun{
 				Codespec: codespecRef,
 				Buffers:  flags.buffers,
 			}
 			if flags.cluster != "" || flags.nodePool != "" {
-				run.ComputeTarget = &model.RunComputeTarget{Cluster: flags.cluster, NodePool: flags.nodePool}
+				newRun.ComputeTarget = &model.RunComputeTarget{Cluster: flags.cluster, NodePool: flags.nodePool}
 			}
 
-			_, err := InvokeRequest(http.MethodPost, "v1/runs", run, &run, rootFlags.verbose)
+			if flags.timeout != "" {
+				duration, err := time.ParseDuration(flags.timeout)
+				if err != nil {
+					return err
+				}
+
+				seconds := int(duration.Seconds())
+				newRun.TimeoutSeconds = &seconds
+			}
+
+			run := model.Run{}
+			_, err := InvokeRequest(http.MethodPost, "v1/runs", newRun, &run, rootFlags.verbose)
 			if err != nil {
 				return err
 			}
@@ -52,6 +65,7 @@ func newCreateRunCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 	cmd.Flags().StringVarP(&flags.codespec, "codespec", "c", "", "The name of the codespec to execute")
 	cmd.Flags().StringVar(&flags.cluster, "cluster", "", "The name of the cluster to execute in")
 	cmd.Flags().StringVar(&flags.nodePool, "node-pool", "", "The name of the nodepool to execute in")
+	cmd.Flags().StringVar(&flags.timeout, "timeout", "", `How log before the run times out. Specified in a sequence of decimal numbers, each with optional fraction and a unit suffix, such as "300s", "1.5h" or "2h45m". Valid time units are "s", "m", "h"`)
 	if err := cmd.MarkFlagRequired("codespec"); err != nil {
 		log.Panicln(err)
 	}

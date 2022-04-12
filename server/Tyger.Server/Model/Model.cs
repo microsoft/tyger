@@ -111,15 +111,28 @@ public record Codespec : ModelBase, IValidatableObject
     }
 }
 
-public record Run : ModelBase
+public record Run : NewRun
 {
-    public string? Id { get; init; }
+    public Run() { }
+    public Run(NewRun newRun) : base(newRun) { }
+
+    public long Id { get; init; }
+    public string Status { get; init; } = null!;
+    public DateTimeOffset CreatedAt { get; init; }
+    public DateTimeOffset? StartedAt { get; init; }
+    public DateTimeOffset? FinishedAt { get; init; }
+}
+
+public record NewRun : ModelBase
+{
     public Dictionary<string, string>? Buffers { get; init; }
     [Required]
     public string Codespec { get; init; } = "";
-    public string? Status { get; init; }
     public RunComputeTarget? ComputeTarget { get; init; }
+    public int? TimeoutSeconds { get; init; }
 }
+
+public record RunPage(IReadOnlyList<Run> Items, Uri? NextLink);
 
 public record RunComputeTarget(string? Cluster, string? NodePool);
 

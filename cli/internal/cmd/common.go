@@ -31,6 +31,10 @@ func exactlyOneArg(argName string) func(cmd *cobra.Command, args []string) error
 func InvokeRequest(method string, relativeUri string, input interface{}, output interface{}, verbose bool) (*http.Response, error) {
 	ctx, err := clicontext.GetCliContext()
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, errors.New("run 'tyger login' to connect to a Tyger server")
+		}
+
 		return nil, err
 	}
 

@@ -15,3 +15,9 @@ ORAS_VERSION="0.2.1-alpha.1"
 
 wget "https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_${ORAS_VERSION}_linux_amd64.tar.gz" -O - |\
   tar xz && mv oras /usr/bin/
+
+# tv
+TV_VERSION="v0.7.0"
+wget "https://github.com/uzimaru0000/tv/releases/download/${TV_VERSION}/tv-x86_64-unknown-linux-gnu.zip" \
+&& unzip tv-x86_64-unknown-linux-gnu.zip \
+&& mv tv-x86_64-unknown-linux-gnu/tv /usr/bin

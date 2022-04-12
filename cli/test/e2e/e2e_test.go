@@ -66,7 +66,7 @@ func TestEndToEnd(t *testing.T) {
 	require.Nil(err, err)
 
 	// create run
-	runId := runTygerSuceeds(t, "create", "run", "--codespec", codespecName,
+	runId := runTygerSuceeds(t, "create", "run", "--codespec", codespecName, "--timeout", "10m",
 		"-b", fmt.Sprintf("input=%s", inputBufferId),
 		"-b", fmt.Sprintf("output=%s", outputBufferId))
 
@@ -106,7 +106,7 @@ func TestGpuResourceRequirement(t *testing.T) {
 		"bash", "-c", "[[ $(nvidia-smi -L | wc -l) == 1 ]]") // verify that a GPU is available
 
 	// create run
-	runId := runTygerSuceeds(t, "create", "run", "--codespec", codespecName)
+	runId := runTygerSuceeds(t, "create", "run", "--codespec", codespecName, "--timeout", "10m")
 
 	waitForRunSuccess(t, runId)
 }
@@ -125,7 +125,7 @@ func TestNoGpuResourceRequirement(t *testing.T) {
 		"bash", "-c", "[[ ! $(nvidia-smi) ]]") // verify that no GPU is available
 
 	// create run
-	runId := runTygerSuceeds(t, "create", "run", "--codespec", codespecName)
+	runId := runTygerSuceeds(t, "create", "run", "--codespec", codespecName, "--timeout", "10m")
 
 	waitForRunSuccess(t, runId)
 }
@@ -142,7 +142,7 @@ func TestTargetGpuNodePool(t *testing.T) {
 		"bash", "-c", "[[ $(nvidia-smi -L | wc -l) == 1 ]]") // verify that a GPU is available
 
 	// create run
-	runId := runTygerSuceeds(t, "create", "run", "--codespec", codespecName, "--node-pool", "gpunp")
+	runId := runTygerSuceeds(t, "create", "run", "--codespec", codespecName, "--node-pool", "gpunp", "--timeout", "20m")
 
 	waitForRunSuccess(t, runId)
 }
@@ -159,7 +159,7 @@ func TestTargetCpuNodePool(t *testing.T) {
 		"bash", "-c", "[[ ! $(nvidia-smi) ]]") // verify that no GPU is available
 
 	// create run
-	runId := runTygerSuceeds(t, "create", "run", "--codespec", codespecName, "--node-pool", "cpunp")
+	runId := runTygerSuceeds(t, "create", "run", "--codespec", codespecName, "--node-pool", "cpunp", "--timeout", "10m")
 
 	waitForRunSuccess(t, runId)
 }
@@ -197,7 +197,7 @@ func TestTargetCpuNodePoolWithGpuResourcesReturnsError(t *testing.T) {
 		"--image", "ubuntu",
 		"--gpu", "1")
 
-	_, stderr, _ := runTyger("create", "run", "--codespec", codespecName, "--node-pool", "cpunp")
+	_, stderr, _ := runTyger("create", "run", "--codespec", codespecName, "--node-pool", "cpunp", "--timeout", "10m")
 	require.Contains(t, stderr, "does not have GPUs and cannot satisfy GPU request")
 }
 
@@ -244,6 +244,80 @@ func TestOpenApiSpecIsAsExpected(t *testing.T) {
 			expectedFilePath,
 			diff.LineDiff(e, a))
 	}
+}
+
+func TestListRunsPaging(t *testing.T) {
+	t.Parallel()
+
+	runTygerSuceeds(t,
+		"create", "codespec", "exitimmediately",
+		"--image", "busybox",
+		"--command",
+		"--",
+		"echo", "hi")
+
+	runs := make(map[string]string)
+	for i := 0; i < 10; i++ {
+		runs[runTygerSuceeds(t, "create", "run", "--codespec", "exitimmediately", "--timeout", "10m")] = ""
+	}
+
+	for uri := "v1/runs?limit=5"; uri != ""; {
+		page := model.RunPage{}
+		_, err := cmd.InvokeRequest(http.MethodGet, uri, nil, &page, false)
+		require.Nil(t, err)
+		for _, r := range page.Items {
+			delete(runs, fmt.Sprint(r.Id))
+			if len(runs) == 0 {
+				return
+			}
+		}
+
+		if page.NextLink == "" {
+			break
+		}
+
+		uri = strings.TrimLeft(page.NextLink, "/")
+	}
+
+	require.Empty(t, runs)
+}
+
+func TestListRunsSince(t *testing.T) {
+	t.Parallel()
+
+	codespecName := t.Name()
+
+	runTygerSuceeds(t,
+		"create", "codespec", codespecName,
+		"--image", "busybox",
+		"--command",
+		"--",
+		"echo", "hi")
+
+	runTygerSuceeds(t, "create", "run", "--codespec", codespecName, "--timeout", "10m")
+	midId := runTygerSuceeds(t, "create", "run", "--codespec", codespecName, "--timeout", "10m")
+	lastId := runTygerSuceeds(t, "create", "run", "--codespec", codespecName, "--timeout", "10m")
+
+	midRunJson := runTygerSuceeds(t, "get", "run", midId)
+	midRun := model.Run{}
+	err := json.Unmarshal([]byte(midRunJson), &midRun)
+	require.Nil(t, err)
+
+	listJson := runTygerSuceeds(t, "list", "runs", "--since", midRun.CreatedAt.Format(time.RFC3339Nano))
+	list := make([]model.Run, 0)
+	json.Unmarshal([]byte(listJson), &list)
+	require.Greater(t, len(list), 0)
+	for _, r := range list {
+		require.Greater(t, r.CreatedAt.UnixNano(), midRun.CreatedAt.UnixNano())
+	}
+
+	for _, r := range list {
+		if fmt.Sprint(r.Id) == lastId {
+			return
+		}
+	}
+
+	require.Fail(t, "last run not found")
 }
 
 func TestAuthenticationRequired(t *testing.T) {

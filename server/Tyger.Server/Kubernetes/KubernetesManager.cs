@@ -1,24 +1,42 @@
-using System.ComponentModel.DataAnnotations;
 using System.Globalization;
+using System.Net;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using k8s;
 using Microsoft.Extensions.Options;
+using Microsoft.Rest;
 using Tyger.Server.Buffers;
 using Tyger.Server.Database;
 using Tyger.Server.Model;
 using Tyger.Server.StorageServer;
+using ValidationException = System.ComponentModel.DataAnnotations.ValidationException;
 
 namespace Tyger.Server.Kubernetes;
 
+// Currently, each run has a single pod. The states a run can be in are:
+// 1. Created in the DB, no pod yet
+// 2. Pod created -> Database updated
+// 3. Pod terminated (succeeded or failed) -> record in DB finalized -> pod deleted
+// 4. Pod timed out -> record in DB finalized -> pod deleted
+// 5. Pod deleted externally before the run completed.
+//
+// Normal state transition is 1 -> 2 -> 3
+// During state 1, the run is not externally visible
+// During state 2, the status of the run is determined by querying the database and augmenting the state with information from the pod
+// States 3, 4, and 5 are observed in a background loop. Once the DB has been updated, the status of the run is obtained solely from the database.
+
 public interface IKubernetesManager
 {
-    Task<Run> CreateRun(Run newRun, CancellationToken cancellationToken);
-    Task<Run?> GetRun(string id, CancellationToken cancellationToken);
+    Task<Run> CreateRun(NewRun newRun, CancellationToken cancellationToken);
+    Task<(IReadOnlyList<Run>, string? nextContinuationToken)> GetRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken);
+    Task<Run?> GetRun(long id, CancellationToken cancellationToken);
 }
 
-public class KubernetesManager : IKubernetesManager
+public sealed class KubernetesManager : IKubernetesManager, IHostedService, IDisposable
 {
     private const string SecretMountPath = "/etc/buffer-sas-tokens";
+
+    private static readonly Regex s_nodePoolFromNodeName = new("^aks-([a-zA-Z0-9]+)-", RegexOptions.Compiled);
 
     private readonly k8s.Kubernetes _client;
     private readonly IRepository _repository;
@@ -26,6 +44,8 @@ public class KubernetesManager : IKubernetesManager
     private readonly KubernetesOptions _k8sOptions;
     private readonly StorageServerOptions _storageServerOptions;
     private readonly ILogger<KubernetesManager> _logger;
+    private Task? _backgroundTask;
+    private CancellationTokenSource? _backgroundCancellationTokenSource;
 
     public KubernetesManager(
         k8s.Kubernetes client,
@@ -43,7 +63,7 @@ public class KubernetesManager : IKubernetesManager
         _logger = logger;
     }
 
-    public async Task<Run> CreateRun(Run newRun, CancellationToken cancellationToken)
+    public async Task<Run> CreateRun(NewRun newRun, CancellationToken cancellationToken)
     {
         (var codespec, var normalizedCodespecRef) = await GetCodespec(newRun.Codespec, cancellationToken);
 
@@ -84,11 +104,14 @@ public class KubernetesManager : IKubernetesManager
             }
         }
 
-        var id = UniqueId.Create();
-        var k8sId = K8sIdFromId(id);
-        var run = newRun with { Codespec = normalizedCodespecRef, Id = id };
-
         Dictionary<string, Uri> bufferMap = await GetBufferMap(codespec.Buffers ?? new(null, null), newRun.Buffers ?? new(), cancellationToken);
+
+        var run = await _repository.CreateRun(
+            newRun with { Codespec = normalizedCodespecRef, TimeoutSeconds = newRun.TimeoutSeconds ?? (int)TimeSpan.FromHours(12).TotalSeconds },
+            cancellationToken);
+
+        var k8sId = PodNameFromRunId(run.Id);
+
         var labels = new Dictionary<string, string> { { "tyger", "run" } };
         var secret = new k8s.Models.V1Secret
         {
@@ -100,7 +123,7 @@ public class KubernetesManager : IKubernetesManager
             StringData = bufferMap.ToDictionary(p => p.Key, p => p.Value.ToString()),
         };
 
-        await _client.CreateNamespacedSecretAsync(secret, _k8sOptions.Namespace, cancellationToken: cancellationToken);
+        secret = await _client.CreateNamespacedSecretAsync(secret, _k8sOptions.Namespace, cancellationToken: cancellationToken);
         _logger.CreatedSecret(k8sId);
 
         var env = new List<k8s.Models.V1EnvVar> { new("MRD_STORAGE_URI", _storageServerOptions.Uri) };
@@ -154,8 +177,16 @@ public class KubernetesManager : IKubernetesManager
             Metadata = new()
             {
                 Name = k8sId,
-                Annotations = new Dictionary<string, string> { { "run", JsonSerializer.Serialize(run) } },
-                Labels = labels
+                Annotations = new Dictionary<string, string>
+                {
+                    { "run", JsonSerializer.Serialize(run) },
+                },
+                Labels = labels,
+                OwnerReferences = new k8s.Models.V1OwnerReference[]
+                {
+                    new(secret.ApiVersion, secret.Kind, secret.Metadata.Name, secret.Metadata.Uid)
+                },
+                Finalizers = new[] { "research.microsoft.com/tyger-finalizer" }
             },
             Spec = new()
             {
@@ -188,6 +219,8 @@ public class KubernetesManager : IKubernetesManager
         }
 
         await _client.CreateNamespacedPodAsync(pod, _k8sOptions.Namespace, cancellationToken: cancellationToken);
+        await _repository.UpdateRun(run, podCreated: true, cancellationToken: cancellationToken);
+
         _logger.CreatedRun(k8sId);
         return run;
     }
@@ -278,53 +311,296 @@ public class KubernetesManager : IKubernetesManager
         return outputMap;
     }
 
-    private static string K8sIdFromId(string id) => $"run-{id}";
+    private static string PodNameFromRunId(long id) => $"run-{id}";
 
-    public async Task<Run?> GetRun(string id, CancellationToken cancellationToken)
+    private static long RunIdFromPodName(string podName) => long.Parse(podName[4..], CultureInfo.InvariantCulture);
+
+    public async Task<(IReadOnlyList<Run>, string? nextContinuationToken)> GetRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken)
     {
-        var pod = await _client.ReadNamespacedPodAsync(K8sIdFromId(id), _k8sOptions.Namespace, cancellationToken: cancellationToken);
-        var serializedRun = pod.Metadata.Annotations?["run"];
-        if (serializedRun == null)
+        (var partialRuns, var nextContinuationToken) = await _repository.GetRuns(limit, since, continuationToken, cancellationToken);
+        var finalRuns = partialRuns.Select(r => r.run).ToList();
+        if (partialRuns.All(r => r.final))
         {
-            return null;
+            return (finalRuns, nextContinuationToken);
         }
 
-        var run = JsonSerializer.Deserialize<Run>(serializedRun);
-        if (run == null)
+        var podIdsToFind = new Dictionary<string, int>();
+
+        for (int i = 0; i < partialRuns.Count; i++)
         {
-            return null;
+            (var run, var final) = partialRuns[i];
+            if (!final)
+            {
+                podIdsToFind.Add(PodNameFromRunId(run.Id), i);
+            }
         }
 
-        return run with { Status = GetPodStatus(pod) };
+        string? k8sContinuation = null;
+        List<int>? zombieRunIndexes = null;
+        do
+        {
+            var pods = await _client.ListNamespacedPodAsync(_k8sOptions.Namespace, continueParameter: k8sContinuation, labelSelector: "tyger=run", cancellationToken: cancellationToken);
+            foreach (var pod in pods.Items)
+            {
+                if (podIdsToFind.TryGetValue(pod.Metadata.Name, out var index))
+                {
+                    if (GetRunFromPod(pod) is Run run)
+                    {
+                        finalRuns[index] = run;
+                    }
+                    else
+                    {
+                        (zombieRunIndexes ??= new()).Add(index);
+                    }
+
+                    podIdsToFind.Remove(pod.Metadata.Name);
+                    if (podIdsToFind.Count == 0)
+                    {
+                        goto Done;
+                    }
+                }
+            }
+
+            k8sContinuation = pods.Metadata.ContinueProperty;
+        } while (k8sContinuation != null);
+
+Done:
+
+        foreach ((var missingPodId, var index) in podIdsToFind)
+        {
+            _logger.RunMissingPod(missingPodId);
+            (zombieRunIndexes ??= new()).Add(index);
+        }
+
+        if (zombieRunIndexes != null)
+        {
+            zombieRunIndexes.Sort();
+            for (int i = zombieRunIndexes.Count - 1; i >= 0; i--)
+            {
+                finalRuns.RemoveAt(zombieRunIndexes[i]);
+            }
+        }
+
+        return (finalRuns, nextContinuationToken);
     }
 
-    private string GetPodStatus(k8s.Models.V1Pod pod)
+    public async Task<Run?> GetRun(long id, CancellationToken cancellationToken)
+    {
+        var repositoryResponse = await _repository.GetRun(id, cancellationToken);
+        if (repositoryResponse == null)
+        {
+            return null;
+        }
+
+        if (repositoryResponse.Value.final)
+        {
+            return repositoryResponse.Value.run;
+        }
+
+        try
+        {
+            var pod = await _client.ReadNamespacedPodAsync(PodNameFromRunId(id), _k8sOptions.Namespace, cancellationToken: cancellationToken);
+            return GetRunFromPod(pod);
+        }
+        catch (HttpOperationException e) when (e.Response.StatusCode == HttpStatusCode.NotFound)
+        {
+            _logger.RunMissingPod(PodNameFromRunId(id));
+            return null;
+        }
+    }
+
+    private Run? GetRunFromPod(k8s.Models.V1Pod pod)
+    {
+        var serializedRun = pod.Metadata.Annotations?["run"];
+        Run? run;
+        if (serializedRun == null || (run = JsonSerializer.Deserialize<Run>(serializedRun)) == null)
+        {
+            _logger.InvalidRunAnnotation(pod.Metadata.Name);
+            return null;
+        }
+
+        if (!string.IsNullOrEmpty(pod.Spec.NodeName) && s_nodePoolFromNodeName.Match(pod.Spec.NodeName) is { Success: true } m)
+        {
+            run = run with { ComputeTarget = new(_k8sOptions.Clusters.Keys.Single(), m.Groups[1].Value) };
+        }
+
+        return GetRunUpdatedWithStatusAndTimes(run, pod);
+    }
+
+    private Run GetRunUpdatedWithStatusAndTimes(Run run, k8s.Models.V1Pod pod)
     {
         if (pod.Status.ContainerStatuses?.Count == 1)
         {
             var state = pod.Status.ContainerStatuses[0].State;
             if (state.Waiting != null)
             {
-                return state.Waiting.Reason;
+                return run with { Status = state.Waiting.Reason };
             }
 
             if (state.Running != null)
             {
-                return "Running";
+                return run with { Status = "Running", StartedAt = state.Running.StartedAt };
             }
 
             if (state.Terminated != null)
             {
-                return state.Terminated.Reason;
+                return run with { Status = state.Terminated.Reason, StartedAt = state.Terminated.StartedAt, FinishedAt = state.Terminated.FinishedAt };
             }
         }
 
         if (pod.Status.Phase == "Pending")
         {
-            return pod.Status.Phase;
+            return run with { Status = pod.Status.Phase };
         }
 
         _logger.UnableToDeterminePodPhase(pod.Metadata.Name);
-        return pod.Status.Phase;
+        return run;
+    }
+
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        _backgroundCancellationTokenSource = new CancellationTokenSource();
+        _backgroundTask = BackgroundLoop(_backgroundCancellationTokenSource.Token);
+        return Task.CompletedTask;
+    }
+
+    public async Task StopAsync(CancellationToken cancellationToken)
+    {
+        if (_backgroundCancellationTokenSource == null || _backgroundTask == null)
+        {
+            return;
+        }
+
+        _backgroundCancellationTokenSource.Cancel();
+
+        // wait for the background task to complete, but give up once the cancellation token is cancelled.
+        var tcs = new TaskCompletionSource<bool>();
+        cancellationToken.Register(s => ((TaskCompletionSource<bool>)s!).SetResult(true), tcs);
+        await Task.WhenAny(_backgroundTask, tcs.Task);
+    }
+
+    private async Task BackgroundLoop(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
+
+                _logger.StartingBackgroundSweep();
+
+                // first clear out runs that never got a pod created
+                while (true)
+                {
+                    var runs = await _repository.GetPageOfRunsThatNeverGotAPod(cancellationToken);
+                    if (runs.Count == 0)
+                    {
+                        break;
+                    }
+
+                    foreach (var run in runs)
+                    {
+                        _logger.DeletingRunThatNeverCreatedAPod(run.Id);
+                        await DeleteRunResources(run.Id, cancellationToken);
+                        await _repository.DeleteRun(run.Id, cancellationToken);
+                    }
+                }
+
+                // Now go though the list of pods and update database records if terminated
+                string? continuation = null;
+                do
+                {
+                    var pods = await _client.ListNamespacedPodAsync(_k8sOptions.Namespace, continueParameter: continuation, labelSelector: "tyger=run", cancellationToken: cancellationToken);
+
+                    foreach (var pod in pods.Items)
+                    {
+                        switch (GetRunFromPod(pod), pod)
+                        {
+                            case (null, _):
+                                await _repository.DeleteRun(RunIdFromPodName(pod.Metadata.Name), cancellationToken);
+                                await DeleteRunResources(RunIdFromPodName(pod.Metadata.Name), cancellationToken);
+                                break;
+                            case (var run, { Status.Phase: "Succeeded" or "Failed" }):
+                                _logger.FinalizingTerminatedRun(run.Id, run.Status);
+                                await _repository.UpdateRun(run, final: true, cancellationToken: cancellationToken);
+                                await DeleteRunResources(run.Id, cancellationToken);
+                                break;
+                            default:
+                                break;
+                        }
+                    }
+
+                    continuation = pods.Metadata.ContinueProperty;
+                } while (continuation != null);
+
+                // now clean up timed out jobs
+                while (true)
+                {
+                    var runs = await _repository.GetPageOfTimedOutRuns(cancellationToken);
+                    if (runs.Count == 0)
+                    {
+                        break;
+                    }
+
+                    foreach (var run in runs)
+                    {
+                        _logger.FinalizingTimedOutRun(run.Id);
+                        await DeleteRunResources(run.Id, cancellationToken);
+                        await _repository.UpdateRun(run with { Status = "TimedOut" }, final: true, cancellationToken: cancellationToken);
+                    }
+                }
+
+                _logger.BackgroundSweepCompleted();
+            }
+            catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception e)
+            {
+                _logger.ErrorDuringBackgroundSweep(e);
+            }
+        }
+    }
+
+    private async Task DeleteRunResources(long runId, CancellationToken cancellationToken)
+    {
+        string podName = PodNameFromRunId(runId);
+
+        try
+        {
+            // clear finalizer on Pod
+            await _client.PatchNamespacedPodAsync(
+                new k8s.Models.V1Patch(new { metadata = new { finalizers = Array.Empty<string>() } }, k8s.Models.V1Patch.PatchType.MergePatch),
+                podName,
+                _k8sOptions.Namespace,
+                cancellationToken: cancellationToken);
+        }
+        catch (HttpOperationException e) when (e.Response.StatusCode == HttpStatusCode.NotFound)
+        {
+        }
+
+        try
+        {
+            await _client.DeleteNamespacedSecretAsync(podName, _k8sOptions.Namespace, propagationPolicy: "Foreground", cancellationToken: cancellationToken);
+        }
+        catch (HttpOperationException e) when (e.Response.StatusCode == HttpStatusCode.NotFound)
+        {
+            try
+            {
+                await _client.DeleteNamespacedPodAsync(podName, _k8sOptions.Namespace, propagationPolicy: "Foreground", cancellationToken: cancellationToken);
+            }
+            catch (HttpOperationException e2) when (e2.Response.StatusCode == HttpStatusCode.NotFound)
+            {
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_backgroundTask is { IsCompleted: true })
+        {
+            _backgroundTask.Dispose();
+        }
     }
 }

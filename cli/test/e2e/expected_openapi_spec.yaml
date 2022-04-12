@@ -187,6 +187,30 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
+    get:
+      tags:
+        - tyger.server
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            format: int32
+        - name: since
+          in: query
+          schema:
+            type: string
+        - name: _ct
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunPage'
   '/v1/runs/{runId}':
     get:
       tags:
@@ -345,9 +369,6 @@ components:
         - codespec
       type: object
       properties:
-        id:
-          type: string
-          nullable: true
         buffers:
           type: object
           additionalProperties:
@@ -355,11 +376,29 @@ components:
           nullable: true
         codespec:
           type: string
+        computeTarget:
+          $ref: '#/components/schemas/RunComputeTarget'
+        timeoutSeconds:
+          type: integer
+          format: int32
+          nullable: true
+        id:
+          type: integer
+          format: int64
         status:
           type: string
           nullable: true
-        computeTarget:
-          $ref: '#/components/schemas/RunComputeTarget'
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        finishedAt:
+          type: string
+          format: date-time
+          nullable: true
       additionalProperties: false
     RunComputeTarget:
       type: object
@@ -369,5 +408,18 @@ components:
           nullable: true
         nodePool:
           type: string
+          nullable: true
+      additionalProperties: false
+    RunPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Run'
+          nullable: true
+        nextLink:
+          type: string
+          format: uri
           nullable: true
       additionalProperties: false

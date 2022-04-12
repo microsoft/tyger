@@ -19,6 +19,7 @@ func newListCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 	}
 
 	cmd.AddCommand(newListClustersCommand(rootFlags))
+	cmd.AddCommand(newListRunsCommand(rootFlags))
 
 	return cmd
 }

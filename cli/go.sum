@@ -84,6 +84,8 @@ github.com/johnstairs/pathenvconfig v0.2.0 h1:WiCf1eQ3Vz2MemaamiVmm/CDHnVyM6GgxR
 github.com/johnstairs/pathenvconfig v0.2.0/go.mod h1:XqBReihWnlfmCkHqvJAfsRCfa/JJCYXZds8fwtuz8cM=
 github.com/json-iterator/go v1.1.6/go.mod h1:+SdeFBvtyEkXs7REEP0seUULqWtbJapLOCVDaaPEHmU=
 github.com/json-iterator/go v1.1.12/go.mod h1:e30LSqwooZae/UwlEbR2852Gd8hjQvJoHmT4TnhNGBo=
+github.com/kaz-yamam0t0/go-timeparser v0.0.3 h1:oHM/qf8drTqH/Cn9ZFTllw+YkgSq2Obwhfk4iMx5fNk=
+github.com/kaz-yamam0t0/go-timeparser v0.0.3/go.mod h1:ygMfwLhs9+2ly+0CFpen1dzXuJiRgiojKo6DXdA5ILw=
 github.com/kisielk/errcheck v1.5.0/go.mod h1:pFxgyoBC7bSaBwPgfKdkLd5X25qrDl4LWUI2bnpBCr8=
 github.com/kisielk/gotool v1.0.0/go.mod h1:XhKaO+MFFWcvkIS/tQcRk01m1F5IRFswLeQ+oQHNcck=
 github.com/kr/pretty v0.1.0/go.mod h1:dAy3ld7l9f0ibDNOQOHHMYYIIbhfbHSm3C4ZsoJORNo=

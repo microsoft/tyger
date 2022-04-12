@@ -73,6 +73,7 @@ if __name__ == '__main__':
     parser.add_argument('--gpu', type=str, help='GPUs needed')
     parser.add_argument('--cluster', type=str, help='The name of the cluster to execute in')
     parser.add_argument('--node-pool', type=str, help='The name of the node pool to execute in')
+    parser.add_argument('-t', '--timeout', type=str, help='How log before the run times out. Specified in a sequence of decimal numbers, each with optional fraction and a unit suffix, such as "300s", "1.5h" or "2h45m". Valid time units are "s", "m", "h')
     parser.add_argument('-v', '--verbose', action=argparse.BooleanOptionalAction, help='Verbose output')
     parser.add_argument('recon_args', nargs='*', help='Additional arguments passed to the reconstruction proccess')
 
@@ -135,7 +136,8 @@ if __name__ == '__main__':
             "-b", f"output={output_buffer_id}"
         ]
         + (["--cluster", args.cluster] if args.cluster else [])
-        + (["--node-pool", args.node_pool] if args.node_pool else []))
+        + (["--node-pool", args.node_pool] if args.node_pool else [])
+        + (["--timeout", args.timeout] if args.timeout else []))
 
     print(f"CodeSpec: {codespec_name} - {code_spec_version}")
     print(f"RunId: {run_id}")
