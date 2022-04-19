@@ -76,6 +76,41 @@ def test_simple_reconstruction(data_dir: Path, temp_output_filename: str, image:
     verify_basic_recon_results(test_file, temp_output_filename, image_variable_name)
 
 
+def test_reconstruction_on_gpu(data_dir: Path, temp_output_filename: str):
+    # For now we are not parameterizing this test. Once we are able to get better coverage,
+    # we will need to expand how we configure these tests that are modeled off the Gadgetron
+    # end-to-end test cases
+    image = get_dependency_image("gadgetron_recon")
+    recon_args = ["-c", "grappa_float.xml"]
+    input_file = str(data_dir/"rt_grappa"/"rt_grappa.h5")
+    output_image_variable_name = "img/image_0"
+    reference_file = str(data_dir/"rt_grappa"/"grappa_rate2_out.mrd")
+    reference_image_variable_name = "grappa_float_cpu.xml/image_0"
+
+    # 5% tolerance is pretty high, but this RT recon is not entirely deterministic
+    # The refresh rate of the GRAPPA unmixing coefficients depend on the speed of the GPU.
+    # Noise levels may vary a bit.
+    tolerance = 0.05
+
+    args = [
+        "-f", input_file,
+        "-o", temp_output_filename,
+        "-i", image,
+        "-t", "30m",
+        "--gpu", "1"
+    ] + ["--"] + recon_args
+
+    run_eminence(args)
+
+    recon_data: Any = h5py.File(str(temp_output_filename))
+    reconstruction = np.squeeze(recon_data[output_image_variable_name]['data'])
+
+    ref_data: Any = h5py.File(str(reference_file))
+    ref = np.squeeze(ref_data[reference_image_variable_name]['data'])
+
+    assert np.linalg.norm(reconstruction - ref) / np.linalg.norm(ref) < tolerance
+
+
 @pytest.mark.parametrize(
     "image,recon_args,image_variable_name",
     [
