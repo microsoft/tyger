@@ -73,7 +73,8 @@ if __name__ == '__main__':
     parser.add_argument('--gpu', type=str, help='GPUs needed')
     parser.add_argument('--cluster', type=str, help='The name of the cluster to execute in')
     parser.add_argument('--node-pool', type=str, help='The name of the node pool to execute in')
-    parser.add_argument('-t', '--timeout', type=str, help='How log before the run times out. Specified in a sequence of decimal numbers, each with optional fraction and a unit suffix, such as "300s", "1.5h" or "2h45m". Valid time units are "s", "m", "h')
+    parser.add_argument('-t', '--timeout', type=str,
+                        help='How log before the run times out. Specified in a sequence of decimal numbers, each with optional fraction and a unit suffix, such as "300s", "1.5h" or "2h45m". Valid time units are "s", "m", "h')
     parser.add_argument('-v', '--verbose', action=argparse.BooleanOptionalAction, help='Verbose output')
     parser.add_argument('recon_args', nargs='*', help='Additional arguments passed to the reconstruction proccess')
 
@@ -91,18 +92,19 @@ if __name__ == '__main__':
 
     ensure_tyger_logged_in()
 
-    input_buffer_id = run_tyger(["create", "buffer"])
+    input_buffer_id = run_tyger(["buffer", "create"])
     input_buffer_sas_uri = run_tyger(
-        ["access", "buffer", input_buffer_id, "-w"])
+        ["buffer", "access", input_buffer_id, "-w"])
 
-    output_buffer_id = run_tyger(["create", "buffer"])
-    output_buffer_sas_uri = run_tyger(["access", "buffer", output_buffer_id])
+    output_buffer_id = run_tyger(["buffer", "create"])
+    output_buffer_sas_uri = run_tyger(["buffer", "access", output_buffer_id])
 
     codespec_name = f"eminence-codespec-{random.randint(0,1000)}"
 
     tyger_cmd = (
         [
-            "create", "codespec", codespec_name,
+            "codespec",
+            "create", codespec_name,
             "-i=input", "-o=output",
             "--image", args.image
         ]
@@ -130,8 +132,9 @@ if __name__ == '__main__':
 
     run_id = run_tyger(
         [
+            "run",
             "create",
-            "run", "--codespec", codespec_name,
+            "--codespec", codespec_name,
             "-b", f"input={input_buffer_id}",
             "-b", f"output={output_buffer_id}"
         ]

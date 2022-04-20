@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -9,13 +10,31 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newListClustersCommand(rootFlags *rootPersistentFlags) *cobra.Command {
+func newClusterCommand(rootFlags *rootPersistentFlags) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:                   "cluster",
+		Aliases:               []string{"clusters"},
+		Short:                 "Manage clusters",
+		Long:                  `Manage clusters`,
+		DisableFlagsInUseLine: true,
+		Args:                  cobra.NoArgs,
+		RunE: func(*cobra.Command, []string) error {
+			return errors.New("a command is required")
+		},
+	}
+
+	cmd.AddCommand(newClusterListCommand(rootFlags))
+
+	return cmd
+}
+
+func newClusterListCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 	var flags struct {
 		limit uint
 	}
 
 	cmd := &cobra.Command{
-		Use:                   "clusters [--limit LIMIT]",
+		Use:                   "list [--limit LIMIT]",
 		Short:                 "List clusters",
 		Long:                  `List clusters.`,
 		DisableFlagsInUseLine: true,

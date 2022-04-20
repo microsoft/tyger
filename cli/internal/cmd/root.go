@@ -28,11 +28,10 @@ func newRootCommand() *cobra.Command {
 
 	cmd.AddCommand(newLoginCommand(flags))
 	cmd.AddCommand(newLogoutCommand(flags))
-	cmd.AddCommand(newAccessCommand(flags))
-	cmd.AddCommand(newCreateCommand(flags))
-	cmd.AddCommand(newGetCommand(flags))
-	cmd.AddCommand(newLogsCommand(flags))
-	cmd.AddCommand(newListCommand(flags))
+	cmd.AddCommand(newBufferCommand(flags))
+	cmd.AddCommand(newCodespecCommand(flags))
+	cmd.AddCommand(newRunCommand(flags))
+	cmd.AddCommand(newClusterCommand(flags))
 
 	return cmd
 }

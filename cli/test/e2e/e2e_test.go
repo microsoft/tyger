@@ -45,19 +45,20 @@ func TestEndToEnd(t *testing.T) {
 	digest := runCommandSuceeds(t, "docker", "inspect", "testrecon", "--format", "{{ index .RepoDigests 0 }}")
 
 	runTygerSuceeds(t,
-		"create", "codespec", codespecName,
+		"codespec",
+		"create", codespecName,
 		"-i=input", "-o=output",
 		"--image", digest,
 		"--",
 		"-r", "$(INPUT_BUFFER_URI_FILE)", "-w", "$(OUTPUT_BUFFER_URI_FILE)")
 
 	// create an input buffer and a SAS token to be able to write to it
-	inputBufferId := runTygerSuceeds(t, "create", "buffer")
-	inputSasUri := runTygerSuceeds(t, "access", "buffer", inputBufferId, "-w")
+	inputBufferId := runTygerSuceeds(t, "buffer", "create")
+	inputSasUri := runTygerSuceeds(t, "buffer", "access", inputBufferId, "-w")
 
 	// create and output buffer and a SAS token to be able to read from it
-	outputBufferId := runTygerSuceeds(t, "create", "buffer")
-	outputSasUri := runTygerSuceeds(t, "access", "buffer", outputBufferId)
+	outputBufferId := runTygerSuceeds(t, "buffer", "create")
+	outputSasUri := runTygerSuceeds(t, "buffer", "access", outputBufferId)
 
 	// write to the input buffer using the SAS URI
 	inputContainerClient, err := azblob.NewContainerClientWithNoCredential(inputSasUri, nil)
@@ -67,7 +68,7 @@ func TestEndToEnd(t *testing.T) {
 	require.Nil(err, err)
 
 	// create run
-	runId := runTygerSuceeds(t, "create", "run", "--codespec", codespecName, "--timeout", "10m",
+	runId := runTygerSuceeds(t, "run", "create", "--codespec", codespecName, "--timeout", "10m",
 		"-b", fmt.Sprintf("input=%s", inputBufferId),
 		"-b", fmt.Sprintf("output=%s", outputBufferId))
 
@@ -99,7 +100,8 @@ func TestGpuResourceRequirement(t *testing.T) {
 
 	const codespecName = "gputestcodespec"
 	runTygerSuceeds(t,
-		"create", "codespec", codespecName,
+		"codespec",
+		"create", codespecName,
 		"--image", "nvidia/cuda:11.0-base",
 		"--gpu", "1",
 		"--command",
@@ -107,7 +109,7 @@ func TestGpuResourceRequirement(t *testing.T) {
 		"bash", "-c", "[[ $(nvidia-smi -L | wc -l) == 1 ]]") // verify that a GPU is available
 
 	// create run
-	runId := runTygerSuceeds(t, "create", "run", "--codespec", codespecName, "--timeout", "10m")
+	runId := runTygerSuceeds(t, "run", "create", "--codespec", codespecName, "--timeout", "10m")
 
 	waitForRunSuccess(t, runId)
 }
@@ -119,14 +121,15 @@ func TestNoGpuResourceRequirement(t *testing.T) {
 
 	const codespecName = "nogputestcodespec"
 	runTygerSuceeds(t,
-		"create", "codespec", codespecName,
+		"codespec",
+		"create", codespecName,
 		"--image", "nvidia/cuda:11.0-base",
 		"--command",
 		"--",
 		"bash", "-c", "[[ ! $(nvidia-smi) ]]") // verify that no GPU is available
 
 	// create run
-	runId := runTygerSuceeds(t, "create", "run", "--codespec", codespecName, "--timeout", "10m")
+	runId := runTygerSuceeds(t, "run", "create", "--codespec", codespecName, "--timeout", "10m")
 
 	waitForRunSuccess(t, runId)
 }
@@ -136,14 +139,15 @@ func TestTargetGpuNodePool(t *testing.T) {
 
 	codespecName := t.Name()
 	runTygerSuceeds(t,
-		"create", "codespec", codespecName,
+		"codespec",
+		"create", codespecName,
 		"--image", "nvidia/cuda:11.0-base",
 		"--command",
 		"--",
 		"bash", "-c", "[[ $(nvidia-smi -L | wc -l) == 1 ]]") // verify that a GPU is available
 
 	// create run
-	runId := runTygerSuceeds(t, "create", "run", "--codespec", codespecName, "--node-pool", "gpunp", "--timeout", "20m")
+	runId := runTygerSuceeds(t, "run", "create", "--codespec", codespecName, "--node-pool", "gpunp", "--timeout", "20m")
 
 	waitForRunSuccess(t, runId)
 }
@@ -153,14 +157,15 @@ func TestTargetCpuNodePool(t *testing.T) {
 
 	codespecName := t.Name()
 	runTygerSuceeds(t,
-		"create", "codespec", codespecName,
+		"codespec",
+		"create", codespecName,
 		"--image", "nvidia/cuda:11.0-base",
 		"--command",
 		"--",
 		"bash", "-c", "[[ ! $(nvidia-smi) ]]") // verify that no GPU is available
 
 	// create run
-	runId := runTygerSuceeds(t, "create", "run", "--codespec", codespecName, "--node-pool", "cpunp", "--timeout", "10m")
+	runId := runTygerSuceeds(t, "run", "create", "--codespec", codespecName, "--node-pool", "cpunp", "--timeout", "10m")
 
 	waitForRunSuccess(t, runId)
 }
@@ -170,10 +175,11 @@ func TestTargetingInvalidClusterReturnsError(t *testing.T) {
 
 	codespecName := t.Name()
 	runTygerSuceeds(t,
-		"create", "codespec", codespecName,
+		"codespec",
+		"create", codespecName,
 		"--image", "ubuntu")
 
-	_, stderr, _ := runTyger("create", "run", "--codespec", codespecName, "--cluster", "invalid")
+	_, stderr, _ := runTyger("run", "create", "--codespec", codespecName, "--cluster", "invalid")
 	require.Contains(t, stderr, "Unknown cluster")
 }
 
@@ -182,10 +188,11 @@ func TestTargetingInvalidNodePoolReturnsError(t *testing.T) {
 
 	codespecName := t.Name()
 	runTygerSuceeds(t,
-		"create", "codespec", codespecName,
+		"codespec",
+		"create", codespecName,
 		"--image", "ubuntu")
 
-	_, stderr, _ := runTyger("create", "run", "--codespec", codespecName, "--node-pool", "invalid")
+	_, stderr, _ := runTyger("run", "create", "--codespec", codespecName, "--node-pool", "invalid")
 	require.Contains(t, stderr, "Unknown nodepool")
 }
 
@@ -194,11 +201,12 @@ func TestTargetCpuNodePoolWithGpuResourcesReturnsError(t *testing.T) {
 
 	codespecName := t.Name()
 	runTygerSuceeds(t,
-		"create", "codespec", codespecName,
+		"codespec",
+		"create", codespecName,
 		"--image", "ubuntu",
 		"--gpu", "1")
 
-	_, stderr, _ := runTyger("create", "run", "--codespec", codespecName, "--node-pool", "cpunp", "--timeout", "10m")
+	_, stderr, _ := runTyger("run", "create", "--codespec", codespecName, "--node-pool", "cpunp", "--timeout", "10m")
 	require.Contains(t, stderr, "does not have GPUs and cannot satisfy GPU request")
 }
 
@@ -219,7 +227,7 @@ func TestUnrecognizedFieldsRejected(t *testing.T) {
 func TestResponseContainsRequestIdHeader(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	_, stderr, _ := runTyger("get", "codespec", "missing")
+	_, stderr, _ := runTyger("codespec", "show", "missing")
 
 	require.Contains(stderr, "Request-Id")
 }
@@ -251,7 +259,8 @@ func TestListRunsPaging(t *testing.T) {
 	t.Parallel()
 
 	runTygerSuceeds(t,
-		"create", "codespec", "exitimmediately",
+		"codespec",
+		"create", "exitimmediately",
 		"--image", "busybox",
 		"--command",
 		"--",
@@ -259,7 +268,7 @@ func TestListRunsPaging(t *testing.T) {
 
 	runs := make(map[string]string)
 	for i := 0; i < 10; i++ {
-		runs[runTygerSuceeds(t, "create", "run", "--codespec", "exitimmediately", "--timeout", "10m")] = ""
+		runs[runTygerSuceeds(t, "run", "create", "--codespec", "exitimmediately", "--timeout", "10m")] = ""
 	}
 
 	for uri := "v1/runs?limit=5"; uri != ""; {
@@ -289,22 +298,23 @@ func TestListRunsSince(t *testing.T) {
 	codespecName := t.Name()
 
 	runTygerSuceeds(t,
-		"create", "codespec", codespecName,
+		"codespec",
+		"create", codespecName,
 		"--image", "busybox",
 		"--command",
 		"--",
 		"echo", "hi")
 
-	runTygerSuceeds(t, "create", "run", "--codespec", codespecName, "--timeout", "10m")
-	midId := runTygerSuceeds(t, "create", "run", "--codespec", codespecName, "--timeout", "10m")
-	lastId := runTygerSuceeds(t, "create", "run", "--codespec", codespecName, "--timeout", "10m")
+	runTygerSuceeds(t, "run", "create", "--codespec", codespecName, "--timeout", "10m")
+	midId := runTygerSuceeds(t, "run", "create", "--codespec", codespecName, "--timeout", "10m")
+	lastId := runTygerSuceeds(t, "run", "create", "--codespec", codespecName, "--timeout", "10m")
 
-	midRunJson := runTygerSuceeds(t, "get", "run", midId)
+	midRunJson := runTygerSuceeds(t, "run", "show", midId)
 	midRun := model.Run{}
 	err := json.Unmarshal([]byte(midRunJson), &midRun)
 	require.Nil(t, err)
 
-	listJson := runTygerSuceeds(t, "list", "runs", "--since", midRun.CreatedAt.Format(time.RFC3339Nano))
+	listJson := runTygerSuceeds(t, "run", "list", "--since", midRun.CreatedAt.Format(time.RFC3339Nano))
 	list := make([]model.Run, 0)
 	json.Unmarshal([]byte(listJson), &list)
 	require.Greater(t, len(list), 0)
@@ -327,13 +337,14 @@ func TestGetLogsFromPod(t *testing.T) {
 	codespecName := t.Name()
 
 	runTygerSuceeds(t,
-		"create", "codespec", codespecName,
+		"codespec",
+		"create", codespecName,
 		"--image", "busybox",
 		"--command",
 		"--",
 		"sh", "-c", "for i in `seq 1 5`; do echo $i; done; sleep 30")
 
-	runId := runTygerSuceeds(t, "create", "run", "--codespec", codespecName, "--timeout", "10m")
+	runId := runTygerSuceeds(t, "run", "create", "--codespec", codespecName, "--timeout", "10m")
 	t.Logf("Run ID: %s", runId)
 
 	waitForRunStarted(t, runId)
@@ -349,11 +360,11 @@ func TestGetLogsFromPod(t *testing.T) {
 
 	require.Nil(t, resp.Body.Close())
 
-	logs := runTygerSuceeds(t, "logs", runId)
+	logs := runTygerSuceeds(t, "run", "logs", runId)
 	require.Equal(t, "1\n2\n3\n4\n5", logs)
 
 	// --timestamp should prefix each line with its timestamp
-	logs = runTygerSuceeds(t, "logs", runId, "--timestamps")
+	logs = runTygerSuceeds(t, "run", "logs", runId, "--timestamps")
 	lines := strings.Split(logs, "\n")
 	require.Equal(t, 5, len(lines))
 	var firstTimestamp time.Time
@@ -363,10 +374,10 @@ func TestGetLogsFromPod(t *testing.T) {
 	}
 
 	// --since one second later. The kubernetes API appears to have a 1-second resolution when evaluating sinceTime
-	logs = runTygerSuceeds(t, "logs", runId, "--since", firstTimestamp.Add(time.Second).Format(time.RFC3339Nano))
+	logs = runTygerSuceeds(t, "run", "logs", runId, "--since", firstTimestamp.Add(time.Second).Format(time.RFC3339Nano))
 	require.NotContains(t, logs, "1")
 
-	logs = runTygerSuceeds(t, "logs", runId, "--tail", "3")
+	logs = runTygerSuceeds(t, "run", "logs", runId, "--tail", "3")
 	require.Equal(t, "3\n4\n5", logs)
 }
 
@@ -376,16 +387,17 @@ func TestGetArchivedLogs(t *testing.T) {
 	codespecName := t.Name()
 
 	runTygerSuceeds(t,
-		"create", "codespec", codespecName,
+		"codespec",
+		"create", codespecName,
 		"--image", "busybox",
 		"--command",
 		"--",
 		"sh", "-c", "echo 1; sleep 1; echo 2; sleep 1; echo 3; sleep 1; echo 4;")
 
-	runId := runTygerSuceeds(t, "create", "run", "--codespec", codespecName, "--timeout", "10m")
+	runId := runTygerSuceeds(t, "run", "create", "--codespec", codespecName, "--timeout", "10m")
 	t.Logf("Run ID: %s", runId)
 	waitForRunStarted(t, runId)
-	logs := runTygerSuceeds(t, "logs", runId, "--follow")
+	logs := runTygerSuceeds(t, "run", "logs", runId, "--follow")
 	require.Equal(t, "1\n2\n3\n4", logs)
 
 	waitForRunSuccess(t, runId)
@@ -394,11 +406,11 @@ func TestGetArchivedLogs(t *testing.T) {
 	_, err := cmd.InvokeRequest(http.MethodPost, "v1/runs/_sweep", nil, nil, false)
 	require.Nil(t, err)
 
-	logs = runTygerSuceeds(t, "logs", runId)
+	logs = runTygerSuceeds(t, "run", "logs", runId)
 	require.Equal(t, "1\n2\n3\n4", logs)
 
 	// --timestamp should prefix each line with its timestamp
-	logs = runTygerSuceeds(t, "logs", runId, "--timestamps")
+	logs = runTygerSuceeds(t, "run", "logs", runId, "--timestamps")
 	lines := strings.Split(logs, "\n")
 	require.Equal(t, 4, len(lines))
 	var firstTimestamp time.Time
@@ -408,19 +420,19 @@ func TestGetArchivedLogs(t *testing.T) {
 	}
 
 	// --since
-	logs = runTygerSuceeds(t, "logs", runId, "--since", firstTimestamp.Format(time.RFC3339Nano))
+	logs = runTygerSuceeds(t, "run", "logs", runId, "--since", firstTimestamp.Format(time.RFC3339Nano))
 	require.Equal(t, "2\n3\n4", logs)
-	logs = runTygerSuceeds(t, "logs", runId, "--since", firstTimestamp.Add(time.Minute).Format(time.RFC3339Nano))
+	logs = runTygerSuceeds(t, "run", "logs", runId, "--since", firstTimestamp.Add(time.Minute).Format(time.RFC3339Nano))
 	require.Equal(t, "", logs)
-	logs = runTygerSuceeds(t, "logs", runId, "--since", firstTimestamp.Add(-time.Minute).Format(time.RFC3339Nano))
+	logs = runTygerSuceeds(t, "run", "logs", runId, "--since", firstTimestamp.Add(-time.Minute).Format(time.RFC3339Nano))
 	require.Equal(t, "1\n2\n3\n4", logs)
 
 	// --tail
-	logs = runTygerSuceeds(t, "logs", runId, "--tail", "3")
+	logs = runTygerSuceeds(t, "run", "logs", runId, "--tail", "3")
 	require.Equal(t, "2\n3\n4", logs)
-	logs = runTygerSuceeds(t, "logs", runId, "--tail", "0")
+	logs = runTygerSuceeds(t, "run", "logs", runId, "--tail", "0")
 	require.Equal(t, "", logs)
-	logs = runTygerSuceeds(t, "logs", runId, "--tail", "4")
+	logs = runTygerSuceeds(t, "run", "logs", runId, "--tail", "4")
 	require.Equal(t, "1\n2\n3\n4", logs)
 }
 
@@ -430,7 +442,8 @@ func TestGetArchivedLogsWithLongLines(t *testing.T) {
 	codespecName := t.Name()
 
 	runTygerSuceeds(t,
-		"create", "codespec", codespecName,
+		"codespec",
+		"create", codespecName,
 		"--image", "busybox",
 		"--command",
 		"--",
@@ -438,17 +451,17 @@ func TestGetArchivedLogsWithLongLines(t *testing.T) {
 
 	expectedLogs := strings.Repeat("a", 2000000) + "\n" + strings.Repeat("b", 2000000)
 
-	runId := runTygerSuceeds(t, "create", "run", "--codespec", codespecName, "--timeout", "10m")
+	runId := runTygerSuceeds(t, "run", "create", "--codespec", codespecName, "--timeout", "10m")
 	t.Logf("Run ID: %s", runId)
 	waitForRunStarted(t, runId)
-	logs := runTygerSuceeds(t, "logs", runId, "--follow")
+	logs := runTygerSuceeds(t, "run", "logs", runId, "--follow")
 	require.Equal(t, expectedLogs, logs)
 
 	// force logs to be archived
 	_, err := cmd.InvokeRequest(http.MethodPost, "v1/runs/_sweep", nil, nil, false)
 	require.Nil(t, err)
 
-	logs = runTygerSuceeds(t, "logs", runId)
+	logs = runTygerSuceeds(t, "run", "logs", runId)
 	require.Equal(t, expectedLogs, logs)
 }
 
@@ -510,7 +523,7 @@ func runTygerSuceeds(t *testing.T, args ...string) string {
 func waitForRunStarted(t *testing.T, runId string) {
 	start := time.Now()
 	for {
-		runJson := runTygerSuceeds(t, "get", "run", runId)
+		runJson := runTygerSuceeds(t, "run", "show", runId)
 		run := model.Run{}
 		require.Nil(t, json.Unmarshal([]byte(runJson), &run))
 
@@ -539,11 +552,11 @@ func waitForRunStarted(t *testing.T, runId string) {
 
 func waitForRunSuccess(t *testing.T, runId string) {
 	// this will block until the run terminates or we time out
-	runTygerSuceeds(t, "logs", runId, "-f")
+	runTygerSuceeds(t, "run", "logs", runId, "-f")
 
 	start := time.Now()
 	for {
-		runJson := runTygerSuceeds(t, "get", "run", runId)
+		runJson := runTygerSuceeds(t, "run", "show", runId)
 		run := model.Run{}
 		require.Nil(t, json.Unmarshal([]byte(runJson), &run))
 

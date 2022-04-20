@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -13,7 +14,26 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 )
 
-func newCreateCodespecCommand(rootFlags *rootPersistentFlags) *cobra.Command {
+func newCodespecCommand(rootFlags *rootPersistentFlags) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:                   "codespec",
+		Aliases:               []string{"codespecs"},
+		Short:                 "Manage codespecs",
+		Long:                  `Manage codespecs`,
+		DisableFlagsInUseLine: true,
+		Args:                  cobra.NoArgs,
+		RunE: func(*cobra.Command, []string) error {
+			return errors.New("a command is required")
+		},
+	}
+
+	cmd.AddCommand(newCodespecCreateCommand(rootFlags))
+	cmd.AddCommand(newCodespecShowCommand(rootFlags))
+
+	return cmd
+}
+
+func newCodespecCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 	var flags struct {
 		image         string
 		inputBuffers  []string
@@ -26,12 +46,12 @@ func newCreateCodespecCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 	}
 
 	var cmd = &cobra.Command{
-		Use:                   "codespec NAME --image IMAGE [[--input BUFFER_NAME] ...] [[--output BUFFER_NAME] ...] [[--env \"KEY=VALUE\"] ...] [resources] [--command] -- [COMMAND] [args...]",
+		Use:                   "create NAME --image IMAGE [[--input BUFFER_NAME] ...] [[--output BUFFER_NAME] ...] [[--env \"KEY=VALUE\"] ...] [resources] [--command] -- [COMMAND] [args...]",
 		Short:                 "Create or update a codespec",
 		Long:                  `Create of update a codespec. Outputs the version of the codespec that was created.`,
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) == 0 {
+			if len(args) == 0 || cmd.ArgsLenAtDash() == 0 {
 				return errors.New("a name for the codespec is required")
 			}
 			if len(args) > 1 && cmd.ArgsLenAtDash() == -1 {
@@ -108,6 +128,64 @@ func newCreateCodespecCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 	cmd.Flags().StringVarP(&flags.cpu, "cpu", "c", "", "CPU cores needed")
 	cmd.Flags().StringVarP(&flags.memory, "memory", "m", "", "memory bytes needed")
 	cmd.Flags().StringVarP(&flags.gpu, "gpu", "g", "", "GPUs needed")
+
+	return cmd
+}
+
+func newCodespecShowCommand(rootFlags *rootPersistentFlags) *cobra.Command {
+	var flags struct {
+		version int
+	}
+
+	var cmd = &cobra.Command{
+		Use:                   "show NAME [--version VERSION]",
+		Aliases:               []string{"get"},
+		Short:                 "Show the details of a codespec",
+		Long:                  `Show the details of a codespec.`,
+		DisableFlagsInUseLine: true,
+		Args:                  exactlyOneArg("codespec name"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := args[0]
+
+			relativeUri := fmt.Sprintf("v1/codespecs/%s", name)
+			var version *int
+			if cmd.Flag("version").Changed {
+				version = &flags.version
+				relativeUri = fmt.Sprintf("%s/versions/%d", relativeUri, *version)
+			}
+
+			codespec := model.Codespec{}
+			resp, err := InvokeRequest(http.MethodGet, relativeUri, nil, &codespec, rootFlags.verbose)
+			if err != nil {
+				return err
+			}
+
+			if version == nil {
+				latestVersion, err := getCodespecVersionFromResponse(resp)
+				if err != nil {
+					return fmt.Errorf("unable to get codespec version: %v", err)
+				}
+				version = &latestVersion
+			}
+
+			type namedCodespec struct {
+				Name     string         `json:"name"`
+				Version  int            `json:"version"`
+				Codespec model.Codespec `json:"codespec"`
+			}
+
+			nc := namedCodespec{Name: name, Version: *version, Codespec: codespec}
+			formatted, err := json.MarshalIndent(nc, "", "  ")
+			if err != nil {
+				return err
+			}
+
+			fmt.Println(string(formatted))
+			return nil
+		},
+	}
+
+	cmd.Flags().IntVar(&flags.version, "version", -1, "the version of the codespec to get")
 
 	return cmd
 }

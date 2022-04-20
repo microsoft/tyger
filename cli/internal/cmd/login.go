@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"errors"
+	"fmt"
 
 	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/clicontext"
 	"github.com/spf13/cobra"
@@ -39,4 +40,26 @@ Subsequent commands will be performed against this server.`,
 	loginCmd.Flags().BoolVarP(&flags.UseDeviceCode, "use-device-code", "d", false, "Whether to use the device code flow for user logins. Use this mode when the app can't launch a browser on your behalf.")
 
 	return loginCmd
+}
+
+func newLoginStatusCommand(rootFlags *rootPersistentFlags) *cobra.Command {
+	return &cobra.Command{
+		Use:                   "status",
+		Short:                 "Get the login status",
+		Long:                  `Get the login status.`,
+		DisableFlagsInUseLine: true,
+		Args:                  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			context, err := clicontext.GetCliContext()
+			if err == nil {
+				err = context.Validate()
+				if err == nil {
+					fmt.Printf("You are logged into %s as %s\n", context.GetServerUri(), context.GetPrincipal())
+					return nil
+				}
+			}
+
+			return errors.New("you are not currently logged in to any Tyger server")
+		},
+	}
 }
