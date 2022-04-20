@@ -329,13 +329,17 @@ for organization_name in $(echo "${environment_definition}" | jq -r '.organizati
 
   az group create -l "${environment_region}" -n "${organization_resource_group}" >/dev/null
 
-  for account in $(echo "${organization}" | jq -c '.storage.buffers + [.storage.storageServer] | .[]'); do
+  for account in $(echo "${organization}" | jq -c '.storage.buffers + [.storage.storageServer] + [.storage.logs] | .[]'); do
     account_name=$(echo "${account}" | jq -r '.name')
     account_region=$(echo "${account}" | jq -r '.region')
     az storage account create -n "${account_name}" -g "${organization_resource_group}" -l "${account_region}"
 
     # Create or update storage secret
     # Note the dry-run -> apply is a "trick" that allow us to update the secret if it exists; "kubectl create secret ..." fails if secret exists
-    kubectl create secret -n "${organization_namespace}" generic "${account_name}" --from-literal=connectionString="$(az storage account show-connection-string --name "${account_name}" | jq -r .connectionString)" --dry-run=client -o yaml | kubectl apply -f -
+    connection_string="$(az storage account show-connection-string --name "${account_name}" | jq -r .connectionString)"
+    kubectl create secret -n "${organization_namespace}" generic "${account_name}" --from-literal=connectionString="${connection_string}" --dry-run=client -o yaml | kubectl apply -f -
+    if [[ "${account_name}" == "$(echo "${organization}" | jq -r '.storage.logs.name')" ]]; then
+      az storage container create --name runs --connection-string "${connection_string}" > /dev/null
+    fi
   done
 done

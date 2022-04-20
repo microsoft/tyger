@@ -10,7 +10,7 @@ metadata:
   name: {{ include "tyger.fullname" . }}-server
 rules:
 - apiGroups: [""]
-  resources: ["pods"]
+  resources: ["pods", "pods/log"]
   verbs: ["*"]
 - apiGroups: [""]
   resources: ["secrets"]
@@ -143,6 +143,11 @@ spec:
               items:
                 - key: {{ $serverValues.storageAccountConnectionStringSecretDataKey }}
                   path: "blobStorage__connectionString"
+          - secret:
+              name: {{ required "A value for server.logsStorageAccountConnectionStringSecretName" $serverValues.logsStorageAccountConnectionStringSecretName }}
+              items:
+                - key: {{ $serverValues.logsStorageAccountConnectionStringSecretDataKey }}
+                  path: "logarchive__storageAccountConnectionString"
       - name: config
         configMap:
           name: {{ include "tyger.fullname" . }}-server

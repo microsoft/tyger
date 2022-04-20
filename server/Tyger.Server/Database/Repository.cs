@@ -15,9 +15,10 @@ public interface IRepository
     Task<Codespec?> GetCodespecAtVersion(string name, int version, CancellationToken cancellationToken);
 
     Task<Run> CreateRun(NewRun newRun, CancellationToken cancellationToken);
-    Task UpdateRun(Run run, bool? podCreated = null, bool? final = null, CancellationToken cancellationToken = default);
+    Task UpdateRun(Run run, bool? podCreated = null, bool? final = null, DateTimeOffset? logsArchivedAt = null, CancellationToken cancellationToken = default);
     Task DeleteRun(long id, CancellationToken cancellationToken);
     Task<(Run run, bool final)?> GetRun(long id, CancellationToken cancellationToken);
+    Task<(bool runExists, DateTimeOffset? timeArchived)> AreRunLogsArchived(long id, CancellationToken cancellationToken);
     Task<(IReadOnlyList<(Run run, bool final)>, string? nextContinuationToken)> GetRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken);
     Task<IReadOnlyList<Run>> GetPageOfRunsThatNeverGotAPod(CancellationToken cancellationToken);
     Task<IReadOnlyList<Run>> GetPageOfTimedOutRuns(CancellationToken cancellationToken);
@@ -115,7 +116,7 @@ public class Repository : IRepository
         return new Run(newRun) with { Id = reader.GetInt64(0), CreatedAt = reader.GetDateTime(1) };
     }
 
-    public async Task UpdateRun(Run run, bool? podCreated = null, bool? final = null, CancellationToken cancellationToken = default)
+    public async Task UpdateRun(Run run, bool? podCreated = null, bool? final = null, DateTimeOffset? logsArchivedAt = null, CancellationToken cancellationToken = default)
     {
         var connection = await GetOpenedConnection(cancellationToken);
         using var command = new NpgsqlCommand
@@ -123,7 +124,7 @@ public class Repository : IRepository
             Connection = connection,
             CommandText = $@"
                 UPDATE runs
-                SET run = $2 {(podCreated.HasValue ? ", pod_created = $3" : null)} {(final.HasValue ? ", final = $4" : null)}
+                SET run = $2 {(podCreated.HasValue ? ", pod_created = $3" : null)} {(final.HasValue ? ", final = $4" : null)} {(logsArchivedAt.HasValue ? ", logs_archived_at = $5" : null)}
                 WHERE id = $1",
             Parameters =
             {
@@ -131,6 +132,7 @@ public class Repository : IRepository
                 new() { Value = JsonSerializer.Serialize(run), NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Jsonb },
                 new() { Value = podCreated.GetValueOrDefault() },
                 new() { Value = final.GetValueOrDefault() },
+                new() { Value = logsArchivedAt.GetValueOrDefault() },
             },
         };
 
@@ -156,6 +158,12 @@ public class Repository : IRepository
     {
         var entity = await _context.Runs.FirstOrDefaultAsync(r => r.Id == id, cancellationToken);
         return entity == null ? null : (entity.Run, entity.Final);
+    }
+
+    public async Task<(bool runExists, DateTimeOffset? timeArchived)> AreRunLogsArchived(long id, CancellationToken cancellationToken)
+    {
+        var list = await _context.Runs.Where(r => r.Id == id).Select(r => r.LogsArchivedAt).ToListAsync(cancellationToken);
+        return list is { Count: 0 } ? (false, null) : (true, list[0]);
     }
 
     public async Task<(IReadOnlyList<(Run run, bool final)>, string? nextContinuationToken)> GetRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken)

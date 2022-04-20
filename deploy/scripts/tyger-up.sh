@@ -77,6 +77,7 @@ server:
         authority: "$(echo "${organization}" | jq -r '.authority')"
         audience: "$(echo "${organization}" | jq -r '.audience')"
     storageAccountConnectionStringSecretName: "$(echo "${organization}" | jq -r '.storage.buffers[0].name')"
+    logsStorageAccountConnectionStringSecretName: "$(echo "${organization}" | jq -r '.storage.logs.name')"
     clusterConfigurationJson: |
         ${cluster_config}
 

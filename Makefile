@@ -38,6 +38,10 @@ set-localsettings:
 	environment_config=$$(scripts/get-context-environment-config.sh)
 	buffer_secret_name=$$(echo "$${environment_config}" | jq -r '.organizations["${DEFAULT_ORGANIATION}"].storage.buffers[0].name')
 	buffer_secret_value="$$(kubectl get secrets -n ${HELM_NAMESPACE} $${buffer_secret_name} -o jsonpath="{.data.connectionString}" | base64 -d)"
+
+	logs_secret_name=$$(echo "$${environment_config}" | jq -r '.organizations["${DEFAULT_ORGANIATION}"].storage.logs.name')
+	logs_secret_value="$$(kubectl get secrets -n ${HELM_NAMESPACE} $${logs_secret_name} -o jsonpath="{.data.connectionString}" | base64 -d)"
+
 	postgres_password="$$(kubectl get secrets -n ${HELM_NAMESPACE} ${HELM_RELEASE}-db -o jsonpath="{.data.postgresql-password}" | base64 -d)"
 	jq <<- EOF > ${SERVER_PATH}/appsettings.local.json
 		{
@@ -51,6 +55,9 @@ set-localsettings:
 				"kubeconfigPath": "$${HOME}/.kube/config",
 				"namespace": "${HELM_NAMESPACE}",
 				"clusters": $$(echo "$${environment_config}" | jq -c '.clusters')
+			},
+			"logArchive": {
+				"storageAccountConnectionString": "$${logs_secret_value}"
 			},
 			"blobStorage": {
 				"connectionString": "$${buffer_secret_value}"
@@ -67,11 +74,11 @@ set-localsettings:
 
 build:
 	cd ${SERVER_PATH}
-	dotnet build
+	dotnet build --no-restore
 
 run: set-localsettings check-forwarding
 	cd ${SERVER_PATH}
-	dotnet run -v m
+	dotnet run -v m --no-restore
 
 watch: set-localsettings check-forwarding
 	cd ${SERVER_PATH}
@@ -79,7 +86,7 @@ watch: set-localsettings check-forwarding
 
 unit-test:
 	echo "Running unit tests..."
-	find server -name *csproj | xargs -L 1 dotnet test
+	find server -name *csproj | xargs -L 1 dotnet test --no-restore
 	
 	cd cli
 	go test ./... | { grep -v "\\[[no test files\\]" || true; }

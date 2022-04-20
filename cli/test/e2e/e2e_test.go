@@ -3,6 +3,7 @@
 package e2e_test
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -320,6 +321,137 @@ func TestListRunsSince(t *testing.T) {
 	require.Fail(t, "last run not found")
 }
 
+func TestGetLogsFromPod(t *testing.T) {
+	t.Parallel()
+
+	codespecName := t.Name()
+
+	runTygerSuceeds(t,
+		"create", "codespec", codespecName,
+		"--image", "busybox",
+		"--command",
+		"--",
+		"sh", "-c", "for i in `seq 1 5`; do echo $i; done; sleep 30")
+
+	runId := runTygerSuceeds(t, "create", "run", "--codespec", codespecName, "--timeout", "10m")
+	t.Logf("Run ID: %s", runId)
+
+	waitForRunStarted(t, runId)
+
+	// block until we get the first line
+	resp, err := cmd.InvokeRequest(http.MethodGet, fmt.Sprintf("v1/runs/%s/logs?follow=true", runId), nil, nil, false)
+	require.Nil(t, err)
+	reader := bufio.NewReader(resp.Body)
+	for i := 0; i < 5; i++ {
+		_, err = reader.ReadString('\n')
+		require.Nil(t, err)
+	}
+
+	require.Nil(t, resp.Body.Close())
+
+	logs := runTygerSuceeds(t, "logs", runId)
+	require.Equal(t, "1\n2\n3\n4\n5", logs)
+
+	// --timestamp should prefix each line with its timestamp
+	logs = runTygerSuceeds(t, "logs", runId, "--timestamps")
+	lines := strings.Split(logs, "\n")
+	require.Equal(t, 5, len(lines))
+	var firstTimestamp time.Time
+	for i := len(lines) - 1; i >= 0; i-- {
+		firstTimestamp, err = time.Parse(time.RFC3339Nano, strings.Split(lines[i], " ")[0])
+		require.Nil(t, err)
+	}
+
+	// --since one second later. The kubernetes API appears to have a 1-second resolution when evaluating sinceTime
+	logs = runTygerSuceeds(t, "logs", runId, "--since", firstTimestamp.Add(time.Second).Format(time.RFC3339Nano))
+	require.NotContains(t, logs, "1")
+
+	logs = runTygerSuceeds(t, "logs", runId, "--tail", "3")
+	require.Equal(t, "3\n4\n5", logs)
+}
+
+func TestGetArchivedLogs(t *testing.T) {
+	t.Parallel()
+
+	codespecName := t.Name()
+
+	runTygerSuceeds(t,
+		"create", "codespec", codespecName,
+		"--image", "busybox",
+		"--command",
+		"--",
+		"sh", "-c", "echo 1; sleep 1; echo 2; sleep 1; echo 3; sleep 1; echo 4;")
+
+	runId := runTygerSuceeds(t, "create", "run", "--codespec", codespecName, "--timeout", "10m")
+	t.Logf("Run ID: %s", runId)
+	waitForRunStarted(t, runId)
+	logs := runTygerSuceeds(t, "logs", runId, "--follow")
+	require.Equal(t, "1\n2\n3\n4", logs)
+
+	waitForRunSuccess(t, runId)
+
+	// force logs to be archived
+	_, err := cmd.InvokeRequest(http.MethodPost, "v1/runs/_sweep", nil, nil, false)
+	require.Nil(t, err)
+
+	logs = runTygerSuceeds(t, "logs", runId)
+	require.Equal(t, "1\n2\n3\n4", logs)
+
+	// --timestamp should prefix each line with its timestamp
+	logs = runTygerSuceeds(t, "logs", runId, "--timestamps")
+	lines := strings.Split(logs, "\n")
+	require.Equal(t, 4, len(lines))
+	var firstTimestamp time.Time
+	for i := len(lines) - 1; i >= 0; i-- {
+		firstTimestamp, err = time.Parse(time.RFC3339Nano, strings.Split(lines[i], " ")[0])
+		require.Nil(t, err)
+	}
+
+	// --since
+	logs = runTygerSuceeds(t, "logs", runId, "--since", firstTimestamp.Format(time.RFC3339Nano))
+	require.Equal(t, "2\n3\n4", logs)
+	logs = runTygerSuceeds(t, "logs", runId, "--since", firstTimestamp.Add(time.Minute).Format(time.RFC3339Nano))
+	require.Equal(t, "", logs)
+	logs = runTygerSuceeds(t, "logs", runId, "--since", firstTimestamp.Add(-time.Minute).Format(time.RFC3339Nano))
+	require.Equal(t, "1\n2\n3\n4", logs)
+
+	// --tail
+	logs = runTygerSuceeds(t, "logs", runId, "--tail", "3")
+	require.Equal(t, "2\n3\n4", logs)
+	logs = runTygerSuceeds(t, "logs", runId, "--tail", "0")
+	require.Equal(t, "", logs)
+	logs = runTygerSuceeds(t, "logs", runId, "--tail", "4")
+	require.Equal(t, "1\n2\n3\n4", logs)
+}
+
+func TestGetArchivedLogsWithLongLines(t *testing.T) {
+	t.Parallel()
+
+	codespecName := t.Name()
+
+	runTygerSuceeds(t,
+		"create", "codespec", codespecName,
+		"--image", "busybox",
+		"--command",
+		"--",
+		"sh", "-c", `head -c 2000000 < /dev/zero | tr '\0' 'a'; echo ""; sleep 1; head -c 2000000 < /dev/zero | tr '\0' 'b';`)
+
+	expectedLogs := strings.Repeat("a", 2000000) + "\n" + strings.Repeat("b", 2000000)
+
+	runId := runTygerSuceeds(t, "create", "run", "--codespec", codespecName, "--timeout", "10m")
+	t.Logf("Run ID: %s", runId)
+	waitForRunStarted(t, runId)
+	logs := runTygerSuceeds(t, "logs", runId, "--follow")
+	require.Equal(t, expectedLogs, logs)
+
+	// force logs to be archived
+	_, err := cmd.InvokeRequest(http.MethodPost, "v1/runs/_sweep", nil, nil, false)
+	require.Nil(t, err)
+
+	logs = runTygerSuceeds(t, "logs", runId)
+	require.Equal(t, expectedLogs, logs)
+}
+
 func TestAuthenticationRequired(t *testing.T) {
 	t.Parallel()
 	ctx, err := clicontext.GetCliContext()
@@ -330,7 +462,12 @@ func TestAuthenticationRequired(t *testing.T) {
 }
 
 func runCommand(command string, args ...string) (stdout string, stderr string, err error) {
-	cmd := exec.Command(command, args...)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, command, args...)
+
 	var outb, errb bytes.Buffer
 	cmd.Stdout = &outb
 	cmd.Stderr = &errb
@@ -370,17 +507,49 @@ func runTygerSuceeds(t *testing.T, args ...string) string {
 	return runCommandSuceeds(t, "tyger", args...)
 }
 
-func waitForRunSuccess(t *testing.T, runId string) {
+func waitForRunStarted(t *testing.T, runId string) {
 	start := time.Now()
 	for {
 		runJson := runTygerSuceeds(t, "get", "run", runId)
 		run := model.Run{}
 		require.Nil(t, json.Unmarshal([]byte(runJson), &run))
-		if run.Status == "Completed" {
-			break
-		}
 
 		switch run.Status {
+		case "Pending":
+		case "ContainerCreating":
+			break
+		default:
+			return
+		}
+
+		elapsed := time.Now().Sub(start)
+
+		switch {
+		case elapsed < 10*time.Second:
+			time.Sleep(time.Millisecond * 250)
+		case elapsed < time.Minute:
+			time.Sleep(time.Second)
+		case elapsed < 15*time.Minute:
+			time.Sleep(10 * time.Second)
+		default:
+			require.FailNowf(t, "timed out waiting for run %d.", "Run '%s'. Last status: %s", run.Id, run.Status)
+		}
+	}
+}
+
+func waitForRunSuccess(t *testing.T, runId string) {
+	// this will block until the run terminates or we time out
+	runTygerSuceeds(t, "logs", runId, "-f")
+
+	start := time.Now()
+	for {
+		runJson := runTygerSuceeds(t, "get", "run", runId)
+		run := model.Run{}
+		require.Nil(t, json.Unmarshal([]byte(runJson), &run))
+
+		switch run.Status {
+		case "Completed":
+			return
 		case "Pending":
 		case "ContainerCreating":
 		case "Running":
@@ -399,7 +568,7 @@ func waitForRunSuccess(t *testing.T, runId string) {
 		case elapsed < 15*time.Minute:
 			time.Sleep(10 * time.Second)
 		default:
-			require.FailNowf(t, "timed out waiting for run %s.", "Run '%s'. Last status: %s", run.Id, run.Status)
+			require.FailNowf(t, "timed out waiting for run %s.", "Run '%d'. Last status: %s", run.Id, run.Status)
 		}
 	}
 }

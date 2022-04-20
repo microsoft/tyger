@@ -43,4 +43,7 @@ public static partial class LoggerExtensions
 
     [LoggerMessage(13, LogLevel.Information, "Finalizing timed out run {run}")]
     public static partial void FinalizingTimedOutRun(this ILogger logger, long run);
+
+    [LoggerMessage(14, LogLevel.Information, "Executed Kubernetes API request {method} {uri}. Status code {statusCode}.")]
+    public static partial void ExecutedKubernetesRequest(this ILogger logger, HttpMethod method, string? uri, int statusCode);
 }

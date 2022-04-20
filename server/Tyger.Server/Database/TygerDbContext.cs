@@ -34,6 +34,7 @@ public class TygerDbContext : DbContext
                 r.Property(c => c.Run).IsRequired().HasColumnType("jsonb");
                 r.Property(c => c.Final).HasDefaultValue(false);
                 r.Property(c => c.PodCreated).HasDefaultValue(false);
+                r.Property(c => c.LogsArchivedAt).HasDefaultValue(null);
 
                 r.HasKey(c => new { c.Id });
                 r.HasIndex(c => new { c.CreatedAt, c.Id });
@@ -59,4 +60,5 @@ public class RunEntity
     public Run Run { get; set; } = null!;
     public bool Final { get; set; }
     public bool PodCreated { get; set; }
+    public DateTimeOffset? LogsArchivedAt { get; set; }
 }

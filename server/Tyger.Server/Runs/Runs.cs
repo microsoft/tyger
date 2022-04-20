@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Primitives;
 using Tyger.Server.Kubernetes;
+using Tyger.Server.Logging;
 using Tyger.Server.Model;
 
 namespace Tyger.Server.Runs;
@@ -54,5 +55,39 @@ public static class Runs
         })
         .Produces<Run>(StatusCodes.Status200OK)
         .Produces<ErrorBody>();
+
+        app.MapGet("/v1/runs/{runId}/logs", async (
+            string runId,
+            ILogSource logSource,
+            bool? timestamps,
+            int? tailLines,
+            DateTimeOffset? since,
+            bool? follow,
+            bool? previous,
+            HttpContext context) =>
+        {
+            var options = new GetLogsOptions
+            {
+                IncludeTimestamps = timestamps.GetValueOrDefault(),
+                TailLines = tailLines,
+                Since = since,
+                Follow = follow.GetValueOrDefault(),
+                Previous = previous.GetValueOrDefault(),
+            };
+
+            if (!long.TryParse(runId, out var parsedRunId) ||
+                !await logSource.TryGetLogs(parsedRunId, options, context.Response.BodyWriter, context.RequestAborted))
+            {
+                context.Response.StatusCode = StatusCodes.Status404NotFound;
+            }
+        })
+        .Produces<Run>(StatusCodes.Status200OK)
+        .Produces<string>();
+
+        // this endpoint is for testing purposes only, to force the background pod sweep
+        app.MapPost("/v1/runs/_sweep", async (IKubernetesManager k8sManager, CancellationToken cancellationToken) =>
+        {
+            await k8sManager.SweepRuns(cancellationToken);
+        }).ExcludeFromDescription();
     }
 }

@@ -68,6 +68,7 @@ import "strings"
 		storage: {
 			buffers: *[{name: *strings.Replace("\(environmentName)\(organizationName)buf", "-", "", -1) | string, region: defaultRegion}] | [#StorageAccount, ...#StorageAccount]
 			storageServer: {name: *strings.Replace("\(environmentName)\(organizationName)sto", "-", "", -1) | string, region: *defaultRegion | #Region}
+			logs: {name: *strings.Replace("\(environmentName)\(organizationName)log", "-", "", -1) | string, region: *defaultRegion | #Region}
 		}
 	}
 
@@ -102,5 +103,6 @@ import "strings"
 	storage: {
 		buffers: [#StorageAccount, ...#StorageAccount]
 		storageServer: #StorageAccount
+		logs: #StorageAccount
 	}
 }

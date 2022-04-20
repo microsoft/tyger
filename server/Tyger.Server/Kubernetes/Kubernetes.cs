@@ -1,7 +1,7 @@
 using System.ComponentModel.DataAnnotations;
-using System.Net;
 using k8s;
 using Microsoft.Extensions.Options;
+using Tyger.Server.Logging;
 using Tyger.Server.Model;
 
 namespace Tyger.Server.Kubernetes;
@@ -11,18 +11,19 @@ public static class Kubernetes
     public static void AddKubernetes(this IServiceCollection services)
     {
         services.AddOptions<KubernetesOptions>().BindConfiguration("kubernetes").ValidateDataAnnotations().ValidateOnStart();
-        services.AddSingleton<BadRequestLoggingHandler>();
+        services.AddSingleton<LoggingHandler>();
         services.AddSingleton(sp =>
         {
             var kubernetesOptions = sp.GetRequiredService<IOptions<KubernetesOptions>>().Value;
             var config = string.IsNullOrEmpty(kubernetesOptions.KubeconfigPath)
                 ? KubernetesClientConfiguration.InClusterConfig()
                 : KubernetesClientConfiguration.BuildConfigFromConfigFile(kubernetesOptions.KubeconfigPath);
-            return new k8s.Kubernetes(config, sp.GetRequiredService<BadRequestLoggingHandler>());
+            return new k8s.Kubernetes(config, sp.GetRequiredService<LoggingHandler>());
         });
 
         services.AddScoped<IKubernetesManager, KubernetesManager>();
         services.AddSingleton<IHostedService, KubernetesManager>();
+        services.AddScoped<ILogSource, KubernetesManager>();
     }
 
     public static void MapClusters(this WebApplication app)
@@ -88,13 +89,13 @@ public class NodePoolOptions
 }
 
 /// <summary>
-/// Logs response bodies from the Kubernetes API server when an invalid request was issued.
+/// Logs interactions with the Kubernetes API
 /// </summary>
-public class BadRequestLoggingHandler : DelegatingHandler
+public class LoggingHandler : DelegatingHandler
 {
-    private readonly ILogger<BadRequestLoggingHandler> _logger;
+    private readonly ILogger<LoggingHandler> _logger;
 
-    public BadRequestLoggingHandler(ILogger<BadRequestLoggingHandler> logger)
+    public LoggingHandler(ILogger<LoggingHandler> logger)
     {
         _logger = logger;
     }
@@ -102,12 +103,7 @@ public class BadRequestLoggingHandler : DelegatingHandler
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         var resp = await base.SendAsync(request, cancellationToken);
-        if (resp.StatusCode is HttpStatusCode.UnprocessableEntity or HttpStatusCode.BadRequest)
-        {
-            await resp.Content.LoadIntoBufferAsync();
-            _logger.ErrorResponseBody(await resp.Content.ReadAsStringAsync(cancellationToken));
-        }
-
+        _logger.ExecutedKubernetesRequest(request.Method, request?.RequestUri?.ToString(), (int)resp.StatusCode);
         return resp;
     }
 }

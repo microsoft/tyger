@@ -1,12 +1,15 @@
 using System.Globalization;
+using System.IO.Pipelines;
 using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using k8s;
+using k8s.Autorest;
+using k8s.Models;
 using Microsoft.Extensions.Options;
-using Microsoft.Rest;
 using Tyger.Server.Buffers;
 using Tyger.Server.Database;
+using Tyger.Server.Logging;
 using Tyger.Server.Model;
 using Tyger.Server.StorageServer;
 using ValidationException = System.ComponentModel.DataAnnotations.ValidationException;
@@ -30,17 +33,21 @@ public interface IKubernetesManager
     Task<Run> CreateRun(NewRun newRun, CancellationToken cancellationToken);
     Task<(IReadOnlyList<Run>, string? nextContinuationToken)> GetRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken);
     Task<Run?> GetRun(long id, CancellationToken cancellationToken);
+    Task SweepRuns(CancellationToken cancellationToken);
 }
 
-public sealed class KubernetesManager : IKubernetesManager, IHostedService, IDisposable
+public sealed class KubernetesManager : IKubernetesManager, ILogSource, IHostedService, IDisposable
 {
     private const string SecretMountPath = "/etc/buffer-sas-tokens";
+
+    private static readonly TimeSpan s_minDurationAfterArchivingBeforeDeletingPod = TimeSpan.FromSeconds(30);
 
     private static readonly Regex s_nodePoolFromNodeName = new("^aks-([a-zA-Z0-9]+)-", RegexOptions.Compiled);
 
     private readonly k8s.Kubernetes _client;
     private readonly IRepository _repository;
     private readonly BufferManager _bufferManager;
+    private readonly ILogArchive _logArchive;
     private readonly KubernetesOptions _k8sOptions;
     private readonly StorageServerOptions _storageServerOptions;
     private readonly ILogger<KubernetesManager> _logger;
@@ -53,11 +60,13 @@ public sealed class KubernetesManager : IKubernetesManager, IHostedService, IDis
         BufferManager bufferManager,
         IOptions<KubernetesOptions> k8sOptions,
         IOptions<StorageServerOptions> storageServerOptions,
+        ILogArchive logArchive,
         ILogger<KubernetesManager> logger)
     {
         _client = client;
         _repository = repository;
         _bufferManager = bufferManager;
+        _logArchive = logArchive;
         _k8sOptions = k8sOptions.Value;
         _storageServerOptions = storageServerOptions.Value;
         _logger = logger;
@@ -97,7 +106,7 @@ public sealed class KubernetesManager : IKubernetesManager, IHostedService, IDis
 
                 targetsGpuNodePool = DoesVmHaveSupportedGpu(pool.VmSize);
 
-                if (!targetsGpuNodePool && codespec.Resources?.Gpu is k8s.Models.ResourceQuantity q && q.ToDecimal() != 0)
+                if (!targetsGpuNodePool && codespec.Resources?.Gpu is ResourceQuantity q && q.ToDecimal() != 0)
                 {
                     throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "Nodepool '{0}' does not have GPUs and cannot satisfy GPU request '{1}'", targetNodePool, q));
                 }
@@ -113,7 +122,7 @@ public sealed class KubernetesManager : IKubernetesManager, IHostedService, IDis
         var k8sId = PodNameFromRunId(run.Id);
 
         var labels = new Dictionary<string, string> { { "tyger", "run" } };
-        var secret = new k8s.Models.V1Secret
+        var secret = new V1Secret
         {
             Metadata = new()
             {
@@ -126,22 +135,22 @@ public sealed class KubernetesManager : IKubernetesManager, IHostedService, IDis
         secret = await _client.CreateNamespacedSecretAsync(secret, _k8sOptions.Namespace, cancellationToken: cancellationToken);
         _logger.CreatedSecret(k8sId);
 
-        var env = new List<k8s.Models.V1EnvVar> { new("MRD_STORAGE_URI", _storageServerOptions.Uri) };
+        var env = new List<V1EnvVar> { new("MRD_STORAGE_URI", _storageServerOptions.Uri) };
         if (codespec.Env != null)
         {
-            env.AddRange(codespec.Env.Select(p => new k8s.Models.V1EnvVar(p.Key, p.Value)));
+            env.AddRange(codespec.Env.Select(p => new V1EnvVar(p.Key, p.Value)));
         }
 
-        env.AddRange(bufferMap.Select(p => new k8s.Models.V1EnvVar($"{p.Key.ToUpperInvariant()}_BUFFER_URI_FILE", $"{SecretMountPath}/{p.Key}")));
+        env.AddRange(bufferMap.Select(p => new V1EnvVar($"{p.Key.ToUpperInvariant()}_BUFFER_URI_FILE", $"{SecretMountPath}/{p.Key}")));
 
-        var container = new k8s.Models.V1Container
+        var container = new V1Container
         {
             Name = "runner",
             Image = codespec.Image,
             Command = codespec.Command,
             Args = codespec.Args,
             Env = env,
-            VolumeMounts = new k8s.Models.V1VolumeMount[] {
+            VolumeMounts = new V1VolumeMount[] {
                 new()
                 {
                     Name = "buffers",
@@ -153,7 +162,7 @@ public sealed class KubernetesManager : IKubernetesManager, IHostedService, IDis
 
         if (codespec.Resources != null)
         {
-            var resources = new Dictionary<string, k8s.Models.ResourceQuantity>();
+            var resources = new Dictionary<string, ResourceQuantity>();
             if (codespec.Resources.Cpu != null)
             {
                 resources["cpu"] = codespec.Resources.Cpu;
@@ -172,7 +181,7 @@ public sealed class KubernetesManager : IKubernetesManager, IHostedService, IDis
             container.Resources = new() { Limits = resources, Requests = resources };
         }
 
-        var pod = new k8s.Models.V1Pod
+        var pod = new V1Pod
         {
             Metadata = new()
             {
@@ -182,7 +191,7 @@ public sealed class KubernetesManager : IKubernetesManager, IHostedService, IDis
                     { "run", JsonSerializer.Serialize(run) },
                 },
                 Labels = labels,
-                OwnerReferences = new k8s.Models.V1OwnerReference[]
+                OwnerReferences = new V1OwnerReference[]
                 {
                     new(secret.ApiVersion, secret.Kind, secret.Metadata.Name, secret.Metadata.Uid)
                 },
@@ -192,7 +201,7 @@ public sealed class KubernetesManager : IKubernetesManager, IHostedService, IDis
             {
                 Containers = new[] { container },
                 RestartPolicy = "OnFailure",
-                Volumes = new k8s.Models.V1Volume[]
+                Volumes = new V1Volume[]
                 {
                     new()
                     {
@@ -200,7 +209,7 @@ public sealed class KubernetesManager : IKubernetesManager, IHostedService, IDis
                         Secret = new() {SecretName = k8sId}
                     }
                 },
-                Tolerations = new List<k8s.Models.V1Toleration>
+                Tolerations = new List<V1Toleration>
                 {
                     new() { Key = "tyger", OperatorProperty= "Equal", Value = "run", Effect = "NoSchedule" } // allow this to run on a user nodepools
                 },
@@ -409,7 +418,141 @@ Done:
         }
     }
 
-    private Run? GetRunFromPod(k8s.Models.V1Pod pod)
+    public async Task<bool> TryGetLogs(long runId, GetLogsOptions options, PipeWriter outputWriter, CancellationToken cancellationToken)
+    {
+        (var runExists, var logsArchivedAt) = await _repository.AreRunLogsArchived(runId, cancellationToken);
+        switch (runExists, logsArchivedAt)
+        {
+            case (false, _):
+                return false;
+            case (true, null):
+                if (await GetLogsFromPod(runId, options, cancellationToken) is Stream podStream)
+                {
+                    await podStream.CopyToAsync(outputWriter, cancellationToken);
+                    return true;
+                }
+
+                return false;
+            default:
+                return await _logArchive.TryGetLogs(runId, options, outputWriter, cancellationToken);
+        }
+    }
+
+    // We need to do the HTTP request ourselves because the sinceTime parameter is missing https://github.com/kubernetes-client/csharp/issues/829
+    private async Task<Stream?> GetLogsFromPod(long id, GetLogsOptions options, CancellationToken cancellationToken)
+    {
+Start:
+        var qs = QueryString.Empty;
+        if (options.IncludeTimestamps)
+        {
+            qs = qs.Add("timestamps", "true");
+        }
+
+        if (options.TailLines.HasValue)
+        {
+            qs = qs.Add("tailLines", options.TailLines.Value.ToString(CultureInfo.InvariantCulture));
+        }
+
+        if (options.Since.HasValue)
+        {
+            qs = qs.Add("sinceTime", options.Since.Value.ToString("o"));
+        }
+
+        if (options.Follow)
+        {
+            qs = qs.Add("follow", "true");
+        }
+
+        if (options.Previous)
+        {
+            qs = qs.Add("previous", "true");
+        }
+
+        var uri = new Uri(_client.BaseUri, $"api/v1/namespaces/{_k8sOptions.Namespace}/pods/{PodNameFromRunId(id)}/log{qs.ToUriComponent()}");
+
+        var requestMessage = new HttpRequestMessage(HttpMethod.Get, uri);
+        if (_client.Credentials != null)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await _client.Credentials.ProcessHttpRequestAsync(requestMessage, cancellationToken).ConfigureAwait(false);
+        }
+
+        var response = await _client.HttpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+
+        switch (response.StatusCode)
+        {
+            case HttpStatusCode.OK:
+                var logs = await response.Content.ReadAsStreamAsync(cancellationToken);
+                if (options.IncludeTimestamps)
+                {
+                    return TimestampedLogReformatter.WithReformattedLines(logs, cancellationToken);
+                }
+
+                return logs;
+            case HttpStatusCode.NoContent:
+                return new MemoryStream(Array.Empty<byte>());
+            case HttpStatusCode.NotFound:
+                return null;
+            case HttpStatusCode.BadRequest when options.Previous:
+                throw new ValidationException("Logs from a previous execution were not found.");
+            case HttpStatusCode.BadRequest:
+                // likely means the pod has not started yet.
+
+                string resourceVersion;
+                try
+                {
+                    var pod = await _client.ReadNamespacedPodAsync(PodNameFromRunId(id), _k8sOptions.Namespace, cancellationToken: cancellationToken);
+                    if (IsPodRunningOrTerminated(pod))
+                    {
+                        goto Start;
+                    }
+
+                    if (!options.Follow)
+                    {
+                        // no logs yet.
+                        return new MemoryStream(Array.Empty<byte>());
+                    }
+
+                    resourceVersion = pod.Metadata.ResourceVersion;
+                }
+                catch (HttpOperationException e) when (e.Response.StatusCode == HttpStatusCode.NotFound)
+                {
+                    return null;
+                }
+
+                var podlistResp = _client.ListNamespacedPodWithHttpMessagesAsync(
+                        _k8sOptions.Namespace,
+                        fieldSelector: $"metadata.name={PodNameFromRunId(id)}",
+                        watch: true,
+                        resourceVersion: resourceVersion,
+                        cancellationToken: cancellationToken);
+
+                await foreach (var (type, item) in podlistResp.WatchAsync<V1Pod, V1PodList>())
+                {
+                    if (type == WatchEventType.Deleted)
+                    {
+                        return null;
+                    }
+
+                    if (IsPodRunningOrTerminated(item))
+                    {
+                        goto Start;
+                    }
+                }
+
+                goto Start;
+
+            default:
+                throw new InvalidOperationException($"Unexpected status code '{response.StatusCode} from cluster. {await response.Content.ReadAsStringAsync(cancellationToken)}");
+        }
+    }
+
+    private static bool IsPodRunningOrTerminated(V1Pod pod)
+    {
+        return pod.Status.ContainerStatuses is { Count: > 0 } && pod.Status.ContainerStatuses[0].State.Waiting == null;
+    }
+
+    private Run? GetRunFromPod(V1Pod pod)
     {
         var serializedRun = pod.Metadata.Annotations?["run"];
         Run? run;
@@ -427,7 +570,7 @@ Done:
         return GetRunUpdatedWithStatusAndTimes(run, pod);
     }
 
-    private Run GetRunUpdatedWithStatusAndTimes(Run run, k8s.Models.V1Pod pod)
+    private Run GetRunUpdatedWithStatusAndTimes(Run run, V1Pod pod)
     {
         if (pod.Status.ContainerStatuses?.Count == 1)
         {
@@ -486,71 +629,7 @@ Done:
             try
             {
                 await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
-
-                _logger.StartingBackgroundSweep();
-
-                // first clear out runs that never got a pod created
-                while (true)
-                {
-                    var runs = await _repository.GetPageOfRunsThatNeverGotAPod(cancellationToken);
-                    if (runs.Count == 0)
-                    {
-                        break;
-                    }
-
-                    foreach (var run in runs)
-                    {
-                        _logger.DeletingRunThatNeverCreatedAPod(run.Id);
-                        await DeleteRunResources(run.Id, cancellationToken);
-                        await _repository.DeleteRun(run.Id, cancellationToken);
-                    }
-                }
-
-                // Now go though the list of pods and update database records if terminated
-                string? continuation = null;
-                do
-                {
-                    var pods = await _client.ListNamespacedPodAsync(_k8sOptions.Namespace, continueParameter: continuation, labelSelector: "tyger=run", cancellationToken: cancellationToken);
-
-                    foreach (var pod in pods.Items)
-                    {
-                        switch (GetRunFromPod(pod), pod)
-                        {
-                            case (null, _):
-                                await _repository.DeleteRun(RunIdFromPodName(pod.Metadata.Name), cancellationToken);
-                                await DeleteRunResources(RunIdFromPodName(pod.Metadata.Name), cancellationToken);
-                                break;
-                            case (var run, { Status.Phase: "Succeeded" or "Failed" }):
-                                _logger.FinalizingTerminatedRun(run.Id, run.Status);
-                                await _repository.UpdateRun(run, final: true, cancellationToken: cancellationToken);
-                                await DeleteRunResources(run.Id, cancellationToken);
-                                break;
-                            default:
-                                break;
-                        }
-                    }
-
-                    continuation = pods.Metadata.ContinueProperty;
-                } while (continuation != null);
-
-                // now clean up timed out jobs
-                while (true)
-                {
-                    var runs = await _repository.GetPageOfTimedOutRuns(cancellationToken);
-                    if (runs.Count == 0)
-                    {
-                        break;
-                    }
-
-                    foreach (var run in runs)
-                    {
-                        _logger.FinalizingTimedOutRun(run.Id);
-                        await DeleteRunResources(run.Id, cancellationToken);
-                        await _repository.UpdateRun(run with { Status = "TimedOut" }, final: true, cancellationToken: cancellationToken);
-                    }
-                }
-
-                _logger.BackgroundSweepCompleted();
+                await SweepRuns(cancellationToken);
             }
             catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -563,6 +642,107 @@ Done:
         }
     }
 
+    public async Task SweepRuns(CancellationToken cancellationToken)
+    {
+        _logger.StartingBackgroundSweep();
+
+        // first clear out runs that never got a pod created
+        while (true)
+        {
+            var runs = await _repository.GetPageOfRunsThatNeverGotAPod(cancellationToken);
+            if (runs.Count == 0)
+            {
+                break;
+            }
+
+            foreach (var run in runs)
+            {
+                _logger.DeletingRunThatNeverCreatedAPod(run.Id);
+                await DeleteRunResources(run.Id, cancellationToken);
+                await _repository.DeleteRun(run.Id, cancellationToken);
+            }
+        }
+
+        // Now go though the list of pods and update database records if terminated
+        string? continuation = null;
+        do
+        {
+            var pods = await _client.ListNamespacedPodAsync(_k8sOptions.Namespace, continueParameter: continuation, labelSelector: "tyger=run", cancellationToken: cancellationToken);
+
+            foreach (var pod in pods.Items)
+            {
+                switch (GetRunFromPod(pod), pod)
+                {
+                    case (null, _):
+                        await _repository.DeleteRun(RunIdFromPodName(pod.Metadata.Name), cancellationToken);
+                        await DeleteRunResources(RunIdFromPodName(pod.Metadata.Name), cancellationToken);
+                        break;
+                    case (var run, { Status.Phase: "Succeeded" or "Failed" }):
+                        switch ((await _repository.AreRunLogsArchived(run.Id, cancellationToken)).timeArchived)
+                        {
+                            case null:
+                                await ArchiveLogs(run, cancellationToken);
+                                break;
+                            case var time when DateTimeOffset.UtcNow - time > s_minDurationAfterArchivingBeforeDeletingPod:
+                                _logger.FinalizingTerminatedRun(run.Id, run.Status);
+                                await _repository.UpdateRun(run, final: true, cancellationToken: cancellationToken);
+                                await DeleteRunResources(run.Id, cancellationToken);
+                                break;
+                            default:
+                                break;
+                        }
+
+                        break;
+                    default:
+                        break;
+                }
+            }
+
+            continuation = pods.Metadata.ContinueProperty;
+        } while (continuation != null);
+
+        // now clean up timed out jobs
+        while (true)
+        {
+            var runs = await _repository.GetPageOfTimedOutRuns(cancellationToken);
+            if (runs.Count == 0)
+            {
+                break;
+            }
+
+            foreach (var run in runs)
+            {
+                switch ((await _repository.AreRunLogsArchived(run.Id, cancellationToken)).timeArchived)
+                {
+                    case null:
+                        await ArchiveLogs(run, cancellationToken);
+                        break;
+                    case var time when DateTimeOffset.UtcNow - time > s_minDurationAfterArchivingBeforeDeletingPod:
+                        _logger.FinalizingTimedOutRun(run.Id);
+                        await DeleteRunResources(run.Id, cancellationToken);
+                        await _repository.UpdateRun(run with { Status = "TimedOut" }, final: true, cancellationToken: cancellationToken);
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+
+        _logger.BackgroundSweepCompleted();
+    }
+
+    private async Task ArchiveLogs(Run run, CancellationToken cancellationToken)
+    {
+        using var logStream = await GetLogsFromPod(run.Id, new GetLogsOptions { IncludeTimestamps = true }, cancellationToken);
+        if (logStream is null)
+        {
+            return;
+        }
+
+        await _logArchive.ArchiveLogs(run.Id, logStream, cancellationToken);
+        await _repository.UpdateRun(run, logsArchivedAt: DateTimeOffset.UtcNow, cancellationToken: cancellationToken);
+    }
+
     private async Task DeleteRunResources(long runId, CancellationToken cancellationToken)
     {
         string podName = PodNameFromRunId(runId);
@@ -571,7 +751,7 @@ Done:
         {
             // clear finalizer on Pod
             await _client.PatchNamespacedPodAsync(
-                new k8s.Models.V1Patch(new { metadata = new { finalizers = Array.Empty<string>() } }, k8s.Models.V1Patch.PatchType.MergePatch),
+                new V1Patch(new { metadata = new { finalizers = Array.Empty<string>() } }, V1Patch.PatchType.MergePatch),
                 podName,
                 _k8sOptions.Namespace,
                 cancellationToken: cancellationToken);

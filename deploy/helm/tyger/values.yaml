@@ -18,6 +18,9 @@ server:
   storageAccountConnectionStringSecretName:
   storageAccountConnectionStringSecretDataKey: connectionString
 
+  logsStorageAccountConnectionStringSecretName:
+  logsStorageAccountConnectionStringSecretDataKey: connectionString
+
   clusterConfigurationJson: "{}"
 
   imagePullSecrets: []

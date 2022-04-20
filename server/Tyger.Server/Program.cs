@@ -31,6 +31,7 @@ builder.WebHost.ConfigureLogging(l => l.Configure(o => o.ActivityTrackingOptions
 // Services
 builder.Services.AddDatabase();
 builder.Services.AddKubernetes();
+builder.Services.AddLogArchive();
 builder.Services.AddAuth();
 builder.Services.AddBuffers();
 builder.Services.AddStorageServer();

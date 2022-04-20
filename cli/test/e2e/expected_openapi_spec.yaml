@@ -228,6 +228,44 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
+  '/v1/runs/{runId}/logs':
+    get:
+      tags:
+        - tyger.server
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: timestamps
+          in: query
+          schema:
+            type: boolean
+        - name: tailLines
+          in: query
+          schema:
+            type: integer
+            format: int32
+        - name: since
+          in: query
+          schema:
+            type: string
+        - name: follow
+          in: query
+          schema:
+            type: boolean
+        - name: previous
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: string
   /v1/metadata:
     get:
       tags:

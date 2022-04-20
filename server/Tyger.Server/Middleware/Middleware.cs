@@ -1,6 +1,7 @@
-using System.ComponentModel.DataAnnotations;
 using System.Diagnostics;
+using k8s.Autorest;
 using Tyger.Server.Model;
+using ValidationException = System.ComponentModel.DataAnnotations.ValidationException;
 
 namespace Tyger.Server.Middleware;
 
@@ -43,12 +44,32 @@ public class ExceptionHandler
         }
         catch (ValidationException e)
         {
-            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            if (!context.Response.HasStarted)
+            {
+                context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            }
+
             await context.Response.WriteAsJsonAsync(new ErrorBody("InvalidInput", e.ValidationResult.ErrorMessage!));
+        }
+        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+        {
+        }
+        catch (HttpOperationException e)
+        {
+            if (!context.Response.HasStarted)
+            {
+                context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+            }
+
+            _logger.UnhandledException(e, e.Response?.Content);
         }
         catch (Exception e)
         {
-            context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+            if (!context.Response.HasStarted)
+            {
+                context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+            }
+
             _logger.UnhandledException(e);
         }
     }
@@ -98,6 +119,6 @@ public static partial class LoggerExtensions
     [LoggerMessage(0, LogLevel.Information, "Request {method} {path}{query} completed with status {statusCode} in {milliseconds} ms.")]
     public static partial void RequestCompleted(this ILogger logger, string method, string path, string? query, int statusCode, double milliseconds);
 
-    [LoggerMessage(1, LogLevel.Error, "Request failed with an unhandled exception.")]
-    public static partial void UnhandledException(this ILogger logger, Exception exception);
+    [LoggerMessage(1, LogLevel.Error, "Request failed with an unhandled exception. {innerResponseBody}")]
+    public static partial void UnhandledException(this ILogger logger, Exception exception, string? innerResponseBody = null);
 }

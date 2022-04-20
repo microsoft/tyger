@@ -103,7 +103,9 @@ func InvokeRequest(method string, relativeUri string, input interface{}, output 
 		return resp, fmt.Errorf("unexpected status code %s", resp.Status)
 	}
 
-	err = json.NewDecoder(resp.Body).Decode(output)
+	if output != nil {
+		err = json.NewDecoder(resp.Body).Decode(output)
+	}
 
 	if err != nil {
 		return resp, fmt.Errorf("unable to understand server response: %v", err)

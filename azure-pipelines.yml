@@ -47,6 +47,7 @@ jobs:
     displayName: Verify devcontainer.json
 
   - script: |
+      make restore
       make verify-format
     displayName: "Build and verify formatting"
 
