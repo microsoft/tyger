@@ -68,8 +68,11 @@ if [[ "$(az provider list --query "[?namespace=='Microsoft.ContainerService']" |
   az provider register --namespace Microsoft.ContainerService
 fi
 
-{ az extension add --name aks-preview >/dev/null; } 2>&1
-{ az extension update --name aks-preview >/dev/null; } 2>&1
+# Pinning aks-preview version due to bug
+{ az extension add --name aks-preview --version 0.5.63 >/dev/null; } 2>&1
+
+# We should not update this extension right now, since there is a bug forcing --min-count >= 1
+# { az extension update --name aks-preview >/dev/null; } 2>&1
 
 for cluster_name in $(echo "${environment_definition}" | jq -r '.clusters | keys[]'); do
   cluster=$(echo "${environment_definition}" | jq --arg name "$cluster_name" '.clusters[$name]')
