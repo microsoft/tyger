@@ -75,40 +75,53 @@ repo_root_dir="$(dirname "$0")/.."
 container_registry_name=$(echo "${environment_definition}" | jq -r '.dependencies.containerRegistry')
 container_registry_fqdn="${container_registry_name}.azurecr.io"
 
+function build_and_push() {
+  docker build -f "${dockerfile_path}" -t "${local_tag}" --target "${target}" "${build_context}"
+
+  if [[ -z "${push:-}" ]]; then
+    exit 0
+  fi
+
+  "$(dirname "${0}")"/login-acr-if-needed.sh "${container_registry_fqdn}"
+
+  full_image="${container_registry_fqdn}/${remote_repo}:${image_tag}"
+
+  # Push image
+  if [[ -z "${force:-}" ]]; then
+    # First try to pull the image
+    image_exists=$(docker pull "$full_image" 2>/dev/null || true)
+    if [[ -n "$image_exists" ]]; then
+      echo "Attempting to push an image that already exists: $full_image"
+      echo "Use \"--push-force\" to overwrite existing image tags"
+      exit 1
+    fi
+  fi
+
+  docker tag "${local_tag}" "$full_image"
+  docker push "$full_image"
+}
+
 if [[ -n "${test:-}" ]]; then
   build_context="${repo_root_dir}/cli"
-  dockerfile_path="${repo_root_dir}/cli/test/testrecon/Dockerfile"
-  target="testrecon"
-  local_tag="testrecon"
-  remote_repo="testrecon"
+  dockerfile_path="${repo_root_dir}/cli/test/testbufferio/Dockerfile"
+  target="testbufferio"
+  local_tag="testbufferio"
+  remote_repo="testbufferio"
+
+  build_and_push
+
+  dockerfile_path="${repo_root_dir}/cli/test/testconnectivity/Dockerfile"
+  target="testconnectivity"
+  local_tag="testconnectivity"
+  remote_repo="testconnectivity"
+
+  build_and_push
 else
   build_context="${repo_root_dir}/server"
   dockerfile_path="${repo_root_dir}/server/Dockerfile"
   target="runtime"
   local_tag="tyger-server"
   remote_repo="tyger-server"
+
+  build_and_push
 fi
-
-docker build -f "${dockerfile_path}" -t "${local_tag}" --target "${target}" "${build_context}"
-
-if [[ -z "${push:-}" ]]; then
-  exit 0
-fi
-
-"$(dirname "${0}")"/login-acr-if-needed.sh "${container_registry_fqdn}"
-
-full_image="${container_registry_fqdn}/${remote_repo}:${image_tag}"
-
-# Push image
-if [[ -z "${force:-}" ]]; then
-  # First try to pull the image
-  image_exists=$(docker pull "$full_image" 2>/dev/null || true)
-  if [[ -n "$image_exists" ]]; then
-    echo "Attempting to push an image that already exists: $full_image"
-    echo "Use \"--push-force\" to overwrite existing image tags"
-    exit 1
-  fi
-fi
-
-docker tag "${local_tag}" "$full_image"
-docker push "$full_image"

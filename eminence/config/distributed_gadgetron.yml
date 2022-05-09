@@ -1,0 +1,25 @@
+tyger:
+  job:
+    image: eminence.azurecr.io/gadgetron_recon:latest
+    replicas: 1
+    input:
+      - "input"
+    output:
+      - "output"
+    command: []
+    args:
+      - "-c"
+      - "CMR_2DT_RTCine_KspaceBinning_Cloud.xml"
+      - "-r"
+      - "$(INPUT_BUFFER_URI_FILE)"
+      - "-w"
+      - "$(OUTPUT_BUFFER_URI_FILE)"
+    nodepool: cpunp
+  worker:
+    image: eminence.azurecr.io/gadgetron_recon:latest
+    replicas: 2
+    nodepool: cpunp
+    command: ["/app/gadgetron", "-E", "http://tyger-storage.lamna:8080"]
+    resources:
+      cpu: 3000m
+      memory: 4G

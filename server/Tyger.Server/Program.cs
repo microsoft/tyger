@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.Logging.Console;
 using Microsoft.Extensions.Options;
@@ -25,7 +27,7 @@ if (builder.Configuration.GetValue<string>("AppSettingsDirectory") is string set
 }
 
 // Logging
-builder.Logging.AddConsoleFormatter<LogFormatter, ConsoleFormatterOptions>();
+builder.Logging.AddConsoleFormatter<JsonFormatter, ConsoleFormatterOptions>();
 builder.WebHost.ConfigureLogging(l => l.Configure(o => o.ActivityTrackingOptions = ActivityTrackingOptions.None));
 
 // Services
@@ -42,6 +44,7 @@ builder.Services.Configure<JsonOptions>(options =>
 {
     options.SerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault;
     options.SerializerOptions.AllowTrailingCommas = true;
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
 });
 
 var app = builder.Build();

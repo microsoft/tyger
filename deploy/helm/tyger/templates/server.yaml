@@ -5,29 +5,60 @@ metadata:
   name: {{ include "tyger.fullname" . }}-server
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
+kind: Role
 metadata:
   name: {{ include "tyger.fullname" . }}-server
 rules:
 - apiGroups: [""]
-  resources: ["pods", "pods/log"]
+  resources: ["pods", "pods/log", "services"]
+  verbs: ["*"]
+- apiGroups: ["apps"]
+  resources: ["statefulsets"]
+  verbs: ["*"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
   verbs: ["*"]
 - apiGroups: [""]
   resources: ["secrets"]
-  verbs: ["create", "delete"]
+  verbs: ["create", "delete", "deletecollection"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: RoleBinding
 metadata:
   name: {{ include "tyger.fullname" . }}-server
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
+  kind: Role
   name: {{ include "tyger.fullname" . }}-server
 subjects:
 - kind: ServiceAccount
   name: {{ include "tyger.fullname" . }}-server
-  namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "tyger.fullname" . }}-job
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "tyger.fullname" . }}-job
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "watch", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "tyger.fullname" . }}-job
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "tyger.fullname" . }}-job
+subjects:
+- kind: ServiceAccount
+  name: {{ include "tyger.fullname" . }}-job
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -84,7 +115,7 @@ spec:
             - name: AppSettingsDirectory
               value: /etc/config/
             - name: Logging__Console__FormatterName
-              value: Tyger.Server.Logging.LogFormatter
+              value: Tyger.Server.Logging.JsonFormatter
             - name: Auth__Enabled
               value: "{{ .Values.server.security.enabled }}"
           {{- if $serverValues.security.enabled }}
@@ -95,6 +126,10 @@ spec:
           {{- end }}
             - name: Kubernetes__Namespace
               value: {{ .Release.Namespace }}
+            - name: Kubernetes__JobServiceAccount
+              value: {{ include "tyger.fullname" . }}-job
+            - name: Kubernetes__NoOpConfigMap
+              value: {{ include "tyger.fullname" . }}-no-op
             - name: Database__ConnectionString
               value: Host={{ template "common.names.fullname" .Subcharts.db }}; Database={{ .Values.db.postgresqlDatabase }}; Port=5432; Username={{ template "postgresql.username" .Subcharts.db }}
             - name: StorageServer__Uri

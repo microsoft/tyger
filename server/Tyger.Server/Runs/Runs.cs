@@ -11,19 +11,19 @@ public static class Runs
 {
     public static void MapRuns(this WebApplication app)
     {
-        app.MapPost("/v1/runs", async (IKubernetesManager k8sManager, HttpContext context) =>
+        app.MapPost("/v1/runs", async (RunCreator runCreator, HttpContext context) =>
         {
             var run = await context.Request.ReadAndValidateJson<NewRun>(context.RequestAborted);
-            Run createdRun = await k8sManager.CreateRun(run, context.RequestAborted);
+            Run createdRun = await runCreator.CreateRun(run, context.RequestAborted);
             return Results.Created($"/v1/runs/{createdRun.Id}", createdRun);
         })
         .Produces<Run>(StatusCodes.Status201Created)
         .Produces<ErrorBody>(StatusCodes.Status400BadRequest);
 
-        app.MapGet("/v1/runs", async (IKubernetesManager k8sManager, int? limit, DateTimeOffset? since, [FromQuery(Name = "_ct")] string? continuationToken, HttpContext context) =>
+        app.MapGet("/v1/runs", async (RunReader runReader, int? limit, DateTimeOffset? since, [FromQuery(Name = "_ct")] string? continuationToken, HttpContext context) =>
         {
             limit = limit is null ? 20 : Math.Min(limit.Value, 200);
-            (var items, var nextContinuationToken) = await k8sManager.GetRuns(limit.Value, since, continuationToken, context.RequestAborted);
+            (var items, var nextContinuationToken) = await runReader.ListRuns(limit.Value, since, continuationToken, context.RequestAborted);
 
             string? nextLink;
             if (nextContinuationToken is null)
@@ -44,9 +44,9 @@ public static class Runs
             return new RunPage(items, nextLink == null ? null : new Uri(nextLink));
         });
 
-        app.MapGet("/v1/runs/{runId}", async (string runId, IKubernetesManager k8sManager, CancellationToken cancellationToken) =>
+        app.MapGet("/v1/runs/{runId}", async (string runId, RunReader runReader, CancellationToken cancellationToken) =>
         {
-            if (!long.TryParse(runId, out var parsedRunId) || await k8sManager.GetRun(parsedRunId, cancellationToken) is not Run run)
+            if (!long.TryParse(runId, out var parsedRunId) || await runReader.GetRun(parsedRunId, cancellationToken) is not Run run)
             {
                 return Responses.NotFound();
             }
@@ -63,7 +63,6 @@ public static class Runs
             int? tailLines,
             DateTimeOffset? since,
             bool? follow,
-            bool? previous,
             HttpContext context) =>
         {
             var options = new GetLogsOptions
@@ -72,22 +71,24 @@ public static class Runs
                 TailLines = tailLines,
                 Since = since,
                 Follow = follow.GetValueOrDefault(),
-                Previous = previous.GetValueOrDefault(),
             };
 
             if (!long.TryParse(runId, out var parsedRunId) ||
-                !await logSource.TryGetLogs(parsedRunId, options, context.Response.BodyWriter, context.RequestAborted))
+                await logSource.GetLogs(parsedRunId, options, context.RequestAborted) is not Pipeline pipeline)
             {
                 context.Response.StatusCode = StatusCodes.Status404NotFound;
+                return;
             }
+
+            await pipeline.Process(context.Response.BodyWriter, context.RequestAborted);
         })
         .Produces<Run>(StatusCodes.Status200OK)
         .Produces<string>();
 
         // this endpoint is for testing purposes only, to force the background pod sweep
-        app.MapPost("/v1/runs/_sweep", async (IKubernetesManager k8sManager, CancellationToken cancellationToken) =>
+        app.MapPost("/v1/runs/_sweep", async (RunSweeper runSweeper, CancellationToken cancellationToken) =>
         {
-            await k8sManager.SweepRuns(cancellationToken);
+            await runSweeper.SweepRuns(cancellationToken);
         }).ExcludeFromDescription();
     }
 }

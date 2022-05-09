@@ -30,16 +30,14 @@ public class TygerDbContext : DbContext
             {
                 r.Property(c => c.Id).ValueGeneratedOnAdd();
                 r.Property(c => c.CreatedAt).IsRequired();
-                r.Property(c => c.Deadline).IsRequired();
                 r.Property(c => c.Run).IsRequired().HasColumnType("jsonb");
                 r.Property(c => c.Final).HasDefaultValue(false);
-                r.Property(c => c.PodCreated).HasDefaultValue(false);
+                r.Property(c => c.ResourcesCreated).HasDefaultValue(false);
                 r.Property(c => c.LogsArchivedAt).HasDefaultValue(null);
 
                 r.HasKey(c => new { c.Id });
                 r.HasIndex(c => new { c.CreatedAt, c.Id });
-                r.HasIndex(c => new { c.CreatedAt }).HasFilter("pod_created = false");
-                r.HasIndex(c => new { c.Deadline }).HasFilter("final = false");
+                r.HasIndex(c => new { c.CreatedAt }).HasFilter("resources_created = false");
             });
     }
 }
@@ -49,16 +47,15 @@ public class CodespecEntity
     public string Name { get; set; } = null!;
     public int Version { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
-    public Codespec Spec { get; set; } = null!;
+    public NewCodespec Spec { get; set; } = null!;
 }
 
 public class RunEntity
 {
     public long Id { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
-    public DateTimeOffset Deadline { get; set; }
     public Run Run { get; set; } = null!;
     public bool Final { get; set; }
-    public bool PodCreated { get; set; }
+    public bool ResourcesCreated { get; set; }
     public DateTimeOffset? LogsArchivedAt { get; set; }
 }

@@ -42,7 +42,7 @@ func TestEndToEnd(t *testing.T) {
 
 	// create a codespec
 	const codespecName = "testcodespec"
-	digest := runCommandSuceeds(t, "docker", "inspect", "testrecon", "--format", "{{ index .RepoDigests 0 }}")
+	digest := runCommandSuceeds(t, "docker", "inspect", "testbufferio", "--format", "{{ index .RepoDigests 0 }}")
 
 	runTygerSuceeds(t,
 		"codespec",
@@ -465,6 +465,34 @@ func TestGetArchivedLogsWithLongLines(t *testing.T) {
 	require.Equal(t, expectedLogs, logs)
 }
 
+func TestConnectivityBetweenJobAndWorkers(t *testing.T) {
+	t.Parallel()
+
+	jobCodespecName := t.Name() + "-job"
+	workerCodespecName := t.Name() + "-worker"
+
+	digest := runCommandSuceeds(t, "docker", "inspect", "testconnectivity", "--format", "{{ index .RepoDigests 0 }}")
+
+	runTygerSuceeds(t,
+		"codespec",
+		"create", jobCodespecName,
+		"--image", digest,
+		"--",
+		"--job")
+
+	runTygerSuceeds(t,
+		"codespec",
+		"create", workerCodespecName,
+		"--kind", "worker",
+		"--image", digest,
+		"--max-replicas", "3",
+		"--",
+		"--worker")
+
+	runId := runTygerSuceeds(t, "run", "create", "--codespec", jobCodespecName, "--worker-codespec", workerCodespecName, "--worker-replicas", "3", "--timeout", "10m")
+	waitForRunSuccess(t, runId)
+}
+
 func TestAuthenticationRequired(t *testing.T) {
 	t.Parallel()
 	ctx, err := clicontext.GetCliContext()
@@ -529,7 +557,6 @@ func waitForRunStarted(t *testing.T, runId string) {
 
 		switch run.Status {
 		case "Pending":
-		case "ContainerCreating":
 			break
 		default:
 			return
@@ -561,10 +588,9 @@ func waitForRunSuccess(t *testing.T, runId string) {
 		require.Nil(t, json.Unmarshal([]byte(runJson), &run))
 
 		switch run.Status {
-		case "Completed":
+		case "Succeeded":
 			return
 		case "Pending":
-		case "ContainerCreating":
 		case "Running":
 			break
 		default:

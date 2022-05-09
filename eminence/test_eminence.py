@@ -6,8 +6,9 @@ from pathlib import Path
 import pytest
 import random
 import subprocess
-from typing import Any, List, Tuple
+from typing import Any, Dict, List, Tuple
 from eminence_tools import get_dependency_image
+import yaml
 
 
 @pytest.fixture
@@ -53,83 +54,114 @@ def verify_basic_recon_results(testdata_filename, recon_filename, image_variable
     assert np.linalg.norm(reconstruction - recon_reference) / np.linalg.norm(recon_reference) < 2e-5
 
 
+@pytest.fixture()
+def configuration_generator():
+    current_dir = Path(os.path.dirname(__file__))
+    config_dir = current_dir/"config"
+    files_generated = []
+
+    def _config_generator(baseconfig: Path, image: str):
+        temp_config_filename = str(current_dir/f"config{random.randint(0,999)}.yml")
+        with open(config_dir/baseconfig, 'r') as configfile:
+            config: Dict = yaml.safe_load(configfile)
+
+        config['tyger']['job']['image'] = image
+
+        if 'worker' in config['tyger']:
+            config['tyger']['worker']['image'] = image
+
+        with open(temp_config_filename, 'w') as tempconfigfile:
+            yaml.safe_dump(config, tempconfigfile)
+        files_generated.append(temp_config_filename)
+        return temp_config_filename
+
+    yield _config_generator
+
+    for f in files_generated:
+        Path(f).unlink()
+
+
 @pytest.mark.parametrize(
-    "image,recon_args,image_variable_name",
+    "image,config,image_variable_name",
     [
-        (get_dependency_image("recon"), [], "image_0"),
-        (get_dependency_image("python_recon"), [], "image_0"),
-        (get_dependency_image("gadgetron_recon"), ["-c", "default.xml"], "image_0")
+        (get_dependency_image("recon"), "basic_recon.yml", "image_0"),
+        (get_dependency_image("python_recon"), "basic_recon.yml", "image_0"),
+        (get_dependency_image("gadgetron_recon"), "basic_gadgetron_recon.yml", "image_0")
     ])
-def test_simple_reconstruction(data_dir: Path, temp_output_filename: str, image: str, recon_args: List[str], image_variable_name):
+def test_simple_reconstruction(data_dir: Path, temp_output_filename: str, config: str, image: str, image_variable_name: str, configuration_generator):
     test_file = str(data_dir/"testdata.h5")
     args = [
         "-f", test_file,
         "-o", temp_output_filename,
-        "-i", image,
+        "-r", configuration_generator(config, image),
         "-t", "30m"
     ]
-
-    if len(recon_args):
-        args = args + ["--"] + recon_args
 
     run_eminence(args)
     verify_basic_recon_results(test_file, temp_output_filename, image_variable_name)
 
 
-def test_reconstruction_on_gpu(data_dir: Path, temp_output_filename: str):
-    # For now we are not parameterizing this test. Once we are able to get better coverage,
-    # we will need to expand how we configure these tests that are modeled off the Gadgetron
-    # end-to-end test cases
-    image = get_dependency_image("gadgetron_recon")
-    recon_args = ["-c", "grappa_float.xml"]
-    input_file = str(data_dir/"rt_grappa"/"rt_grappa.h5")
-    output_image_variable_name = "img/image_0"
-    reference_file = str(data_dir/"rt_grappa"/"grappa_rate2_out.mrd")
-    reference_image_variable_name = "grappa_float_cpu.xml/image_0"
+@pytest.mark.parametrize(
+    "config_file,image,input_file,output_image_variable_name,reference_file,reference_image_variable_name,tolerance",
+    [
+        ("distributed_gadgetron.yml", get_dependency_image("gadgetron_recon"), Path("binning/binning.h5"),
+         "img/image_2", Path("binning/binning_reference.h5"), "CMR_2DT_RTCine_KspaceBinning.xml/image_2", 0.01),
 
-    # 5% tolerance is pretty high, but this RT recon is not entirely deterministic
-    # The refresh rate of the GRAPPA unmixing coefficients depend on the speed of the GPU.
-    # Noise levels may vary a bit.
-    tolerance = 0.05
+        ("grappa_gpu_gadgetron.yml", get_dependency_image("gadgetron_recon"), Path("rt_grappa/rt_grappa.h5"),
+         "img/image_0", Path("rt_grappa/grappa_rate2_out.mrd"), "grappa_float_cpu.xml/image_0", 0.05)
+    ])
+def test_reconstruction_against_reference(
+        data_dir: Path,
+        config_file: str,
+        image: str,
+        input_file: Path,
+        output_image_variable_name: str,
+        reference_file: str,
+        reference_image_variable_name: str,
+        temp_output_filename: str,
+        tolerance: float,
+        configuration_generator):
+    config = configuration_generator(config_file, image)
+    infile = str(data_dir/input_file)
+    reffile = str(data_dir/reference_file)
 
     args = [
-        "-f", input_file,
+        "-f", infile,
         "-o", temp_output_filename,
-        "-i", image,
-        "-t", "30m",
-        "--gpu", "1"
-    ] + ["--"] + recon_args
+        "-r", config,
+        "-t", "30m"
+    ]
 
     run_eminence(args)
 
     recon_data: Any = h5py.File(str(temp_output_filename))
     reconstruction = np.squeeze(recon_data[output_image_variable_name]['data'])
 
-    ref_data: Any = h5py.File(str(reference_file))
+    ref_data: Any = h5py.File(str(reffile))
     ref = np.squeeze(ref_data[reference_image_variable_name]['data'])
 
-    assert np.linalg.norm(reconstruction - ref) / np.linalg.norm(ref) < tolerance
+    assert np.linalg.norm(reconstruction.astype('float32') - ref.astype('float32')) / np.linalg.norm(ref.astype('float32')) < tolerance
 
 
 @pytest.mark.parametrize(
-    "image,recon_args,image_variable_name",
+    "image,configs,image_variable_name",
     [
-        (get_dependency_image("recon"), (["-p", "noise"], ["-p", "main"]), "image_0"),
-        (get_dependency_image("python_recon"), (["-p", "noise"], ["-p", "main"]), "image_0"),
-        (get_dependency_image("gadgetron_recon"), (["-c", "default_measurement_dependencies.xml"], ["-c", "Modified_Generic_Cartesian_FFT.xml"]), "image_1")
+        (get_dependency_image("recon"), ("basic_noise.yml", "basic_recon.yml"), "image_0"),
+        (get_dependency_image("python_recon"), ("basic_noise.yml", "basic_recon.yml"), "image_0"),
+        (get_dependency_image("gadgetron_recon"), ("gadgetron_noise.yml", "gadgetron_snr.yml"), "image_1")
     ])
-def test_noise_dependency_reconstruction(data_dir: Path, temp_output_filename: str, image: str, recon_args: Tuple[List[str], List[str]], image_variable_name: str, scanner_session_id: str):
+def test_noise_dependency_reconstruction(data_dir: Path, temp_output_filename: str, image: str, configs: Tuple[str, str], image_variable_name: str, scanner_session_id: str, configuration_generator):
     noise_file = str(data_dir/"noise-scaling"/"data_1.h5")
     data_file = str(data_dir/"noise-scaling"/"data_2.h5")
-    recon_args_noise, recon_args_main = recon_args
+    config_noise, config_recon = configs
     run_eminence(
         [
             "-f", noise_file,
-            "-i", image,
+            "-r", configuration_generator(config_noise, image),
             "-o", "out_dummy.h5",
             "-s", scanner_session_id,
             "-t", "30m"
-        ] + ["--"] + recon_args_noise)
+        ])
 
     Path("out_dummy.h5").unlink()
 
@@ -137,10 +169,10 @@ def test_noise_dependency_reconstruction(data_dir: Path, temp_output_filename: s
         [
             "-f", data_file,
             "-o", temp_output_filename,
-            "-i", image,
+            "-r", configuration_generator(config_recon, image),
             "-s", scanner_session_id,
             "-t", "30m"
-        ] + ["--"] + recon_args_main)
+        ])
 
     # Within the object being scanned, the standard deviation across repetitions
     # should be close to 1.

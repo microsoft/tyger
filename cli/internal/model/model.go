@@ -27,34 +27,40 @@ type CodespecResources struct {
 }
 
 type Codespec struct {
-	Buffers    *BufferParameters  `json:"buffers,omitempty"`
-	Image      string             `json:"image"`
-	Command    []string           `json:"command,omitempty"`
-	Args       []string           `json:"args,omitempty"`
-	WorkingDir string             `json:"workingDir,omitempty"`
-	Env        map[string]string  `json:"env,omitempty"`
-	Resources  *CodespecResources `json:"resources,omitempty"`
+	Kind        string             `json:"kind"`
+	Buffers     *BufferParameters  `json:"buffers,omitempty"`
+	Image       string             `json:"image"`
+	Command     []string           `json:"command,omitempty"`
+	Args        []string           `json:"args,omitempty"`
+	WorkingDir  string             `json:"workingDir,omitempty"`
+	Env         map[string]string  `json:"env,omitempty"`
+	Resources   *CodespecResources `json:"resources,omitempty"`
+	MaxReplicas int                `json:"maxReplicas"`
+}
+
+type RunCodeTarget struct {
+	Codespec string            `json:"codespec"`
+	Buffers  map[string]string `json:"buffers,omitempty"`
+	NodePool string            `json:"nodePool,omitempty"`
+	Replicas int               `json:"replicas"`
 }
 
 type NewRun struct {
+	Job            RunCodeTarget     `json:"job,omitempty"`
+	Worker         *RunCodeTarget    `json:"worker,omitempty"`
 	Buffers        map[string]string `json:"buffers,omitempty"`
-	Codespec       string            `json:"codespec"`
-	ComputeTarget  *RunComputeTarget `json:"computeTarget,omitempty"`
+	Cluster        string            `json:"cluster"`
 	TimeoutSeconds *int              `json:"timeoutSeconds,omitempty"`
 }
 
 type Run struct {
-	Id         int64      `json:"id,omitempty"`
-	Status     string     `json:"status,omitempty"`
-	CreatedAt  time.Time  `json:"createdAt"`
-	StartedAt  *time.Time `json:"startedAt"`
-	FinishedAt *time.Time `json:"finishedAt"`
+	Id           int64      `json:"id,omitempty"`
+	Status       string     `json:"status,omitempty"`
+	Reason       string     `json:"reason,omitempty"`
+	RunningCount int        `json:"runningCount"`
+	CreatedAt    time.Time  `json:"createdAt"`
+	FinishedAt   *time.Time `json:"finishedAt"`
 	NewRun
-}
-
-type RunComputeTarget struct {
-	Cluster  string `json:"cluster,omitempty"`
-	NodePool string `json:"nodePool,omitempty"`
 }
 
 type RunPage struct {

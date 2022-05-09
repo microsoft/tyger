@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.IO.Pipelines;
 using System.Text;
 using Shouldly;
 using Tyger.Server.Logging;
@@ -16,13 +15,8 @@ public class LogArchiveTests
     [InlineData("2022-04-14T14:46:43.948731756Z 1\n2022-04-14T14:46:44.948731756Z 2\n")]
     public async Task Passthrough(string input)
     {
-        using var inputStream = new MemoryStream(Encoding.UTF8.GetBytes(input));
-        using var outputStream = new MemoryStream();
-        var writer = PipeWriter.Create(outputStream);
-        await LogArchive.WriteFilteredLogStream(inputStream, true, 0, null, writer, CancellationToken.None);
-
-        outputStream.Position = 0;
-        new StreamReader(outputStream).ReadToEnd().ShouldBe(input);
+        var pipeline = new Pipeline(Encoding.UTF8.GetBytes(input), LogArchive.GetLogFilterPipelineElement(true, 0, null));
+        (await pipeline.ReadAllAsString()).ShouldBe(input);
     }
 
     [Theory]
@@ -33,13 +27,8 @@ public class LogArchiveTests
     [InlineData("2022-04-14T14:46:43.948731756Z 1\n2022-04-14T14:46:44Z 2\n", "1\n2\n")]
     public async Task RemoveTimestamps(string input, string expected)
     {
-        using var inputStream = new MemoryStream(Encoding.UTF8.GetBytes(input));
-        using var outputStream = new MemoryStream();
-        var writer = PipeWriter.Create(outputStream);
-        await LogArchive.WriteFilteredLogStream(inputStream, false, 0, null, writer, CancellationToken.None);
-
-        outputStream.Position = 0;
-        new StreamReader(outputStream).ReadToEnd().ShouldBe(expected);
+        var pipeline = new Pipeline(Encoding.UTF8.GetBytes(input), LogArchive.GetLogFilterPipelineElement(false, 0, null));
+        (await pipeline.ReadAllAsString()).ShouldBe(expected);
     }
 
     [Theory]
@@ -60,13 +49,8 @@ public class LogArchiveTests
 2022-04-14T16:22:25.803090288Z 8
 2022-04-14T16:22:26.803090288Z 9
 ";
-        using var inputStream = new MemoryStream(Encoding.UTF8.GetBytes(input));
-        using var outputStream = new MemoryStream();
-        var writer = PipeWriter.Create(outputStream);
-        await LogArchive.WriteFilteredLogStream(inputStream, false, skipLines, null, writer, CancellationToken.None);
-
-        outputStream.Position = 0;
-        new StreamReader(outputStream).ReadToEnd().ShouldBe(expected);
+        var pipeline = new Pipeline(Encoding.UTF8.GetBytes(input), LogArchive.GetLogFilterPipelineElement(false, skipLines, null));
+        (await pipeline.ReadAllAsString()).ShouldBe(expected);
     }
 
     [Theory]
@@ -87,11 +71,7 @@ public class LogArchiveTests
 2022-04-14T16:22:26.803090288Z 9
 ";
         using var inputStream = new MemoryStream(Encoding.UTF8.GetBytes(input));
-        using var outputStream = new MemoryStream();
-        var writer = PipeWriter.Create(outputStream);
-        await LogArchive.WriteFilteredLogStream(inputStream, false, 0, DateTimeOffset.Parse(since, CultureInfo.InvariantCulture), writer, CancellationToken.None);
-
-        outputStream.Position = 0;
-        new StreamReader(outputStream).ReadToEnd().ShouldBe(expected);
+        var pipeline = new Pipeline(inputStream, LogArchive.GetLogFilterPipelineElement(false, 0, DateTimeOffset.Parse(since, CultureInfo.InvariantCulture)));
+        (await pipeline.ReadAllAsString()).ShouldBe(expected);
     }
 }

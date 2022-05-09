@@ -1,0 +1,16 @@
+tyger:
+  job:
+    image: eminence.azurecr.io/gadgetron_recon:latest
+    replicas: 1
+    input:
+      - "input"
+    output:
+      - "output"
+    command: []
+    args:
+      - "-c"
+      - "default_measurement_dependencies.xml"
+      - "-r"
+      - "$(INPUT_BUFFER_URI_FILE)"
+      - "-w"
+      - "$(OUTPUT_BUFFER_URI_FILE)"

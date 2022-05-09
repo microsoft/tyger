@@ -1,5 +1,4 @@
 using System.Buffers;
-using System.Buffers.Text;
 using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 using System.IO.Pipelines;
@@ -35,37 +34,33 @@ public class LogArchive : ILogArchive
         _logger = logger;
     }
 
-    public async Task ArchiveLogs(long runId, Stream logs, CancellationToken cancellationToken)
+    public async Task ArchiveLogs(long runId, Pipeline pipeline, CancellationToken cancellationToken)
     {
         var blobClient = GetLogsBlobClient(runId);
 
-        using var lineCountingStream = new LineCountingReadStream(logs);
+        var pipe = new Pipe();
+        _ = pipeline.Process(pipe.Writer, cancellationToken);
+
+        using var lineCountingStream = new LineCountingReadStream(pipe.Reader.AsStream());
         await blobClient.UploadAsync(lineCountingStream, overwrite: true, cancellationToken: cancellationToken);
         await blobClient.SetMetadataAsync(new Dictionary<string, string> { { LineCountMetadataKey, lineCountingStream.LineCount.ToString(CultureInfo.InvariantCulture) } }, cancellationToken: cancellationToken);
 
         _logger.ArchivedLogsForRun(runId);
     }
 
-    public async Task<bool> TryGetLogs(long runId, GetLogsOptions options, PipeWriter outputWriter, CancellationToken cancellationToken)
+    public async Task<Pipeline?> GetLogs(long runId, GetLogsOptions options, CancellationToken cancellationToken)
     {
-        if (options.Previous)
-        {
-            throw new ValidationException("Logs from a previous execution were not found.");
-        }
-
         _logger.RetrievingAchivedLogsForRun(runId);
-
-        var blobClient = GetLogsBlobClient(runId);
         try
         {
+            var response = await GetLogsBlobClient(runId).DownloadStreamingAsync(cancellationToken: cancellationToken);
+            var pipeline = new Pipeline(new SimplePipelineSource(response.Value.Content));
+
             if (options.IncludeTimestamps && options.TailLines == null && options.Since == null)
             {
                 // fast path: the logs can be returned without modification
-                await blobClient.DownloadToAsync(outputWriter.AsStream(), cancellationToken);
-                return true;
+                return pipeline;
             }
-
-            var response = await GetLogsBlobClient(runId).DownloadStreamingAsync(cancellationToken: cancellationToken);
 
             // Turn the TailLines parameter into a number of lines to skip by using the line count
             // that we stored as metadata on the blob.
@@ -78,139 +73,135 @@ public class LogArchive : ILogArchive
                 skipLines = lineCount - options.TailLines.Value;
             }
 
-            using Stream logs = response.Value.Content;
-            await WriteFilteredLogStream(logs, options.IncludeTimestamps, skipLines, options.Since, outputWriter, cancellationToken);
-            return true;
+            return pipeline.AddElement(GetLogFilterPipelineElement(options.IncludeTimestamps, skipLines, options.Since));
         }
         catch (Azure.RequestFailedException e) when (e.ErrorCode == "BlobNotFound")
         {
-            return false;
+            return null;
         }
     }
 
-    public static async Task WriteFilteredLogStream(Stream logs, bool timestamps, int skipLines, DateTimeOffset? since, PipeWriter outputWriter, CancellationToken cancellationToken)
-    {
-        var reader = PipeReader.Create(logs);
-        bool atBeginningOfLine = true;
-
-        while (true)
-        {
-            ReadResult result = await reader.ReadAsync(cancellationToken);
-            ReadOnlySequence<byte> buffer = result.Buffer;
-
-            var position = ProcessBuffer(buffer, timestamps, since, ref skipLines, ref atBeginningOfLine, outputWriter);
-            await outputWriter.FlushAsync(cancellationToken);
-
-            if (result.IsCompleted)
-            {
-                break;
-            }
-
-            // Tell the PipeReader how much of the buffer has been consumed.
-            reader.AdvanceTo(position, buffer.End);
-        }
-
-        await reader.CompleteAsync();
-    }
-
-    private static SequencePosition ProcessBuffer(in ReadOnlySequence<byte> sequence, bool includeTimestamps, DateTimeOffset? since, ref int skipLines, ref bool atBeginningOfLine, PipeWriter writer)
-    {
-        var reader = new SequenceReader<byte>(sequence);
-        while (reader.Remaining > 0)
-        {
-            if (skipLines > 0)
-            {
-                // skip to the end of the current line
-
-                if (reader.TryAdvanceTo((byte)'\n', advancePastDelimiter: true))
-                {
-                    atBeginningOfLine = true;
-                    skipLines--;
-                    continue;
-                }
-
-                reader.AdvanceToEnd();
-                return reader.Position;
-            }
-
-            if (atBeginningOfLine && (since != null || !includeTimestamps))
-            {
-                // whatever comes before the first space is the timestamp
-                var timestampStartPosition = reader.Position;
-                if (!reader.TryAdvanceTo((byte)' ', advancePastDelimiter: true))
-                {
-                    return reader.Position;
-                }
-
-                atBeginningOfLine = false;
-                var timestampSequence = sequence.Slice(timestampStartPosition, reader.Position);
-                if (since != null)
-                {
-                    if (!TryParseTimestampFromSequence(timestampSequence, out var timestamp))
-                    {
-                        throw new InvalidOperationException("Failed to parse logs");
-                    }
-
-                    if (timestamp > since.Value)
-                    {
-                        // all following lines will have timestamps >= so we can clear
-                        // this so we don't have to parse more timestamps.
-                        since = null;
-                    }
-                    else
-                    {
-                        skipLines = 1;
-                        continue;
-                    }
-                }
-
-                if (includeTimestamps)
-                {
-                    foreach (var segment in timestampSequence)
-                    {
-                        writer.Write(segment.Span);
-                    }
-                }
-            }
-
-            var startPosition = reader.Position;
-            if (reader.TryAdvanceTo((byte)'\n', advancePastDelimiter: true))
-            {
-                atBeginningOfLine = true;
-            }
-            else
-            {
-                reader.AdvanceToEnd();
-            }
-
-            foreach (var segment in sequence.Slice(startPosition, reader.Position))
-            {
-                writer.Write(segment.Span);
-            }
-        }
-
-        return reader.Position;
-    }
+    public static IPipelineElement GetLogFilterPipelineElement(bool includeTimestamps, int skipLines, DateTimeOffset? since) =>
+        new LogFilter(includeTimestamps, skipLines, since);
 
     private BlobClient GetLogsBlobClient(long runId)
     {
         return new BlobClient(_storageAccountConnectionString, "runs", runId.ToString(CultureInfo.InvariantCulture));
     }
 
-    private static bool TryParseTimestampFromSpan(in ReadOnlySpan<byte> byteSpan, out DateTimeOffset timestamp)
+    private class LogFilter : IPipelineElement
     {
-        return Utf8Parser.TryParse(byteSpan, out timestamp, out _, 'O');
-    }
+        private readonly bool _includeTimestamps;
 
-    private static bool TryParseTimestampFromSequence(in ReadOnlySequence<byte> sequence, out DateTimeOffset timestamp)
-    {
-        if (sequence.IsSingleSegment)
+        private int _skipLines;
+        private DateTimeOffset? _since;
+
+        public LogFilter(bool includeTimestamps, int skipLines, DateTimeOffset? since)
         {
-            return TryParseTimestampFromSpan(sequence.FirstSpan, out timestamp);
+            _includeTimestamps = includeTimestamps;
+            _skipLines = skipLines;
+            _since = since;
         }
 
-        Span<byte> dateSpan = stackalloc byte[(int)sequence.Length];
-        sequence.CopyTo(dateSpan);
-        return TryParseTimestampFromSpan(dateSpan, out timestamp);
+        public async Task Process(PipeReader reader, PipeWriter writer, CancellationToken cancellationToken)
+        {
+            bool atBeginningOfLine = true;
+
+            while (true)
+            {
+                ReadResult result = await reader.ReadAsync(cancellationToken);
+                ReadOnlySequence<byte> buffer = result.Buffer;
+
+                var position = ProcessBuffer(buffer, ref atBeginningOfLine, writer);
+                await writer.FlushAsync(cancellationToken);
+
+                if (result.IsCompleted)
+                {
+                    break;
+                }
+
+                // Tell the PipeReader how much of the buffer has been consumed.
+                reader.AdvanceTo(position, buffer.End);
+            }
+        }
+
+        private SequencePosition ProcessBuffer(in ReadOnlySequence<byte> sequence, ref bool atBeginningOfLine, PipeWriter writer)
+        {
+            var reader = new SequenceReader<byte>(sequence);
+            while (reader.Remaining > 0)
+            {
+                if (_skipLines > 0)
+                {
+                    // skip to the end of the current line
+
+                    if (reader.TryAdvanceTo((byte)'\n', advancePastDelimiter: true))
+                    {
+                        atBeginningOfLine = true;
+                        _skipLines--;
+                        continue;
+                    }
+
+                    reader.AdvanceToEnd();
+                    return reader.Position;
+                }
+
+                if (atBeginningOfLine && (_since != null || !_includeTimestamps))
+                {
+                    // whatever comes before the first space is the timestamp
+                    var timestampStartPosition = reader.Position;
+                    if (!reader.TryAdvanceTo((byte)' ', advancePastDelimiter: true))
+                    {
+                        return reader.Position;
+                    }
+
+                    atBeginningOfLine = false;
+                    var timestampSequence = sequence.Slice(timestampStartPosition, reader.Position);
+                    if (_since != null)
+                    {
+                        if (!TimestampParser.TryParseTimestampFromSequence(timestampSequence, out var timestamp))
+                        {
+                            throw new InvalidOperationException("Failed to parse logs");
+                        }
+
+                        if (timestamp > _since.Value)
+                        {
+                            // all following lines will have timestamps >= so we can clear
+                            // this so we don't have to parse more timestamps.
+                            _since = null;
+                        }
+                        else
+                        {
+                            _skipLines = 1;
+                            continue;
+                        }
+                    }
+
+                    if (_includeTimestamps)
+                    {
+                        foreach (var segment in timestampSequence)
+                        {
+                            writer.Write(segment.Span);
+                        }
+                    }
+                }
+
+                var startPosition = reader.Position;
+                if (reader.TryAdvanceTo((byte)'\n', advancePastDelimiter: true))
+                {
+                    atBeginningOfLine = true;
+                }
+                else
+                {
+                    reader.AdvanceToEnd();
+                }
+
+                foreach (var segment in sequence.Slice(startPosition, reader.Position))
+                {
+                    writer.Write(segment.Span);
+                }
+            }
+
+            return reader.Position;
+        }
     }
 }

@@ -36,6 +36,7 @@ func newCodespecCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 func newCodespecCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 	var flags struct {
 		image         string
+		kind          string
 		inputBuffers  []string
 		outputBuffers []string
 		env           map[string]string
@@ -43,10 +44,11 @@ func newCodespecCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 		cpu           string
 		memory        string
 		gpu           string
+		maxReplicas   int
 	}
 
 	var cmd = &cobra.Command{
-		Use:                   "create NAME --image IMAGE [[--input BUFFER_NAME] ...] [[--output BUFFER_NAME] ...] [[--env \"KEY=VALUE\"] ...] [resources] [--command] -- [COMMAND] [args...]",
+		Use:                   "create NAME --image IMAGE [--kind job|worker] [--max-replicas REPLICAS] [[--input BUFFER_NAME] ...] [[--output BUFFER_NAME] ...] [[--env \"KEY=VALUE\"] ...] [resources] [--command] -- [COMMAND] [args...]",
 		Short:                 "Create or update a codespec",
 		Long:                  `Create of update a codespec. Outputs the version of the codespec that was created.`,
 		DisableFlagsInUseLine: true,
@@ -61,14 +63,26 @@ func newCodespecCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 			codespecName := args[0]
 			containerArgs := args[1:]
 
+			flags.kind = strings.ToLower(flags.kind)
+
+			switch flags.kind {
+			case "job":
+			case "worker":
+				break
+			default:
+				return errors.New("--kind must be either 'job' or worker'")
+			}
+
 			codespec := model.Codespec{
+				Kind:  flags.kind,
 				Image: flags.image,
 				Buffers: &model.BufferParameters{
 					Inputs:  flags.inputBuffers,
 					Outputs: flags.outputBuffers,
 				},
-				Env:       flags.env,
-				Resources: &model.CodespecResources{},
+				Env:         flags.env,
+				Resources:   &model.CodespecResources{},
+				MaxReplicas: flags.maxReplicas,
 			}
 
 			if flags.command {
@@ -121,6 +135,8 @@ func newCodespecCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 	if err := cmd.MarkFlagRequired("image"); err != nil {
 		log.Panicln(err)
 	}
+	cmd.Flags().StringVarP(&flags.kind, "kind", "k", "job", "The codespec kind. Either 'job' (the default) or 'worker'.")
+	cmd.Flags().IntVarP(&flags.maxReplicas, "max-replicas", "r", 1, "The maximum number of replicas this codespec supports.")
 	cmd.Flags().StringSliceVarP(&flags.inputBuffers, "input", "i", nil, "Input buffer parameter names")
 	cmd.Flags().StringSliceVarP(&flags.outputBuffers, "output", "o", nil, "Output buffer parameter names")
 	cmd.Flags().StringToStringVarP(&flags.env, "env", "e", nil, "Environment variables to set in the container in the form KEY=value")

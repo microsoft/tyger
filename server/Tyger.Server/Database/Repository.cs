@@ -8,22 +8,6 @@ using Tyger.Server.Model;
 
 namespace Tyger.Server.Database;
 
-public interface IRepository
-{
-    Task<int> UpsertCodespec(string name, Codespec codespec, CancellationToken cancellationToken);
-    Task<(Codespec codespec, int version)?> GetLatestCodespec(string name, CancellationToken cancellationToken);
-    Task<Codespec?> GetCodespecAtVersion(string name, int version, CancellationToken cancellationToken);
-
-    Task<Run> CreateRun(NewRun newRun, CancellationToken cancellationToken);
-    Task UpdateRun(Run run, bool? podCreated = null, bool? final = null, DateTimeOffset? logsArchivedAt = null, CancellationToken cancellationToken = default);
-    Task DeleteRun(long id, CancellationToken cancellationToken);
-    Task<(Run run, bool final)?> GetRun(long id, CancellationToken cancellationToken);
-    Task<(bool runExists, DateTimeOffset? timeArchived)> AreRunLogsArchived(long id, CancellationToken cancellationToken);
-    Task<(IReadOnlyList<(Run run, bool final)>, string? nextContinuationToken)> GetRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken);
-    Task<IReadOnlyList<Run>> GetPageOfRunsThatNeverGotAPod(CancellationToken cancellationToken);
-    Task<IReadOnlyList<Run>> GetPageOfTimedOutRuns(CancellationToken cancellationToken);
-}
-
 public class Repository : IRepository
 {
     private readonly TygerDbContext _context;
@@ -37,24 +21,24 @@ public class Repository : IRepository
 
     public async Task<Codespec?> GetCodespecAtVersion(string name, int version, CancellationToken cancellationToken)
     {
-        var codespecEntity = await _context.Codespecs
+        var codespecEntity = await _context.Codespecs.AsNoTracking()
              .Where(c => c.Name == name && c.Version == version)
              .FirstOrDefaultAsync(cancellationToken);
 
-        return codespecEntity?.Spec;
+        return codespecEntity == null ? null : new Codespec(codespecEntity.Spec, name, version);
     }
 
-    public async Task<(Codespec codespec, int version)?> GetLatestCodespec(string name, CancellationToken cancellationToken)
+    public async Task<Codespec?> GetLatestCodespec(string name, CancellationToken cancellationToken)
     {
-        var codespecEntity = await _context.Codespecs
+        var codespecEntity = await _context.Codespecs.AsNoTracking()
              .Where(c => c.Name == name)
              .OrderByDescending(c => c.Version)
              .FirstOrDefaultAsync(cancellationToken);
 
-        return codespecEntity == null ? null : (codespecEntity.Spec, codespecEntity.Version);
+        return codespecEntity == null ? null : new Codespec(codespecEntity.Spec, name, codespecEntity.Version);
     }
 
-    public async Task<int> UpsertCodespec(string name, Codespec codespec, CancellationToken cancellationToken)
+    public async Task<int> UpsertCodespec(string name, NewCodespec codespec, CancellationToken cancellationToken)
     {
         var connection = await GetOpenedConnection(cancellationToken);
         using var command = new NpgsqlCommand
@@ -96,27 +80,50 @@ public class Repository : IRepository
 
     public async Task<Run> CreateRun(NewRun newRun, CancellationToken cancellationToken)
     {
-        var timeout = TimeSpan.FromSeconds(newRun.TimeoutSeconds ?? throw new InvalidOperationException($"{nameof(newRun.TimeoutSeconds)} must be set before database insertion"));
         var connection = await GetOpenedConnection(cancellationToken);
+        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         using var insertCommand = new NpgsqlCommand
         {
             Connection = connection,
+            Transaction = tx,
             CommandText = @"
-                INSERT INTO runs (created_at, deadline, run)
-                VALUES (now() AT TIME ZONE 'utc',now() AT TIME ZONE 'utc' + $1, '{}')
+                INSERT INTO runs (created_at, run)
+                VALUES (now() AT TIME ZONE 'utc', $1)
                 RETURNING id, created_at",
             Parameters =
             {
-                new() { Value = timeout },
+                new() { Value = JsonSerializer.Serialize(newRun), NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Jsonb },
             }
         };
 
         using var reader = await insertCommand.ExecuteReaderAsync(cancellationToken);
         await reader.ReadAsync(cancellationToken);
-        return new Run(newRun) with { Id = reader.GetInt64(0), CreatedAt = reader.GetDateTime(1) };
+        var run = new Run(newRun) with { Id = reader.GetInt64(0), CreatedAt = reader.GetDateTime(1) };
+
+        await reader.ReadAsync(cancellationToken);
+        await reader.DisposeAsync();
+
+        using var updateCommand = new NpgsqlCommand
+        {
+            Connection = connection,
+            Transaction = tx,
+            CommandText = $@"
+                UPDATE runs
+                SET run = $1
+                WHERE id = $2",
+            Parameters =
+            {
+                new() { Value = JsonSerializer.Serialize(run), NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Jsonb },
+                new() { Value = run.Id },
+            },
+        };
+
+        await updateCommand.ExecuteNonQueryAsync(cancellationToken);
+        await tx.CommitAsync(cancellationToken);
+        return run;
     }
 
-    public async Task UpdateRun(Run run, bool? podCreated = null, bool? final = null, DateTimeOffset? logsArchivedAt = null, CancellationToken cancellationToken = default)
+    public async Task UpdateRun(Run run, bool? resourcesCreated = null, bool? final = null, DateTimeOffset? logsArchivedAt = null, CancellationToken cancellationToken = default)
     {
         var connection = await GetOpenedConnection(cancellationToken);
         using var command = new NpgsqlCommand
@@ -124,13 +131,13 @@ public class Repository : IRepository
             Connection = connection,
             CommandText = $@"
                 UPDATE runs
-                SET run = $2 {(podCreated.HasValue ? ", pod_created = $3" : null)} {(final.HasValue ? ", final = $4" : null)} {(logsArchivedAt.HasValue ? ", logs_archived_at = $5" : null)}
+                SET run = $2 {(resourcesCreated.HasValue ? ", resources_created = $3" : null)} {(final.HasValue ? ", final = $4" : null)} {(logsArchivedAt.HasValue ? ", logs_archived_at = $5" : null)}
                 WHERE id = $1",
             Parameters =
             {
                 new() { Value = run.Id },
                 new() { Value = JsonSerializer.Serialize(run), NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Jsonb },
-                new() { Value = podCreated.GetValueOrDefault() },
+                new() { Value = resourcesCreated.GetValueOrDefault() },
                 new() { Value = final.GetValueOrDefault() },
                 new() { Value = logsArchivedAt.GetValueOrDefault() },
             },
@@ -154,21 +161,15 @@ public class Repository : IRepository
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    public async Task<(Run run, bool final)?> GetRun(long id, CancellationToken cancellationToken)
+    public async Task<(Run run, bool final, DateTimeOffset? logsArchivedAt)?> GetRun(long id, CancellationToken cancellationToken)
     {
-        var entity = await _context.Runs.FirstOrDefaultAsync(r => r.Id == id, cancellationToken);
-        return entity == null ? null : (entity.Run, entity.Final);
+        var entity = await _context.Runs.AsNoTracking().FirstOrDefaultAsync(r => r.Id == id, cancellationToken);
+        return entity == null ? null : (entity.Run, entity.Final, entity.LogsArchivedAt);
     }
 
-    public async Task<(bool runExists, DateTimeOffset? timeArchived)> AreRunLogsArchived(long id, CancellationToken cancellationToken)
+    public async Task<(IList<(Run run, bool final)>, string? nextContinuationToken)> GetRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken)
     {
-        var list = await _context.Runs.Where(r => r.Id == id).Select(r => r.LogsArchivedAt).ToListAsync(cancellationToken);
-        return list is { Count: 0 } ? (false, null) : (true, list[0]);
-    }
-
-    public async Task<(IReadOnlyList<(Run run, bool final)>, string? nextContinuationToken)> GetRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken)
-    {
-        IQueryable<RunEntity> runsQueryable = _context.Runs.Where(r => r.PodCreated);
+        IQueryable<RunEntity> runsQueryable = _context.Runs.Where(r => r.ResourcesCreated);
         if (continuationToken != null)
         {
             bool valid = false;
@@ -216,16 +217,10 @@ public class Repository : IRepository
         return (results, null);
     }
 
-    public async Task<IReadOnlyList<Run>> GetPageOfRunsThatNeverGotAPod(CancellationToken cancellationToken)
+    public async Task<IList<Run>> GetPageOfRunsThatNeverGotResources(CancellationToken cancellationToken)
     {
         var oldestAllowable = DateTimeOffset.UtcNow.AddMinutes(-5);
-        return (await _context.Runs.Where(r => r.CreatedAt < oldestAllowable && !r.PodCreated).OrderByDescending(r => r.CreatedAt).Take(100).ToListAsync(cancellationToken))
-            .Select(r => r.Run).ToList();
-    }
-
-    public async Task<IReadOnlyList<Run>> GetPageOfTimedOutRuns(CancellationToken cancellationToken)
-    {
-        return (await _context.Runs.Where(r => !r.Final && r.Deadline < DateTimeOffset.UtcNow).OrderByDescending(r => r.CreatedAt).Take(100).ToListAsync(cancellationToken))
+        return (await _context.Runs.AsNoTracking().Where(r => r.CreatedAt < oldestAllowable && !r.ResourcesCreated).OrderByDescending(r => r.CreatedAt).Take(100).ToListAsync(cancellationToken))
             .Select(r => r.Run).ToList();
     }
 

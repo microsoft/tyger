@@ -11,10 +11,10 @@ RUN --mount=type=cache,target=/root/.cache/go-mod-download go mod download
 COPY . .
 
 RUN --mount=type=cache,target=/root/.cache/go-go-build \
-    go build -ldflags="-s -w" -o /go/bin/testrecon ./test/testrecon/
+    go build -ldflags="-s -w" -o /go/bin/testconnectivity ./test/testconnectivity/
 
-FROM cblmariner.azurecr.io/distroless/base:2.0 as testrecon
+FROM cblmariner.azurecr.io/distroless/base:2.0 as testconnectivity
 
-COPY --from=go-build /go/bin/testrecon /
+COPY --from=go-build /go/bin/testconnectivity /
 
-ENTRYPOINT ["/testrecon"]
+ENTRYPOINT ["/testconnectivity"]

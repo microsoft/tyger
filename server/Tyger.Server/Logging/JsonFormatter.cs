@@ -13,9 +13,9 @@ namespace Tyger.Server.Logging;
 /// built-in JsonConsoleFormatter in order to make searching the logs easier and
 /// to filter out some noisy properties.
 /// </summary>
-internal sealed class LogFormatter : ConsoleFormatter
+internal sealed class JsonFormatter : ConsoleFormatter
 {
-    public static readonly string FormatterName = typeof(LogFormatter).FullName!;
+    public static readonly string FormatterName = typeof(JsonFormatter).FullName!;
     private readonly ConsoleFormatterOptions _formatterOptions;
     private static readonly HashSet<string> s_scopeFieldsToIgnore = new()
     {
@@ -28,7 +28,7 @@ internal sealed class LogFormatter : ConsoleFormatter
         "{OriginalFormat}"
     };
 
-    public LogFormatter(IOptions<ConsoleFormatterOptions> options)
+    public JsonFormatter(IOptions<ConsoleFormatterOptions> options)
         : base(FormatterName)
     {
         _formatterOptions = options.Value;

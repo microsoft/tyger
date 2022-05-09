@@ -15,48 +15,29 @@ namespace Tyger.Server.Logging;
 ///
 /// Here we reformat those logs and to take out those extra timestamps from the messages.
 /// </summary>
-public class TimestampedLogReformatter
+public class TimestampedLogReformatter : IPipelineElement
 {
     public const int LineBlockSize = 0x4000;
 
-    public static Stream WithReformattedLines(Stream input, CancellationToken cancellationToken)
+    public async Task Process(PipeReader reader, PipeWriter writer, CancellationToken cancellationToken)
     {
-        var p = new Pipe();
-        _ = ProcessStream(input, p.Writer, cancellationToken);
-        return p.Reader.AsStream();
-    }
-
-    private static async Task ProcessStream(Stream input, PipeWriter writer, CancellationToken cancellationToken)
-    {
-        var reader = PipeReader.Create(input);
-        try
+        long remainingBytesLeftInMessageBlock = 0;
+        bool discardNextDate = false;
+        while (true)
         {
-            long remainingBytesLeftInMessageBlock = 0;
-            bool discardNextDate = false;
-            while (true)
+            var result = await reader.ReadAsync(cancellationToken);
+            var buffer = result.Buffer;
+
+            SequencePosition consumedPosition = ProcessBuffer(buffer, writer, ref remainingBytesLeftInMessageBlock, ref discardNextDate);
+
+            await writer.FlushAsync(cancellationToken);
+
+            if (result.IsCompleted)
             {
-                var result = await reader.ReadAsync(cancellationToken);
-                var buffer = result.Buffer;
-
-                SequencePosition consumedPosition = ProcessBuffer(buffer, writer, ref remainingBytesLeftInMessageBlock, ref discardNextDate);
-
-                await writer.FlushAsync(cancellationToken);
-
-                if (result.IsCompleted)
-                {
-                    break;
-                }
-
-                reader.AdvanceTo(consumedPosition, buffer.End);
+                break;
             }
 
-            await reader.CompleteAsync();
-            await writer.CompleteAsync();
-        }
-        catch (Exception e)
-        {
-            await reader.CompleteAsync(e);
-            await writer.CompleteAsync(e);
+            reader.AdvanceTo(consumedPosition, buffer.End);
         }
     }
 

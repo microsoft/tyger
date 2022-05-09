@@ -7,7 +7,7 @@ namespace Tyger.Server.UnitTests.Model;
 
 public class ModelValidationTests
 {
-    private static readonly Codespec s_validCodespec = new() { Image = "abc", Buffers = new(new[] { "a" }, new[] { "b" }) };
+    private static readonly NewCodespec s_validCodespec = new() { Image = "abc", Buffers = new(new[] { "a" }, new[] { "b" }) };
 
     [Fact]
     public void Codespec_Valid() => Validate(s_validCodespec);

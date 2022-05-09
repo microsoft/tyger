@@ -20,10 +20,13 @@ public static class Kubernetes
                 : KubernetesClientConfiguration.BuildConfigFromConfigFile(kubernetesOptions.KubeconfigPath);
             return new k8s.Kubernetes(config, sp.GetRequiredService<LoggingHandler>());
         });
+        services.AddSingleton<IKubernetes>(sp => sp.GetRequiredService<k8s.Kubernetes>());
 
-        services.AddScoped<IKubernetesManager, KubernetesManager>();
-        services.AddSingleton<IHostedService, KubernetesManager>();
-        services.AddScoped<ILogSource, KubernetesManager>();
+        services.AddScoped<RunCreator>();
+        services.AddScoped<RunReader>();
+        services.AddScoped<ILogSource, RunLogReader>();
+        services.AddScoped<RunSweeper>();
+        services.AddScoped<IHostedService, RunSweeper>(sp => sp.GetRequiredService<RunSweeper>());
     }
 
     public static void MapClusters(this WebApplication app)
@@ -68,6 +71,12 @@ public class KubernetesOptions
     [Required]
     public string Namespace { get; set; } = null!;
 
+    [Required]
+    public string JobServiceAccount { get; set; } = null!;
+
+    [Required]
+    public string NoOpConfigMap { get; set; } = null!;
+
     [MinLength(1)]
     public Dictionary<string, ClusterOptions> Clusters { get; } = new(StringComparer.Ordinal);
 }
@@ -103,7 +112,14 @@ public class LoggingHandler : DelegatingHandler
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         var resp = await base.SendAsync(request, cancellationToken);
-        _logger.ExecutedKubernetesRequest(request.Method, request?.RequestUri?.ToString(), (int)resp.StatusCode);
+        string? errorBody = "";
+        if (!resp.IsSuccessStatusCode)
+        {
+            await resp.Content.LoadIntoBufferAsync();
+            errorBody = await resp.Content.ReadAsStringAsync(cancellationToken);
+        }
+
+        _logger.ExecutedKubernetesRequest(request.Method, request?.RequestUri?.ToString(), (int)resp.StatusCode, errorBody);
         return resp;
     }
 }

@@ -64,14 +64,16 @@ for organization_name in $(echo "${environment_definition}" | jq -r '.organizati
 
     kubectl delete pvc -n "${namespace}" -l app.kubernetes.io/instance="${helm_release}"
 
-    for pod in $(kubectl get pod -n "${namespace}" -l tyger=run -o go-template='{{range .items}}{{.metadata.name}}{{"\n"}}{{end}}'); do
+    for pod in $(kubectl get pod -n "${namespace}" -l tyger-run -o go-template='{{range .items}}{{.metadata.name}}{{"\n"}}{{end}}'); do
         kubectl patch pod -n "${namespace}" "${pod}" \
             --type json \
             --patch='[ { "op": "remove", "path": "/metadata/finalizers" } ]'
     done
 
-    kubectl delete secret -n "${namespace}" -l tyger=run --cascade=foreground
-    kubectl delete pod -n "${namespace}" -l tyger=run
+    kubectl delete job -n "${namespace}" -l tyger-run --cascade=foreground
+    kubectl delete statefulset -n "${namespace}" -l tyger-run --cascade=foreground
+    kubectl delete secret -n "${namespace}" -l tyger-run --cascade=foreground
+    kubectl delete service -n "${namespace}" -l tyger-run --cascade=foreground
 
     subscription=$(echo "${environment_definition}" | jq -r '.dependencies.subscription')
     dns_zone=$(echo "${environment_definition}" | jq -r '.dependencies.dnsZone.name')

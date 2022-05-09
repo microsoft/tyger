@@ -9,10 +9,11 @@ public static class Codespecs
     {
         app.MapPut("/v1/codespecs/{name}", async (string name, IRepository repository, HttpContext context) =>
         {
-            var codespec = await context.Request.ReadAndValidateJson<Codespec>(context.RequestAborted);
+            var newCodespec = await context.Request.ReadAndValidateJson<NewCodespec>(context.RequestAborted);
 
-            int version = await repository.UpsertCodespec(name, codespec!, context.RequestAborted);
+            int version = await repository.UpsertCodespec(name, newCodespec!, context.RequestAborted);
             context.Response.Headers.Location = $"/v1/codespecs/{name}/{version}";
+            var codespec = new Codespec(newCodespec, name, version);
             return Results.Json(codespec, statusCode: version == 1 ? StatusCodes.Status201Created : StatusCodes.Status200OK);
         })
         .Produces<Codespec>(StatusCodes.Status200OK)
@@ -21,14 +22,14 @@ public static class Codespecs
 
         app.MapGet("/v1/codespecs/{name}", async (string name, IRepository repository, HttpContext context) =>
         {
-            (Codespec codespec, int version)? result = await repository.GetLatestCodespec(name, context.RequestAborted);
-            if (result == null)
+            Codespec? codespec = await repository.GetLatestCodespec(name, context.RequestAborted);
+            if (codespec == null)
             {
                 return Responses.NotFound();
             }
 
-            context.Response.Headers.Location = $"/v1/codespecs/{name}/{result.Value.version}";
-            return Results.Ok(result.Value.codespec);
+            context.Response.Headers.Location = $"/v1/codespecs/{name}/{codespec.Version}";
+            return Results.Ok(codespec);
         })
         .Produces<Codespec>();
 

@@ -255,10 +255,6 @@ paths:
           in: query
           schema:
             type: boolean
-        - name: previous
-          in: query
-          schema:
-            type: boolean
       responses:
         '200':
           description: Success
@@ -328,8 +324,8 @@ components:
         - image
       type: object
       properties:
-        buffers:
-          $ref: '#/components/schemas/BufferParameters'
+        kind:
+          $ref: '#/components/schemas/CodespecKind'
         image:
           type: string
         command:
@@ -352,7 +348,24 @@ components:
           nullable: true
         resources:
           $ref: '#/components/schemas/CodespecResources'
+        maxReplicas:
+          type: integer
+          format: int32
+        buffers:
+          $ref: '#/components/schemas/BufferParameters'
+        name:
+          type: string
+          nullable: true
+        version:
+          type: integer
+          format: int32
       additionalProperties: false
+    CodespecKind:
+      enum:
+        - 0
+        - 1
+      type: integer
+      format: int32
     CodespecResources:
       type: object
       properties:
@@ -404,21 +417,19 @@ components:
       additionalProperties: false
     Run:
       required:
-        - codespec
+        - job
       type: object
       properties:
-        buffers:
-          type: object
-          additionalProperties:
-            type: string
-          nullable: true
-        codespec:
-          type: string
-        computeTarget:
-          $ref: '#/components/schemas/RunComputeTarget'
+        job:
+          $ref: '#/components/schemas/RunCodeTarget'
+        worker:
+          $ref: '#/components/schemas/RunCodeTarget'
         timeoutSeconds:
           type: integer
           format: int32
+          nullable: true
+        cluster:
+          type: string
           nullable: true
         id:
           type: integer
@@ -426,27 +437,39 @@ components:
         status:
           type: string
           nullable: true
+        reason:
+          type: string
+          nullable: true
+        runningCount:
+          type: integer
+          format: int32
+          nullable: true
         createdAt:
           type: string
           format: date-time
-        startedAt:
-          type: string
-          format: date-time
-          nullable: true
         finishedAt:
           type: string
           format: date-time
           nullable: true
       additionalProperties: false
-    RunComputeTarget:
+    RunCodeTarget:
+      required:
+        - codespec
       type: object
       properties:
-        cluster:
+        codespec:
           type: string
+        buffers:
+          type: object
+          additionalProperties:
+            type: string
           nullable: true
         nodePool:
           type: string
           nullable: true
+        replicas:
+          type: integer
+          format: int32
       additionalProperties: false
     RunPage:
       type: object

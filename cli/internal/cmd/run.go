@@ -17,6 +17,7 @@ import (
 	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/model"
 	"github.com/kaz-yamam0t0/go-timeparser/timeparser"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 func newRunCommand(rootFlags *rootPersistentFlags) *cobra.Command {
@@ -41,34 +42,64 @@ func newRunCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 }
 
 func newRunCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
-	var flags struct {
+	type codeTargetFlags struct {
 		codespec        string
 		codespecVersion int
 		buffers         map[string]string
-		cluster         string
 		nodePool        string
-		timeout         string
+		replicas        int
+	}
+	var flags struct {
+		job     codeTargetFlags
+		worker  codeTargetFlags
+		cluster string
+		timeout string
+	}
+
+	getCodespecRef := func(ctf codeTargetFlags) string {
+		if ctf.codespecVersion != math.MinInt {
+			return fmt.Sprintf("%s/versions/%d", ctf.codespec, ctf.codespecVersion)
+		}
+		return ctf.codespec
 	}
 
 	cmd := &cobra.Command{
-		Use:                   "create --codespec NAME [--version CODESPEC_VERSION] [--buffer NAME=VALUE] ...]",
+		Use: `create --codespec NAME [--version CODESPEC_VERSION] [[--buffer NAME=VALUE] ...] [--replicas COUNT]  [--node-pool NODEPOOL]
+		[ --worker-codespec NAME [--worker-version CODESPEC_VERSION] [--worker-replicas COUNT]  [--worker-node-pool NODEPOOL] ]
+		[--timeout DURATION] [--cluster CLUSTER]`,
 		Short:                 "Creates a run.",
 		Long:                  `Creates a buffer. Writes the run ID to stdout on success.`,
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 
-			codespecRef := flags.codespec
-			if cmd.Flag("version").Changed {
-				codespecRef = fmt.Sprintf("%s/versions/%d", codespecRef, flags.codespecVersion)
+			jobRunCodeTarget := model.RunCodeTarget{
+				Codespec: getCodespecRef(flags.job),
+				Buffers:  flags.job.buffers,
+				NodePool: flags.job.nodePool,
+				Replicas: flags.job.replicas,
+			}
+
+			var workerCodetarget *model.RunCodeTarget
+			cmd.Flags().VisitAll(func(f *pflag.Flag) {
+				if workerCodetarget == nil && f.Changed && strings.HasPrefix(f.Name, "worker") {
+					workerCodetarget = &model.RunCodeTarget{}
+				}
+			})
+
+			if workerCodetarget != nil {
+				if flags.worker.codespec == "" {
+					return errors.New("--worker-codespec must be specified if a worker is specified")
+				}
+				workerCodetarget.Codespec = getCodespecRef(flags.worker)
+				workerCodetarget.NodePool = flags.worker.nodePool
+				workerCodetarget.Replicas = flags.worker.replicas
 			}
 
 			newRun := model.NewRun{
-				Codespec: codespecRef,
-				Buffers:  flags.buffers,
-			}
-			if flags.cluster != "" || flags.nodePool != "" {
-				newRun.ComputeTarget = &model.RunComputeTarget{Cluster: flags.cluster, NodePool: flags.nodePool}
+				Job:     jobRunCodeTarget,
+				Worker:  workerCodetarget,
+				Cluster: flags.cluster,
 			}
 
 			if flags.timeout != "" {
@@ -92,15 +123,22 @@ func newRunCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&flags.codespec, "codespec", "c", "", "The name of the codespec to execute")
-	cmd.Flags().StringVar(&flags.cluster, "cluster", "", "The name of the cluster to execute in")
-	cmd.Flags().StringVar(&flags.nodePool, "node-pool", "", "The name of the nodepool to execute in")
-	cmd.Flags().StringVar(&flags.timeout, "timeout", "", `How log before the run times out. Specified in a sequence of decimal numbers, each with optional fraction and a unit suffix, such as "300s", "1.5h" or "2h45m". Valid time units are "s", "m", "h"`)
+	cmd.Flags().StringVarP(&flags.job.codespec, "codespec", "c", "", "The name of the job codespec to execute")
 	if err := cmd.MarkFlagRequired("codespec"); err != nil {
 		log.Panicln(err)
 	}
-	cmd.Flags().IntVar(&flags.codespecVersion, "version", -1, "The version of the codespec to execute")
-	cmd.Flags().StringToStringVarP(&flags.buffers, "buffer", "b", nil, "maps a codespec buffer parameter to a buffer ID")
+	cmd.Flags().IntVar(&flags.job.codespecVersion, "version", math.MinInt, "The version of the job codespec to execute")
+	cmd.Flags().IntVarP(&flags.job.replicas, "replicas", "r", 1, "The number of parallel job replicas. Defaults to 1.")
+	cmd.Flags().StringVar(&flags.job.nodePool, "node-pool", "", "The name of the nodepool to execute the job in")
+	cmd.Flags().StringToStringVarP(&flags.job.buffers, "buffer", "b", nil, "maps a codespec buffer parameter to a buffer ID")
+
+	cmd.Flags().StringVar(&flags.worker.codespec, "worker-codespec", "", "The name of the optional worker codespec to execute")
+	cmd.Flags().IntVar(&flags.worker.codespecVersion, "worker-version", math.MinInt, "The version of the optional worker codespec to execute")
+	cmd.Flags().IntVar(&flags.worker.replicas, "worker-replicas", 1, "The number of parallel worker replicas. Defaults to 1 if a worker is specified.")
+	cmd.Flags().StringVar(&flags.worker.nodePool, "worker-node-pool", "", "The name of the nodepool to execute the optional worker codespec in")
+
+	cmd.Flags().StringVar(&flags.cluster, "cluster", "", "The name of the cluster to execute in")
+	cmd.Flags().StringVar(&flags.timeout, "timeout", "", `How log before the run times out. Specified in a sequence of decimal numbers, each with optional fraction and a unit suffix, such as "300s", "1.5h" or "2h45m". Valid time units are "s", "m", "h"`)
 
 	return cmd
 }
@@ -221,7 +259,6 @@ func newRunLogsCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 		tailLines  int
 		since      string
 		follow     bool
-		previous   bool
 	}
 
 	cmd := &cobra.Command{
@@ -249,9 +286,6 @@ func newRunLogsCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 			if flags.follow {
 				queryOptions.Add("follow", "true")
 			}
-			if flags.previous {
-				queryOptions.Add("previous", "true")
-			}
 
 			resp, err := InvokeRequest(http.MethodGet, fmt.Sprintf("v1/runs/%s/logs?%s", args[0], queryOptions.Encode()), nil, nil, rootFlags.verbose)
 			if err != nil {
@@ -267,7 +301,6 @@ func newRunLogsCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 	cmd.Flags().IntVar(&flags.tailLines, "tail", -1, "Lines of recent log file to display")
 	cmd.Flags().StringVarP(&flags.since, "since", "s", "", "Lines before this datetime (specified in local time) are not included")
 	cmd.Flags().BoolVarP(&flags.follow, "follow", "f", false, "Specify if the logs should be streamed")
-	cmd.Flags().BoolVarP(&flags.previous, "previous", "p", false, "If the run has restarted, get the logs from the previous attempt")
 
 	return cmd
 }

@@ -54,6 +54,8 @@ set-localsettings:
 			"kubernetes": {
 				"kubeconfigPath": "$${HOME}/.kube/config",
 				"namespace": "${HELM_NAMESPACE}",
+				"jobServiceAccount": "${HELM_RELEASE}-job",
+				"noOpConfigMap": "${HELM_RELEASE}-no-op",
 				"clusters": $$(echo "$${environment_config}" | jq -c '.clusters')
 			},
 			"logArchive": {

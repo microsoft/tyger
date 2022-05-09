@@ -73,9 +73,16 @@ public record CodespecResources : ModelBase
     }
 }
 
-public record Codespec : ModelBase, IValidatableObject
+public enum CodespecKind
 {
-    public BufferParameters? Buffers { get; init; }
+    Job,
+    Worker
+}
+
+public record NewCodespec : ModelBase, IValidatableObject
+{
+    public CodespecKind Kind { get; init; } = CodespecKind.Job;
+
     [Required]
     public string Image { get; init; } = "";
     public string[]? Command { get; init; }
@@ -84,8 +91,17 @@ public record Codespec : ModelBase, IValidatableObject
     public Dictionary<string, string>? Env { get; init; }
     public CodespecResources? Resources { get; init; }
 
+    public int MaxReplicas { get; init; } = 1;
+
+    public BufferParameters? Buffers { get; init; }
+
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
+        if (Kind == CodespecKind.Worker && Buffers is { Inputs: { Length: > 0 } } or { Outputs: { Length: > 0 } })
+        {
+            yield return new ValidationResult("Buffers are only supported on job codespecs");
+        }
+
         if (Buffers != null)
         {
             var combined = (Buffers.Inputs ?? Enumerable.Empty<string>()).Concat(Buffers.Outputs ?? Enumerable.Empty<string>());
@@ -111,6 +127,33 @@ public record Codespec : ModelBase, IValidatableObject
     }
 }
 
+public record Codespec : NewCodespec
+{
+    public Codespec(NewCodespec newCodespec, string name, int version)
+    : base(newCodespec)
+    {
+        Name = name;
+        Version = version;
+    }
+
+    public string Name { get; init; }
+    public int Version { get; init; }
+
+    public string NormalizedRef() => $"{Name}/versions/{Version}";
+}
+
+public record RunCodeTarget
+{
+    [Required]
+    public string Codespec { get; init; } = "";
+
+    public Dictionary<string, string>? Buffers { get; init; }
+
+    public string? NodePool { get; init; }
+
+    public int Replicas { get; init; } = 1;
+}
+
 public record Run : NewRun
 {
     public Run() { }
@@ -118,23 +161,27 @@ public record Run : NewRun
 
     public long Id { get; init; }
     public string Status { get; init; } = null!;
+    public string? Reason { get; init; }
+    public int? RunningCount { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
-    public DateTimeOffset? StartedAt { get; init; }
     public DateTimeOffset? FinishedAt { get; init; }
 }
 
 public record NewRun : ModelBase
 {
-    public Dictionary<string, string>? Buffers { get; init; }
     [Required]
-    public string Codespec { get; init; } = "";
-    public RunComputeTarget? ComputeTarget { get; init; }
-    public int? TimeoutSeconds { get; init; }
+    public RunCodeTarget Job { get; init; } = null!;
+
+    public RunCodeTarget? Worker { get; init; }
+
+    public int? TimeoutSeconds { get; init; } = (int)TimeSpan.FromHours(12).TotalMilliseconds;
+
+    public string? Cluster { get; init; }
 }
 
-public record RunPage(IReadOnlyList<Run> Items, Uri? NextLink);
+public record RunStatus(string Phase, int PendingCount, int RunningCount);
 
-public record RunComputeTarget(string? Cluster, string? NodePool);
+public record RunPage(IReadOnlyList<Run> Items, Uri? NextLink);
 
 public record Cluster(string Name, string Region, IReadOnlyList<NodePool> NodePools);
 
