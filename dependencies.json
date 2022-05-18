@@ -28,7 +28,7 @@
       "name": "mrd-storage-server",
       "type": "gcrImage",
       "repository": "ghcr.io/ismrmrd/mrd-storage-server",
-      "tag": "v0.0.8",
+      "tag": "v0.0.9",
       "releaseUrl": "https://api.github.com/repos/ismrmrd/mrd-storage-server/releases/latest"
     }
   ]
