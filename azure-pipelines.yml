@@ -6,37 +6,30 @@ trigger:
 pr:
 - main
 
-pool:
-  vmImage: ubuntu-latest
+pool: tyger
 
 variables:
   DOCKER_BUILDKIT: 1
   IS_PR: $[ne(variables['System.PullRequest.PullRequestId'], '')]
   IS_CI: $[or(eq(variables['Build.Reason'], 'IndividualCI'), eq(variables['Build.Reason'], 'BatchedCI'))]
+  DEVCONTAINER_IMAGE: compimagdevcontainers.azurecr.io/tyger@sha256:309eceec93b7808671bd3013f9ba38a00e7cd1cc32e5bdb2c1c64f84b64b6236
 
 jobs:
-- job: devcontainerMetadata
-  displayName: "Get devcontainer metadata"
-  steps:
-    - script: |
-        echo "##vso[task.setvariable variable=DEVCONTAINER_IMAGE;isOutput=true]$(.devcontainer/get-devcontainer-image.sh)"
-      displayName: Get devcontainer image name
-      name: getImage
-
-
 - job: buildAndTest
   displayName: "Deploy and run tests"
-  dependsOn: devcontainerMetadata
   container:
     image: $(DEVCONTAINER_IMAGE)
   variables:
     BASH_ENV: /opt/devcontainer/devcontainer.bashrc
-    DEVCONTAINER_IMAGE: $[ dependencies.devcontainerMetadata.outputs['getImage.DEVCONTAINER_IMAGE'] ]
 
   steps:
 
   - script: |
       set -euo pipefail
+
+      if [[ "$(.devcontainer/get-devcontainer-image.sh)" != "${DEVCONTAINER_IMAGE}" ]]; then
+        echo "The devcontainer image in azure-pipelines.yml and devcontainer.json must be the same"
+      fi
 
       docker build -f .devcontainer/Dockerfile --target devcontainer -t devcontainer --build-arg BUILDKIT_INLINE_CACHE=1 --cache-from ${DEVCONTAINER_IMAGE} .
 

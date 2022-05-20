@@ -1,7 +1,5 @@
 FROM mcr.microsoft.com/oss/go/microsoft/golang:1.17-bullseye as go-build
 
-RUN apt-get update && apt-get install -y upx
-
 WORKDIR /go/src/app
 
 COPY ./go.mod .

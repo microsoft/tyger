@@ -1,3 +1,26 @@
+#########################################################
+# file-normalizer stage
+# In order to use BuildKit remote caching, input files must have
+# not only the right content hash, but also the right permissions.
+# Git only tracks whether the owner can execute a file.
+# Here we bring in all files that are going to be used in the
+# subsequent stage and normalize the permissions.
+#########################################################
+
+FROM mcr.microsoft.com/oss/busybox/busybox:1.33.1 as file-normalizer
+
+COPY environment.yml \
+     .devcontainer/devcontainer.bashrc  \
+     .devcontainer/install-tools.sh \
+     /data/
+
+RUN chmod -R 555 /data/
+
+#########################################################
+# devcontainer stage
+# Installs all dependencies and tooling for development.
+#########################################################
+
 FROM mcr.microsoft.com/vscode/devcontainers/base:0.201.8-focal AS devcontainer
 
 # Install needed packages and setup non-root user.
@@ -38,14 +61,14 @@ RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86
     && find /opt -type d | xargs -n 1 chmod g+s
 
 # Create a conda environment from the environment file in the repo root.
-COPY --chown=$USER_UID:conda environment.yml /tmp/build/
+COPY --from=file-normalizer --chown=$USER_UID:conda /data/environment.yml /tmp/build/
 RUN umask 0002 \
     && /opt/conda/bin/mamba env create -f /tmp/build/environment.yml \
     && /opt/conda/bin/mamba clean -fy \
     && sudo chown -R :conda /opt/conda/envs
 
 WORKDIR /opt/temp
-COPY .devcontainer/install-tools.sh .
+COPY --from=file-normalizer /data/install-tools.sh .
 RUN ./install-tools.sh
 
 # Install go tools
@@ -79,7 +102,7 @@ RUN umask 0002 \
 USER root
 
 # Add a file that is to be sourced from .bashrc and from the devops pipeline stages
-COPY .devcontainer/devcontainer.bashrc /opt/devcontainer/
+COPY --from=file-normalizer /data/devcontainer.bashrc /opt/devcontainer/
 
 # Add a section to /etc/bash.bashrc that ensures that a section is present at the end of ~/.bashrc.
 # We can't just write to .bashrc from here because it will be overwritten if the devcontainer user has

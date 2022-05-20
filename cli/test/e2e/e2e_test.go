@@ -237,7 +237,7 @@ func TestOpenApiSpecIsAsExpected(t *testing.T) {
 	ctx, err := clicontext.GetCliContext()
 	require.Nil(t, err)
 	swaggerUri := fmt.Sprintf("%s/swagger/v1/swagger.yaml", ctx.GetServerUri())
-	resp, err := http.Get(swaggerUri)
+	resp, err := clicontext.NewRetryableClient().Get(swaggerUri)
 	require.Nil(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	actualBytes, err := io.ReadAll(resp.Body)
@@ -497,7 +497,7 @@ func TestAuthenticationRequired(t *testing.T) {
 	t.Parallel()
 	ctx, err := clicontext.GetCliContext()
 	require.Nil(t, err)
-	resp, err := http.Get(fmt.Sprintf("%s/v1/runs/abc", ctx.GetServerUri()))
+	resp, err := clicontext.NewRetryableClient().Get(fmt.Sprintf("%s/v1/runs/abc", ctx.GetServerUri()))
 	require.Nil(t, err)
 	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }

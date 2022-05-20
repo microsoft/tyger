@@ -14,6 +14,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/google/uuid"
+	"github.com/hashicorp/go-retryablehttp"
 	"github.com/johnstairs/pathenvconfig"
 )
 
@@ -91,7 +92,7 @@ func verifyStorageServerConnectivity(config configSpec) error {
 
 	createBlobUri := fmt.Sprintf("%s/v1/blobs/data?%s", config.MrdStorageUri, query)
 	const content = "my data"
-	resp, err := http.Post(createBlobUri, "text/plain", strings.NewReader(content))
+	resp, err := retryablehttp.Post(createBlobUri, "text/plain", strings.NewReader(content))
 	if err != nil {
 		return err
 	}
@@ -101,7 +102,7 @@ func verifyStorageServerConnectivity(config configSpec) error {
 
 	getLatestBlobUri := fmt.Sprintf("%s/v1/blobs/data/latest?%s", config.MrdStorageUri, query)
 
-	resp, err = http.Get(getLatestBlobUri)
+	resp, err = retryablehttp.Get(getLatestBlobUri)
 	if err != nil {
 		return err
 	}

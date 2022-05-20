@@ -13,6 +13,7 @@ import (
 
 	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/clicontext"
 	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/model"
+	"github.com/hashicorp/go-retryablehttp"
 	"github.com/spf13/cobra"
 )
 
@@ -57,7 +58,7 @@ func InvokeRequest(method string, relativeUri string, input interface{}, output 
 		body = bytes.NewBuffer(serializedBody)
 	}
 
-	req, err := http.NewRequest(method, absoluteUri, body)
+	req, err := retryablehttp.NewRequest(method, absoluteUri, body)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +68,7 @@ func InvokeRequest(method string, relativeUri string, input interface{}, output 
 		if token != "" {
 			req.Header.Add("Authorization", "Bearer --REDACTED--")
 		}
-		if debugOutput, err := httputil.DumpRequestOut(req, true); err == nil {
+		if debugOutput, err := httputil.DumpRequestOut(req.Request, true); err == nil {
 			fmt.Fprintln(os.Stderr, "====REQUEST=====")
 			fmt.Fprintln(os.Stderr, string(debugOutput))
 			fmt.Fprintln(os.Stderr, "==END REQUEST===")
@@ -80,7 +81,7 @@ func InvokeRequest(method string, relativeUri string, input interface{}, output 
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := clicontext.NewRetryableClient().Do(req)
 	if err != nil {
 		return resp, fmt.Errorf("unable to connect to server: %v", err)
 	}

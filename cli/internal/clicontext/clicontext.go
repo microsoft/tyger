@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -19,6 +18,7 @@ import (
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/cache"
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/confidential"
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/public"
+	"github.com/hashicorp/go-retryablehttp"
 	"gopkg.in/yaml.v3"
 )
 
@@ -104,6 +104,12 @@ func Login(options LoginOptions) error {
 	}
 
 	return ctx.writeCliContext()
+}
+
+func NewRetryableClient() *retryablehttp.Client {
+	client := retryablehttp.NewClient()
+	client.Logger = nil
+	return client
 }
 
 func normalizeServerUri(uri string) (string, error) {
@@ -218,7 +224,7 @@ func (c *cliContext) Validate() error {
 }
 
 func getServiceMetadata(serverUri string) (*model.ServiceMetadata, error) {
-	resp, err := http.Get(fmt.Sprintf("%s/v1/metadata", serverUri))
+	resp, err := retryablehttp.Get(fmt.Sprintf("%s/v1/metadata", serverUri))
 	if err != nil {
 		return nil, err
 	}

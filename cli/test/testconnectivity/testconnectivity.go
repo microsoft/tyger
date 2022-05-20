@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
+
+	"github.com/hashicorp/go-retryablehttp"
 )
 
 const port = 29477
@@ -42,7 +44,7 @@ func main() {
 
 	results := make(map[string]string)
 	for _, hostname := range hostnames {
-		resp, err := http.Get(fmt.Sprintf("http://%s:%d", hostname, port))
+		resp, err := retryablehttp.Get(fmt.Sprintf("http://%s:%d", hostname, port))
 		if err != nil {
 			log.Fatal(err)
 		}
