@@ -46,14 +46,7 @@ updated_manifest="{\"dependencies\": []}"
 for d in $dependencies; do
   dep="$(jq --arg depname "$d" -r '.dependencies[] | select(.name == $depname )' "$dependency_manifest")"
   type="$(echo "$dep" | jq -r .type)"
-  tag="$(echo "$dep" | jq -r .tag)"
-  if [[ "$type" == "gcrImage" ]]; then
-    releaseUrl="$(echo "$dep" | jq -r .releaseUrl)"
-    latestTag="$(curl -s "$releaseUrl" | jq -r '.tag_name')"
-    if [[ "$tag" != "$latestTag" ]]; then
-      dep="$(echo "$dep" | jq --arg t "$latestTag" '.tag = $t')"
-    fi
-  elif [[ "$type" == "acrImage" ]] || [[ "$type" == "acrHelm" ]] || [[ "$type" == "acrArtifact" ]]; then
+  if [[ "$type" == "acrImage" ]]; then
     repository="$(echo "$dep" | jq -r .repository)"
     if [[ "$repository" =~ ([^/]+)/(.*) ]]; then
       acr="${BASH_REMATCH[1]}"
@@ -71,7 +64,7 @@ for d in $dependencies; do
       exit 1
     fi
   else
-    echo "Unknow dependency type: $type"
+    echo "Unknown dependency type: $type"
     exit 1
   fi
 

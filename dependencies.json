@@ -26,10 +26,9 @@
     },
     {
       "name": "mrd-storage-server",
-      "type": "gcrImage",
-      "repository": "ghcr.io/ismrmrd/mrd-storage-server",
-      "tag": "v0.0.9",
-      "releaseUrl": "https://api.github.com/repos/ismrmrd/mrd-storage-server/releases/latest"
+      "type": "acrImage",
+      "repository": "eminencepublic.azurecr.io/mrd-storage-server",
+      "tag": "v0.0.9"
     }
   ]
 }
