@@ -12,7 +12,7 @@ variables:
   DOCKER_BUILDKIT: 1
   IS_PR: $[ne(variables['System.PullRequest.PullRequestId'], '')]
   IS_CI: $[or(eq(variables['Build.Reason'], 'IndividualCI'), eq(variables['Build.Reason'], 'BatchedCI'))]
-  DEVCONTAINER_IMAGE: compimagdevcontainers.azurecr.io/tyger@sha256:309eceec93b7808671bd3013f9ba38a00e7cd1cc32e5bdb2c1c64f84b64b6236
+  DEVCONTAINER_IMAGE: compimagdevcontainers.azurecr.io/tyger@sha256:ae09da0df42a0597fe662afb7f9d9a37900cd4169f20cb0955cd7fdb3935ee3a
 
 jobs:
 - job: buildAndTest

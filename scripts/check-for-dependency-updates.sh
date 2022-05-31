@@ -48,21 +48,13 @@ for d in $dependencies; do
   type="$(echo "$dep" | jq -r .type)"
   if [[ "$type" == "acrImage" ]]; then
     repository="$(echo "$dep" | jq -r .repository)"
-    if [[ "$repository" =~ ([^/]+)/(.*) ]]; then
-      acr="${BASH_REMATCH[1]}"
-      repo="${BASH_REMATCH[2]}"
 
-      # Of the last 10 manifest (order latest first) select the tags that are 40 characters long (likely to be hashes), grab the top one of those
-      tag_candidate="$(az acr repository show-manifests -n "$acr" --repository "$repo" 2>/dev/null --orderby time_desc --query '[:10].tags[]' | jq -r '.[] | select(. | length >= 40)' | head -n 1)"
-      if [[ ! "$tag_candidate" =~ ^[a-f0-9]{40} ]] && [[ ! "$tag_candidate" =~ ^[0-9]+.[0-9]+.[0-9]+-[[a-f0-9]{40} ]]; then
-        echo "Tag $tag_candidate is not a SHA1 hash or a semantic version with a SHA1 hash"
-        exit 1
-      fi
-      dep="$(echo "$dep" | jq --arg t "$tag_candidate" '.tag = $t')"
-    else
-      echo "Malformed ACR repository: $repository"
-      exit 1
-    fi
+    # get the digest of the image tagged with "current"
+    digest=$(az acr manifest show-metadata "${repository}:current" | jq -r '.digest')
+
+    # get all tags for that image and take one that is either a git hash or a version specifier (vX.Y.Z)
+    new_tag=$(az acr manifest show-metadata "${repository}@${digest}" | jq -r '.tags | map(select(test("^(v\\d+\\.\\d+\\.\\d+)|([0-9a-fA-F]{5,40})$"))) | sort[0]')
+    dep="$(echo "$dep" | jq --arg t "$new_tag" '.tag = $t')"
   else
     echo "Unknown dependency type: $type"
     exit 1

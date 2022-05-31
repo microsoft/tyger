@@ -30,4 +30,4 @@ dependencies:
   - scipy=1.7.1
   - shellcheck=0.7.2
   - pip:
-    - azure-cli==2.32.0
+    - azure-cli==2.37.0
