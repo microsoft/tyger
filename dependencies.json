@@ -4,25 +4,25 @@
       "name": "python_recon",
       "type": "acrImage",
       "repository": "eminence.azurecr.io/python_recon",
-      "tag": "8e72390ad7800ca868b1421af51e51dbad93a797"
+      "tag": "dfdf03616773abc3eab1c3c50f6cba912d7e2edc"
     },
     {
       "name": "recon",
       "type": "acrImage",
       "repository": "eminence.azurecr.io/recon",
-      "tag": "8e72390ad7800ca868b1421af51e51dbad93a797"
+      "tag": "dfdf03616773abc3eab1c3c50f6cba912d7e2edc"
     },
     {
       "name": "gadgetron_recon",
       "type": "acrImage",
       "repository": "eminence.azurecr.io/gadgetron_recon",
-      "tag": "8e72390ad7800ca868b1421af51e51dbad93a797"
+      "tag": "dfdf03616773abc3eab1c3c50f6cba912d7e2edc"
     },
     {
       "name": "scanner",
       "type": "acrImage",
       "repository": "eminence.azurecr.io/scanner",
-      "tag": "8e72390ad7800ca868b1421af51e51dbad93a797"
+      "tag": "dfdf03616773abc3eab1c3c50f6cba912d7e2edc"
     },
     {
       "name": "mrd-storage-server",
