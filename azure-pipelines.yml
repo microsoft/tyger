@@ -21,6 +21,8 @@ jobs:
     image: $(DEVCONTAINER_IMAGE)
   variables:
     BASH_ENV: /opt/devcontainer/devcontainer.bashrc
+    TYGER_ENVIRONMENT_CONFIG_DIR: $(Build.SourcesDirectory)/deploy/config/dev/ci # Disable scale-to-zero
+    ENVIRONMENT_PROVISIONED: false
 
   steps:
 
@@ -70,6 +72,7 @@ jobs:
       scriptLocation: inlineScript
       inlineScript: |
         make ensure-environment
+        echo "##vso[task.setvariable variable=ENVIRONMENT_PROVISIONED;]true"
 
   - task: AzureCLI@2
     displayName: Build and install Helm chart
@@ -107,13 +110,35 @@ jobs:
         make test-no-up
 
   - task: AzureCLI@2
-    condition: and(succeeded(), eq(variables.IS_PR, 'true'))
-    displayName: Remove environment
+    condition: always()
+    displayName: Cleanup
     inputs:
       azureSubscription: BiomedicalImaging-NonProd
       scriptType: bash
       scriptLocation: inlineScript
       inlineScript: |
         set -euo pipefail
-        make down
-        make remove-environment
+
+        # Point to scale-to-zero config
+        export TYGER_ENVIRONMENT_CONFIG_DIR="${BUILD_SOURCESDIRECTORY}/deploy/config/dev/"
+
+        if [[ "${AGENT_JOBSTATUS}" == "Succeeded" ]]; then
+          if [[ "${IS_PR}" == "True" ]]; then
+            echo "deleting environment"
+            make down
+            make remove-environment
+            exit
+          fi
+
+          echo "scaling cluster back down"
+          make ensure-environment
+          exit
+        fi
+
+        if [[ $"ENVIRONMENT_PROVISIONED" == "false" ]]; then
+          echo "leaving environment as-is"
+          exit
+        fi
+
+        echo "scaling cluster back down"
+        make ensure-environment

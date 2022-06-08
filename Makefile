@@ -110,6 +110,11 @@ install-cli:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go install -ldflags="-s -w" -v ./cmd/tyger
 
 e2e-no-up: docker-build-test
+	if ! scripts/get-context-environment-config.sh | timeout --foreground 30m scripts/wait-for-cluster-to-scale.sh -c -; then
+		echo "timed out waiting for nodepools to scale"
+		exit 1
+	fi
+
 	pushd cli/test/e2e
 	go test -tags=e2e
 
