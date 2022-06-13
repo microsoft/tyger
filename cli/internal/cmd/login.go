@@ -59,7 +59,7 @@ func newLoginStatusCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 				}
 			}
 
-			return errors.New("you are not currently logged in to any Tyger server")
+			return fmt.Errorf("you are not currently logged in to any Tyger server: %v", err)
 		},
 	}
 }

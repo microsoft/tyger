@@ -18,6 +18,7 @@ import (
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/cache"
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/confidential"
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/public"
+	"github.com/gofrs/flock"
 	"github.com/hashicorp/go-retryablehttp"
 	"gopkg.in/yaml.v3"
 )
@@ -185,6 +186,11 @@ func (context *cliContext) writeCliContext() error {
 		var bytes []byte
 		bytes, err = yaml.Marshal(context)
 		if err == nil {
+			fileLock := flock.New(path)
+			if err := fileLock.Lock(); err != nil {
+				return err
+			}
+			defer fileLock.Unlock()
 			err = ioutil.WriteFile(path, bytes, 0600)
 		}
 	}
@@ -203,6 +209,12 @@ func GetCliContext() (CliContext, error) {
 		return context, err
 	}
 	var bytes []byte
+	fileLock := flock.New(path)
+	if err := fileLock.RLock(); err != nil {
+		return context, err
+	}
+	defer fileLock.Unlock()
+
 	bytes, err = ioutil.ReadFile(path)
 	if err != nil {
 		return context, err
@@ -218,13 +230,14 @@ func (c *cliContext) Validate() error {
 		if err == nil {
 			return nil
 		}
+		return fmt.Errorf("run tyger login: %v", err)
 	}
 
 	return errors.New("run tyger login")
 }
 
 func getServiceMetadata(serverUri string) (*model.ServiceMetadata, error) {
-	resp, err := retryablehttp.Get(fmt.Sprintf("%s/v1/metadata", serverUri))
+	resp, err := NewRetryableClient().Get(fmt.Sprintf("%s/v1/metadata", serverUri))
 	if err != nil {
 		return nil, err
 	}
