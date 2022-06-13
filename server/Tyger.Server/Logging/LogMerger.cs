@@ -265,6 +265,11 @@ public abstract class LogMerger : IPipelineSource
                         writer.Write(segment.Span);
                     }
 
+                    if (results.IsCompleted)
+                    {
+                        WriteNewline(writer);
+                    }
+
                     PipeReader.AdvanceTo(results.Buffer.End, results.Buffer.End);
 
                     await writer.FlushAsync(cancellationToken);
@@ -288,6 +293,12 @@ public abstract class LogMerger : IPipelineSource
                 await writer.FlushAsync(cancellationToken);
                 return;
             }
+        }
+
+        private static void WriteNewline(PipeWriter writer)
+        {
+            Span<byte> newline = stackalloc[] { (byte)'\n' };
+            writer.Write(newline);
         }
     }
 }

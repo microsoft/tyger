@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Net;
 using k8s;
-using k8s.Autorest;
 using k8s.Models;
 using Microsoft.Extensions.Options;
 using Tyger.Server.Database;
@@ -16,17 +15,23 @@ public class RunLogReader : ILogSource
     private readonly k8s.Kubernetes _client;
     private readonly IRepository _repository;
     private readonly ILogArchive _logArchive;
+    private readonly ILoggerFactory _loggerFactory;
+    private readonly ILogger<RunLogReader> _logger;
     private readonly KubernetesOptions _k8sOptions;
 
     public RunLogReader(
         k8s.Kubernetes client,
         IRepository repository,
         IOptions<KubernetesOptions> k8sOptions,
-        ILogArchive logArchive)
+        ILogArchive logArchive,
+        ILoggerFactory loggerFactory,
+        ILogger<RunLogReader> logger)
     {
         _client = client;
         _repository = repository;
         _logArchive = logArchive;
+        _loggerFactory = loggerFactory;
+        _logger = logger;
         _k8sOptions = k8sOptions.Value;
     }
 
@@ -42,29 +47,25 @@ public class RunLogReader : ILogSource
                     return await GetLogsSnapshot(run, options, cancellationToken);
                 }
 
-                V1Job job;
-                try
-                {
-                    job = await _client.ReadNamespacedJobAsync(JobNameFromRunId(runId), _k8sOptions.Namespace, cancellationToken: cancellationToken);
-                }
-                catch (HttpOperationException e) when (e.Response.StatusCode == HttpStatusCode.NotFound)
+                var jobs = await _client.BatchV1.ListNamespacedJobAsync(_k8sOptions.Namespace, fieldSelector: $"metadata.name={JobNameFromRunId(run.Id)}", cancellationToken: cancellationToken);
+                if (jobs.Items.Count == 0)
                 {
                     return null;
                 }
 
-                if (RunReader.UpdateRunFromJobAndPods(run, job, Array.Empty<V1Pod>()).Status is "Succeeded" or "Failed")
+                if (RunReader.UpdateRunFromJobAndPods(run, jobs.Items.Single(), Array.Empty<V1Pod>()).Status is "Succeeded" or "Failed")
                 {
                     return await GetLogsSnapshot(run, options, cancellationToken);
                 }
 
-                return await FollowLogs(run, job, options, cancellationToken);
+                return await FollowLogs(run, jobs.ResourceVersion(), options, cancellationToken);
 
             default:
                 return await _logArchive.GetLogs(runId, options, cancellationToken);
         }
     }
 
-    private async Task<Pipeline> FollowLogs(Run run, V1Job job, GetLogsOptions options, CancellationToken cancellationToken)
+    private async Task<Pipeline> FollowLogs(Run run, string resourceVersion, GetLogsOptions options, CancellationToken cancellationToken)
     {
         var singleReplica = run.Job.Replicas + (run.Worker?.Replicas ?? 0) == 1;
         var pods = await _client.EnumeratePodsInNamespace(_k8sOptions.Namespace, labelSelector: $"{RunLabel}={run.Id}", cancellationToken: cancellationToken)
@@ -72,13 +73,31 @@ public class RunLogReader : ILogSource
 
         var followingPods = new HashSet<string>();
         var initialPipelines = new List<IPipelineSource>();
+        var terminableWorkerElements = new List<TerminablePipelineElement>();
+
+        void TrackPipelineIfWorkerPod(V1Pod pod, Pipeline podPipeline)
+        {
+            if (pod.GetLabel(WorkerLabel) != null)
+            {
+                var terminableElement = new TerminablePipelineElement();
+                terminableWorkerElements.Add(terminableElement);
+                podPipeline.AddElement(terminableElement);
+            }
+        }
 
         foreach (var pod in pods)
         {
-            if (IsPodRunningOrTerminated(pod) && await GetLogsFromPod(pod.Name(), GetPodPrefix(pod, singleReplica), options with { IncludeTimestamps = true }, cancellationToken) is Pipeline podPipeline)
+            if (IsPodRunningOrTerminated(pod))
             {
-                followingPods.Add(pod.Name());
+                var podPipeline = new Pipeline(
+                    new ResumablePipelineSource(
+                        async opts => await GetLogsFromPod(pod.Name(), GetPodPrefix(pod, singleReplica), opts, cancellationToken),
+                        options with { IncludeTimestamps = true },
+                         _loggerFactory.CreateLogger<ResumablePipelineSource>()));
+
                 initialPipelines.Add(podPipeline);
+                followingPods.Add(pod.Name());
+                TrackPipelineIfWorkerPod(pod, podPipeline);
             }
         }
 
@@ -108,37 +127,41 @@ public class RunLogReader : ILogSource
 
         async Task WatchJob()
         {
+            var jobWatchResourceVersion = resourceVersion;
             try
             {
-                var jobList = _client.ListNamespacedJobWithHttpMessagesAsync(
+                var watchEnumerable = _client.WatchNamespacedJobsWithRetry(
+                    _logger,
                     _k8sOptions.Namespace,
                     fieldSelector: $"metadata.name={JobNameFromRunId(run.Id)}",
-                    watch: true,
-                    resourceVersion: job.ResourceVersion(),
+                    resourceVersion: resourceVersion,
                     cancellationToken: cancellationToken);
 
-                await foreach (var (type, item) in jobList.WatchAsync<V1Job, V1JobList>().WithCancellation(cancellationToken))
+                await foreach (var (type, item) in watchEnumerable.WithCancellation(cancellationToken))
                 {
                     switch (type)
                     {
                         case WatchEventType.Bookmark:
                             continue;
                         case WatchEventType.Deleted:
-                            break;
+                            return;
                         case WatchEventType.Modified:
                             var status = RunReader.UpdateRunFromJobAndPods(run, item, Array.Empty<V1Pod>()).Status;
                             if (status is "Succeeded" or "Failed")
                             {
-                                break;
+                                return;
                             }
 
                             continue;
                         default:
                             throw new InvalidDataException($"Unexpected watch event type {type}");
                     }
-
-                    break;
                 }
+            }
+            catch (Exception e) when (e is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+            {
+                _logger.UnexpectedExceptionDuringWatch(e);
+                throw;
             }
             finally
             {
@@ -148,47 +171,66 @@ public class RunLogReader : ILogSource
                     // Release the leaf merger that keeps the stream open
                     leafMerger.Activate(cancellationToken);
 
-                    // Signal that the root merger should not keep waiting
-                    // for data from worker streams.
-                    rootMerger.Complete();
+                    // The worker streams never end on their own, so terminate them.
+                    foreach (var terminableElements in terminableWorkerElements)
+                    {
+                        terminableElements.Terminate();
+                    }
                 }
             }
         }
 
         async Task WatchPods()
         {
-            var podList = _client.ListNamespacedPodWithHttpMessagesAsync(
-                _k8sOptions.Namespace,
-                labelSelector: $"{RunLabel}={run.Id}",
-                watch: true,
-                resourceVersion: job.ResourceVersion(),
-                cancellationToken: cancellationToken);
-
-            await foreach (var (type, item) in podList.WatchAsync<V1Pod, V1PodList>().WithCancellation(cancellationToken))
+            try
             {
-                switch (type)
+                var watchEnumerable = _client.WatchNamespacedPodsWithRetry(
+                    _logger,
+                    _k8sOptions.Namespace,
+                    labelSelector: $"{RunLabel}={run.Id}",
+                    resourceVersion: resourceVersion,
+                    cancellationToken: cancellationToken);
+
+                await foreach (var (type, item) in watchEnumerable.WithCancellation(cancellationToken))
                 {
-                    case WatchEventType.Added:
-                    case WatchEventType.Modified:
-                        if (IsPodRunningOrTerminated(item) &&
-                            !followingPods.Contains(item.Name()) &&
-                            await GetLogsFromPod(item.Name(), GetPodPrefix(item, singleReplica), options with { IncludeTimestamps = true }, cancellationToken) is Pipeline podPipeline)
-                        {
-                            lock (syncRoot)
+                    switch (type)
+                    {
+                        case WatchEventType.Added:
+                        case WatchEventType.Modified:
+                            if (IsPodRunningOrTerminated(item) &&
+                                !followingPods.Contains(item.Name()))
                             {
-                                // a new pod has started. Merge its log in my starting the existing waiting leaf merger
-                                // and create a new leaf merger for the next pod.
-                                var newLeaf = new LiveLogMerger();
-                                leafMerger.Activate(cancellationToken, newLeaf, podPipeline);
-                                leafMerger = newLeaf;
+                                var podPipeline = new Pipeline(
+                                    new ResumablePipelineSource(
+                                        async opts => await GetLogsFromPod(item.Name(), GetPodPrefix(item, singleReplica), opts, cancellationToken),
+                                        options with { IncludeTimestamps = true },
+                                        _loggerFactory.CreateLogger<ResumablePipelineSource>()));
+
+                                followingPods.Add(item.Name());
+
+                                lock (syncRoot)
+                                {
+                                    TrackPipelineIfWorkerPod(item, podPipeline);
+
+                                    // a new pod has started. Merge its log in by starting the existing waiting leaf merger
+                                    // and create a new leaf merger for the next pod.
+                                    var newLeaf = new LiveLogMerger();
+                                    leafMerger.Activate(cancellationToken, newLeaf, podPipeline);
+                                    leafMerger = newLeaf;
+                                }
                             }
-                        }
 
-                        continue;
+                            continue;
 
-                    default:
-                        continue;
+                        default:
+                            continue;
+                    }
                 }
+            }
+            catch (Exception e) when (e is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+            {
+                _logger.UnexpectedExceptionDuringWatch(e);
+                throw;
             }
         }
     }
@@ -201,8 +243,16 @@ public class RunLogReader : ILogSource
     private async Task<Pipeline?> GetLogsSnapshot(Run run, GetLogsOptions options, CancellationToken cancellationToken)
     {
         var singleReplica = run.Job.Replicas + (run.Worker?.Replicas ?? 0) == 1;
-        var podLogOptions = options with { IncludeTimestamps = true, Follow = false };
-        var pipelines = await _client.EnumeratePodsInNamespace(_k8sOptions.Namespace, labelSelector: $"{RunLabel}={run.Id}", cancellationToken: cancellationToken)
+        var podLogOptions = options with { Follow = false };
+        var pods = await _client.EnumeratePodsInNamespace(_k8sOptions.Namespace, labelSelector: $"{RunLabel}={run.Id}", cancellationToken: cancellationToken).ToArrayAsync(cancellationToken);
+
+        if (pods.Length == 1)
+        {
+            // simple case where no merging or transforming is required.
+            return await GetLogsFromPod(pods[0].Name(), GetPodPrefix(pods[0], singleReplica), options, cancellationToken);
+        }
+
+        var pipelines = await pods.ToAsyncEnumerable()
             .SelectAwait(async p => (await GetLogsFromPod(p.Name(), GetPodPrefix(p, singleReplica), podLogOptions, cancellationToken))!)
             .Where(p => p != null)
             .ToArrayAsync(cancellationToken);

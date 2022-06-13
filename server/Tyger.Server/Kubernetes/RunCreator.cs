@@ -119,7 +119,7 @@ public class RunCreator
             AddWaitForWorkerInitContainersToJob(job, run);
             AddWorkerNodesEnvironmentVariable(job, run);
 
-            await _client.CreateNamespacedStatefulSetAsync(workerStatefulSet, _k8sOptions.Namespace, cancellationToken: cancellationToken);
+            await _client.AppsV1.CreateNamespacedStatefulSetAsync(workerStatefulSet, _k8sOptions.Namespace, cancellationToken: cancellationToken);
 
             var headlessWorkerService = new V1Service
             {
@@ -135,10 +135,10 @@ public class RunCreator
                 }
             };
 
-            await _client.CreateNamespacedServiceAsync(headlessWorkerService, _k8sOptions.Namespace, cancellationToken: cancellationToken);
+            await _client.CoreV1.CreateNamespacedServiceAsync(headlessWorkerService, _k8sOptions.Namespace, cancellationToken: cancellationToken);
         }
 
-        await _client.CreateNamespacedJobAsync(job, _k8sOptions.Namespace, cancellationToken: cancellationToken);
+        await _client.BatchV1.CreateNamespacedJobAsync(job, _k8sOptions.Namespace, cancellationToken: cancellationToken);
 
         // Phase 4: Inform the database that the Kubernetes objects have been created in the cluster.
 
@@ -208,7 +208,7 @@ public class RunCreator
             }
         );
 
-        await _client.CreateNamespacedSecretAsync(buffersSecret, _k8sOptions.Namespace, cancellationToken: cancellationToken);
+        await _client.CoreV1.CreateNamespacedSecretAsync(buffersSecret, _k8sOptions.Namespace, cancellationToken: cancellationToken);
         _logger.CreatedSecret(buffersSecret.Metadata.Name);
     }
 

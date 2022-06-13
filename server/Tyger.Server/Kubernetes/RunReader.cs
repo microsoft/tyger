@@ -79,7 +79,7 @@ public class RunReader
         V1Job job;
         try
         {
-            job = await _client.ReadNamespacedJobAsync(JobNameFromRunId(id), _k8sOptions.Namespace, cancellationToken: cancellationToken);
+            job = await _client.BatchV1.ReadNamespacedJobAsync(JobNameFromRunId(id), _k8sOptions.Namespace, cancellationToken: cancellationToken);
         }
         catch (HttpOperationException e) when (e.Response.StatusCode == HttpStatusCode.NotFound)
         {

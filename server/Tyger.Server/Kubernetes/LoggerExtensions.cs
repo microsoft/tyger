@@ -28,4 +28,10 @@ public static partial class LoggerExtensions
 
     [LoggerMessage(14, LogLevel.Information, "Executed Kubernetes API request {method} {uri}. Status code {statusCode}. {errorBody}")]
     public static partial void ExecutedKubernetesRequest(this ILogger logger, HttpMethod method, string? uri, int statusCode, string? errorBody);
+
+    [LoggerMessage(15, LogLevel.Error, "Unhandled background exception when following logs")]
+    public static partial void UnexpectedExceptionDuringWatch(this ILogger logger, Exception exception);
+
+    [LoggerMessage(16, LogLevel.Information, "Restarting watch after exception")]
+    public static partial void RestartingWatchAfterException(this ILogger logger, Exception exception);
 }

@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
 using k8s;
 using k8s.Models;
 using k8s.Util.Common.Generic;
@@ -50,5 +51,105 @@ public static class KubernetesExtensions
             continuationToken = resp.Metadata.ContinueProperty;
         }
         while (continuationToken != null);
+    }
+
+    public static IAsyncEnumerable<(WatchEventType, V1Job)> WatchNamespacedJobsWithRetry(
+        this IKubernetes client,
+        ILogger logger,
+        string @namespace,
+        string? fieldSelector = default,
+        string? labelSelector = default,
+        string? resourceVersion = default,
+        int retryCount = 20,
+        CancellationToken cancellationToken = default)
+    {
+        return client.WatchNamespacedObjectsWithRetry<V1Job>(logger, V1Job.KubeGroup, V1Job.KubeApiVersion, V1Job.KubePluralName, @namespace, fieldSelector, labelSelector, resourceVersion, retryCount, cancellationToken);
+    }
+
+    public static IAsyncEnumerable<(WatchEventType, V1Pod)> WatchNamespacedPodsWithRetry(
+        this IKubernetes client,
+        ILogger logger,
+        string @namespace,
+        string? fieldSelector = default,
+        string? labelSelector = default,
+        string? resourceVersion = default,
+        int retryCount = 20,
+        CancellationToken cancellationToken = default)
+    {
+        return client.WatchNamespacedObjectsWithRetry<V1Pod>(logger, V1Pod.KubeGroup, V1Pod.KubeApiVersion, V1Pod.KubePluralName, @namespace, fieldSelector, labelSelector, resourceVersion, retryCount, cancellationToken);
+    }
+
+    public static IAsyncEnumerable<(WatchEventType, TElement)> WatchNamespacedObjectsWithRetry<TElement>(
+        this IKubernetes client,
+        ILogger logger,
+        string @namespace,
+        string? fieldSelector = default,
+        string? labelSelector = default,
+        string? resourceVersion = default,
+        int retryCount = 20,
+        CancellationToken cancellationToken = default)
+            where TElement : IKubernetesObject<V1ObjectMeta>
+    {
+        var entityMetadata = typeof(TElement).GetCustomAttribute<KubernetesEntityAttribute>()!;
+        return client.WatchNamespacedObjectsWithRetry<TElement>(logger, entityMetadata.Group, entityMetadata.ApiVersion, entityMetadata.PluralName, @namespace, fieldSelector, labelSelector, resourceVersion, retryCount, cancellationToken);
+    }
+
+    public static async IAsyncEnumerable<(WatchEventType, TElement)> WatchNamespacedObjectsWithRetry<TElement>(
+            this IKubernetes client,
+            ILogger logger,
+            string group,
+            string version,
+            string plural,
+            string @namespace,
+            string? fieldSelector = default,
+            string? labelSelector = default,
+            string? resourceVersion = default,
+            int retryCount = 20,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
+                where TElement : IKubernetesObject<V1ObjectMeta>
+    {
+        while (true)
+        {
+            var request = client.CustomObjects.ListNamespacedCustomObjectWithHttpMessagesAsync(
+                group,
+                version,
+                @namespace,
+                plural,
+                fieldSelector: fieldSelector,
+                labelSelector: labelSelector,
+                watch: true,
+                resourceVersion: resourceVersion,
+                cancellationToken: cancellationToken);
+
+            await using var enumerator = request.WatchAsync<TElement, object>(onError: e => ExceptionDispatchInfo.Throw(e)).WithCancellation(cancellationToken).GetAsyncEnumerator();
+            while (true)
+            {
+                try
+                {
+                    try
+                    {
+                        if (!await enumerator.MoveNextAsync())
+                        {
+                            yield break;
+                        }
+                    }
+                    catch (Exception e) when (retryCount > 0 && e is KubernetesException or IOException or HttpRequestException)
+                    {
+                        logger.RestartingWatchAfterException(e);
+                        retryCount--;
+                        await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+                        break;
+                    }
+                }
+                catch (Exception e) when (e is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+                {
+                    logger.UnexpectedExceptionDuringWatch(e);
+                    throw;
+                }
+
+                resourceVersion = enumerator.Current.Item2.ResourceVersion();
+                yield return enumerator.Current;
+            }
+        }
     }
 }

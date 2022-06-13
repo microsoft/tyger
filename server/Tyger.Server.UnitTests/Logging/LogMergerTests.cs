@@ -26,6 +26,16 @@ public class LogMergerTests
     }
 
     [Fact]
+    public async Task MergeWithoutTrailingNewlines()
+    {
+        string input1 = "2022-04-18T13:34:38.519160930Z abc";
+        string input2 = "2022-04-18T13:34:39.519160930Z def";
+        var merger = new LiveLogMerger();
+        merger.Activate(CancellationToken.None, new SimplePipelineSource(Encoding.UTF8.GetBytes(input1)), new SimplePipelineSource(Encoding.UTF8.GetBytes(input2)));
+        (await merger.ReadAllAsString()).ShouldBe(input1 + "\n" + input2 + "\n");
+    }
+
+    [Fact]
     public async Task LiveMergeSingleSource()
     {
         string input = "2022-04-18T13:34:38.519160930Z abc\n2022-04-18T13:34:39.519160930Z def";

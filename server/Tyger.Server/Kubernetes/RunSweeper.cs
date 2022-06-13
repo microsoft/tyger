@@ -105,7 +105,7 @@ public sealed class RunSweeper : IHostedService, IDisposable
         string? continuation = null;
         do
         {
-            var jobs = await _client.ListNamespacedJobAsync(_k8sOptions.Namespace, continueParameter: continuation, labelSelector: JobLabel, cancellationToken: cancellationToken);
+            var jobs = await _client.BatchV1.ListNamespacedJobAsync(_k8sOptions.Namespace, continueParameter: continuation, labelSelector: JobLabel, cancellationToken: cancellationToken);
 
             foreach (var job in jobs.Items)
             {
@@ -162,7 +162,7 @@ public sealed class RunSweeper : IHostedService, IDisposable
             // clear finalizer on Pod
             if (pod.RemoveFinalizer(FinalizerName))
             {
-                await _client.PatchNamespacedPodAsync(
+                await _client.CoreV1.PatchNamespacedPodAsync(
                     new V1Patch(new { metadata = new { finalizers = pod.Finalizers() } }, V1Patch.PatchType.MergePatch),
                     pod.Name(),
                     pod.Namespace(),
@@ -170,10 +170,10 @@ public sealed class RunSweeper : IHostedService, IDisposable
             }
         }
 
-        await _client.DeleteCollectionNamespacedJobAsync(_k8sOptions.Namespace, labelSelector: labelSelector, propagationPolicy: "Foreground", cancellationToken: cancellationToken);
-        await _client.DeleteCollectionNamespacedStatefulSetAsync(_k8sOptions.Namespace, labelSelector: labelSelector, propagationPolicy: "Foreground", cancellationToken: cancellationToken);
-        await _client.DeleteCollectionNamespacedSecretAsync(_k8sOptions.Namespace, labelSelector: labelSelector, propagationPolicy: "Foreground", cancellationToken: cancellationToken);
-        await _client.DeleteCollectionNamespacedServiceAsync(_k8sOptions.Namespace, labelSelector: labelSelector, propagationPolicy: "Foreground", cancellationToken: cancellationToken);
+        await _client.BatchV1.DeleteCollectionNamespacedJobAsync(_k8sOptions.Namespace, labelSelector: labelSelector, propagationPolicy: "Foreground", cancellationToken: cancellationToken);
+        await _client.AppsV1.DeleteCollectionNamespacedStatefulSetAsync(_k8sOptions.Namespace, labelSelector: labelSelector, propagationPolicy: "Foreground", cancellationToken: cancellationToken);
+        await _client.CoreV1.DeleteCollectionNamespacedSecretAsync(_k8sOptions.Namespace, labelSelector: labelSelector, propagationPolicy: "Foreground", cancellationToken: cancellationToken);
+        await _client.CoreV1.DeleteCollectionNamespacedServiceAsync(_k8sOptions.Namespace, labelSelector: labelSelector, propagationPolicy: "Foreground", cancellationToken: cancellationToken);
     }
 
     public void Dispose()

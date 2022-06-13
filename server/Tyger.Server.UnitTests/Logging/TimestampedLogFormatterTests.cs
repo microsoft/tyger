@@ -76,4 +76,14 @@ public class TimestampedLogFormatterTests
         var pipeline = new Pipeline(Encoding.UTF8.GetBytes(input), new TimestampedLogReformatter());
         (await pipeline.ReadAllAsString()).ShouldBe(expected);
     }
+
+    [Fact]
+    public async Task LineWithoutTimestamp()
+    {
+        var input = @"unable to retrieve container logs for containerd://90cf2459f602ed64a3898dba30f698b6abf8e11f3ab0d12f1a570a9e7ce213d3";
+        var expected = @"0001-01-01T00:00:00.000000000Z " + input;
+        using var ms = new MemoryStream(Encoding.UTF8.GetBytes(input));
+        var pipeline = new Pipeline(Encoding.UTF8.GetBytes(input), new TimestampedLogReformatter());
+        (await pipeline.ReadAllAsString()).ShouldBe(expected);
+    }
 }

@@ -14,10 +14,16 @@ namespace Tyger.Server.Logging;
 /// <timestamp> <16K of message><timestamp> <16K of message><timestamp>...
 ///
 /// Here we reformat those logs and to take out those extra timestamps from the messages.
+///
+/// Another issue is that sometimes the log content will not start with a timestamp. This can happen
+/// when there is a problem retrieving the logs but the HTTP response is 200. The log body
+/// will then be something like "unable to retrieve container logs for containerd://...". In this case,
+/// we prepend a dummy timestamp of 0001-01-01T00:00:00.000000000Z.
 /// </summary>
 public class TimestampedLogReformatter : IPipelineElement
 {
     public const int LineBlockSize = 0x4000;
+    private static readonly Memory<byte> s_emptyTimestampPrefix = System.Text.Encoding.UTF8.GetBytes("0001-01-01T00:00:00.000000000Z ");
 
     public async Task Process(PipeReader reader, PipeWriter writer, CancellationToken cancellationToken)
     {
@@ -57,7 +63,13 @@ public class TimestampedLogReformatter : IPipelineElement
 
                 if (!discardNextDate)
                 {
-                    foreach (var segment in sequence.Slice(timestampStartPosition, reader.Position))
+                    var tsSequence = sequence.Slice(timestampStartPosition, reader.Position);
+                    if (!TimestampParser.TryParseTimestampFromSequence(tsSequence, out _))
+                    {
+                        writer.Write(s_emptyTimestampPrefix.Span);
+                    }
+
+                    foreach (var segment in tsSequence)
                     {
                         writer.Write(segment.Span);
                     }
