@@ -2,14 +2,28 @@
 
 import argparse
 import os
-import sys
-from pathlib import Path
-import random
+import shlex
 import subprocess
-from typing import Dict, List, Optional
+import sys
+import multiprocessing
 import yaml
+import enum
+import json
+
+from pathlib import Path
+from uuid import uuid4
+from typing import Dict, List, Optional
 
 from eminence_tools import get_dependency_image
+
+SCANNER_PROCESS_JOIN_TIMEOUT = 30
+
+
+class TygerStatus(str, enum.Enum):
+    RUNNING = 'Running'
+    SUCCEEDED = 'Succeeded'
+    FAILED = 'Failed'
+    PENDING = 'Pending'
 
 
 def ensure_tyger_logged_in():
@@ -23,7 +37,39 @@ def ensure_tyger_logged_in():
         sys.exit(exception.returncode)
 
 
-def run_scanner(infile: Path, outfile: Path, input_uri: str, output_uri: str, session_id: Optional[str] = None, verbose=False):
+def get_command_output(command):
+    proc_out = subprocess.run(shlex.split(command), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
+    if proc_out.returncode != 0:
+        raise RuntimeError(f'Command {command} returned {proc_out.returncode}\noutput: \n{proc_out.stdout}')
+
+    return proc_out.stdout
+
+
+def get_run_status(run_id):
+    return TygerStatus(json.loads(get_command_output(f'tyger run get {run_id}'))['status'])
+
+
+def monitor_run_and_scan(run_id, *scanner_args):
+    container_name = 'scanner_' + uuid4().hex
+    scanner_process = multiprocessing.Process(target=run_scanner, args=[container_name, *scanner_args])
+    scanner_process.start()
+
+    status = None
+    while scanner_process.is_alive() and status != TygerStatus.SUCCEEDED:
+        status = get_run_status(run_id)
+
+        if status == TygerStatus.FAILED:
+            scanner_process.kill()
+            os.system(f'docker kill {container_name}')
+            sys.exit(f'Run ID: {run_id} failed')
+
+        scanner_process.join(SCANNER_PROCESS_JOIN_TIMEOUT)
+
+    scanner_process.join()
+
+
+def run_scanner(container_name: str, infile: Path, outfile: Path, input_uri: str, output_uri: str, session_id: Optional[str] = None, verbose=False):
     image = get_dependency_image("scanner")
 
     infile_filename = infile.name
@@ -44,6 +90,7 @@ def run_scanner(infile: Path, outfile: Path, input_uri: str, output_uri: str, se
 
     scanner_cmd = [
         "docker", "run",
+        f"--name={container_name}",
         "--network=host",
         "-v", f"{infile_folder_str}:/in",
         "-v", f"{outfile_folder_str}:/out",
@@ -161,12 +208,12 @@ if __name__ == '__main__':
         uri = run_tyger(access_cmd)
         buffers[buffer["name"]] = {"id": id, "uri": uri}
 
-    job_codespec_name = f"eminence-codespec-{random.randint(0,1000)}"
+    job_codespec_name = f"eminence-codespec-{uuid4().hex}"
     tyger_cmd = ["codespec", "create", job_codespec_name, "--kind", "job"] + codespec_args(config['job'])
     job_codespec_version = run_tyger(tyger_cmd)
 
     if 'worker' in config:
-        worker_codespec_name = f"eminence-codespec-{random.randint(0,1000)}"
+        worker_codespec_name = f"eminence-codespec-{uuid4().hex}"
         tyger_cmd = ["codespec", "create", worker_codespec_name, "--kind", "worker"] + codespec_args(config['worker'])
         worker_codespec_version = run_tyger(tyger_cmd)
     else:
@@ -205,8 +252,8 @@ if __name__ == '__main__':
     print(f"RunId: {run_id}")
 
     if 'input' in config['job'] and 'output' in config['job']:
-        run_scanner(args.input_file, args.output_file,
-                    buffers[config['job']['input'][0]]['uri'], buffers[config['job']['output'][0]]['uri'],
-                    args.session_id, args.verbose)
+        monitor_run_and_scan(run_id, args.input_file, args.output_file,
+                             buffers[config['job']['input'][0]]['uri'], buffers[config['job']['output'][0]]['uri'],
+                             args.session_id, args.verbose)
     else:
         print("WARNING: Not running scanner since input/output buffers not requested")

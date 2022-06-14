@@ -83,7 +83,7 @@ import "strings"
 	userNodePools: *defaultNodePools | {[string]: #NodePool}
 
 	let defaultNodePools = {[string]: #NodePool} & {
-		cpunp: vmSize: "Standard_F4s_v2"
+		cpunp: vmSize: "Standard_DS12_v2"
 		gpunp: vmSize: "Standard_NC6s_v3"
 	}
 }

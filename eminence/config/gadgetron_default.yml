@@ -9,10 +9,10 @@ tyger:
     command: []
     args:
       - "-c"
-      - "default_measurement_dependencies.xml"
+      - "default.xml"
       - "-r"
       - "$(INPUT_BUFFER_URI_FILE)"
       - "-w"
       - "$(OUTPUT_BUFFER_URI_FILE)"
     resources:
-     cpu: 1
+      memory: 1G

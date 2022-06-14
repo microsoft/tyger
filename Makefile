@@ -121,13 +121,18 @@ e2e-no-up: docker-build-test
 	popd
 	scripts/check-login.sh
 	dvc pull
-	pytest eminence
+	pytest eminence --workers 32
 
 e2e: up e2e-no-up
+
+
+test-data: 
+	cd scripts && ./update-gadgetron-test-data.sh
 
 test: unit-test e2e
 
 test-no-up: unit-test e2e-no-up
+
 
 forward:
 	scripts/forward-services.sh -n ${HELM_NAMESPACE}

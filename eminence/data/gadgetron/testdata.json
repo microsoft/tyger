@@ -1,0 +1,698 @@
+{
+    "cases": [
+        {
+            "name": "cmr_cine_binning.cfg",
+            "case_file_path": "cmr_cine_binning/case.yml",
+            "file_dependencies": {
+                "cmr_cine_binning/noise.h5": "a86b97df829fb77ce1fbd6dd4b2374da",
+                "cmr_cine_binning/main.h5": "302ec2c89aee0540916aa990360a2f5a",
+                "cmr_cine_binning/cmr/CineBinning/meas_MID00247_FID39104_PK_realtime_gt_TPAT4_6_8/cmr_cine_binning_ref_20210917.mrd": "ebf3dcaa03ab00f00bd9a80bf690f1ca",
+                "cmr_cine_binning/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "cmr_cine_binning/run_main.yml": "24a1d8e1a7368816372ce74d70d2363e",
+                "cmr_cine_binning/case.yml": "fe9224018386b800d0f96bfe6dc3f8f7"
+            }
+        },
+        {
+            "name": "cmr_cine_binning_2slices.cfg",
+            "case_file_path": "cmr_cine_binning_2slices/case.yml",
+            "file_dependencies": {
+                "cmr_cine_binning_2slices/main.h5": "21fc379ff73657822c4a977ad6ce23ea",
+                "cmr_cine_binning_2slices/cmr/CineBinning/meas_MID838_PK_rt_test_2slice_FID22519/cmr_cine_binning_2slice_ref_20210917.mrd": "2ebef9ee538b139f35d5088f5e8e8834",
+                "cmr_cine_binning_2slices/run_main.yml": "d26b55ee77cba3d150020d33d3289a7a",
+                "cmr_cine_binning_2slices/case.yml": "42e79ad10a600a81e5e89f525a1ae31c"
+            }
+        },
+        {
+            "name": "cmr_cine_binning_2slices_distributed.cfg",
+            "case_file_path": "cmr_cine_binning_2slices_distributed/case.yml",
+            "file_dependencies": {
+                "cmr_cine_binning_2slices_distributed/main.h5": "a93a5ac677dde53546045bd0f8f375b5",
+                "cmr_cine_binning_2slices_distributed/cmr/CineBinning/meas_MID838_PK_rt_test_2slice_FID22519/cmr_cine_binning_2slice_ref_20210917.mrd": "2ebef9ee538b139f35d5088f5e8e8834",
+                "cmr_cine_binning_2slices_distributed/run_main.yml": "4e4f723cd952ef9b309b686e579b26f1",
+                "cmr_cine_binning_2slices_distributed/case.yml": "97102625a0bde0d13d73cd5cc1516c36"
+            }
+        },
+        {
+            "name": "cmr_mapping_t1_sr.cfg",
+            "case_file_path": "cmr_mapping_t1_sr/case.yml",
+            "file_dependencies": {
+                "cmr_mapping_t1_sr/noise.h5": "4369c8ff79b98bcdcfc42f56f5f933c4",
+                "cmr_mapping_t1_sr/main.h5": "3614d6418edd4a601b1e931ab49ac8e9",
+                "cmr_mapping_t1_sr/cmr/T1SRmapping/meas_MID00613_FID40909_pre_SASHA_10pt_TS600_256/ref_20170427.mrd": "3e213dd4c8f97baa9adfc6b2859147c5",
+                "cmr_mapping_t1_sr/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "cmr_mapping_t1_sr/run_main.yml": "12f98920d124d00e7f69f059d736a575",
+                "cmr_mapping_t1_sr/case.yml": "670ccf077eb7ad68e6a4696df4b1207e"
+            }
+        },
+        {
+            "name": "cpu_grappa_simple.cfg",
+            "case_file_path": "cpu_grappa_simple/case.yml",
+            "file_dependencies": {
+                "cpu_grappa_simple/main.h5": "0222e4f7e1ca86cafd3a7eddba7ba762",
+                "cpu_grappa_simple/rtgrappa/grappa_rate2_cpu_out.mrd": "5fb75eefe3828a74cffe7da6f521d841",
+                "cpu_grappa_simple/run_main.yml": "760ef7f9067dc47f463999ad58d0b8a6",
+                "cpu_grappa_simple/case.yml": "9adfa25feb2aae7595e03c7121a084d3"
+            }
+        },
+        {
+            "name": "distributed_buffer_simple_gre.cfg",
+            "case_file_path": "distributed_buffer_simple_gre/case.yml",
+            "file_dependencies": {
+                "distributed_buffer_simple_gre/main.h5": "5581d44ba6ba3c1b42b281bed78f0d22",
+                "distributed_buffer_simple_gre/simple_gre/simple_gre_out_20210909_klk.mrd": "85e35ab4c68fa2e5ee25086bc08e615f",
+                "distributed_buffer_simple_gre/run_main.yml": "bf40d08a3da3065ad50bd7c4681e628e",
+                "distributed_buffer_simple_gre/case.yml": "63c901caef55968e6a2e16ba7344404a"
+            }
+        },
+        {
+            "name": "distributed_image_simple_gre.cfg",
+            "case_file_path": "distributed_image_simple_gre/case.yml",
+            "file_dependencies": {
+                "distributed_image_simple_gre/main.h5": "266e132341da2a94688f9616939e7f6a",
+                "distributed_image_simple_gre/simple_gre/simple_gre_out_20210909_klk.mrd": "85e35ab4c68fa2e5ee25086bc08e615f",
+                "distributed_image_simple_gre/run_main.yml": "d5f01f752ca67b6a1ae2ddfecc103d77",
+                "distributed_image_simple_gre/case.yml": "b3096e0d503591c2ccdd47e2625e72a0"
+            }
+        },
+        {
+            "name": "distributed_simple_gre.cfg",
+            "case_file_path": "distributed_simple_gre/case.yml",
+            "file_dependencies": {
+                "distributed_simple_gre/main.h5": "bc3eda3271e98133cac2a61ad4e5526b",
+                "distributed_simple_gre/simple_gre/simple_gre_out_20210909_klk.mrd": "85e35ab4c68fa2e5ee25086bc08e615f",
+                "distributed_simple_gre/run_main.yml": "716a42ccd5f82da74b7129266de5b51a",
+                "distributed_simple_gre/case.yml": "ed8a2503c8812994fdcadb1748b4c33c"
+            }
+        },
+        {
+            "name": "epi_2d.cfg",
+            "case_file_path": "epi_2d/case.yml",
+            "file_dependencies": {
+                "epi_2d/noise.h5": "2be79d70cc5ef051cb6b69898f24a666",
+                "epi_2d/main.h5": "70f7e1e62d2d06cc1d33f53b12795b61",
+                "epi_2d/epi/epi_2d_out_20161020_pjv.mrd": "cd39f21d02ed6d434f91f8418632f64d",
+                "epi_2d/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "epi_2d/run_main.yml": "86b38b1298e5ebafefbf373551ba0e45",
+                "epi_2d/case.yml": "8da0cf5e59361cf2e2c49df8459e28b5"
+            }
+        },
+        {
+            "name": "external_equivalent_example.cfg",
+            "case_file_path": "external_equivalent_example/case.yml",
+            "file_dependencies": {
+                "external_equivalent_example/main.h5": "e43c7e0c15fe557636c86f3b365d7be6",
+                "external_equivalent_example/simple_gre/simple_gre_out_20210909_klk.mrd": "85e35ab4c68fa2e5ee25086bc08e615f",
+                "external_equivalent_example/run_main.yml": "9d6dd67fba781daf97e537d6af6b8e01",
+                "external_equivalent_example/case.yml": "349ac4b801a0c8a73502e44de8998749"
+            }
+        },
+        {
+            "name": "external_python_acquisition_example.cfg",
+            "case_file_path": "external_python_acquisition_example/case.yml",
+            "file_dependencies": {
+                "external_python_acquisition_example/main.h5": "816c67183e5b9f31dbf7afa28e37b877",
+                "external_python_acquisition_example/simple_gre/simple_gre_out_20210909_klk.mrd": "85e35ab4c68fa2e5ee25086bc08e615f",
+                "external_python_acquisition_example/run_main.yml": "23180fc90362a784a60c5a9469eac095",
+                "external_python_acquisition_example/case.yml": "72a97de61903234f4b03dca836a70106"
+            }
+        },
+        {
+            "name": "external_python_bucket_example.cfg",
+            "case_file_path": "external_python_bucket_example/case.yml",
+            "file_dependencies": {
+                "external_python_bucket_example/main.h5": "d3afd7c196a966238201bfd2037fef9e",
+                "external_python_bucket_example/simple_gre/simple_gre_out_20210909_klk.mrd": "85e35ab4c68fa2e5ee25086bc08e615f",
+                "external_python_bucket_example/run_main.yml": "27457296a28e1f866398ad107f29811c",
+                "external_python_bucket_example/case.yml": "87eeac4d7ebc978a24a3fff769dca68f"
+            }
+        },
+        {
+            "name": "external_python_buffer_example.cfg",
+            "case_file_path": "external_python_buffer_example/case.yml",
+            "file_dependencies": {
+                "external_python_buffer_example/main.h5": "dfa799cd30785ea711807354b80ba745",
+                "external_python_buffer_example/simple_gre/simple_gre_out_20210909_klk.mrd": "85e35ab4c68fa2e5ee25086bc08e615f",
+                "external_python_buffer_example/run_main.yml": "9ef7eb966399f0a1f84aba25032b48aa",
+                "external_python_buffer_example/case.yml": "8b86b43256c12ce381b2b0feef96d91f"
+            }
+        },
+        {
+            "name": "fs_csi.cfg",
+            "case_file_path": "fs_csi/case.yml",
+            "file_dependencies": {
+                "fs_csi/main.h5": "54ffc7676ddfeb30349b59be4332dc7f",
+                "fs_csi/hyper/Kidney4cmSlice_sb_outV4.mrd": "5d60164716a42f5d3b171a4caa41e098",
+                "fs_csi/run_main.yml": "3eaba75ce440ba5965e9c04f43eddd00",
+                "fs_csi/case.yml": "d110995baa6369d1745fcd0e6ccc204e"
+            }
+        },
+        {
+            "name": "generic_cartesian_cine_denoise.cfg",
+            "case_file_path": "generic_cartesian_cine_denoise/case.yml",
+            "file_dependencies": {
+                "generic_cartesian_cine_denoise/noise.h5": "48e47fd02d38abc919b622320f2f5287",
+                "generic_cartesian_cine_denoise/main.h5": "6d40ac882541eaa6c8526999895383ed",
+                "generic_cartesian_cine_denoise/denoise/meas_MID00051_FID110020_SAX_realtime_gt_TPAT4/denoise_ref_20210917.mrd": "2ac30976ae3d60402d830dc1d917f538",
+                "generic_cartesian_cine_denoise/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "generic_cartesian_cine_denoise/run_main.yml": "2c9f50613dc7eab1e0d4dcb7bad59061",
+                "generic_cartesian_cine_denoise/case.yml": "1665823e8543e51e047149bcd09ba9bc"
+            }
+        },
+        {
+            "name": "generic_cartesian_cine_python.cfg",
+            "case_file_path": "generic_cartesian_cine_python/case.yml",
+            "file_dependencies": {
+                "generic_cartesian_cine_python/noise.h5": "4353e745623da0b023d4fed3e6f23df6",
+                "generic_cartesian_cine_python/main.h5": "2522a583345980ec9b8cec0ac60f1dfa",
+                "generic_cartesian_cine_python/generic/meas_MID00051_FID110020_SAX_realtime_gt_TPAT4/ref/ref_20210921.mrd": "c4db5cf9ab31d8a993d737d22f4e8c21",
+                "generic_cartesian_cine_python/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "generic_cartesian_cine_python/run_main.yml": "8cb7fc40bcc87f5fb36a0bc0eba66a67",
+                "generic_cartesian_cine_python/case.yml": "9fbc74f59a199ae7aa90df1bfaac96a0"
+            }
+        },
+        {
+            "name": "generic_grappa2x1_3d.cfg",
+            "case_file_path": "generic_grappa2x1_3d/case.yml",
+            "file_dependencies": {
+                "generic_grappa2x1_3d/main.h5": "b04554e30e3dc39b60d8f676f806ed7b",
+                "generic_grappa2x1_3d/grappa_3d/grappa2x1_ref_20210917.mrd": "24661b6b41a12577a484e74dbca6509b",
+                "generic_grappa2x1_3d/run_main.yml": "a9855599be63aac3db5d701f6b33fd83",
+                "generic_grappa2x1_3d/case.yml": "ed0c35d16083d8ccd9246caba0b62a00"
+            }
+        },
+        {
+            "name": "generic_grappa2x2_3d.cfg",
+            "case_file_path": "generic_grappa2x2_3d/case.yml",
+            "file_dependencies": {
+                "generic_grappa2x2_3d/main.h5": "cf7ff3858fefebdd741036b5fb017407",
+                "generic_grappa2x2_3d/grappa_3d/grappa2x2_ref_20210917.mrd": "18ca7e1adc923ebdbe577ffada28add9",
+                "generic_grappa2x2_3d/run_main.yml": "a9855599be63aac3db5d701f6b33fd83",
+                "generic_grappa2x2_3d/case.yml": "c903b2696a80a32d03c0413621ae842e"
+            }
+        },
+        {
+            "name": "generic_grappa_T2W.cfg",
+            "case_file_path": "generic_grappa_T2W/case.yml",
+            "file_dependencies": {
+                "generic_grappa_T2W/noise.h5": "a9eda4932094a963d345881ae63ee473",
+                "generic_grappa_T2W/main.h5": "c885b0ab7eae2aa26ab4ef2f45bfd04f",
+                "generic_grappa_T2W/T2W/generic_grappa_T2W_ref_20210921_klk.mrd": "cce5541a141960a84d7f8b52ff0d482d",
+                "generic_grappa_T2W/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "generic_grappa_T2W/run_main.yml": "37a1449c54df68555170a33efa7ca299",
+                "generic_grappa_T2W/case.yml": "bbd470edd24d9eeddfb6b81cee149c31"
+            }
+        },
+        {
+            "name": "generic_grappa_epi_ave.cfg",
+            "case_file_path": "generic_grappa_epi_ave/case.yml",
+            "file_dependencies": {
+                "generic_grappa_epi_ave/main.h5": "d04c20c0923c5da995ac6a8ad908738b",
+                "generic_grappa_epi_ave/epi_ave/meas_MID01349_FID12150_amri_ep2d_bold_96x72x5_R2_16avg_gadgetron/ref_20161020.mrd": "6bed66d191c14bd442b6214a6fd0db7d",
+                "generic_grappa_epi_ave/run_main.yml": "c22c9fcd8c9c1de6ed961966b6e476f0",
+                "generic_grappa_epi_ave/case.yml": "9d8d4359fcb52bb41fdf96fd39915359"
+            }
+        },
+        {
+            "name": "generic_grappa_snr_R1_PEFOV100_PERes100.cfg",
+            "case_file_path": "generic_grappa_snr_R1_PEFOV100_PERes100/case.yml",
+            "file_dependencies": {
+                "generic_grappa_snr_R1_PEFOV100_PERes100/noise.h5": "d556f69cd8954dfb9e30da074d052e93",
+                "generic_grappa_snr_R1_PEFOV100_PERes100/main.h5": "b828017f8bca2003a268e8c639e44d00",
+                "generic_grappa_snr_R1_PEFOV100_PERes100/generic/meas_MID00393_FID114595_R1_PEFOV100_PERes100/ref_20160401.mrd": "4aed35caae0fd83ecc43a712f08df12b",
+                "generic_grappa_snr_R1_PEFOV100_PERes100/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "generic_grappa_snr_R1_PEFOV100_PERes100/run_main.yml": "8fbbf5e9f2e4d1c35958d37e814b17af",
+                "generic_grappa_snr_R1_PEFOV100_PERes100/case.yml": "f732b3d1b7e3340f481a98c4e524d8ab"
+            }
+        },
+        {
+            "name": "generic_grappa_snr_R1_PEFOV100_PERes100_compression.cfg",
+            "case_file_path": "generic_grappa_snr_R1_PEFOV100_PERes100_compression/case.yml",
+            "file_dependencies": {
+                "generic_grappa_snr_R1_PEFOV100_PERes100_compression/noise.h5": "8cecfabe4e6990381475fad39f0665f9",
+                "generic_grappa_snr_R1_PEFOV100_PERes100_compression/main.h5": "237598eac291d0035d22a89170a6d455",
+                "generic_grappa_snr_R1_PEFOV100_PERes100_compression/generic/meas_MID00393_FID114595_R1_PEFOV100_PERes100/ref_20160401.mrd": "4aed35caae0fd83ecc43a712f08df12b",
+                "generic_grappa_snr_R1_PEFOV100_PERes100_compression/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "generic_grappa_snr_R1_PEFOV100_PERes100_compression/run_main.yml": "8fbbf5e9f2e4d1c35958d37e814b17af",
+                "generic_grappa_snr_R1_PEFOV100_PERes100_compression/case.yml": "f26a5e9d15d1a2c5cba6c6f3d01b285a"
+            }
+        },
+        {
+            "name": "generic_grappa_snr_R1_PEFOV100_PERes120.cfg",
+            "case_file_path": "generic_grappa_snr_R1_PEFOV100_PERes120/case.yml",
+            "file_dependencies": {
+                "generic_grappa_snr_R1_PEFOV100_PERes120/noise.h5": "8278a020374758419fd2afb25c5237c1",
+                "generic_grappa_snr_R1_PEFOV100_PERes120/main.h5": "b2313517dd3a299bf784b19916e63723",
+                "generic_grappa_snr_R1_PEFOV100_PERes120/generic/meas_MID00423_FID114625_R1_PEFOV100_PERes120/ref_20160401.mrd": "8942d065ca81d4433b3fe183016891bb",
+                "generic_grappa_snr_R1_PEFOV100_PERes120/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "generic_grappa_snr_R1_PEFOV100_PERes120/run_main.yml": "8fbbf5e9f2e4d1c35958d37e814b17af",
+                "generic_grappa_snr_R1_PEFOV100_PERes120/case.yml": "be26e61c2e30e7e11a8a833c42c66174"
+            }
+        },
+        {
+            "name": "generic_grappa_snr_R1_PEFOV75_PERes75.cfg",
+            "case_file_path": "generic_grappa_snr_R1_PEFOV75_PERes75/case.yml",
+            "file_dependencies": {
+                "generic_grappa_snr_R1_PEFOV75_PERes75/noise.h5": "7582b7370b22e622697b057fe2342165",
+                "generic_grappa_snr_R1_PEFOV75_PERes75/main.h5": "37e0b552a157d9fa921e354703e98613",
+                "generic_grappa_snr_R1_PEFOV75_PERes75/generic/meas_MID00394_FID114596_R1_PEFOV75_PERes75/ref_20160401.mrd": "9834d05bf10f7029b10a8aa3d1ba594f",
+                "generic_grappa_snr_R1_PEFOV75_PERes75/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "generic_grappa_snr_R1_PEFOV75_PERes75/run_main.yml": "8fbbf5e9f2e4d1c35958d37e814b17af",
+                "generic_grappa_snr_R1_PEFOV75_PERes75/case.yml": "8b0ca5987a05998f6d72524f268b0360"
+            }
+        },
+        {
+            "name": "generic_grappa_snr_R1_PEFOV75_PERes75_PF6_8.cfg",
+            "case_file_path": "generic_grappa_snr_R1_PEFOV75_PERes75_PF6_8/case.yml",
+            "file_dependencies": {
+                "generic_grappa_snr_R1_PEFOV75_PERes75_PF6_8/noise.h5": "875e82b57d213e806e169a2357861f0d",
+                "generic_grappa_snr_R1_PEFOV75_PERes75_PF6_8/main.h5": "2987fe24894fe5ed3a66dd2c4db2c24a",
+                "generic_grappa_snr_R1_PEFOV75_PERes75_PF6_8/generic/meas_MID00395_FID114597_R1_PEFOV75_PERes75_PF6_8/ref_20160401.mrd": "0f5ccb2dc0644ededaab028450e188ee",
+                "generic_grappa_snr_R1_PEFOV75_PERes75_PF6_8/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "generic_grappa_snr_R1_PEFOV75_PERes75_PF6_8/run_main.yml": "8fbbf5e9f2e4d1c35958d37e814b17af",
+                "generic_grappa_snr_R1_PEFOV75_PERes75_PF6_8/case.yml": "4d1cdf150c25e2db87290c39963bf341"
+            }
+        },
+        {
+            "name": "generic_grappa_snr_R1_PEFOV75_PERes75_PF6_8_AsymStrong.cfg",
+            "case_file_path": "generic_grappa_snr_R1_PEFOV75_PERes75_PF6_8_AsymStrong/case.yml",
+            "file_dependencies": {
+                "generic_grappa_snr_R1_PEFOV75_PERes75_PF6_8_AsymStrong/noise.h5": "d2630d171c8d4afddccf2fda9c36cc71",
+                "generic_grappa_snr_R1_PEFOV75_PERes75_PF6_8_AsymStrong/main.h5": "a8fe00965e6839a1c69337c1ed4043da",
+                "generic_grappa_snr_R1_PEFOV75_PERes75_PF6_8_AsymStrong/generic/meas_MID00396_FID114598_R1_PEFOV75_PERes75_PF6_8_AsymStrong/ref_20160401.mrd": "63ef2b89f3c4968efc8d2f368a45f85f",
+                "generic_grappa_snr_R1_PEFOV75_PERes75_PF6_8_AsymStrong/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "generic_grappa_snr_R1_PEFOV75_PERes75_PF6_8_AsymStrong/run_main.yml": "8fbbf5e9f2e4d1c35958d37e814b17af",
+                "generic_grappa_snr_R1_PEFOV75_PERes75_PF6_8_AsymStrong/case.yml": "c7f6bf4cb97ed6593c757d72f9658ff1"
+            }
+        },
+        {
+            "name": "generic_grappa_snr_R1_PEFOV75_PERes75_PF6_8_AsymStrong_InterpON.cfg",
+            "case_file_path": "generic_grappa_snr_R1_PEFOV75_PERes75_PF6_8_AsymStrong_InterpON/case.yml",
+            "file_dependencies": {
+                "generic_grappa_snr_R1_PEFOV75_PERes75_PF6_8_AsymStrong_InterpON/noise.h5": "0ae7fd402c2449de9316ec1092392d8a",
+                "generic_grappa_snr_R1_PEFOV75_PERes75_PF6_8_AsymStrong_InterpON/main.h5": "3436d548d4f228d46fb7a5b8663943f8",
+                "generic_grappa_snr_R1_PEFOV75_PERes75_PF6_8_AsymStrong_InterpON/generic/meas_MID00397_FID114599_R1_PEFOV75_PERes75_PF6_8_AsymStrong_InterpON/ref_20160401.mrd": "a5e1e4f479ca6c61bad7d27571b3b1eb",
+                "generic_grappa_snr_R1_PEFOV75_PERes75_PF6_8_AsymStrong_InterpON/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "generic_grappa_snr_R1_PEFOV75_PERes75_PF6_8_AsymStrong_InterpON/run_main.yml": "8fbbf5e9f2e4d1c35958d37e814b17af",
+                "generic_grappa_snr_R1_PEFOV75_PERes75_PF6_8_AsymStrong_InterpON/case.yml": "d69dfdce1a44e1e4d108bb5dba57bc3d"
+            }
+        },
+        {
+            "name": "generic_grappa_snr_R2_ipat_PEFOV75_PERes75_PEOverSampling120.cfg",
+            "case_file_path": "generic_grappa_snr_R2_ipat_PEFOV75_PERes75_PEOverSampling120/case.yml",
+            "file_dependencies": {
+                "generic_grappa_snr_R2_ipat_PEFOV75_PERes75_PEOverSampling120/noise.h5": "401e8fe8662674fad4693f81b24f400e",
+                "generic_grappa_snr_R2_ipat_PEFOV75_PERes75_PEOverSampling120/main.h5": "1ac5973faaab9557d2247604a4bb0eb5",
+                "generic_grappa_snr_R2_ipat_PEFOV75_PERes75_PEOverSampling120/generic/meas_MID00077_FID115844_R2_ipat_PEFOV75_PERes75_PEOverSampling120/ref_20210921_klk.mrd": "ebb9b0b83e7298c8054ee8ce71e85349",
+                "generic_grappa_snr_R2_ipat_PEFOV75_PERes75_PEOverSampling120/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "generic_grappa_snr_R2_ipat_PEFOV75_PERes75_PEOverSampling120/run_main.yml": "8fbbf5e9f2e4d1c35958d37e814b17af",
+                "generic_grappa_snr_R2_ipat_PEFOV75_PERes75_PEOverSampling120/case.yml": "87fc8bcc06590dd16840801ffb278606"
+            }
+        },
+        {
+            "name": "generic_grappa_snr_R2_ipat_PEFOV75_PERes75_PF6_8_AsymStrong.cfg",
+            "case_file_path": "generic_grappa_snr_R2_ipat_PEFOV75_PERes75_PF6_8_AsymStrong/case.yml",
+            "file_dependencies": {
+                "generic_grappa_snr_R2_ipat_PEFOV75_PERes75_PF6_8_AsymStrong/noise.h5": "580c5d392baed5d798bfbaa781740b3f",
+                "generic_grappa_snr_R2_ipat_PEFOV75_PERes75_PF6_8_AsymStrong/main.h5": "cc839e5bc9fa872987f1502d058a7851",
+                "generic_grappa_snr_R2_ipat_PEFOV75_PERes75_PF6_8_AsymStrong/generic/meas_MID00411_FID114613_R2_ipat_PEFOV75_PERes75_PF6_8_AsymStrong/ref_20160401.mrd": "ddee624846830fbaacd7d71a4d618284",
+                "generic_grappa_snr_R2_ipat_PEFOV75_PERes75_PF6_8_AsymStrong/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "generic_grappa_snr_R2_ipat_PEFOV75_PERes75_PF6_8_AsymStrong/run_main.yml": "8fbbf5e9f2e4d1c35958d37e814b17af",
+                "generic_grappa_snr_R2_ipat_PEFOV75_PERes75_PF6_8_AsymStrong/case.yml": "e60c79d04e63f083dcdf42638aec8d97"
+            }
+        },
+        {
+            "name": "generic_grappa_snr_R2_spat_PEFOV100_PERes100.cfg",
+            "case_file_path": "generic_grappa_snr_R2_spat_PEFOV100_PERes100/case.yml",
+            "file_dependencies": {
+                "generic_grappa_snr_R2_spat_PEFOV100_PERes100/noise.h5": "f7286b139e9b2a03e83ec6ff9b49e31f",
+                "generic_grappa_snr_R2_spat_PEFOV100_PERes100/main.h5": "2c3e2f378fb0d9a30c51d3b5231cf05f",
+                "generic_grappa_snr_R2_spat_PEFOV100_PERes100/generic/meas_MID00398_FID114600_R2_spat_PEFOV100_PERes100/ref_20160401.mrd": "5f02a6ca8e1cce985f67ed9df8b747bb",
+                "generic_grappa_snr_R2_spat_PEFOV100_PERes100/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "generic_grappa_snr_R2_spat_PEFOV100_PERes100/run_main.yml": "8fbbf5e9f2e4d1c35958d37e814b17af",
+                "generic_grappa_snr_R2_spat_PEFOV100_PERes100/case.yml": "8ca845319d764ab0d1aa8065b36b86c4"
+            }
+        },
+        {
+            "name": "generic_grappa_snr_R2_spat_PEFOV100_PERes120.cfg",
+            "case_file_path": "generic_grappa_snr_R2_spat_PEFOV100_PERes120/case.yml",
+            "file_dependencies": {
+                "generic_grappa_snr_R2_spat_PEFOV100_PERes120/noise.h5": "fda33bbbce72b02ede7529a39d439be9",
+                "generic_grappa_snr_R2_spat_PEFOV100_PERes120/main.h5": "d82e65cc9e1e1002056fd4f277394c2f",
+                "generic_grappa_snr_R2_spat_PEFOV100_PERes120/generic/meas_MID00424_FID114626_R2_spat__PEFOV100_PERes120/ref_20160401.mrd": "9674d7bdfee72b0508a955375a137de4",
+                "generic_grappa_snr_R2_spat_PEFOV100_PERes120/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "generic_grappa_snr_R2_spat_PEFOV100_PERes120/run_main.yml": "8fbbf5e9f2e4d1c35958d37e814b17af",
+                "generic_grappa_snr_R2_spat_PEFOV100_PERes120/case.yml": "8e6cda44bc43913d397bded68645dba3"
+            }
+        },
+        {
+            "name": "generic_grappa_snr_R2_spat_PEFOV75_PERes75.cfg",
+            "case_file_path": "generic_grappa_snr_R2_spat_PEFOV75_PERes75/case.yml",
+            "file_dependencies": {
+                "generic_grappa_snr_R2_spat_PEFOV75_PERes75/noise.h5": "15e19b024e97a40cc1065275da418983",
+                "generic_grappa_snr_R2_spat_PEFOV75_PERes75/main.h5": "e17e339633fed249ee2a3642a0f1ffb6",
+                "generic_grappa_snr_R2_spat_PEFOV75_PERes75/generic/meas_MID00399_FID114601_R2_spat_PEFOV75_PERes75/ref_20160401.mrd": "ae9a034a3ec57fb57229232cc06f2467",
+                "generic_grappa_snr_R2_spat_PEFOV75_PERes75/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "generic_grappa_snr_R2_spat_PEFOV75_PERes75/run_main.yml": "8fbbf5e9f2e4d1c35958d37e814b17af",
+                "generic_grappa_snr_R2_spat_PEFOV75_PERes75/case.yml": "7aa8caa4cc5058bb72fb81ec98f99dd0"
+            }
+        },
+        {
+            "name": "generic_grappa_snr_R2_spat_PEFOV75_PERes75_PF6_8.cfg",
+            "case_file_path": "generic_grappa_snr_R2_spat_PEFOV75_PERes75_PF6_8/case.yml",
+            "file_dependencies": {
+                "generic_grappa_snr_R2_spat_PEFOV75_PERes75_PF6_8/noise.h5": "612a06624b8a36f17fbf6491ad5e89fc",
+                "generic_grappa_snr_R2_spat_PEFOV75_PERes75_PF6_8/main.h5": "fdb850b93ab5ab454f8197f73ac93aa8",
+                "generic_grappa_snr_R2_spat_PEFOV75_PERes75_PF6_8/generic/meas_MID00400_FID114602_R2_spat_PEFOV75_PERes75_PF6_8/ref_20160401.mrd": "d6e28bef0b899a95ab766c320cfb2f9c",
+                "generic_grappa_snr_R2_spat_PEFOV75_PERes75_PF6_8/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "generic_grappa_snr_R2_spat_PEFOV75_PERes75_PF6_8/run_main.yml": "8fbbf5e9f2e4d1c35958d37e814b17af",
+                "generic_grappa_snr_R2_spat_PEFOV75_PERes75_PF6_8/case.yml": "f2d39c9c37e32ea04e5d33f52494484d"
+            }
+        },
+        {
+            "name": "generic_grappa_snr_R2_spat_PEFOV75_PERes75_PF6_8_AsymStrong.cfg",
+            "case_file_path": "generic_grappa_snr_R2_spat_PEFOV75_PERes75_PF6_8_AsymStrong/case.yml",
+            "file_dependencies": {
+                "generic_grappa_snr_R2_spat_PEFOV75_PERes75_PF6_8_AsymStrong/noise.h5": "f806d206473de3b4932a15dbdf4812ca",
+                "generic_grappa_snr_R2_spat_PEFOV75_PERes75_PF6_8_AsymStrong/main.h5": "c667a6418d36f8d96c42d66bcb35477a",
+                "generic_grappa_snr_R2_spat_PEFOV75_PERes75_PF6_8_AsymStrong/generic/meas_MID00401_FID114603_R2_spat_PEFOV75_PERes75_PF6_8_AsymStrong/ref_20160401.mrd": "bd389f001f645face35523932c6822ce",
+                "generic_grappa_snr_R2_spat_PEFOV75_PERes75_PF6_8_AsymStrong/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "generic_grappa_snr_R2_spat_PEFOV75_PERes75_PF6_8_AsymStrong/run_main.yml": "8fbbf5e9f2e4d1c35958d37e814b17af",
+                "generic_grappa_snr_R2_spat_PEFOV75_PERes75_PF6_8_AsymStrong/case.yml": "68023d36b2b23b8589c8a483e2c9ec57"
+            }
+        },
+        {
+            "name": "generic_grappa_snr_R2_spat_PEFOV75_PERes75_PF6_8_AsymStrong_InterpON.cfg",
+            "case_file_path": "generic_grappa_snr_R2_spat_PEFOV75_PERes75_PF6_8_AsymStrong_InterpON/case.yml",
+            "file_dependencies": {
+                "generic_grappa_snr_R2_spat_PEFOV75_PERes75_PF6_8_AsymStrong_InterpON/noise.h5": "259e672c2512c7f1bc5d80dbbcc66667",
+                "generic_grappa_snr_R2_spat_PEFOV75_PERes75_PF6_8_AsymStrong_InterpON/main.h5": "858c93f549770eac960235f2955bae6c",
+                "generic_grappa_snr_R2_spat_PEFOV75_PERes75_PF6_8_AsymStrong_InterpON/generic/meas_MID00402_FID114604_R2_spat_PEFOV75_PERes75_PF6_8_AsymStrong_InterpON/ref_20160401.mrd": "7abcd80112b08130407b92f26d36aea8",
+                "generic_grappa_snr_R2_spat_PEFOV75_PERes75_PF6_8_AsymStrong_InterpON/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "generic_grappa_snr_R2_spat_PEFOV75_PERes75_PF6_8_AsymStrong_InterpON/run_main.yml": "8fbbf5e9f2e4d1c35958d37e814b17af",
+                "generic_grappa_snr_R2_spat_PEFOV75_PERes75_PF6_8_AsymStrong_InterpON/case.yml": "70d751638f0350627c4e5209ec2d9e31"
+            }
+        },
+        {
+            "name": "generic_grappa_snr_R2_tpat_PEFOV100_PERes100.cfg",
+            "case_file_path": "generic_grappa_snr_R2_tpat_PEFOV100_PERes100/case.yml",
+            "file_dependencies": {
+                "generic_grappa_snr_R2_tpat_PEFOV100_PERes100/noise.h5": "c5508b9ba8811166ded2d5ff4a504c12",
+                "generic_grappa_snr_R2_tpat_PEFOV100_PERes100/main.h5": "89ddee516d1dea136713e44deee8b9b8",
+                "generic_grappa_snr_R2_tpat_PEFOV100_PERes100/generic/meas_MID00403_FID114605_R2_tpat_PEFOV100_PERes100/ref_20160401.mrd": "1565286f29c7be893cbf4b6126a1ec15",
+                "generic_grappa_snr_R2_tpat_PEFOV100_PERes100/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "generic_grappa_snr_R2_tpat_PEFOV100_PERes100/run_main.yml": "8fbbf5e9f2e4d1c35958d37e814b17af",
+                "generic_grappa_snr_R2_tpat_PEFOV100_PERes100/case.yml": "04772b0ca704acfa58aeb768ff725e11"
+            }
+        },
+        {
+            "name": "generic_grappa_snr_R2_tpat_PEFOV75_PERes75.cfg",
+            "case_file_path": "generic_grappa_snr_R2_tpat_PEFOV75_PERes75/case.yml",
+            "file_dependencies": {
+                "generic_grappa_snr_R2_tpat_PEFOV75_PERes75/noise.h5": "0781fa9674d72e747d947abb4a752289",
+                "generic_grappa_snr_R2_tpat_PEFOV75_PERes75/main.h5": "8d3c80684abd2c5882815397a5f6e52b",
+                "generic_grappa_snr_R2_tpat_PEFOV75_PERes75/generic/meas_MID00404_FID114606_R2_tpat_PEFOV75_PERes75/ref_20160401.mrd": "1e561169e535b81a0bb23eeda0c2f727",
+                "generic_grappa_snr_R2_tpat_PEFOV75_PERes75/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "generic_grappa_snr_R2_tpat_PEFOV75_PERes75/run_main.yml": "8fbbf5e9f2e4d1c35958d37e814b17af",
+                "generic_grappa_snr_R2_tpat_PEFOV75_PERes75/case.yml": "c4c96ab6f5d3b17ab5f7ffffd9b4de83"
+            }
+        },
+        {
+            "name": "generic_grappa_snr_R2_tpat_PEFOV75_PERes75_PF6_8.cfg",
+            "case_file_path": "generic_grappa_snr_R2_tpat_PEFOV75_PERes75_PF6_8/case.yml",
+            "file_dependencies": {
+                "generic_grappa_snr_R2_tpat_PEFOV75_PERes75_PF6_8/noise.h5": "6d584c5684d87b13e8b84b7b7a52f301",
+                "generic_grappa_snr_R2_tpat_PEFOV75_PERes75_PF6_8/main.h5": "f165ddc06eab97882c20bea5c7b31e43",
+                "generic_grappa_snr_R2_tpat_PEFOV75_PERes75_PF6_8/generic/meas_MID00405_FID114607_R2_tpat_PEFOV75_PERes75_PF6_8/ref_20210921_klk.mrd": "cb209f72d0a49f71b257ae99950887be",
+                "generic_grappa_snr_R2_tpat_PEFOV75_PERes75_PF6_8/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "generic_grappa_snr_R2_tpat_PEFOV75_PERes75_PF6_8/run_main.yml": "8fbbf5e9f2e4d1c35958d37e814b17af",
+                "generic_grappa_snr_R2_tpat_PEFOV75_PERes75_PF6_8/case.yml": "8c5e46488a494890b2f5b860bf765182"
+            }
+        },
+        {
+            "name": "generic_grappa_snr_R2_tpat_PEFOV75_PERes75_PF6_8_AsymStrong.cfg",
+            "case_file_path": "generic_grappa_snr_R2_tpat_PEFOV75_PERes75_PF6_8_AsymStrong/case.yml",
+            "file_dependencies": {
+                "generic_grappa_snr_R2_tpat_PEFOV75_PERes75_PF6_8_AsymStrong/noise.h5": "a33a3574a9813d0012a89ea22ed96c24",
+                "generic_grappa_snr_R2_tpat_PEFOV75_PERes75_PF6_8_AsymStrong/main.h5": "c85468658f7223a716b4e0a2c4dbc211",
+                "generic_grappa_snr_R2_tpat_PEFOV75_PERes75_PF6_8_AsymStrong/generic/meas_MID00406_FID114608_R2_tpat_PEFOV75_PERes75_PF6_8_AsymStrong/ref_20210921_klk.mrd": "eda85c95c9a7568839f1103aca701d05",
+                "generic_grappa_snr_R2_tpat_PEFOV75_PERes75_PF6_8_AsymStrong/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "generic_grappa_snr_R2_tpat_PEFOV75_PERes75_PF6_8_AsymStrong/run_main.yml": "8fbbf5e9f2e4d1c35958d37e814b17af",
+                "generic_grappa_snr_R2_tpat_PEFOV75_PERes75_PF6_8_AsymStrong/case.yml": "473a90f0988f72f5993ea3bd4e8f986d"
+            }
+        },
+        {
+            "name": "generic_grappa_snr_R3_spat_PEFOV100_PERes75_PF6_8_AsymStrong.cfg",
+            "case_file_path": "generic_grappa_snr_R3_spat_PEFOV100_PERes75_PF6_8_AsymStrong/case.yml",
+            "file_dependencies": {
+                "generic_grappa_snr_R3_spat_PEFOV100_PERes75_PF6_8_AsymStrong/noise.h5": "d221649b65f50f5f4e2b40b14224033d",
+                "generic_grappa_snr_R3_spat_PEFOV100_PERes75_PF6_8_AsymStrong/main.h5": "9ee319e8fcb42fc52b4014c1cf77d8f4",
+                "generic_grappa_snr_R3_spat_PEFOV100_PERes75_PF6_8_AsymStrong/generic/meas_MID00416_FID114618_R3_spat_PEFOV100_PERes75_PF6_8_AsymStrong/ref_20160401.mrd": "5cd9d55e1c728a390e52dd1b89d5a75c",
+                "generic_grappa_snr_R3_spat_PEFOV100_PERes75_PF6_8_AsymStrong/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "generic_grappa_snr_R3_spat_PEFOV100_PERes75_PF6_8_AsymStrong/run_main.yml": "8fbbf5e9f2e4d1c35958d37e814b17af",
+                "generic_grappa_snr_R3_spat_PEFOV100_PERes75_PF6_8_AsymStrong/case.yml": "8031754edb933b2534ab776b9963f8ab"
+            }
+        },
+        {
+            "name": "generic_grappa_snr_R3_tpat_PEFOV100_PERes120.cfg",
+            "case_file_path": "generic_grappa_snr_R3_tpat_PEFOV100_PERes120/case.yml",
+            "file_dependencies": {
+                "generic_grappa_snr_R3_tpat_PEFOV100_PERes120/noise.h5": "f0f27c8be5eea4d86ab41c2df2979254",
+                "generic_grappa_snr_R3_tpat_PEFOV100_PERes120/main.h5": "91c4b2f5855efe27f2f8260c2e82dfcc",
+                "generic_grappa_snr_R3_tpat_PEFOV100_PERes120/generic/meas_MID00427_FID114629_R3_tpat__PEFOV100_PERes120/ref_20210923_klk.mrd": "334f1468a464a6068c36d5c5c394566b",
+                "generic_grappa_snr_R3_tpat_PEFOV100_PERes120/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "generic_grappa_snr_R3_tpat_PEFOV100_PERes120/run_main.yml": "8fbbf5e9f2e4d1c35958d37e814b17af",
+                "generic_grappa_snr_R3_tpat_PEFOV100_PERes120/case.yml": "ec9d094691103df6c444b834a6a5eace"
+            }
+        },
+        {
+            "name": "generic_grappa_snr_R3_tpat_PEFOV100_PERes75_PF6_8_AsymStrong.cfg",
+            "case_file_path": "generic_grappa_snr_R3_tpat_PEFOV100_PERes75_PF6_8_AsymStrong/case.yml",
+            "file_dependencies": {
+                "generic_grappa_snr_R3_tpat_PEFOV100_PERes75_PF6_8_AsymStrong/noise.h5": "a15e8b556d797fa042f8c15e7903d3c3",
+                "generic_grappa_snr_R3_tpat_PEFOV100_PERes75_PF6_8_AsymStrong/main.h5": "78ce55d43dc7938b456e3af3acc3a729",
+                "generic_grappa_snr_R3_tpat_PEFOV100_PERes75_PF6_8_AsymStrong/generic/meas_MID00421_FID114623_R3_tpat_PEFOV100_PERes75_PF6_8_AsymStrong/ref_20210923_klk.mrd": "c13ee6326e81d11b66fc57daca470cc8",
+                "generic_grappa_snr_R3_tpat_PEFOV100_PERes75_PF6_8_AsymStrong/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "generic_grappa_snr_R3_tpat_PEFOV100_PERes75_PF6_8_AsymStrong/run_main.yml": "8fbbf5e9f2e4d1c35958d37e814b17af",
+                "generic_grappa_snr_R3_tpat_PEFOV100_PERes75_PF6_8_AsymStrong/case.yml": "0cf0270b5a118f2888aa9cc65d6a238f"
+            }
+        },
+        {
+            "name": "generic_grappa_tse.cfg",
+            "case_file_path": "generic_grappa_tse/case.yml",
+            "file_dependencies": {
+                "generic_grappa_tse/noise.h5": "183774b13b6de8f4695ea2c338191299",
+                "generic_grappa_tse/main.h5": "77bf6c5d9d67afbc2960d75ab9942fb0",
+                "generic_grappa_tse/tse/meas_MID00450_FID76726_SAX_TE62_DIR_TSE/ref_20210923_klk.mrd": "49543ca1fa648279b7b68c339f2f7010",
+                "generic_grappa_tse/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "generic_grappa_tse/run_main.yml": "ac8523acefe87bdb7196564adf3b5102",
+                "generic_grappa_tse/case.yml": "eefc12b38d2bc3b3d96a69e74610da14"
+            }
+        },
+        {
+            "name": "generic_nl_spirit_cartesian_sampling_cine.cfg",
+            "case_file_path": "generic_nl_spirit_cartesian_sampling_cine/case.yml",
+            "file_dependencies": {
+                "generic_nl_spirit_cartesian_sampling_cine/noise.h5": "e781eaff2ac08b29bf83050d00809c89",
+                "generic_nl_spirit_cartesian_sampling_cine/main.h5": "bde208fb2ab46a061411d3ddbb7cc010",
+                "generic_nl_spirit_cartesian_sampling_cine/generic/meas_MID836_1slice_FID22517/ref_20210923_klk.mrd": "21ebe4264a28018ef96a94c2fb95ce95",
+                "generic_nl_spirit_cartesian_sampling_cine/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "generic_nl_spirit_cartesian_sampling_cine/run_main.yml": "4e7660a9e821d855367ae8affe23192e",
+                "generic_nl_spirit_cartesian_sampling_cine/case.yml": "ccd1cd9aa3d38ffea5672d0e15239f4c"
+            }
+        },
+        {
+            "name": "generic_nl_spirit_random_sampling_cine.cfg",
+            "case_file_path": "generic_nl_spirit_random_sampling_cine/case.yml",
+            "file_dependencies": {
+                "generic_nl_spirit_random_sampling_cine/main.h5": "4d95a4121bf6f4a37b1d20a325cf709f",
+                "generic_nl_spirit_random_sampling_cine/generic/meas_MID01095_FID40115/ref_20210923_klk.mrd": "662a5160b31d5fd0a01b73c91b6c80e4",
+                "generic_nl_spirit_random_sampling_cine/run_main.yml": "6495ed4ad839d75304ed389d0cdf2140",
+                "generic_nl_spirit_random_sampling_cine/case.yml": "8d29a70ad595cc5a8e36b15efef9d3d1"
+            }
+        },
+        {
+            "name": "generic_spirit_cartesian_sampling_spat2.cfg",
+            "case_file_path": "generic_spirit_cartesian_sampling_spat2/case.yml",
+            "file_dependencies": {
+                "generic_spirit_cartesian_sampling_spat2/main.h5": "bd162b444934d40a5c80e379ad80e7d6",
+                "generic_spirit_cartesian_sampling_spat2/generic/meas_MID00062_FID114726_SAX_SASHA/ref_20210923_klk.mrd": "10e3ad3efb4318145a8ef587400e8270",
+                "generic_spirit_cartesian_sampling_spat2/run_main.yml": "eb8ff3d3594d8f15dd6e40cc1fe994bc",
+                "generic_spirit_cartesian_sampling_spat2/case.yml": "2d257e4698c27e231a76db600ff1401a"
+            }
+        },
+        {
+            "name": "gpu_fixed_radial_mode1_cg.cfg",
+            "case_file_path": "gpu_fixed_radial_mode1_cg/case.yml",
+            "file_dependencies": {
+                "gpu_fixed_radial_mode1_cg/main.h5": "1dbc3d8bbd5dd0832f4a2f6562eb5703",
+                "gpu_fixed_radial_mode1_cg/radial_phantom/fixed_radial_mode1_20210923_klk.mrd": "04faea502d73557fd0dd1bc629d95e87",
+                "gpu_fixed_radial_mode1_cg/run_main.yml": "8d36dbdecf6c79eb53dd682b817b98aa",
+                "gpu_fixed_radial_mode1_cg/case.yml": "5301bd5827964f1d129b964236f85027"
+            }
+        },
+        {
+            "name": "gpu_fixed_radial_mode1_ktsense.cfg",
+            "case_file_path": "gpu_fixed_radial_mode1_ktsense/case.yml",
+            "file_dependencies": {
+                "gpu_fixed_radial_mode1_ktsense/main.h5": "013217def0fb23f2e692ca000ba76f36",
+                "gpu_fixed_radial_mode1_ktsense/radial_phantom/fixed_radial_mode1_20210923_klk.mrd": "04faea502d73557fd0dd1bc629d95e87",
+                "gpu_fixed_radial_mode1_ktsense/run_main.yml": "d0dcdd3e6e2140605cabebe33b7121e3",
+                "gpu_fixed_radial_mode1_ktsense/case.yml": "ffb650c02d22c8e90ce84f509b9ee906"
+            }
+        },
+        {
+            "name": "gpu_fixed_radial_mode1_realtime.cfg",
+            "case_file_path": "gpu_fixed_radial_mode1_realtime/case.yml",
+            "file_dependencies": {
+                "gpu_fixed_radial_mode1_realtime/main.h5": "6aa66afbf4e963ea8ff5a5e9ef7353a2",
+                "gpu_fixed_radial_mode1_realtime/radial_phantom/fixed_radial_mode1_20210923_klk.mrd": "04faea502d73557fd0dd1bc629d95e87",
+                "gpu_fixed_radial_mode1_realtime/run_main.yml": "3b8f01a54a8c38b09ad6d823a0725bd9",
+                "gpu_fixed_radial_mode1_realtime/case.yml": "72b03bf0c2f1b4fa56431884683ebfe4"
+            }
+        },
+        {
+            "name": "gpu_golden_radial_mode2_ktsense.cfg",
+            "case_file_path": "gpu_golden_radial_mode2_ktsense/case.yml",
+            "file_dependencies": {
+                "gpu_golden_radial_mode2_ktsense/main.h5": "bc6365c051115ed2b4e473c22f9e9648",
+                "gpu_golden_radial_mode2_ktsense/radial_phantom/golden_radial_mode2_20210923_klk.mrd": "8b296905309f2e6f1458d56417d5c365",
+                "gpu_golden_radial_mode2_ktsense/run_main.yml": "df0978c373a504712968b3baf6996ce8",
+                "gpu_golden_radial_mode2_ktsense/case.yml": "e1271dce69a5ecbc63fb6c6eea9f7897"
+            }
+        },
+        {
+            "name": "gpu_golden_radial_mode2_realtime.cfg",
+            "case_file_path": "gpu_golden_radial_mode2_realtime/case.yml",
+            "file_dependencies": {
+                "gpu_golden_radial_mode2_realtime/main.h5": "5dd61796ee344623603da52240b0e764",
+                "gpu_golden_radial_mode2_realtime/radial_phantom/golden_radial_mode2_20210923_klk.mrd": "8b296905309f2e6f1458d56417d5c365",
+                "gpu_golden_radial_mode2_realtime/run_main.yml": "895437a872b252f7580ce1ff12673b0a",
+                "gpu_golden_radial_mode2_realtime/case.yml": "6028d6b86b02d40f5b864fa590ea19e3"
+            }
+        },
+        {
+            "name": "gpu_golden_radial_mode2_sb.cfg",
+            "case_file_path": "gpu_golden_radial_mode2_sb/case.yml",
+            "file_dependencies": {
+                "gpu_golden_radial_mode2_sb/main.h5": "13e2c80c5cc59967bdc7723226406ecd",
+                "gpu_golden_radial_mode2_sb/radial_phantom/golden_radial_mode2_20210923_klk.mrd": "8b296905309f2e6f1458d56417d5c365",
+                "gpu_golden_radial_mode2_sb/run_main.yml": "2bc818c5ff94642a7002bd020023b011",
+                "gpu_golden_radial_mode2_sb/case.yml": "579b9da5830d027e0951a4ce4e2408bc"
+            }
+        },
+        {
+            "name": "gpu_grappa_simple.cfg",
+            "case_file_path": "gpu_grappa_simple/case.yml",
+            "file_dependencies": {
+                "gpu_grappa_simple/main.h5": "bd3b503598784ea484dbe83a4da480de",
+                "gpu_grappa_simple/rtgrappa/grappa_rate2_cpu_out.mrd": "5fb75eefe3828a74cffe7da6f521d841",
+                "gpu_grappa_simple/run_main.yml": "b3d7a240fcb604c99e5fa98debe71186",
+                "gpu_grappa_simple/case.yml": "29c49d90e56a0a5addd63db4e6f16f02"
+            }
+        },
+        {
+            "name": "gpu_spiral.cfg",
+            "case_file_path": "gpu_spiral/case.yml",
+            "file_dependencies": {
+                "gpu_spiral/main.h5": "0453975a647002eaaafd2cd01b08d4a5",
+                "gpu_spiral/spiral/simple_spiral_out_v2.mrd": "7ab538094cb4aefa329da75a3190a948",
+                "gpu_spiral/run_main.yml": "c814d9b1738b30753a5b0d5ad3bbdf48",
+                "gpu_spiral/case.yml": "be5ec75d26228e582a5ec8e0208a688f"
+            }
+        },
+        {
+            "name": "gpu_spiral_realtime_deblurring.cfg",
+            "case_file_path": "gpu_spiral_realtime_deblurring/case.yml",
+            "file_dependencies": {
+                "gpu_spiral_realtime_deblurring/noise.h5": "86d614dcf5cac8088b6b245f494a4a0f",
+                "gpu_spiral_realtime_deblurring/main.h5": "a349dc09ad81ec6492f81ac972b921e2",
+                "gpu_spiral_realtime_deblurring/spiral/spiral_rt_deblurring_out.mrd": "75cc7b2aec83ca854a5ad06e6afad76e",
+                "gpu_spiral_realtime_deblurring/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "gpu_spiral_realtime_deblurring/run_main.yml": "e1715d6ff07b860446535d06f1126b1f",
+                "gpu_spiral_realtime_deblurring/case.yml": "ad17d9a23163dac1becd1a01e8fb85b4"
+            }
+        },
+        {
+            "name": "gpu_spiral_sb.cfg",
+            "case_file_path": "gpu_spiral_sb/case.yml",
+            "file_dependencies": {
+                "gpu_spiral_sb/main.h5": "837cdd132bc6562351457ea681b92abd",
+                "gpu_spiral_sb/spiral/simple_spiral_out_sb_v2.mrd": "e86610f38fe302a5c264e0d23270c16d",
+                "gpu_spiral_sb/run_main.yml": "47acc55b3746cae1acf2bd6086d07e7e",
+                "gpu_spiral_sb/case.yml": "ee00da68bb547145a56f455a1c7e793a"
+            }
+        },
+        {
+            "name": "grappa_T2W_python_passthrough.cfg",
+            "case_file_path": "grappa_T2W_python_passthrough/case.yml",
+            "file_dependencies": {
+                "grappa_T2W_python_passthrough/noise.h5": "c9581f2149baebce3db47b162c7ce689",
+                "grappa_T2W_python_passthrough/main.h5": "654672b031cce1118ff0b6da776746bb",
+                "grappa_T2W_python_passthrough/T2W/generic_grappa_T2W_ref_20210921_klk.mrd": "cce5541a141960a84d7f8b52ff0d482d",
+                "grappa_T2W_python_passthrough/run_noise.yml": "b655c04389dddcb9bea26818a2239b87",
+                "grappa_T2W_python_passthrough/run_main.yml": "419ff6faa459465e34c09f4928b5d048",
+                "grappa_T2W_python_passthrough/case.yml": "44089a4b278de0dd4c7362698426c5f0"
+            }
+        },
+        {
+            "name": "parallel_bypass_example.cfg",
+            "case_file_path": "parallel_bypass_example/case.yml",
+            "file_dependencies": {
+                "parallel_bypass_example/main.h5": "fb46bea7ad2bee4d1a7036ed0ed1abce",
+                "parallel_bypass_example/simple_gre/simple_gre_out_20210909_klk.mrd": "85e35ab4c68fa2e5ee25086bc08e615f",
+                "parallel_bypass_example/run_main.yml": "4d3256add342f41f2679e6000e470eaa",
+                "parallel_bypass_example/case.yml": "ee5a719a6a03b5149865d71dc449f24e"
+            }
+        },
+        {
+            "name": "simple_gre.cfg",
+            "case_file_path": "simple_gre/case.yml",
+            "file_dependencies": {
+                "simple_gre/main.h5": "8596f1d05c4a9bf558380db8823c12f7",
+                "simple_gre/simple_gre/simple_gre_out_20210909_klk.mrd": "85e35ab4c68fa2e5ee25086bc08e615f",
+                "simple_gre/run_main.yml": "32d13dce0283d4d6663a4af979a90770",
+                "simple_gre/case.yml": "88fa482671dc4e64c1a9c1b8b0c73469"
+            }
+        },
+        {
+            "name": "simple_gre_3d.cfg",
+            "case_file_path": "simple_gre_3d/case.yml",
+            "file_dependencies": {
+                "simple_gre_3d/main.h5": "29f797c9dfb03f819a603611d9e9e198",
+                "simple_gre_3d/gre_3d/simple_gre_out_3d_20210910_klk.mrd": "015b111b26991bab81671a1844f08433",
+                "simple_gre_3d/run_main.yml": "d1ea3744e33d0bc9d2bbda95d2b184a4",
+                "simple_gre_3d/case.yml": "472981bdde86cc71421fc4bb14df4fca"
+            }
+        },
+        {
+            "name": "simple_gre_python.cfg",
+            "case_file_path": "simple_gre_python/case.yml",
+            "file_dependencies": {
+                "simple_gre_python/main.h5": "5fafcaffd6b007e8b834cfe650fa7bda",
+                "simple_gre_python/simple_gre/simple_gre_out_20210909_klk.mrd": "85e35ab4c68fa2e5ee25086bc08e615f",
+                "simple_gre_python/run_main.yml": "ac27040dc2d05686f303b5d335fbb8ec",
+                "simple_gre_python/case.yml": "2bae29e692bf90badb038d7558b363fa"
+            }
+        },
+        {
+            "name": "simple_gre_python_buckets.cfg",
+            "case_file_path": "simple_gre_python_buckets/case.yml",
+            "file_dependencies": {
+                "simple_gre_python_buckets/main.h5": "dada3aeb56cb37daf7253f3e2dd17b72",
+                "simple_gre_python_buckets/simple_gre/simple_gre_out_20210909_klk.mrd": "85e35ab4c68fa2e5ee25086bc08e615f",
+                "simple_gre_python_buckets/run_main.yml": "e6e0064482d21a4bad20237ed1eb0a42",
+                "simple_gre_python_buckets/case.yml": "135762d92391c2533af79dffd307e283"
+            }
+        },
+        {
+            "name": "simple_gre_python_image_array_recon.cfg",
+            "case_file_path": "simple_gre_python_image_array_recon/case.yml",
+            "file_dependencies": {
+                "simple_gre_python_image_array_recon/main.h5": "f80c3d15e4b036495a389d107afb7309",
+                "simple_gre_python_image_array_recon/simple_gre/simple_gre_out_20210909_klk.mrd": "85e35ab4c68fa2e5ee25086bc08e615f",
+                "simple_gre_python_image_array_recon/run_main.yml": "653f943ef85ad13408d0a3387f3fb67c",
+                "simple_gre_python_image_array_recon/case.yml": "055e88cf9c71b9873ad7a8cc0264989b"
+            }
+        }
+    ]
+}

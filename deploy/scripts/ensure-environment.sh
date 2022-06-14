@@ -69,7 +69,7 @@ if [[ "$(az provider list --query "[?namespace=='Microsoft.ContainerService']" |
 fi
 
 # Pinning aks-preview version due to bug
-{ az extension add --name aks-preview --version 0.5.63 >/dev/null; } 2>&1
+{ az extension add --name aks-preview --version 0.5.79 >/dev/null; } 2>&1
 
 # We should not update this extension right now, since there is a bug forcing --min-count >= 1
 # { az extension update --name aks-preview >/dev/null; } 2>&1
@@ -79,7 +79,7 @@ for cluster_name in $(echo "${environment_definition}" | jq -r '.clusters | keys
   cluster_region=$(echo "$cluster" | jq -r '.region')
   system_node_size=$(echo "$cluster" | jq -r '.systemNodeSize')
   dns_prefix="${cluster_name}-dns"
-  kubernetes_version="1.23.3"
+  kubernetes_version="1.24.0"
 
   # Is this a create or update?
   if [[ -n "$(az aks list | jq --arg cluster "$cluster_name" '.[] | select(.name == $cluster)')" ]]; then

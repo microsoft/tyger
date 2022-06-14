@@ -1,14 +1,19 @@
-from uuid import uuid4
 import h5py
+import json
 import numpy as np
 import os
-from pathlib import Path
 import pytest
-import random
+import shlex
 import subprocess
-from typing import Any, Dict, List, Tuple
-from eminence_tools import get_dependency_image
+import tempfile
 import yaml
+
+from itertools import repeat
+from pathlib import Path
+from typing import Any, Dict, List, Tuple
+from uuid import uuid4
+
+from eminence_tools import get_dependency_image
 
 
 @pytest.fixture
@@ -20,7 +25,7 @@ def data_dir():
 @pytest.fixture
 def temp_output_filename():
     current_dir = Path(os.path.dirname(__file__))
-    filename = str(current_dir/f"out{random.randint(0,999)}.h5")
+    filename = str(current_dir/f"out_{uuid4().hex}.h5")
     yield filename
     Path(filename).unlink()
 
@@ -30,14 +35,16 @@ def scanner_session_id():
     return str(uuid4())
 
 
-def run_eminence(arguments: List[str], timeout_seconds=600):
+def run_eminence(arguments: List[str], timeout_seconds=900):
     current_dir = Path(os.path.dirname(__file__))
-    try:
-        out = subprocess.check_output(["python", str(current_dir/"eminence.py")] + arguments, timeout=timeout_seconds, universal_newlines=True)
-        return out.strip()
-    except subprocess.CalledProcessError:
-        print("Unable to call eminence")
-        raise
+
+    cmd = ["python", str(current_dir/"eminence.py")] + arguments
+    out = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout_seconds, universal_newlines=True)
+
+    if out.returncode:
+        raise RuntimeError(f'Eminence returned non-zero error code ({out.returncode}), output:\n{out.stdout}')
+
+    return out.stdout
 
 
 def verify_basic_recon_results(testdata_filename, recon_filename, image_variable_name: str = "image_0"):
@@ -61,7 +68,7 @@ def configuration_generator():
     files_generated = []
 
     def _config_generator(baseconfig: Path, image: str):
-        temp_config_filename = str(current_dir/f"config{random.randint(0,999)}.yml")
+        temp_config_filename = str(current_dir/f"config_{uuid4().hex}.yml")
         with open(config_dir/baseconfig, 'r') as configfile:
             config: Dict = yaml.safe_load(configfile)
 
@@ -90,15 +97,19 @@ def configuration_generator():
     ])
 def test_simple_reconstruction(data_dir: Path, temp_output_filename: str, config: str, image: str, image_variable_name: str, configuration_generator):
     test_file = str(data_dir/"testdata.h5")
-    args = [
-        "-f", test_file,
-        "-o", temp_output_filename,
-        "-r", configuration_generator(config, image),
-        "-t", "30m"
-    ]
 
-    run_eminence(args)
-    verify_basic_recon_results(test_file, temp_output_filename, image_variable_name)
+    with tempfile.NamedTemporaryFile(prefix=str(data_dir), suffix='.h5') as input_file_instance:  # Enable parallelism by duplicating the file
+        subprocess.run(shlex.split(f'cp {test_file} {input_file_instance.name}'), check=True)  # Required due to limitation in ismrmrd.
+
+        args = [
+            "-f", input_file_instance.name,
+            "-o", temp_output_filename,
+            "-r", configuration_generator(config, image),
+            "-t", "30m"
+        ]
+
+        run_eminence(args)
+        verify_basic_recon_results(test_file, temp_output_filename, image_variable_name)
 
 
 @pytest.mark.parametrize(
@@ -125,22 +136,28 @@ def test_reconstruction_against_reference(
     infile = str(data_dir/input_file)
     reffile = str(data_dir/reference_file)
 
-    args = [
-        "-f", infile,
-        "-o", temp_output_filename,
-        "-r", config,
-        "-t", "30m"
-    ]
+    with tempfile.NamedTemporaryFile(prefix=str(data_dir), suffix='.h5') as input_file_instance:  # Enable parallelism by duplicating the file
+        subprocess.run(shlex.split(f'cp {infile} {input_file_instance.name}'), check=True)  # Required due to limitation in ismrmrd.
 
-    run_eminence(args)
+        args = [
+            "-f", input_file_instance.name,
+            "-o", temp_output_filename,
+            "-r", config,
+            "-t", "30m"
+        ]
 
-    recon_data: Any = h5py.File(str(temp_output_filename))
-    reconstruction = np.squeeze(recon_data[output_image_variable_name]['data'])
+        run_eminence(args)
 
-    ref_data: Any = h5py.File(str(reffile))
-    ref = np.squeeze(ref_data[reference_image_variable_name]['data'])
+        recon_data: Any = h5py.File(str(temp_output_filename))
+        reconstruction = np.squeeze(recon_data[output_image_variable_name]['data'])
 
-    assert np.linalg.norm(reconstruction.astype('float32') - ref.astype('float32')) / np.linalg.norm(ref.astype('float32')) < tolerance
+        with tempfile.NamedTemporaryFile(prefix=str(data_dir), suffix='.h5') as reference_file_instance:  # Enable parallelism by duplicating the file
+            subprocess.run(shlex.split(f'cp {reffile} {reference_file_instance.name}'), check=True)  # Required due to limitation in ismrmrd.
+
+            ref_data: Any = h5py.File(str(reference_file_instance.name))
+            ref = np.squeeze(ref_data[reference_image_variable_name]['data'])
+
+            assert np.linalg.norm(reconstruction.astype('float32') - ref.astype('float32')) / np.linalg.norm(ref.astype('float32')) < tolerance
 
 
 @pytest.mark.parametrize(
@@ -154,25 +171,29 @@ def test_noise_dependency_reconstruction(data_dir: Path, temp_output_filename: s
     noise_file = str(data_dir/"noise-scaling"/"data_1.h5")
     data_file = str(data_dir/"noise-scaling"/"data_2.h5")
     config_noise, config_recon = configs
-    run_eminence(
-        [
-            "-f", noise_file,
-            "-r", configuration_generator(config_noise, image),
-            "-o", "out_dummy.h5",
-            "-s", scanner_session_id,
-            "-t", "30m"
-        ])
 
-    Path("out_dummy.h5").unlink()
+    with tempfile.NamedTemporaryFile(prefix=str(data_dir), suffix='.h5') as out_dummy:
+        with tempfile.NamedTemporaryFile(prefix=str(data_dir), suffix='.h5') as input_file:  # Enable parallelism by duplicating the file
+            subprocess.run(shlex.split(f'cp {noise_file} {input_file.name}'), check=True)  # Required due to limitation in ismrmrd.
+            run_eminence(
+                [
+                    "-f", input_file.name,
+                    "-r", configuration_generator(config_noise, image),
+                    "-o", out_dummy.name,
+                    "-s", scanner_session_id,
+                    "-t", "30m"
+                ])
 
-    run_eminence(
-        [
-            "-f", data_file,
-            "-o", temp_output_filename,
-            "-r", configuration_generator(config_recon, image),
-            "-s", scanner_session_id,
-            "-t", "30m"
-        ])
+    with tempfile.NamedTemporaryFile(prefix=str(data_dir), suffix='.h5') as input_file:  # Enable parallelism by duplicating the file
+        subprocess.run(shlex.split(f'cp {data_file} {input_file.name}'), check=True)  # Required due to limitation in ismrmrd.
+        run_eminence(
+            [
+                "-f", input_file.name,
+                "-o", temp_output_filename,
+                "-r", configuration_generator(config_recon, image),
+                "-s", scanner_session_id,
+                "-t", "30m"
+            ])
 
     # Within the object being scanned, the standard deviation across repetitions
     # should be close to 1.
@@ -184,3 +205,84 @@ def test_noise_dependency_reconstruction(data_dir: Path, temp_output_filename: s
     avg_relevant_std = np.mean(img_std[img_mean > np.max(img_mean)*0.25])
 
     assert np.abs(1 - avg_relevant_std) < 1e-2
+
+
+def get_cases():
+    cases = []
+    data_dir = os.path.join(os.path.dirname(__file__), 'data', 'gadgetron')
+    with open(os.path.join(data_dir, 'testdata.json'), 'r') as test_data_file:
+        test_data_description = json.load(test_data_file)
+
+        for case in test_data_description['cases']:
+            case_path = os.path.join(data_dir, case['case_file_path'])
+
+            if os.path.isfile(case_path):
+                with open(case_path, 'r') as case_file:
+                    config: Dict = yaml.safe_load(case_file)
+                    cases.append(config['case'])
+            else:
+                raise RuntimeError(f'Case file not found at {case_path}')
+
+    return cases
+
+
+cases = get_cases()
+failing_cases = [
+    'generic_cartesian_cine_denoise.cfg',  # ComplexToFloatGadget does not change header image type. Modify chain to use ImageFinish and/or fix gadget.
+]
+passing_cases = list(filter(lambda case: case['name'] not in failing_cases, cases))
+
+@pytest.mark.parametrize(
+    'test_case, image',
+    list(zip(passing_cases, repeat(get_dependency_image("gadgetron_recon")))),
+    ids=[case['name'] for case in passing_cases]
+)
+def test_gadgetron_test_case(test_case, image, scanner_session_id, temp_output_filename, configuration_generator):
+    if test_case.get('noise', None):
+        config = configuration_generator(test_case['noise']['run_file_path'], image)
+
+        with tempfile.NamedTemporaryFile(prefix='/tmp/', suffix='.h5') as out_dummy:
+            run_eminence([
+                "-f", test_case['noise']['dat_file_path'],
+                "-o", out_dummy.name,
+                "-r", config,
+                "-s", scanner_session_id,
+                "-t", "30m"
+            ])
+
+    if test_case.get('main'):
+        config = configuration_generator(test_case['main']['run_file_path'], image)
+
+        run_eminence([
+            "-f", test_case['main']['dat_file_path'],
+            "-o", temp_output_filename,
+            "-r", config,
+            "-s", scanner_session_id,
+            "-t", "30m"
+        ])
+
+        def get_output_data(file_path, img_name):
+            data: Any = h5py.File(file_path)
+            array = np.squeeze(data['img'][img_name]['data'])
+            return array.flatten().astype('float32')
+
+        def get_reference_data(file_path, img_name):
+            data: Any = h5py.File(file_path)
+            key = img_name + "/data"
+            array = np.squeeze(data[key])
+            return array.flatten().astype('float32')
+
+        images_to_validate = test_case['validation']['images'].items()
+        assert len(images_to_validate) >= 1
+
+        for ref_image, ref_img_meta in images_to_validate:
+            img_no_prefix = ref_image[ref_image.rfind('/') + 1:]
+
+            actual = get_output_data(temp_output_filename, img_no_prefix)
+            reference = get_reference_data(ref_img_meta['reference_file_path'], ref_image)
+
+            norm_diff = np.linalg.norm(np.subtract(actual, reference)) / np.linalg.norm(reference)
+            scale = np.dot(actual, actual) / np.dot(actual, reference)
+
+            assert norm_diff < float(ref_img_meta['value_comparison_threshold'])
+            assert abs(1 - scale) < float(ref_img_meta['scale_comparison_threshold'])
