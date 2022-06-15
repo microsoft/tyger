@@ -25,7 +25,7 @@ public class Repository : IRepository
              .Where(c => c.Name == name && c.Version == version)
              .FirstOrDefaultAsync(cancellationToken);
 
-        return codespecEntity == null ? null : new Codespec(codespecEntity.Spec, name, version);
+        return codespecEntity == null ? null : new Codespec(codespecEntity.Spec, name, version, codespecEntity.CreatedAt);
     }
 
     public async Task<Codespec?> GetLatestCodespec(string name, CancellationToken cancellationToken)
@@ -35,10 +35,79 @@ public class Repository : IRepository
              .OrderByDescending(c => c.Version)
              .FirstOrDefaultAsync(cancellationToken);
 
-        return codespecEntity == null ? null : new Codespec(codespecEntity.Spec, name, codespecEntity.Version);
+        return codespecEntity == null ? null : new Codespec(codespecEntity.Spec, name, codespecEntity.Version, codespecEntity.CreatedAt);
     }
 
-    public async Task<int> UpsertCodespec(string name, NewCodespec codespec, CancellationToken cancellationToken)
+    public async Task<(IList<Codespec>, string? nextContinuationToken)> GetCodespecs(int limit, string? prefix, string? continuationToken, CancellationToken cancellationToken)
+    {
+        IQueryable<CodespecEntity> codespecsQueryable = _context.Codespecs;
+        var pagingName = "";
+        if (continuationToken != null)
+        {
+            bool valid = false;
+            try
+            {
+                var fields = JsonSerializer.Deserialize<string[]>(Encoding.ASCII.GetString(Base32.ZBase32.Decode(continuationToken)));
+                if (fields is { Length: 1 })
+                {
+                    pagingName = fields[0];
+                    valid = true;
+                }
+            }
+            catch (Exception e) when (e is JsonException or FormatException)
+            {
+            }
+
+            if (!valid)
+            {
+                throw new ValidationException("Invalid continuation token.");
+            }
+        }
+
+        var connection = await GetOpenedConnection(cancellationToken);
+
+        using var command = new NpgsqlCommand
+        {
+            Connection = connection,
+            CommandText = @"
+                SELECT DISTINCT ON (name) name, version, created_at, spec
+                FROM codespecs
+                WHERE name > $3 AND name LIKE $2
+                ORDER BY name, version DESC LIMIT $1",
+            Parameters =
+            {
+                new() { Value = limit + 1 },
+                new() { Value = prefix + "%" },
+                new() { Value = pagingName}
+            },
+        };
+
+        var results = new List<Codespec>();
+        using var reader = (await command.ExecuteReaderAsync(cancellationToken))!;
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var name = reader.GetString(0);
+            var version = reader.GetInt32(1);
+            var createdAt = reader.GetDateTime(2);
+            NewCodespec spec = JsonSerializer.Deserialize<NewCodespec>(reader.GetString(3))!;
+            results.Add(new Codespec(spec, name, version, createdAt));
+        }
+
+        await reader.ReadAsync(cancellationToken);
+        await reader.DisposeAsync();
+
+        if (results.Count == limit + 1)
+        {
+            results.RemoveAt(limit);
+            var last = results[^1];
+            string newToken = Base32.ZBase32.Encode(Encoding.ASCII.GetBytes(JsonSerializer.Serialize(new[] { last.Name })));
+            return (results, newToken);
+        }
+
+        return (results, null);
+    }
+
+    public async Task<(int, DateTimeOffset)> UpsertCodespec(string name, NewCodespec newcodespec, CancellationToken cancellationToken)
     {
         var connection = await GetOpenedConnection(cancellationToken);
         using var command = new NpgsqlCommand
@@ -52,11 +121,11 @@ public class Repository : IRepository
                     now() AT TIME ZONE 'utc',
                     $2
                 FROM codespecs where name = $1
-                RETURNING version",
+                RETURNING version, created_at",
             Parameters =
             {
                 new() { Value = name },
-                new() { Value = JsonSerializer.Serialize(codespec), NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Jsonb },
+                new() { Value = JsonSerializer.Serialize(newcodespec), NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Jsonb },
             },
         };
 
@@ -65,7 +134,13 @@ public class Repository : IRepository
             try
             {
                 _logger.UpsertingCodespec(name);
-                return (int)(await command.ExecuteScalarAsync(cancellationToken))!;
+                using var reader = (await command.ExecuteReaderAsync(cancellationToken))!;
+                await reader.ReadAsync(cancellationToken);
+                var version = reader.GetInt32(0);
+                var createdAt = reader.GetDateTime(1);
+                await reader.ReadAsync(cancellationToken);
+                await reader.DisposeAsync();
+                return (version, createdAt);
             }
             catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.UniqueViolation)
             {

@@ -4,10 +4,11 @@ namespace Tyger.Server.Database;
 
 public interface IRepository
 {
-    Task<int> UpsertCodespec(string name, NewCodespec codespec, CancellationToken cancellationToken);
+    Task<(int, DateTimeOffset)> UpsertCodespec(string name, NewCodespec newcodespec, CancellationToken cancellationToken);
     Task<Codespec?> GetLatestCodespec(string name, CancellationToken cancellationToken);
     Task<Codespec?> GetCodespecAtVersion(string name, int version, CancellationToken cancellationToken);
 
+    Task<(IList<Codespec>, string? nextContinuationToken)> GetCodespecs(int limit, string? prefix, string? continuationToken, CancellationToken cancellationToken);
     Task<Run> CreateRun(NewRun newRun, CancellationToken cancellationToken);
     Task UpdateRun(Run run, bool? resourcesCreated = null, bool? final = null, DateTimeOffset? logsArchivedAt = null, CancellationToken cancellationToken = default);
     Task DeleteRun(long id, CancellationToken cancellationToken);

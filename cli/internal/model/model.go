@@ -26,7 +26,7 @@ type CodespecResources struct {
 	Gpu    *string `json:"gpu,omitempty"`
 }
 
-type Codespec struct {
+type NewCodespec struct {
 	Kind        string             `json:"kind"`
 	Buffers     *BufferParameters  `json:"buffers,omitempty"`
 	Image       string             `json:"image"`
@@ -36,6 +36,30 @@ type Codespec struct {
 	Env         map[string]string  `json:"env,omitempty"`
 	Resources   *CodespecResources `json:"resources,omitempty"`
 	MaxReplicas int                `json:"maxReplicas"`
+}
+
+type Codespec struct {
+	Name      string    `json:"name"`
+	Version   int       `json:"version"`
+	CreatedAt time.Time `json:"createdAt"`
+	NewCodespec
+}
+
+type CodeSpecPage struct {
+	Items    []Codespec `json:"items"`
+	NextLink string     `json:"nextLink,omitempty"`
+}
+
+func (page *CodeSpecPage) GetNextLink() string {
+	return page.NextLink
+}
+
+func (page *CodeSpecPage) GetItems() []interface{} {
+	ics := make([]interface{}, 0, len(page.Items))
+	for _, cs := range page.Items {
+		ics = append(ics, cs)
+	}
+	return ics
 }
 
 type RunCodeTarget struct {
@@ -68,6 +92,18 @@ type RunPage struct {
 	NextLink string `json:"nextLink,omitempty"`
 }
 
+func (page *RunPage) GetNextLink() string {
+	return page.NextLink
+}
+
+func (page *RunPage) GetItems() []interface{} {
+	ir := make([]interface{}, 0, len(page.Items))
+	for _, r := range page.Items {
+		ir = append(ir, r)
+	}
+	return ir
+}
+
 type ErrorResponse struct {
 	Error ErrorInfo `json:"error"`
 }
@@ -85,4 +121,9 @@ type NodePool struct {
 type Cluster struct {
 	Name      string     `json:"name"`
 	NodePools []NodePool `json:"nodePools"`
+}
+
+type Page interface {
+	GetNextLink() string
+	GetItems() []interface{}
 }

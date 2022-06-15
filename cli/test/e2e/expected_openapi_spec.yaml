@@ -148,6 +148,31 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Codespec'
+  /v1/codespecs:
+    get:
+      tags:
+        - tyger.server
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            format: int32
+        - name: prefix
+          in: query
+          schema:
+            type: string
+        - name: _ct
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CodespecPage'
   '/v1/codespecs/{name}/versions/{version}':
     get:
       tags:
@@ -359,6 +384,9 @@ components:
         version:
           type: integer
           format: int32
+        createdAt:
+          type: string
+          format: date-time
       additionalProperties: false
     CodespecKind:
       enum:
@@ -366,6 +394,19 @@ components:
         - 1
       type: integer
       format: int32
+    CodespecPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Codespec'
+          nullable: true
+        nextLink:
+          type: string
+          format: uri
+          nullable: true
+      additionalProperties: false
     CodespecResources:
       type: object
       properties:

@@ -16,6 +16,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -292,6 +294,82 @@ func TestListRunsPaging(t *testing.T) {
 	require.Empty(t, runs)
 }
 
+func TestListCodespecsFromCli(t *testing.T) {
+	t.Parallel()
+	codespecNames := [4]string{"kspace_half_sampled", "4dcardiac", "zloc_10mm", "axial_1mm"}
+	codespecMap := make(map[string]string)
+	for _, name := range codespecNames {
+		codespecMap[name] = runTygerSuceeds(t, "codespec", "create", name, "--image", "busybox")
+	}
+	var results = runTygerSuceeds(t, "codespec", "list")
+	var returnedCodespecs []model.Codespec
+	json.Unmarshal([]byte(results), &returnedCodespecs)
+	sort.Strings(codespecNames[:])
+	var csIdx int = 0
+	for _, cs := range returnedCodespecs {
+		if _, ok := codespecMap[cs.Name]; ok {
+			require.Equal(t, codespecNames[csIdx], cs.Name)
+			require.Equal(t, codespecMap[cs.Name], strconv.Itoa(cs.Version))
+			csIdx++
+		}
+	}
+	require.Equal(t, len(codespecNames), csIdx)
+}
+
+func TestListCodespecsPaging(t *testing.T) {
+	t.Parallel()
+	inputNames := [12]string{"klamath", "allagash", "middlefork", "johnday", "missouri", "riogrande", "chattooga", "loxahatchee", "noatak", "tuolumne", "riogrande", "allagash"}
+	expectedNames1 := [5]string{"allagash", "chattooga", "johnday", "klamath", "loxahatchee"}
+	expectedNames2 := [5]string{"middlefork", "missouri", "noatak", "riogrande", "tuolumne"}
+	var returnedNames1, returnedNames2 [5]string
+	var expectedIdx, currentKlamathVersion, expectedKlamathVersion int = 0, 0, 0
+
+	codespecs := make(map[string]string)
+	for _, name := range inputNames {
+		codespecs[name] = runTygerSuceeds(t, "codespec", "create", name, "--image", "busybox")
+	}
+	require.Equal(t, len(codespecs), 10)
+
+	for uri := "v1/codespecs?limit=5"; uri != ""; {
+		page := model.CodeSpecPage{}
+		_, err := cmd.InvokeRequest(http.MethodGet, uri, nil, &page, false)
+		require.Nil(t, err)
+		for _, cs := range page.Items {
+			if _, ok := codespecs[cs.Name]; ok {
+				if expectedIdx < 5 {
+					returnedNames1[expectedIdx] = cs.Name
+					expectedIdx++
+					if cs.Name == "klamath" {
+						currentKlamathVersion = cs.Version
+					}
+				} else {
+					returnedNames2[expectedIdx-5] = cs.Name
+					expectedIdx++
+				}
+			}
+			//simulate concurrent codespec update while paging
+			if expectedIdx == 6 && expectedKlamathVersion == 0 {
+				var tmp = runTygerSuceeds(t, "codespec", "create", "klamath", "--image", "busybox")
+				expectedKlamathVersion, err = strconv.Atoi(tmp)
+				require.Nil(t, err)
+				require.Equal(t, expectedKlamathVersion, currentKlamathVersion+1)
+			}
+			if expectedIdx > 10 {
+				require.Fail(t, "Unexpected codespec count")
+			}
+		}
+
+		if page.NextLink == "" {
+			break
+		}
+
+		uri = strings.TrimLeft(page.NextLink, "/")
+	}
+
+	require.Equal(t, expectedNames1, returnedNames1)
+	require.Equal(t, expectedNames2, returnedNames2)
+}
+
 func TestListRunsSince(t *testing.T) {
 	t.Parallel()
 
@@ -329,6 +407,32 @@ func TestListRunsSince(t *testing.T) {
 	}
 
 	require.Fail(t, "last run not found")
+}
+
+func TestListCodespecsWithPrefix(t *testing.T) {
+	t.Parallel()
+
+	codespecNames := [4]string{"3d_t2_flair", "t1w-1mm-ax", "t1w-0.9mm-sag", "3d_t1_star"}
+	codespecMap := make(map[string]string)
+	for i := 0; i < 4; i++ {
+		codespecMap[codespecNames[i]] = runTygerSuceeds(t, "codespec", "create", codespecNames[i], "--image", "busybox")
+	}
+
+	uri := "v1/codespecs?prefix=3d_"
+	page := model.CodeSpecPage{}
+	_, err := cmd.InvokeRequest(http.MethodGet, uri, nil, &page, false)
+	require.Nil(t, err)
+	for _, cs := range page.Items {
+		require.Equal(t, strings.HasPrefix(cs.Name, "3d_"), true)
+		if _, ok := codespecMap[cs.Name]; ok {
+			delete(codespecMap, cs.Name)
+		}
+	}
+	require.Equal(t, len(codespecMap), 2)
+
+	for cs := range codespecMap {
+		require.Equal(t, strings.HasPrefix(cs, "t1w-"), true)
+	}
 }
 
 func TestGetLogsFromPod(t *testing.T) {

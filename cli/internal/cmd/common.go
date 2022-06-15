@@ -10,6 +10,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"strings"
 
 	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/clicontext"
 	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/model"
@@ -113,4 +114,53 @@ func InvokeRequest(method string, relativeUri string, input interface{}, output 
 	}
 
 	return resp, nil
+}
+
+func InvokePageRequests(rootFlags *rootPersistentFlags, uri *string, page model.Page, queryString string, limit int, firstPage *bool, totalPrinted *int) error {
+
+	_, err := InvokeRequest(http.MethodGet, *uri, nil, &page, rootFlags.verbose)
+	if err != nil {
+		return err
+	}
+
+	if *firstPage && page.GetNextLink() == "" {
+		formattedRuns, err := json.MarshalIndent(page.GetItems(), "  ", "  ")
+		if err != nil {
+			return err
+		}
+
+		fmt.Println(string(formattedRuns))
+		*uri = ""
+		return nil
+	}
+
+	if *firstPage {
+		fmt.Print("[\n  ")
+	}
+
+	for i, r := range page.GetItems() {
+		if !*firstPage || i != 0 {
+			fmt.Print(",\n  ")
+		}
+
+		formattedRun, err := json.MarshalIndent(r, "  ", "  ")
+		if err != nil {
+			return err
+		}
+
+		fmt.Print(string(formattedRun))
+		*totalPrinted++
+		if *totalPrinted == limit {
+			*uri = ""
+			fmt.Println("\n]")
+			return nil
+		}
+	}
+
+	*firstPage = false
+	*uri = strings.TrimLeft(page.GetNextLink(), "/")
+	if *uri == "" {
+		fmt.Println("\n]")
+	}
+	return nil
 }

@@ -196,53 +196,17 @@ func newRunListCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 				queryOptions.Add("since", tm.UTC().Format(time.RFC3339Nano))
 			}
 
+			var queryString string = fmt.Sprintf("v1/runs?%s", queryOptions.Encode())
+
 			firstPage := true
 			totalPrinted := 0
-
-			for uri := fmt.Sprintf("v1/runs?%s", queryOptions.Encode()); uri != ""; {
-				page := model.RunPage{}
-				_, err := InvokeRequest(http.MethodGet, uri, nil, &page, rootFlags.verbose)
+			for uri := queryString; uri != ""; {
+				page := &model.RunPage{}
+				err := InvokePageRequests(rootFlags, &uri, page, queryString, flags.limit, &firstPage, &totalPrinted)
 				if err != nil {
 					return err
 				}
-
-				if firstPage && page.NextLink == "" {
-					formattedRuns, err := json.MarshalIndent(page.Items, "  ", "  ")
-					if err != nil {
-						return err
-					}
-
-					fmt.Println(string(formattedRuns))
-					return nil
-				}
-
-				if firstPage {
-					fmt.Print("[\n  ")
-				}
-
-				for i, r := range page.Items {
-					if !firstPage || i != 0 {
-						fmt.Print(",\n  ")
-					}
-
-					formattedRun, err := json.MarshalIndent(r, "  ", "  ")
-					if err != nil {
-						return err
-					}
-
-					fmt.Print(string(formattedRun))
-					totalPrinted++
-					if totalPrinted == flags.limit {
-						goto End
-					}
-				}
-
-				firstPage = false
-				uri = strings.TrimLeft(page.NextLink, "/")
 			}
-		End:
-			fmt.Println("\n]")
-
 			return nil
 		},
 	}

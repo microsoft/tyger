@@ -18,12 +18,11 @@ public class TygerDbContext : DbContext
     {
         modelBuilder.Entity<CodespecEntity>(c =>
             {
-                c.Property(c => c.Name).IsRequired();
+                c.Property(c => c.Name).IsRequired().UseCollation("C");
                 c.Property(c => c.Version).IsRequired();
                 c.Property(c => c.CreatedAt).IsRequired().HasDefaultValueSql("(now() AT TIME ZONE 'utc')");
                 c.Property(c => c.Spec).IsRequired().HasColumnType("jsonb");
-
-                c.HasKey(c => new { c.Name, c.Version });
+                c.HasNoKey();
             });
 
         modelBuilder.Entity<RunEntity>(r =>

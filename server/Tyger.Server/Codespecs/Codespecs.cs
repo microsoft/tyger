@@ -1,3 +1,6 @@
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.Extensions.Primitives;
 using Tyger.Server.Database;
 using Tyger.Server.Model;
 
@@ -11,10 +14,10 @@ public static class Codespecs
         {
             var newCodespec = await context.Request.ReadAndValidateJson<NewCodespec>(context.RequestAborted);
 
-            int version = await repository.UpsertCodespec(name, newCodespec!, context.RequestAborted);
+            (int version, DateTimeOffset createdAt) = await repository.UpsertCodespec(name, newCodespec!, context.RequestAborted);
             context.Response.Headers.Location = $"/v1/codespecs/{name}/{version}";
-            var codespec = new Codespec(newCodespec, name, version);
-            return Results.Json(codespec, statusCode: version == 1 ? StatusCodes.Status201Created : StatusCodes.Status200OK);
+            var codespec = new Codespec(newCodespec, name, version, createdAt);
+            return Results.Json(codespec, statusCode: codespec.Version == 1 ? StatusCodes.Status201Created : StatusCodes.Status200OK);
         })
         .Produces<Codespec>(StatusCodes.Status200OK)
         .Produces<Codespec>(StatusCodes.Status201Created)
@@ -32,6 +35,31 @@ public static class Codespecs
             return Results.Ok(codespec);
         })
         .Produces<Codespec>();
+
+        app.MapGet("/v1/codespecs", async (IRepository repository, int? limit, string? prefix, [FromQuery(Name = "_ct")] string? continuationToken, HttpContext context) =>
+        {
+            limit = limit is null ? 20 : Math.Min(limit.Value, 200);
+            (var codespecs, var nextContinuationToken) = await repository.GetCodespecs(limit.Value, prefix, continuationToken, context.RequestAborted);
+
+            string? nextLink;
+            if (nextContinuationToken is null)
+            {
+                nextLink = null;
+            }
+            else if (context.Request.QueryString.HasValue)
+            {
+                var qd = QueryHelpers.ParseQuery(context.Request.QueryString.Value);
+                qd["_ct"] = new StringValues(nextContinuationToken);
+                nextLink = QueryHelpers.AddQueryString(context.Request.Path, qd);
+            }
+            else
+            {
+                nextLink = QueryHelpers.AddQueryString(context.Request.Path, "_ct", nextContinuationToken);
+            }
+
+            return Results.Ok(new CodespecPage(codespecs, nextLink == null ? null : new Uri(nextLink)));
+        })
+        .Produces<CodespecPage>();
 
         app.MapGet("/v1/codespecs/{name}/versions/{version}", async (string name, string version, IRepository repository, CancellationToken cancellationToken) =>
         {

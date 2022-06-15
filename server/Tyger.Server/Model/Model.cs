@@ -129,17 +129,20 @@ public record NewCodespec : ModelBase, IValidatableObject
 
 public record Codespec : NewCodespec
 {
-    public Codespec(NewCodespec newCodespec, string name, int version)
+    public Codespec(NewCodespec newCodespec, string name, int version, DateTimeOffset createdAt)
     : base(newCodespec)
     {
         Name = name;
         Version = version;
+        CreatedAt = createdAt;
     }
 
     public string Name { get; init; }
     public int Version { get; init; }
 
     public string NormalizedRef() => $"{Name}/versions/{Version}";
+
+    public DateTimeOffset CreatedAt { get; init; }
 }
 
 public record RunCodeTarget
@@ -182,6 +185,8 @@ public record NewRun : ModelBase
 public record RunStatus(string Phase, int PendingCount, int RunningCount);
 
 public record RunPage(IReadOnlyList<Run> Items, Uri? NextLink);
+
+public record CodespecPage(IList<Codespec> Items, Uri? NextLink);
 
 public record Cluster(string Name, string Region, IReadOnlyList<NodePool> NodePools);
 

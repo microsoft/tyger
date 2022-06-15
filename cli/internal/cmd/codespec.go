@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -29,6 +31,7 @@ func newCodespecCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 
 	cmd.AddCommand(newCodespecCreateCommand(rootFlags))
 	cmd.AddCommand(newCodespecShowCommand(rootFlags))
+	cmd.AddCommand(codespecListCommand(rootFlags))
 
 	return cmd
 }
@@ -50,7 +53,7 @@ func newCodespecCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 	var cmd = &cobra.Command{
 		Use:                   "create NAME --image IMAGE [--kind job|worker] [--max-replicas REPLICAS] [[--input BUFFER_NAME] ...] [[--output BUFFER_NAME] ...] [[--env \"KEY=VALUE\"] ...] [resources] [--command] -- [COMMAND] [args...]",
 		Short:                 "Create or update a codespec",
-		Long:                  `Create of update a codespec. Outputs the version of the codespec that was created.`,
+		Long:                  `Create or update a codespec. Outputs the version of the codespec that was created.`,
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 || cmd.ArgsLenAtDash() == 0 {
@@ -73,7 +76,7 @@ func newCodespecCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 				return errors.New("--kind must be either 'job' or worker'")
 			}
 
-			codespec := model.Codespec{
+			newCodespec := model.NewCodespec{
 				Kind:  flags.kind,
 				Image: flags.image,
 				Buffers: &model.BufferParameters{
@@ -86,9 +89,9 @@ func newCodespecCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 			}
 
 			if flags.command {
-				codespec.Command = containerArgs
+				newCodespec.Command = containerArgs
 			} else {
-				codespec.Args = containerArgs
+				newCodespec.Args = containerArgs
 			}
 
 			if (flags.cpu) != "" {
@@ -97,7 +100,7 @@ func newCodespecCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 					return fmt.Errorf("cpu value is invalid: %v", err)
 				}
 
-				codespec.Resources.Cpu = &flags.cpu
+				newCodespec.Resources.Cpu = &flags.cpu
 			}
 			if (flags.memory) != "" {
 				_, err := resource.ParseQuantity(flags.memory)
@@ -105,7 +108,7 @@ func newCodespecCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 					return fmt.Errorf("memory value is invalid: %v", err)
 				}
 
-				codespec.Resources.Memory = &flags.memory
+				newCodespec.Resources.Memory = &flags.memory
 			}
 			if (flags.gpu) != "" {
 				_, err := resource.ParseQuantity(flags.gpu)
@@ -113,10 +116,10 @@ func newCodespecCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 					return fmt.Errorf("gpu value is invalid: %v", err)
 				}
 
-				codespec.Resources.Gpu = &flags.gpu
+				newCodespec.Resources.Gpu = &flags.gpu
 			}
 
-			resp, err := InvokeRequest(http.MethodPut, fmt.Sprintf("v1/codespecs/%s", codespecName), codespec, &codespec, rootFlags.verbose)
+			resp, err := InvokeRequest(http.MethodPut, fmt.Sprintf("v1/codespecs/%s", codespecName), newCodespec, &newCodespec, rootFlags.verbose)
 			if err != nil {
 				return err
 			}
@@ -171,32 +174,17 @@ func newCodespecShowCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 			}
 
 			codespec := model.Codespec{}
-			resp, err := InvokeRequest(http.MethodGet, relativeUri, nil, &codespec, rootFlags.verbose)
+			_, err := InvokeRequest(http.MethodGet, relativeUri, nil, &codespec, rootFlags.verbose)
 			if err != nil {
 				return err
 			}
 
-			if version == nil {
-				latestVersion, err := getCodespecVersionFromResponse(resp)
-				if err != nil {
-					return fmt.Errorf("unable to get codespec version: %v", err)
-				}
-				version = &latestVersion
-			}
-
-			type namedCodespec struct {
-				Name     string         `json:"name"`
-				Version  int            `json:"version"`
-				Codespec model.Codespec `json:"codespec"`
-			}
-
-			nc := namedCodespec{Name: name, Version: *version, Codespec: codespec}
-			formatted, err := json.MarshalIndent(nc, "", "  ")
+			formattedRun, err := json.MarshalIndent(codespec, "  ", "  ")
 			if err != nil {
 				return err
 			}
 
-			fmt.Println(string(formatted))
+			fmt.Println(string(formattedRun))
 			return nil
 		},
 	}
@@ -209,4 +197,47 @@ func newCodespecShowCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 func getCodespecVersionFromResponse(resp *http.Response) (int, error) {
 	location := resp.Header.Get("Location")
 	return strconv.Atoi(location[strings.LastIndex(location, "/")+1:])
+}
+
+func codespecListCommand(rootFlags *rootPersistentFlags) *cobra.Command {
+	var flags struct {
+		limit  int
+		prefix string
+	}
+
+	cmd := &cobra.Command{
+		Use:                   "list [--prefix STRING] [--limit COUNT]",
+		Short:                 "List codespecs",
+		Long:                  `List codespecs. Latest version of codespecs are sorted alphabetically.`,
+		DisableFlagsInUseLine: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			queryOptions := url.Values{}
+			if flags.limit > 0 {
+				queryOptions.Add("limit", strconv.Itoa(flags.limit))
+			} else {
+				flags.limit = math.MaxInt
+			}
+			if flags.prefix != "" {
+				queryOptions.Add("prefix", flags.prefix)
+			}
+
+			var queryString string = fmt.Sprintf("v1/codespecs?%s", queryOptions.Encode())
+
+			firstPage := true
+			totalPrinted := 0
+			for uri := queryString; uri != ""; {
+				page := &model.CodeSpecPage{}
+				err := InvokePageRequests(rootFlags, &uri, page, queryString, flags.limit, &firstPage, &totalPrinted)
+				if err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&flags.prefix, "prefix", "p", "", "Show only codespecs that start with this prefix")
+	cmd.Flags().IntVarP(&flags.limit, "limit", "l", 1000, "The maximum number of codespecs to list. Default 1000")
+
+	return cmd
 }
