@@ -7,10 +7,14 @@ usage() {
 
 Deploys infrastructure required for an environment.
 
+Stores a hash of the environment definition and the scripts in this directory as a tag 
+on the environment' resource group to exit early if no changes have been detected.
+
 Usage: $0 --environment-config CONFIG_PATH
 
 Options:
   -c | --environment-config     The environment configuration JSON file or - to read from stdin
+  -f | --force                  Always deploy, even if the envionment has not changed.
   -h, --help                    Brings up this menu
 EOF
 }
@@ -22,6 +26,10 @@ while [[ $# -gt 0 ]]; do
   -c | --environment-config)
     config_path="$2"
     shift 2
+    ;;
+  -f | --force)
+    force=1
+    shift
     ;;
   -h | --help)
     usage
@@ -43,15 +51,30 @@ fi
 environment_definition=$(cat "${config_path}")
 
 subscription=$(echo "${environment_definition}" | jq -r '.subscription')
-previous_subscription=$(az account show --query name -o tsv)
+{ read -r previous_subscription_name; read -r subscription_id; } < <(az account show --query [name,id] -o tsv)
 
-if [[ "${subscription}" != "${previous_subscription}" ]]; then
-  trap 'az account set --subscription "${previous_subscription}"' EXIT
+if [[ "${subscription}" != "${previous_subscription_name}" ]]; then
   az account set --subscription "${subscription}"
+  subscription_id=$(az account show --query id -o tsv)
 fi
 
-environment_region=$(echo "${environment_definition}" | jq -r '.defaultRegion')
+cd "$(dirname "$0")"
+script_hashes=$(find . -type f -print0 | sort -z | xargs -0 sha256sum)
+environment_definition_hash=$(echo "${environment_definition}" | jq -c | sha256sum)
+environment_hash=$(echo -e "${script_hashes}\n${environment_definition_hash}" | sha256sum | cut -d ' ' -f1)
+
 environment_resource_group=$(echo "${environment_definition}" | jq -r '.resourceGroup')
+
+environment_resource_group_id="/subscriptions/${subscription_id}/resourcegroups/${environment_resource_group}"
+hash_tag=$( (az tag list --resource-id "${environment_resource_group_id}" 2> /dev/null || echo "{}") | jq -r '.properties.tags.tygerdefinitionhash')
+if [[ -z "${force:-}" ]] && [[ "${hash_tag}" == "${environment_hash}" ]]; then
+  echo "The environment appears to be up-to-date"
+  exit 0
+fi
+
+az tag delete --resource-id "${environment_resource_group_id}" --name tygerdefinitionhash --yes 2> /dev/null || true
+
+environment_region=$(echo "${environment_definition}" | jq -r '.defaultRegion')
 acr=$(echo "${environment_definition}" | jq -r '.dependencies.containerRegistry')
 
 az group create -l "${environment_region}" -n "${environment_resource_group}" >/dev/null
@@ -346,3 +369,6 @@ for organization_name in $(echo "${environment_definition}" | jq -r '.organizati
     fi
   done
 done
+
+# When deployment is complete, add the environment hash as a tag on the resource group
+az tag update --operation Merge --resource-id "${environment_resource_group_id}" --tags "tygerdefinitionhash=${environment_hash}"

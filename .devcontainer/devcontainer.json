@@ -90,7 +90,11 @@
 
   "mounts": [
     // Bind mount docker socket under an alias to support docker-from-docker
-    "source=/var/run/docker.sock,target=/var/run/docker-host.sock,type=bind"
+    "source=/var/run/docker.sock,target=/var/run/docker-host.sock,type=bind",
+
+    // Bind mount the current user's home directory to a read-only location
+    // so that we can copy in the az cli cache to the devcontainer.
+    "source=${env:HOME}${env:USERPROFILE}/,target=/home/.host,type=bind,readonly"
   ],
 
   "remoteUser": "vscode",

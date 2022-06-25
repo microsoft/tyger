@@ -44,15 +44,15 @@ environment_definition=$(cat "${config_path}")
 
 primary_cluster_name=$(echo "${environment_definition}" | jq -r '.primaryCluster')
 
-context_name=$(kubectl config view -o json | jq -r --arg cluster_name "${primary_cluster_name}" '.contexts | .[] | select(.context.cluster == $cluster_name).name')
+context_name=$(kubectl config view -o json | jq -r --arg cluster_name "${primary_cluster_name}" '.contexts | .[]? | select(.context.cluster == $cluster_name).name')
 if [[ -z "${context_name}" ]]; then
-    ak aks get-credentials -n "${primary_cluster_name}" -g "$(echo "${environment_definition}" | jq -r '.resourceGroup')" --subscription="$(echo "${environment_definition}" | jq -r '.subscription')" --overwrite-existing
+    az aks get-credentials -n "${primary_cluster_name}" -g "$(echo "${environment_definition}" | jq -r '.resourceGroup')" --subscription="$(echo "${environment_definition}" | jq -r '.subscription')" --overwrite-existing
 else
     kubectl config use-context "${context_name}" >/dev/null
 fi
 
 tyger_server_image="$(docker inspect eminence.azurecr.io/tyger-server:dev | jq -r --arg repo eminence.azurecr.io/tyger-server '.[0].RepoDigests[] | select (startswith($repo))')"
-tyger_chart_location="$(dirname "$0")/../helm/tyger"
+tyger_chart_location="$(dirname "$0")/../../helm/tyger"
 
 dns_zone=$(echo "${environment_definition}" | jq -r '.dependencies.dnsZone.name')
 
@@ -63,7 +63,7 @@ for organization_name in $(echo "${environment_definition}" | jq -r '.organizati
     hostname="${subdomain}.${dns_zone}"
     helm_release="tyger"
     cluster_config=$(echo "${environment_definition}" | jq -c '.clusters')
-    storage_server_image=$(jq -r -c '.dependencies | .[] | select(.name == "mrd-storage-server") | (.repository + ":" + .tag)' "$(dirname "$0")/../../dependencies.json")
+    storage_server_image=$(jq -r -c '.dependencies | .[] | select(.name == "mrd-storage-server") | (.repository + ":" + .tag)' "$(dirname "$0")/../../../dependencies.json")
 
     # TODO: note that more than one buffer storage account is not currently implemented.
 

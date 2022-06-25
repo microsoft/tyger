@@ -19,4 +19,5 @@ if [[ -z "${environment_name:-}" ]]; then
     environment_name="${BASH_REMATCH[0]//[.\-_]/}"
 fi
 
-"${this_dir}/../deploy/scripts/get-environment-config.sh" -d "${config_dir}" -e "${environment_name}"
+cd "${config_dir}"
+cue export . -t environment="${environment_name}"

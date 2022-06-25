@@ -1,7 +1,6 @@
 #!/bin/bash
 #
 # This script initializes the devcontainer after it has been created.
-# Copies over the kubectl context from the host and sets the context and prepares the development environment.
 
 set -euo pipefail
 
@@ -15,3 +14,8 @@ make -f "$(dirname "$0")/../Makefile" restore
 dotnet dev-certs https
 sudo -E "$(which dotnet)" dev-certs https -ep /usr/local/share/ca-certificates/aspnet/https.crt --format PEM
 sudo update-ca-certificates
+
+# Copy the Azure CLI context cache directory that is bind-mounted from the host.
+# This means that an "az login" will not be necessary in the devcontainer if the user has already
+# logged in on the host.
+cp -r /home/.host/.azure/ ~/.azure/
