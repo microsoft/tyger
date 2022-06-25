@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -107,10 +108,13 @@ func Login(options LoginOptions) error {
 	return ctx.writeCliContext()
 }
 
-func NewRetryableClient() *retryablehttp.Client {
+func NewRetryableClient() *http.Client {
 	client := retryablehttp.NewClient()
 	client.Logger = nil
-	return client
+	client.ErrorHandler = func(resp *http.Response, err error, numTries int) (*http.Response, error) {
+		return resp, err
+	}
+	return client.StandardClient()
 }
 
 func normalizeServerUri(uri string) (string, error) {

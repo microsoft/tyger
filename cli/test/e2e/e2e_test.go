@@ -27,6 +27,7 @@ import (
 	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/model"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/andreyvit/diff"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -113,7 +114,9 @@ func TestGpuResourceRequirement(t *testing.T) {
 	// create run
 	runId := runTygerSuceeds(t, "run", "create", "--codespec", codespecName, "--timeout", "10m")
 
-	waitForRunSuccess(t, runId)
+	run := waitForRunSuccess(t, runId)
+	assert.NotEmpty(t, run.Cluster)
+	assert.Equal(t, "gpunp", run.Job.NodePool)
 }
 
 // Verify that a run using a codespec that does not require a GPU
@@ -681,7 +684,7 @@ func waitForRunStarted(t *testing.T, runId string) {
 	}
 }
 
-func waitForRunSuccess(t *testing.T, runId string) {
+func waitForRunSuccess(t *testing.T, runId string) model.Run {
 	// this will block until the run terminates or we time out
 	runTygerSuceeds(t, "run", "logs", runId, "-f")
 
@@ -693,7 +696,7 @@ func waitForRunSuccess(t *testing.T, runId string) {
 
 		switch run.Status {
 		case "Succeeded":
-			return
+			return run
 		case "Pending":
 		case "Running":
 			break

@@ -10,7 +10,15 @@ public static class Kubernetes
 {
     public static void AddKubernetes(this IServiceCollection services)
     {
-        services.AddOptions<KubernetesOptions>().BindConfiguration("kubernetes").ValidateDataAnnotations().ValidateOnStart();
+        services.AddOptions<KubernetesOptions>().BindConfiguration("kubernetes").ValidateDataAnnotations().ValidateOnStart()
+            .PostConfigure(o =>
+                {
+                    foreach ((var name, var cluster) in o.Clusters)
+                    {
+                        cluster.Name = name;
+                    }
+                });
+
         services.AddSingleton<LoggingHandler>();
         services.AddSingleton(sp =>
         {
@@ -83,6 +91,8 @@ public class KubernetesOptions
 
 public class ClusterOptions
 {
+    public string Name { get; set; } = null!;
+
     [Required]
     public string Region { get; init; } = null!;
 

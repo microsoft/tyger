@@ -123,7 +123,7 @@ public sealed class RunSweeper : IHostedService, IDisposable
                             break;
                         case (var run, _, var time) when DateTimeOffset.UtcNow - time > s_minDurationAfterArchivingBeforeDeletingPod:
                             _logger.FinalizingTerminatedRun(run.Id, run.Status);
-                            var pods = await _client.EnumeratePodsInNamespace(_k8sOptions.Namespace, labelSelector: $"{JobLabel}={runId}", cancellationToken: cancellationToken)
+                            var pods = await _client.EnumeratePodsInNamespace(_k8sOptions.Namespace, labelSelector: $"{RunLabel}={runId}", cancellationToken: cancellationToken)
                                 .ToListAsync(cancellationToken);
 
                             run = RunReader.UpdateRunFromJobAndPods(run, job, pods);

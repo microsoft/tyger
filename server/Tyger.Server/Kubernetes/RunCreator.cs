@@ -43,9 +43,9 @@ public class RunCreator
     {
         // Phase 1: Validate newRun and create the leaf building blocks.
 
-        ClusterOptions? targetCluster = GetTargetCluster(newRun);
+        ClusterOptions targetCluster = GetTargetCluster(newRun);
         var jobCodespec = await GetCodespec(newRun.Job.Codespec, cancellationToken);
-        newRun = newRun with { Job = newRun.Job with { Codespec = jobCodespec.NormalizedRef() } };
+        newRun = newRun with { Cluster = targetCluster.Name, Job = newRun.Job with { Codespec = jobCodespec.NormalizedRef() } };
         var jobPodTemplateSpec = CreatePodTemplateSpec(jobCodespec, newRun.Job, targetCluster, "Never");
 
         var bufferMap = await GetBufferMap(jobCodespec.Buffers, newRun.Job.Buffers, cancellationToken);
@@ -212,9 +212,9 @@ public class RunCreator
         _logger.CreatedSecret(buffersSecret.Metadata.Name);
     }
 
-    private ClusterOptions? GetTargetCluster(NewRun newRun)
+    private ClusterOptions GetTargetCluster(NewRun newRun)
     {
-        ClusterOptions? targetCluster = null;
+        ClusterOptions? targetCluster;
         if (!string.IsNullOrEmpty(newRun.Cluster))
         {
             if (!_k8sOptions.Clusters.TryGetValue(newRun.Cluster, out var cluster))
@@ -224,8 +224,9 @@ public class RunCreator
 
             targetCluster = cluster;
         }
-        else if (_k8sOptions.Clusters.Count == 1)
+        else
         {
+            // Only supporting single cluster for the moment
             targetCluster = _k8sOptions.Clusters.Values.First();
         }
 
