@@ -7,7 +7,7 @@ usage() {
 
 Deploys infrastructure required for an environment.
 
-Stores a hash of the environment definition and the scripts in this directory as a tag 
+Stores a hash of the environment definition and the scripts in this directory as a tag
 on the environment' resource group to exit early if no changes have been detected.
 
 Usage: $0 --environment-config CONFIG_PATH
@@ -137,16 +137,12 @@ for cluster_name in $(echo "${environment_definition}" | jq -r '.clusters | keys
       --generate-ssh-keys
   fi
 
-  kubelet_objectId=$(az aks show -n "$cluster_name" -g "$environment_resource_group" | jq -r '.identityProfile.kubeletidentity.objectId')
-  acr_id=$(az acr show -n "$acr" | jq -r '.id')
-  if [[ $(az role assignment list --scope "${acr_id}" --role "AcrPull" --assignee "${kubelet_objectId}" | jq length) == 0 ]]; then
-    # Attach ACR
-    if [[ -n "${verbose:-}" ]]; then
-      echo "Attaching container registry: $acr"
-    fi
-
-    az aks update -n "$cluster_name" -g "$environment_resource_group" --attach-acr "$acr"
+  # Attach ACR
+  if [[ -n "${verbose:-}" ]]; then
+    echo "Attaching container registry: $acr"
   fi
+
+  az aks update -n "$cluster_name" -g "$environment_resource_group" --attach-acr "$acr"
 
   # Nodepools
   for pool_name in $(echo "${cluster}" | jq -r '.userNodePools | keys[]'); do
