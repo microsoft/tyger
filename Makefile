@@ -165,7 +165,7 @@ install-cli:
 	cd cli
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go install -ldflags="-s -w" -v ./cmd/tyger
 
-cli-ready:
+cli-ready: install-cli
 	if ! tyger login status &> /dev/null; then
 		make login-service-principal
 	fi
