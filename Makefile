@@ -5,7 +5,7 @@ SHELL = /bin/bash
 .DEFAULT_GOAL := test
 
 # trick to lazily evaluate this at most once: https://make.mad-scientist.net/deferred-simple-variable-expansion/
-ENVIRONMENT_CONFIG = $(eval ENVIRONMENT_CONFIG := $$(shell scripts/get-context-environment-config.sh))$(ENVIRONMENT_CONFIG)
+ENVIRONMENT_CONFIG = $(eval ENVIRONMENT_CONFIG := $$(shell scripts/get-context-environment-config.sh))$(if $(ENVIRONMENT_CONFIG),$(ENVIRONMENT_CONFIG),$(error "get-context-environment-config.sh failed"))
 
 SERVER_PATH=server/Tyger.Server
 SECURITY_ENABLED=true

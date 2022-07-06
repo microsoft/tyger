@@ -13,7 +13,7 @@ config_dir="${TYGER_ENVIRONMENT_CONFIG_DIR:-${this_dir}/../deploy/config/dev}"
 environment_name="${TYGER_ENVIRONMENT_NAME:-}"
 if [[ -z "${environment_name:-}" ]]; then
     if [[ ! "$(git config user.email)" =~ [^@]+ ]]; then
-        echo "git email is not set"
+        >&2 echo "git email is not set"
         exit 1
     fi
     environment_name="${BASH_REMATCH[0]//[.\-_]/}"

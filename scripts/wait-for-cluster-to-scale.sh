@@ -46,7 +46,7 @@ primary_cluster_name=$(echo "${environment_definition}" | jq -r '.primaryCluster
 
 context_name=$(kubectl config view -o json | jq -r --arg cluster_name "${primary_cluster_name}" '.contexts | .[] | select(.context.cluster == $cluster_name).name')
 if [[ -z "${context_name}" ]]; then
-    ak aks get-credentials -n "${primary_cluster_name}" -g "$(echo "${environment_definition}" | jq -r '.resourceGroup')" --subscription="$(echo "${environment_definition}" | jq -r '.subscription')" --overwrite-existing
+    az aks get-credentials -n "${primary_cluster_name}" -g "$(echo "${environment_definition}" | jq -r '.resourceGroup')" --subscription="$(echo "${environment_definition}" | jq -r '.subscription')" --overwrite-existing
 else
     kubectl config use-context "${context_name}" >/dev/null
 fi
