@@ -1,6 +1,10 @@
+using System.ComponentModel.DataAnnotations;
+using System.Text.RegularExpressions;
+
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Primitives;
+
 using Tyger.Server.Database;
 using Tyger.Server.Model;
 
@@ -12,11 +16,15 @@ public static class Codespecs
     {
         app.MapPut("/v1/codespecs/{name}", async (string name, IRepository repository, HttpContext context) =>
         {
-            var newCodespec = await context.Request.ReadAndValidateJson<NewCodespec>(context.RequestAborted);
+            string pattern = @"^[a-z0-9\-._]*$";
+            if (!Regex.IsMatch(name, pattern))
+            {
+                throw new ValidationException("Codespec names must contain only lower case letters (a-z), numbers (0-9), dashes (-), underscores (_), and dots (.)");
+            }
 
-            (int version, DateTimeOffset createdAt) = await repository.UpsertCodespec(name, newCodespec!, context.RequestAborted);
-            context.Response.Headers.Location = $"/v1/codespecs/{name}/{version}";
-            var codespec = new Codespec(newCodespec, name, version, createdAt);
+            var newCodespec = await context.Request.ReadAndValidateJson<NewCodespec>(context.RequestAborted);
+            var codespec = await repository.UpsertCodespec(name, newCodespec!, context.RequestAborted);
+            context.Response.Headers.Location = $"/v1/codespecs/{name}/{codespec.Version}";
             return Results.Json(codespec, statusCode: codespec.Version == 1 ? StatusCodes.Status201Created : StatusCodes.Status200OK);
         })
         .Produces<Codespec>(StatusCodes.Status200OK)

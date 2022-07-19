@@ -4,7 +4,7 @@ namespace Tyger.Server.Database;
 
 public interface IRepository
 {
-    Task<(int, DateTimeOffset)> UpsertCodespec(string name, NewCodespec newcodespec, CancellationToken cancellationToken);
+    Task<Codespec> UpsertCodespec(string name, NewCodespec newcodespec, CancellationToken cancellationToken);
     Task<Codespec?> GetLatestCodespec(string name, CancellationToken cancellationToken);
     Task<Codespec?> GetCodespecAtVersion(string name, int version, CancellationToken cancellationToken);
 

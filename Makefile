@@ -77,7 +77,7 @@ set-localsettings:
 		}
 	EOF
 
-build:
+build-server:
 	cd ${SERVER_PATH}
 	dotnet build --no-restore
 

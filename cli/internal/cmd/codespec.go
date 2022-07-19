@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -60,11 +61,20 @@ func newCodespecCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 				return errors.New("a name for the codespec is required")
 			}
 			if len(args) > 1 && cmd.ArgsLenAtDash() == -1 {
-				return errors.New("container arguments must be preceded by --")
+				return fmt.Errorf("unexpected positional args %v. Container arguments must be preceded by -- and placed at the end of the command-line", args[1:])
+			}
+			if len(args) > 1 && cmd.ArgsLenAtDash() > 1 {
+				unexpectedArgs := args[1:cmd.ArgsLenAtDash()]
+				return fmt.Errorf("unexpected positional args before container args: %v", unexpectedArgs)
 			}
 
 			codespecName := args[0]
 			containerArgs := args[1:]
+
+			var isValidName = regexp.MustCompile(`^[a-z0-9\-._]*$`).MatchString
+			if !isValidName(codespecName) {
+				return errors.New("codespec names must contain only lower case letters (a-z), numbers (0-9), dashes (-), underscores (_), and dots (.)")
+			}
 
 			flags.kind = strings.ToLower(flags.kind)
 

@@ -107,8 +107,14 @@ public class Repository : IRepository
         return (results, null);
     }
 
-    public async Task<(int, DateTimeOffset)> UpsertCodespec(string name, NewCodespec newcodespec, CancellationToken cancellationToken)
+    public async Task<Codespec> UpsertCodespec(string name, NewCodespec newcodespec, CancellationToken cancellationToken)
     {
+        Codespec? latestCodespec = await GetLatestCodespec(name, cancellationToken);
+        if (newcodespec.Equals(latestCodespec?.SliceAsNewCodespec()))
+        {
+            return latestCodespec;
+        }
+
         var connection = await GetOpenedConnection(cancellationToken);
         using var command = new NpgsqlCommand
         {
@@ -140,7 +146,7 @@ public class Repository : IRepository
                 var createdAt = reader.GetDateTime(1);
                 await reader.ReadAsync(cancellationToken);
                 await reader.DisposeAsync();
-                return (version, createdAt);
+                return new Codespec(newcodespec, name, version, createdAt);
             }
             catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.UniqueViolation)
             {

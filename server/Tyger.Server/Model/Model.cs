@@ -2,6 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Generator.Equals;
 using k8s.Models;
 
 namespace Tyger.Server.Model;
@@ -33,9 +34,13 @@ public record BufferAccess(Uri Uri) : ModelBase;
 
 public record Metadata(string? Authority = null, string? Audience = null) : ModelBase;
 
-public record BufferParameters(string[]? Inputs, string[]? Outputs) : ModelBase;
+[Equatable]
+public partial record BufferParameters(
+    [property: UnorderedEquality] string[]? Inputs,
+    [property: UnorderedEquality] string[]? Outputs) : ModelBase;
 
-public record CodespecResources : ModelBase
+[Equatable]
+public partial record CodespecResources : ModelBase
 {
     [JsonConverter(typeof(QuantityConverter))]
     public ResourceQuantity? Cpu { get; init; }
@@ -79,16 +84,25 @@ public enum CodespecKind
     Worker
 }
 
-public record NewCodespec : ModelBase, IValidatableObject
+[Equatable]
+public partial record NewCodespec : ModelBase, IValidatableObject
 {
     public CodespecKind Kind { get; init; } = CodespecKind.Job;
 
     [Required]
     public string Image { get; init; } = "";
+
+    [OrderedEquality]
     public string[]? Command { get; init; }
+
+    [OrderedEquality]
     public string[]? Args { get; init; }
+
     public string? WorkingDir { get; init; }
+
+    [UnorderedEquality]
     public Dictionary<string, string>? Env { get; init; }
+
     public CodespecResources? Resources { get; init; }
 
     public int MaxReplicas { get; init; } = 1;
@@ -125,6 +139,12 @@ public record NewCodespec : ModelBase, IValidatableObject
             }
         }
     }
+
+    /// <summary>
+    /// Performs a shallow clone of this object, but the new object will be of type
+    /// NewCodepec, even if the current instance is of a derived type.
+    /// </summary>
+    public NewCodespec SliceAsNewCodespec() => new(this);
 }
 
 public record Codespec : NewCodespec

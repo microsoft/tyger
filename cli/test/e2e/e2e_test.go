@@ -96,6 +96,41 @@ func TestEndToEnd(t *testing.T) {
 	require.Equal("Hello: Bonjour", string(outputBytes))
 }
 
+func TestInvalidCodespecNames(t *testing.T) {
+	testCases := []struct {
+		name  string
+		valid bool
+	}{
+		{"foo", true},
+		{"foo-1_2.9", true},
+		{"Foo", false},
+		{"foo bar", false},
+	}
+	for _, tC := range testCases {
+		t.Run(tC.name, func(t *testing.T) {
+			_, stdErr, err := runTyger("codespec", "create", tC.name, "--image", "busybox")
+			if tC.valid {
+				assert.Nil(t, err)
+			} else {
+				assert.NotNil(t, err)
+				assert.Contains(t, stdErr, "codespec name")
+			}
+
+			newCodespec := model.NewCodespec{Kind: "worker", Image: "busybox"}
+			_, err = cmd.InvokeRequest(http.MethodPut, fmt.Sprintf("v1/codespecs/%s", tC.name), newCodespec, nil, false)
+			if tC.valid {
+				assert.Nil(t, err)
+			} else {
+				assert.NotNil(t, err)
+			}
+		})
+	}
+}
+
+func TestCodespecNameRequirements(t *testing.T) {
+	runTyger("codespec", "create", "Foo", "--image", "busybox")
+}
+
 // Verify that a run using a codespec that requires a GPU
 // is scheduled on a node with one.
 func TestGpuResourceRequirement(t *testing.T) {
@@ -142,7 +177,7 @@ func TestNoGpuResourceRequirement(t *testing.T) {
 func TestTargetGpuNodePool(t *testing.T) {
 	t.Parallel()
 
-	codespecName := t.Name()
+	codespecName := strings.ToLower(t.Name())
 	runTygerSuceeds(t,
 		"codespec",
 		"create", codespecName,
@@ -160,7 +195,7 @@ func TestTargetGpuNodePool(t *testing.T) {
 func TestTargetCpuNodePool(t *testing.T) {
 	t.Parallel()
 
-	codespecName := t.Name()
+	codespecName := strings.ToLower(t.Name())
 	runTygerSuceeds(t,
 		"codespec",
 		"create", codespecName,
@@ -178,7 +213,7 @@ func TestTargetCpuNodePool(t *testing.T) {
 func TestTargetingInvalidClusterReturnsError(t *testing.T) {
 	t.Parallel()
 
-	codespecName := t.Name()
+	codespecName := strings.ToLower(t.Name())
 	runTygerSuceeds(t,
 		"codespec",
 		"create", codespecName,
@@ -191,7 +226,7 @@ func TestTargetingInvalidClusterReturnsError(t *testing.T) {
 func TestTargetingInvalidNodePoolReturnsError(t *testing.T) {
 	t.Parallel()
 
-	codespecName := t.Name()
+	codespecName := strings.ToLower(t.Name())
 	runTygerSuceeds(t,
 		"codespec",
 		"create", codespecName,
@@ -204,7 +239,7 @@ func TestTargetingInvalidNodePoolReturnsError(t *testing.T) {
 func TestTargetCpuNodePoolWithGpuResourcesReturnsError(t *testing.T) {
 	t.Parallel()
 
-	codespecName := t.Name()
+	codespecName := strings.ToLower(t.Name())
 	runTygerSuceeds(t,
 		"codespec",
 		"create", codespecName,
@@ -319,6 +354,27 @@ func TestListCodespecsFromCli(t *testing.T) {
 	require.Equal(t, len(codespecNames), csIdx)
 }
 
+func TestRecreateCodespec(t *testing.T) {
+	t.Parallel()
+	codespecName := strings.ToLower(t.Name())
+	version1 := runTygerSuceeds(t, "codespec", "create", codespecName, "--image", "busybee", "--command", "--", "echo", "hi I am first")
+	version2 := runTygerSuceeds(t, "codespec", "create", codespecName, "--image", "busybox", "--gpu", "2", "--memory", "2048048", "--env", "os=ubuntu", "--command", "--", "echo", "hi I am latest")
+	require.NotEqual(t, version1, version2)
+
+	version3 := runTygerSuceeds(t, "codespec", "create", codespecName, "--image", "busybox", "--gpu", "2", "--memory", "2048048", "--env", "os=ubuntu", "--command", "--", "echo", "hi I am latest")
+	require.Equal(t, version2, version3)
+
+	version4 := runTygerSuceeds(t, "codespec", "create", codespecName, "--image", "busybox", "--memory", "2048048", "--gpu", "2", "--env", "os=ubuntu", "--command", "--", "echo", "hi I am latest")
+	require.Equal(t, version3, version4)
+
+	version5 := runTygerSuceeds(t, "codespec", "create", codespecName, "--image", "busybox", "--memory", "2048048", "--gpu", "2", "--env", "os=ubuntu", "--env", "platform=highT", "--command", "--", "echo", "hi I am latest")
+	version6 := runTygerSuceeds(t, "codespec", "create", codespecName, "--image", "busybox", "--gpu", "2", "--memory", "2048048", "--env", "platform=highT", "--env", "os=ubuntu", "--command", "--", "echo", "hi I am latest")
+	require.Equal(t, version5, version6)
+
+	version7 := runTygerSuceeds(t, "codespec", "create", codespecName, "--image", "busybox", "--memory", "2048048", "--gpu", "2", "--env", "platform=highT", "--env", "os=windows", "--command", "--", "echo", "hi I am latest")
+	require.NotEqual(t, version6, version7)
+}
+
 func TestListCodespecsPaging(t *testing.T) {
 	t.Parallel()
 	inputNames := [12]string{"klamath", "allagash", "middlefork", "johnday", "missouri", "riogrande", "chattooga", "loxahatchee", "noatak", "tuolumne", "riogrande", "allagash"}
@@ -352,7 +408,7 @@ func TestListCodespecsPaging(t *testing.T) {
 			}
 			//simulate concurrent codespec update while paging
 			if expectedIdx == 6 && expectedKlamathVersion == 0 {
-				var tmp = runTygerSuceeds(t, "codespec", "create", "klamath", "--image", "busybox")
+				var tmp = runTygerSuceeds(t, "codespec", "create", "klamath", "--image", "busybox", "--", "something different")
 				expectedKlamathVersion, err = strconv.Atoi(tmp)
 				require.Nil(t, err)
 				require.Equal(t, expectedKlamathVersion, currentKlamathVersion+1)
@@ -376,7 +432,7 @@ func TestListCodespecsPaging(t *testing.T) {
 func TestListRunsSince(t *testing.T) {
 	t.Parallel()
 
-	codespecName := t.Name()
+	codespecName := strings.ToLower(t.Name())
 
 	runTygerSuceeds(t,
 		"codespec",
@@ -441,7 +497,7 @@ func TestListCodespecsWithPrefix(t *testing.T) {
 func TestGetLogsFromPod(t *testing.T) {
 	t.Parallel()
 
-	codespecName := t.Name()
+	codespecName := strings.ToLower(t.Name())
 
 	runTygerSuceeds(t,
 		"codespec",
@@ -491,7 +547,7 @@ func TestGetLogsFromPod(t *testing.T) {
 func TestGetArchivedLogs(t *testing.T) {
 	t.Parallel()
 
-	codespecName := t.Name()
+	codespecName := strings.ToLower(t.Name())
 
 	runTygerSuceeds(t,
 		"codespec",
@@ -546,7 +602,7 @@ func TestGetArchivedLogs(t *testing.T) {
 func TestGetArchivedLogsWithLongLines(t *testing.T) {
 	t.Parallel()
 
-	codespecName := t.Name()
+	codespecName := strings.ToLower(t.Name())
 
 	runTygerSuceeds(t,
 		"codespec",
@@ -575,8 +631,8 @@ func TestGetArchivedLogsWithLongLines(t *testing.T) {
 func TestConnectivityBetweenJobAndWorkers(t *testing.T) {
 	t.Parallel()
 
-	jobCodespecName := t.Name() + "-job"
-	workerCodespecName := t.Name() + "-worker"
+	jobCodespecName := strings.ToLower(t.Name()) + "-job"
+	workerCodespecName := strings.ToLower(t.Name()) + "-worker"
 
 	digest := runCommandSuceeds(t, "docker", "inspect", "testconnectivity", "--format", "{{ index .RepoDigests 0 }}")
 
