@@ -231,18 +231,8 @@ func codespecListCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 				queryOptions.Add("prefix", flags.prefix)
 			}
 
-			var queryString string = fmt.Sprintf("v1/codespecs?%s", queryOptions.Encode())
-
-			firstPage := true
-			totalPrinted := 0
-			for uri := queryString; uri != ""; {
-				page := &model.CodeSpecPage{}
-				err := InvokePageRequests(rootFlags, &uri, page, queryString, flags.limit, &firstPage, &totalPrinted)
-				if err != nil {
-					return err
-				}
-			}
-			return nil
+			var relativeUri string = fmt.Sprintf("v1/codespecs?%s", queryOptions.Encode())
+			return InvokePageRequests[model.Codespec](rootFlags, relativeUri, flags.limit, !cmd.Flags().Lookup("limit").Changed)
 		},
 	}
 

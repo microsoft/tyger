@@ -8,7 +8,7 @@ dependencies:
   - bash-completion=2.11
   - dotnet=6.0.102
   - dvc-azure=2.8.2
-  - go-cgo=1.17.8
+  - go-cgo=1.18.3
   - h5py=3.2.1
   - hdf5=1.10.6
   - ismrmrd=1.7.1

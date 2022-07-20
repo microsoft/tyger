@@ -196,18 +196,8 @@ func newRunListCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 				queryOptions.Add("since", tm.UTC().Format(time.RFC3339Nano))
 			}
 
-			var queryString string = fmt.Sprintf("v1/runs?%s", queryOptions.Encode())
-
-			firstPage := true
-			totalPrinted := 0
-			for uri := queryString; uri != ""; {
-				page := &model.RunPage{}
-				err := InvokePageRequests(rootFlags, &uri, page, queryString, flags.limit, &firstPage, &totalPrinted)
-				if err != nil {
-					return err
-				}
-			}
-			return nil
+			relativeUri := fmt.Sprintf("v1/runs?%s", queryOptions.Encode())
+			return InvokePageRequests[model.Run](rootFlags, relativeUri, flags.limit, !cmd.Flags().Lookup("limit").Changed)
 		},
 	}
 

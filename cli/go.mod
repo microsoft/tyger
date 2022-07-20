@@ -1,11 +1,12 @@
 module dev.azure.com/msresearch/compimag/_git/tyger/cli
 
-go 1.17
+go 1.18
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v0.3.0
 	github.com/AzureAD/microsoft-authentication-library-for-go v0.4.0
 	github.com/andreyvit/diff v0.0.0-20170406064948-c7f18ee00883
+	github.com/fatih/color v1.13.0
 	github.com/gofrs/flock v0.8.1
 	github.com/google/uuid v1.3.0
 	github.com/hashicorp/go-retryablehttp v0.7.1
@@ -16,7 +17,11 @@ require (
 	k8s.io/apimachinery v0.23.5
 )
 
-require github.com/hashicorp/go-cleanhttp v0.5.1 // indirect
+require (
+	github.com/hashicorp/go-cleanhttp v0.5.1 // indirect
+	github.com/mattn/go-colorable v0.1.9 // indirect
+	github.com/mattn/go-isatty v0.0.14 // indirect
+)
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v0.21.1 // indirect

@@ -14,6 +14,7 @@ import (
 
 	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/clicontext"
 	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/model"
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
 
@@ -115,51 +116,59 @@ func InvokeRequest(method string, relativeUri string, input interface{}, output 
 	return resp, nil
 }
 
-func InvokePageRequests(rootFlags *rootPersistentFlags, uri *string, page model.Page, queryString string, limit int, firstPage *bool, totalPrinted *int) error {
+func InvokePageRequests[T any](rootFlags *rootPersistentFlags, uri string, limit int, warnIfTruncated bool) error {
+	firstPage := true
+	totalPrinted := 0
+	truncated := false
 
-	_, err := InvokeRequest(http.MethodGet, *uri, nil, &page, rootFlags.verbose)
-	if err != nil {
-		return err
-	}
-
-	if *firstPage && page.GetNextLink() == "" {
-		formattedRuns, err := json.MarshalIndent(page.GetItems(), "  ", "  ")
+	for uri != "" {
+		page := model.Page[T]{}
+		_, err := InvokeRequest(http.MethodGet, uri, nil, &page, rootFlags.verbose)
 		if err != nil {
 			return err
 		}
 
-		fmt.Println(string(formattedRuns))
-		*uri = ""
-		return nil
-	}
+		if firstPage && page.NextLink == "" {
+			formattedRuns, err := json.MarshalIndent(page.Items, "  ", "  ")
+			if err != nil {
+				return err
+			}
 
-	if *firstPage {
-		fmt.Print("[\n  ")
-	}
-
-	for i, r := range page.GetItems() {
-		if !*firstPage || i != 0 {
-			fmt.Print(",\n  ")
-		}
-
-		formattedRun, err := json.MarshalIndent(r, "  ", "  ")
-		if err != nil {
-			return err
-		}
-
-		fmt.Print(string(formattedRun))
-		*totalPrinted++
-		if *totalPrinted == limit {
-			*uri = ""
-			fmt.Println("\n]")
+			fmt.Println(string(formattedRuns))
 			return nil
 		}
+
+		if firstPage {
+			fmt.Print("[\n  ")
+		}
+
+		for i, r := range page.Items {
+			if !firstPage || i != 0 {
+				fmt.Print(",\n  ")
+			}
+
+			formattedRun, err := json.MarshalIndent(r, "  ", "  ")
+			if err != nil {
+				return err
+			}
+
+			fmt.Print(string(formattedRun))
+			totalPrinted++
+			if totalPrinted == limit {
+				truncated = i < len(page.Items)-1 || page.NextLink != ""
+				goto End
+			}
+		}
+
+		firstPage = false
+		uri = strings.TrimLeft(page.NextLink, "/")
+	}
+End:
+	fmt.Println("\n]")
+
+	if warnIfTruncated && truncated {
+		color.New(color.FgYellow).Fprintln(os.Stderr, "Warning: the output was truncated. Specify the --limit parameter to increase the number of elements.")
 	}
 
-	*firstPage = false
-	*uri = strings.TrimLeft(page.GetNextLink(), "/")
-	if *uri == "" {
-		fmt.Println("\n]")
-	}
 	return nil
 }

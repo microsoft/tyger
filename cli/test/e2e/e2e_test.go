@@ -312,7 +312,7 @@ func TestListRunsPaging(t *testing.T) {
 	}
 
 	for uri := "v1/runs?limit=5"; uri != ""; {
-		page := model.RunPage{}
+		page := model.Page[model.Run]{}
 		_, err := cmd.InvokeRequest(http.MethodGet, uri, nil, &page, false)
 		require.Nil(t, err)
 		for _, r := range page.Items {
@@ -334,12 +334,13 @@ func TestListRunsPaging(t *testing.T) {
 
 func TestListCodespecsFromCli(t *testing.T) {
 	t.Parallel()
-	codespecNames := [4]string{"kspace_half_sampled", "4dcardiac", "zloc_10mm", "axial_1mm"}
+	prefix := strings.ToLower(t.Name()) + "_"
+	codespecNames := [4]string{prefix + "kspace_half_sampled", prefix + "4dcardiac", prefix + "zloc_10mm", prefix + "axial_1mm"}
 	codespecMap := make(map[string]string)
 	for _, name := range codespecNames {
 		codespecMap[name] = runTygerSuceeds(t, "codespec", "create", name, "--image", "busybox")
 	}
-	var results = runTygerSuceeds(t, "codespec", "list")
+	var results = runTygerSuceeds(t, "codespec", "list", "--prefix", prefix)
 	var returnedCodespecs []model.Codespec
 	json.Unmarshal([]byte(results), &returnedCodespecs)
 	sort.Strings(codespecNames[:])
@@ -377,9 +378,20 @@ func TestRecreateCodespec(t *testing.T) {
 
 func TestListCodespecsPaging(t *testing.T) {
 	t.Parallel()
+	prefix := strings.ToLower(t.Name()) + "_"
 	inputNames := [12]string{"klamath", "allagash", "middlefork", "johnday", "missouri", "riogrande", "chattooga", "loxahatchee", "noatak", "tuolumne", "riogrande", "allagash"}
 	expectedNames1 := [5]string{"allagash", "chattooga", "johnday", "klamath", "loxahatchee"}
 	expectedNames2 := [5]string{"middlefork", "missouri", "noatak", "riogrande", "tuolumne"}
+	for i := range inputNames {
+		inputNames[i] = prefix + inputNames[i]
+	}
+	for i := range expectedNames1 {
+		expectedNames1[i] = prefix + expectedNames1[i]
+	}
+	for i := range expectedNames2 {
+		expectedNames2[i] = prefix + expectedNames2[i]
+	}
+
 	var returnedNames1, returnedNames2 [5]string
 	var expectedIdx, currentKlamathVersion, expectedKlamathVersion int = 0, 0, 0
 
@@ -389,8 +401,8 @@ func TestListCodespecsPaging(t *testing.T) {
 	}
 	require.Equal(t, len(codespecs), 10)
 
-	for uri := "v1/codespecs?limit=5"; uri != ""; {
-		page := model.CodeSpecPage{}
+	for uri := fmt.Sprintf("v1/codespecs?limit=5&prefix=%s", prefix); uri != ""; {
+		page := model.Page[model.Codespec]{}
 		_, err := cmd.InvokeRequest(http.MethodGet, uri, nil, &page, false)
 		require.Nil(t, err)
 		for _, cs := range page.Items {
@@ -398,7 +410,7 @@ func TestListCodespecsPaging(t *testing.T) {
 				if expectedIdx < 5 {
 					returnedNames1[expectedIdx] = cs.Name
 					expectedIdx++
-					if cs.Name == "klamath" {
+					if cs.Name == prefix+"klamath" {
 						currentKlamathVersion = cs.Version
 					}
 				} else {
@@ -408,7 +420,7 @@ func TestListCodespecsPaging(t *testing.T) {
 			}
 			//simulate concurrent codespec update while paging
 			if expectedIdx == 6 && expectedKlamathVersion == 0 {
-				var tmp = runTygerSuceeds(t, "codespec", "create", "klamath", "--image", "busybox", "--", "something different")
+				var tmp = runTygerSuceeds(t, "codespec", "create", prefix+"klamath", "--image", "busybox", "--", "something different")
 				expectedKlamathVersion, err = strconv.Atoi(tmp)
 				require.Nil(t, err)
 				require.Equal(t, expectedKlamathVersion, currentKlamathVersion+1)
@@ -478,7 +490,7 @@ func TestListCodespecsWithPrefix(t *testing.T) {
 	}
 
 	uri := "v1/codespecs?prefix=3d_"
-	page := model.CodeSpecPage{}
+	page := model.Page[model.Codespec]{}
 	_, err := cmd.InvokeRequest(http.MethodGet, uri, nil, &page, false)
 	require.Nil(t, err)
 	for _, cs := range page.Items {

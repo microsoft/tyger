@@ -45,21 +45,9 @@ type Codespec struct {
 	NewCodespec
 }
 
-type CodeSpecPage struct {
-	Items    []Codespec `json:"items"`
-	NextLink string     `json:"nextLink,omitempty"`
-}
-
-func (page *CodeSpecPage) GetNextLink() string {
-	return page.NextLink
-}
-
-func (page *CodeSpecPage) GetItems() []interface{} {
-	ics := make([]interface{}, 0, len(page.Items))
-	for _, cs := range page.Items {
-		ics = append(ics, cs)
-	}
-	return ics
+type Page[T any] struct {
+	Items    []T    `json:"items"`
+	NextLink string `json:"nextLink,omitempty"`
 }
 
 type RunCodeTarget struct {
@@ -87,23 +75,6 @@ type Run struct {
 	NewRun
 }
 
-type RunPage struct {
-	Items    []Run  `json:"items"`
-	NextLink string `json:"nextLink,omitempty"`
-}
-
-func (page *RunPage) GetNextLink() string {
-	return page.NextLink
-}
-
-func (page *RunPage) GetItems() []interface{} {
-	ir := make([]interface{}, 0, len(page.Items))
-	for _, r := range page.Items {
-		ir = append(ir, r)
-	}
-	return ir
-}
-
 type ErrorResponse struct {
 	Error ErrorInfo `json:"error"`
 }
@@ -121,9 +92,4 @@ type NodePool struct {
 type Cluster struct {
 	Name      string     `json:"name"`
 	NodePools []NodePool `json:"nodePools"`
-}
-
-type Page interface {
-	GetNextLink() string
-	GetItems() []interface{}
 }
