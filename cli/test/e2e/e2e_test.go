@@ -140,7 +140,7 @@ func TestGpuResourceRequirement(t *testing.T) {
 	runTygerSuceeds(t,
 		"codespec",
 		"create", codespecName,
-		"--image", "nvidia/cuda:11.0-base",
+		"--image", "nvidia/cuda:11.0.3-base-ubuntu20.04",
 		"--gpu", "1",
 		"--command",
 		"--",
@@ -163,7 +163,7 @@ func TestNoGpuResourceRequirement(t *testing.T) {
 	runTygerSuceeds(t,
 		"codespec",
 		"create", codespecName,
-		"--image", "nvidia/cuda:11.0-base",
+		"--image", "nvidia/cuda:11.0.3-base-ubuntu20.04",
 		"--command",
 		"--",
 		"bash", "-c", "[[ ! $(nvidia-smi) ]]") // verify that no GPU is available
@@ -181,7 +181,7 @@ func TestTargetGpuNodePool(t *testing.T) {
 	runTygerSuceeds(t,
 		"codespec",
 		"create", codespecName,
-		"--image", "nvidia/cuda:11.0-base",
+		"--image", "nvidia/cuda:11.0.3-base-ubuntu20.04",
 		"--command",
 		"--",
 		"bash", "-c", "[[ $(nvidia-smi -L | wc -l) == 1 ]]") // verify that a GPU is available
@@ -199,7 +199,7 @@ func TestTargetCpuNodePool(t *testing.T) {
 	runTygerSuceeds(t,
 		"codespec",
 		"create", codespecName,
-		"--image", "nvidia/cuda:11.0-base",
+		"--image", "nvidia/cuda:11.0.3-base-ubuntu20.04",
 		"--command",
 		"--",
 		"bash", "-c", "[[ ! $(nvidia-smi) ]]") // verify that no GPU is available
