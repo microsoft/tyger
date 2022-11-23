@@ -70,7 +70,8 @@ class TestCaseDescriptionGenerator:
                         'image': 'eminence.azurecr.io/gadgetron_recon:latest',
                         'replicas': int(case.distributed_config.nodes),
                         'nodepool': 'cpunp',
-                        'command': ['/app/gadgetron', '-E', 'http://tyger-storage.lamna:8080'],
+                        'command': ["/tini", "--", "/opt/entrypoint.sh"],
+                        'args': ['-E', 'http://tyger-storage.lamna:8080'],
                         'resources': {
                             'cpu': '3000m',
                             'memory': self._generate_mem_requirement(case.name, case.requirements_config.system_memory)

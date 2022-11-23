@@ -4,25 +4,25 @@
       "name": "python_recon",
       "type": "acrImage",
       "repository": "eminence.azurecr.io/python_recon",
-      "tag": "dfdf03616773abc3eab1c3c50f6cba912d7e2edc"
+      "tag": "d43d7cf937c2fe443aaf01b509a54007ff14abe4"
     },
     {
       "name": "recon",
       "type": "acrImage",
       "repository": "eminence.azurecr.io/recon",
-      "tag": "dfdf03616773abc3eab1c3c50f6cba912d7e2edc"
+      "tag": "d43d7cf937c2fe443aaf01b509a54007ff14abe4"
     },
     {
       "name": "gadgetron_recon",
       "type": "acrImage",
       "repository": "eminence.azurecr.io/gadgetron_recon",
-      "tag": "dfdf03616773abc3eab1c3c50f6cba912d7e2edc"
+      "tag": "d43d7cf937c2fe443aaf01b509a54007ff14abe4"
     },
     {
-      "name": "scanner",
+      "name": "ismrmrd_buffer_proxy",
       "type": "acrImage",
-      "repository": "eminence.azurecr.io/scanner",
-      "tag": "dfdf03616773abc3eab1c3c50f6cba912d7e2edc"
+      "repository": "eminence.azurecr.io/ismrmrd_buffer_proxy",
+      "tag": "d43d7cf937c2fe443aaf01b509a54007ff14abe4"
     },
     {
       "name": "mrd-storage-server",

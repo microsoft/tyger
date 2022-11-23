@@ -1,6 +1,6 @@
 name: tyger
 channels:
-  - gadgetron
+  - ismrmrd
   - conda-forge
   - defaults
 dependencies:
@@ -11,8 +11,8 @@ dependencies:
   - go-cgo=1.18.3
   - h5py=3.2.1
   - hdf5=1.10.6
-  - ismrmrd=1.7.1
-  - ismrmrd-python=1.9.8
+  - ismrmrd=1.12.0
+  - ismrmrd-python=1.12.5
   - jupyter=1.0.0
   - jsonschema=4.2.0
   - kubernetes-client=1.24.3
@@ -30,6 +30,6 @@ dependencies:
   - python=3.9.7
   - scipy=1.7.1
   - shellcheck=0.7.2
-  - siemens_to_ismrmrd=1.2.2
+  - siemens_to_ismrmrd=1.2.6
   - pip:
     - azure-cli==2.37.0

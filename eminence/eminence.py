@@ -70,42 +70,24 @@ def monitor_run_and_scan(run_id, *scanner_args):
 
 
 def run_scanner(container_name: str, infile: Path, outfile: Path, input_uri: str, output_uri: str, session_id: Optional[str] = None, verbose=False):
-    image = get_dependency_image("scanner")
-
-    infile_filename = infile.name
-    outfile_filename = outfile.name
-
-    infile_folder_str = str(infile.parent.absolute())
-    outfile_folder_str = str(outfile.parent.absolute())
-
-    # If we are in devcontainer, we need to get the mounts right
-    if "HOST_WORKSPACE_DIR" in os.environ and "CONTAINER_WORKSPACE_DIR" in os.environ:
-        infile_folder_str = infile_folder_str.replace(
-            os.environ["CONTAINER_WORKSPACE_DIR"],
-            os.environ["HOST_WORKSPACE_DIR"])
-
-        outfile_folder_str = outfile_folder_str.replace(
-            os.environ["CONTAINER_WORKSPACE_DIR"],
-            os.environ["HOST_WORKSPACE_DIR"])
-
-    scanner_cmd = [
-        "docker", "run",
-        f"--name={container_name}",
-        "--network=host",
-        "-v", f"{infile_folder_str}:/in",
-        "-v", f"{outfile_folder_str}:/out",
-        "-u", f"{os.getuid()}:{os.getgid()}",
-        image,
-        "--input-file", f"/in/{infile_filename}",
-        "--input-buffer", input_uri,
-        "--output-file", f"/out/{outfile_filename}",
-        "--output-buffer", output_uri,
-    ]
+    image = get_dependency_image("ismrmrd_buffer_proxy")
+    to_stream_cmd = ["ismrmrd_hdf5_to_stream", "--use-stdout", "-i", infile]
+    proxy_cmd = ["docker", "run", "-i", "--rm", f"--name={container_name}", image, "--input-buffer", input_uri, "--output-buffer", output_uri]
+    to_hdf5_cmd = ["ismrmrd_stream_to_hdf5", "--use-stdin", "-g", "img", "-o", outfile]
 
     if session_id and len(session_id) > 0:
-        scanner_cmd = scanner_cmd + ["--session-id", session_id]
+        proxy_cmd = proxy_cmd + ["--session-id", session_id]
 
-    subprocess.check_call(scanner_cmd)
+    command = [to_stream_cmd, proxy_cmd, to_hdf5_cmd]
+
+    processes = []
+    for cmd in command:
+        if len(processes) == 0:
+            processes.append(subprocess.Popen(cmd, stdout=subprocess.PIPE))
+        else:
+            processes.append(subprocess.Popen(cmd, stdin=processes[-1].stdout, stdout=subprocess.PIPE))
+
+    assert processes[-1].wait() == 0
 
 
 def validate_configuration(config: Dict):
