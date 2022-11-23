@@ -102,7 +102,7 @@ for cluster_name in $(echo "${environment_definition}" | jq -r '.clusters | keys
   cluster_region=$(echo "$cluster" | jq -r '.region')
   system_node_size=$(echo "$cluster" | jq -r '.systemNodeSize')
   dns_prefix="${cluster_name}-dns"
-  kubernetes_version="1.24.0"
+  kubernetes_version="1.24.6"
 
   # Is this a create or update?
   if [[ -n "$(az aks list | jq --arg cluster "$cluster_name" '.[] | select(.name == $cluster)')" ]]; then

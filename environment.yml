@@ -15,8 +15,8 @@ dependencies:
   - ismrmrd-python=1.9.8
   - jupyter=1.0.0
   - jsonschema=4.2.0
-  - kubernetes-client=1.23.5
-  - kubernetes-helm=3.8.1
+  - kubernetes-client=1.24.3
+  - kubernetes-helm=3.10.2
   - libblas=*=*mkl
   - make=4.3
   - matplotlib=3.4.3
