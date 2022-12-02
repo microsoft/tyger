@@ -86,6 +86,21 @@ jobs:
         set -euo pipefail
         make
 
+  - script: |
+      make build-binaries
+
+  - task: PublishPipelineArtifact@1
+    inputs:
+      targetPath: '$(Build.ArtifactStagingDirectory)/cli-export/linux/tyger'
+      artifact: 'tyger-linux-amd64'
+      publishLocation: 'pipeline'
+
+  - task: PublishPipelineArtifact@1
+    inputs:
+      targetPath: '$(Build.ArtifactStagingDirectory)/cli-export/windows/tyger.exe'
+      artifact: 'tyger-win-64'
+      publishLocation: 'pipeline'
+
   - task: AzureCLI@2
     condition: always()
     displayName: Cleanup
