@@ -7,7 +7,6 @@ require (
 	github.com/AzureAD/microsoft-authentication-library-for-go v0.4.0
 	github.com/andreyvit/diff v0.0.0-20170406064948-c7f18ee00883
 	github.com/fatih/color v1.13.0
-	github.com/gofrs/flock v0.8.1
 	github.com/google/uuid v1.3.0
 	github.com/hashicorp/go-retryablehttp v0.7.1
 	github.com/johnstairs/pathenvconfig v0.2.0

@@ -19,7 +19,7 @@ import (
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/cache"
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/confidential"
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/public"
-	"github.com/gofrs/flock"
+	"github.com/google/uuid"
 	"github.com/hashicorp/go-retryablehttp"
 	"gopkg.in/yaml.v3"
 )
@@ -177,11 +177,16 @@ func (c *cliContext) GetAccessToken() (string, error) {
 }
 
 func contextPath() (string, error) {
-	home, err := os.UserHomeDir()
+	cacheDir, err := os.UserCacheDir()
 	if err != nil {
-		return "", fmt.Errorf("unable to locate home directory: %v", err)
+		return "", fmt.Errorf("unable to locate cache directory: %v", err)
 	}
-	return filepath.Join(home, ".tyger"), nil
+	tygerDir := filepath.Join(cacheDir, "tyger")
+	err = os.MkdirAll(tygerDir, 0775)
+	if err != nil {
+		return "", fmt.Errorf("unable to create %s directory", tygerDir)
+	}
+	return filepath.Join(tygerDir, ".tyger"), nil
 }
 
 func (context *cliContext) writeCliContext() error {
@@ -190,12 +195,7 @@ func (context *cliContext) writeCliContext() error {
 		var bytes []byte
 		bytes, err = yaml.Marshal(context)
 		if err == nil {
-			fileLock := flock.New(path)
-			if err := fileLock.Lock(); err != nil {
-				return err
-			}
-			defer fileLock.Unlock()
-			err = ioutil.WriteFile(path, bytes, 0600)
+			err = writeCliContextContents(path, bytes)
 		}
 	}
 
@@ -206,26 +206,69 @@ func (context *cliContext) writeCliContext() error {
 	return nil
 }
 
+func writeCliContextContents(path string, bytes []byte) error {
+	// Write to a temp file in the same directory first
+	tempFileName := fmt.Sprintf("%s.%v", path, uuid.New())
+	defer os.Remove(tempFileName)
+	if err := ioutil.WriteFile(tempFileName, bytes, 0600); err != nil {
+		return err
+	}
+
+	// Now rename the temp file to the final name.
+	// If the file is not writable due to a permission error,
+	// it could be because another process is holding the file open.
+	// In that case, we retry over a short period of time.
+	var err error
+	for i := 0; i < 50; i++ {
+		if i > 0 {
+			time.Sleep(100 * time.Millisecond)
+		}
+
+		err = os.Rename(tempFileName, path)
+		if err == nil || !errors.Is(err, os.ErrPermission) {
+			break
+		}
+	}
+
+	return err
+}
+
 func GetCliContext() (CliContext, error) {
 	context := &cliContext{}
 	path, err := contextPath()
 	if err != nil {
 		return context, err
 	}
-	var bytes []byte
-	fileLock := flock.New(path)
-	if err := fileLock.RLock(); err != nil {
-		return context, err
-	}
-	defer fileLock.Unlock()
 
-	bytes, err = ioutil.ReadFile(path)
+	bytes, err := getCliContextContents(path)
+
 	if err != nil {
 		return context, err
 	}
 
 	err = yaml.Unmarshal(bytes, &context)
 	return context, err
+}
+
+func getCliContextContents(path string) ([]byte, error) {
+	var bytes []byte
+	var err error
+
+	// If the file is not readable due to a permission error,
+	// it could be because another process is holding the file open.
+	// In that case, we retry over a short period of time.
+	for i := 0; i < 50; i++ {
+		if i > 0 {
+			time.Sleep(100 * time.Millisecond)
+		}
+
+		bytes, err = ioutil.ReadFile(path)
+		if err == nil || !errors.Is(err, os.ErrPermission) {
+			break
+		}
+	}
+
+	return bytes, err
 }
 
 func (c *cliContext) Validate() error {
