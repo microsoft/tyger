@@ -92,7 +92,7 @@ RUN . /opt/conda/etc/profile.d/conda.sh \
 USER vscode:conda
 
 # .NET Download symbols
-ARG DOTNET_RUNTIME_VERSION=6.0.2
+ARG DOTNET_RUNTIME_VERSION=7.0.0
 ENV PATH=${PATH}:/home/vscode/.dotnet/tools
 RUN umask 0002 \
     && . /opt/conda/etc/profile.d/conda.sh \

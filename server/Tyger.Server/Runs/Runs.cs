@@ -80,6 +80,13 @@ public static class Runs
                 return;
             }
 
+            if (options.Follow)
+            {
+                // When following, there may be a long delay before the first log line is written.
+                // Force a body flush here to return the headers to the client as soon as possible.
+                await context.Response.BodyWriter.FlushAsync(context.RequestAborted);
+            }
+
             await pipeline.Process(context.Response.BodyWriter, context.RequestAborted);
         })
         .Produces<Run>(StatusCodes.Status200OK)

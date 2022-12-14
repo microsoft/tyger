@@ -111,7 +111,7 @@ public partial record NewCodespec : ModelBase, IValidatableObject
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
-        if (Kind == CodespecKind.Worker && Buffers is { Inputs: { Length: > 0 } } or { Outputs: { Length: > 0 } })
+        if (Kind == CodespecKind.Worker && Buffers is { Inputs.Length: > 0 } or { Outputs.Length: > 0 })
         {
             yield return new ValidationResult("Buffers are only supported on job codespecs");
         }

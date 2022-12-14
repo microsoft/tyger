@@ -34,7 +34,7 @@ internal sealed class JsonFormatter : ConsoleFormatter
         _formatterOptions = options.Value;
     }
 
-    public override void Write<TState>(in LogEntry<TState> logEntry, IExternalScopeProvider scopeProvider, TextWriter textWriter)
+    public override void Write<TState>(in LogEntry<TState> logEntry, IExternalScopeProvider? scopeProvider, TextWriter textWriter)
     {
         string? message = logEntry.Formatter?.Invoke(logEntry.State, logEntry.Exception);
         if (message is null)
@@ -49,7 +49,7 @@ internal sealed class JsonFormatter : ConsoleFormatter
         writer.WriteNumber("level", (int)logEntry.LogLevel);
         writer.WriteString("category", $"{logEntry.Category}[{logEntry.EventId}]");
 
-        scopeProvider.ForEachScope((object? scope, object? state) =>
+        scopeProvider?.ForEachScope((object? scope, object? state) =>
         {
             if (scope is IEnumerable<KeyValuePair<string, object>> values)
             {

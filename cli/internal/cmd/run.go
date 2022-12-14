@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -223,7 +224,7 @@ func newRunLogsCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 		Args:                  exactlyOneArg("run ID"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			queryOptions := url.Values{}
-			if flags.timestamps {
+			if flags.follow || flags.timestamps {
 				queryOptions.Add("timestamps", "true")
 			}
 			if flags.tailLines >= 0 {
@@ -237,17 +238,33 @@ func newRunLogsCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 				}
 				queryOptions.Add("since", tm.UTC().Format(time.RFC3339Nano))
 			}
+
 			if flags.follow {
 				queryOptions.Add("follow", "true")
 			}
 
-			resp, err := InvokeRequest(http.MethodGet, fmt.Sprintf("v1/runs/%s/logs?%s", args[0], queryOptions.Encode()), nil, nil, rootFlags.verbose)
-			if err != nil {
-				return err
-			}
+			// If the connection drops while we are following logs, we'll try again from the last received timestamp
 
-			_, err = io.Copy(os.Stdout, resp.Body)
-			return err
+			for {
+				resp, err := InvokeRequest(http.MethodGet, fmt.Sprintf("v1/runs/%s/logs?%s", args[0], queryOptions.Encode()), nil, nil, rootFlags.verbose)
+				if err != nil {
+					return err
+				}
+
+				if !flags.follow {
+					_, err = io.Copy(os.Stdout, resp.Body)
+					return err
+				}
+
+				lastTimestamp, err := followLogs(resp.Body, flags.timestamps)
+				if err == nil || err == io.EOF {
+					return nil
+				}
+
+				if len(lastTimestamp) > 0 {
+					queryOptions.Set("since", lastTimestamp)
+				}
+			}
 		},
 	}
 
@@ -257,4 +274,33 @@ func newRunLogsCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 	cmd.Flags().BoolVarP(&flags.follow, "follow", "f", false, "Specify if the logs should be streamed")
 
 	return cmd
+}
+
+func followLogs(body io.Reader, includeTimestamps bool) (lastTimestamp string, err error) {
+	reader := bufio.NewReader(body)
+	atStartOfLine := true
+	for {
+		if atStartOfLine {
+			localLastTimestamp, err := reader.ReadString(' ')
+			if err != nil {
+				return lastTimestamp, err
+			}
+			lastTimestamp = localLastTimestamp
+			if includeTimestamps {
+				fmt.Print(lastTimestamp)
+			}
+		}
+
+		line, isPrefix, err := reader.ReadLine()
+		if err != nil {
+			return lastTimestamp, err
+		}
+
+		atStartOfLine = !isPrefix
+		if isPrefix {
+			fmt.Print(string(line))
+		} else {
+			fmt.Println(string(line))
+		}
+	}
 }

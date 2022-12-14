@@ -20,7 +20,11 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Configuration
 builder.Configuration.AddJsonFile("appsettings.local.json", optional: true);
-builder.Configuration.AddKeyPerFile(builder.Configuration.GetValue<string>("KeyPerFileDirectory"), optional: true);
+if (builder.Configuration.GetValue<string>("KeyPerFileDirectory") is string keyPerFileDir)
+{
+    builder.Configuration.AddKeyPerFile(keyPerFileDir, optional: true);
+}
+
 if (builder.Configuration.GetValue<string>("AppSettingsDirectory") is string settingsDir)
 {
     builder.Configuration.AddJsonFile(Path.Combine(settingsDir, "appsettings.json"), optional: false);
@@ -28,7 +32,7 @@ if (builder.Configuration.GetValue<string>("AppSettingsDirectory") is string set
 
 // Logging
 builder.Logging.AddConsoleFormatter<JsonFormatter, ConsoleFormatterOptions>();
-builder.WebHost.ConfigureLogging(l => l.Configure(o => o.ActivityTrackingOptions = ActivityTrackingOptions.None));
+builder.Logging.Configure(l => l.ActivityTrackingOptions = ActivityTrackingOptions.None);
 
 // Services
 builder.Services.AddDatabase();
@@ -42,7 +46,7 @@ builder.Services.AddHealthChecks();
 
 builder.Services.Configure<JsonOptions>(options =>
 {
-    options.SerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault;
+    options.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault;
     options.SerializerOptions.AllowTrailingCommas = true;
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
 });

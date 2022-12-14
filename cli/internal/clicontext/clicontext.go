@@ -111,6 +111,7 @@ func Login(options LoginOptions) error {
 func NewRetryableClient() *http.Client {
 	client := retryablehttp.NewClient()
 	client.Logger = nil
+	client.RetryMax = 6
 	client.ErrorHandler = func(resp *http.Response, err error, numTries int) (*http.Response, error) {
 		return resp, err
 	}

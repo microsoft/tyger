@@ -40,7 +40,6 @@ public class Repository : IRepository
 
     public async Task<(IList<Codespec>, string? nextContinuationToken)> GetCodespecs(int limit, string? prefix, string? continuationToken, CancellationToken cancellationToken)
     {
-        IQueryable<CodespecEntity> codespecsQueryable = _context.Codespecs;
         var pagingName = "";
         if (continuationToken != null)
         {

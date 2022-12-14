@@ -60,7 +60,7 @@ public class PipelineTests
 #pragma warning restore CA2012
 
         var pipeline = new Pipeline(stream);
-        await Should.ThrowAsync<DivideByZeroException>(async () => await pipeline.ReadAllAsString());
+        await Should.ThrowAsync<DivideByZeroException>(pipeline.ReadAllAsString);
         stream.Received().Dispose();
     }
 

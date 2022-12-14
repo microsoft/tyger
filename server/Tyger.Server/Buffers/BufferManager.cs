@@ -65,10 +65,9 @@ public class BufferManager : IHealthCheck
         BlobSasBuilder sasBuilder = new()
         {
             BlobContainerName = containerClient.Name,
-            Resource = "c"
+            Resource = "c",
+            ExpiresOn = DateTimeOffset.UtcNow.AddHours(1)
         };
-
-        sasBuilder.ExpiresOn = DateTimeOffset.UtcNow.AddHours(1);
         sasBuilder.SetPermissions(permissions);
 
         Uri uri = containerClient.GenerateSasUri(sasBuilder);
