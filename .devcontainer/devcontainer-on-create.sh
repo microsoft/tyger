@@ -15,7 +15,9 @@ dotnet dev-certs https
 sudo -E "$(which dotnet)" dev-certs https -ep /usr/local/share/ca-certificates/aspnet/https.crt --format PEM
 sudo update-ca-certificates
 
-# Copy the Azure CLI context cache directory that is bind-mounted from the host.
-# This means that an "az login" will not be necessary in the devcontainer if the user has already
-# logged in on the host.
-cp -r /home/.host/.azure/ ~/.azure/
+if [ -d "/home/.host/.azure/" ]; then
+    # Copy the Azure CLI context cache directory that is bind-mounted from the host.
+    # This means that an "az login" will not be necessary in the devcontainer if the user has already
+    # logged in on the host.
+    cp -r /home/.host/.azure/ ~/.azure/
+fi
