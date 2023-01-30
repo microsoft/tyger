@@ -128,7 +128,8 @@ class TestCaseDescriptionGenerator:
         # HACK: These cases appear to take more memory than they state, so we give them more.
         # Proper fix would be to profile gadgetron's peak memory allocation during this reconstruction (say using valgrind's massif tool).
         # Then, perform big win optimizations, fix obvious leaks, and/or update the configs memory requirements if prudent.
-        high_mem_cases = ['generic_grappa2x1_3d.cfg', 'generic_grappa2x2_3d.cfg', 'epi_2d.cfg', 'generic_spirit_cartesian_sampling_spat2.cfg']
+        high_mem_cases = ['generic_grappa2x1_3d.cfg', 'generic_grappa2x2_3d.cfg', 'epi_2d.cfg',
+                          'generic_spirit_cartesian_sampling_spat2.cfg', 'generic_rtcine_ai_landmark.cfg']
 
         if case_name in high_mem_cases:
             memory_req_in_gb += 4

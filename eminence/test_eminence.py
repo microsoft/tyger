@@ -27,7 +27,7 @@ def temp_output_filename():
     current_dir = Path(os.path.dirname(__file__))
     filename = str(current_dir/f"out_{uuid4().hex}.h5")
     yield filename
-    Path(filename).unlink()
+    Path(filename).unlink(missing_ok=True)
 
 
 @pytest.fixture
@@ -231,6 +231,7 @@ failing_cases = [
     'generic_cartesian_cine_denoise.cfg',  # ComplexToFloatGadget does not change header image type. Modify chain to use ImageFinish and/or fix gadget.
 ]
 passing_cases = list(filter(lambda case: case['name'] not in failing_cases, cases))
+
 
 @pytest.mark.parametrize(
     'test_case, image',
