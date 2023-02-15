@@ -8,7 +8,7 @@ public static class Buffers
 {
     public static void AddBuffers(this IServiceCollection services)
     {
-        services.AddOptions<BlobStorageOptions>().BindConfiguration("blobStorage").ValidateDataAnnotations().ValidateOnStart();
+        services.AddOptions<BufferOptions>().BindConfiguration("buffers").ValidateDataAnnotations().ValidateOnStart();
         services.AddSingleton<BufferManager>();
         services.AddHealthChecks().AddCheck<BufferManager>("buffers");
     }
@@ -53,8 +53,11 @@ public static class Buffers
     }
 }
 
-public class BlobStorageOptions
+public class BufferOptions
 {
     [Required]
-    public string ConnectionString { get; init; } = "";
+    public required string ConnectionString { get; init; }
+
+    [Required]
+    public required string BufferProxyImage { get; init; }
 }

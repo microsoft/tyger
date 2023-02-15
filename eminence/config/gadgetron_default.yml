@@ -1,6 +1,6 @@
 tyger:
   job:
-    image: eminence.azurecr.io/gadgetron_recon:latest
+    image: eminencepublic.azurecr.io/gadgetron:current
     replicas: 1
     input:
       - "input"
@@ -10,9 +10,16 @@ tyger:
     args:
       - "-c"
       - "default.xml"
-      - "-r"
-      - "$(INPUT_BUFFER_URI_FILE)"
-      - "-w"
-      - "$(OUTPUT_BUFFER_URI_FILE)"
+      - "--from_stream"
+      - "-i"
+      - "$(INPUT_PIPE)"
+      - "-o"
+      - "$(OUTPUT_PIPE)"
+      - "--storage_address"
+      - "$(MRD_STORAGE_URI)"
     resources:
-      memory: 1G
+      requests:
+        cpu: 1
+        memory: 1G
+      limits:
+        memory: 1G

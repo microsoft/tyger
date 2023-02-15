@@ -10,11 +10,11 @@ namespace Tyger.Server.Buffers;
 
 public class BufferManager : IHealthCheck
 {
-    private readonly BlobStorageOptions _config;
+    private readonly BufferOptions _config;
     private readonly ILogger<BufferManager> _logger;
     private readonly BlobServiceClient _serviceClient;
 
-    public BufferManager(IOptions<BlobStorageOptions> config, ILogger<BufferManager> logger)
+    public BufferManager(IOptions<BufferOptions> config, ILogger<BufferManager> logger)
     {
         _config = config.Value;
         _logger = logger;

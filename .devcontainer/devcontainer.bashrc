@@ -7,6 +7,9 @@ conda activate tyger
 PATH=${PATH}:${HOME}/go/bin
 
 source <(kubectl completion bash)
+if command -v tyger &> /dev/null; then
+    source <(tyger completion bash)
+fi
 alias make="make -s"
 
 if [[ "${BASH_ENV:-}" == "$(readlink -f "${BASH_SOURCE[0]:-}")" ]]; then

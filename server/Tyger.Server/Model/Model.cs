@@ -40,41 +40,48 @@ public partial record BufferParameters(
     [property: UnorderedEquality] string[]? Outputs) : ModelBase;
 
 [Equatable]
-public partial record CodespecResources : ModelBase
+public partial record OvercommittableResources : ModelBase
 {
     [JsonConverter(typeof(QuantityConverter))]
     public ResourceQuantity? Cpu { get; init; }
 
     [JsonConverter(typeof(QuantityConverter))]
     public ResourceQuantity? Memory { get; init; }
+}
+
+[Equatable]
+public partial record CodespecResources : ModelBase
+{
+    public OvercommittableResources? Limits { get; init; }
+    public OvercommittableResources? Requests { get; init; }
 
     [JsonConverter(typeof(QuantityConverter))]
     public ResourceQuantity? Gpu { get; init; }
+}
 
-    public class QuantityConverter : JsonConverter<ResourceQuantity>
+public class QuantityConverter : JsonConverter<ResourceQuantity>
+{
+    public override ResourceQuantity? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
-        public override ResourceQuantity? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        try
         {
-            try
+            if (reader.TokenType == JsonTokenType.Number)
             {
-                if (reader.TokenType == JsonTokenType.Number)
-                {
-                    return new ResourceQuantity(reader.GetDecimal().ToString(CultureInfo.InvariantCulture));
-                }
+                return new ResourceQuantity(reader.GetDecimal().ToString(CultureInfo.InvariantCulture));
+            }
 
-                var valueString = reader.GetString();
-                return string.IsNullOrEmpty(valueString) ? null : new ResourceQuantity(valueString);
-            }
-            catch (Exception e) when (e is FormatException or ArgumentException)
-            {
-                throw new JsonException(e.Message, e);
-            }
+            var valueString = reader.GetString();
+            return string.IsNullOrEmpty(valueString) ? null : new ResourceQuantity(valueString);
         }
-
-        public override void Write(Utf8JsonWriter writer, ResourceQuantity value, JsonSerializerOptions options)
+        catch (Exception e) when (e is FormatException or ArgumentException)
         {
-            writer.WriteStringValue(value?.ToString());
+            throw new JsonException(e.Message, e);
         }
+    }
+
+    public override void Write(Utf8JsonWriter writer, ResourceQuantity value, JsonSerializerOptions options)
+    {
+        writer.WriteStringValue(value?.ToString());
     }
 }
 
@@ -109,11 +116,19 @@ public partial record NewCodespec : ModelBase, IValidatableObject
 
     public BufferParameters? Buffers { get; init; }
 
+    [UnorderedEquality]
+    public Dictionary<string, int>? Endpoints { get; init; }
+
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
         if (Kind == CodespecKind.Worker && Buffers is { Inputs.Length: > 0 } or { Outputs.Length: > 0 })
         {
             yield return new ValidationResult("Buffers are only supported on job codespecs");
+        }
+
+        if (Kind == CodespecKind.Job && Endpoints is { Count: > 0 })
+        {
+            yield return new ValidationResult("Endpoints are only supported on worker codespecs");
         }
 
         if (Buffers != null)

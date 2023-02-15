@@ -1,6 +1,8 @@
 using System.Collections.Immutable;
 using System.ComponentModel.DataAnnotations;
 using System.Globalization;
+using System.Text;
+using System.Text.Json;
 using k8s;
 using k8s.Models;
 using Microsoft.Extensions.Options;
@@ -14,11 +16,10 @@ namespace Tyger.Server.Kubernetes;
 
 public class RunCreator
 {
-    private const string SecretMountPath = "/etc/buffer-sas-tokens";
-
     private readonly IKubernetes _client;
     private readonly IRepository _repository;
     private readonly BufferManager _bufferManager;
+    private readonly BufferOptions _bufferOptions;
     private readonly KubernetesOptions _k8sOptions;
     private readonly StorageServerOptions _storageServerOptions;
     private readonly ILogger<RunCreator> _logger;
@@ -29,11 +30,13 @@ public class RunCreator
         BufferManager bufferManager,
         IOptions<KubernetesOptions> k8sOptions,
         IOptions<StorageServerOptions> storageServerOptions,
+        IOptions<BufferOptions> bufferOptions,
         ILogger<RunCreator> logger)
     {
         _client = client;
         _repository = repository;
         _bufferManager = bufferManager;
+        _bufferOptions = bufferOptions.Value;
         _k8sOptions = k8sOptions.Value;
         _storageServerOptions = storageServerOptions.Value;
         _logger = logger;
@@ -51,9 +54,10 @@ public class RunCreator
         var bufferMap = await GetBufferMap(jobCodespec.Buffers, newRun.Job.Buffers, cancellationToken);
 
         V1PodTemplateSpec? workerPodTemplateSpec = null;
+        Codespec? workerCodespec = null;
         if (newRun.Worker != null)
         {
-            var workerCodespec = await GetCodespec(newRun.Worker.Codespec, cancellationToken);
+            workerCodespec = await GetCodespec(newRun.Worker.Codespec, cancellationToken);
             newRun = newRun with { Worker = newRun.Worker with { Codespec = workerCodespec.NormalizedRef() } };
             workerPodTemplateSpec = CreatePodTemplateSpec(workerCodespec, newRun.Worker, targetCluster, "Always");
         }
@@ -85,13 +89,13 @@ public class RunCreator
                 Selector = new() { MatchLabels = jobLabels },
                 Template = jobPodTemplateSpec,
                 ActiveDeadlineSeconds = run.TimeoutSeconds,
-                BackoffLimit = 0
+                BackoffLimit = 0,
             },
         };
 
         if (bufferMap != null)
         {
-            await CreateAndMountBuffersSecret(job, run, bufferMap, cancellationToken);
+            await AddBufferProxySidecars(job, run, bufferMap, cancellationToken);
         }
 
         if (newRun.Worker != null)
@@ -117,7 +121,7 @@ public class RunCreator
             };
 
             AddWaitForWorkerInitContainersToJob(job, run);
-            AddWorkerNodesEnvironmentVariable(job, run);
+            AddWorkerNodesEnvironmentVariables(job, run, workerCodespec);
 
             await _client.AppsV1.CreateNamespacedStatefulSetAsync(workerStatefulSet, _k8sOptions.Namespace, cancellationToken: cancellationToken);
 
@@ -149,37 +153,74 @@ public class RunCreator
 
     private void AddWaitForWorkerInitContainersToJob(V1Job job, Run run)
     {
-        job.Spec.Template.Spec.InitContainers = new V1Container[] {
-                new()
-                {
-                    Name = "imagepull",
-                    Image = job.Spec.Template.Spec.Containers.Single().Image,
-                    Command = new[] {"/no-op/no-op"},
-                    VolumeMounts = new V1VolumeMount [] {new("/no-op/", "no-op") }
-                },
-                new()
-                {
-                    Name = "waitforworker",
-                    Image = "mcr.microsoft.com/oss/kubernetes/kubectl:v1.23.6",
-                    Command = new[] { "bash", "-c", $"until kubectl wait --for=condition=ready pod -l {WorkerLabel}={run.Id}; do echo waiting for workers to be ready; sleep 2; done"},
-                }
-            };
+        var initContainers = job.Spec.Template.Spec.InitContainers ??= new List<V1Container>();
 
-        (job.Spec.Template.Spec.Volumes ??= new List<V1Volume>()).Add(new() { Name = "no-op", ConfigMap = new V1ConfigMapVolumeSource { DefaultMode = 111, Name = _k8sOptions.NoOpConfigMap } });
+        initContainers.Add(
+            new()
+            {
+                Name = "imagepull",
+                Image = GetMainContainer(job.Spec.Template.Spec).Image,
+                Command = new[] { "/no-op/no-op" },
+                VolumeMounts = new V1VolumeMount[] { new("/no-op/", "no-op") }
+            });
+
+        var waitScript = new StringBuilder("set -euo pipefail").AppendLine();
+        waitScript.AppendLine($"until kubectl wait --for=condition=ready pod -l {WorkerLabel}={run.Id}; do echo waiting for workers to be ready; sleep 1; done;");
+        foreach (var host in GetWorkerDnsNames(run))
+        {
+            waitScript.AppendLine($"until nslookup {host}; do echo waiting for hostname {host} to resolve; sleep 1; done;");
+        }
+
+        initContainers.Add(
+            new()
+            {
+                Name = "waitforworker",
+                Image = _k8sOptions.WorkerWaiterImage,
+                Command = new[] { "bash", "-c", waitScript.ToString() },
+            });
+
+        (job.Spec.Template.Spec.Volumes ??= new List<V1Volume>()).Add(new()
+        {
+            Name = "no-op",
+            ConfigMap = new V1ConfigMapVolumeSource
+            {
+                DefaultMode = 111,
+                Name = _k8sOptions.NoOpConfigMap
+            }
+        });
         job.Spec.Template.Spec.ServiceAccountName = _k8sOptions.JobServiceAccount;
     }
 
-    private void AddWorkerNodesEnvironmentVariable(V1Job job, Run run)
+    private void AddWorkerNodesEnvironmentVariables(V1Job job, Run run, Codespec? workerCodespec)
     {
-        var dnsNames = string.Join(",", Enumerable.Range(0, run.Worker!.Replicas).Select(i => $"{StatefulSetNameFromRunId(run.Id)}-{i}.{StatefulSetNameFromRunId(run.Id)}.{_k8sOptions.Namespace}.svc.cluster.local"));
-        (job.Spec.Template.Spec.Containers.Single().Env ??= new List<V1EnvVar>()).Add(new("TYGER_WORKER_NODES", dnsNames));
+        var dnsNames = GetWorkerDnsNames(run);
+
+        var envVars = GetMainContainer(job.Spec.Template.Spec).Env ??= new List<V1EnvVar>();
+        envVars.Add(new("TYGER_WORKER_NODES", JsonSerializer.Serialize(dnsNames)));
+        if (workerCodespec?.Endpoints != null)
+        {
+            foreach ((var name, var port) in workerCodespec.Endpoints)
+            {
+                envVars.Add(new($"TYGER_{name.ToUpperInvariant()}_WORKER_ENDPOINT_ADDRESSES", JsonSerializer.Serialize(dnsNames.Select(n => $"{n}:{port}"))));
+            }
+        }
     }
 
-    private async Task CreateAndMountBuffersSecret(V1Job job, Run run, Dictionary<string, Uri> bufferMap, CancellationToken cancellationToken)
+    private string[] GetWorkerDnsNames(Run run)
     {
-        foreach (var envVar in bufferMap.Select(p => new V1EnvVar($"{p.Key.ToUpperInvariant()}_BUFFER_URI_FILE", $"{SecretMountPath}/{p.Key}")))
+        return Enumerable.Range(0, run.Worker!.Replicas).Select(i => $"{StatefulSetNameFromRunId(run.Id)}-{i}.{StatefulSetNameFromRunId(run.Id)}.{_k8sOptions.Namespace}.svc.cluster.local").ToArray();
+    }
+
+    private async Task AddBufferProxySidecars(V1Job job, Run run, Dictionary<string, (bool write, Uri sasUri)> bufferMap, CancellationToken cancellationToken)
+    {
+        const string SecretMountPath = "/etc/buffer-sas-tokens";
+        const string FifoMountPath = "/etc/buffer-fifos";
+        const string PipeVolumeName = "pipevolume";
+
+        var mainContainer = GetMainContainer(job.Spec.Template.Spec);
+        foreach (var envVar in bufferMap.Select(p => new V1EnvVar($"{p.Key.ToUpperInvariant()}_PIPE", $"{FifoMountPath}/{p.Key}")))
         {
-            job.Spec.Template.Spec.Containers.Single().Env.Add(envVar);
+            mainContainer.Env.Add(envVar);
         }
 
         var buffersSecret = new V1Secret
@@ -189,7 +230,7 @@ public class RunCreator
                 Name = SecretNameFromRunId(run.Id),
                 Labels = job.Labels() ?? throw new InvalidOperationException("expected job labels to be set"),
             },
-            StringData = bufferMap.ToDictionary(p => p.Key, p => p.Value.ToString()),
+            StringData = bufferMap.ToDictionary(p => p.Key, p => p.Value.sasUri.ToString()),
         };
 
         (job.Spec.Template.Spec.Volumes ??= new List<V1Volume>()).Add(
@@ -199,18 +240,60 @@ public class RunCreator
                 Secret = new() { SecretName = buffersSecret.Metadata.Name },
             });
 
-        (job.Spec.Template.Spec.Containers.Single().VolumeMounts ??= new List<V1VolumeMount>()).Add(
+        job.Spec.Template.Spec.Volumes.Add(new() { Name = PipeVolumeName, EmptyDir = new() });
+
+        var fifoVolumeMount = new V1VolumeMount(FifoMountPath, PipeVolumeName);
+        (mainContainer.VolumeMounts ??= new List<V1VolumeMount>()).Add(fifoVolumeMount);
+
+        var mkfifoBuilder = new StringBuilder("set -euo pipefail").AppendLine();
+        foreach (var buffer in bufferMap)
+        {
+            var fifoPath = $"{FifoMountPath}/{buffer.Key}";
+            mkfifoBuilder.AppendLine($"mkfifo {fifoPath}").AppendLine($"chmod 666 {fifoPath}");
+        }
+
+        (job.Spec.Template.Spec.InitContainers ??= new List<V1Container>()).Add(
             new()
             {
-                Name = "buffers",
-                MountPath = SecretMountPath,
-                ReadOnlyProperty = true
+                Name = "mkfifo",
+                Image = "mcr.microsoft.com/cbl-mariner/base/core:2.0-nonroot",
+                Command = new[] { "bash", "-c", mkfifoBuilder.ToString() },
+                VolumeMounts = new[] { fifoVolumeMount }
             }
         );
+
+        foreach ((string bufferName, (bool write, Uri sasUri)) in bufferMap)
+        {
+            job.Spec.Template.Spec.Containers.Add(new()
+            {
+                Name = $"{bufferName}-buffer-proxy",
+                Image = _bufferOptions.BufferProxyImage,
+                Args = new[]
+                {
+                    write ? "write" : "read",
+                    $"{SecretMountPath}/{bufferName}",
+                    write ? "--input" : "--output",
+                    $"{FifoMountPath}/{bufferName}"
+                },
+                VolumeMounts = new[]
+                {
+                    fifoVolumeMount,
+                    new()
+                    {
+                        Name = "buffers",
+                        MountPath = SecretMountPath,
+                        ReadOnlyProperty = true,
+
+                    },
+                },
+            });
+        }
 
         await _client.CoreV1.CreateNamespacedSecretAsync(buffersSecret, _k8sOptions.Namespace, cancellationToken: cancellationToken);
         _logger.CreatedSecret(buffersSecret.Metadata.Name);
     }
+
+    private static V1Container GetMainContainer(V1PodSpec podSpec) => podSpec.Containers.Single(c => c.Name == "main");
 
     private ClusterOptions GetTargetCluster(NewRun newRun)
     {
@@ -243,9 +326,9 @@ public class RunCreator
             },
             Spec = new()
             {
-                Containers = new[]
+                Containers = new List<V1Container>()
                 {
-                    new V1Container
+                    new()
                     {
                         Name = "main",
                         Image = codespec.Image,
@@ -266,7 +349,7 @@ public class RunCreator
 
     private void AddStorageServer(V1PodTemplateSpec podTemplateSpec)
     {
-        (podTemplateSpec.Spec.Containers.Single().Env ??= new List<V1EnvVar>()).Add(new("MRD_STORAGE_URI", _storageServerOptions.Uri));
+        (GetMainContainer(podTemplateSpec.Spec).Env ??= new List<V1EnvVar>()).Add(new("MRD_STORAGE_URI", _storageServerOptions.Uri));
     }
 
     private static void AddComputeResources(V1PodTemplateSpec podTemplateSpec, Codespec codespec, RunCodeTarget codeTarget, ClusterOptions? targetCluster)
@@ -296,23 +379,15 @@ public class RunCreator
 
         if (codespec.Resources != null)
         {
-            var resources = new Dictionary<string, ResourceQuantity>();
-            if (codespec.Resources.Cpu != null)
-            {
-                resources["cpu"] = codespec.Resources.Cpu;
-            }
-
-            if (codespec.Resources.Memory != null)
-            {
-                resources["memory"] = codespec.Resources.Memory;
-            }
+            Dictionary<string, ResourceQuantity> requests = ToDictionary(codespec.Resources.Requests);
+            Dictionary<string, ResourceQuantity> limits = ToDictionary(codespec.Resources.Limits);
 
             if (codespec.Resources.Gpu != null)
             {
-                resources["nvidia.com/gpu"] = codespec.Resources.Gpu;
+                requests["nvidia.com/gpu"] = limits["nvidia.com/gpu"] = codespec.Resources.Gpu;
             }
 
-            podTemplateSpec.Spec.Containers.Single().Resources = new() { Limits = resources, Requests = resources };
+            GetMainContainer(podTemplateSpec.Spec).Resources = new() { Requests = requests, Limits = limits };
         }
 
         podTemplateSpec.Spec.Tolerations = new List<V1Toleration>
@@ -329,6 +404,22 @@ public class RunCreator
         {
             podTemplateSpec.Spec.NodeSelector.Add("agentpool", targetNodePool);
         }
+    }
+
+    private static Dictionary<string, ResourceQuantity> ToDictionary(OvercommittableResources? resources)
+    {
+        var dict = new Dictionary<string, ResourceQuantity>();
+        if (resources?.Cpu != null)
+        {
+            dict["cpu"] = resources.Cpu;
+        }
+
+        if (resources?.Memory != null)
+        {
+            dict["memory"] = resources.Memory;
+        }
+
+        return dict;
     }
 
     private static bool DoesVmHaveSupportedGpu(string vmSize)
@@ -381,13 +472,13 @@ public class RunCreator
         return codespec;
     }
 
-    private async Task<Dictionary<string, Uri>> GetBufferMap(BufferParameters? parameters, Dictionary<string, string>? arguments, CancellationToken cancellationToken)
+    private async Task<Dictionary<string, (bool write, Uri sasUri)>> GetBufferMap(BufferParameters? parameters, Dictionary<string, string>? arguments, CancellationToken cancellationToken)
     {
         arguments = arguments == null ? new(StringComparer.OrdinalIgnoreCase) : new(arguments, StringComparer.OrdinalIgnoreCase);
         IEnumerable<(string param, bool writeable)> combinedParameters = (parameters?.Inputs?.Select(param => (param, false)) ?? Enumerable.Empty<(string, bool)>())
             .Concat(parameters?.Outputs?.Select(param => (param, true)) ?? Enumerable.Empty<(string, bool)>());
 
-        var outputMap = new Dictionary<string, Uri>();
+        var outputMap = new Dictionary<string, (bool write, Uri sasUri)>();
 
         foreach (var param in combinedParameters)
         {
@@ -402,7 +493,7 @@ public class RunCreator
                 throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The buffer '{0}' was not found", bufferId));
             }
 
-            outputMap[param.param] = bufferAccess.Uri;
+            outputMap[param.param] = (param.writeable, bufferAccess.Uri);
             arguments.Remove(param.param);
         }
 

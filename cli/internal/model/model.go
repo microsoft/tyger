@@ -20,10 +20,15 @@ type BufferParameters struct {
 	Outputs []string `json:"outputs,omitempty"`
 }
 
-type CodespecResources struct {
+type OvercommittableResources struct {
 	Cpu    *string `json:"cpu,omitempty"`
 	Memory *string `json:"memory,omitempty"`
-	Gpu    *string `json:"gpu,omitempty"`
+}
+
+type CodespecResources struct {
+	Requests *OvercommittableResources `json:"requests,omitempty"`
+	Limits   *OvercommittableResources `json:"limits,omitempty"`
+	Gpu      *string                   `json:"gpu,omitempty"`
 }
 
 type NewCodespec struct {
@@ -36,6 +41,7 @@ type NewCodespec struct {
 	Env         map[string]string  `json:"env,omitempty"`
 	Resources   *CodespecResources `json:"resources,omitempty"`
 	MaxReplicas int                `json:"maxReplicas"`
+	Endpoints   map[string]int     `json:"endpoints,omitempty"`
 }
 
 type Codespec struct {

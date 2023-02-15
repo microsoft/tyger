@@ -285,6 +285,8 @@ public class RunLogReader : ILogSource
     private async Task<Pipeline?> GetLogsFromPod(string podName, string? prefix, GetLogsOptions options, CancellationToken cancellationToken)
     {
         var qs = QueryString.Empty;
+        qs = qs.Add("container", "main"); // TODO: should we include the other (buffer-proxy) containers too?
+
         if (options.IncludeTimestamps)
         {
             qs = qs.Add("timestamps", "true");

@@ -85,6 +85,9 @@ public class KubernetesOptions
     [Required]
     public string NoOpConfigMap { get; set; } = null!;
 
+    [Required]
+    public required string WorkerWaiterImage { get; init; }
+
     [MinLength(1)]
     public Dictionary<string, ClusterOptions> Clusters { get; } = new(StringComparer.Ordinal);
 }

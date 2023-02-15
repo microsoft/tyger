@@ -1,6 +1,6 @@
 tyger:
   job:
-    image: eminence.azurecr.io/recon:latest
+    image: eminence.azurecr.io/recon:current
     replicas: 1
     input:
       - "input"
@@ -10,7 +10,10 @@ tyger:
     args:
       - "-p"
       - "noise"
-      - "-r"
-      - "$(INPUT_BUFFER_URI_FILE)"
-      - "-w"
-      - "$(OUTPUT_BUFFER_URI_FILE)"
+      - "-i"
+      - "$(INPUT_PIPE)"
+      - "-o"
+      - "$(OUTPUT_PIPE)"
+    resources:
+      requests:
+        cpu: 1

@@ -24,6 +24,23 @@ ensure-environment:
 remove-environment: down
 	echo '${ENVIRONMENT_CONFIG}' | deploy/scripts/environment/remove-environment.sh -c -
 
+ensure-buffer-proxy-installed: install-cli
+	buffer_proxy_version="$$(jq -r -c '.dependencies | .[] | select(.name == "buffer-proxy-binaries") | .tag' dependencies.json)"
+	if command -v buffer-proxy &> /dev/null; then
+		if buffer-proxy --version | grep -q "$$buffer_proxy_version"; then
+			exit
+		fi
+	fi
+
+	buffer_proxy_binaries_image="$$(jq -r -c '.dependencies | .[] | select(.name == "buffer-proxy-binaries") | (.repository + ":" + .tag)' dependencies.json)"
+	registry="$$(echo "$${buffer_proxy_binaries_image}" | cut -d/ -f1)"
+	scripts/login-acr-if-needed.sh "$$registry"
+
+	container=$$(docker create $$buffer_proxy_binaries_image)
+	install_dir=$$(dirname "$$(which tyger)")
+	docker cp "$${container}:/buffer-proxy/linux/amd64/buffer-proxy" "$${install_dir}"
+	docker rm "$$container"
+
 set-context:
 	subscription=$$(echo '${ENVIRONMENT_CONFIG}' | jq -r '.subscription')
 	resource_group=$$(echo '${ENVIRONMENT_CONFIG}' | jq -r '.resourceGroup')
@@ -46,6 +63,10 @@ set-localsettings:
 	logs_secret_value="$$(kubectl get secrets -n ${HELM_NAMESPACE} $${logs_secret_name} -o jsonpath="{.data.connectionString}" | base64 -d)"
 
 	postgres_password="$$(kubectl get secrets -n ${HELM_NAMESPACE} ${HELM_RELEASE}-db -o jsonpath="{.data.postgresql-password}" | base64 -d)"
+
+	buffer_proxy_image="$$(jq -r -c '.dependencies | .[] | select(.name == "buffer-proxy") | (.repository + ":" + .tag)' dependencies.json)"
+	worker_waiter_image="$$(docker inspect eminence.azurecr.io/worker-waiter:dev | jq -r --arg repo eminence.azurecr.io/worker-waiter '.[0].RepoDigests[] | select (startswith($$repo))')"
+
 	jq <<- EOF > ${SERVER_PATH}/appsettings.local.json
 		{
 			"logging": { "Console": {"FormatterName": "simple" } },
@@ -59,13 +80,15 @@ set-localsettings:
 				"namespace": "${HELM_NAMESPACE}",
 				"jobServiceAccount": "${HELM_RELEASE}-job",
 				"noOpConfigMap": "${HELM_RELEASE}-no-op",
+				"workerWaiterImage": "$${worker_waiter_image}",
 				"clusters": $$(echo '${ENVIRONMENT_CONFIG}' | jq -c '.clusters')
 			},
 			"logArchive": {
 				"storageAccountConnectionString": "$${logs_secret_value}"
 			},
-			"blobStorage": {
-				"connectionString": "$${buffer_secret_value}"
+			"buffers": {
+				"connectionString": "$${buffer_secret_value}",
+				"bufferProxyImage": "$${buffer_proxy_image}"
 			},
 			"database": {
 				"connectionString": "Host=tyger-db; Database=tyger; Port=5432; Username=postgres; Password=$${postgres_password}"
@@ -102,25 +125,26 @@ docker-build:
 docker-build-test:
 	echo '${ENVIRONMENT_CONFIG}' | scripts/build-images.sh -c - --test --push --push-force --tag test
 
-up: ensure-environment docker-build
+up: ensure-environment ensure-buffer-proxy-installed docker-build
 	echo '${ENVIRONMENT_CONFIG}' | deploy/scripts/tyger/tyger-up.sh -c -
 
 down:
 	echo '${ENVIRONMENT_CONFIG}' | deploy/scripts/tyger/tyger-down.sh -c -
 
-e2e-no-up: docker-build-test cli-ready
+wait-clusters-scale:
 	if ! echo '${ENVIRONMENT_CONFIG}' | timeout --foreground 30m scripts/wait-for-cluster-to-scale.sh -c -; then
 		echo "timed out waiting for nodepools to scale"
 		exit 1
 	fi
 
+e2e-no-up: docker-build-test cli-ready wait-clusters-scale
 	pushd cli/test/e2e
 	go test -tags=e2e
 
 e2e: up e2e-no-up
-
+	
 eminence-no-up: e2e-no-up eminence-data
-	pytest eminence --workers 32
+	pytest eminence --workers 100
 
 eminence: up eminence-no-up
 
@@ -189,3 +213,11 @@ format:
 
 verify-format:
 	find server -name *csproj | xargs -i sh -c 'dotnet build -p:EnforceCodeStyleInBuild=true {} && dotnet format --verify-no-changes {}'
+
+purge-runs: set-context
+	for pod in $$(kubectl get pod -n "${HELM_NAMESPACE}" -l tyger-run -o go-template='{{range .items}}{{.metadata.name}}{{"\n"}}{{end}}'); do
+		kubectl patch pod -n "${HELM_NAMESPACE}" "$${pod}" \
+			--type json \
+			--patch='[ { "op": "remove", "path": "/metadata/finalizers" } ]'
+	done
+	kubectl delete job,statefulset,secret,service -n "${HELM_NAMESPACE}" -l tyger-run --cascade=foreground

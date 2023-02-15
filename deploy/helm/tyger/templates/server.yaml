@@ -130,10 +130,14 @@ spec:
               value: {{ include "tyger.fullname" . }}-job
             - name: Kubernetes__NoOpConfigMap
               value: {{ include "tyger.fullname" . }}-no-op
+            - name: Kubernetes__WorkerWaiterImage
+              value: {{ required "A value for server.workerWaiterImage is required" $serverValues.workerWaiterImage }}
             - name: Database__ConnectionString
               value: Host={{ template "common.names.fullname" .Subcharts.db }}; Database={{ .Values.db.postgresqlDatabase }}; Port=5432; Username={{ template "postgresql.username" .Subcharts.db }}
             - name: StorageServer__Uri
               value: http://{{ include "tyger.fullname" . }}-storage.{{ .Release.Namespace }}:8080
+            - name: Buffers__BufferProxyImage
+              value: {{ required "A value for server.bufferProxyImage is required" $serverValues.bufferProxyImage }}
           readinessProbe:
             httpGet:
               path: /healthcheck
@@ -177,7 +181,7 @@ spec:
               name: {{ required "A value for server.storageAccountConnectionStringSecretName" $serverValues.storageAccountConnectionStringSecretName }}
               items:
                 - key: {{ $serverValues.storageAccountConnectionStringSecretDataKey }}
-                  path: "blobStorage__connectionString"
+                  path: "buffers__connectionString"
           - secret:
               name: {{ required "A value for server.logsStorageAccountConnectionStringSecretName" $serverValues.logsStorageAccountConnectionStringSecretName }}
               items:

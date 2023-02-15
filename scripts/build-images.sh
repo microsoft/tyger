@@ -103,13 +103,6 @@ function build_and_push() {
 
 if [[ -n "${test:-}" ]]; then
   build_context="${repo_root_dir}/cli"
-  dockerfile_path="${repo_root_dir}/cli/test/testbufferio/Dockerfile"
-  target="testbufferio"
-  local_tag="testbufferio"
-  remote_repo="testbufferio"
-
-  build_and_push
-
   dockerfile_path="${repo_root_dir}/cli/test/testconnectivity/Dockerfile"
   target="testconnectivity"
   local_tag="testconnectivity"
@@ -122,6 +115,14 @@ else
   target="runtime"
   local_tag="tyger-server"
   remote_repo="tyger-server"
+
+  build_and_push
+
+  build_context="${repo_root_dir}/deploy/images/worker-waiter"
+  dockerfile_path="${repo_root_dir}/deploy/images/worker-waiter/Dockerfile"
+  target="worker-waiter"
+  local_tag="worker-waiter"
+  remote_repo="worker-waiter"
 
   build_and_push
 fi

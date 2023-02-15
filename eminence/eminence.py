@@ -50,44 +50,36 @@ def get_run_status(run_id):
     return TygerStatus(json.loads(get_command_output(f'tyger run get {run_id}'))['status'])
 
 
-def monitor_run_and_scan(run_id, *scanner_args):
-    container_name = 'scanner_' + uuid4().hex
-    scanner_process = multiprocessing.Process(target=run_scanner, args=[container_name, *scanner_args])
-    scanner_process.start()
+def monitor_run_and_handle_io(run_id: str, infile: Path, outfile: Path, input_uri: str, output_uri: str):
+    to_stream_process = subprocess.Popen(["ismrmrd_hdf5_to_stream", "--use-stdout", "-i", infile], stdout=subprocess.PIPE)
+    proxy_write_process = subprocess.Popen(["buffer-proxy", "write", input_uri, "--log-level", "error"], stdin=to_stream_process.stdout)
 
-    status = None
-    while scanner_process.is_alive() and status != TygerStatus.SUCCEEDED:
-        status = get_run_status(run_id)
+    proxy_read_process = subprocess.Popen(["buffer-proxy", "read", output_uri, "--log-level", "error"], stdout=subprocess.PIPE)
+    to_hdf5_process = subprocess.Popen(["ismrmrd_stream_to_hdf5", "--use-stdin", "-g", "img", "-o", outfile], stdin=proxy_read_process.stdout)
 
-        if status == TygerStatus.FAILED:
-            scanner_process.kill()
-            os.system(f'docker kill {container_name}')
-            sys.exit(f'Run ID: {run_id} failed')
+    try:
+        status = None
+        while True:
+            if proxy_write_process.poll() not in (None, 0):
+                raise Exception("Run {run_id}: failed to write input to buffer")
 
-        scanner_process.join(SCANNER_PROCESS_JOIN_TIMEOUT)
+            if to_hdf5_process.poll() not in (None, 0):
+                raise Exception(f"Run {run_id}: failed to process output data from buffer")
 
-    scanner_process.join()
+            status = get_run_status(run_id)
+            if status == TygerStatus.FAILED:
+                raise Exception(f"Run {run_id} failed")
 
-
-def run_scanner(container_name: str, infile: Path, outfile: Path, input_uri: str, output_uri: str, session_id: Optional[str] = None, verbose=False):
-    image = get_dependency_image("ismrmrd_buffer_proxy")
-    to_stream_cmd = ["ismrmrd_hdf5_to_stream", "--use-stdout", "-i", infile]
-    proxy_cmd = ["docker", "run", "-i", "--rm", f"--name={container_name}", image, "--input-buffer", input_uri, "--output-buffer", output_uri]
-    to_hdf5_cmd = ["ismrmrd_stream_to_hdf5", "--use-stdin", "-g", "img", "-o", outfile]
-
-    if session_id and len(session_id) > 0:
-        proxy_cmd = proxy_cmd + ["--session-id", session_id]
-
-    command = [to_stream_cmd, proxy_cmd, to_hdf5_cmd]
-
-    processes = []
-    for cmd in command:
-        if len(processes) == 0:
-            processes.append(subprocess.Popen(cmd, stdout=subprocess.PIPE))
-        else:
-            processes.append(subprocess.Popen(cmd, stdin=processes[-1].stdout, stdout=subprocess.PIPE))
-
-    assert processes[-1].wait() == 0
+            try:
+                if to_hdf5_process.wait(SCANNER_PROCESS_JOIN_TIMEOUT) == 0:
+                    return
+            except subprocess.TimeoutExpired:
+                continue
+    finally:
+        to_stream_process.kill()
+        proxy_write_process.kill()
+        proxy_read_process.kill()
+        to_hdf5_process.kill()
 
 
 def validate_configuration(config: Dict):
@@ -124,8 +116,12 @@ def codespec_args(config: Dict):
     ]
 
     res: Dict = config['resources'] if 'resources' in config else {}
-    args += (["--cpu", str(res['cpu'])] if 'cpu' in res else [])
-    args += (["--memory", str(res['memory'])] if 'memory' in res else [])
+    requests: Dict = res['requests'] if 'requests' in res else {}
+    limits: Dict = res['limits'] if 'limits' in res else {}
+    args += (["--cpu-request", str(requests['cpu'])] if 'cpu' in requests else [])
+    args += (["--memory-request", str(requests['memory'])] if 'memory' in requests else [])
+    args += (["--cpu-limit", str(limits['cpu'])] if 'cpu' in limits else [])
+    args += (["--memory-limit", str(limits['memory'])] if 'memory' in limits else [])
     args += (["--gpu", str(res['gpu'])] if 'gpu' in res else [])
 
     if 'input' in config:
@@ -133,6 +129,16 @@ def codespec_args(config: Dict):
 
     if 'output' in config:
         args += [f"-o={','.join(config['output'])}"]
+
+    if 'env' in config:
+        for key, value in config['env'].items():
+            args.append("--env")
+            args.append(f"{key}={value}")
+
+    if 'endpoints' in config:
+        for key, value in config['endpoints'].items():
+            args.append("--endpoint")
+            args.append(f"{key}={value}")
 
     if 'command' in config and len(config['command']) > 0:
         args += [
@@ -166,7 +172,7 @@ if __name__ == '__main__':
 
     verbose_arg = ["--verbose"] if args.verbose else []
 
-    def run_tyger(arguments: List[str], timeout_seconds=20):
+    def run_tyger(arguments: List[str], timeout_seconds=60):
         try:
             out = subprocess.check_output(["tyger"] + verbose_arg + arguments, timeout=timeout_seconds, universal_newlines=True)
             return out.strip()
@@ -234,8 +240,7 @@ if __name__ == '__main__':
     print(f"RunId: {run_id}")
 
     if 'input' in config['job'] and 'output' in config['job']:
-        monitor_run_and_scan(run_id, args.input_file, args.output_file,
-                             buffers[config['job']['input'][0]]['uri'], buffers[config['job']['output'][0]]['uri'],
-                             args.session_id, args.verbose)
+        monitor_run_and_handle_io(run_id, args.input_file, args.output_file,
+                                  buffers[config['job']['input'][0]]['uri'], buffers[config['job']['output'][0]]['uri'])
     else:
-        print("WARNING: Not running scanner since input/output buffers not requested")
+        print("WARNING: Not running buffer-proxy since input/output buffers not requested")

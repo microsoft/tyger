@@ -57,29 +57,48 @@ class TestCaseDescriptionGenerator:
             config['tyger']['job']['args'] = [case.reconstruction_client_config.configuration if arg ==
                                               'default.xml' else arg for arg in config['tyger']['job']['args']]
 
+            config['tyger']['job']['resources'] |= {}
+            config['tyger']['job']['resources']['requests'] |= {}
+            config['tyger']['job']['resources']['limits'] |= {}
+
             if case.requirements_config.gpu_support:
                 config['tyger']['job']['resources']['gpu'] = "1"
 
-            config['tyger']['job']['resources']['memory'] = self._generate_mem_requirement(case.name, case.requirements_config.system_memory)
+            memory = self._generate_mem_requirement(case.name, case.requirements_config.system_memory)
+
+            config['tyger']['job']['resources']['requests']['memory'] = memory
+            config['tyger']['job']['resources']['limits']['memory'] = memory
 
             main_runfile_path = os.path.join(case_dir, 'run_main.yml')
 
             if case.distributed_config:
                 worker_description = {
                     'worker': {
-                        'image': 'eminence.azurecr.io/gadgetron_recon:latest',
+                        'image': 'eminencepublic.azurecr.io/gadgetron:current',
                         'replicas': int(case.distributed_config.nodes),
                         'nodepool': 'cpunp',
                         'command': ["/tini", "--", "/opt/entrypoint.sh"],
-                        'args': ['-E', 'http://tyger-storage.lamna:8080'],
+                        'args': ['--storage_address', '$(MRD_STORAGE_URI)'],
                         'resources': {
-                            'cpu': '3000m',
-                            'memory': self._generate_mem_requirement(case.name, case.requirements_config.system_memory)
+                            'requests': {
+                                'cpu': '3000m',
+                                'memory': memory
+                            },
+                            'limits': {
+                                'memory': memory
+                            }
+                        },
+                        'endpoints': {
+                            'gadgetron': 9002
                         }
                     }
                 }
 
                 config['tyger'].update(worker_description)
+
+                config['tyger']['job']['env'] = {
+                    'GADGETRON_REMOTE_WORKER_COMMAND': 'printenv TYGER_GADGETRON_WORKER_ENDPOINT_ADDRESSES'
+                }
 
             with open(main_runfile_path, 'w+') as run_file:
                 logging.info(f'Generating {main_runfile_path}')

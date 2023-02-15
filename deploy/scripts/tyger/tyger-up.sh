@@ -54,6 +54,11 @@ fi
 tyger_server_image="$(docker inspect eminence.azurecr.io/tyger-server:dev | jq -r --arg repo eminence.azurecr.io/tyger-server '.[0].RepoDigests[] | select (startswith($repo))')"
 tyger_chart_location="$(dirname "$0")/../../helm/tyger"
 
+helm_release="tyger"
+cluster_config=$(echo "${environment_definition}" | jq -c '.clusters')
+storage_server_image=$(jq -r -c '.dependencies | .[] | select(.name == "mrd-storage-server") | (.repository + ":" + .tag)' "$(dirname "$0")/../../../dependencies.json")
+buffer_proxy_image=$(jq -r -c '.dependencies | .[] | select(.name == "buffer-proxy") | (.repository + ":" + .tag)' "$(dirname "$0")/../../../dependencies.json")
+worker_waiter_image="$(docker inspect eminence.azurecr.io/worker-waiter:dev | jq -r --arg repo eminence.azurecr.io/worker-waiter '.[0].RepoDigests[] | select (startswith($repo))')"
 dns_zone=$(echo "${environment_definition}" | jq -r '.dependencies.dnsZone.name')
 
 for organization_name in $(echo "${environment_definition}" | jq -r '.organizations | keys[]'); do
@@ -61,9 +66,6 @@ for organization_name in $(echo "${environment_definition}" | jq -r '.organizati
     subdomain=$(echo "${organization}" | jq -r '.subdomain')
     namespace=$(echo "${organization}" | jq -r '.namespace')
     hostname="${subdomain}.${dns_zone}"
-    helm_release="tyger"
-    cluster_config=$(echo "${environment_definition}" | jq -c '.clusters')
-    storage_server_image=$(jq -r -c '.dependencies | .[] | select(.name == "mrd-storage-server") | (.repository + ":" + .tag)' "$(dirname "$0")/../../../dependencies.json")
 
     # TODO: note that more than one buffer storage account is not currently implemented.
 
@@ -77,6 +79,8 @@ server:
         authority: "$(echo "${organization}" | jq -r '.authority')"
         audience: "$(echo "${organization}" | jq -r '.audience')"
     storageAccountConnectionStringSecretName: "$(echo "${organization}" | jq -r '.storage.buffers[0].name')"
+    bufferProxyImage: "${buffer_proxy_image}"
+    workerWaiterImage: "${worker_waiter_image}"
     logsStorageAccountConnectionStringSecretName: "$(echo "${organization}" | jq -r '.storage.logs.name')"
     clusterConfigurationJson: |
         ${cluster_config}

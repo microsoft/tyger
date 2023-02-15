@@ -8,7 +8,7 @@ set -euo pipefail
 sudo setcap CAP_NET_BIND_SERVICE=+eip /opt/conda/envs/tyger/bin/kubectl
 
 # download go and nuget packages
-make -f "$(dirname "$0")/../Makefile" restore
+make -f "$(dirname "$0")/../Makefile" restore || true
 
 # trust the dotnet dev cert
 dotnet dev-certs https
@@ -21,3 +21,5 @@ if [ -d "/home/.host/.azure/" ]; then
     # logged in on the host.
     cp -r /home/.host/.azure/ ~/.azure/
 fi
+
+make install-cli || true

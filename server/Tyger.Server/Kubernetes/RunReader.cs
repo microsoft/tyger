@@ -140,7 +140,10 @@ public class RunReader
 
             if (job.Status.Succeeded is > 0)
             {
-                var finishedTimes = jobPods.Where(p => p.Status.Phase == "Succeeded").Select(p => p.Status.ContainerStatuses.Single().State.Terminated?.FinishedAt).Where(t => t != null).Select(t => t!.Value).ToList();
+                var finishedTimes = jobPods
+                    .Where(p => p.Status.Phase == "Succeeded")
+                    .Select(p => p.Status.ContainerStatuses.Single(c => c.Name == "main").State.Terminated?.FinishedAt)
+                    .Where(t => t != null).Select(t => t!.Value).ToList();
                 return run with
                 {
                     Status = "Succeeded",

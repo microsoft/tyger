@@ -25,7 +25,6 @@ import (
 	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/clicontext"
 	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/cmd"
 	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/model"
-	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/andreyvit/diff"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -45,15 +44,22 @@ func TestEndToEnd(t *testing.T) {
 
 	// create a codespec
 	const codespecName = "testcodespec"
-	digest := runCommandSuceeds(t, "docker", "inspect", "testbufferio", "--format", "{{ index .RepoDigests 0 }}")
 
 	runTygerSuceeds(t,
 		"codespec",
 		"create", codespecName,
 		"-i=input", "-o=output",
-		"--image", digest,
+		"--image", "curlimages/curl",
+		"--command",
 		"--",
-		"-r", "$(INPUT_BUFFER_URI_FILE)", "-w", "$(OUTPUT_BUFFER_URI_FILE)")
+		"sh", "-c",
+		`
+		set -euo pipefail
+		inp=$(cat "$INPUT_PIPE")
+		echo "${inp}: Bonjour" > "$OUTPUT_PIPE"
+		curl --fail "${MRD_STORAGE_URI}/healthcheck"
+		`,
+	)
 
 	// create an input buffer and a SAS token to be able to write to it
 	inputBufferId := runTygerSuceeds(t, "buffer", "create")
@@ -63,12 +69,7 @@ func TestEndToEnd(t *testing.T) {
 	outputBufferId := runTygerSuceeds(t, "buffer", "create")
 	outputSasUri := runTygerSuceeds(t, "buffer", "access", outputBufferId)
 
-	// write to the input buffer using the SAS URI
-	inputContainerClient, err := azblob.NewContainerClientWithNoCredential(inputSasUri, nil)
-	require.Nil(err)
-	blobClient := inputContainerClient.NewBlockBlobClient("0")
-	_, err = blobClient.UploadBufferToBlockBlob(context.Background(), []byte("Hello"), azblob.HighLevelUploadToBlockBlobOption{})
-	require.Nil(err, err)
+	runCommandSuceeds(t, "sh", "-c", fmt.Sprintf(`echo "Hello" | buffer-proxy write "%s"`, inputSasUri))
 
 	// create run
 	runId := runTygerSuceeds(t, "run", "create", "--codespec", codespecName, "--timeout", "10m",
@@ -77,23 +78,9 @@ func TestEndToEnd(t *testing.T) {
 
 	waitForRunSuccess(t, runId)
 
-	outputContainerClient, err := azblob.NewContainerClientWithNoCredential(outputSasUri, nil)
-	if err != nil {
-		log.Fatal(err)
-	}
+	output := runCommandSuceeds(t, "sh", "-c", fmt.Sprintf(`buffer-proxy read "%s"`, outputSasUri))
 
-	outputBlockBlobClient := outputContainerClient.NewBlockBlobClient("0")
-	inputResp, err := outputBlockBlobClient.Download(context.Background(), nil)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	outputBytes, err := io.ReadAll(inputResp.Body(&azblob.RetryReaderOptions{}))
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	require.Equal("Hello: Bonjour", string(outputBytes))
+	require.Equal("Hello: Bonjour", output)
 }
 
 func TestInvalidCodespecNames(t *testing.T) {
@@ -359,20 +346,20 @@ func TestRecreateCodespec(t *testing.T) {
 	t.Parallel()
 	codespecName := strings.ToLower(t.Name())
 	version1 := runTygerSuceeds(t, "codespec", "create", codespecName, "--image", "busybee", "--command", "--", "echo", "hi I am first")
-	version2 := runTygerSuceeds(t, "codespec", "create", codespecName, "--image", "busybox", "--gpu", "2", "--memory", "2048048", "--env", "os=ubuntu", "--command", "--", "echo", "hi I am latest")
+	version2 := runTygerSuceeds(t, "codespec", "create", codespecName, "--image", "busybox", "--gpu", "2", "--memory-request", "2048048", "--env", "os=ubuntu", "--command", "--", "echo", "hi I am latest")
 	require.NotEqual(t, version1, version2)
 
-	version3 := runTygerSuceeds(t, "codespec", "create", codespecName, "--image", "busybox", "--gpu", "2", "--memory", "2048048", "--env", "os=ubuntu", "--command", "--", "echo", "hi I am latest")
+	version3 := runTygerSuceeds(t, "codespec", "create", codespecName, "--image", "busybox", "--gpu", "2", "--memory-request", "2048048", "--env", "os=ubuntu", "--command", "--", "echo", "hi I am latest")
 	require.Equal(t, version2, version3)
 
-	version4 := runTygerSuceeds(t, "codespec", "create", codespecName, "--image", "busybox", "--memory", "2048048", "--gpu", "2", "--env", "os=ubuntu", "--command", "--", "echo", "hi I am latest")
+	version4 := runTygerSuceeds(t, "codespec", "create", codespecName, "--image", "busybox", "--memory-request", "2048048", "--gpu", "2", "--env", "os=ubuntu", "--command", "--", "echo", "hi I am latest")
 	require.Equal(t, version3, version4)
 
-	version5 := runTygerSuceeds(t, "codespec", "create", codespecName, "--image", "busybox", "--memory", "2048048", "--gpu", "2", "--env", "os=ubuntu", "--env", "platform=highT", "--command", "--", "echo", "hi I am latest")
-	version6 := runTygerSuceeds(t, "codespec", "create", codespecName, "--image", "busybox", "--gpu", "2", "--memory", "2048048", "--env", "platform=highT", "--env", "os=ubuntu", "--command", "--", "echo", "hi I am latest")
+	version5 := runTygerSuceeds(t, "codespec", "create", codespecName, "--image", "busybox", "--memory-request", "2048048", "--gpu", "2", "--env", "os=ubuntu", "--env", "platform=highT", "--command", "--", "echo", "hi I am latest")
+	version6 := runTygerSuceeds(t, "codespec", "create", codespecName, "--image", "busybox", "--gpu", "2", "--memory-request", "2048048", "--env", "platform=highT", "--env", "os=ubuntu", "--command", "--", "echo", "hi I am latest")
 	require.Equal(t, version5, version6)
 
-	version7 := runTygerSuceeds(t, "codespec", "create", codespecName, "--image", "busybox", "--memory", "2048048", "--gpu", "2", "--env", "platform=highT", "--env", "os=windows", "--command", "--", "echo", "hi I am latest")
+	version7 := runTygerSuceeds(t, "codespec", "create", codespecName, "--image", "busybox", "--memory-request", "2048048", "--gpu", "2", "--env", "platform=highT", "--env", "os=windows", "--command", "--", "echo", "hi I am latest")
 	require.NotEqual(t, version6, version7)
 }
 

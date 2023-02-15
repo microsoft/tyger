@@ -9,7 +9,7 @@ tyger:
     command: []
     args:
       - "-c"
-      - "grappa_float.xml"
+      - "default.xml"
       - "--from_stream"
       - "-i"
       - "$(INPUT_PIPE)"
@@ -18,4 +18,5 @@ tyger:
       - "--storage_address"
       - "$(MRD_STORAGE_URI)"
     resources:
-      gpu: "1"
+      requests:
+        cpu: 1

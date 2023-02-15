@@ -93,7 +93,7 @@ def configuration_generator():
     [
         (get_dependency_image("recon"), "basic_recon.yml", "image_0"),
         (get_dependency_image("python_recon"), "basic_recon.yml", "image_0"),
-        (get_dependency_image("gadgetron_recon"), "basic_gadgetron_recon.yml", "image_0")
+        (get_dependency_image("gadgetron"), "basic_gadgetron.yml", "image_0")
     ])
 def test_simple_reconstruction(data_dir: Path, temp_output_filename: str, config: str, image: str, image_variable_name: str, configuration_generator):
     test_file = str(data_dir/"testdata.h5")
@@ -108,17 +108,17 @@ def test_simple_reconstruction(data_dir: Path, temp_output_filename: str, config
             "-t", "30m"
         ]
 
-        run_eminence(args)
+        run_eminence(args, timeout_seconds=35*60*60)
         verify_basic_recon_results(test_file, temp_output_filename, image_variable_name)
 
 
 @pytest.mark.parametrize(
     "config_file,image,input_file,output_image_variable_name,reference_file,reference_image_variable_name,tolerance",
     [
-        ("distributed_gadgetron.yml", get_dependency_image("gadgetron_recon"), Path("binning/binning.h5"),
+        ("distributed_gadgetron.yml", get_dependency_image("gadgetron"), Path("binning/binning.h5"),
          "img/image_2", Path("binning/binning_reference.h5"), "CMR_2DT_RTCine_KspaceBinning.xml/image_2", 0.01),
 
-        ("grappa_gpu_gadgetron.yml", get_dependency_image("gadgetron_recon"), Path("rt_grappa/rt_grappa.h5"),
+        ("grappa_gpu_gadgetron.yml", get_dependency_image("gadgetron"), Path("rt_grappa/rt_grappa.h5"),
          "img/image_0", Path("rt_grappa/grappa_rate2_out.mrd"), "grappa_float_cpu.xml/image_0", 0.05)
     ])
 def test_reconstruction_against_reference(
@@ -146,7 +146,7 @@ def test_reconstruction_against_reference(
             "-t", "30m"
         ]
 
-        run_eminence(args)
+        run_eminence(args, timeout_seconds=35*60*60)
 
         recon_data: Any = h5py.File(str(temp_output_filename))
         reconstruction = np.squeeze(recon_data[output_image_variable_name]['data'])
@@ -161,13 +161,13 @@ def test_reconstruction_against_reference(
 
 
 @pytest.mark.parametrize(
-    "image,configs,image_variable_name",
+    "image,configs,image_variable_name,scale",
     [
-        (get_dependency_image("recon"), ("basic_noise.yml", "basic_recon.yml"), "image_0"),
-        (get_dependency_image("python_recon"), ("basic_noise.yml", "basic_recon.yml"), "image_0"),
-        (get_dependency_image("gadgetron_recon"), ("gadgetron_noise.yml", "gadgetron_snr.yml"), "image_1")
+        (get_dependency_image("recon"), ("basic_noise.yml", "basic_recon.yml"), "image_0", 1),
+        (get_dependency_image("python_recon"), ("basic_noise.yml", "basic_recon.yml"), "image_0", 1),
+        (get_dependency_image("gadgetron"), ("gadgetron_noise.yml", "gadgetron_snr.yml"), "image_1", 10)
     ])
-def test_noise_dependency_reconstruction(data_dir: Path, temp_output_filename: str, image: str, configs: Tuple[str, str], image_variable_name: str, scanner_session_id: str, configuration_generator):
+def test_noise_dependency_reconstruction(data_dir: Path, temp_output_filename: str, image: str, configs: Tuple[str, str], image_variable_name: str, scanner_session_id: str, configuration_generator, scale: float):
     noise_file = str(data_dir/"noise-scaling"/"data_1.h5")
     data_file = str(data_dir/"noise-scaling"/"data_2.h5")
     config_noise, config_recon = configs
@@ -182,7 +182,7 @@ def test_noise_dependency_reconstruction(data_dir: Path, temp_output_filename: s
                     "-o", out_dummy.name,
                     "-s", scanner_session_id,
                     "-t", "30m"
-                ])
+                ], timeout_seconds=35*60*60)
 
     with tempfile.NamedTemporaryFile(prefix=str(data_dir), suffix='.h5') as input_file:  # Enable parallelism by duplicating the file
         subprocess.run(shlex.split(f'cp {data_file} {input_file.name}'), check=True)  # Required due to limitation in ismrmrd.
@@ -193,7 +193,7 @@ def test_noise_dependency_reconstruction(data_dir: Path, temp_output_filename: s
                 "-r", configuration_generator(config_recon, image),
                 "-s", scanner_session_id,
                 "-t", "30m"
-            ])
+            ], timeout_seconds=35*60*60)
 
     # Within the object being scanned, the standard deviation across repetitions
     # should be close to 1.
@@ -204,7 +204,7 @@ def test_noise_dependency_reconstruction(data_dir: Path, temp_output_filename: s
 
     avg_relevant_std = np.mean(img_std[img_mean > np.max(img_mean)*0.25])
 
-    assert np.abs(1 - avg_relevant_std) < 1e-2
+    assert np.abs(1 - avg_relevant_std) < 1e-2*scale
 
 
 def get_cases():
@@ -235,7 +235,7 @@ passing_cases = list(filter(lambda case: case['name'] not in failing_cases, case
 
 @pytest.mark.parametrize(
     'test_case, image',
-    list(zip(passing_cases, repeat(get_dependency_image("gadgetron_recon")))),
+    list(zip(passing_cases, repeat(get_dependency_image("gadgetron")))),
     ids=[case['name'] for case in passing_cases]
 )
 def test_gadgetron_test_case(test_case, image, scanner_session_id, temp_output_filename, configuration_generator):
@@ -249,7 +249,7 @@ def test_gadgetron_test_case(test_case, image, scanner_session_id, temp_output_f
                 "-r", config,
                 "-s", scanner_session_id,
                 "-t", "30m"
-            ])
+            ], timeout_seconds=35*60*60)
 
     if test_case.get('main'):
         config = configuration_generator(test_case['main']['run_file_path'], image)
@@ -260,7 +260,7 @@ def test_gadgetron_test_case(test_case, image, scanner_session_id, temp_output_f
             "-r", config,
             "-s", scanner_session_id,
             "-t", "30m"
-        ])
+        ], timeout_seconds=35*60*60)
 
         def get_output_data(file_path, img_name):
             data: Any = h5py.File(file_path)

@@ -1,34 +1,40 @@
 {
   "dependencies": [
     {
+      "name": "buffer-proxy",
+      "type": "acrImage",
+      "repository": "eminence.azurecr.io/buffer-proxy",
+      "tag": "17e74e4b3d6b9c4dfed25edfd8b2e00ee08a39c2"
+    },
+    {
+      "name": "buffer-proxy-binaries",
+      "type": "acrImage",
+      "repository": "eminence.azurecr.io/buffer-proxy-binaries",
+      "tag": "17e74e4b3d6b9c4dfed25edfd8b2e00ee08a39c2"
+    },
+    {
       "name": "python_recon",
       "type": "acrImage",
       "repository": "eminence.azurecr.io/python_recon",
-      "tag": "1adec2f1c7b0a623ae7ef28fb1b70c957d19318b"
+      "tag": "075eb4c2aaa63ecb898ed3e937e33277def45474"
     },
     {
       "name": "recon",
       "type": "acrImage",
       "repository": "eminence.azurecr.io/recon",
-      "tag": "1adec2f1c7b0a623ae7ef28fb1b70c957d19318b"
+      "tag": "075eb4c2aaa63ecb898ed3e937e33277def45474"
     },
     {
-      "name": "gadgetron_recon",
+      "name": "gadgetron",
       "type": "acrImage",
-      "repository": "eminence.azurecr.io/gadgetron_recon",
-      "tag": "1adec2f1c7b0a623ae7ef28fb1b70c957d19318b"
-    },
-    {
-      "name": "ismrmrd_buffer_proxy",
-      "type": "acrImage",
-      "repository": "eminence.azurecr.io/ismrmrd_buffer_proxy",
-      "tag": "1adec2f1c7b0a623ae7ef28fb1b70c957d19318b"
+      "repository": "eminencepublic.azurecr.io/gadgetron",
+      "tag": "a0318d1349dce1b9799cb9f6b4486c6cfc5e0c7f"
     },
     {
       "name": "mrd-storage-server",
       "type": "acrImage",
       "repository": "eminencepublic.azurecr.io/mrd-storage-server",
-      "tag": "v0.0.9"
+      "tag": "v0.0.12"
     }
   ]
 }

@@ -38,6 +38,10 @@ func newCodespecCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 }
 
 func newCodespecCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
+	type overcommittableResourceStrings struct {
+		cpu    string
+		memory string
+	}
 	var flags struct {
 		image         string
 		kind          string
@@ -45,14 +49,15 @@ func newCodespecCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 		outputBuffers []string
 		env           map[string]string
 		command       bool
-		cpu           string
-		memory        string
+		requests      overcommittableResourceStrings
+		limits        overcommittableResourceStrings
 		gpu           string
 		maxReplicas   int
+		endpoints     map[string]int
 	}
 
 	var cmd = &cobra.Command{
-		Use:                   "create NAME --image IMAGE [--kind job|worker] [--max-replicas REPLICAS] [[--input BUFFER_NAME] ...] [[--output BUFFER_NAME] ...] [[--env \"KEY=VALUE\"] ...] [resources] [--command] -- [COMMAND] [args...]",
+		Use:                   "create NAME --image IMAGE [--kind job|worker] [--max-replicas REPLICAS] [[--input BUFFER_NAME] ...] [[--output BUFFER_NAME] ...] [[--env \"KEY=VALUE\"] ...] [[ --endpoint SERVICE=PORT ]] [resources] [--command] -- [COMMAND] [args...]",
 		Short:                 "Create or update a codespec",
 		Long:                  `Create or update a codespec. Outputs the version of the codespec that was created.`,
 		DisableFlagsInUseLine: true,
@@ -93,9 +98,13 @@ func newCodespecCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 					Inputs:  flags.inputBuffers,
 					Outputs: flags.outputBuffers,
 				},
-				Env:         flags.env,
-				Resources:   &model.CodespecResources{},
+				Env: flags.env,
+				Resources: &model.CodespecResources{
+					Requests: &model.OvercommittableResources{},
+					Limits:   &model.OvercommittableResources{},
+				},
 				MaxReplicas: flags.maxReplicas,
+				Endpoints:   flags.endpoints,
 			}
 
 			if flags.command {
@@ -104,28 +113,43 @@ func newCodespecCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 				newCodespec.Args = containerArgs
 			}
 
-			if (flags.cpu) != "" {
-				_, err := resource.ParseQuantity(flags.cpu)
-				if err != nil {
-					return fmt.Errorf("cpu value is invalid: %v", err)
+			parseOvercommittableResources := func(resourceStrings overcommittableResourceStrings, resourceType string) (*model.OvercommittableResources, error) {
+				resources := &model.OvercommittableResources{}
+				if (resourceStrings.cpu) != "" {
+					_, err := resource.ParseQuantity(resourceStrings.cpu)
+					if err != nil {
+						return nil, fmt.Errorf("cpu %s value is invalid: %v", resourceType, err)
+					}
+					resources.Cpu = &resourceStrings.cpu
 				}
 
-				newCodespec.Resources.Cpu = &flags.cpu
-			}
-			if (flags.memory) != "" {
-				_, err := resource.ParseQuantity(flags.memory)
-				if err != nil {
-					return fmt.Errorf("memory value is invalid: %v", err)
+				if (resourceStrings.memory) != "" {
+					_, err := resource.ParseQuantity(resourceStrings.memory)
+					if err != nil {
+						return nil, fmt.Errorf("memory %s value is invalid: %v", resourceType, err)
+					}
+					resources.Memory = &resourceStrings.memory
 				}
 
-				newCodespec.Resources.Memory = &flags.memory
+				return resources, nil
 			}
+
+			var err error
+			newCodespec.Resources.Requests, err = parseOvercommittableResources(flags.requests, "request")
+			if err != nil {
+				return err
+			}
+
+			newCodespec.Resources.Limits, err = parseOvercommittableResources(flags.limits, "limit")
+			if err != nil {
+				return err
+			}
+
 			if (flags.gpu) != "" {
 				_, err := resource.ParseQuantity(flags.gpu)
 				if err != nil {
 					return fmt.Errorf("gpu value is invalid: %v", err)
 				}
-
 				newCodespec.Resources.Gpu = &flags.gpu
 			}
 
@@ -153,10 +177,13 @@ func newCodespecCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 	cmd.Flags().StringSliceVarP(&flags.inputBuffers, "input", "i", nil, "Input buffer parameter names")
 	cmd.Flags().StringSliceVarP(&flags.outputBuffers, "output", "o", nil, "Output buffer parameter names")
 	cmd.Flags().StringToStringVarP(&flags.env, "env", "e", nil, "Environment variables to set in the container in the form KEY=value")
+	cmd.Flags().StringToIntVar(&flags.endpoints, "endpoint", nil, "TCP endpoints in the form NAME=PORT. Only valid for worker codespecs.")
 	cmd.Flags().BoolVar(&flags.command, "command", false, "If true and extra arguments are present, use them as the 'command' field in the container, rather than the 'args' field which is the default.")
-	cmd.Flags().StringVarP(&flags.cpu, "cpu", "c", "", "CPU cores needed")
-	cmd.Flags().StringVarP(&flags.memory, "memory", "m", "", "memory bytes needed")
-	cmd.Flags().StringVarP(&flags.gpu, "gpu", "g", "", "GPUs needed")
+	cmd.Flags().StringVar(&flags.requests.cpu, "cpu-request", "", "CPU cores requested")
+	cmd.Flags().StringVar(&flags.requests.memory, "memory-request", "", "memory bytes requested")
+	cmd.Flags().StringVar(&flags.limits.cpu, "cpu-limit", "", "CPU cores limit")
+	cmd.Flags().StringVar(&flags.limits.memory, "memory-limit", "", "memory bytes limit")
+	cmd.Flags().StringVar(&flags.gpu, "gpu", "", "GPUs needed")
 
 	return cmd
 }

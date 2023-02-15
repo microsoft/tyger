@@ -378,6 +378,12 @@ components:
           format: int32
         buffers:
           $ref: '#/components/schemas/BufferParameters'
+        endpoints:
+          type: object
+          additionalProperties:
+            type: integer
+            format: int32
+          nullable: true
         name:
           type: string
           nullable: true
@@ -410,12 +416,10 @@ components:
     CodespecResources:
       type: object
       properties:
-        cpu:
-          type: string
-          nullable: true
-        memory:
-          type: string
-          nullable: true
+        limits:
+          $ref: '#/components/schemas/OvercommittableResources'
+        requests:
+          $ref: '#/components/schemas/OvercommittableResources'
         gpu:
           type: string
           nullable: true
@@ -453,6 +457,16 @@ components:
           type: string
           nullable: true
         vmSize:
+          type: string
+          nullable: true
+      additionalProperties: false
+    OvercommittableResources:
+      type: object
+      properties:
+        cpu:
+          type: string
+          nullable: true
+        memory:
           type: string
           nullable: true
       additionalProperties: false

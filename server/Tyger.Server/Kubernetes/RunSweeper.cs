@@ -145,10 +145,7 @@ public sealed class RunSweeper : IHostedService, IDisposable
     private async Task ArchiveLogs(Run run, CancellationToken cancellationToken)
     {
         var pipeline = await _logSource.GetLogs(run.Id, new GetLogsOptions { IncludeTimestamps = true }, cancellationToken);
-        if (pipeline is null)
-        {
-            return;
-        }
+        pipeline ??= new Pipeline(Array.Empty<byte>());
 
         await _logArchive.ArchiveLogs(run.Id, pipeline, cancellationToken);
         await _repository.UpdateRun(run, logsArchivedAt: DateTimeOffset.UtcNow, cancellationToken: cancellationToken);

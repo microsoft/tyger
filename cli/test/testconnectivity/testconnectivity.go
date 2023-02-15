@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -37,7 +38,11 @@ func main() {
 		log.Fatal("TYGER_WORKER_NODES missing")
 	}
 
-	hostnames := strings.Split(nodesString, ",")
+	var hostnames []string
+	if err := json.Unmarshal([]byte(nodesString), &hostnames); err != nil {
+		log.Fatal(err)
+	}
+
 	if len(hostnames) <= 1 {
 		log.Fatal("Expected several hostnames")
 	}

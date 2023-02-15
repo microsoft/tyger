@@ -26,10 +26,11 @@ public class ModelEqualityTests
         (a with { Buffers = new(new[] { "C", "b", "a" }, new[] { "C", "B", "A" }) }).ShouldNotBe(a);
         (a with { Buffers = new(new[] { "c", "b", "a" }, new[] { "c", "B", "A" }) }).ShouldNotBe(a);
 
-        a = new() { Resources = new() { Cpu = new("1") } };
-        (a with { Resources = new() { Cpu = new("1") } }).ShouldBe(a);
-        (a with { Resources = new() { Cpu = new("1000m") } }).ShouldBe(a);
-        (a with { Resources = new() { Cpu = new("10001m") } }).ShouldNotBe(a);
+        a = new() { Resources = new() { Requests = new() { Cpu = new("1") } } };
+        (a with { Resources = new() { Requests = new() { Cpu = new("1") } } }).ShouldBe(a);
+        (a with { Resources = new() { Requests = new() { Cpu = new("1000m") } } }).ShouldBe(a);
+        (a with { Resources = new() { Requests = new() { Cpu = new("10001m") } } }).ShouldNotBe(a);
+        (a with { Resources = new() { Limits = new() { Cpu = new("1") } } }).ShouldNotBe(a);
 
         a = new() { Image = "i1" };
         (a with { Image = "i1" }).ShouldBe(a);
