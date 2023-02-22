@@ -13,7 +13,7 @@ variables:
   IS_PR: $[ne(variables['System.PullRequest.PullRequestId'], '')]
   IS_CI: $[or(eq(variables['Build.Reason'], 'IndividualCI'), eq(variables['Build.Reason'], 'BatchedCI'))]
 
-  DEVCONTAINER_IMAGE: compimagdevcontainers.azurecr.io/tyger@sha256:261d36dff2742f8687267d9073b345e88b10de12131d4138fcecc76b2c88cab7
+  DEVCONTAINER_IMAGE: compimagdevcontainers.azurecr.io/tyger@sha256:b571f897f18c18ac4ad5749cda9d0bb8681bfe0b04fcf07f4626ad50e7db129e
 
 jobs:
 - job: buildAndTest
@@ -24,9 +24,24 @@ jobs:
   variables:
     BASH_ENV: /opt/devcontainer/devcontainer.bashrc
     TYGER_ENVIRONMENT_CONFIG_DIR: $(Build.SourcesDirectory)/deploy/config/dev/ci # Disable scale-to-zero
-    ENVIRONMENT_PROVISIONED: false
 
   steps:
+
+  - script: |
+      # The AzureCLI@2 task needs to be able to execute the az command in the container, before running
+      # our script, without activating the conda environment
+      echo '##vso[task.prependpath]/opt/conda/envs/tyger/bin'
+
+      # Determine the envionment name to use
+      if [[ "${IS_PR}" == "True" ]]; then
+        environment_name="tyger-pr${SYSTEM_PULLREQUEST_PULLREQUESTID}"
+      else
+        environment_name="tygerwestus2"
+      fi
+
+      echo "##vso[task.setvariable variable=TYGER_ENVIRONMENT_NAME]${environment_name}"
+
+    displayName: Set variables
 
   - script: |
       set -euo pipefail
@@ -48,43 +63,15 @@ jobs:
       make verify-format
     displayName: "Build and verify formatting"
 
-  - script: |
-      # The AzureCLI@2 task needs to be able to execute the az command in the container, before running
-      # our script, without activating the conda environment
-      echo '##vso[task.prependpath]/opt/conda/envs/tyger/bin'
-
-      # Determine the envionment name to use
-      if [[ "${IS_PR}" == "True" ]]; then
-        environment_name="tyger-pr${SYSTEM_PULLREQUEST_PULLREQUESTID}"
-      else
-        environment_name="tygerwestus2"
-      fi
-
-      echo "##vso[task.setvariable variable=TYGER_ENVIRONMENT_NAME]${environment_name}"
-
-      env | sort
-
-    displayName: Set variables
-
   - task: AzureCLI@2
-    displayName: Ensure environment
-    inputs:
-      azureSubscription: BiomedicalImaging-NonProd
-      scriptType: bash
-      scriptLocation: inlineScript
-      inlineScript: |
-        make ensure-environment
-        echo "##vso[task.setvariable variable=ENVIRONMENT_PROVISIONED;]true"
-
-  - task: AzureCLI@2
-    displayName: Deploy code and run tests
+    displayName: Deploy and run tests
     inputs:
       azureSubscription: BiomedicalImaging-NonProd
       scriptType: bash
       scriptLocation: inlineScript
       inlineScript: |
         set -euo pipefail
-        make
+        make -s -j 8
 
   - script: |
       make build-binaries
@@ -111,6 +98,9 @@ jobs:
       inlineScript: |
         set -euo pipefail
 
+        scripts/get-context-environment-config.sh | deploy/scripts/environment/ensure-environment.sh -c - --fail-if-not-provisioned
+        was_environment_provisioned_exit_code=$?
+
         # Point to scale-to-zero config
         export TYGER_ENVIRONMENT_CONFIG_DIR="${BUILD_SOURCESDIRECTORY}/deploy/config/dev/"
 
@@ -126,7 +116,7 @@ jobs:
           exit
         fi
 
-        if [[ $"ENVIRONMENT_PROVISIONED" == "false" ]]; then
+        if [ $was_environment_provisioned_exit_code -eq 0 ]; then
           echo "leaving environment as-is"
           exit
         fi

@@ -14,6 +14,10 @@ _devDependencies: #Dependencies & {
 		resourceGroup:      resourceName
 		tlsCertificateName: "eminence-tls-cert"
 	}
+	logAnalytics: #LogAnalytics & {
+		name:          resourceName
+		resourceGroup: resourceName
+	}
 }
 
 // further restrict or set default choices for environment values

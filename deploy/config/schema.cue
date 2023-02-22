@@ -9,6 +9,7 @@ import "strings"
 	dnsZone:           #DnsZone
 	containerRegistry: string
 	keyVault:          #KeyVault
+	logAnalytics: 	   #LogAnalytics
 }
 
 #Resource: {
@@ -25,6 +26,10 @@ import "strings"
 	#Resource
 }
 
+#LogAnalytics: {
+	#Resource
+}
+
 #StorageAccount: {
 	name:   =~"^[a-z0-9]{3,24}$"
 	region: #Region
@@ -37,10 +42,6 @@ import "strings"
 	defaultRegion: #Region
 	subscription:  *dependencies.subscription | string
 	isEphemeral:   *false | bool
-	logAnalytics: {
-		name: *"\(environmentName)-logs" | string
-		sku:  *"PerGB2018" | string
-	}
 	dependencies: #Dependencies
 
 	let defaultCluster = #Cluster & {

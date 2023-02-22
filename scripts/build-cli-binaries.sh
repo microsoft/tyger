@@ -14,5 +14,5 @@ mkdir -p "${OUTPUTDIR}/linux"
 mkdir -p "${OUTPUTDIR}/windows"
 
 cd "${thisdir}/../cli"
-GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o "${OUTPUTDIR}/linux/tyger" -v ./cmd/tyger
-GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o "${OUTPUTDIR}/windows/tyger.exe" -v ./cmd/tyger
+GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o "${OUTPUTDIR}/linux/tyger" ./cmd/tyger
+GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o "${OUTPUTDIR}/windows/tyger.exe" ./cmd/tyger

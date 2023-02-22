@@ -7,14 +7,14 @@ import tempfile
 
 from config_factories import GadgetronTestCaseFactory
 from tc_conversion_orchestrator import TestCaseConversionOrchestrator
-from dl_utils import clone_repo
+from dl_utils import download_repo
 
 
 GADGETRON_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data/gadgetron')
 
 
 def parse_test_cases(gadgetron_repo_dir, repo_data):
-    clone_repo(repo_data['gadgetron']['url'], repo_data['gadgetron']['commit_hash'], gadgetron_repo_dir)
+    download_repo(repo_data['gadgetron'], gadgetron_repo_dir)
     cases_path = os.path.join(gadgetron_repo_dir, 'test/integration/cases')
     file_list = os.listdir(cases_path)
     cfg_files = filter(lambda file: file.endswith('.cfg'), file_list)

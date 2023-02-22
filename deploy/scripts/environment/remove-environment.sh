@@ -58,20 +58,21 @@ fi
 environment_resource_group=$(echo "${environment_definition}" | jq -r '.resourceGroup')
 
 primary_cluster_name=$(echo "${environment_definition}" | jq -r '.primaryCluster')
-primary_cluster_resource=$(az aks show -n "${primary_cluster_name}" -g "${environment_resource_group}")
+primary_cluster_resource=$(az aks show -n "${primary_cluster_name}" -g "${environment_resource_group}" 2>/dev/null || echo "{}")
 
-managed_identity_object_id=$(echo "${primary_cluster_resource}" | jq -r '.addonProfiles.azureKeyvaultSecretsProvider.identity.objectId')
+managed_identity_object_id=$(echo "${primary_cluster_resource}" | jq -r '.addonProfiles.azureKeyvaultSecretsProvider.identity.objectId // empty')
 
 # If this cluster has access to KV remove the access
 if [[ -n "${managed_identity_object_id}" ]]; then
     dependencies_subscription=$(echo "${environment_definition}" | jq -r '.dependencies.subscription')
     keyvault_name=$(echo "${environment_definition}" | jq -r '.dependencies.keyVault.name')
-    az keyvault set-policy -n "$keyvault_name" --secret-permissions get --object-id "$managed_identity_object_id" --subscription "${dependencies_subscription}"
+    az keyvault set-policy -n "$keyvault_name" --secret-permissions get --object-id "$managed_identity_object_id" --subscription "${dependencies_subscription}" -o none
 fi
 
 # Remove the non-storage resources
 if [[ "$(az group list --query "[?name=='$environment_resource_group'] | length(@)")" != "0" ]]; then
-    az group delete -g "$environment_resource_group" -y >/dev/null
+    echo "Removing resource group ${environment_resource_group}..."
+    az group delete -g "$environment_resource_group" -y 2>/dev/null || true
 fi
 
 # Remove storage
@@ -80,6 +81,7 @@ if [[ "$ephemeral" == "true" ]] || [[ -n "${delete_storage:-}" ]]; then
         organization=$(echo "${environment_definition}" | jq --arg name "$organization_name" '.organizations[$name]')
         organization_resource_group=$(echo "${organization}" | jq -r '.resourceGroup')
 
-        az group delete -g "$organization_resource_group" -y >/dev/null
+        echo "Removing resource group ${organization_resource_group}..."
+        az group delete -g "$organization_resource_group" -y 2>/dev/null || true
     done
 fi

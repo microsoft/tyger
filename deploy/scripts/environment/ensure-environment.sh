@@ -15,6 +15,7 @@ Usage: $0 --environment-config CONFIG_PATH
 Options:
   -c | --environment-config     The environment configuration JSON file or - to read from stdin
   -f | --force                  Always deploy, even if the envionment has not changed.
+  --fail-if-not-provisioned     Quickly check if the environment is already provisioned and exit with a non-zero code if it isn't
   -h, --help                    Brings up this menu
 EOF
 }
@@ -29,6 +30,10 @@ while [[ $# -gt 0 ]]; do
     ;;
   -f | --force)
     force=1
+    shift
+    ;;
+  --fail-if-not-provisioned)
+    fail_if_not_provisioned=1
     shift
     ;;
   -h | --help)
@@ -51,7 +56,10 @@ fi
 environment_definition=$(cat "${config_path}")
 
 subscription=$(echo "${environment_definition}" | jq -r '.subscription')
-{ read -r previous_subscription_name; read -r subscription_id; } < <(az account show --query [name,id] -o tsv)
+{
+  read -r previous_subscription_name
+  read -r subscription_id
+} < <(az account show --query [name,id] -o tsv)
 
 if [[ "${subscription}" != "${previous_subscription_name}" ]]; then
   az account set --subscription "${subscription}"
@@ -66,60 +74,47 @@ environment_hash=$(echo -e "${script_hashes}\n${environment_definition_hash}" | 
 environment_resource_group=$(echo "${environment_definition}" | jq -r '.resourceGroup')
 
 environment_resource_group_id="/subscriptions/${subscription_id}/resourcegroups/${environment_resource_group}"
-hash_tag=$( (az tag list --resource-id "${environment_resource_group_id}" 2> /dev/null || echo "{}") | jq -r '.properties.tags.tygerdefinitionhash')
+hash_tag=$( (az tag list --resource-id "${environment_resource_group_id}" 2>/dev/null || echo "{}") | jq -r '.properties.tags.tygerdefinitionhash')
 if [[ -z "${force:-}" ]] && [[ "${hash_tag}" == "${environment_hash}" ]]; then
   echo "The environment appears to be up-to-date"
   exit 0
 fi
 
-az tag delete --resource-id "${environment_resource_group_id}" --name tygerdefinitionhash --yes 2> /dev/null || true
+if [[ -n "${fail_if_not_provisioned:-}" ]]; then
+  echo "The environment was not provisioned"
+  exit 1
+fi
+
+az tag delete --resource-id "${environment_resource_group_id}" --name tygerdefinitionhash --yes 2>/dev/null || true
 
 environment_region=$(echo "${environment_definition}" | jq -r '.defaultRegion')
 acr=$(echo "${environment_definition}" | jq -r '.dependencies.containerRegistry')
 
 az group create -l "${environment_region}" -n "${environment_resource_group}" >/dev/null
 
-log_analytics_name=$(echo "${environment_definition}" | jq -r '.logAnalytics.name')
-log_analytics_sku=$(echo "${environment_definition}" | jq -r '.logAnalytics.sku')
-
-# Create a Log Analytics workspace for the environment
-az monitor log-analytics workspace create -n "$log_analytics_name" -g "$environment_resource_group" --sku "${log_analytics_sku}" >/dev/null
-workspace_id="$(az monitor log-analytics workspace show -n "$log_analytics_name" -g "$environment_resource_group" | jq -r .id)"
-
-if [[ "$(az provider list --query "[?namespace=='Microsoft.ContainerService']" | jq '.[] | length > 0')" != "true" ]]; then
+if [[ "$(az provider show -n Microsoft.ContainerService | jq -r '.registrationState')" != "Registered" ]]; then
   echo "Attempting to register provider namespace. This will fail if you are not owner of subscription"
   az provider register --namespace Microsoft.ContainerService
 fi
 
-# Pinning aks-preview version due to bug
-{ az extension add --name aks-preview --version 0.5.79 >/dev/null; } 2>&1
-
-# We should not update this extension right now, since there is a bug forcing --min-count >= 1
-# { az extension update --name aks-preview >/dev/null; } 2>&1
+log_analytics_name=$(echo "${environment_definition}" | jq -r '.dependencies.logAnalytics.name')
+log_analytics_resource_group=$(echo "${environment_definition}" | jq -r '.dependencies.logAnalytics.resourceGroup')
+workspace_id="$(az monitor log-analytics workspace show -n "$log_analytics_name" -g "$log_analytics_resource_group" | jq -r .id)"
 
 for cluster_name in $(echo "${environment_definition}" | jq -r '.clusters | keys[]'); do
+  echo "Processing cluster $cluster_name..."
+
   cluster=$(echo "${environment_definition}" | jq --arg name "$cluster_name" '.clusters[$name]')
+  aks_cluster=$(az aks show -n "$cluster_name" -g "$environment_resource_group" 2>/dev/null || true)
   cluster_region=$(echo "$cluster" | jq -r '.region')
   system_node_size=$(echo "$cluster" | jq -r '.systemNodeSize')
   dns_prefix="${cluster_name}-dns"
   kubernetes_version="1.24.6"
 
   # Is this a create or update?
-  if [[ -n "$(az aks list | jq --arg cluster "$cluster_name" '.[] | select(.name == $cluster)')" ]]; then
-    az aks nodepool update -n system --cluster-name "$cluster_name" -g "$environment_resource_group" \
-      --update-cluster-autoscaler \
-      --min-count 1 \
-      --max-count 3
-
-    # Enable addons
-    if [[ $(az aks show -n "$cluster_name" -g "$environment_resource_group" | jq -r '.addonProfiles.omsagent.enabled') != "true" ]]; then
-      az aks enable-addons -a monitoring -n "$cluster_name" -g "$environment_resource_group" --workspace-resource-id "$workspace_id"
-    fi
-    if [[ $(az aks show -n "$cluster_name" -g "$environment_resource_group" | jq -r '.addonProfiles.azureKeyvaultSecretsProvider.enabled') != "true" ]]; then
-      az aks enable-addons -a azure-keyvault-secrets-provider
-    fi
-  else
-    az aks create \
+  if [[ -z "$aks_cluster" ]]; then
+    echo "Creating cluster..."
+    aks_cluster=$(az aks create \
       --resource-group "$environment_resource_group" \
       --location "$cluster_region" \
       --name "$cluster_name" \
@@ -134,15 +129,14 @@ for cluster_name in $(echo "${environment_definition}" | jq -r '.clusters | keys
       --node-vm-size "$system_node_size" \
       --load-balancer-sku standard \
       --dns-name-prefix "$dns_prefix" \
-      --generate-ssh-keys
+      --generate-ssh-keys)
   fi
 
-  # Attach ACR
-  if [[ -n "${verbose:-}" ]]; then
+  if ! az aks check-acr --acr "$acr" --name "$cluster_name" -g "$environment_resource_group" 2>/dev/null | grep "cluster can pull images from"; then
+    # Attach ACR
     echo "Attaching container registry: $acr"
+    az aks update -n "$cluster_name" -g "$environment_resource_group" --attach-acr "$acr" -o none
   fi
-
-  az aks update -n "$cluster_name" -g "$environment_resource_group" --attach-acr "$acr"
 
   # Nodepools
   for pool_name in $(echo "${cluster}" | jq -r '.userNodePools | keys[]'); do
@@ -151,44 +145,48 @@ for cluster_name in $(echo "${environment_definition}" | jq -r '.clusters | keys
     max_count="$(echo "$pool" | jq -r .maxCount)"
 
     # Does the pool exist, if so update, otherwise create
-    if [[ -n "$(az aks nodepool list --cluster-name "$cluster_name" -g "$environment_resource_group" | jq --arg pool "$pool_name" '.[] | select(.name == $pool)')" ]]; then
-      if [[ -n "${verbose:-}" ]]; then
+    existing_pool=$(echo "$aks_cluster" | jq --arg pool "$pool_name" '.agentPoolProfiles[] | select(.name == $pool)')
+    if [[ -n "$existing_pool" ]]; then
+      if [[ "${min_count}" == "$(echo "$existing_pool" | jq -r .minCount)" ]] && [[ "${max_count}" == "$(echo "$existing_pool" | jq -r .maxCount)" ]]; then
+        echo "Node pool $pool_name is up-to-date"
+        continue
+      else
         echo "Updating node pool $pool_name"
+        az aks nodepool update -n "$pool_name" --cluster-name "$cluster_name" -g "$environment_resource_group" \
+          --update-cluster-autoscaler \
+          --min-count "${min_count}" \
+          --max-count "${max_count}" \
+          -o none
       fi
-
-      az aks nodepool update -n "$pool_name" --cluster-name "$cluster_name" -g "$environment_resource_group" \
-        --update-cluster-autoscaler \
-        --min-count "${min_count}" \
-        --max-count "${max_count}"
     else
-      if [[ -n "${verbose:-}" ]]; then
-        echo "Creating node pool $pool_name"
-      fi
+      echo "Creating node pool $pool_name"
 
       vm_size="$(echo "$pool" | jq -r .vmSize)"
 
-      #If this is a GPU node pool, we will add some additional flags
+      # If this is a GPU node pool, we will add some additional flags
       if [[ "${vm_size}" =~ "Standard_N" ]]; then
         az aks nodepool add -n "$pool_name" --cluster-name "$cluster_name" -g "$environment_resource_group" \
           --kubernetes-version "$kubernetes_version" \
           --enable-cluster-autoscaler \
-          --node-count 1 \
+          --node-count "${min_count}" \
           --min-count "${min_count}" \
           --max-count "${max_count}" \
           --node-vm-size "${vm_size}" \
           --labels tyger=run \
           --node-taints tyger=run:NoSchedule,sku=gpu:NoSchedule \
-          --aks-custom-headers UseGPUDedicatedVHD=true
+          --aks-custom-headers UseGPUDedicatedVHD=true \
+          -o none
       else
         az aks nodepool add -n "$pool_name" --cluster-name "$cluster_name" -g "$environment_resource_group" \
           --kubernetes-version "$kubernetes_version" \
           --enable-cluster-autoscaler \
-          --node-count 1 \
+          --node-count "${min_count}" \
           --min-count "${min_count}" \
           --max-count "${max_count}" \
           --node-vm-size "${vm_size}" \
           --labels tyger=run \
-          --node-taints tyger=run:NoSchedule
+          --node-taints tyger=run:NoSchedule \
+          -o none
       fi
     fi
   done
@@ -213,7 +211,7 @@ tls_certificate_name=$(echo "${environment_definition}" | jq -r '.dependencies.k
 kubernetes_tls_secret_name="tyger-tls"
 
 # We have to use object-id here because the principal id (--spn argument) fails in devops because the SP there does not have graph access
-az keyvault set-policy -n "$keyvault_name" --secret-permissions get --object-id "$managed_identity_object_id" --subscription "${dependencies_subscription}"
+az keyvault set-policy -n "$keyvault_name" --secret-permissions get --object-id "$managed_identity_object_id" --subscription "${dependencies_subscription}" -o none
 
 ###
 # Set up traefik
@@ -278,7 +276,7 @@ echo "$manifest" | kubectl apply -f -
 
 helm repo add traefik https://helm.traefik.io/traefik
 helm upgrade --install traefik traefik/traefik --namespace traefik --create-namespace \
-  -f - <<EOF
+  -f - <<EOF  > /dev/null
 logs:
   general:
     format: "json"
@@ -354,17 +352,17 @@ for organization_name in $(echo "${environment_definition}" | jq -r '.organizati
   for account in $(echo "${organization}" | jq -c '.storage.buffers + [.storage.storageServer] + [.storage.logs] | .[]'); do
     account_name=$(echo "${account}" | jq -r '.name')
     account_region=$(echo "${account}" | jq -r '.region')
-    az storage account create -n "${account_name}" -g "${organization_resource_group}" -l "${account_region}"
+    az storage account create -n "${account_name}" -g "${organization_resource_group}" -l "${account_region}" --only-show-errors -o none
 
     # Create or update storage secret
     # Note the dry-run -> apply is a "trick" that allow us to update the secret if it exists; "kubectl create secret ..." fails if secret exists
     connection_string="$(az storage account show-connection-string --name "${account_name}" | jq -r .connectionString)"
     kubectl create secret -n "${organization_namespace}" generic "${account_name}" --from-literal=connectionString="${connection_string}" --dry-run=client -o yaml | kubectl apply -f -
     if [[ "${account_name}" == "$(echo "${organization}" | jq -r '.storage.logs.name')" ]]; then
-      az storage container create --name runs --connection-string "${connection_string}" > /dev/null
+      az storage container create --name runs --connection-string "${connection_string}" >/dev/null
     fi
   done
 done
 
 # When deployment is complete, add the environment hash as a tag on the resource group
-az tag update --operation Merge --resource-id "${environment_resource_group_id}" --tags "tygerdefinitionhash=${environment_hash}"
+az tag update --operation Merge --resource-id "${environment_resource_group_id}" --tags "tygerdefinitionhash=${environment_hash}" -o none

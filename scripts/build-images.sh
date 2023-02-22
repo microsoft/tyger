@@ -16,9 +16,12 @@ Options:
   --push-force                     Force runtime images, will overwrite images with same tag (requires --tag or --use-git-hash-as-tag)
   --tag <tag>                      Tag for runtime images
   --use-git-hash-as-tag            Use the current git hash as tag
+  -q, --quiet                      Suppress verbose output
   -h, --help                       Brings up this menu
 EOF
 }
+
+quiet=""
 
 while [[ $# -gt 0 ]]; do
   key="$1"
@@ -49,6 +52,10 @@ while [[ $# -gt 0 ]]; do
     image_tag="$(git rev-parse HEAD)"
     shift
     ;;
+  -q | --quiet)
+    quiet="-q"
+    shift
+    ;;
   -h | --help)
     usage
     exit
@@ -76,10 +83,11 @@ container_registry_name=$(echo "${environment_definition}" | jq -r '.dependencie
 container_registry_fqdn="${container_registry_name}.azurecr.io"
 
 function build_and_push() {
-  docker build -f "${dockerfile_path}" -t "${local_tag}" --target "${target}" "${build_context}"
+  echo "Building image ${local_tag}..."
+  docker build -f "${dockerfile_path}" -t "${local_tag}" --target "${target}" $quiet "${build_context}" >/dev/null
 
   if [[ -z "${push:-}" ]]; then
-    exit 0
+    return 0
   fi
 
   "$(dirname "${0}")"/login-acr-if-needed.sh "${container_registry_fqdn}"
@@ -98,7 +106,8 @@ function build_and_push() {
   fi
 
   docker tag "${local_tag}" "$full_image"
-  docker push "$full_image"
+  echo "Pushing image ${full_image}..."
+  docker push $quiet "$full_image" >/dev/null
 }
 
 if [[ -n "${test:-}" ]]; then

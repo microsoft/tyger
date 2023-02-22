@@ -74,7 +74,7 @@ class TestCaseConversionOrchestrator:
 
                     case_dir = self._generate_case_dir(case)
                     if os.path.exists(case_dir):
-                        logging.warn(f'Deleting data for {case_name} because validation failed, reason:\n{exc!s}')
+                        logging.info(f'Deleting data for {case_name} because validation failed, reason:\n{exc!s}')
 
                         shutil.rmtree(case_dir)
 

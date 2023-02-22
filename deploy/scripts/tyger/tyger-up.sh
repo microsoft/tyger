@@ -70,7 +70,7 @@ for organization_name in $(echo "${environment_definition}" | jq -r '.organizati
     # TODO: note that more than one buffer storage account is not currently implemented.
 
     values=$(
-        cat <<- END
+        cat <<-END
 server:
     image: "${tyger_server_image}"
     hostname: "${hostname}"
@@ -110,17 +110,17 @@ END
         fqdn=$(az network public-ip list --subscription "${subscription}" -o json | jq -r --arg ip "$public_ip" '.[] | select(.ipAddress == $ip) | .dnsSettings.fqdn')
 
         # Modify the zone
-        az network dns record-set cname create -g "${dns_resource_group}" -z "${dns_zone}" -n "${subdomain}" --subscription "${subscription}"
-        az network dns record-set cname set-record -g "${dns_resource_group}" -z "${dns_zone}" -n "${subdomain}" -c "$fqdn" --subscription "${subscription}"
+        az network dns record-set cname create -g "${dns_resource_group}" -z "${dns_zone}" -n "${subdomain}" --subscription "${subscription}" -o none
+        az network dns record-set cname set-record -g "${dns_resource_group}" -z "${dns_zone}" -n "${subdomain}" -c "$fqdn" --subscription "${subscription}" -o none
     fi
 
     echo
     echo "Installing Helm chart..."
-    echo "${values}" \
-        | helm upgrade --install \
+    echo "${values}" |
+        helm upgrade --install \
             --create-namespace -n "${namespace}" \
             "${helm_release}" "${tyger_chart_location}" \
-            ${wait_or_atomic} -f -
+            ${wait_or_atomic} -f - >/dev/null
 
     health_check_endpoint="https://${hostname}/healthcheck"
     echo "Waiting for successful health check at ${health_check_endpoint}"

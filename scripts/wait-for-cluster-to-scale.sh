@@ -5,7 +5,7 @@ set -euo pipefail
 usage() {
     cat <<EOF
 
-Waits for the node count of the node pools of the primary cluster to reach at least the minimum specified in configuration
+Waits for the node count of the node pools of the primary cluster to reach at least the minimum specified in configuration or 1, whichever is smaller.
 
 Usage: $0 --environment-config CONFIG_PATH
 
@@ -55,17 +55,24 @@ primary_cluster=$(echo "${environment_definition}" | jq -r --arg pc "${primary_c
 
 declare -A targets
 for nodepool_name in $(echo "${primary_cluster}" | jq -r '.userNodePools | keys[]'); do
-    targets["${nodepool_name}"]=$(echo "${primary_cluster}" | jq -r --arg np "${nodepool_name}" '.userNodePools[$np].minCount')
+    min=$(echo "${primary_cluster}" | jq -r --arg np "${nodepool_name}" '.userNodePools[$np].minCount')
+    if (( min == 0 )); then
+        continue
+    fi
+
+    # if min is greater than 1, set it to 1 to avoid waiting for the full scale
+    if (( min > 1 )); then
+        min=1
+    fi
+
+    targets["${nodepool_name}"]=${min}
 done
 
 scale_reached=false
 while ! $scale_reached; do
     scale_reached=true
-    for nodepool_name in $(echo "${primary_cluster}" | jq -r '.userNodePools | keys[]'); do
+    for nodepool_name in "${!targets[@]}"; do
         expected_count=${targets[$nodepool_name]}
-        if (( expected_count == 0 )); then
-            continue
-        fi
 
         ready_count=$(kubectl get nodes -l agentpool="${nodepool_name}" -o json | jq -r '[.items[] | select(.status.conditions[] | select(.type=="Ready" and .status == "True"))] | length')
         echo -n "${ready_count}/${expected_count} nodes ready in ${nodepool_name}. "
@@ -73,8 +80,8 @@ while ! $scale_reached; do
             scale_reached=false
         fi
     done
-    echo ""
     if ! $scale_reached; then
         sleep 10
+        echo ""
     fi
 done

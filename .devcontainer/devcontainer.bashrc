@@ -10,7 +10,7 @@ source <(kubectl completion bash)
 if command -v tyger &> /dev/null; then
     source <(tyger completion bash)
 fi
-alias make="make -s"
+alias make="make -s -j"
 
 if [[ "${BASH_ENV:-}" == "$(readlink -f "${BASH_SOURCE[0]:-}")" ]]; then
     # We don't want subshells to unnecessarily source this again.

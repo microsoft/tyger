@@ -1,6 +1,3 @@
 {
-  "gadgetron": {
-    "url": "https://github.com/gadgetron/gadgetron.git",
-    "commit_hash": "8a104ec642909e887fb82bb17a29b55a2b3ac1d6"
-  }
+  "gadgetron": "https://api.github.com/repos/gadgetron/gadgetron/tarball/8a104ec642909e887fb82bb17a29b55a2b3ac1d6"
 }

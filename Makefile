@@ -113,17 +113,16 @@ watch: check-forwarding set-localsettings
 	dotnet watch
 
 unit-test:
-	echo "Running unit tests..."
-	find server -name *csproj | xargs -L 1 dotnet test --no-restore
+	find server -name *csproj | xargs -L 1 dotnet test --no-restore -v q
 	
 	cd cli
 	go test ./... | { grep -v "\\[[no test files\\]" || true; }
 
 docker-build:
-	echo '${ENVIRONMENT_CONFIG}' | scripts/build-images.sh -c - --push --push-force --tag dev 
+	echo '${ENVIRONMENT_CONFIG}' | scripts/build-images.sh -c - --push --push-force --tag dev --quiet
 
 docker-build-test:
-	echo '${ENVIRONMENT_CONFIG}' | scripts/build-images.sh -c - --test --push --push-force --tag test
+	echo '${ENVIRONMENT_CONFIG}' | scripts/build-images.sh -c - --test --push --push-force --tag test --quiet
 
 up: ensure-environment ensure-buffer-proxy-installed docker-build
 	echo '${ENVIRONMENT_CONFIG}' | deploy/scripts/tyger/tyger-up.sh -c -
@@ -131,31 +130,40 @@ up: ensure-environment ensure-buffer-proxy-installed docker-build
 down:
 	echo '${ENVIRONMENT_CONFIG}' | deploy/scripts/tyger/tyger-down.sh -c -
 
-wait-clusters-scale:
+e2e-no-up-prereqs: docker-build-test
+
+e2e-no-up: e2e-no-up-prereqs cli-ready
 	if ! echo '${ENVIRONMENT_CONFIG}' | timeout --foreground 30m scripts/wait-for-cluster-to-scale.sh -c -; then
 		echo "timed out waiting for nodepools to scale"
 		exit 1
 	fi
 
-e2e-no-up: docker-build-test cli-ready wait-clusters-scale
 	pushd cli/test/e2e
 	go test -tags=e2e
 
-e2e: up e2e-no-up
+e2e: up e2e-no-up-prereqs
+	$(MAKE) -o e2e-no-up-prereqs e2e-no-up
+
+eminence-no-up-prereqs: eminence-data
 	
-eminence-no-up: e2e-no-up eminence-data
+eminence-no-up: eminence-no-up-prereqs cli-ready
 	pytest eminence --workers 100
 
-eminence: up eminence-no-up
+eminence: up eminence-no-up-prereqs
+	$(MAKE) -o eminence-no-up-prereqs eminence-no-up
 
-eminence-data: 
+dvc-data:
 	scripts/check-login.sh
 	dvc pull
-	cd scripts && ./update-gadgetron-test-data.sh
 
-test: unit-test eminence
+gadgetron-data:
+	python3 eminence/gadgetron/get_cases.py
 
-test-no-up: unit-test eminence-no-up
+eminence-data: dvc-data gadgetron-data
+
+test: unit-test e2e eminence
+
+test-no-up: unit-test e2e-no-up eminence-no-up
 
 forward: set-context
 	scripts/forward-services.sh -n ${HELM_NAMESPACE}
@@ -187,14 +195,14 @@ login: install-cli download-test-client-cert
 
 install-cli:
 	cd cli
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go install -ldflags="-s -w" -v ./cmd/tyger
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go install -ldflags="-s -w" ./cmd/tyger
 
 build-binaries:
 	./scripts/build-cli-binaries.sh
 
 cli-ready: install-cli
 	if ! tyger login status &> /dev/null; then
-		make login-service-principal
+		$(MAKE) login-service-principal
 	fi
 
 connect-db:

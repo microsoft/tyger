@@ -65,10 +65,6 @@ def validate_md5(path, expected_md5):
         logging.debug(f'{path}: md5 match')
 
 
-def clone_repo(git_url, commit_hash, output_path):
+def download_repo(download_url, output_path):
     if os.path.isdir(output_path):
-        command = f"git clone {git_url} {output_path}"
-        subprocess.run(shlex.split(command), stdout=subprocess.PIPE, check=True)
-
-        command = f"git reset --hard {commit_hash}"
-        subprocess.run(shlex.split(command), stdout=subprocess.PIPE, check=True, cwd=output_path)
+        subprocess.run(f"curl -Ls '{download_url}' | tar -xz --strip-components=1 -C '{output_path}'", shell=True, check=True)

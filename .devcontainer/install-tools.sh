@@ -21,3 +21,7 @@ TV_VERSION="v0.7.0"
 wget "https://github.com/uzimaru0000/tv/releases/download/${TV_VERSION}/tv-x86_64-unknown-linux-gnu.zip" \
 && unzip tv-x86_64-unknown-linux-gnu.zip \
 && mv tv-x86_64-unknown-linux-gnu/tv /usr/bin
+
+# CUE
+CUE_VERSION=v0.4.3
+go install cuelang.org/go/cmd/cue@${CUE_VERSION}
