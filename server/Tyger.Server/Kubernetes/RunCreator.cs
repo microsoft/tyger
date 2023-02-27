@@ -273,7 +273,8 @@ public class RunCreator
                     write ? "write" : "read",
                     $"{SecretMountPath}/{bufferName}",
                     write ? "--input" : "--output",
-                    $"{FifoMountPath}/{bufferName}"
+                    $"{FifoMountPath}/{bufferName}",
+                    "--log-format", "json",
                 },
                 VolumeMounts = new[]
                 {

@@ -30,17 +30,40 @@ func newRootCommand(commit string) *cobra.Command {
 		commit = "unknown"
 	}
 
+	type LogFormat int8
+	const (
+		Unspecified LogFormat = iota
+		Pretty
+		Plain
+		Json
+	)
+
+	logFormat := Unspecified
+
 	logLevel := zerolog.InfoLevel
 	cmd := &cobra.Command{
 		Use:     "buffer-proxy",
 		Version: commit,
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+
+			if logFormat == Unspecified {
+				if isStdErrTerminal() {
+					logFormat = Pretty
+				} else {
+					logFormat = Plain
+				}
+			}
+
 			zerolog.SetGlobalLevel(logLevel)
 			zerolog.TimeFieldFormat = time.RFC3339Nano
-			log.Logger = log.Output(zerolog.ConsoleWriter{
-				Out:        os.Stderr,
-				TimeFormat: "2006-01-02T15:04:05.000Z07:00", // like RFC3339Nano, but always showing three digits for the fractional seconds
-			})
+			switch logFormat {
+			case Pretty, Plain:
+				log.Logger = log.Output(zerolog.ConsoleWriter{
+					Out:        os.Stderr,
+					TimeFormat: "2006-01-02T15:04:05.000Z07:00", // like RFC3339Nano, but always showing three digits for the fractional seconds
+					NoColor:    logFormat == Plain,
+				})
+			}
 
 			warnIfRunningInPowerShell()
 
@@ -60,10 +83,23 @@ func newRootCommand(commit string) *cobra.Command {
 		zerolog.ErrorLevel: {"error"},
 	}
 
+	var logFormatIds = map[LogFormat][]string{
+		Unspecified: {""},
+		Pretty:      {"pretty"},
+		Plain:       {"plain"},
+		Json:        {"json"},
+	}
+
 	cmd.PersistentFlags().VarP(
-		enumflag.New(&logLevel, "mode", levelIds, enumflag.EnumCaseInsensitive),
+		enumflag.New(&logLevel, "level", levelIds, enumflag.EnumCaseInsensitive),
 		"log-level", "l",
-		"specifies logging level. Can be one of: trace, debug, info, warn, error.")
+		"specifies logging level. Can be one of: 'trace', 'debug', 'info', 'warn', or 'error'.")
+
+	// cmd.PersistentFlags().
+	cmd.PersistentFlags().VarP(
+		enumflag.New(&logFormat, "format", logFormatIds, enumflag.EnumCaseInsensitive),
+		"log-format", "f",
+		"specifies logging format. Can be one of: 'pretty', 'plain', or 'json'. The default is 'pretty' unless stderr is redirected, in which case it will be 'plain'. 'json' is the most efficient.")
 
 	cobra.EnableCommandSorting = false
 
@@ -72,6 +108,11 @@ func newRootCommand(commit string) *cobra.Command {
 	cmd.AddCommand(newGenerateCommand())
 
 	return cmd
+}
+
+func isStdErrTerminal() bool {
+	o, _ := os.Stderr.Stat()
+	return (o.Mode() & os.ModeCharDevice) == os.ModeCharDevice
 }
 
 func warnIfRunningInPowerShell() {
