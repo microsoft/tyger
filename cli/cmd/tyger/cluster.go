@@ -1,4 +1,4 @@
-package cmd
+package main
 
 import (
 	"encoding/json"
@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/model"
+	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/tyger"
+	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/tyger/model"
 	"github.com/spf13/cobra"
 )
 
@@ -40,7 +41,7 @@ func newClusterListCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clusters := make([]model.Cluster, 0)
-			_, err := InvokeRequest(http.MethodGet, "v1/clusters/", nil, &clusters, rootFlags.verbose)
+			_, err := tyger.InvokeRequest(http.MethodGet, "v1/clusters/", nil, &clusters, rootFlags.verbose)
 			if err != nil {
 				return err
 			}

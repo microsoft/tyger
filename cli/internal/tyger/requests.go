@@ -1,4 +1,4 @@
-package cmd
+package tyger
 
 import (
 	"bytes"
@@ -12,23 +12,10 @@ import (
 	"os"
 	"strings"
 
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/clicontext"
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/model"
+	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/tyger/clicontext"
+	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/tyger/model"
 	"github.com/fatih/color"
-	"github.com/spf13/cobra"
 )
-
-func exactlyOneArg(argName string) func(cmd *cobra.Command, args []string) error {
-	return func(cmd *cobra.Command, args []string) error {
-		if len(args) < 1 {
-			return fmt.Errorf("one %s positional argument is required", argName)
-		}
-		if len(args) > 1 {
-			return fmt.Errorf("unexpected positional arguments after the %s: %v", argName, args[1:])
-		}
-		return nil
-	}
-}
 
 func InvokeRequest(method string, relativeUri string, input interface{}, output interface{}, verbose bool) (*http.Response, error) {
 	ctx, err := clicontext.GetCliContext()
@@ -116,14 +103,14 @@ func InvokeRequest(method string, relativeUri string, input interface{}, output 
 	return resp, nil
 }
 
-func InvokePageRequests[T any](rootFlags *rootPersistentFlags, uri string, limit int, warnIfTruncated bool) error {
+func InvokePageRequests[T any](uri string, limit int, warnIfTruncated bool, verbose bool) error {
 	firstPage := true
 	totalPrinted := 0
 	truncated := false
 
 	for uri != "" {
 		page := model.Page[T]{}
-		_, err := InvokeRequest(http.MethodGet, uri, nil, &page, rootFlags.verbose)
+		_, err := InvokeRequest(http.MethodGet, uri, nil, &page, verbose)
 		if err != nil {
 			return err
 		}

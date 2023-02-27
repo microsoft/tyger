@@ -1,4 +1,4 @@
-package cmd
+package main
 
 import (
 	"encoding/json"
@@ -12,7 +12,8 @@ import (
 	"strconv"
 	"strings"
 
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/model"
+	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/tyger"
+	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/tyger/model"
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
@@ -153,7 +154,7 @@ func newCodespecCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 				newCodespec.Resources.Gpu = &flags.gpu
 			}
 
-			resp, err := InvokeRequest(http.MethodPut, fmt.Sprintf("v1/codespecs/%s", codespecName), newCodespec, &newCodespec, rootFlags.verbose)
+			resp, err := tyger.InvokeRequest(http.MethodPut, fmt.Sprintf("v1/codespecs/%s", codespecName), newCodespec, &newCodespec, rootFlags.verbose)
 			if err != nil {
 				return err
 			}
@@ -211,7 +212,7 @@ func newCodespecShowCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 			}
 
 			codespec := model.Codespec{}
-			_, err := InvokeRequest(http.MethodGet, relativeUri, nil, &codespec, rootFlags.verbose)
+			_, err := tyger.InvokeRequest(http.MethodGet, relativeUri, nil, &codespec, rootFlags.verbose)
 			if err != nil {
 				return err
 			}
@@ -259,7 +260,7 @@ func codespecListCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 			}
 
 			var relativeUri string = fmt.Sprintf("v1/codespecs?%s", queryOptions.Encode())
-			return InvokePageRequests[model.Codespec](rootFlags, relativeUri, flags.limit, !cmd.Flags().Lookup("limit").Changed)
+			return tyger.InvokePageRequests[model.Codespec](relativeUri, flags.limit, !cmd.Flags().Lookup("limit").Changed, rootFlags.verbose)
 		},
 	}
 

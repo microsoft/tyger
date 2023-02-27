@@ -41,6 +41,10 @@ ARG AZ_CLI_VERSION=2.45.0
 RUN script=$(curl -fsSL "https://raw.githubusercontent.com/devcontainers/features/8d3685e09f18dd8b0a6bce50abe3e868dac27a69/src/azure-cli/install.sh") \
     && VERSION=${AZ_CLI_VERSION} bash -c "$script"
 
+ARG POWERSHELL_VERSION=7.3.3
+RUN script=$(curl -fsSL "https://raw.githubusercontent.com/devcontainers/features/8d3685e09f18dd8b0a6bce50abe3e868dac27a69/src/powershell/install.sh") \
+    && VERSION=${POWERSHELL_VERSION} bash -c "$script"
+
 # Setting the ENTRYPOINT to docker-init.sh will configure non-root access to
 # the Docker socket if "overrideCommand": false is set in devcontainer.json.
 # The script will also execute CMD if you need to alter startup behaviors.

@@ -9,7 +9,7 @@ RUN --mount=type=cache,target=/root/.cache/go-mod-download go mod download
 COPY . .
 
 RUN --mount=type=cache,target=/root/.cache/go-go-build \
-    go build -ldflags="-s -w" -o /go/bin/testconnectivity ./test/testconnectivity/
+    go build -tags e2e -ldflags="-s -w" -o /go/bin/testconnectivity ./e2e/testconnectivity/
 
 FROM cblmariner.azurecr.io/distroless/base:2.0 as testconnectivity
 

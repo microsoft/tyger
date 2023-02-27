@@ -3,7 +3,7 @@
 {
   "name": "Tyger",
 
-  "image": "compimagdevcontainers.azurecr.io/tyger@sha256:b571f897f18c18ac4ad5749cda9d0bb8681bfe0b04fcf07f4626ad50e7db129e",
+  "image": "compimagdevcontainers.azurecr.io/tyger@sha256:2329896c722e3a6dda6700a90a570274d8e5de6d8d19f741b8915f5af28ecf6e",
 
   "runArgs": [
     "--init",
@@ -76,14 +76,15 @@
     "eamodio.gitlens",
     "esbenp.prettier-vscode",
     "foxundermoon.shell-format",
+    "GitHub.copilot",
     "golang.go",
     "humao.rest-client",
     "jallen7usa.vscode-cue-fmt",
     "mhutchie.git-graph",
     "ms-azuretools.vscode-docker",
     "ms-dotnettools.csharp",
-    "ms-python.python",
     "ms-kubernetes-tools.vscode-kubernetes-tools",
+    "ms-python.python",
     "oderwat.indent-rainbow",
     "timonwong.shellcheck"
   ],

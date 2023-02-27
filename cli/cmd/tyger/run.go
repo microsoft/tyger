@@ -1,4 +1,4 @@
-package cmd
+package main
 
 import (
 	"bufio"
@@ -15,7 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/model"
+	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/tyger"
+	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/tyger/model"
 	"github.com/kaz-yamam0t0/go-timeparser/timeparser"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -114,7 +115,7 @@ func newRunCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 			}
 
 			run := model.Run{}
-			_, err := InvokeRequest(http.MethodPost, "v1/runs", newRun, &run, rootFlags.verbose)
+			_, err := tyger.InvokeRequest(http.MethodPost, "v1/runs", newRun, &run, rootFlags.verbose)
 			if err != nil {
 				return err
 			}
@@ -154,7 +155,7 @@ func newRunShowCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 		Args:                  exactlyOneArg("run name"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			run := model.Run{}
-			_, err := InvokeRequest(http.MethodGet, fmt.Sprintf("v1/runs/%s", args[0]), nil, &run, rootFlags.verbose)
+			_, err := tyger.InvokeRequest(http.MethodGet, fmt.Sprintf("v1/runs/%s", args[0]), nil, &run, rootFlags.verbose)
 			if err != nil {
 				return err
 			}
@@ -198,7 +199,7 @@ func newRunListCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 			}
 
 			relativeUri := fmt.Sprintf("v1/runs?%s", queryOptions.Encode())
-			return InvokePageRequests[model.Run](rootFlags, relativeUri, flags.limit, !cmd.Flags().Lookup("limit").Changed)
+			return tyger.InvokePageRequests[model.Run](relativeUri, flags.limit, !cmd.Flags().Lookup("limit").Changed, rootFlags.verbose)
 		},
 	}
 
@@ -246,7 +247,7 @@ func newRunLogsCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 			// If the connection drops while we are following logs, we'll try again from the last received timestamp
 
 			for {
-				resp, err := InvokeRequest(http.MethodGet, fmt.Sprintf("v1/runs/%s/logs?%s", args[0], queryOptions.Encode()), nil, nil, rootFlags.verbose)
+				resp, err := tyger.InvokeRequest(http.MethodGet, fmt.Sprintf("v1/runs/%s/logs?%s", args[0], queryOptions.Encode()), nil, nil, rootFlags.verbose)
 				if err != nil {
 					return err
 				}

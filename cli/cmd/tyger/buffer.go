@@ -1,11 +1,12 @@
-package cmd
+package main
 
 import (
 	"errors"
 	"fmt"
 	"net/http"
 
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/model"
+	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/tyger"
+	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/tyger/model"
 	"github.com/spf13/cobra"
 )
 
@@ -36,7 +37,7 @@ func newBufferCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			bufferResponse := model.Buffer{}
-			_, err := InvokeRequest(http.MethodPost, "v1/buffers", nil, &bufferResponse, rootFlags.verbose)
+			_, err := tyger.InvokeRequest(http.MethodPost, "v1/buffers", nil, &bufferResponse, rootFlags.verbose)
 			if err != nil {
 				return err
 			}
@@ -63,7 +64,7 @@ func newBufferAccessCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			bufferAccess := model.BufferAccess{}
 			uri := fmt.Sprintf("v1/buffers/%s/access?writeable=%t", args[0], flags.writeable)
-			_, err := InvokeRequest(http.MethodPost, uri, nil, &bufferAccess, rootFlags.verbose)
+			_, err := tyger.InvokeRequest(http.MethodPost, uri, nil, &bufferAccess, rootFlags.verbose)
 
 			if err != nil {
 				return err

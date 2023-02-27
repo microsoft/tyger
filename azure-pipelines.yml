@@ -13,7 +13,7 @@ variables:
   IS_PR: $[ne(variables['System.PullRequest.PullRequestId'], '')]
   IS_CI: $[or(eq(variables['Build.Reason'], 'IndividualCI'), eq(variables['Build.Reason'], 'BatchedCI'))]
 
-  DEVCONTAINER_IMAGE: compimagdevcontainers.azurecr.io/tyger@sha256:b571f897f18c18ac4ad5749cda9d0bb8681bfe0b04fcf07f4626ad50e7db129e
+  DEVCONTAINER_IMAGE: compimagdevcontainers.azurecr.io/tyger@sha256:2329896c722e3a6dda6700a90a570274d8e5de6d8d19f741b8915f5af28ecf6e
 
 jobs:
 - job: buildAndTest
@@ -73,20 +73,15 @@ jobs:
         set -euo pipefail
         make -s -j 8
 
-  - script: |
-      make build-binaries
-
-  - task: PublishPipelineArtifact@1
+  - task: AzureCLI@2
+    condition: and(succeeded(), eq(variables.IS_CI, 'true'))
+    displayName: Push Images
     inputs:
-      targetPath: '$(Build.ArtifactStagingDirectory)/cli-export/linux/tyger'
-      artifact: 'tyger-linux-amd64'
-      publishLocation: 'pipeline'
-
-  - task: PublishPipelineArtifact@1
-    inputs:
-      targetPath: '$(Build.ArtifactStagingDirectory)/cli-export/windows/tyger.exe'
-      artifact: 'tyger-win-64'
-      publishLocation: 'pipeline'
+      azureSubscription: BiomedicalImaging-NonProd
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        make publish-cli-tools-image
 
   - task: AzureCLI@2
     condition: always()

@@ -1,10 +1,10 @@
-package cmd
+package main
 
 import (
 	"errors"
 	"fmt"
 
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/clicontext"
+	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/tyger/clicontext"
 	"github.com/spf13/cobra"
 )
 

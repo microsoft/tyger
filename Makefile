@@ -24,23 +24,6 @@ ensure-environment:
 remove-environment: down
 	echo '${ENVIRONMENT_CONFIG}' | deploy/scripts/environment/remove-environment.sh -c -
 
-ensure-buffer-proxy-installed: install-cli
-	buffer_proxy_version="$$(jq -r -c '.dependencies | .[] | select(.name == "buffer-proxy-binaries") | .tag' dependencies.json)"
-	if command -v buffer-proxy &> /dev/null; then
-		if buffer-proxy --version | grep -q "$$buffer_proxy_version"; then
-			exit
-		fi
-	fi
-
-	buffer_proxy_binaries_image="$$(jq -r -c '.dependencies | .[] | select(.name == "buffer-proxy-binaries") | (.repository + ":" + .tag)' dependencies.json)"
-	registry="$$(echo "$${buffer_proxy_binaries_image}" | cut -d/ -f1)"
-	scripts/login-acr-if-needed.sh "$$registry"
-
-	container=$$(docker create $$buffer_proxy_binaries_image)
-	install_dir=$$(dirname "$$(which tyger)")
-	docker cp "$${container}:/buffer-proxy/linux/amd64/buffer-proxy" "$${install_dir}"
-	docker rm "$$container"
-
 set-context:
 	subscription=$$(echo '${ENVIRONMENT_CONFIG}' | jq -r '.subscription')
 	resource_group=$$(echo '${ENVIRONMENT_CONFIG}' | jq -r '.resourceGroup')
@@ -64,7 +47,7 @@ set-localsettings:
 
 	postgres_password="$$(kubectl get secrets -n ${HELM_NAMESPACE} ${HELM_RELEASE}-db -o jsonpath="{.data.postgresql-password}" | base64 -d)"
 
-	buffer_proxy_image="$$(jq -r -c '.dependencies | .[] | select(.name == "buffer-proxy") | (.repository + ":" + .tag)' dependencies.json)"
+	buffer_proxy_image="$$(docker inspect eminence.azurecr.io/buffer-proxy:dev | jq -r --arg repo eminence.azurecr.io/buffer-proxy '.[0].RepoDigests[] | select (startswith($$repo))')"
 	worker_waiter_image="$$(docker inspect eminence.azurecr.io/worker-waiter:dev | jq -r --arg repo eminence.azurecr.io/worker-waiter '.[0].RepoDigests[] | select (startswith($$repo))')"
 
 	jq <<- EOF > ${SERVER_PATH}/appsettings.local.json
@@ -124,21 +107,28 @@ docker-build:
 docker-build-test:
 	echo '${ENVIRONMENT_CONFIG}' | scripts/build-images.sh -c - --test --push --push-force --tag test --quiet
 
-up: ensure-environment ensure-buffer-proxy-installed docker-build
+publish-cli-tools-image:
+	echo '${ENVIRONMENT_CONFIG}' | scripts/build-images.sh -c - --cli-tools --push --use-git-hash-as-tag --quiet
+
+up: ensure-environment docker-build
 	echo '${ENVIRONMENT_CONFIG}' | deploy/scripts/tyger/tyger-up.sh -c -
 
 down:
 	echo '${ENVIRONMENT_CONFIG}' | deploy/scripts/tyger/tyger-down.sh -c -
 
+buffer-proxy-e2e: cli-ready
+	pushd cli/e2e/buffer-proxy
+	go test -tags=e2e 
+
 e2e-no-up-prereqs: docker-build-test
 
-e2e-no-up: e2e-no-up-prereqs cli-ready
+e2e-no-up: e2e-no-up-prereqs buffer-proxy-e2e
 	if ! echo '${ENVIRONMENT_CONFIG}' | timeout --foreground 30m scripts/wait-for-cluster-to-scale.sh -c -; then
 		echo "timed out waiting for nodepools to scale"
 		exit 1
 	fi
 
-	pushd cli/test/e2e
+	pushd cli/e2e/tyger
 	go test -tags=e2e
 
 e2e: up e2e-no-up-prereqs
@@ -196,9 +186,7 @@ login: install-cli download-test-client-cert
 install-cli:
 	cd cli
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go install -ldflags="-s -w" ./cmd/tyger
-
-build-binaries:
-	./scripts/build-cli-binaries.sh
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go install -ldflags="-s -w" ./cmd/buffer-proxy
 
 cli-ready: install-cli
 	if ! tyger login status &> /dev/null; then

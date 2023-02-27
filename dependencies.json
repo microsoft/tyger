@@ -1,18 +1,6 @@
 {
   "dependencies": [
     {
-      "name": "buffer-proxy",
-      "type": "acrImage",
-      "repository": "eminence.azurecr.io/buffer-proxy",
-      "tag": "17e74e4b3d6b9c4dfed25edfd8b2e00ee08a39c2"
-    },
-    {
-      "name": "buffer-proxy-binaries",
-      "type": "acrImage",
-      "repository": "eminence.azurecr.io/buffer-proxy-binaries",
-      "tag": "17e74e4b3d6b9c4dfed25edfd8b2e00ee08a39c2"
-    },
-    {
       "name": "python_recon",
       "type": "acrImage",
       "repository": "eminence.azurecr.io/python_recon",
