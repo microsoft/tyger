@@ -11,7 +11,7 @@ namespace Tyger.Server.Logging;
 ///
 /// But when a single message (line) is very long, it ends up with timestamps interspersed within it.
 /// The format then end up being
-/// <timestamp> <16K of message><timestamp> <16K of message><timestamp>...
+/// (timestamp) (16K of message)(timestamp) (16K of message)(timestamp)...
 ///
 /// Here we reformat those logs and to take out those extra timestamps from the messages.
 ///

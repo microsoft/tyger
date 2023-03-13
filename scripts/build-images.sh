@@ -125,14 +125,14 @@ if [[ -n "${cli_tools:-}" ]]; then
   build_and_push
 elif [[ -n "${test:-}" ]]; then
   build_context="${repo_root_dir}/cli"
-  dockerfile_path="${repo_root_dir}/cli/e2e/testconnectivity/Dockerfile"
+  dockerfile_path="${repo_root_dir}/cli/integrationtest/testconnectivity/Dockerfile"
   target="testconnectivity"
   local_tag="testconnectivity"
   remote_repo="testconnectivity"
 
   build_and_push
 else
-  build_context="${repo_root_dir}/server"
+  build_context="${repo_root_dir}/"
   dockerfile_path="${repo_root_dir}/server/Dockerfile"
   target="runtime"
   local_tag="tyger-server"

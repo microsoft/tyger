@@ -18,7 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 )
 
-func newCodespecCommand(rootFlags *rootPersistentFlags) *cobra.Command {
+func newCodespecCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                   "codespec",
 		Aliases:               []string{"codespecs"},
@@ -31,14 +31,14 @@ func newCodespecCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 		},
 	}
 
-	cmd.AddCommand(newCodespecCreateCommand(rootFlags))
-	cmd.AddCommand(newCodespecShowCommand(rootFlags))
-	cmd.AddCommand(codespecListCommand(rootFlags))
+	cmd.AddCommand(newCodespecCreateCommand())
+	cmd.AddCommand(newCodespecShowCommand())
+	cmd.AddCommand(codespecListCommand())
 
 	return cmd
 }
 
-func newCodespecCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
+func newCodespecCreateCommand() *cobra.Command {
 	type overcommittableResourceStrings struct {
 		cpu    string
 		memory string
@@ -53,7 +53,7 @@ func newCodespecCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 		requests      overcommittableResourceStrings
 		limits        overcommittableResourceStrings
 		gpu           string
-		maxReplicas   int
+		maxReplicas   string
 		endpoints     map[string]int
 	}
 
@@ -82,17 +82,7 @@ func newCodespecCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 				return errors.New("codespec names must contain only lower case letters (a-z), numbers (0-9), dashes (-), underscores (_), and dots (.)")
 			}
 
-			flags.kind = strings.ToLower(flags.kind)
-
-			switch flags.kind {
-			case "job":
-			case "worker":
-				break
-			default:
-				return errors.New("--kind must be either 'job' or worker'")
-			}
-
-			newCodespec := model.NewCodespec{
+			newCodespec := model.Codespec{
 				Kind:  flags.kind,
 				Image: flags.image,
 				Buffers: &model.BufferParameters{
@@ -104,8 +94,32 @@ func newCodespecCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 					Requests: &model.OvercommittableResources{},
 					Limits:   &model.OvercommittableResources{},
 				},
-				MaxReplicas: flags.maxReplicas,
-				Endpoints:   flags.endpoints,
+				Endpoints: flags.endpoints,
+			}
+
+			if flags.maxReplicas != "" {
+				mr, err := strconv.Atoi(flags.maxReplicas)
+				if err != nil {
+					return fmt.Errorf("max-replicas must be an integer, got %s", flags.maxReplicas)
+				}
+				newCodespec.MaxReplicas = &mr
+			}
+
+			flags.kind = strings.ToLower(flags.kind)
+
+			switch flags.kind {
+			case "job":
+				if len(newCodespec.Endpoints) != 0 {
+					return errors.New("job codespecs cannot have endpoints")
+				}
+				newCodespec.Endpoints = nil
+			case "worker":
+				if len(newCodespec.Buffers.Inputs)+len(newCodespec.Buffers.Outputs) != 0 {
+					return errors.New("worker codespecs cannot have use buffers")
+				}
+				newCodespec.Buffers = nil
+			default:
+				return errors.New("--kind must be either 'job' or worker'")
 			}
 
 			if flags.command {
@@ -117,19 +131,19 @@ func newCodespecCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 			parseOvercommittableResources := func(resourceStrings overcommittableResourceStrings, resourceType string) (*model.OvercommittableResources, error) {
 				resources := &model.OvercommittableResources{}
 				if (resourceStrings.cpu) != "" {
-					_, err := resource.ParseQuantity(resourceStrings.cpu)
+					q, err := resource.ParseQuantity(resourceStrings.cpu)
 					if err != nil {
 						return nil, fmt.Errorf("cpu %s value is invalid: %v", resourceType, err)
 					}
-					resources.Cpu = &resourceStrings.cpu
+					resources.Cpu = &q
 				}
 
 				if (resourceStrings.memory) != "" {
-					_, err := resource.ParseQuantity(resourceStrings.memory)
+					q, err := resource.ParseQuantity(resourceStrings.memory)
 					if err != nil {
 						return nil, fmt.Errorf("memory %s value is invalid: %v", resourceType, err)
 					}
-					resources.Memory = &resourceStrings.memory
+					resources.Memory = &q
 				}
 
 				return resources, nil
@@ -147,14 +161,14 @@ func newCodespecCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 			}
 
 			if (flags.gpu) != "" {
-				_, err := resource.ParseQuantity(flags.gpu)
+				q, err := resource.ParseQuantity(flags.gpu)
 				if err != nil {
 					return fmt.Errorf("gpu value is invalid: %v", err)
 				}
-				newCodespec.Resources.Gpu = &flags.gpu
+				newCodespec.Resources.Gpu = &q
 			}
 
-			resp, err := tyger.InvokeRequest(http.MethodPut, fmt.Sprintf("v1/codespecs/%s", codespecName), newCodespec, &newCodespec, rootFlags.verbose)
+			resp, err := tyger.InvokeRequest(http.MethodPut, fmt.Sprintf("v1/codespecs/%s", codespecName), newCodespec, &newCodespec)
 			if err != nil {
 				return err
 			}
@@ -174,7 +188,7 @@ func newCodespecCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 		log.Panicln(err)
 	}
 	cmd.Flags().StringVarP(&flags.kind, "kind", "k", "job", "The codespec kind. Either 'job' (the default) or 'worker'.")
-	cmd.Flags().IntVarP(&flags.maxReplicas, "max-replicas", "r", 1, "The maximum number of replicas this codespec supports.")
+	cmd.Flags().StringVarP(&flags.maxReplicas, "max-replicas", "r", "", "The maximum number of replicas this codespec supports.")
 	cmd.Flags().StringSliceVarP(&flags.inputBuffers, "input", "i", nil, "Input buffer parameter names")
 	cmd.Flags().StringSliceVarP(&flags.outputBuffers, "output", "o", nil, "Output buffer parameter names")
 	cmd.Flags().StringToStringVarP(&flags.env, "env", "e", nil, "Environment variables to set in the container in the form KEY=value")
@@ -189,7 +203,7 @@ func newCodespecCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 	return cmd
 }
 
-func newCodespecShowCommand(rootFlags *rootPersistentFlags) *cobra.Command {
+func newCodespecShowCommand() *cobra.Command {
 	var flags struct {
 		version int
 	}
@@ -212,7 +226,7 @@ func newCodespecShowCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 			}
 
 			codespec := model.Codespec{}
-			_, err := tyger.InvokeRequest(http.MethodGet, relativeUri, nil, &codespec, rootFlags.verbose)
+			_, err := tyger.InvokeRequest(http.MethodGet, relativeUri, nil, &codespec)
 			if err != nil {
 				return err
 			}
@@ -237,7 +251,7 @@ func getCodespecVersionFromResponse(resp *http.Response) (int, error) {
 	return strconv.Atoi(location[strings.LastIndex(location, "/")+1:])
 }
 
-func codespecListCommand(rootFlags *rootPersistentFlags) *cobra.Command {
+func codespecListCommand() *cobra.Command {
 	var flags struct {
 		limit  int
 		prefix string
@@ -248,6 +262,7 @@ func codespecListCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 		Short:                 "List codespecs",
 		Long:                  `List codespecs. Latest version of codespecs are sorted alphabetically.`,
 		DisableFlagsInUseLine: true,
+		Args:                  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			queryOptions := url.Values{}
 			if flags.limit > 0 {
@@ -260,7 +275,7 @@ func codespecListCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 			}
 
 			var relativeUri string = fmt.Sprintf("v1/codespecs?%s", queryOptions.Encode())
-			return tyger.InvokePageRequests[model.Codespec](relativeUri, flags.limit, !cmd.Flags().Lookup("limit").Changed, rootFlags.verbose)
+			return tyger.InvokePageRequests[model.Codespec](relativeUri, flags.limit, !cmd.Flags().Lookup("limit").Changed)
 		},
 	}
 

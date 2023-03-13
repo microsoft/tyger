@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newClusterCommand(rootFlags *rootPersistentFlags) *cobra.Command {
+func newClusterCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                   "cluster",
 		Aliases:               []string{"clusters"},
@@ -24,12 +24,12 @@ func newClusterCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 		},
 	}
 
-	cmd.AddCommand(newClusterListCommand(rootFlags))
+	cmd.AddCommand(newClusterListCommand())
 
 	return cmd
 }
 
-func newClusterListCommand(rootFlags *rootPersistentFlags) *cobra.Command {
+func newClusterListCommand() *cobra.Command {
 	var flags struct {
 		limit uint
 	}
@@ -41,7 +41,7 @@ func newClusterListCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clusters := make([]model.Cluster, 0)
-			_, err := tyger.InvokeRequest(http.MethodGet, "v1/clusters/", nil, &clusters, rootFlags.verbose)
+			_, err := tyger.InvokeRequest(http.MethodGet, "v1/clusters/", nil, &clusters)
 			if err != nil {
 				return err
 			}

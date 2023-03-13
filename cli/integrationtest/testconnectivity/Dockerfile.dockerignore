@@ -1,0 +1,11 @@
+# Ignore everything...
+**
+
+# ...except:
+!go.mod
+!go.sum
+!integrationtest/testconnectivity/
+
+# but also ignore:
+integrationtest/testconnectivity/Dockerfile
+integrationtest/testconnectivity/Dockerfile.dockerignore

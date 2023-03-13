@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Primitives;
+using Tyger.Server.Json;
 using Tyger.Server.Kubernetes;
 using Tyger.Server.Logging;
 using Tyger.Server.Model;
@@ -13,10 +14,11 @@ public static class Runs
     {
         app.MapPost("/v1/runs", async (RunCreator runCreator, HttpContext context) =>
         {
-            var run = await context.Request.ReadAndValidateJson<NewRun>(context.RequestAborted);
+            var run = await context.Request.ReadAndValidateJson<Run>(context.RequestAborted);
             Run createdRun = await runCreator.CreateRun(run, context.RequestAborted);
             return Results.Created($"/v1/runs/{createdRun.Id}", createdRun);
         })
+        .Accepts<Run>("application/json")
         .Produces<Run>(StatusCodes.Status201Created)
         .Produces<ErrorBody>(StatusCodes.Status400BadRequest);
 
@@ -54,7 +56,7 @@ public static class Runs
             return Results.Ok(run);
         })
         .Produces<Run>(StatusCodes.Status200OK)
-        .Produces<ErrorBody>();
+        .Produces<ErrorBody>(StatusCodes.Status404NotFound);
 
         app.MapGet("/v1/runs/{runId}/logs", async (
             string runId,
@@ -89,8 +91,8 @@ public static class Runs
 
             await pipeline.Process(context.Response.BodyWriter, context.RequestAborted);
         })
-        .Produces<Run>(StatusCodes.Status200OK)
-        .Produces<string>();
+        .Produces(StatusCodes.Status200OK, null, "text/plain")
+        .Produces<ErrorBody>(StatusCodes.Status404NotFound);
 
         // this endpoint is for testing purposes only, to force the background pod sweep
         app.MapPost("/v1/runs/_sweep", async (RunSweeper runSweeper, CancellationToken cancellationToken) =>

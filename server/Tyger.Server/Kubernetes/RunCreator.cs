@@ -42,25 +42,54 @@ public class RunCreator
         _logger = logger;
     }
 
-    public async Task<Run> CreateRun(NewRun newRun, CancellationToken cancellationToken)
+    public async Task<Run> CreateRun(Run newRun, CancellationToken cancellationToken)
     {
         // Phase 1: Validate newRun and create the leaf building blocks.
 
         ClusterOptions targetCluster = GetTargetCluster(newRun);
-        var jobCodespec = await GetCodespec(newRun.Job.Codespec, cancellationToken);
-        newRun = newRun with { Cluster = targetCluster.Name, Job = newRun.Job with { Codespec = jobCodespec.NormalizedRef() } };
+
+        if (await GetCodespec(newRun.Job.Codespec, cancellationToken) is not JobCodespec jobCodespec)
+        {
+            throw new ArgumentException($"The codespec for the job is required to be a job codespec");
+        }
+
+        newRun = newRun with
+        {
+            Cluster = targetCluster.Name,
+            Job = newRun.Job with
+            {
+                Codespec = jobCodespec.ToCodespecRef()
+            }
+        };
+
         var jobPodTemplateSpec = CreatePodTemplateSpec(jobCodespec, newRun.Job, targetCluster, "Never");
 
-        var bufferMap = await GetBufferMap(jobCodespec.Buffers, newRun.Job.Buffers, cancellationToken);
-
         V1PodTemplateSpec? workerPodTemplateSpec = null;
-        Codespec? workerCodespec = null;
+        WorkerCodespec? workerCodespec = null;
         if (newRun.Worker != null)
         {
-            workerCodespec = await GetCodespec(newRun.Worker.Codespec, cancellationToken);
-            newRun = newRun with { Worker = newRun.Worker with { Codespec = workerCodespec.NormalizedRef() } };
+            workerCodespec = await GetCodespec(newRun.Worker.Codespec, cancellationToken) as WorkerCodespec;
+            if (workerCodespec == null)
+            {
+                throw new ArgumentException($"The codespec for the worker is required to be a worker codespec");
+            }
+
+            newRun = newRun with
+            {
+                Worker = newRun.Worker with
+                {
+                    Codespec = workerCodespec.ToCodespecRef()
+                }
+            };
             workerPodTemplateSpec = CreatePodTemplateSpec(workerCodespec, newRun.Worker, targetCluster, "Always");
         }
+
+        if (newRun.Job.Buffers == null)
+        {
+            newRun = newRun with { Job = newRun.Job with { Buffers = new() } };
+        }
+
+        var bufferMap = await GetBufferMap(jobCodespec.Buffers, newRun.Job.Buffers, cancellationToken);
 
         // Phase 2: now that we have performed validation, create a record for this run in the database
 
@@ -77,7 +106,7 @@ public class RunCreator
         {
             Metadata = new()
             {
-                Name = JobNameFromRunId(run.Id),
+                Name = JobNameFromRunId(run.Id!.Value),
                 Labels = jobLabels
             },
             Spec = new()
@@ -107,7 +136,7 @@ public class RunCreator
             {
                 Metadata = new()
                 {
-                    Name = StatefulSetNameFromRunId(run.Id),
+                    Name = StatefulSetNameFromRunId(run.Id.Value),
                     Labels = workerLabels
                 },
                 Spec = new()
@@ -116,7 +145,7 @@ public class RunCreator
                     Replicas = newRun.Worker.Replicas,
                     Template = workerPodTemplateSpec,
                     Selector = new() { MatchLabels = workerLabels },
-                    ServiceName = StatefulSetNameFromRunId(run.Id)
+                    ServiceName = StatefulSetNameFromRunId(run.Id.Value)
                 },
             };
 
@@ -129,7 +158,7 @@ public class RunCreator
             {
                 Metadata = new()
                 {
-                    Name = StatefulSetNameFromRunId(run.Id),
+                    Name = StatefulSetNameFromRunId(run.Id.Value),
                     Labels = workerLabels,
                 },
                 Spec = new()
@@ -147,7 +176,7 @@ public class RunCreator
         // Phase 4: Inform the database that the Kubernetes objects have been created in the cluster.
 
         await _repository.UpdateRun(run, resourcesCreated: true, cancellationToken: cancellationToken);
-        _logger.CreatedRun(run.Id);
+        _logger.CreatedRun(run.Id.Value);
         return run;
     }
 
@@ -191,7 +220,7 @@ public class RunCreator
         job.Spec.Template.Spec.ServiceAccountName = _k8sOptions.JobServiceAccount;
     }
 
-    private void AddWorkerNodesEnvironmentVariables(V1Job job, Run run, Codespec? workerCodespec)
+    private void AddWorkerNodesEnvironmentVariables(V1Job job, Run run, WorkerCodespec? workerCodespec)
     {
         var dnsNames = GetWorkerDnsNames(run);
 
@@ -208,7 +237,7 @@ public class RunCreator
 
     private string[] GetWorkerDnsNames(Run run)
     {
-        return Enumerable.Range(0, run.Worker!.Replicas).Select(i => $"{StatefulSetNameFromRunId(run.Id)}-{i}.{StatefulSetNameFromRunId(run.Id)}.{_k8sOptions.Namespace}.svc.cluster.local").ToArray();
+        return Enumerable.Range(0, run.Worker!.Replicas).Select(i => $"{StatefulSetNameFromRunId(run.Id!.Value)}-{i}.{StatefulSetNameFromRunId(run.Id.Value)}.{_k8sOptions.Namespace}.svc.cluster.local").ToArray();
     }
 
     private async Task AddBufferProxySidecars(V1Job job, Run run, Dictionary<string, (bool write, Uri sasUri)> bufferMap, CancellationToken cancellationToken)
@@ -227,7 +256,7 @@ public class RunCreator
         {
             Metadata = new()
             {
-                Name = SecretNameFromRunId(run.Id),
+                Name = SecretNameFromRunId(run.Id!.Value),
                 Labels = job.Labels() ?? throw new InvalidOperationException("expected job labels to be set"),
             },
             StringData = bufferMap.ToDictionary(p => p.Key, p => p.Value.sasUri.ToString()),
@@ -296,7 +325,7 @@ public class RunCreator
 
     private static V1Container GetMainContainer(V1PodSpec podSpec) => podSpec.Containers.Single(c => c.Name == "main");
 
-    private ClusterOptions GetTargetCluster(NewRun newRun)
+    private ClusterOptions GetTargetCluster(Run newRun)
     {
         ClusterOptions? targetCluster;
         if (!string.IsNullOrEmpty(newRun.Cluster))
@@ -429,53 +458,52 @@ public class RunCreator
             !vmSize.EndsWith("_v4", StringComparison.OrdinalIgnoreCase); // unsupported AMD GPU
     }
 
-    private async Task<Codespec> GetCodespec(string codespecRef, CancellationToken cancellationToken)
+    private async Task<Codespec> GetCodespec(ICodespecRef codespecRef, CancellationToken cancellationToken)
     {
-        var codespecTokens = codespecRef.Split("/versions/");
-        Codespec? codespec;
-        int version;
-
-        switch (codespecTokens.Length)
+        if (codespecRef is Codespec inlineCodespec)
         {
-            case 1:
-                codespec = await _repository.GetLatestCodespec(codespecTokens[0], cancellationToken);
-                if (codespec == null)
-                {
-                    throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The codespec '{0}' was not found", codespecTokens[0]));
-                }
+            return inlineCodespec;
+        }
 
-                break;
-            case 2:
-                if (!int.TryParse(codespecTokens[1], out version))
-                {
-                    throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "'{0}' is not a valid codespec version", codespecTokens[1]));
-                }
+        if (codespecRef is not CommittedCodespecRef committedCodespecRef)
+        {
+            throw new InvalidOperationException("Invalid codespec reference");
+        }
 
-                codespec = await _repository.GetCodespecAtVersion(codespecTokens[0], version, cancellationToken);
-                if (codespec != null)
-                {
-                    break;
-                }
+        if (committedCodespecRef.Version == null)
+        {
+            var latestCodespec = await _repository.GetLatestCodespec(committedCodespecRef.Name, cancellationToken);
+            if (latestCodespec == null)
+            {
+                throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The codespec '{0}' was not found", committedCodespecRef.Name));
+            }
 
-                // See if it's just the version number that was not found
-                var latestCodespec = await _repository.GetLatestCodespec(codespecTokens[0], cancellationToken);
-                if (latestCodespec == null)
-                {
-                    throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The codespec '{0}' was not found", codespecTokens[0]));
-                }
+            return latestCodespec;
+        }
 
-                throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The version '{0}' of codespec '{1}' was not found. The latest version is '{2}'.", version, codespecTokens[0], latestCodespec.Version));
+        var codespec = await _repository.GetCodespecAtVersion(committedCodespecRef.Name, committedCodespecRef.Version.Value, cancellationToken);
+        if (codespec == null)
+        {
+            // See if it's just the version number that was not found
+            var latestCodespec = await _repository.GetLatestCodespec(committedCodespecRef.Name, cancellationToken);
+            if (latestCodespec == null)
+            {
+                throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The codespec '{0}' was not found", committedCodespecRef.Name));
+            }
 
-            default:
-                throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The codespec '{0}' is invalid. The value should be in the form '<codespec_name>' or '<codespec_name>/versions/<version_number>'.", codespecRef));
+            throw new ValidationException(
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "The version '{0}' of codespec '{1}' was not found. The latest version is '{2}'.",
+                    committedCodespecRef.Version, committedCodespecRef.Name, latestCodespec.Version));
         }
 
         return codespec;
     }
 
-    private async Task<Dictionary<string, (bool write, Uri sasUri)>> GetBufferMap(BufferParameters? parameters, Dictionary<string, string>? arguments, CancellationToken cancellationToken)
+    private async Task<Dictionary<string, (bool write, Uri sasUri)>> GetBufferMap(BufferParameters? parameters, Dictionary<string, string> arguments, CancellationToken cancellationToken)
     {
-        arguments = arguments == null ? new(StringComparer.OrdinalIgnoreCase) : new(arguments, StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, string> argumentsClone = arguments == null ? new(StringComparer.OrdinalIgnoreCase) : new(arguments, StringComparer.OrdinalIgnoreCase);
         IEnumerable<(string param, bool writeable)> combinedParameters = (parameters?.Inputs?.Select(param => (param, false)) ?? Enumerable.Empty<(string, bool)>())
             .Concat(parameters?.Outputs?.Select(param => (param, true)) ?? Enumerable.Empty<(string, bool)>());
 
@@ -483,9 +511,11 @@ public class RunCreator
 
         foreach (var param in combinedParameters)
         {
-            if (!arguments.TryGetValue(param.param, out var bufferId))
+            if (!argumentsClone.TryGetValue(param.param, out var bufferId))
             {
-                throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The run is missing required buffer argument '{0}'", param.param));
+                var buffer = await _bufferManager.CreateBuffer(cancellationToken);
+                bufferId = buffer.Id;
+                arguments![param.param] = bufferId;
             }
 
             var bufferAccess = await _bufferManager.CreateBufferAccessString(bufferId, param.writeable, cancellationToken);
@@ -495,10 +525,10 @@ public class RunCreator
             }
 
             outputMap[param.param] = (param.writeable, bufferAccess.Uri);
-            arguments.Remove(param.param);
+            argumentsClone.Remove(param.param);
         }
 
-        foreach (var arg in arguments)
+        foreach (var arg in argumentsClone)
         {
             throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "Buffer argument '{0}' does not correspond to a buffer parameter on the codespec", arg));
         }

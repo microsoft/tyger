@@ -6,23 +6,28 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"math"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	bufferproxy "dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/buffer-proxy"
+	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/cmdline"
 	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/tyger"
 	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/tyger/model"
+	"github.com/alecthomas/units"
 	"github.com/kaz-yamam0t0/go-timeparser/timeparser"
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"sigs.k8s.io/yaml"
 )
 
-func newRunCommand(rootFlags *rootPersistentFlags) *cobra.Command {
+func newRunCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                   "run",
 		Aliases:               []string{"runs"},
@@ -35,73 +40,289 @@ func newRunCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 		},
 	}
 
-	cmd.AddCommand(newRunCreateCommand(rootFlags))
-	cmd.AddCommand(newRunShowCommand(rootFlags))
-	cmd.AddCommand(newRunLogsCommand(rootFlags))
-	cmd.AddCommand(newRunListCommand(rootFlags))
+	cmd.AddCommand(newRunCreateCommand())
+	cmd.AddCommand(newRunExecCommand())
+	cmd.AddCommand(newRunShowCommand())
+	cmd.AddCommand(newRunLogsCommand())
+	cmd.AddCommand(newRunListCommand())
 
 	return cmd
 }
 
-func newRunCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
+func newRunCreateCommand() *cobra.Command {
+	cmd := newRunCreateCommandCore("create", nil, func(r model.Run) error {
+		fmt.Println(r.Id)
+		return nil
+	})
+
+	cmd.Short = "Creates a run."
+	cmd.Long = `Creates a run. Writes the run ID to stdout on success.`
+
+	return cmd
+}
+
+func newRunExecCommand() *cobra.Command {
+	logs := false
+	logTimestamps := false
+
+	var inputBufferParameter string
+	var outputBufferParameter string
+
+	preValidate := func(run model.Run) error {
+		var resolvedCodespec model.Codespec
+
+		if run.Job.Codespec.Inline != nil {
+			resolvedCodespec = model.Codespec(*run.Job.Codespec.Inline)
+		} else if run.Job.Codespec.Named != nil {
+			relativeUri := fmt.Sprintf("v1/codespecs/%s", *run.Job.Codespec.Named)
+			_, err := tyger.InvokeRequest(http.MethodGet, relativeUri, nil, &resolvedCodespec)
+			if err != nil {
+				return err
+			}
+		} else {
+			return errors.New("a codespec for the job must be specified")
+		}
+
+		bufferParameters := resolvedCodespec.Buffers
+		if bufferParameters == nil {
+			return nil
+		}
+		switch len(bufferParameters.Inputs) {
+		case 0:
+			break
+		case 1:
+			inputBufferParameter = bufferParameters.Inputs[0]
+		default:
+			return errors.New("exec cannot be called if the job has multiple input buffers")
+		}
+
+		switch len(bufferParameters.Outputs) {
+		case 0:
+			break
+		case 1:
+			outputBufferParameter = bufferParameters.Outputs[0]
+		default:
+			return errors.New("exec cannot be called if the job has multiple output buffers")
+		}
+
+		return nil
+	}
+
+	blockSize := bufferproxy.DefaultBlockSize
+	writeDop := bufferproxy.DefaultWriteDop
+	readDop := bufferproxy.DefaultReadDop
+
+	postCreate := func(run model.Run) error {
+
+		log.Info().Int64("runId", run.Id).Msg("Run created")
+		var inputSasUri string
+		var outputSasUri string
+		var err error
+		if inputBufferParameter != "" {
+			bufferId := run.Job.Buffers[inputBufferParameter]
+			inputSasUri, err = getBufferAccessUri(bufferId, true)
+			if err != nil {
+				return err
+			}
+		}
+		if outputBufferParameter != "" {
+			bufferId := run.Job.Buffers[outputBufferParameter]
+			outputSasUri, err = getBufferAccessUri(bufferId, false)
+			if err != nil {
+				return err
+			}
+		}
+
+		wg := sync.WaitGroup{}
+		if inputSasUri != "" {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				bufferproxy.Write(inputSasUri, writeDop, blockSize, os.Stdin)
+			}()
+		}
+
+		if outputSasUri != "" {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				bufferproxy.Read(outputSasUri, readDop, os.Stdout)
+			}()
+		}
+
+		if logs {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				err := getLogs(strconv.FormatInt(run.Id, 10), logTimestamps, -1, nil, true, os.Stderr)
+				if err != nil {
+					log.Error().Err(err).Msg("Failed to get logs")
+				}
+			}()
+		}
+
+		start := time.Now()
+		for {
+			// TODO: replace this with a more efficient watch API
+			_, err = tyger.InvokeRequest(http.MethodGet, fmt.Sprintf("v1/runs/%d", run.Id), nil, &run)
+			if err != nil {
+				return err
+			}
+			switch run.Status {
+			case "Succeeded":
+				goto end
+			case "Pending":
+			case "Running":
+			default:
+				log.Fatal().Str("status", run.Status).Str("statusReason", run.StatusReason).Msg("Run failed.")
+			}
+
+			elapsed := time.Since(start)
+
+			switch {
+			case elapsed < 10*time.Second:
+				time.Sleep(time.Millisecond * 250)
+			case elapsed < time.Minute:
+				time.Sleep(time.Second)
+			case elapsed < 2*time.Minute:
+				time.Sleep(5 * time.Second)
+			default:
+				time.Sleep(10 * time.Second)
+			}
+		}
+	end:
+		wg.Wait()
+		return nil
+	}
+
+	cmd := newRunCreateCommandCore("exec", preValidate, postCreate)
+
+	blockSizeString := ""
+	cmd.PreRunE = func(cmd *cobra.Command, args []string) error {
+		cmdline.WarnIfRunningInPowerShell()
+
+		if blockSizeString != "" {
+			if blockSizeString != "" && blockSizeString[len(blockSizeString)-1] != 'B' {
+				blockSizeString += "B"
+			}
+			parsedBlockSize, err := units.ParseBase2Bytes(blockSizeString)
+			if err != nil {
+				return err
+			}
+
+			blockSize = int(parsedBlockSize)
+		}
+
+		return nil
+	}
+
+	cmd.Short = "Creates a run and reads and writes to its buffers."
+	cmd.Long = `Creates a run.
+If the job has a single input buffer, stdin is streamed to the buffer.
+If the job has a single output buffer, stdout is streamed from the buffer.`
+
+	cmd.Flags().BoolVar(&logs, "logs", false, "Print run logs to stderr.")
+	cmd.Flags().BoolVar(&logTimestamps, "timestamps", false, "Print run logs with timestamps.")
+
+	cmd.Flags().StringVar(&blockSizeString, "block-size", blockSizeString, "Split the input stream into buffer blocks of this size.")
+	cmd.Flags().IntVar(&writeDop, "write-dop", writeDop, "The degree of parallelism for writing to the input buffer.")
+	cmd.Flags().IntVar(&readDop, "read-dop", readDop, "The degree of parallelism for reading from the output buffer.")
+
+	return cmd
+}
+
+func newRunCreateCommandCore(
+	commandName string,
+	preValidate func(model.Run) error,
+	postCreate func(model.Run) error) *cobra.Command {
 	type codeTargetFlags struct {
 		codespec        string
-		codespecVersion int
+		codespecVersion string
 		buffers         map[string]string
 		nodePool        string
 		replicas        int
 	}
 	var flags struct {
-		job     codeTargetFlags
-		worker  codeTargetFlags
-		cluster string
-		timeout string
+		specFile string
+		job      codeTargetFlags
+		worker   codeTargetFlags
+		cluster  string
+		timeout  string
 	}
 
-	getCodespecRef := func(ctf codeTargetFlags) string {
-		if ctf.codespecVersion != math.MinInt {
-			return fmt.Sprintf("%s/versions/%d", ctf.codespec, ctf.codespecVersion)
+	getCodespecRef := func(ctf codeTargetFlags) model.CodespecRef {
+		namedRef := model.NamedCodespecRef(ctf.codespec)
+		if ctf.codespecVersion != "" {
+			namedRef = model.NamedCodespecRef(fmt.Sprintf("%s/versions/%s", ctf.codespec, ctf.codespecVersion))
 		}
-		return ctf.codespec
+		return model.CodespecRef{Named: &namedRef}
 	}
 
 	cmd := &cobra.Command{
-		Use: `create --codespec NAME [--version CODESPEC_VERSION] [[--buffer NAME=VALUE] ...] [--replicas COUNT]  [--node-pool NODEPOOL]
-		[ --worker-codespec NAME [--worker-version CODESPEC_VERSION] [--worker-replicas COUNT]  [--worker-node-pool NODEPOOL] ]
-		[--timeout DURATION] [--cluster CLUSTER]`,
-		Short:                 "Creates a run.",
-		Long:                  `Creates a buffer. Writes the run ID to stdout on success.`,
+		Use:                   fmt.Sprintf(`%s [--file YAML_SPEC] [other flags]`, commandName),
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 
-			jobRunCodeTarget := model.RunCodeTarget{
-				Codespec: getCodespecRef(flags.job),
-				Buffers:  flags.job.buffers,
-				NodePool: flags.job.nodePool,
-				Replicas: flags.job.replicas,
+			newRun := model.Run{}
+			if flags.specFile != "" {
+				bytes, err := os.ReadFile(flags.specFile)
+				if err != nil {
+					return fmt.Errorf("failed to read file %s: %w", flags.specFile, err)
+				}
+
+				err = yaml.UnmarshalStrict(bytes, &newRun)
+				if err != nil {
+					return fmt.Errorf("failed to parse file %s: %w", flags.specFile, err)
+				}
+
+				if newRun.Job.Codespec.Inline != nil {
+					newRun.Job.Codespec.Inline.Kind = "job"
+				}
+				if newRun.Worker != nil && newRun.Worker.Codespec.Inline != nil {
+					newRun.Worker.Codespec.Inline.Kind = "worker"
+				}
 			}
 
-			var workerCodetarget *model.RunCodeTarget
+			if flags.job.codespec != "" {
+				newRun.Job.Codespec = getCodespecRef(flags.job)
+			}
+			if len(flags.job.buffers) > 0 {
+				if newRun.Job.Buffers == nil {
+					newRun.Job.Buffers = map[string]string{}
+				}
+				for k, v := range flags.job.buffers {
+					newRun.Job.Buffers[k] = v
+				}
+			}
+			if flags.job.nodePool != "" {
+				newRun.Job.NodePool = flags.job.nodePool
+			}
+
+			if flags.job.replicas != 0 {
+				newRun.Job.Replicas = flags.job.replicas
+			}
+
 			cmd.Flags().VisitAll(func(f *pflag.Flag) {
-				if workerCodetarget == nil && f.Changed && strings.HasPrefix(f.Name, "worker") {
-					workerCodetarget = &model.RunCodeTarget{}
+				if newRun.Worker == nil && f.Changed && strings.HasPrefix(f.Name, "worker") {
+					newRun.Worker = &model.RunCodeTarget{}
 				}
 			})
 
-			if workerCodetarget != nil {
-				if flags.worker.codespec == "" {
-					return errors.New("--worker-codespec must be specified if a worker is specified")
+			if newRun.Worker != nil {
+				if flags.worker.codespec != "" {
+					newRun.Worker.Codespec = getCodespecRef(flags.worker)
 				}
-				workerCodetarget.Codespec = getCodespecRef(flags.worker)
-				workerCodetarget.NodePool = flags.worker.nodePool
-				workerCodetarget.Replicas = flags.worker.replicas
+				if flags.worker.nodePool != "" {
+					newRun.Worker.NodePool = flags.worker.nodePool
+				}
+				if flags.worker.replicas != 0 {
+					newRun.Worker.Replicas = flags.worker.replicas
+				}
 			}
 
-			newRun := model.NewRun{
-				Job:     jobRunCodeTarget,
-				Worker:  workerCodetarget,
-				Cluster: flags.cluster,
+			if flags.cluster != "" {
+				newRun.Cluster = flags.cluster
 			}
 
 			if flags.timeout != "" {
@@ -114,28 +335,39 @@ func newRunCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 				newRun.TimeoutSeconds = &seconds
 			}
 
-			run := model.Run{}
-			_, err := tyger.InvokeRequest(http.MethodPost, "v1/runs", newRun, &run, rootFlags.verbose)
+			if preValidate != nil {
+				err := preValidate(newRun)
+				if err != nil {
+					return err
+				}
+			}
+
+			committedRun := model.Run{}
+			_, err := tyger.InvokeRequest(http.MethodPost, "v1/runs", newRun, &committedRun)
 			if err != nil {
 				return err
 			}
 
-			fmt.Println(run.Id)
+			if postCreate != nil {
+				err = postCreate(committedRun)
+				if err != nil {
+					return err
+				}
+			}
 			return nil
 		},
 	}
 
+	cmd.Flags().StringVarP(&flags.specFile, "file", "f", "", "A YAML file with the run specification. All other flags override the values in the file.")
+
 	cmd.Flags().StringVarP(&flags.job.codespec, "codespec", "c", "", "The name of the job codespec to execute")
-	if err := cmd.MarkFlagRequired("codespec"); err != nil {
-		log.Panicln(err)
-	}
-	cmd.Flags().IntVar(&flags.job.codespecVersion, "version", math.MinInt, "The version of the job codespec to execute")
+	cmd.Flags().StringVar(&flags.job.codespecVersion, "version", "", "The version of the job codespec to execute")
 	cmd.Flags().IntVarP(&flags.job.replicas, "replicas", "r", 1, "The number of parallel job replicas. Defaults to 1.")
 	cmd.Flags().StringVar(&flags.job.nodePool, "node-pool", "", "The name of the nodepool to execute the job in")
 	cmd.Flags().StringToStringVarP(&flags.job.buffers, "buffer", "b", nil, "maps a codespec buffer parameter to a buffer ID")
 
 	cmd.Flags().StringVar(&flags.worker.codespec, "worker-codespec", "", "The name of the optional worker codespec to execute")
-	cmd.Flags().IntVar(&flags.worker.codespecVersion, "worker-version", math.MinInt, "The version of the optional worker codespec to execute")
+	cmd.Flags().StringVar(&flags.worker.codespecVersion, "worker-version", "", "The version of the optional worker codespec to execute")
 	cmd.Flags().IntVar(&flags.worker.replicas, "worker-replicas", 1, "The number of parallel worker replicas. Defaults to 1 if a worker is specified.")
 	cmd.Flags().StringVar(&flags.worker.nodePool, "worker-node-pool", "", "The name of the nodepool to execute the optional worker codespec in")
 
@@ -145,7 +377,7 @@ func newRunCreateCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 	return cmd
 }
 
-func newRunShowCommand(rootFlags *rootPersistentFlags) *cobra.Command {
+func newRunShowCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:                   "show ID",
 		Aliases:               []string{"get"},
@@ -155,7 +387,7 @@ func newRunShowCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 		Args:                  exactlyOneArg("run name"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			run := model.Run{}
-			_, err := tyger.InvokeRequest(http.MethodGet, fmt.Sprintf("v1/runs/%s", args[0]), nil, &run, rootFlags.verbose)
+			_, err := tyger.InvokeRequest(http.MethodGet, fmt.Sprintf("v1/runs/%s", args[0]), nil, &run)
 			if err != nil {
 				return err
 			}
@@ -171,7 +403,7 @@ func newRunShowCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 	}
 }
 
-func newRunListCommand(rootFlags *rootPersistentFlags) *cobra.Command {
+func newRunListCommand() *cobra.Command {
 	var flags struct {
 		limit int
 		since string
@@ -199,7 +431,7 @@ func newRunListCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 			}
 
 			relativeUri := fmt.Sprintf("v1/runs?%s", queryOptions.Encode())
-			return tyger.InvokePageRequests[model.Run](relativeUri, flags.limit, !cmd.Flags().Lookup("limit").Changed, rootFlags.verbose)
+			return tyger.InvokePageRequests[model.Run](relativeUri, flags.limit, !cmd.Flags().Lookup("limit").Changed)
 		},
 	}
 
@@ -209,7 +441,7 @@ func newRunListCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 	return cmd
 }
 
-func newRunLogsCommand(rootFlags *rootPersistentFlags) *cobra.Command {
+func newRunLogsCommand() *cobra.Command {
 	var flags struct {
 		timestamps bool
 		tailLines  int
@@ -224,48 +456,17 @@ func newRunLogsCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 		DisableFlagsInUseLine: true,
 		Args:                  exactlyOneArg("run ID"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			queryOptions := url.Values{}
-			if flags.follow || flags.timestamps {
-				queryOptions.Add("timestamps", "true")
-			}
-			if flags.tailLines >= 0 {
-				queryOptions.Add("tailLines", strconv.Itoa(flags.tailLines))
-			}
+			var sinceTime *time.Time
 			if flags.since != "" {
 				now := time.Now()
-				tm, err := timeparser.ParseTimeStr(flags.since, &now)
+				var err error
+				sinceTime, err = timeparser.ParseTimeStr(flags.since, &now)
 				if err != nil {
 					return fmt.Errorf("failed to parse time %s", flags.since)
 				}
-				queryOptions.Add("since", tm.UTC().Format(time.RFC3339Nano))
 			}
 
-			if flags.follow {
-				queryOptions.Add("follow", "true")
-			}
-
-			// If the connection drops while we are following logs, we'll try again from the last received timestamp
-
-			for {
-				resp, err := tyger.InvokeRequest(http.MethodGet, fmt.Sprintf("v1/runs/%s/logs?%s", args[0], queryOptions.Encode()), nil, nil, rootFlags.verbose)
-				if err != nil {
-					return err
-				}
-
-				if !flags.follow {
-					_, err = io.Copy(os.Stdout, resp.Body)
-					return err
-				}
-
-				lastTimestamp, err := followLogs(resp.Body, flags.timestamps)
-				if err == nil || err == io.EOF {
-					return nil
-				}
-
-				if len(lastTimestamp) > 0 {
-					queryOptions.Set("since", lastTimestamp)
-				}
-			}
+			return getLogs(args[0], flags.timestamps, flags.tailLines, sinceTime, flags.follow, os.Stdout)
 		},
 	}
 
@@ -277,7 +478,47 @@ func newRunLogsCommand(rootFlags *rootPersistentFlags) *cobra.Command {
 	return cmd
 }
 
-func followLogs(body io.Reader, includeTimestamps bool) (lastTimestamp string, err error) {
+func getLogs(runId string, timestamps bool, tailLines int, since *time.Time, follow bool, outputSink io.Writer) error {
+	queryOptions := url.Values{}
+	if follow || timestamps {
+		queryOptions.Add("timestamps", "true")
+	}
+	if tailLines >= 0 {
+		queryOptions.Add("tailLines", strconv.Itoa(tailLines))
+	}
+	if since != nil {
+		queryOptions.Add("since", since.UTC().Format(time.RFC3339Nano))
+	}
+
+	if follow {
+		queryOptions.Add("follow", "true")
+	}
+
+	// If the connection drops while we are following logs, we'll try again from the last received timestamp
+
+	for {
+		resp, err := tyger.InvokeRequest(http.MethodGet, fmt.Sprintf("v1/runs/%s/logs?%s", runId, queryOptions.Encode()), nil, nil)
+		if err != nil {
+			return err
+		}
+
+		if !follow {
+			_, err = io.Copy(outputSink, resp.Body)
+			return err
+		}
+
+		lastTimestamp, err := followLogs(resp.Body, timestamps, outputSink)
+		if err == nil || err == io.EOF {
+			return nil
+		}
+
+		if len(lastTimestamp) > 0 {
+			queryOptions.Set("since", lastTimestamp)
+		}
+	}
+}
+
+func followLogs(body io.Reader, includeTimestamps bool, outputSink io.Writer) (lastTimestamp string, err error) {
 	reader := bufio.NewReader(body)
 	atStartOfLine := true
 	for {
@@ -288,7 +529,7 @@ func followLogs(body io.Reader, includeTimestamps bool) (lastTimestamp string, e
 			}
 			lastTimestamp = localLastTimestamp
 			if includeTimestamps {
-				fmt.Print(lastTimestamp)
+				fmt.Fprint(outputSink, lastTimestamp)
 			}
 		}
 
@@ -299,9 +540,9 @@ func followLogs(body io.Reader, includeTimestamps bool) (lastTimestamp string, e
 
 		atStartOfLine = !isPrefix
 		if isPrefix {
-			fmt.Print(string(line))
+			fmt.Fprint(outputSink, string(line))
 		} else {
-			fmt.Println(string(line))
+			fmt.Fprintln(outputSink, string(line))
 		}
 	}
 }

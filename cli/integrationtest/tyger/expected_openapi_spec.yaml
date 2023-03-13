@@ -1,0 +1,619 @@
+openapi: 3.0.1
+info:
+  title: tyger.server
+  version: '1.0'
+paths:
+  /v1/clusters:
+    get:
+      tags:
+        - tyger.server
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Cluster'
+  '/v1/clusters/{name}':
+    get:
+      tags:
+        - tyger.server
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cluster'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /v1/buffers:
+    post:
+      tags:
+        - tyger.server
+      operationId: createBuffer
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Buffer'
+  '/v1/buffers/{id}':
+    get:
+      tags:
+        - tyger.server
+      operationId: getBufferById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Buffer'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  '/v1/buffers/{id}/access':
+    post:
+      tags:
+        - tyger.server
+      operationId: getBufferAccessString
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: writeable
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BufferAccess'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  '/v1/codespecs/{name}':
+    put:
+      tags:
+        - tyger.server
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/JobCodespec'
+                - $ref: '#/components/schemas/WorkerCodespec'
+              additionalProperties: false
+        required: true
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/JobCodespec'
+                  - $ref: '#/components/schemas/WorkerCodespec'
+                additionalProperties: false
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/JobCodespec'
+                  - $ref: '#/components/schemas/WorkerCodespec'
+                additionalProperties: false
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+    get:
+      tags:
+        - tyger.server
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/JobCodespec'
+                  - $ref: '#/components/schemas/WorkerCodespec'
+                additionalProperties: false
+  /v1/codespecs:
+    get:
+      tags:
+        - tyger.server
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            format: int32
+        - name: prefix
+          in: query
+          schema:
+            type: string
+        - name: _ct
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CodespecPage'
+  '/v1/codespecs/{name}/versions/{version}':
+    get:
+      tags:
+        - tyger.server
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/JobCodespec'
+                  - $ref: '#/components/schemas/WorkerCodespec'
+                additionalProperties: false
+  /v1/runs:
+    post:
+      tags:
+        - tyger.server
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Run'
+        required: true
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Run'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+    get:
+      tags:
+        - tyger.server
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            format: int32
+        - name: since
+          in: query
+          schema:
+            type: string
+        - name: _ct
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunPage'
+  '/v1/runs/{runId}':
+    get:
+      tags:
+        - tyger.server
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Run'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  '/v1/runs/{runId}/logs':
+    get:
+      tags:
+        - tyger.server
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: timestamps
+          in: query
+          schema:
+            type: boolean
+        - name: tailLines
+          in: query
+          schema:
+            type: integer
+            format: int32
+        - name: since
+          in: query
+          schema:
+            type: string
+        - name: follow
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Success
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /v1/metadata:
+    get:
+      tags:
+        - tyger.server
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Metadata'
+components:
+  schemas:
+    Buffer:
+      type: object
+      properties:
+        id:
+          type: string
+      additionalProperties: false
+    BufferAccess:
+      type: object
+      properties:
+        uri:
+          type: string
+          format: uri
+      additionalProperties: false
+    BufferParameters:
+      type: object
+      properties:
+        inputs:
+          type: array
+          items:
+            type: string
+          nullable: true
+        outputs:
+          type: array
+          items:
+            type: string
+          nullable: true
+      additionalProperties: false
+    Cluster:
+      type: object
+      properties:
+        name:
+          type: string
+        region:
+          type: string
+        nodePools:
+          type: array
+          items:
+            $ref: '#/components/schemas/NodePool'
+      additionalProperties: false
+    Codespec:
+      required:
+        - image
+      type: object
+      properties:
+        kind:
+          enum:
+            - job
+            - worker
+          description: Indicates the codespec kind. Can be either 'job' or 'worker'.
+        name:
+          type: string
+          description: "The name of the codespec. Populated by the system.\r\nNot required during create operations, but if it is, it must match the name in the path."
+          nullable: true
+        version:
+          type: integer
+          description: The version of the codespec. Populated by the system. Ignored during create operations.
+          format: int32
+          nullable: true
+        createdAt:
+          type: string
+          description: The datetime when the codespec was created. Populated by the system. Ignored during create operations.
+          format: date-time
+          nullable: true
+        image:
+          minLength: 1
+          type: string
+          description: The container image
+        command:
+          type: array
+          items:
+            type: string
+          description: 'Overrides the entrypoint of the container image. If not provided, the default entrypoint of the image is used.'
+          nullable: true
+        args:
+          type: array
+          items:
+            type: string
+          description: Specifies the arguments to pass to the entrypoint
+          nullable: true
+        workingDir:
+          type: string
+          description: The working directory of the container.
+          nullable: true
+        env:
+          type: object
+          additionalProperties:
+            type: string
+          description: Environment variables to set in the container
+          nullable: true
+        resources:
+          $ref: '#/components/schemas/CodespecResources'
+        maxReplicas:
+          type: integer
+          description: The maximum number of replicas to run.
+          format: int32
+          nullable: true
+      additionalProperties: false
+    CodespecPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            oneOf:
+              - $ref: '#/components/schemas/JobCodespec'
+              - $ref: '#/components/schemas/WorkerCodespec'
+            additionalProperties: false
+        nextLink:
+          type: string
+          format: uri
+          nullable: true
+      additionalProperties: false
+    CodespecResources:
+      type: object
+      properties:
+        limits:
+          $ref: '#/components/schemas/OvercommittableResources'
+        requests:
+          $ref: '#/components/schemas/OvercommittableResources'
+        gpu:
+          type: string
+          nullable: true
+      additionalProperties: false
+    ErrorBody:
+      type: object
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorInfo'
+      additionalProperties: false
+    ErrorInfo:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+      additionalProperties: false
+    JobCodespec:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/Codespec'
+      properties:
+        buffers:
+          $ref: '#/components/schemas/BufferParameters'
+      additionalProperties: false
+    JobRunCodeTarget:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/RunCodeTarget'
+      properties:
+        buffers:
+          type: object
+          additionalProperties:
+            type: string
+          description: The IDs of buffers to provide as arguments to the buffer parameters defined in the job codespec.
+          nullable: true
+      additionalProperties: false
+    Metadata:
+      type: object
+      properties:
+        authority:
+          type: string
+          nullable: true
+        audience:
+          type: string
+          nullable: true
+      additionalProperties: false
+    NodePool:
+      type: object
+      properties:
+        name:
+          type: string
+        vmSize:
+          type: string
+      additionalProperties: false
+    OvercommittableResources:
+      type: object
+      properties:
+        cpu:
+          type: string
+          nullable: true
+        memory:
+          type: string
+          nullable: true
+      additionalProperties: false
+    Run:
+      required:
+        - job
+      type: object
+      properties:
+        id:
+          type: integer
+          description: The run ID. Populated by the system.
+          format: int64
+          nullable: true
+        status:
+          type: string
+          description: The status of the run. Populated by the system.
+          nullable: true
+        statusReason:
+          type: string
+          description: The reason for the status of the run. Populated by the system.
+          nullable: true
+        runningCount:
+          type: integer
+          description: The number of replicas are running. Populated by the system.
+          format: int32
+          nullable: true
+        createdAt:
+          type: string
+          description: The time the run was created. Populated by the system.
+          format: date-time
+          nullable: true
+        finishedAt:
+          type: string
+          description: The time the run finished. Populated by the system.
+          format: date-time
+          nullable: true
+        job:
+          $ref: '#/components/schemas/JobRunCodeTarget'
+        worker:
+          oneOf:
+            - $ref: '#/components/schemas/RunCodeTarget'
+            - $ref: '#/components/schemas/JobRunCodeTarget'
+          additionalProperties: false
+          description: An optional code target for the worker.
+          nullable: true
+        timeoutSeconds:
+          type: integer
+          description: 'The mamimum number of seconds to wait for the run to complete. If the run does not complete within this time, it will be cancelled.'
+          format: int32
+          nullable: true
+        cluster:
+          type: string
+          description: The name of target cluster.
+          nullable: true
+      additionalProperties: false
+    RunCodeTarget:
+      required:
+        - codespec
+      type: object
+      properties:
+        codespec:
+          oneOf:
+            - type: string
+            - $ref: '#/components/schemas/Codespec'
+          description: "The codespec to execute. Can be an inline Codespec or a reference to a committed Codespec\r\nin the form 'name' or 'name/versions/version'."
+        nodePool:
+          type: string
+          description: The targeted node pool
+          nullable: true
+        replicas:
+          type: integer
+          description: The number of replicas to run. Defaults to 1.
+          format: int32
+      additionalProperties: false
+    RunPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Run'
+        nextLink:
+          type: string
+          format: uri
+          nullable: true
+      additionalProperties: false
+    WorkerCodespec:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/Codespec'
+      properties:
+        endpoints:
+          type: object
+          additionalProperties:
+            type: integer
+            format: int32
+            nullable: true
+          description: The name and port of the endpoints that the worker exposes.
+          nullable: true
+      additionalProperties: false

@@ -105,9 +105,10 @@ public static class KubernetesExtensions
                 labelSelector: labelSelector,
                 watch: true,
                 resourceVersion: resourceVersion,
+                allowWatchBookmarks: true,
                 cancellationToken: cancellationToken);
 
-            await using var enumerator = request.WatchAsync<TElement, object>(onError: ExceptionDispatchInfo.Throw).WithCancellation(cancellationToken).GetAsyncEnumerator();
+            await using var enumerator = request.WatchAsync<TElement, object>(onError: ExceptionDispatchInfo.Throw, cancellationToken).WithCancellation(cancellationToken).GetAsyncEnumerator();
             while (true)
             {
                 try
@@ -134,7 +135,10 @@ public static class KubernetesExtensions
                 }
 
                 resourceVersion = enumerator.Current.Item2.ResourceVersion();
-                yield return enumerator.Current;
+                if (enumerator.Current.Item1 != WatchEventType.Bookmark)
+                {
+                    yield return enumerator.Current;
+                }
             }
         }
     }

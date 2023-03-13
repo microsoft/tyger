@@ -1,0 +1,21 @@
+job:
+  codespec:
+    image: eminencepublic.azurecr.io/gadgetron:current
+    buffers:
+      inputs:
+        - input
+      outputs:
+        - output
+    args:
+      - "-c"
+      - "Generic_Cartesian_FFT.xml"
+      - "--from_stream"
+      - "-i"
+      - "$(INPUT_PIPE)"
+      - "-o"
+      - "$(OUTPUT_PIPE)"
+      - "--storage_address"
+      - "$(MRD_STORAGE_URI)"
+    resources:
+      requests:
+        cpu: 1

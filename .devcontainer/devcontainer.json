@@ -12,82 +12,86 @@
     "seccomp=unconfined"
   ],
 
-  // Set *default* container specific settings.json values on container create.
-  "settings": {
-    "editor.formatOnType": true,
-    "files.trimFinalNewlines": true,
-    "files.trimTrailingWhitespace": true,
-    "files.insertFinalNewline": true,
+  "customizations": {
+    "vscode": {
+      // Set *default* container specific settings.json values on container create.
+      "settings": {
+        "editor.formatOnType": true,
+        "files.trimFinalNewlines": true,
+        "files.trimTrailingWhitespace": true,
+        "files.insertFinalNewline": true,
 
-    "[csharp]": {
-      "editor.formatOnSave": true
-    },
+        "[csharp]": {
+          "editor.formatOnSave": true
+        },
 
-    "[makefile]": {
-      "files.trimTrailingWhitespace": false
-    },
+        "[makefile]": {
+          "files.trimTrailingWhitespace": false
+        },
 
-    "[jsonc]": {
-      "editor.defaultFormatter": "esbenp.prettier-vscode",
-      "editor.formatOnSave": true,
-      "editor.tabSize": 2
-    },
+        "[jsonc]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode",
+          "editor.formatOnSave": true,
+          "editor.tabSize": 2
+        },
 
-    "[json]": {
-      "editor.defaultFormatter": "esbenp.prettier-vscode",
-      "editor.formatOnSave": true,
-      "editor.tabSize": 2
-    },
+        "[json]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode",
+          "editor.formatOnSave": true,
+          "editor.tabSize": 2
+        },
 
-    "[python]": {
-      "editor.formatOnSave": true,
-      "editor.tabSize": 4
-    },
+        "[python]": {
+          "editor.formatOnSave": true,
+          "editor.tabSize": 4
+        },
 
-    "go.toolsManagement.checkForUpdates": "local",
-    "go.useLanguageServer": true,
-    "gopls": {
-      "build.buildFlags": ["-tags=e2e"]
-    },
+        "go.toolsManagement.checkForUpdates": "local",
+        "go.useLanguageServer": true,
+        "gopls": {
+          "build.buildFlags": ["-tags=integrationtest"]
+        },
 
-    "indentRainbow.includedLanguages": ["yaml", "helm"],
+        "indentRainbow.includedLanguages": ["yaml", "helm"],
 
-    "shellcheck.customArgs": ["-x"],
-    "shellcheck.useWorkspaceRootAsCwd": true,
+        "shellcheck.customArgs": ["-x"],
+        "shellcheck.useWorkspaceRootAsCwd": true,
 
-    "files.exclude": {
-      "**/bin/": true,
-      "**/obj/": true,
-      "**/__pycache__": true,
-      "**/.pytest_cache": true
-    },
+        "files.exclude": {
+          "**/bin/": true,
+          "**/obj/": true,
+          "**/__pycache__": true,
+          "**/.pytest_cache": true
+        },
 
-    // Python linting.
-    "python.analysis.typeCheckingMode": "basic",
-    "python.linting.ignorePatterns": ["**/conftest.py", "**/test_*.py"],
-    "python.testing.pytestEnabled": true,
-    "python.defaultInterpreterPath": "/opt/conda/envs/tyger/bin/python",
-    "python.formatting.autopep8Path": "/opt/conda/envs/tyger/bin/autopep8",
-    "python.terminal.activateEnvironment": false // Disable the extension calling activate when the integrated terminal launches. We take care of this in ~/.bashrc.
+        // Python linting.
+        "python.analysis.typeCheckingMode": "basic",
+        "python.linting.ignorePatterns": ["**/conftest.py", "**/test_*.py"],
+        "python.testing.pytestEnabled": true,
+        "python.defaultInterpreterPath": "/opt/conda/envs/tyger/bin/python",
+        "python.formatting.autopep8Path": "/opt/conda/envs/tyger/bin/autopep8",
+        "python.terminal.activateEnvironment": false // Disable the extension calling activate when the integrated terminal launches. We take care of this in ~/.bashrc.
+      },
+
+      // Add the IDs of extensions you want installed when the container is created.
+      "extensions": [
+        "eamodio.gitlens",
+        "esbenp.prettier-vscode",
+        "foxundermoon.shell-format",
+        "GitHub.copilot",
+        "golang.go",
+        "humao.rest-client",
+        "jallen7usa.vscode-cue-fmt",
+        "mhutchie.git-graph",
+        "ms-azuretools.vscode-docker",
+        "ms-dotnettools.csharp",
+        "ms-kubernetes-tools.vscode-kubernetes-tools",
+        "ms-python.python",
+        "oderwat.indent-rainbow",
+        "timonwong.shellcheck"
+      ]
+    }
   },
-
-  // Add the IDs of extensions you want installed when the container is created.
-  "extensions": [
-    "eamodio.gitlens",
-    "esbenp.prettier-vscode",
-    "foxundermoon.shell-format",
-    "GitHub.copilot",
-    "golang.go",
-    "humao.rest-client",
-    "jallen7usa.vscode-cue-fmt",
-    "mhutchie.git-graph",
-    "ms-azuretools.vscode-docker",
-    "ms-dotnettools.csharp",
-    "ms-kubernetes-tools.vscode-kubernetes-tools",
-    "ms-python.python",
-    "oderwat.indent-rainbow",
-    "timonwong.shellcheck"
-  ],
 
   "mounts": [
     // Bind mount docker socket under an alias to support docker-from-docker

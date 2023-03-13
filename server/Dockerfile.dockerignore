@@ -1,0 +1,13 @@
+# Ignore everything...
+**
+
+# ...except:
+!.editorconfig
+!server/
+
+# but also ignore:
+server/**/obj/
+server/**/bin/
+server/**/appsettings.local.json
+server/Dockerfile
+server/.dockerignore

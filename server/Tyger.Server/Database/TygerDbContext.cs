@@ -46,7 +46,7 @@ public class CodespecEntity
     public string Name { get; set; } = null!;
     public int Version { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
-    public NewCodespec Spec { get; set; } = null!;
+    public Codespec Spec { get; set; } = null!;
 }
 
 public class RunEntity

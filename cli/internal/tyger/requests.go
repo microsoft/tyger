@@ -15,9 +15,11 @@ import (
 	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/tyger/clicontext"
 	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/tyger/model"
 	"github.com/fatih/color"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
-func InvokeRequest(method string, relativeUri string, input interface{}, output interface{}, verbose bool) (*http.Response, error) {
+func InvokeRequest(method string, relativeUri string, input interface{}, output interface{}) (*http.Response, error) {
 	ctx, err := clicontext.GetCliContext()
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -52,15 +54,12 @@ func InvokeRequest(method string, relativeUri string, input interface{}, output 
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	if verbose {
+	if zerolog.GlobalLevel() <= zerolog.TraceLevel {
 		if token != "" {
 			req.Header.Add("Authorization", "Bearer --REDACTED--")
 		}
 		if debugOutput, err := httputil.DumpRequestOut(req, true); err == nil {
-			fmt.Fprintln(os.Stderr, "====REQUEST=====")
-			fmt.Fprintln(os.Stderr, string(debugOutput))
-			fmt.Fprintln(os.Stderr, "==END REQUEST===")
-			fmt.Fprintln(os.Stderr)
+			log.Trace().Str("request", string(debugOutput)).Msg("request sent")
 		}
 	}
 
@@ -74,12 +73,9 @@ func InvokeRequest(method string, relativeUri string, input interface{}, output 
 		return resp, fmt.Errorf("unable to connect to server: %v", err)
 	}
 
-	if verbose {
+	if zerolog.GlobalLevel() <= zerolog.TraceLevel {
 		if debugOutput, err := httputil.DumpResponse(resp, true); err == nil {
-			fmt.Fprintln(os.Stderr, "====RESPONSE====")
-			fmt.Fprintln(os.Stderr, string(debugOutput))
-			fmt.Fprintln(os.Stderr, "==END RESPONSE==")
-			fmt.Fprintln(os.Stderr)
+			log.Trace().Str("response", string(debugOutput)).Msg("response received")
 		}
 	}
 
@@ -103,14 +99,14 @@ func InvokeRequest(method string, relativeUri string, input interface{}, output 
 	return resp, nil
 }
 
-func InvokePageRequests[T any](uri string, limit int, warnIfTruncated bool, verbose bool) error {
+func InvokePageRequests[T any](uri string, limit int, warnIfTruncated bool) error {
 	firstPage := true
 	totalPrinted := 0
 	truncated := false
 
 	for uri != "" {
 		page := model.Page[T]{}
-		_, err := InvokeRequest(http.MethodGet, uri, nil, &page, verbose)
+		_, err := InvokeRequest(http.MethodGet, uri, nil, &page)
 		if err != nil {
 			return err
 		}

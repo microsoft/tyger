@@ -47,7 +47,7 @@ public class RunLogReader : ILogSource
                     return await GetLogsSnapshot(run, options, cancellationToken);
                 }
 
-                var jobs = await _client.BatchV1.ListNamespacedJobAsync(_k8sOptions.Namespace, fieldSelector: $"metadata.name={JobNameFromRunId(run.Id)}", cancellationToken: cancellationToken);
+                var jobs = await _client.BatchV1.ListNamespacedJobAsync(_k8sOptions.Namespace, fieldSelector: $"metadata.name={JobNameFromRunId(run.Id!.Value)}", cancellationToken: cancellationToken);
                 if (jobs.Items.Count == 0)
                 {
                     return null;
@@ -102,6 +102,7 @@ public class RunLogReader : ILogSource
         }
 
         var syncRoot = new object();
+        bool finished = false;
         var leafMerger = new LiveLogMerger();
         LiveLogMerger rootMerger;
         if (initialPipelines.Count > 0)
@@ -133,7 +134,7 @@ public class RunLogReader : ILogSource
                 var watchEnumerable = _client.WatchNamespacedJobsWithRetry(
                     _logger,
                     _k8sOptions.Namespace,
-                    fieldSelector: $"metadata.name={JobNameFromRunId(run.Id)}",
+                    fieldSelector: $"metadata.name={JobNameFromRunId(run.Id!.Value)}",
                     resourceVersion: resourceVersion,
                     cancellationToken: cancellationToken);
 
@@ -167,6 +168,8 @@ public class RunLogReader : ILogSource
             {
                 lock (syncRoot)
                 {
+                    finished = true;
+
                     // The job is finished or we encountered a failure.
                     // Release the leaf merger that keeps the stream open
                     leafMerger.Activate(cancellationToken);
@@ -210,6 +213,11 @@ public class RunLogReader : ILogSource
 
                                 lock (syncRoot)
                                 {
+                                    if (finished)
+                                    {
+                                        return;
+                                    }
+
                                     TrackPipelineIfWorkerPod(item, podPipeline);
 
                                     // a new pod has started. Merge its log in by starting the existing waiting leaf merger

@@ -4,8 +4,8 @@ using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Primitives;
-
 using Tyger.Server.Database;
+using Tyger.Server.Json;
 using Tyger.Server.Model;
 
 namespace Tyger.Server.Codespecs;
@@ -22,11 +22,18 @@ public static class Codespecs
                 throw new ValidationException("Codespec names must contain only lower case letters (a-z), numbers (0-9), dashes (-), underscores (_), and dots (.)");
             }
 
-            var newCodespec = await context.Request.ReadAndValidateJson<NewCodespec>(context.RequestAborted);
+            var newCodespec = await context.Request.ReadAndValidateJson<Codespec>(context.RequestAborted);
+
+            if (!string.IsNullOrEmpty(newCodespec.Name) && newCodespec.Name != name)
+            {
+                throw new ValidationException("If provided, the codespec name in the body must match the name in the URL.");
+            }
+
             var codespec = await repository.UpsertCodespec(name, newCodespec!, context.RequestAborted);
             context.Response.Headers.Location = $"/v1/codespecs/{name}/{codespec.Version}";
             return Results.Json(codespec, statusCode: codespec.Version == 1 ? StatusCodes.Status201Created : StatusCodes.Status200OK);
         })
+        .Accepts<Codespec>("application/json")
         .Produces<Codespec>(StatusCodes.Status200OK)
         .Produces<Codespec>(StatusCodes.Status201Created)
         .Produces<ErrorBody>(StatusCodes.Status400BadRequest);

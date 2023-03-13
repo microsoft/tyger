@@ -3,35 +3,27 @@ package main
 import (
 	"os"
 
+	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/cmdline"
 	"github.com/spf13/cobra"
 )
 
-type rootPersistentFlags struct {
-	verbose bool
-}
+var (
+	// set during build
+	commit = ""
+)
 
 func newRootCommand() *cobra.Command {
-	flags := &rootPersistentFlags{}
+	cmd := cmdline.NewCommonRootCommand(commit)
+	cmd.Use = "tyger"
+	cmd.Short = "A command-line interface to the Tyger control plane."
+	cmd.Long = `A command-line interface to the Tyger control plane.`
 
-	cmd := &cobra.Command{
-		Use:          "tyger",
-		Short:        "A command-line interface to the Tyger control plane.",
-		Long:         `A command-line interface to the Tyger control plane.`,
-		SilenceUsage: true,
-	}
-
-	// hide --help as a flag in the usage output
-	cmd.PersistentFlags().BoolP("help", "h", false, "Print usage")
-	cmd.PersistentFlags().Lookup("help").Hidden = true
-
-	cmd.PersistentFlags().BoolVarP(&flags.verbose, "verbose", "v", false, "write verbose output to stderr")
-
-	cmd.AddCommand(newLoginCommand(flags))
-	cmd.AddCommand(newLogoutCommand(flags))
-	cmd.AddCommand(newBufferCommand(flags))
-	cmd.AddCommand(newCodespecCommand(flags))
-	cmd.AddCommand(newRunCommand(flags))
-	cmd.AddCommand(newClusterCommand(flags))
+	cmd.AddCommand(newLoginCommand())
+	cmd.AddCommand(newLogoutCommand())
+	cmd.AddCommand(newBufferCommand())
+	cmd.AddCommand(newCodespecCommand())
+	cmd.AddCommand(newRunCommand())
+	cmd.AddCommand(newClusterCommand())
 
 	return cmd
 }

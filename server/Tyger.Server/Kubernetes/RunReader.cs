@@ -56,7 +56,7 @@ public class RunReader
             (var run, var final) = partialRuns[i];
             if (!final)
             {
-                if (!jobAndPodsById.TryGetValue(run.Id, out var jobAndPods))
+                if (!jobAndPodsById.TryGetValue(run.Id!.Value, out var jobAndPods))
                 {
                     continue;
                 }
@@ -126,6 +126,28 @@ public class RunReader
         run = UpdateStatus(run, job, jobPods, workerPods);
         return UpdateNodePools(run, job, jobPods, workerPods);
 
+        static int GetJobCompletionIndex(V1Pod pod)
+        {
+            if (!int.TryParse(pod.Metadata.Annotations?["batch.kubernetes.io/job-completion-index"], CultureInfo.InvariantCulture, out var index))
+            {
+                throw new InvalidOperationException($"Pod {pod.Metadata.Name} is missing the job-completion-index annotation");
+            }
+
+            return index;
+        }
+
+        static bool HasJobSucceeded(Run run, V1Job job, IReadOnlyList<V1Pod> jobPods)
+        {
+            if (job.Status.Conditions?.Any(c => c.Type == "Complete" && c.Status == "True") == true)
+            {
+                return true;
+            }
+
+            return Enumerable.Range(0, run.Job.Replicas)
+                .GroupJoin(jobPods, i => i, GetJobCompletionIndex, (i, p) => (i, p))
+                .All(g => g.p.Any(p => p.Status.Phase == "Succeeded"));
+        }
+
         static Run UpdateStatus(Run run, V1Job job, IReadOnlyList<V1Pod> jobPods, IReadOnlyList<V1Pod> workerPods)
         {
             if (job.Status.Conditions?.FirstOrDefault(c => c.Type == "Failed" && c.Status == "True") is V1JobCondition failureCondition)
@@ -133,12 +155,12 @@ public class RunReader
                 return run with
                 {
                     Status = "Failed",
-                    Reason = failureCondition.Reason,
+                    StatusReason = failureCondition.Reason,
                     FinishedAt = failureCondition.LastTransitionTime!
                 };
             }
 
-            if (job.Status.Succeeded is > 0)
+            if (HasJobSucceeded(run, job, jobPods))
             {
                 var finishedTimes = jobPods
                     .Where(p => p.Status.Phase == "Succeeded")
@@ -153,8 +175,7 @@ public class RunReader
 
             // Note that the job object may not yet reflect the status of the pods.
             // It could be that pods have succeeeded or failed without the job reflecting this.
-            // We only say the run has succeeded or failed based on the job status, but we want
-            // to avoid returning a pending state if no pods are running because they have
+            // We want to avoid returning a pending state if no pods are running because they have
             // all exited but the job hasn't been updated yet.
             var isRunning = jobPods.Any(p => p.Status.Phase is "Running" or "Succeeded" or "Failed");
             var runningCount = jobPods.Count(p => p.Status.Phase == "Running");
@@ -168,10 +189,7 @@ public class RunReader
                 };
             }
 
-            return run with
-            {
-                Status = "Pending",
-            };
+            return run with { Status = "Pending" };
         }
 
         static Run UpdateNodePools(Run run, V1Job job, IReadOnlyList<V1Pod> jobPods, IReadOnlyList<V1Pod> workerPods)
@@ -198,7 +216,7 @@ public class RunReader
                 ? run.Worker with { NodePool = GetNodePool(workerPods) }
                 : run.Worker;
 
-            RunCodeTarget newJobTarget = run.Job.NodePool == null
+            JobRunCodeTarget newJobTarget = run.Job.NodePool == null
                 ? run.Job with { NodePool = GetNodePool(jobPods) }
                 : run.Job;
 

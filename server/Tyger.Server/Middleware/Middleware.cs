@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using k8s.Autorest;
-using Tyger.Server.Model;
 using ValidationException = System.ComponentModel.DataAnnotations.ValidationException;
 
 namespace Tyger.Server.Middleware;

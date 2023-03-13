@@ -1,6 +1,13 @@
 package model
 
-import "time"
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"k8s.io/apimachinery/pkg/api/resource"
+)
 
 type ServiceMetadata struct {
 	Authority string `json:"authority"`
@@ -21,18 +28,19 @@ type BufferParameters struct {
 }
 
 type OvercommittableResources struct {
-	Cpu    *string `json:"cpu,omitempty"`
-	Memory *string `json:"memory,omitempty"`
+	Cpu    *resource.Quantity `json:"cpu,omitempty"`
+	Memory *resource.Quantity `json:"memory,omitempty"`
 }
 
 type CodespecResources struct {
 	Requests *OvercommittableResources `json:"requests,omitempty"`
 	Limits   *OvercommittableResources `json:"limits,omitempty"`
-	Gpu      *string                   `json:"gpu,omitempty"`
+	Gpu      *resource.Quantity        `json:"gpu,omitempty"`
 }
 
-type NewCodespec struct {
-	Kind        string             `json:"kind"`
+type Codespec struct {
+	Kind string `json:"kind"`
+	CodespecMetadata
 	Buffers     *BufferParameters  `json:"buffers,omitempty"`
 	Image       string             `json:"image"`
 	Command     []string           `json:"command,omitempty"`
@@ -40,15 +48,14 @@ type NewCodespec struct {
 	WorkingDir  string             `json:"workingDir,omitempty"`
 	Env         map[string]string  `json:"env,omitempty"`
 	Resources   *CodespecResources `json:"resources,omitempty"`
-	MaxReplicas int                `json:"maxReplicas"`
+	MaxReplicas *int               `json:"maxReplicas,omitempty"`
 	Endpoints   map[string]int     `json:"endpoints,omitempty"`
 }
 
-type Codespec struct {
+type CodespecMetadata struct {
 	Name      string    `json:"name"`
 	Version   int       `json:"version"`
 	CreatedAt time.Time `json:"createdAt"`
-	NewCodespec
 }
 
 type Page[T any] struct {
@@ -57,28 +64,65 @@ type Page[T any] struct {
 }
 
 type RunCodeTarget struct {
-	Codespec string            `json:"codespec"`
+	Codespec CodespecRef       `json:"codespec"`
 	Buffers  map[string]string `json:"buffers,omitempty"`
 	NodePool string            `json:"nodePool,omitempty"`
-	Replicas int               `json:"replicas"`
+	Replicas int               `json:"replicas,omitempty"`
 }
 
-type NewRun struct {
-	Job            RunCodeTarget     `json:"job,omitempty"`
-	Worker         *RunCodeTarget    `json:"worker,omitempty"`
-	Buffers        map[string]string `json:"buffers,omitempty"`
-	Cluster        string            `json:"cluster"`
-	TimeoutSeconds *int              `json:"timeoutSeconds,omitempty"`
+type CodespecRef struct {
+	Named  *NamedCodespecRef  `json:"-"`
+	Inline *InlineCodespecRef `json:"-"`
+}
+
+type NamedCodespecRef string
+
+type InlineCodespecRef Codespec
+
+func (ref *CodespecRef) UnmarshalJSON(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+
+	if err := decoder.Decode(&ref.Named); err == nil {
+		return nil
+	}
+	ref.Named = nil
+	decoder = json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+
+	if err := decoder.Decode(&ref.Inline); err != nil {
+		return fmt.Errorf("invalid codespec ref: %w", err)
+	}
+
+	return nil
+}
+
+func (ref CodespecRef) MarshalJSON() ([]byte, error) {
+	if ref.Named != nil {
+		return json.Marshal(ref.Named)
+	}
+	if ref.Inline != nil {
+		return json.Marshal(ref.Inline)
+	}
+	return nil, fmt.Errorf("invalid codespec ref")
 }
 
 type Run struct {
+	RunMetadata
+	Job            RunCodeTarget     `json:"job,omitempty"`
+	Worker         *RunCodeTarget    `json:"worker,omitempty"`
+	Buffers        map[string]string `json:"buffers,omitempty"`
+	Cluster        string            `json:"cluster,omitempty"`
+	TimeoutSeconds *int              `json:"timeoutSeconds,omitempty"`
+}
+
+type RunMetadata struct {
 	Id           int64      `json:"id,omitempty"`
 	Status       string     `json:"status,omitempty"`
-	Reason       string     `json:"reason,omitempty"`
-	RunningCount int        `json:"runningCount"`
-	CreatedAt    time.Time  `json:"createdAt"`
-	FinishedAt   *time.Time `json:"finishedAt"`
-	NewRun
+	StatusReason string     `json:"statusReason,omitempty"`
+	RunningCount *int       `json:"runningCount,omitempty"`
+	CreatedAt    time.Time  `json:"createdAt,omitempty"`
+	FinishedAt   *time.Time `json:"finishedAt,omitempty"`
 }
 
 type ErrorResponse struct {

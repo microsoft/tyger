@@ -116,44 +116,44 @@ up: ensure-environment docker-build
 down:
 	echo '${ENVIRONMENT_CONFIG}' | deploy/scripts/tyger/tyger-down.sh -c -
 
-buffer-proxy-e2e: cli-ready
-	pushd cli/e2e/buffer-proxy
-	go test -tags=e2e 
+buffer-proxy-integration-test: cli-ready
+	pushd cli/integrationtest/buffer-proxy
+	go test -tags=integrationtest 
 
-e2e-no-up-prereqs: docker-build-test
+integration-test-no-up-prereqs: docker-build-test
 
-e2e-no-up: e2e-no-up-prereqs buffer-proxy-e2e
+integration-test-no-up: integration-test-no-up-prereqs buffer-proxy-integration-test
 	if ! echo '${ENVIRONMENT_CONFIG}' | timeout --foreground 30m scripts/wait-for-cluster-to-scale.sh -c -; then
 		echo "timed out waiting for nodepools to scale"
 		exit 1
 	fi
 
-	pushd cli/e2e/tyger
-	go test -tags=e2e
+	pushd cli/integrationtest/tyger
+	go test -tags=integrationtest
+
+integration-test: up integration-test-no-up-prereqs
+	$(MAKE) -o integration-test-no-up-prereqs integration-test-no-up
+
+e2e-no-up-prereqs: e2e-data
+	
+e2e-no-up: e2e-no-up-prereqs cli-ready
+	pytest e2e --workers 100
 
 e2e: up e2e-no-up-prereqs
 	$(MAKE) -o e2e-no-up-prereqs e2e-no-up
-
-eminence-no-up-prereqs: eminence-data
-	
-eminence-no-up: eminence-no-up-prereqs cli-ready
-	pytest eminence --workers 100
-
-eminence: up eminence-no-up-prereqs
-	$(MAKE) -o eminence-no-up-prereqs eminence-no-up
 
 dvc-data:
 	scripts/check-login.sh
 	dvc pull
 
 gadgetron-data:
-	python3 eminence/gadgetron/get_cases.py
+	python3 e2e/gadgetron/get_cases.py
 
-eminence-data: dvc-data gadgetron-data
+e2e-data: dvc-data gadgetron-data
 
-test: unit-test e2e eminence
+test: unit-test integration-test e2e
 
-test-no-up: unit-test e2e-no-up eminence-no-up
+test-no-up: unit-test integration-test-no-up e2e-no-up
 
 forward: set-context
 	scripts/forward-services.sh -n ${HELM_NAMESPACE}

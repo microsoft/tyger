@@ -95,9 +95,9 @@ public sealed class RunSweeper : IHostedService, IDisposable
 
             foreach (var run in runs)
             {
-                _logger.DeletingRunThatNeverCreatedResources(run.Id);
-                await DeleteRunResources(run.Id, cancellationToken);
-                await _repository.DeleteRun(run.Id, cancellationToken);
+                _logger.DeletingRunThatNeverCreatedResources(run.Id!.Value);
+                await DeleteRunResources(run.Id.Value, cancellationToken);
+                await _repository.DeleteRun(run.Id.Value, cancellationToken);
             }
         }
 
@@ -122,13 +122,13 @@ public sealed class RunSweeper : IHostedService, IDisposable
                             await ArchiveLogs(run, cancellationToken);
                             break;
                         case (var run, _, var time) when DateTimeOffset.UtcNow - time > s_minDurationAfterArchivingBeforeDeletingPod:
-                            _logger.FinalizingTerminatedRun(run.Id, run.Status);
+                            _logger.FinalizingTerminatedRun(run.Id!.Value, run.Status!);
                             var pods = await _client.EnumeratePodsInNamespace(_k8sOptions.Namespace, labelSelector: $"{RunLabel}={runId}", cancellationToken: cancellationToken)
                                 .ToListAsync(cancellationToken);
 
                             run = RunReader.UpdateRunFromJobAndPods(run, job, pods);
                             await _repository.UpdateRun(run, final: true, cancellationToken: cancellationToken);
-                            await DeleteRunResources(run.Id, cancellationToken);
+                            await DeleteRunResources(run.Id!.Value, cancellationToken);
                             break;
                         default:
                             break;
@@ -144,10 +144,10 @@ public sealed class RunSweeper : IHostedService, IDisposable
 
     private async Task ArchiveLogs(Run run, CancellationToken cancellationToken)
     {
-        var pipeline = await _logSource.GetLogs(run.Id, new GetLogsOptions { IncludeTimestamps = true }, cancellationToken);
+        var pipeline = await _logSource.GetLogs(run.Id!.Value, new GetLogsOptions { IncludeTimestamps = true }, cancellationToken);
         pipeline ??= new Pipeline(Array.Empty<byte>());
 
-        await _logArchive.ArchiveLogs(run.Id, pipeline, cancellationToken);
+        await _logArchive.ArchiveLogs(run.Id.Value, pipeline, cancellationToken);
         await _repository.UpdateRun(run, logsArchivedAt: DateTimeOffset.UtcNow, cancellationToken: cancellationToken);
     }
 

@@ -11,11 +11,13 @@ namespace Tyger.Server.Database;
 public class Repository : IRepository
 {
     private readonly TygerDbContext _context;
+    private readonly JsonSerializerOptions _serializerOptions;
     private readonly ILogger<Repository> _logger;
 
-    public Repository(TygerDbContext context, ILogger<Repository> logger)
+    public Repository(TygerDbContext context, JsonSerializerOptions serializerOptions, ILogger<Repository> logger)
     {
         _context = context;
+        _serializerOptions = serializerOptions;
         _logger = logger;
     }
 
@@ -25,7 +27,7 @@ public class Repository : IRepository
              .Where(c => c.Name == name && c.Version == version)
              .FirstOrDefaultAsync(cancellationToken);
 
-        return codespecEntity == null ? null : new Codespec(codespecEntity.Spec, name, version, codespecEntity.CreatedAt);
+        return codespecEntity?.Spec.WithSystemProperties(name, version, codespecEntity.CreatedAt);
     }
 
     public async Task<Codespec?> GetLatestCodespec(string name, CancellationToken cancellationToken)
@@ -35,7 +37,7 @@ public class Repository : IRepository
              .OrderByDescending(c => c.Version)
              .FirstOrDefaultAsync(cancellationToken);
 
-        return codespecEntity == null ? null : new Codespec(codespecEntity.Spec, name, codespecEntity.Version, codespecEntity.CreatedAt);
+        return codespecEntity?.Spec.WithSystemProperties(name, codespecEntity.Version, codespecEntity.CreatedAt);
     }
 
     public async Task<(IList<Codespec>, string? nextContinuationToken)> GetCodespecs(int limit, string? prefix, string? continuationToken, CancellationToken cancellationToken)
@@ -46,7 +48,7 @@ public class Repository : IRepository
             bool valid = false;
             try
             {
-                var fields = JsonSerializer.Deserialize<string[]>(Encoding.ASCII.GetString(Base32.ZBase32.Decode(continuationToken)));
+                var fields = JsonSerializer.Deserialize<string[]>(Encoding.ASCII.GetString(Base32.ZBase32.Decode(continuationToken)), _serializerOptions);
                 if (fields is { Length: 1 })
                 {
                     pagingName = fields[0];
@@ -88,8 +90,8 @@ public class Repository : IRepository
             var name = reader.GetString(0);
             var version = reader.GetInt32(1);
             var createdAt = reader.GetDateTime(2);
-            NewCodespec spec = JsonSerializer.Deserialize<NewCodespec>(reader.GetString(3))!;
-            results.Add(new Codespec(spec, name, version, createdAt));
+            Codespec spec = JsonSerializer.Deserialize<Codespec>(reader.GetString(3), _serializerOptions)!;
+            results.Add(spec.WithSystemProperties(name, version, createdAt));
         }
 
         await reader.ReadAsync(cancellationToken);
@@ -99,17 +101,19 @@ public class Repository : IRepository
         {
             results.RemoveAt(limit);
             var last = results[^1];
-            string newToken = Base32.ZBase32.Encode(Encoding.ASCII.GetBytes(JsonSerializer.Serialize(new[] { last.Name })));
+            string newToken = Base32.ZBase32.Encode(Encoding.ASCII.GetBytes(JsonSerializer.Serialize(new[] { last.Name }, _serializerOptions)));
             return (results, newToken);
         }
 
         return (results, null);
     }
 
-    public async Task<Codespec> UpsertCodespec(string name, NewCodespec newcodespec, CancellationToken cancellationToken)
+    public async Task<Codespec> UpsertCodespec(string name, Codespec newcodespec, CancellationToken cancellationToken)
     {
+        newcodespec = newcodespec.WithoutSystemProperties();
+
         Codespec? latestCodespec = await GetLatestCodespec(name, cancellationToken);
-        if (newcodespec.Equals(latestCodespec?.SliceAsNewCodespec()))
+        if (latestCodespec != null && newcodespec.Equals(latestCodespec.WithoutSystemProperties()))
         {
             return latestCodespec;
         }
@@ -130,7 +134,7 @@ public class Repository : IRepository
             Parameters =
             {
                 new() { Value = name },
-                new() { Value = JsonSerializer.Serialize(newcodespec), NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Jsonb },
+                new() { Value = JsonSerializer.Serialize(newcodespec, _serializerOptions), NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Jsonb },
             },
         };
 
@@ -145,7 +149,7 @@ public class Repository : IRepository
                 var createdAt = reader.GetDateTime(1);
                 await reader.ReadAsync(cancellationToken);
                 await reader.DisposeAsync();
-                return new Codespec(newcodespec, name, version, createdAt);
+                return newcodespec.WithSystemProperties(name, version, createdAt);
             }
             catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.UniqueViolation)
             {
@@ -158,8 +162,10 @@ public class Repository : IRepository
         }
     }
 
-    public async Task<Run> CreateRun(NewRun newRun, CancellationToken cancellationToken)
+    public async Task<Run> CreateRun(Run newRun, CancellationToken cancellationToken)
     {
+        newRun = newRun.WithoutSystemProperties();
+
         var connection = await GetOpenedConnection(cancellationToken);
         await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         using var insertCommand = new NpgsqlCommand
@@ -172,13 +178,13 @@ public class Repository : IRepository
                 RETURNING id, created_at",
             Parameters =
             {
-                new() { Value = JsonSerializer.Serialize(newRun), NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Jsonb },
+                new() { Value = JsonSerializer.Serialize(newRun, _serializerOptions), NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Jsonb },
             }
         };
 
         using var reader = await insertCommand.ExecuteReaderAsync(cancellationToken);
         await reader.ReadAsync(cancellationToken);
-        var run = new Run(newRun) with { Id = reader.GetInt64(0), CreatedAt = reader.GetDateTime(1) };
+        var run = newRun with { Id = reader.GetInt64(0), CreatedAt = reader.GetDateTime(1), Status = "Pending" };
 
         await reader.ReadAsync(cancellationToken);
         await reader.DisposeAsync();
@@ -193,7 +199,7 @@ public class Repository : IRepository
                 WHERE id = $2",
             Parameters =
             {
-                new() { Value = JsonSerializer.Serialize(run), NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Jsonb },
+                new() { Value = JsonSerializer.Serialize(run, _serializerOptions), NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Jsonb },
                 new() { Value = run.Id },
             },
         };
@@ -216,7 +222,7 @@ public class Repository : IRepository
             Parameters =
             {
                 new() { Value = run.Id },
-                new() { Value = JsonSerializer.Serialize(run), NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Jsonb },
+                new() { Value = JsonSerializer.Serialize(run, _serializerOptions), NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Jsonb },
                 new() { Value = resourcesCreated.GetValueOrDefault() },
                 new() { Value = final.GetValueOrDefault() },
                 new() { Value = logsArchivedAt.GetValueOrDefault() },
@@ -255,7 +261,7 @@ public class Repository : IRepository
             bool valid = false;
             try
             {
-                var fields = JsonSerializer.Deserialize<long[]>(Encoding.ASCII.GetString(Base32.ZBase32.Decode(continuationToken)));
+                var fields = JsonSerializer.Deserialize<long[]>(Encoding.ASCII.GetString(Base32.ZBase32.Decode(continuationToken)), _serializerOptions);
                 if (fields is { Length: 2 })
                 {
                     var createdAt = new DateTimeOffset(fields[0], TimeSpan.Zero);
@@ -290,7 +296,7 @@ public class Repository : IRepository
         {
             results.RemoveAt(limit);
             var last = results[^1].Run;
-            string newToken = Base32.ZBase32.Encode(Encoding.ASCII.GetBytes(JsonSerializer.Serialize(new[] { last.CreatedAt.UtcTicks, last.Id })));
+            string newToken = Base32.ZBase32.Encode(Encoding.ASCII.GetBytes(JsonSerializer.Serialize(new[] { last.CreatedAt!.Value.UtcTicks, last.Id }, _serializerOptions)));
             return (results, newToken);
         }
 

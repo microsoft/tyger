@@ -1,6 +1,7 @@
 package bufferproxy
 
 import (
+	"context"
 	"sync/atomic"
 	"time"
 
@@ -8,6 +9,7 @@ import (
 )
 
 type TransferMetrics struct {
+	Context            context.Context
 	Container          *Container
 	totalBytes         uint64
 	currentPeriodBytes uint64
@@ -42,13 +44,13 @@ func (ts *TransferMetrics) Start() {
 					// For networking throughput in Mbps, we divide by 1000 * 1000 (not 1024 * 1024) because
 					// networking is traditionally done in base 10 units (not base 2).
 					currentMbps := float32(currentBytes*8) / (1000 * 1000) / float32(elapsed.Seconds())
-					log.Info().Float32("throughputMbps", currentMbps).Msg("Transfer progress")
+					log.Ctx(ts.Context).Info().Float32("throughputMbps", currentMbps).Msg("Transfer progress")
 				}
 			}
 		}
 	}()
 
-	log.Info().Str("container", ts.Container.GetContainerName()).Msg("Transfer starting")
+	log.Ctx(ts.Context).Info().Str("container", ts.Container.GetContainerName()).Msg("Transfer starting")
 }
 
 func (ts *TransferMetrics) Stop() {
@@ -56,7 +58,7 @@ func (ts *TransferMetrics) Stop() {
 	ts.stoppedChannel <- nil
 	<-ts.reportingComplete
 	ts.totalBytes += atomic.SwapUint64(&ts.currentPeriodBytes, 0)
-	log.Info().
+	log.Ctx(ts.Context).Info().
 		Float32("elapsedSeconds", float32(elapsed.Seconds())).
 		Float32("totalGiB", float32(ts.totalBytes)/(1024*1024*1024)).
 		Msg("Transfer complete")

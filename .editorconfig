@@ -8,6 +8,9 @@ indent_size = 4
 trim_trailing_whitespace = true
 insert_final_newline = true
 
+# Do not require XML documentation everywhere
+dotnet_diagnostic.CS1591.severity = none
+
 # Code style severity levels. Levels warning and error will be reported during build if EnforceCodeStyleInBuild == true
 dotnet_diagnostic.IDE0001.severity = warning # SimplifyNames
 dotnet_diagnostic.IDE0002.severity = warning # SimplifyMemberAccess

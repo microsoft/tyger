@@ -1,0 +1,20 @@
+job:
+  codespec:
+    image: eminencepublic.azurecr.io/gadgetron:current
+    buffers:
+      inputs:
+        - input
+      outputs:
+        - output
+    args:
+      - "-c"
+      - "grappa_float.xml"
+      - "--from_stream"
+      - "-i"
+      - "$(INPUT_PIPE)"
+      - "-o"
+      - "$(OUTPUT_PIPE)"
+      - "--storage_address"
+      - "$(MRD_STORAGE_URI)"
+    resources:
+      gpu: 1

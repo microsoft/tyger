@@ -2,15 +2,18 @@ package bufferproxy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"path"
 	"strconv"
+	"strings"
 	"time"
 
-	pool "github.com/libp2p/go-buffer-pool"
+	"github.com/hashicorp/go-retryablehttp"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -24,84 +27,137 @@ const (
 	MetadataBlobName = ".buffer"
 )
 
-type RequestError interface {
-	error
-	IsRetryable() bool
-	LogFatal(ctx context.Context, msg string)
-}
-
-type HttpRequestError struct {
-	StatusCode int
-	Body       []byte
-}
-
-func (e *HttpRequestError) Error() string {
-	return fmt.Sprintf("HTTP Request error. status code: %d, body: %s", e.StatusCode, string(e.Body))
-}
-
-func (e *HttpRequestError) IsRetryable() bool {
-	switch e.StatusCode {
-	case
-		http.StatusRequestTimeout,
-		http.StatusTooManyRequests,
-		http.StatusInternalServerError,
-		http.StatusBadGateway,
-		http.StatusServiceUnavailable,
-		http.StatusGatewayTimeout:
-		return true
-	default:
-		return false
-	}
-}
-
-func (e *HttpRequestError) LogFatal(ctx context.Context, msg string) {
-	log.Ctx(ctx).Fatal().Err(e).Msg(msg)
-}
-
 var (
-	ErrNotFound = &HttpRequestError{StatusCode: http.StatusNotFound}
+	ErrNotFound = errors.New("not found")
 )
 
-type NetworkRequestError struct {
-	Err error
-}
+func CreateHttpClient() *retryablehttp.Client {
+	client := retryablehttp.NewClient()
+	client.RetryMax = 6
+	client.HTTPClient.Timeout = 100 * time.Second
 
-func (e *NetworkRequestError) Error() string {
-	return e.Err.Error()
-}
-
-func (e *NetworkRequestError) IsRetryable() bool {
-	return true
-}
-
-func (e *NetworkRequestError) LogFatal(ctx context.Context, msg string) {
-	log.Ctx(ctx).Fatal().Err(e).Msg(msg)
-}
-
-func CreateHttpClient() *http.Client {
-	t := http.DefaultTransport.(*http.Transport).Clone()
-	t.MaxIdleConnsPerHost = 1000
-	t.ResponseHeaderTimeout = 20 * time.Second
-
-	return &http.Client{
-		Transport: t,
-		Timeout:   100 * time.Second,
+	logger := &retryableClientLogger{
+		Logger: &log.Logger,
 	}
+	client.Logger = logger
+	client.ErrorHandler = func(resp *http.Response, err error, numTries int) (*http.Response, error) {
+		return resp, err
+	}
+	client.CheckRetry = logger.CheckRetry
+
+	transport := client.HTTPClient.Transport.(*http.Transport)
+	transport.MaxIdleConnsPerHost = 1000
+	transport.ResponseHeaderTimeout = 20 * time.Second
+
+	return client
+}
+
+// Performs a shallow clone of the retryable client adjusting the logger
+// to capture the context.
+// The inner http.Client is reused.
+func NewClientWithLoggingContext(ctx context.Context, client *retryablehttp.Client) *retryablehttp.Client {
+	newClient := *client
+	logger := &retryableClientLogger{
+		Logger: log.Ctx(ctx),
+	}
+	newClient.Logger = logger
+	newClient.CheckRetry = logger.CheckRetry
+	return &newClient
+}
+
+type retryableClientLogger struct {
+	Logger *zerolog.Logger
+}
+
+func (l *retryableClientLogger) Error(msg string, keysAndValues ...interface{}) {
+	event := l.Logger.Warn()
+	l.send(event, msg, keysAndValues...)
+}
+
+func (l *retryableClientLogger) Info(msg string, keysAndValues ...interface{}) {
+	event := l.Logger.Info()
+	l.send(event, msg, keysAndValues...)
+}
+
+func (l *retryableClientLogger) Debug(msg string, keysAndValues ...interface{}) {
+	event := l.Logger.Debug()
+	l.send(event, msg, keysAndValues...)
+}
+
+func (l *retryableClientLogger) Warn(msg string, keysAndValues ...interface{}) {
+	event := l.Logger.Warn()
+	event.Enabled()
+	l.send(event, msg, keysAndValues...)
+}
+
+func (l *retryableClientLogger) send(event *zerolog.Event, msg string, keysAndValues ...interface{}) {
+	if !event.Enabled() {
+		return
+	}
+	if msg == "performing request" {
+		return
+	}
+	for i := 0; i < len(keysAndValues); i += 2 {
+		key := keysAndValues[i].(string)
+		if key == "url" || key == "request" {
+			continue
+		}
+		value := keysAndValues[i+1]
+		if err, ok := value.(error); ok {
+			value = RedactHttpError(err).Error()
+		}
+		event = event.Interface(key, value)
+	}
+
+	event.Msg(msg)
+}
+
+func (l *retryableClientLogger) CheckRetry(ctx context.Context, resp *http.Response, err error) (bool, error) {
+	shouldRetry, err := retryablehttp.DefaultRetryPolicy(ctx, resp, err)
+	if shouldRetry && err == nil && resp != nil {
+		l.Logger.Warn().Int("statusCode", resp.StatusCode).Msg("Received retryable status code")
+	}
+	return shouldRetry, err
+}
+
+// If the error is a *url.Error, redact the query string values
+func RedactHttpError(err error) error {
+	if httpErr, ok := err.(*url.Error); ok {
+		if httpErr.URL != "" {
+			if index := strings.IndexByte(httpErr.URL, '?'); index != -1 {
+				if u, err := url.Parse(httpErr.URL); err == nil {
+					q := u.Query()
+					for _, v := range q {
+						for i := range v {
+							v[i] = "REDACTED"
+						}
+
+					}
+
+					u.RawQuery = q.Encode()
+					httpErr.URL = u.String()
+				}
+			}
+		}
+
+		httpErr.Err = RedactHttpError(httpErr.Err)
+	}
+	return err
 }
 
 type Container struct {
 	*url.URL
 }
 
-func (c *Container) GetBlobUri(blobNumber int) string {
-	return c.URL.JoinPath(strconv.Itoa(blobNumber)).String()
+func (c *Container) GetBlobUri(blobNumber int64) string {
+	return c.URL.JoinPath(strconv.FormatInt(blobNumber, 10)).String()
 }
 
 func (c *Container) GetContainerName() string {
 	return path.Base(c.Path)
 }
 
-func ValidateContainer(sasUri string, httpClient *http.Client) (*Container, error) {
+func ValidateContainer(sasUri string, httpClient *retryablehttp.Client) (*Container, error) {
 	parsedUri, err := url.Parse(sasUri)
 	if err != nil {
 		return nil, err
@@ -109,7 +165,7 @@ func ValidateContainer(sasUri string, httpClient *http.Client) (*Container, erro
 
 	metadataUri := parsedUri.JoinPath(MetadataBlobName)
 
-	req, err := http.NewRequest(http.MethodGet, metadataUri.String(), nil)
+	req, err := retryablehttp.NewRequest(http.MethodGet, metadataUri.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +173,7 @@ func ValidateContainer(sasUri string, httpClient *http.Client) (*Container, erro
 	AddCommonBlobRequestHeaders(req.Header)
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, RedactHttpError(err)
 	}
 
 	defer resp.Body.Close()
@@ -147,79 +203,4 @@ func ValidateContainer(sasUri string, httpClient *http.Client) (*Container, erro
 func AddCommonBlobRequestHeaders(header http.Header) {
 	header.Add("Date", time.Now().Format(time.RFC1123Z))
 	header.Add("x-ms-version", "2021-08-06")
-}
-
-func InvokeRequest(ctx context.Context, req *http.Request, client *http.Client) ([]byte, RequestError) {
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, &NetworkRequestError{err}
-	}
-
-	defer resp.Body.Close()
-
-	switch resp.StatusCode {
-	case http.StatusCreated:
-		return nil, nil
-	case http.StatusOK:
-		if resp.ContentLength < 0 {
-			log.Ctx(ctx).Fatal().Msg("Expected Content-Length header missing")
-		}
-
-		// rent a buffer from the pool
-		buf := pool.Get(int(resp.ContentLength))
-
-		_, err = io.ReadFull(resp.Body, buf)
-		if err != nil {
-			// return the buffer to the pool
-			pool.Put(buf)
-			return nil, &NetworkRequestError{err}
-		}
-
-		return buf, nil
-	case http.StatusNotFound:
-		io.Copy(io.Discard, resp.Body)
-		return nil, ErrNotFound
-	default:
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, &HttpRequestError{
-			StatusCode: resp.StatusCode,
-			Body:       bodyBytes,
-		}
-	}
-}
-
-func InvokeRequestWithRetries(ctx context.Context, createRequest func() *http.Request, client *http.Client) ([]byte, RequestError) {
-	for retryNumber := 0; ; retryNumber++ {
-		if retryNumber > 0 {
-			time.Sleep(calcDelay(retryNumber))
-		}
-		req := createRequest()
-		buf, err := InvokeRequest(ctx, req, client)
-		if err == nil {
-			return buf, nil
-		}
-
-		if err == ErrNotFound {
-			return nil, err
-		}
-
-		if !err.IsRetryable() {
-			return nil, err
-		}
-
-		if retryNumber >= MaxRetries {
-			return nil, err
-		} else {
-			log.Ctx(ctx).Debug().Err(err).Msg("Retrying after error")
-		}
-	}
-}
-
-func calcDelay(retryNumber int) time.Duration {
-	delay := (1 << (retryNumber - 1)) * RetryDelay
-	if delay > MaxRetryDelay {
-		delay = MaxRetryDelay
-	}
-
-	return delay
 }

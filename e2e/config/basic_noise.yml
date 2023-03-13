@@ -1,0 +1,18 @@
+job:
+  codespec:
+    image: eminence.azurecr.io/recon:current
+    buffers:
+      inputs:
+        - input
+      outputs:
+        - output
+    args:
+      - "-p"
+      - "noise"
+      - "-i"
+      - "$(INPUT_PIPE)"
+      - "-o"
+      - "$(OUTPUT_PIPE)"
+    resources:
+      requests:
+        cpu: 1

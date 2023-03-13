@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newLoginCommand(rootFlags *rootPersistentFlags) *cobra.Command {
+func newLoginCommand() *cobra.Command {
 	flags := clicontext.LoginOptions{}
 
 	loginCmd := &cobra.Command{
@@ -33,7 +33,7 @@ Subsequent commands will be performed against this server.`,
 		},
 	}
 
-	loginCmd.AddCommand(newLoginStatusCommand(rootFlags))
+	loginCmd.AddCommand(newLoginStatusCommand())
 
 	loginCmd.Flags().StringVarP(&flags.ServicePrincipal, "service-principal", "s", "", "The service principal app ID or identifier URI")
 	loginCmd.Flags().StringVarP(&flags.CertificatePath, "cert", "c", "", "The path to the certificate in PEM format to use for service principal authentication")
@@ -42,7 +42,7 @@ Subsequent commands will be performed against this server.`,
 	return loginCmd
 }
 
-func newLoginStatusCommand(rootFlags *rootPersistentFlags) *cobra.Command {
+func newLoginStatusCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:                   "status",
 		Short:                 "Get the login status",

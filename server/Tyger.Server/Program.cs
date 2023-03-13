@@ -50,6 +50,7 @@ builder.Services.Configure<JsonOptions>(options =>
     options.SerializerOptions.AllowTrailingCommas = true;
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
 });
+builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<JsonOptions>>().Value.SerializerOptions);
 
 var app = builder.Build();
 
