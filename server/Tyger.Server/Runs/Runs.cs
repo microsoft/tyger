@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Primitives;
@@ -10,6 +11,8 @@ namespace Tyger.Server.Runs;
 
 public static class Runs
 {
+    private static readonly ReadOnlyMemory<byte> s_newline = new(new[] { (byte)'\n' });
+
     public static void MapRuns(this WebApplication app)
     {
         app.MapPost("/v1/runs", async (RunCreator runCreator, HttpContext context) =>
@@ -46,14 +49,49 @@ public static class Runs
             return new RunPage(items, nextLink == null ? null : new Uri(nextLink));
         });
 
-        app.MapGet("/v1/runs/{runId}", async (string runId, RunReader runReader, CancellationToken cancellationToken) =>
+        app.MapGet("/v1/runs/{runId}", async (
+            string runId,
+            bool? watch,
+            RunReader runReader,
+            HttpContext context,
+            JsonSerializerOptions serializerOptions) =>
         {
-            if (!long.TryParse(runId, out var parsedRunId) || await runReader.GetRun(parsedRunId, cancellationToken) is not Run run)
+            if (!long.TryParse(runId, out var parsedRunId))
             {
                 return Responses.NotFound();
             }
 
-            return Results.Ok(run);
+            if (!watch.GetValueOrDefault())
+            {
+                if (await runReader.GetRun(parsedRunId, context.RequestAborted) is not Run run)
+                {
+                    return Responses.NotFound();
+                }
+
+                return Results.Ok(run);
+            }
+
+            bool any = false;
+            await foreach (var runSnapshot in runReader.WatchRun(parsedRunId, context.RequestAborted))
+            {
+                if (!any)
+                {
+                    any = true;
+                    context.Response.StatusCode = StatusCodes.Status200OK;
+                    context.Response.ContentType = "application/json; charset=utf-8";
+                }
+
+                await JsonSerializer.SerializeAsync(context.Response.Body, runSnapshot, serializerOptions, context.RequestAborted);
+                await context.Response.Body.WriteAsync(s_newline, context.RequestAborted);
+                await context.Response.Body.FlushAsync(context.RequestAborted);
+            }
+
+            if (!any)
+            {
+                return Responses.NotFound();
+            }
+
+            return Results.Empty;
         })
         .Produces<Run>(StatusCodes.Status200OK)
         .Produces<ErrorBody>(StatusCodes.Status404NotFound);

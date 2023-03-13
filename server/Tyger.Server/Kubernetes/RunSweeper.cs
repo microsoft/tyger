@@ -109,7 +109,7 @@ public sealed class RunSweeper : IHostedService, IDisposable
 
             foreach (var job in jobs.Items)
             {
-                if (job.Status.Succeeded is > 0 || job.Status.Conditions?.Any(c => c.Type == "Failed" && c.Status == "True") == true)
+                if (RunReader.HasJobSucceeded(job) || RunReader.HasJobFailed(job, out _))
                 {
                     var runId = long.Parse(job.GetLabel(JobLabel), CultureInfo.InvariantCulture);
                     switch (await _repository.GetRun(runId, cancellationToken))

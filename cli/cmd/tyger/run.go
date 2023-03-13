@@ -27,6 +27,8 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+var errNotFound = errors.New("not found")
+
 func newRunCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                   "run",
@@ -43,6 +45,7 @@ func newRunCommand() *cobra.Command {
 	cmd.AddCommand(newRunCreateCommand())
 	cmd.AddCommand(newRunExecCommand())
 	cmd.AddCommand(newRunShowCommand())
+	cmd.AddCommand(newRunWatchCommand())
 	cmd.AddCommand(newRunLogsCommand())
 	cmd.AddCommand(newRunListCommand())
 
@@ -161,35 +164,44 @@ func newRunExecCommand() *cobra.Command {
 			}()
 		}
 
-		start := time.Now()
+		consecutiveErrors := 0
+	beginWatch:
+		eventChan, errChan := watchRun(run.Id)
+
 		for {
-			// TODO: replace this with a more efficient watch API
-			_, err = tyger.InvokeRequest(http.MethodGet, fmt.Sprintf("v1/runs/%d", run.Id), nil, &run)
-			if err != nil {
-				return err
-			}
-			switch run.Status {
-			case "Succeeded":
-				goto end
-			case "Pending":
-			case "Running":
-			default:
-				log.Fatal().Str("status", run.Status).Str("statusReason", run.StatusReason).Msg("Run failed.")
-			}
+			select {
+			case err := <-errChan:
+				log.Error().Err(err).Msg("Error while watching run")
+				consecutiveErrors++
 
-			elapsed := time.Since(start)
+				if consecutiveErrors > 1 {
+					log.Fatal().Err(err).Msg("Failed to watch run")
+				}
 
-			switch {
-			case elapsed < 10*time.Second:
-				time.Sleep(time.Millisecond * 250)
-			case elapsed < time.Minute:
-				time.Sleep(time.Second)
-			case elapsed < 2*time.Minute:
-				time.Sleep(5 * time.Second)
-			default:
-				time.Sleep(10 * time.Second)
+				goto beginWatch
+			case event, ok := <-eventChan:
+				if !ok {
+					goto end
+				}
+				consecutiveErrors = 0
+
+				logEntry := log.Info().Str("status", event.Status)
+				if event.RunningCount != nil {
+					logEntry = logEntry.Int("runningCount", *event.RunningCount)
+				}
+				logEntry.Msg("Run status changed")
+
+				switch event.Status {
+				case "Succeeded":
+					goto end
+				case "Pending":
+				case "Running":
+				default:
+					log.Fatal().Str("status", event.Status).Str("statusReason", event.StatusReason).Msg("Run failed.")
+				}
 			}
 		}
+
 	end:
 		wg.Wait()
 		return nil
@@ -403,6 +415,53 @@ func newRunShowCommand() *cobra.Command {
 	}
 }
 
+func newRunWatchCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:                   "watch ID",
+		Aliases:               []string{"get"},
+		Short:                 "Watch the status changes of a run",
+		Long:                  "Watch the status changes of a run",
+		DisableFlagsInUseLine: true,
+		Args:                  exactlyOneArg("run name"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			runId, err := strconv.ParseInt(args[0], 10, 64)
+			if err != nil {
+				return err
+			}
+
+			consecutiveErrors := 0
+		start:
+			eventChan, errChan := watchRun(runId)
+			for {
+				select {
+				case err := <-errChan:
+					if err == errNotFound {
+						return errors.New("run not found")
+					}
+
+					consecutiveErrors++
+					if consecutiveErrors > 1 {
+						return err
+					}
+
+					log.Error().Err(err).Msg("error watching run")
+					goto start
+				case event, ok := <-eventChan:
+					if !ok {
+						return nil
+					}
+					consecutiveErrors = 0
+					bytes, err := json.Marshal(event)
+					if err != nil {
+						return err
+					}
+					fmt.Println(string(bytes))
+				}
+			}
+		},
+	}
+}
+
 func newRunListCommand() *cobra.Command {
 	var flags struct {
 		limit int
@@ -545,4 +604,54 @@ func followLogs(body io.Reader, includeTimestamps bool, outputSink io.Writer) (l
 			fmt.Fprintln(outputSink, string(line))
 		}
 	}
+}
+
+func watchRun(runId int64) (<-chan model.RunMetadata, <-chan error) {
+	runEventChan := make(chan model.RunMetadata)
+	errChan := make(chan error)
+
+	go func() {
+		defer close(runEventChan)
+
+		resp, err := tyger.InvokeRequest(http.MethodGet, fmt.Sprintf("v1/runs/%d?watch=true", runId), nil, nil)
+		if resp != nil && resp.StatusCode == http.StatusNotFound {
+			errChan <- errNotFound
+			return
+		}
+		if err != nil {
+			errChan <- err
+			return
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			errChan <- fmt.Errorf("unexpected response code %d", resp.StatusCode)
+			return
+		}
+
+		reader := bufio.NewReader(resp.Body)
+		for {
+			line, err := reader.ReadString('\n')
+			if err == io.EOF {
+				if line != "" {
+					panic("expected last line to be empty")
+				}
+				return
+			}
+			if err != nil {
+				errChan <- err
+				return
+			}
+
+			run := model.Run{}
+
+			if err := json.Unmarshal([]byte(line), &run); err != nil {
+				errChan <- err
+				return
+			}
+
+			runEventChan <- run.RunMetadata
+		}
+	}()
+
+	return runEventChan, errChan
 }

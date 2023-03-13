@@ -273,6 +273,10 @@ paths:
           required: true
           schema:
             type: string
+        - name: watch
+          in: query
+          schema:
+            type: boolean
       responses:
         '200':
           description: Success

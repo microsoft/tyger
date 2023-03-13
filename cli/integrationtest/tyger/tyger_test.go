@@ -304,7 +304,10 @@ func TestGpuResourceRequirement(t *testing.T) {
 	// create run
 	runId := integrationtest.RunTygerSuceeds(t, "run", "create", "--codespec", codespecName, "--timeout", "10m")
 
-	run := waitForRunSuccess(t, runId)
+	waitForRunSuccess(t, runId)
+
+	run := model.Run{}
+	require.NoError(t, json.Unmarshal([]byte(integrationtest.RunTygerSuceeds(t, "run", "show", runId)), &run))
 	assert.NotEmpty(t, run.Cluster)
 	assert.Equal(t, "gpunp", run.Job.NodePool)
 }
@@ -857,65 +860,47 @@ func TestAuthenticationRequired(t *testing.T) {
 }
 
 func waitForRunStarted(t *testing.T, runId string) {
-	start := time.Now()
-	for {
-		runJson := integrationtest.RunTygerSuceeds(t, "run", "show", runId)
-		run := model.Run{}
-		require.Nil(t, json.Unmarshal([]byte(runJson), &run))
-
-		switch run.Status {
-		case "Pending":
-			break
-		default:
-			return
-		}
-
-		elapsed := time.Now().Sub(start)
-
-		switch {
-		case elapsed < 10*time.Second:
-			time.Sleep(time.Millisecond * 250)
-		case elapsed < time.Minute:
-			time.Sleep(time.Second)
-		case elapsed < 15*time.Minute:
-			time.Sleep(10 * time.Second)
-		default:
-			require.FailNowf(t, "timed out waiting for run %d.", "Run '%s'. Last status: %s", run.Id, run.Status)
-		}
-	}
+	waitForRun(t, runId, true)
 }
 
-func waitForRunSuccess(t *testing.T, runId string) model.Run {
-	// this will block until the run terminates or we time out
-	integrationtest.RunTygerSuceeds(t, "run", "logs", runId, "-f")
+func waitForRunSuccess(t *testing.T, runId string) {
+	waitForRun(t, runId, false)
+}
 
-	start := time.Now()
+func waitForRun(t *testing.T, runId string, returnOnRunning bool) {
+	cmd := exec.Command("tyger", "run", "watch", runId)
+	var outb, errb bytes.Buffer
+	cmd.Stdout = &outb
+	cmd.Stderr = &errb
+
+	require.NoError(t, cmd.Start(), "unable to start tyger run watch")
+	defer cmd.Process.Kill()
+
 	for {
-		runJson := integrationtest.RunTygerSuceeds(t, "run", "show", runId)
-		run := model.Run{}
-		require.Nil(t, json.Unmarshal([]byte(runJson), &run))
+		line, err := outb.ReadString('\n')
+		if err == io.EOF {
+			break
+		}
+		require.NoError(t, err)
 
-		switch run.Status {
-		case "Succeeded":
-			return run
+		event := model.RunMetadata{}
+		require.NoError(t, json.Unmarshal([]byte(line), &event))
+
+		switch event.Status {
 		case "Pending":
 		case "Running":
+			if returnOnRunning {
+				return
+			}
+		case "Succeeded":
 			break
+		case "Failed":
+			require.FailNowf(t, "run failed.", "Run '%d'. Last status: %s", event.Id, event.Status)
 		default:
-			require.FailNowf(t, "run failed.", "Run '%d'. Last status: %s", run.Id, run.Status)
-		}
-
-		elapsed := time.Now().Sub(start)
-
-		switch {
-		case elapsed < 10*time.Second:
-			time.Sleep(time.Millisecond * 250)
-		case elapsed < time.Minute:
-			time.Sleep(time.Second)
-		case elapsed < 15*time.Minute:
-			time.Sleep(10 * time.Second)
-		default:
-			require.FailNowf(t, "timed out waiting for run %d.", "Run '%d'. Last status: %s", run.Id, run.Status)
+			require.FailNowf(t, "unexpected run status.", "Run '%d'. Last status: %s", event.Id, event.Status)
 		}
 	}
+
+	err := cmd.Wait()
+	require.NoError(t, err, "tyger run watch failed: %s", errb.String())
 }
