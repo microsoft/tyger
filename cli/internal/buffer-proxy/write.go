@@ -2,6 +2,8 @@ package bufferproxy
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,6 +20,8 @@ const (
 	DefaultWriteDop  = 16
 	DefaultBlockSize = 4 * 1024 * 1024
 )
+
+var errMd5Mismatch = fmt.Errorf("MD5 mismatch")
 
 func Write(uri string, dop int, blockSize int, inputFile *os.File) {
 	ctx := log.With().Str("operation", "buffer write").Logger().WithContext(context.Background())
@@ -45,30 +49,46 @@ func Write(uri string, dop int, blockSize int, inputFile *os.File) {
 
 				blobUrl := container.GetBlobUri(bb.BlobNumber)
 				ctx := log.Ctx(ctx).With().Int64("blobNumber", bb.BlobNumber).Logger().WithContext(ctx)
+				httpClient := NewClientWithLoggingContext(ctx, httpClient)
+				for i := 0; ; i++ {
+					var body any = bb.Contents
+					if len(bb.Contents) == 0 {
+						// This is a bit subtle, but if we send an empty or nil []byte body,
+						// we will enpty with the Transfer-Encoding: chunked header, which
+						// the blob service does not support.  So we send a nil body instead.
+						body = nil
+					}
 
-				var body any = bb.Contents
-				if len(bb.Contents) == 0 {
-					// This is a bit subtle, but if we send an empty or nil []byte body,
-					// we will enpty with the Transfer-Encoding: chunked header, which
-					// the blob service does not support.  So we send a nil body instead.
-					body = nil
-				}
+					req, err := retryablehttp.NewRequest(http.MethodPut, blobUrl, body)
+					if err != nil {
+						log.Fatal().Err(err).Msg("Unable to create request")
+					}
 
-				req, err := retryablehttp.NewRequest(http.MethodPut, blobUrl, body)
-				if err != nil {
-					log.Fatal().Err(err).Msg("Unable to create request")
-				}
+					AddCommonBlobRequestHeaders(req.Header)
+					req.Header.Add("x-ms-blob-type", "BlockBlob")
 
-				AddCommonBlobRequestHeaders(req.Header)
-				req.Header.Add("x-ms-blob-type", "BlockBlob")
+					md5Hash := md5.Sum(bb.Contents)
+					req.Header.Add("Content-MD5", base64.StdEncoding.EncodeToString(md5Hash[:]))
 
-				resp, err := NewClientWithLoggingContext(ctx, httpClient).Do(req)
-				if err != nil {
-					log.Fatal().Err(RedactHttpError(err)).Msg("Unable to send request")
-				}
-				err = handleWriteResponse(resp)
-				if err != nil {
-					log.Fatal().Err(RedactHttpError(err)).Msg("Unable to write blob")
+					resp, err := httpClient.Do(req)
+					if err != nil {
+						log.Fatal().Err(RedactHttpError(err)).Msg("Unable to send request")
+					}
+					err = handleWriteResponse(resp)
+					if err == nil {
+						break
+					}
+
+					if err == errMd5Mismatch {
+						if i < 5 {
+							log.Ctx(ctx).Debug().Msg("MD5 mismatch, retrying")
+							continue
+						}
+					}
+
+					if err != nil {
+						log.Fatal().Err(RedactHttpError(err)).Msg("Unable to write blob")
+					}
 				}
 
 				metrics.Update(uint64(len(bb.Contents)))
@@ -124,6 +144,12 @@ func handleWriteResponse(resp *http.Response) error {
 	case http.StatusCreated:
 		io.Copy(io.Discard, resp.Body)
 		return nil
+	case http.StatusBadRequest:
+		if resp.Header.Get("x-ms-error-code") == "Md5Mismatch" {
+			io.Copy(io.Discard, resp.Body)
+			return errMd5Mismatch
+		}
+		fallthrough
 	default:
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))

@@ -1,7 +1,10 @@
 package bufferproxy
 
 import (
+	"bytes"
 	"context"
+	"crypto/md5"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -91,6 +94,7 @@ func Read(uri string, dop int, outputFile *os.File) {
 }
 
 func WaitForBlobAndDownload(ctx context.Context, httpClient *retryablehttp.Client, blobUri string, blobNumber int64, finalBlobNumber *int64) ([]byte, error) {
+	md5Mismatch := false
 	for retryCount := 0; ; retryCount++ {
 		start := time.Now()
 
@@ -142,6 +146,17 @@ func WaitForBlobAndDownload(ctx context.Context, httpClient *retryablehttp.Clien
 
 			continue
 		}
+		if err == errMd5Mismatch {
+			if !md5Mismatch {
+				md5Mismatch = true
+				retryCount = 0
+			}
+
+			if retryCount < 5 {
+				log.Ctx(ctx).Warn().Err(err).Msg("MD5 mismatch, retrying")
+				continue
+			}
+		}
 
 		return nil, RedactHttpError(err)
 	}
@@ -164,6 +179,18 @@ func handleReadResponse(resp *http.Response) ([]byte, error) {
 			// return the buffer to the pool
 			pool.Put(buf)
 			return nil, err
+		}
+
+		calculatedMd5 := md5.Sum(buf)
+		md5Hader := resp.Header.Get("Content-MD5")
+		if md5Hader == "" {
+			return nil, errors.New("expected Content-MD5 header missing")
+		}
+
+		md5Bytes, _ := base64.StdEncoding.DecodeString(md5Hader)
+		if !bytes.Equal(calculatedMd5[:], md5Bytes) {
+			pool.Put(buf)
+			return nil, errMd5Mismatch
 		}
 
 		return buf, nil
