@@ -416,7 +416,11 @@ func newRunShowCommand() *cobra.Command {
 }
 
 func newRunWatchCommand() *cobra.Command {
-	return &cobra.Command{
+	var flags struct {
+		fullResource bool
+	}
+
+	cmd := &cobra.Command{
 		Use:                   "watch ID",
 		Aliases:               []string{"get"},
 		Short:                 "Watch the status changes of a run",
@@ -451,7 +455,12 @@ func newRunWatchCommand() *cobra.Command {
 						return nil
 					}
 					consecutiveErrors = 0
-					bytes, err := json.Marshal(event)
+					var valueToPrint any = event
+					if !flags.fullResource {
+						valueToPrint = event.RunMetadata
+					}
+
+					bytes, err := json.Marshal(valueToPrint)
 					if err != nil {
 						return err
 					}
@@ -460,6 +469,9 @@ func newRunWatchCommand() *cobra.Command {
 			}
 		},
 	}
+
+	cmd.Flags().BoolVar(&flags.fullResource, "full-resource", false, "Display the full resource instead of just the system fields")
+	return cmd
 }
 
 func newRunListCommand() *cobra.Command {
@@ -606,8 +618,8 @@ func followLogs(body io.Reader, includeTimestamps bool, outputSink io.Writer) (l
 	}
 }
 
-func watchRun(runId int64) (<-chan model.RunMetadata, <-chan error) {
-	runEventChan := make(chan model.RunMetadata)
+func watchRun(runId int64) (<-chan model.Run, <-chan error) {
+	runEventChan := make(chan model.Run)
 	errChan := make(chan error)
 
 	go func() {
@@ -649,7 +661,7 @@ func watchRun(runId int64) (<-chan model.RunMetadata, <-chan error) {
 				return
 			}
 
-			runEventChan <- run.RunMetadata
+			runEventChan <- run
 		}
 	}()
 

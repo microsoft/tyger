@@ -304,9 +304,8 @@ func TestGpuResourceRequirement(t *testing.T) {
 	// create run
 	runId := integrationtest.RunTygerSuceeds(t, "run", "create", "--codespec", codespecName, "--timeout", "10m")
 
-	waitForRunSuccess(t, runId)
+	run := waitForRunSuccess(t, runId)
 
-	run := model.Run{}
 	require.NoError(t, json.Unmarshal([]byte(integrationtest.RunTygerSuceeds(t, "run", "show", runId)), &run))
 	assert.NotEmpty(t, run.Cluster)
 	assert.Equal(t, "gpunp", run.Job.NodePool)
@@ -859,16 +858,16 @@ func TestAuthenticationRequired(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
 
-func waitForRunStarted(t *testing.T, runId string) {
-	waitForRun(t, runId, true)
+func waitForRunStarted(t *testing.T, runId string) model.Run {
+	return waitForRun(t, runId, true)
 }
 
-func waitForRunSuccess(t *testing.T, runId string) {
-	waitForRun(t, runId, false)
+func waitForRunSuccess(t *testing.T, runId string) model.Run {
+	return waitForRun(t, runId, false)
 }
 
-func waitForRun(t *testing.T, runId string, returnOnRunning bool) {
-	cmd := exec.Command("tyger", "run", "watch", runId)
+func waitForRun(t *testing.T, runId string, returnOnRunning bool) model.Run {
+	cmd := exec.Command("tyger", "run", "watch", runId, "--full-resource")
 	var outb, errb bytes.Buffer
 	cmd.Stdout = &outb
 	cmd.Stderr = &errb
@@ -876,6 +875,7 @@ func waitForRun(t *testing.T, runId string, returnOnRunning bool) {
 	require.NoError(t, cmd.Start(), "unable to start tyger run watch")
 	defer cmd.Process.Kill()
 
+	snapshot := model.Run{}
 	for {
 		line, err := outb.ReadString('\n')
 		if err == io.EOF {
@@ -883,24 +883,24 @@ func waitForRun(t *testing.T, runId string, returnOnRunning bool) {
 		}
 		require.NoError(t, err)
 
-		event := model.RunMetadata{}
-		require.NoError(t, json.Unmarshal([]byte(line), &event))
+		require.NoError(t, json.Unmarshal([]byte(line), &snapshot))
 
-		switch event.Status {
+		switch snapshot.Status {
 		case "Pending":
 		case "Running":
 			if returnOnRunning {
-				return
+				return snapshot
 			}
 		case "Succeeded":
 			break
 		case "Failed":
-			require.FailNowf(t, "run failed.", "Run '%d'. Last status: %s", event.Id, event.Status)
+			require.FailNowf(t, "run failed.", "Run '%d'. Last status: %s", snapshot.Id, snapshot.Status)
 		default:
-			require.FailNowf(t, "unexpected run status.", "Run '%d'. Last status: %s", event.Id, event.Status)
+			require.FailNowf(t, "unexpected run status.", "Run '%d'. Last status: %s", snapshot.Id, snapshot.Status)
 		}
 	}
 
 	err := cmd.Wait()
 	require.NoError(t, err, "tyger run watch failed: %s", errb.String())
+	return snapshot
 }
