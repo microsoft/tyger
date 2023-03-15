@@ -28,8 +28,17 @@ const (
 )
 
 var (
-	ErrNotFound = errors.New("not found")
+	ErrNotFound    = errors.New("not found")
+	errMd5Mismatch = fmt.Errorf("MD5 mismatch")
 )
+
+type responseBodyReadError struct {
+	reason error
+}
+
+func (e *responseBodyReadError) Error() string {
+	return fmt.Sprintf("error reading response body: %v", e.reason)
+}
 
 func CreateHttpClient() *retryablehttp.Client {
 	client := retryablehttp.NewClient()

@@ -21,8 +21,6 @@ const (
 	DefaultBlockSize = 4 * 1024 * 1024
 )
 
-var errMd5Mismatch = fmt.Errorf("MD5 mismatch")
-
 func Write(uri string, dop int, blockSize int, inputFile *os.File) {
 	ctx := log.With().Str("operation", "buffer write").Logger().WithContext(context.Background())
 	httpClient := CreateHttpClient()
