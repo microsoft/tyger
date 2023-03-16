@@ -311,7 +311,7 @@ func newRunCreateCommandCore(
 				newRun.Job.NodePool = flags.job.nodePool
 			}
 
-			if flags.job.replicas != 0 {
+			if cmd.Flags().Changed("replicas") {
 				newRun.Job.Replicas = flags.job.replicas
 			}
 
@@ -328,7 +328,8 @@ func newRunCreateCommandCore(
 				if flags.worker.nodePool != "" {
 					newRun.Worker.NodePool = flags.worker.nodePool
 				}
-				if flags.worker.replicas != 0 {
+
+				if cmd.Flags().Changed("worker-replicas") {
 					newRun.Worker.Replicas = flags.worker.replicas
 				}
 			}

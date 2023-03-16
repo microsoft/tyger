@@ -67,11 +67,10 @@ public class RunLogReader : ILogSource
 
     private async Task<Pipeline> FollowLogs(Run run, string resourceVersion, GetLogsOptions options, CancellationToken cancellationToken)
     {
-        var singleReplica = run.Job.Replicas + (run.Worker?.Replicas ?? 0) == 1;
         var pods = await _client.EnumeratePodsInNamespace(_k8sOptions.Namespace, labelSelector: $"{RunLabel}={run.Id}", cancellationToken: cancellationToken)
             .ToListAsync(cancellationToken);
 
-        var followingPods = new HashSet<string>();
+        var followingContainers = new HashSet<(string podName, string containerName)>();
         var initialPipelines = new List<IPipelineSource>();
         var terminableWorkerElements = new List<TerminablePipelineElement>();
 
@@ -87,17 +86,20 @@ public class RunLogReader : ILogSource
 
         foreach (var pod in pods)
         {
-            if (IsPodRunningOrTerminated(pod))
+            foreach (var container in pod.Spec.Containers)
             {
-                var podPipeline = new Pipeline(
-                    new ResumablePipelineSource(
-                        async opts => await GetLogsFromPod(pod.Name(), GetPodPrefix(pod, singleReplica), opts, cancellationToken),
-                        options with { IncludeTimestamps = true },
-                         _loggerFactory.CreateLogger<ResumablePipelineSource>()));
+                if (IsContainerRunningOrTerminated(pod, container))
+                {
+                    var containerPipeline = new Pipeline(
+                        new ResumablePipelineSource(
+                            async opts => await GetLogsFromPod(pod.Name(), container.Name, GetPrefix(run, pod, container), opts, cancellationToken),
+                            options with { IncludeTimestamps = true },
+                            _loggerFactory.CreateLogger<ResumablePipelineSource>()));
 
-                initialPipelines.Add(podPipeline);
-                followingPods.Add(pod.Name());
-                TrackPipelineIfWorkerPod(pod, podPipeline);
+                    initialPipelines.Add(containerPipeline);
+                    followingContainers.Add((pod.Name(), container.Name));
+                    TrackPipelineIfWorkerPod(pod, containerPipeline);
+                }
             }
         }
 
@@ -194,37 +196,40 @@ public class RunLogReader : ILogSource
                     resourceVersion: resourceVersion,
                     cancellationToken: cancellationToken);
 
-                await foreach (var (type, item) in watchEnumerable.WithCancellation(cancellationToken))
+                await foreach (var (type, pod) in watchEnumerable.WithCancellation(cancellationToken))
                 {
                     switch (type)
                     {
                         case WatchEventType.Added:
                         case WatchEventType.Modified:
-                            if (IsPodRunningOrTerminated(item) &&
-                                !followingPods.Contains(item.Name()))
+                            foreach (var container in pod.Spec.Containers)
                             {
-                                var podPipeline = new Pipeline(
-                                    new ResumablePipelineSource(
-                                        async opts => await GetLogsFromPod(item.Name(), GetPodPrefix(item, singleReplica), opts, cancellationToken),
-                                        options with { IncludeTimestamps = true },
-                                        _loggerFactory.CreateLogger<ResumablePipelineSource>()));
-
-                                followingPods.Add(item.Name());
-
-                                lock (syncRoot)
+                                if (IsContainerRunningOrTerminated(pod, container) &&
+                                    !followingContainers.Contains((pod.Name(), container.Name)))
                                 {
-                                    if (finished)
+                                    var podPipeline = new Pipeline(
+                                        new ResumablePipelineSource(
+                                            async opts => await GetLogsFromPod(pod.Name(), container.Name, GetPrefix(run, pod, container), opts, cancellationToken),
+                                            options with { IncludeTimestamps = true },
+                                            _loggerFactory.CreateLogger<ResumablePipelineSource>()));
+
+                                    followingContainers.Add((pod.Name(), container.Name));
+
+                                    lock (syncRoot)
                                     {
-                                        return;
+                                        if (finished)
+                                        {
+                                            return;
+                                        }
+
+                                        TrackPipelineIfWorkerPod(pod, podPipeline);
+
+                                        // a new pod has started. Merge its log in by starting the existing waiting leaf merger
+                                        // and create a new leaf merger for the next pod.
+                                        var newLeaf = new LiveLogMerger();
+                                        leafMerger.Activate(cancellationToken, newLeaf, podPipeline);
+                                        leafMerger = newLeaf;
                                     }
-
-                                    TrackPipelineIfWorkerPod(item, podPipeline);
-
-                                    // a new pod has started. Merge its log in by starting the existing waiting leaf merger
-                                    // and create a new leaf merger for the next pod.
-                                    var newLeaf = new LiveLogMerger();
-                                    leafMerger.Activate(cancellationToken, newLeaf, podPipeline);
-                                    leafMerger = newLeaf;
                                 }
                             }
 
@@ -242,26 +247,27 @@ public class RunLogReader : ILogSource
             }
         }
     }
-
-    private static bool IsPodRunningOrTerminated(V1Pod pod)
+    private static bool IsContainerRunningOrTerminated(V1Pod pod, V1Container container)
     {
-        return pod.Status.ContainerStatuses is { Count: > 0 } && pod.Status.ContainerStatuses[0].State.Waiting == null;
+        return pod.Status.ContainerStatuses?.SingleOrDefault(s => s.Name == container.Name) is { State.Waiting: null };
     }
-
     private async Task<Pipeline?> GetLogsSnapshot(Run run, GetLogsOptions options, CancellationToken cancellationToken)
     {
-        var singleReplica = run.Job.Replicas + (run.Worker?.Replicas ?? 0) == 1;
         var podLogOptions = options with { Follow = false };
         var pods = await _client.EnumeratePodsInNamespace(_k8sOptions.Namespace, labelSelector: $"{RunLabel}={run.Id}", cancellationToken: cancellationToken).ToArrayAsync(cancellationToken);
 
-        if (pods.Length == 1)
+        if (pods is [var singlePod] && pods[0].Spec.Containers is [var singleContainer])
         {
             // simple case where no merging or transforming is required.
-            return await GetLogsFromPod(pods[0].Name(), GetPodPrefix(pods[0], singleReplica), options, cancellationToken);
+            return await GetLogsFromPod(singlePod.Name(), singleContainer.Name, GetPrefix(run, singlePod, singleContainer), podLogOptions, cancellationToken);
         }
 
-        var pipelines = await pods.ToAsyncEnumerable()
-            .SelectAwait(async p => (await GetLogsFromPod(p.Name(), GetPodPrefix(p, singleReplica), podLogOptions, cancellationToken))!)
+        podLogOptions = podLogOptions with { IncludeTimestamps = true };
+
+        var pipelines = await pods
+            .SelectMany(p => p.Spec.Containers.Select(c => (pod: p, container: c)))
+            .ToAsyncEnumerable()
+            .SelectAwait(async p => (await GetLogsFromPod(p.pod.Name(), p.container.Name, GetPrefix(run, p.pod, p.container), podLogOptions, cancellationToken))!)
             .Where(p => p != null)
             .ToArrayAsync(cancellationToken);
 
@@ -274,26 +280,37 @@ public class RunLogReader : ILogSource
         return pipeline;
     }
 
-    private static string? GetPodPrefix(V1Pod pod, bool singleReplica)
+    private static string? GetPrefix(Run run, V1Pod pod, V1Container container)
     {
-        if (singleReplica)
+        static string? PodPrefix(Run run, V1Pod pod)
         {
-            return null;
+            var totalReplicas = run.Job.Replicas + (run.Worker?.Replicas ?? 0);
+            if (totalReplicas == 1)
+            {
+                return null;
+            }
+
+            if (pod.GetAnnotation("batch.kubernetes.io/job-completion-index") is string indexString)
+            {
+                return run.Job.Replicas > 1 ? $"[job-{indexString}]" : "[job]";
+            }
+
+            return run.Worker?.Replicas is > 1 ? $"[worker-{pod.Spec.Hostname[pod.Spec.Hostname.LastIndexOf('-') + 1]}]" : "[worker]";
         }
 
-        if (pod.GetAnnotation("batch.kubernetes.io/job-completion-index") is string indexString)
+        static string? ContainerPrefix(V1Container container, bool singleContainer)
         {
-            return $"[job-{indexString}]";
+            return singleContainer ? null : $"[{container?.Name}]";
         }
 
-        return $"[worker-{pod.Spec.Hostname[pod.Spec.Hostname.LastIndexOf('-') + 1]}]";
+        return string.Concat(PodPrefix(run, pod), ContainerPrefix(container, pod.Spec.Containers.Count == 1));
     }
 
     // We need to do the HTTP request ourselves because the sinceTime parameter is missing https://github.com/kubernetes-client/csharp/issues/829
-    private async Task<Pipeline?> GetLogsFromPod(string podName, string? prefix, GetLogsOptions options, CancellationToken cancellationToken)
+    private async Task<Pipeline?> GetLogsFromPod(string podName, string containerName, string? prefix, GetLogsOptions options, CancellationToken cancellationToken)
     {
         var qs = QueryString.Empty;
-        qs = qs.Add("container", "main"); // TODO: should we include the other (buffer-proxy) containers too?
+        qs = qs.Add("container", containerName);
 
         if (options.IncludeTimestamps)
         {
