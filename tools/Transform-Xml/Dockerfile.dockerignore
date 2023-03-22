@@ -1,0 +1,12 @@
+# Ignore everything...
+**
+
+# ...except:
+!.editorconfig
+!tools/Transform-Xml/
+
+# but also ignore:
+tools/Transform-Xml/**/obj/
+tools/Transform-Xml/**/bin/
+tools/Transform-Xml/Dockerfile
+tools/Transform-Xml/.dockerignore

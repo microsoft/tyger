@@ -96,7 +96,7 @@ watch: check-forwarding set-localsettings
 	dotnet watch
 
 unit-test:
-	find server -name *csproj | xargs -L 1 dotnet test --no-restore -v q
+	find . -name *csproj | xargs -L 1 dotnet test --no-restore -v q
 	
 	cd cli
 	go test ./... | { grep -v "\\[[no test files\\]" || true; }
@@ -202,13 +202,13 @@ restore:
 	cd cli
 	go mod download
 	cd ..
-	find server -name *csproj | xargs -L 1 dotnet restore
+	find . -name *csproj | xargs -L 1 dotnet restore
 
 format:
-	find server -name *csproj | xargs -L 1 dotnet format
+	find . -name *csproj | xargs -L 1 dotnet format
 
 verify-format:
-	find server -name *csproj | xargs -i sh -c 'dotnet build -p:EnforceCodeStyleInBuild=true {} && dotnet format --verify-no-changes {}'
+	find . -name *csproj | xargs -i sh -c 'dotnet build -p:EnforceCodeStyleInBuild=true {} && dotnet format --verify-no-changes {}'
 
 purge-runs: set-context
 	for pod in $$(kubectl get pod -n "${HELM_NAMESPACE}" -l tyger-run -o go-template='{{range .items}}{{.metadata.name}}{{"\n"}}{{end}}'); do

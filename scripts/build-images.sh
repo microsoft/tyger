@@ -12,7 +12,7 @@ Usage: $0 [options]
 Options:
   -c, --environment-config         The environment configuration JSON file or - to read from stdin
   --test                           Build (and optionally push) test images, otherwise runtime images
-  --cli-tools                      Build (and optionally push) cli tool distribution image, otherwise runtime images
+  --cli-tools                      Build (and optionally push) cli tool distribution images, otherwise runtime images
   --push                           Push runtime images (requires --tag or --use-git-hash-as-tag)
   --push-force                     Force runtime images, will overwrite images with same tag (requires --tag or --use-git-hash-as-tag)
   --tag <tag>                      Tag for runtime images
@@ -121,6 +121,14 @@ if [[ -n "${cli_tools:-}" ]]; then
   target="tyger-cli-binaries"
   local_tag="tyger-cli-binaries"
   remote_repo="tyger-cli-binaries"
+
+  build_and_push
+
+  build_context="${repo_root_dir}/"
+  dockerfile_path="${repo_root_dir}/tools/Transform-Xml/Dockerfile"
+  target="transform-xml-binaries"
+  local_tag="transform-xml-binaries"
+  remote_repo="transform-xml-binaries"
 
   build_and_push
 elif [[ -n "${test:-}" ]]; then

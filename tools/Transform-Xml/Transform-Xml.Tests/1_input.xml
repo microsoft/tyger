@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<inventory>
+  <item>
+    <name>Widget</name>
+    <description>A small mechanical device</description>
+    <price>10.99</price>
+    <quantity>100</quantity>
+  </item>
+  <item>
+    <name>Gizmo</name>
+    <description>An electronic gadget</description>
+    <price>29.99</price>
+    <quantity>50</quantity>
+  </item>
+</inventory>
