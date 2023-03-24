@@ -48,6 +48,7 @@ func NewRunCommand() *cobra.Command {
 	cmd.AddCommand(newRunWatchCommand())
 	cmd.AddCommand(newRunLogsCommand())
 	cmd.AddCommand(newRunListCommand())
+	cmd.AddCommand(newRunCancelCommand())
 
 	return cmd
 }
@@ -528,6 +529,28 @@ func newRunListCommand() *cobra.Command {
 
 	cmd.Flags().StringVarP(&flags.since, "since", "s", "", "Results before this datetime (specified in local time) are not included")
 	cmd.Flags().IntVarP(&flags.limit, "limit", "l", 1000, "The maximum number of runs to list. Default 1000")
+
+	return cmd
+}
+
+func newRunCancelCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:                   "cancel ID",
+		Aliases:               []string{"stop"},
+		Short:                 "Cancel a run",
+		Long:                  "Cancel a run",
+		DisableFlagsInUseLine: true,
+		Args:                  exactlyOneArg("run name"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_, err := tyger.InvokeRequest(http.MethodPost, fmt.Sprintf("v1/runs/%s/cancel", args[0]), nil, nil)
+
+			if err != nil {
+				return err
+			}
+
+			return nil
+		},
+	}
 
 	return cmd
 }
