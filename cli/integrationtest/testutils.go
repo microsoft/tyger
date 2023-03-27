@@ -1,3 +1,5 @@
+//go:build integrationtest
+
 package integrationtest
 
 import (
@@ -9,7 +11,7 @@ import (
 	"time"
 )
 
-func RunCommand(command string, args ...string) (stdout string, stderr string, err error) {
+func runCommand(command string, args ...string) (stdout string, stderr string, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
@@ -27,8 +29,8 @@ func RunCommand(command string, args ...string) (stdout string, stderr string, e
 	return
 }
 
-func RunCommandSuceeds(t *testing.T, command string, args ...string) string {
-	stdout, stderr, err := RunCommand(command, args...)
+func runCommandSuceeds(t *testing.T, command string, args ...string) string {
+	stdout, stderr, err := runCommand(command, args...)
 	if err != nil {
 		var exitError *exec.ExitError
 		if errors.As(err, &exitError) {
@@ -44,12 +46,12 @@ func RunCommandSuceeds(t *testing.T, command string, args ...string) string {
 	return stdout
 }
 
-func RunTyger(args ...string) (stdout string, stderr string, err error) {
+func runTyger(args ...string) (stdout string, stderr string, err error) {
 	args = append([]string{"--log-level", "trace"}, args...)
-	return RunCommand("tyger", args...)
+	return runCommand("tyger", args...)
 }
 
-func RunTygerSuceeds(t *testing.T, args ...string) string {
+func runTygerSuceeds(t *testing.T, args ...string) string {
 	args = append([]string{"--log-level", "trace"}, args...)
-	return RunCommandSuceeds(t, "tyger", args...)
+	return runCommandSuceeds(t, "tyger", args...)
 }

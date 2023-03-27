@@ -217,7 +217,6 @@ public class RunCreator
                 Name = _k8sOptions.NoOpConfigMap
             }
         });
-        job.Spec.Template.Spec.ServiceAccountName = _k8sOptions.JobServiceAccount;
     }
 
     private void AddWorkerNodesEnvironmentVariables(V1Job job, Run run, WorkerCodespec? workerCodespec)
@@ -295,14 +294,17 @@ public class RunCreator
         {
             job.Spec.Template.Spec.Containers.Add(new()
             {
-                Name = $"{bufferName}-buffer-proxy",
-                Image = _bufferOptions.BufferProxyImage,
+                Name = $"{bufferName}-buffer-sidecar",
+                Image = _bufferOptions.BufferSidecarImage,
                 Args = new[]
                 {
                     write ? "write" : "read",
                     $"{SecretMountPath}/{bufferName}",
                     write ? "--input" : "--output",
                     $"{FifoMountPath}/{bufferName}",
+                    "--namespace", _k8sOptions.Namespace,
+                    "--pod", "$(POD_NAME)",
+                    "--container", "main",
                     "--log-format", "json",
                 },
                 VolumeMounts = new[]
@@ -313,11 +315,16 @@ public class RunCreator
                         Name = "buffers",
                         MountPath = SecretMountPath,
                         ReadOnlyProperty = true,
-
                     },
+                },
+                Env = new[]
+                {
+                    new V1EnvVar("POD_NAME", valueFrom: new V1EnvVarSource(fieldRef: new V1ObjectFieldSelector("metadata.name"))),
                 },
             });
         }
+
+        job.Spec.Template.Spec.ServiceAccountName = _k8sOptions.JobServiceAccount;
 
         await _client.CoreV1.CreateNamespacedSecretAsync(buffersSecret, _k8sOptions.Namespace, cancellationToken: cancellationToken);
         _logger.CreatedSecret(buffersSecret.Metadata.Name);

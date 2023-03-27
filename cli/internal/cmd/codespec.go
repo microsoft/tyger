@@ -1,4 +1,4 @@
-package main
+package cmd
 
 import (
 	"encoding/json"
@@ -12,13 +12,13 @@ import (
 	"strconv"
 	"strings"
 
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/tyger"
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/tyger/model"
+	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/controlplane"
+	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/controlplane/model"
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
 
-func newCodespecCommand() *cobra.Command {
+func NewCodespecCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                   "codespec",
 		Aliases:               []string{"codespecs"},
@@ -168,7 +168,7 @@ func newCodespecCreateCommand() *cobra.Command {
 				newCodespec.Resources.Gpu = &q
 			}
 
-			resp, err := tyger.InvokeRequest(http.MethodPut, fmt.Sprintf("v1/codespecs/%s", codespecName), newCodespec, &newCodespec)
+			resp, err := controlplane.InvokeRequest(http.MethodPut, fmt.Sprintf("v1/codespecs/%s", codespecName), newCodespec, &newCodespec)
 			if err != nil {
 				return err
 			}
@@ -226,7 +226,7 @@ func newCodespecShowCommand() *cobra.Command {
 			}
 
 			codespec := model.Codespec{}
-			_, err := tyger.InvokeRequest(http.MethodGet, relativeUri, nil, &codespec)
+			_, err := controlplane.InvokeRequest(http.MethodGet, relativeUri, nil, &codespec)
 			if err != nil {
 				return err
 			}
@@ -275,7 +275,7 @@ func codespecListCommand() *cobra.Command {
 			}
 
 			var relativeUri string = fmt.Sprintf("v1/codespecs?%s", queryOptions.Encode())
-			return tyger.InvokePageRequests[model.Codespec](relativeUri, flags.limit, !cmd.Flags().Lookup("limit").Changed)
+			return controlplane.InvokePageRequests[model.Codespec](relativeUri, flags.limit, !cmd.Flags().Lookup("limit").Changed)
 		},
 	}
 

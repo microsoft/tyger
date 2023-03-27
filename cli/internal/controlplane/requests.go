@@ -1,4 +1,4 @@
-package tyger
+package controlplane
 
 import (
 	"bytes"
@@ -12,15 +12,14 @@ import (
 	"os"
 	"strings"
 
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/tyger/clicontext"
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/tyger/model"
+	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/controlplane/model"
 	"github.com/fatih/color"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
 func InvokeRequest(method string, relativeUri string, input interface{}, output interface{}) (*http.Response, error) {
-	ctx, err := clicontext.GetCliContext()
+	ctx, err := GetCliContext()
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, errors.New("run 'tyger login' to connect to a Tyger server")
@@ -68,7 +67,7 @@ func InvokeRequest(method string, relativeUri string, input interface{}, output 
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 	}
 
-	resp, err := clicontext.NewRetryableClient().Do(req)
+	resp, err := NewRetryableClient().Do(req)
 	if err != nil {
 		return resp, fmt.Errorf("unable to connect to server: %v", err)
 	}

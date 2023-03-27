@@ -1,4 +1,4 @@
-package main
+package cmd
 
 import (
 	"encoding/json"
@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"net/http"
 
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/tyger"
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/tyger/model"
+	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/controlplane"
+	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/controlplane/model"
 	"github.com/spf13/cobra"
 )
 
-func newClusterCommand() *cobra.Command {
+func NewClusterCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                   "cluster",
 		Aliases:               []string{"clusters"},
@@ -41,7 +41,7 @@ func newClusterListCommand() *cobra.Command {
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clusters := make([]model.Cluster, 0)
-			_, err := tyger.InvokeRequest(http.MethodGet, "v1/clusters/", nil, &clusters)
+			_, err := controlplane.InvokeRequest(http.MethodGet, "v1/clusters/", nil, &clusters)
 			if err != nil {
 				return err
 			}

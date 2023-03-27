@@ -1,4 +1,4 @@
-package bufferproxy
+package dataplane
 
 import (
 	"bytes"
@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -27,7 +26,7 @@ var (
 	errPastEndOfBlob = errors.New("past end of blob")
 )
 
-func Read(uri string, dop int, outputFile *os.File) {
+func Read(uri string, dop int, outputWriter io.Writer) {
 	ctx := log.With().Str("operation", "buffer read").Logger().WithContext(context.Background())
 	httpClient := CreateHttpClient()
 	container, err := ValidateContainer(uri, httpClient)
@@ -79,7 +78,7 @@ func Read(uri string, dop int, outputFile *os.File) {
 			break
 		}
 
-		if _, err := outputFile.Write(blobResponse.Contents); err != nil {
+		if _, err := outputWriter.Write(blobResponse.Contents); err != nil {
 			log.Ctx(ctx).Fatal().Err(err).Msg("Error writing to output")
 		}
 

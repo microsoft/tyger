@@ -1,11 +1,11 @@
-package main
+package cmd
 
 import (
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/tyger/clicontext"
+	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/controlplane"
 	"github.com/spf13/cobra"
 )
 
-func newLogoutCommand() *cobra.Command {
+func NewLogoutCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:                   "logout",
 		Short:                 "Logout from a server",
@@ -13,7 +13,7 @@ func newLogoutCommand() *cobra.Command {
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return clicontext.Logout()
+			return controlplane.Logout()
 		},
 	}
 }

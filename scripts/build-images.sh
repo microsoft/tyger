@@ -158,9 +158,9 @@ else
 
   build_context="${repo_root_dir}/cli"
   dockerfile_path="${repo_root_dir}/cli/Dockerfile"
-  target="buffer-proxy"
-  local_tag="buffer-proxy"
-  remote_repo="buffer-proxy"
+  target="buffer-sidecar"
+  local_tag="buffer-sidecar"
+  remote_repo="buffer-sidecar"
 
   build_and_push
 fi

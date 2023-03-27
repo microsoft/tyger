@@ -1,4 +1,4 @@
-package clicontext
+package controlplane
 
 import (
 	"context"
@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/tyger/model"
+	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/controlplane/model"
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/cache"
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/confidential"
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/public"

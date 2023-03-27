@@ -47,7 +47,7 @@ set-localsettings:
 
 	postgres_password="$$(kubectl get secrets -n ${HELM_NAMESPACE} ${HELM_RELEASE}-db -o jsonpath="{.data.postgresql-password}" | base64 -d)"
 
-	buffer_proxy_image="$$(docker inspect eminence.azurecr.io/buffer-proxy:dev | jq -r --arg repo eminence.azurecr.io/buffer-proxy '.[0].RepoDigests[] | select (startswith($$repo))')"
+	buffer_sidecar_image="$$(docker inspect eminence.azurecr.io/buffer-sidecar:dev | jq -r --arg repo eminence.azurecr.io/buffer-sidecar '.[0].RepoDigests[] | select (startswith($$repo))')"
 	worker_waiter_image="$$(docker inspect eminence.azurecr.io/worker-waiter:dev | jq -r --arg repo eminence.azurecr.io/worker-waiter '.[0].RepoDigests[] | select (startswith($$repo))')"
 
 	jq <<- EOF > ${SERVER_PATH}/appsettings.local.json
@@ -71,7 +71,7 @@ set-localsettings:
 			},
 			"buffers": {
 				"connectionString": "$${buffer_secret_value}",
-				"bufferProxyImage": "$${buffer_proxy_image}"
+				"bufferSidecarImage": "$${buffer_sidecar_image}"
 			},
 			"database": {
 				"connectionString": "Host=tyger-db; Database=tyger; Port=5432; Username=postgres; Password=$${postgres_password}"
@@ -116,19 +116,15 @@ up: ensure-environment docker-build
 down:
 	echo '${ENVIRONMENT_CONFIG}' | deploy/scripts/tyger/tyger-down.sh -c -
 
-buffer-proxy-integration-test: cli-ready
-	pushd cli/integrationtest/buffer-proxy
-	go test -tags=integrationtest 
-
 integration-test-no-up-prereqs: docker-build-test
 
-integration-test-no-up: integration-test-no-up-prereqs buffer-proxy-integration-test
+integration-test-no-up: integration-test-no-up-prereqs cli-ready
 	if ! echo '${ENVIRONMENT_CONFIG}' | timeout --foreground 30m scripts/wait-for-cluster-to-scale.sh -c -; then
 		echo "timed out waiting for nodepools to scale"
 		exit 1
 	fi
 
-	pushd cli/integrationtest/tyger
+	pushd cli/integrationtest
 	go test -tags=integrationtest
 
 integration-test: up integration-test-no-up-prereqs
@@ -186,7 +182,7 @@ login: install-cli download-test-client-cert
 install-cli:
 	cd cli
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go install -ldflags="-s -w" ./cmd/tyger
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go install -ldflags="-s -w" ./cmd/buffer-proxy
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go install -ldflags="-s -w" ./cmd/buffer-sidecar
 
 cli-ready: install-cli
 	if ! tyger login status &> /dev/null; then

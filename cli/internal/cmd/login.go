@@ -1,15 +1,15 @@
-package main
+package cmd
 
 import (
 	"errors"
 	"fmt"
 
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/tyger/clicontext"
+	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/controlplane"
 	"github.com/spf13/cobra"
 )
 
-func newLoginCommand() *cobra.Command {
-	flags := clicontext.LoginOptions{}
+func NewLoginCommand() *cobra.Command {
+	flags := controlplane.LoginOptions{}
 
 	loginCmd := &cobra.Command{
 		Use:   "login SERVER_URL",
@@ -29,7 +29,7 @@ Subsequent commands will be performed against this server.`,
 			}
 
 			flags.ServerUri = args[0]
-			return clicontext.Login(flags)
+			return controlplane.Login(flags)
 		},
 	}
 
@@ -50,7 +50,7 @@ func newLoginStatusCommand() *cobra.Command {
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			context, err := clicontext.GetCliContext()
+			context, err := controlplane.GetCliContext()
 			if err == nil {
 				err = context.Validate()
 				if err == nil {

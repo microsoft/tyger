@@ -57,7 +57,7 @@ tyger_chart_location="$(dirname "$0")/../../helm/tyger"
 helm_release="tyger"
 cluster_config=$(echo "${environment_definition}" | jq -c '.clusters')
 storage_server_image=$(jq -r -c '.dependencies | .[] | select(.name == "mrd-storage-server") | (.repository + ":" + .tag)' "$(dirname "$0")/../../../dependencies.json")
-buffer_proxy_image="$(docker inspect eminence.azurecr.io/buffer-proxy:dev | jq -r --arg repo eminence.azurecr.io/buffer-proxy '.[0].RepoDigests[] | select (startswith($repo))')"
+buffer_sidecar_image="$(docker inspect eminence.azurecr.io/buffer-sidecar:dev | jq -r --arg repo eminence.azurecr.io/buffer-sidecar '.[0].RepoDigests[] | select (startswith($repo))')"
 worker_waiter_image="$(docker inspect eminence.azurecr.io/worker-waiter:dev | jq -r --arg repo eminence.azurecr.io/worker-waiter '.[0].RepoDigests[] | select (startswith($repo))')"
 dns_zone=$(echo "${environment_definition}" | jq -r '.dependencies.dnsZone.name')
 
@@ -79,7 +79,7 @@ server:
         authority: "$(echo "${organization}" | jq -r '.authority')"
         audience: "$(echo "${organization}" | jq -r '.audience')"
     storageAccountConnectionStringSecretName: "$(echo "${organization}" | jq -r '.storage.buffers[0].name')"
-    bufferProxyImage: "${buffer_proxy_image}"
+    bufferSidecarImage: "${buffer_sidecar_image}"
     workerWaiterImage: "${worker_waiter_image}"
     logsStorageAccountConnectionStringSecretName: "$(echo "${organization}" | jq -r '.storage.logs.name')"
     clusterConfigurationJson: |

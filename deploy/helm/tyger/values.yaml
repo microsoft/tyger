@@ -18,7 +18,7 @@ server:
   storageAccountConnectionStringSecretName:
   storageAccountConnectionStringSecretDataKey: connectionString
 
-  bufferProxyImage:
+  bufferSidecarImage:
   workerWaiterImage:
 
   logsStorageAccountConnectionStringSecretName:

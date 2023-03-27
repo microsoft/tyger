@@ -1,4 +1,4 @@
-package clicontext
+package controlplane
 
 import (
 	"testing"

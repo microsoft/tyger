@@ -29,15 +29,6 @@
       "program": "cli/cmd/tyger",
       "cwd": "${workspaceFolder}",
       "args": ["login", "status"]
-    },
-    {
-      "name": "buffer-proxy",
-      "type": "go",
-      "request": "launch",
-      "mode": "auto",
-      "program": "cli/cmd/buffer-proxy",
-      "cwd": "${workspaceFolder}",
-      "args": ["--help"]
     }
   ]
 }

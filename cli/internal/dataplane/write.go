@@ -1,4 +1,4 @@
-package bufferproxy
+package dataplane
 
 import (
 	"context"
@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"sync"
 	"time"
 
@@ -21,7 +20,7 @@ const (
 	DefaultBlockSize = 4 * 1024 * 1024
 )
 
-func Write(uri string, dop int, blockSize int, inputFile *os.File) {
+func Write(uri string, dop int, blockSize int, inputReader io.Reader) {
 	ctx := log.With().Str("operation", "buffer write").Logger().WithContext(context.Background())
 	httpClient := CreateHttpClient()
 	container, err := ValidateContainer(uri, httpClient)
@@ -102,7 +101,7 @@ func Write(uri string, dop int, blockSize int, inputFile *os.File) {
 	for {
 
 		buffer := pool.Get(blockSize)
-		bytesRead, err := io.ReadFull(inputFile, buffer)
+		bytesRead, err := io.ReadFull(inputReader, buffer)
 		if blobNumber == 0 {
 			metrics.Start()
 		}

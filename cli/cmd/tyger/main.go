@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/cmdline"
+	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/cmd"
 	"github.com/spf13/cobra"
 )
 
@@ -13,19 +13,19 @@ var (
 )
 
 func newRootCommand() *cobra.Command {
-	cmd := cmdline.NewCommonRootCommand(commit)
-	cmd.Use = "tyger"
-	cmd.Short = "A command-line interface to the Tyger control plane."
-	cmd.Long = `A command-line interface to the Tyger control plane.`
+	rootCommand := cmd.NewCommonRootCommand(commit)
+	rootCommand.Use = "tyger"
+	rootCommand.Short = "A command-line interface to the Tyger control plane."
+	rootCommand.Long = `A command-line interface to the Tyger control plane.`
 
-	cmd.AddCommand(newLoginCommand())
-	cmd.AddCommand(newLogoutCommand())
-	cmd.AddCommand(newBufferCommand())
-	cmd.AddCommand(newCodespecCommand())
-	cmd.AddCommand(newRunCommand())
-	cmd.AddCommand(newClusterCommand())
+	rootCommand.AddCommand(cmd.NewLoginCommand())
+	rootCommand.AddCommand(cmd.NewLogoutCommand())
+	rootCommand.AddCommand(cmd.NewBufferCommand())
+	rootCommand.AddCommand(cmd.NewCodespecCommand())
+	rootCommand.AddCommand(cmd.NewRunCommand())
+	rootCommand.AddCommand(cmd.NewClusterCommand())
 
-	return cmd
+	return rootCommand
 }
 
 func main() {

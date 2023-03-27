@@ -59,5 +59,5 @@ public class BufferOptions
     public required string ConnectionString { get; init; }
 
     [Required]
-    public required string BufferProxyImage { get; init; }
+    public required string BufferSidecarImage { get; init; }
 }

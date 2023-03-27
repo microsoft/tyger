@@ -1,4 +1,4 @@
-package bufferproxy
+package dataplane
 
 import (
 	"errors"
@@ -6,6 +6,10 @@ import (
 	"net/url"
 	"os"
 	"strings"
+)
+
+var (
+	ErrAccessStringNotUri = errors.New("the buffer access string is invalid. It must be a URI or the path of a file whose contents is a URI")
 )
 
 func GetUriFromAccessString(accessString string) (string, error) {
@@ -23,7 +27,7 @@ func GetUriFromAccessString(accessString string) (string, error) {
 
 	uri, err := url.Parse(accessString)
 	if err != nil || !uri.IsAbs() {
-		return "", errors.New("the buffer access string is invalid. It must be a URI or the path of a file whose contents is a URI")
+		return "", ErrAccessStringNotUri
 	}
 
 	return accessString, nil

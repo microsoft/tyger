@@ -1,4 +1,4 @@
-package bufferproxy
+package dataplane
 
 type BufferBlob struct {
 	BlobNumber int64
