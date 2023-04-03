@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
@@ -160,7 +159,10 @@ func (c *cliContext) GetAccessToken() (string, error) {
 			return "", err
 		}
 
-		accounts := client.Accounts()
+		accounts, err := client.Accounts(context.Background())
+		if err != nil {
+			return "", fmt.Errorf("unable to get accounts from token cache: %v", err)
+		}
 		if len(accounts) != 1 {
 			return "", errors.New("corrupted token cache")
 		}
@@ -223,7 +225,7 @@ func writeCliContextContents(path string, bytes []byte) error {
 	// Write to a temp file in the same directory first
 	tempFileName := fmt.Sprintf("%s.%v", path, uuid.New())
 	defer os.Remove(tempFileName)
-	if err := ioutil.WriteFile(tempFileName, bytes, 0600); err != nil {
+	if err := os.WriteFile(tempFileName, bytes, 0600); err != nil {
 		return err
 	}
 
@@ -275,7 +277,7 @@ func getCliContextContents(path string) ([]byte, error) {
 			time.Sleep(100 * time.Millisecond)
 		}
 
-		bytes, err = ioutil.ReadFile(path)
+		bytes, err = os.ReadFile(path)
 		if err == nil || !errors.Is(err, os.ErrPermission) {
 			break
 		}
@@ -310,7 +312,7 @@ func getServiceMetadata(serverUri string) (*model.ServiceMetadata, error) {
 }
 
 func (ctx *cliContext) performServicePrincipalLogin() (authResult confidential.AuthResult, err error) {
-	certBytes, err := ioutil.ReadFile(ctx.CertPath)
+	certBytes, err := os.ReadFile(ctx.CertPath)
 	if err != nil {
 		return authResult, fmt.Errorf("unable to read certificate file: %v", err)
 	}
@@ -322,7 +324,13 @@ func (ctx *cliContext) performServicePrincipalLogin() (authResult confidential.A
 	if len(certs) != 1 {
 		return authResult, errors.New("there should be only one certifiate in the PEM file")
 	}
-	client, err := confidential.New(ctx.Principal, confidential.NewCredFromCert(certs[0], privateKey), confidential.WithAuthority(ctx.Authority), confidential.WithAccessor(ctx))
+
+	cred, err := confidential.NewCredFromCert(certs, privateKey)
+	if err != nil {
+		return authResult, fmt.Errorf("error creating credential: %v", err)
+	}
+
+	client, err := confidential.New(ctx.Authority, ctx.Principal, cred)
 	if err != nil {
 		return authResult, err
 	}
@@ -374,7 +382,7 @@ func (ctx *cliContext) performUserLogin(useDeviceCode bool) (authResult public.A
 					set -eu
 					%s "$@"`, browserVar)
 
-				if err = ioutil.WriteFile(shimPath, []byte(shimContents), 0700); err == nil {
+				if err = os.WriteFile(shimPath, []byte(shimContents), 0700); err == nil {
 					os.Setenv("PATH", fmt.Sprintf("%s%s%s", tempDir, string(filepath.ListSeparator), os.Getenv("PATH")))
 				}
 			}
@@ -402,16 +410,21 @@ func (ctx *cliContext) performUserLogin(useDeviceCode bool) (authResult public.A
 }
 
 // Implementing the cache.ExportReplace interface to read in the token cache
-func (c *cliContext) Replace(cache cache.Unmarshaler, key string) {
-	if data, err := base64.StdEncoding.DecodeString(c.FullCache); err == nil {
-		cache.Unmarshal(data)
+func (c *cliContext) Replace(ctx context.Context, unmarshaler cache.Unmarshaler, hints cache.ReplaceHints) error {
+	data, err := base64.StdEncoding.DecodeString(c.FullCache)
+	if err == nil {
+		unmarshaler.Unmarshal(data)
 	}
+
+	return err
 }
 
 // Implementing the cache.ExportReplace interface to write out the token cache
-func (t *cliContext) Export(cache cache.Marshaler, key string) {
-	data, err := cache.Marshal()
+func (t *cliContext) Export(ctx context.Context, marshaler cache.Marshaler, hints cache.ExportHints) error {
+	data, err := marshaler.Marshal()
 	if err == nil {
 		t.FullCache = base64.StdEncoding.EncodeToString(data)
 	}
+
+	return err
 }

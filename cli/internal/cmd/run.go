@@ -115,8 +115,8 @@ func newRunExecCommand() *cobra.Command {
 	readDop := dataplane.DefaultReadDop
 
 	postCreate := func(run model.Run) error {
-
-		log.Info().Int64("runId", run.Id).Msg("Run created")
+		log.Logger = log.Logger.With().Int64("runId", run.Id).Logger()
+		log.Info().Msg("Run created")
 		var inputSasUri string
 		var outputSasUri string
 		var err error
@@ -135,27 +135,28 @@ func newRunExecCommand() *cobra.Command {
 			}
 		}
 
-		wg := sync.WaitGroup{}
+		mainWg := sync.WaitGroup{}
 		if inputSasUri != "" {
-			wg.Add(1)
+			mainWg.Add(1)
 			go func() {
-				defer wg.Done()
+				defer mainWg.Done()
 				dataplane.Write(inputSasUri, writeDop, blockSize, os.Stdin)
 			}()
 		}
 
 		if outputSasUri != "" {
-			wg.Add(1)
+			mainWg.Add(1)
 			go func() {
-				defer wg.Done()
+				defer mainWg.Done()
 				dataplane.Read(outputSasUri, readDop, os.Stdout)
 			}()
 		}
 
+		logsWg := sync.WaitGroup{}
 		if logs {
-			wg.Add(1)
+			logsWg.Add(1)
 			go func() {
-				defer wg.Done()
+				defer logsWg.Done()
 				err := getLogs(strconv.FormatInt(run.Id, 10), logTimestamps, -1, nil, true, os.Stderr)
 				if err != nil {
 					log.Error().Err(err).Msg("Failed to get logs")
@@ -202,7 +203,25 @@ func newRunExecCommand() *cobra.Command {
 		}
 
 	end:
-		wg.Wait()
+		mainWg.Wait()
+
+		if logs {
+			// The run has completed and we have received all data. We just need to wait for the logs to finish streaming,
+			// but we will give up after a period of time.
+			c := make(chan struct{})
+			go func() {
+				defer close(c)
+				logsWg.Wait()
+			}()
+
+			select {
+			case <-c:
+				break
+			case <-time.After(20 * time.Second):
+				log.Warn().Msg("Timed out waiting for logs to finish streaming")
+			}
+		}
+
 		return nil
 	}
 
