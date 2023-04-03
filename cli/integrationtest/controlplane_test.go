@@ -890,6 +890,25 @@ func TestAuthenticationRequired(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
 
+func TestSpecifyingCacheFileAsEnvironmentVariable(t *testing.T) {
+	path, err := exec.LookPath("tyger")
+	require.NoError(t, err)
+	cmd := exec.Command(path, "login", "status")
+	cmd.Env = []string{}
+
+	_, stdErr, err := runCommandCore(cmd)
+	require.Error(t, err)
+	require.Contains(t, stdErr, "not currently logged in")
+
+	cachePath, err := controlplane.GetContextCachePath()
+	require.NoError(t, err)
+
+	cmd = exec.Command(path, "login", "status")
+	cmd.Env = []string{fmt.Sprintf("TYGER_CACHE_FILE=%s", cachePath)}
+	_, _, err = runCommandCore(cmd)
+	require.NoError(t, err)
+}
+
 func waitForRunStarted(t *testing.T, runId string) model.Run {
 	return waitForRun(t, runId, true)
 }

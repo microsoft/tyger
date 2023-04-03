@@ -17,16 +17,7 @@ func runCommand(command string, args ...string) (stdout string, stderr string, e
 
 	cmd := exec.CommandContext(ctx, command, args...)
 
-	var outb, errb bytes.Buffer
-	cmd.Stdout = &outb
-	cmd.Stderr = &errb
-	err = cmd.Run()
-
-	// strip away newline suffix
-	stdout = string(bytes.TrimSuffix(outb.Bytes(), []byte{'\n'}))
-
-	stderr = string(errb.String())
-	return
+	return runCommandCore(cmd)
 }
 
 func runCommandSuceeds(t *testing.T, command string, args ...string) string {
@@ -44,6 +35,19 @@ func runCommandSuceeds(t *testing.T, command string, args ...string) string {
 	}
 
 	return stdout
+}
+
+func runCommandCore(cmd *exec.Cmd) (stdout string, stderr string, err error) {
+	var outb, errb bytes.Buffer
+	cmd.Stdout = &outb
+	cmd.Stderr = &errb
+	err = cmd.Run()
+
+	// strip away newline suffix
+	stdout = string(bytes.TrimSuffix(outb.Bytes(), []byte{'\n'}))
+
+	stderr = string(errb.String())
+	return
 }
 
 func runTyger(args ...string) (stdout string, stderr string, err error) {

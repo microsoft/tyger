@@ -13,7 +13,7 @@ DEFAULT_ORGANIATION=lamna
 HELM_NAMESPACE=lamna
 HELM_RELEASE=tyger
 TEST_CLIENT_CERT_VERSION=1db664a6a3c74b6f817f3d842424003d
-TEST_CLIENT_CERT_FILE=~/tyger_test_client_cert_${TEST_CLIENT_CERT_VERSION}.pem
+TEST_CLIENT_CERT_FILE=$${HOME}/tyger_test_client_cert_${TEST_CLIENT_CERT_VERSION}.pem
 TEST_CLIENT_IDENTIFIER_URI=api://tyger-test-client
 AZURE_SUBSCRIPTION=BiomedicalImaging-NonProd
 TYGER_URI = https://$(shell echo '${ENVIRONMENT_CONFIG}' | jq -r '.organizations["${DEFAULT_ORGANIATION}"].subdomain').$(shell echo '${ENVIRONMENT_CONFIG}' | jq -r '.dependencies.dnsZone.name')
@@ -174,7 +174,12 @@ get-tyger-uri:
 	echo ${TYGER_URI}
 
 login-service-principal: install-cli download-test-client-cert
-	tyger login '${TYGER_URI}' --service-principal ${TEST_CLIENT_IDENTIFIER_URI} --cert ${TEST_CLIENT_CERT_FILE}
+	tyger login -f <(cat <<EOF
+	serverUri: ${TYGER_URI}
+	servicePrincipal: ${TEST_CLIENT_IDENTIFIER_URI}
+	certificatePath: ${TEST_CLIENT_CERT_FILE}
+	EOF
+	)
 
 login: install-cli download-test-client-cert
 	tyger login "${TYGER_URI}"	

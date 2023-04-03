@@ -39,9 +39,9 @@ type CliContext interface {
 }
 
 type LoginOptions struct {
-	ServerUri        string
-	ServicePrincipal string
-	CertificatePath  string
+	ServerUri        string `yaml:"serverUri"`
+	ServicePrincipal string `yaml:"servicePrincipal,omitempty"`
+	CertificatePath  string `yaml:"certificatePath,omitempty"`
 	UseDeviceCode    bool
 }
 
@@ -177,21 +177,33 @@ func (c *cliContext) GetAccessToken() (string, error) {
 	return authResult.AccessToken, c.writeCliContext()
 }
 
-func contextPath() (string, error) {
-	cacheDir, err := os.UserCacheDir()
-	if err != nil {
-		return "", fmt.Errorf("unable to locate cache directory: %v", err)
+func GetContextCachePath() (string, error) {
+	const cacheFileEnvVarName = "TYGER_CACHE_FILE"
+	var cacheDir string
+	var fileName string
+
+	if path := os.Getenv(cacheFileEnvVarName); path != "" {
+		cacheDir = filepath.Dir(path)
+		fileName = filepath.Base(path)
+	} else {
+		var err error
+		cacheDir, err = os.UserCacheDir()
+		if err != nil {
+			return "", fmt.Errorf("unable to locate cache directory: %v; to provide a file path directly, set the $%s environment variable", err, cacheFileEnvVarName)
+		}
+		cacheDir = filepath.Join(cacheDir, "tyger")
+		fileName = ".tyger"
 	}
-	tygerDir := filepath.Join(cacheDir, "tyger")
-	err = os.MkdirAll(tygerDir, 0775)
+
+	err := os.MkdirAll(cacheDir, 0775)
 	if err != nil {
-		return "", fmt.Errorf("unable to create %s directory", tygerDir)
+		return "", fmt.Errorf("unable to create %s directory", cacheDir)
 	}
-	return filepath.Join(tygerDir, ".tyger"), nil
+	return filepath.Join(cacheDir, fileName), nil
 }
 
 func (context *cliContext) writeCliContext() error {
-	path, err := contextPath()
+	path, err := GetContextCachePath()
 	if err == nil {
 		var bytes []byte
 		bytes, err = yaml.Marshal(context)
@@ -236,7 +248,7 @@ func writeCliContextContents(path string, bytes []byte) error {
 
 func GetCliContext() (CliContext, error) {
 	context := &cliContext{}
-	path, err := contextPath()
+	path, err := GetContextCachePath()
 	if err != nil {
 		return context, err
 	}
