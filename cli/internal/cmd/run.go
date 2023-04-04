@@ -15,10 +15,9 @@ import (
 	"sync"
 	"time"
 
-	bufferproxy "dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/buffer-proxy"
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/cmdline"
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/tyger"
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/tyger/model"
+	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/controlplane"
+	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/controlplane/model"
+	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/dataplane"
 	"github.com/alecthomas/units"
 	"github.com/kaz-yamam0t0/go-timeparser/timeparser"
 	"github.com/rs/zerolog/log"
@@ -29,7 +28,7 @@ import (
 
 var errNotFound = errors.New("not found")
 
-func newRunCommand() *cobra.Command {
+func NewRunCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                   "run",
 		Aliases:               []string{"runs"},
@@ -78,7 +77,7 @@ func newRunExecCommand() *cobra.Command {
 			resolvedCodespec = model.Codespec(*run.Job.Codespec.Inline)
 		} else if run.Job.Codespec.Named != nil {
 			relativeUri := fmt.Sprintf("v1/codespecs/%s", *run.Job.Codespec.Named)
-			_, err := tyger.InvokeRequest(http.MethodGet, relativeUri, nil, &resolvedCodespec)
+			_, err := controlplane.InvokeRequest(http.MethodGet, relativeUri, nil, &resolvedCodespec)
 			if err != nil {
 				return err
 			}
@@ -111,13 +110,13 @@ func newRunExecCommand() *cobra.Command {
 		return nil
 	}
 
-	blockSize := bufferproxy.DefaultBlockSize
-	writeDop := bufferproxy.DefaultWriteDop
-	readDop := bufferproxy.DefaultReadDop
+	blockSize := dataplane.DefaultBlockSize
+	writeDop := dataplane.DefaultWriteDop
+	readDop := dataplane.DefaultReadDop
 
 	postCreate := func(run model.Run) error {
-
-		log.Info().Int64("runId", run.Id).Msg("Run created")
+		log.Logger = log.Logger.With().Int64("runId", run.Id).Logger()
+		log.Info().Msg("Run created")
 		var inputSasUri string
 		var outputSasUri string
 		var err error
@@ -136,27 +135,28 @@ func newRunExecCommand() *cobra.Command {
 			}
 		}
 
-		wg := sync.WaitGroup{}
+		mainWg := sync.WaitGroup{}
 		if inputSasUri != "" {
-			wg.Add(1)
+			mainWg.Add(1)
 			go func() {
-				defer wg.Done()
-				bufferproxy.Write(inputSasUri, writeDop, blockSize, os.Stdin)
+				defer mainWg.Done()
+				dataplane.Write(inputSasUri, writeDop, blockSize, os.Stdin)
 			}()
 		}
 
 		if outputSasUri != "" {
-			wg.Add(1)
+			mainWg.Add(1)
 			go func() {
-				defer wg.Done()
-				bufferproxy.Read(outputSasUri, readDop, os.Stdout)
+				defer mainWg.Done()
+				dataplane.Read(outputSasUri, readDop, os.Stdout)
 			}()
 		}
 
+		logsWg := sync.WaitGroup{}
 		if logs {
-			wg.Add(1)
+			logsWg.Add(1)
 			go func() {
-				defer wg.Done()
+				defer logsWg.Done()
 				err := getLogs(strconv.FormatInt(run.Id, 10), logTimestamps, -1, nil, true, os.Stderr)
 				if err != nil {
 					log.Error().Err(err).Msg("Failed to get logs")
@@ -203,7 +203,25 @@ func newRunExecCommand() *cobra.Command {
 		}
 
 	end:
-		wg.Wait()
+		mainWg.Wait()
+
+		if logs {
+			// The run has completed and we have received all data. We just need to wait for the logs to finish streaming,
+			// but we will give up after a period of time.
+			c := make(chan struct{})
+			go func() {
+				defer close(c)
+				logsWg.Wait()
+			}()
+
+			select {
+			case <-c:
+				break
+			case <-time.After(20 * time.Second):
+				log.Warn().Msg("Timed out waiting for logs to finish streaming")
+			}
+		}
+
 		return nil
 	}
 
@@ -211,7 +229,7 @@ func newRunExecCommand() *cobra.Command {
 
 	blockSizeString := ""
 	cmd.PreRunE = func(cmd *cobra.Command, args []string) error {
-		cmdline.WarnIfRunningInPowerShell()
+		WarnIfRunningInPowerShell()
 
 		if blockSizeString != "" {
 			if blockSizeString != "" && blockSizeString[len(blockSizeString)-1] != 'B' {
@@ -356,7 +374,7 @@ func newRunCreateCommandCore(
 			}
 
 			committedRun := model.Run{}
-			_, err := tyger.InvokeRequest(http.MethodPost, "v1/runs", newRun, &committedRun)
+			_, err := controlplane.InvokeRequest(http.MethodPost, "v1/runs", newRun, &committedRun)
 			if err != nil {
 				return err
 			}
@@ -400,7 +418,7 @@ func newRunShowCommand() *cobra.Command {
 		Args:                  exactlyOneArg("run name"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			run := model.Run{}
-			_, err := tyger.InvokeRequest(http.MethodGet, fmt.Sprintf("v1/runs/%s", args[0]), nil, &run)
+			_, err := controlplane.InvokeRequest(http.MethodGet, fmt.Sprintf("v1/runs/%s", args[0]), nil, &run)
 			if err != nil {
 				return err
 			}
@@ -503,7 +521,7 @@ func newRunListCommand() *cobra.Command {
 			}
 
 			relativeUri := fmt.Sprintf("v1/runs?%s", queryOptions.Encode())
-			return tyger.InvokePageRequests[model.Run](relativeUri, flags.limit, !cmd.Flags().Lookup("limit").Changed)
+			return controlplane.InvokePageRequests[model.Run](relativeUri, flags.limit, !cmd.Flags().Lookup("limit").Changed)
 		},
 	}
 
@@ -569,7 +587,7 @@ func getLogs(runId string, timestamps bool, tailLines int, since *time.Time, fol
 	// If the connection drops while we are following logs, we'll try again from the last received timestamp
 
 	for {
-		resp, err := tyger.InvokeRequest(http.MethodGet, fmt.Sprintf("v1/runs/%s/logs?%s", runId, queryOptions.Encode()), nil, nil)
+		resp, err := controlplane.InvokeRequest(http.MethodGet, fmt.Sprintf("v1/runs/%s/logs?%s", runId, queryOptions.Encode()), nil, nil)
 		if err != nil {
 			return err
 		}
@@ -626,7 +644,7 @@ func watchRun(runId int64) (<-chan model.Run, <-chan error) {
 	go func() {
 		defer close(runEventChan)
 
-		resp, err := tyger.InvokeRequest(http.MethodGet, fmt.Sprintf("v1/runs/%d?watch=true", runId), nil, nil)
+		resp, err := controlplane.InvokeRequest(http.MethodGet, fmt.Sprintf("v1/runs/%d?watch=true", runId), nil, nil)
 		if resp != nil && resp.StatusCode == http.StatusNotFound {
 			errChan <- errNotFound
 			return
