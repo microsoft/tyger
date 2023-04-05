@@ -48,7 +48,7 @@ func newBufferCreateCommand() *cobra.Command {
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			bufferResponse := model.Buffer{}
-			_, err := controlplane.InvokeRequest(http.MethodPost, "v1/buffers", nil, &bufferResponse)
+			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/buffers", nil, &bufferResponse)
 			if err != nil {
 				return err
 			}
@@ -73,7 +73,7 @@ func newBufferAccessCommand() *cobra.Command {
 		DisableFlagsInUseLine: true,
 		Args:                  exactlyOneArg("buffer ID"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			uri, err := getBufferAccessUri(args[0], flags.writeable)
+			uri, err := getBufferAccessUri(cmd.Context(), args[0], flags.writeable)
 			if err != nil {
 				return err
 			}
@@ -88,10 +88,10 @@ func newBufferAccessCommand() *cobra.Command {
 	return cmd
 }
 
-func getBufferAccessUri(bufferId string, writable bool) (string, error) {
+func getBufferAccessUri(ctx context.Context, bufferId string, writable bool) (string, error) {
 	bufferAccess := model.BufferAccess{}
 	uri := fmt.Sprintf("v1/buffers/%s/access?writeable=%t", bufferId, writable)
-	_, err := controlplane.InvokeRequest(http.MethodPost, uri, nil, &bufferAccess)
+	_, err := controlplane.InvokeRequest(ctx, http.MethodPost, uri, nil, &bufferAccess)
 
 	return bufferAccess.Uri, err
 }
@@ -115,7 +115,7 @@ func NewBufferReadCommand(openFileFunc func(name string, flag int, perm fs.FileM
 			uri, err := dataplane.GetUriFromAccessString(args[0])
 			if err != nil {
 				if err == dataplane.ErrAccessStringNotUri {
-					uri, err = getBufferAccessUri(args[0], false)
+					uri, err = getBufferAccessUri(cmd.Context(), args[0], false)
 					if err != nil {
 						log.Fatal().Err(err).Msg("Unable to get read access to buffer")
 					}
@@ -184,7 +184,7 @@ func NewBufferWriteCommand(openFileFunc func(name string, flag int, perm fs.File
 			uri, err := dataplane.GetUriFromAccessString(args[0])
 			if err != nil {
 				if err == dataplane.ErrAccessStringNotUri {
-					uri, err = getBufferAccessUri(args[0], true)
+					uri, err = getBufferAccessUri(cmd.Context(), args[0], true)
 					if err != nil {
 						log.Fatal().Err(err).Msg("Unable to get read access to buffer")
 					}

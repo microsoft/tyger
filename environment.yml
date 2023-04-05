@@ -21,7 +21,7 @@ dependencies:
   - pugixml=1.11.4
   - pylint=2.11.1
   - pytest=6.2.5
-  - pytest-parallel
+  - pytest-xdist=3.2.1
   - python=3.9.7
   - shellcheck=0.7.2
   - siemens_to_ismrmrd=1.2.8

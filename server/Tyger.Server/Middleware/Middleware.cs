@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using k8s.Autorest;
+using Microsoft.Net.Http.Headers;
 using ValidationException = System.ComponentModel.DataAnnotations.ValidationException;
 
 namespace Tyger.Server.Middleware;
@@ -14,6 +15,30 @@ public static class Middleware
         app.Use(async (HttpContext context, Func<Task> next) =>
            {
                context.Response.Headers.RequestId = context.TraceIdentifier;
+               await next();
+           });
+    }
+
+    public static void UseBaggage(this WebApplication app)
+    {
+        app.Use(async (HttpContext context, Func<Task> next) =>
+           {
+               var activity = Activity.Current;
+               if (activity != null)
+               {
+                   var baggagePairs = context.Request.Headers.GetCommaSeparatedValues(HeaderNames.Baggage);
+                   if (baggagePairs != null)
+                   {
+                       foreach (var pairString in baggagePairs)
+                       {
+                           if (NameValueHeaderValue.TryParse(pairString, out var pair) && pair.Name.HasValue)
+                           {
+                               Activity.Current?.AddBaggage(pair.Name.Value, pair.Value.Value);
+                           }
+                       }
+                   }
+               }
+
                await next();
            });
     }

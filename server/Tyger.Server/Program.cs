@@ -57,6 +57,7 @@ var app = builder.Build();
 // Middleware and routes
 app.UseRequestLogging();
 app.UseRequestId();
+app.UseBaggage();
 app.UseExceptionHandling();
 
 app.UseOpenApi();

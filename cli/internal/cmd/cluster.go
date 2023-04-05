@@ -41,7 +41,7 @@ func newClusterListCommand() *cobra.Command {
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clusters := make([]model.Cluster, 0)
-			_, err := controlplane.InvokeRequest(http.MethodGet, "v1/clusters/", nil, &clusters)
+			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, "v1/clusters/", nil, &clusters)
 			if err != nil {
 				return err
 			}

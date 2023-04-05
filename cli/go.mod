@@ -9,7 +9,8 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/hashicorp/go-retryablehttp v0.7.2
 	github.com/spf13/cobra v1.6.1
-	github.com/stretchr/testify v1.8.1
+	github.com/stretchr/testify v1.8.2
+	go.opentelemetry.io/otel v1.14.0
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.26.3
 	k8s.io/apimachinery v0.26.3
@@ -37,6 +38,7 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
+	go.opentelemetry.io/otel/trace v1.14.0 // indirect
 	golang.org/x/net v0.8.0 // indirect
 	golang.org/x/oauth2 v0.6.0 // indirect
 	golang.org/x/term v0.6.0 // indirect

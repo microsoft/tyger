@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -52,7 +53,7 @@ func NewRunCommand() *cobra.Command {
 }
 
 func newRunCreateCommand() *cobra.Command {
-	cmd := newRunCreateCommandCore("create", nil, func(r model.Run) error {
+	cmd := newRunCreateCommandCore("create", nil, func(ctx context.Context, r model.Run) error {
 		fmt.Println(r.Id)
 		return nil
 	})
@@ -70,14 +71,14 @@ func newRunExecCommand() *cobra.Command {
 	var inputBufferParameter string
 	var outputBufferParameter string
 
-	preValidate := func(run model.Run) error {
+	preValidate := func(ctx context.Context, run model.Run) error {
 		var resolvedCodespec model.Codespec
 
 		if run.Job.Codespec.Inline != nil {
 			resolvedCodespec = model.Codespec(*run.Job.Codespec.Inline)
 		} else if run.Job.Codespec.Named != nil {
 			relativeUri := fmt.Sprintf("v1/codespecs/%s", *run.Job.Codespec.Named)
-			_, err := controlplane.InvokeRequest(http.MethodGet, relativeUri, nil, &resolvedCodespec)
+			_, err := controlplane.InvokeRequest(ctx, http.MethodGet, relativeUri, nil, &resolvedCodespec)
 			if err != nil {
 				return err
 			}
@@ -114,7 +115,7 @@ func newRunExecCommand() *cobra.Command {
 	writeDop := dataplane.DefaultWriteDop
 	readDop := dataplane.DefaultReadDop
 
-	postCreate := func(run model.Run) error {
+	postCreate := func(ctx context.Context, run model.Run) error {
 		log.Logger = log.Logger.With().Int64("runId", run.Id).Logger()
 		log.Info().Msg("Run created")
 		var inputSasUri string
@@ -122,14 +123,14 @@ func newRunExecCommand() *cobra.Command {
 		var err error
 		if inputBufferParameter != "" {
 			bufferId := run.Job.Buffers[inputBufferParameter]
-			inputSasUri, err = getBufferAccessUri(bufferId, true)
+			inputSasUri, err = getBufferAccessUri(ctx, bufferId, true)
 			if err != nil {
 				return err
 			}
 		}
 		if outputBufferParameter != "" {
 			bufferId := run.Job.Buffers[outputBufferParameter]
-			outputSasUri, err = getBufferAccessUri(bufferId, false)
+			outputSasUri, err = getBufferAccessUri(ctx, bufferId, false)
 			if err != nil {
 				return err
 			}
@@ -157,7 +158,7 @@ func newRunExecCommand() *cobra.Command {
 			logsWg.Add(1)
 			go func() {
 				defer logsWg.Done()
-				err := getLogs(strconv.FormatInt(run.Id, 10), logTimestamps, -1, nil, true, os.Stderr)
+				err := getLogs(ctx, strconv.FormatInt(run.Id, 10), logTimestamps, -1, nil, true, os.Stderr)
 				if err != nil {
 					log.Error().Err(err).Msg("Failed to get logs")
 				}
@@ -166,7 +167,7 @@ func newRunExecCommand() *cobra.Command {
 
 		consecutiveErrors := 0
 	beginWatch:
-		eventChan, errChan := watchRun(run.Id)
+		eventChan, errChan := watchRun(ctx, run.Id)
 
 		for {
 			select {
@@ -263,8 +264,8 @@ If the job has a single output buffer, stdout is streamed from the buffer.`
 
 func newRunCreateCommandCore(
 	commandName string,
-	preValidate func(model.Run) error,
-	postCreate func(model.Run) error) *cobra.Command {
+	preValidate func(context.Context, model.Run) error,
+	postCreate func(context.Context, model.Run) error) *cobra.Command {
 	type codeTargetFlags struct {
 		codespec        string
 		codespecVersion string
@@ -367,20 +368,20 @@ func newRunCreateCommandCore(
 			}
 
 			if preValidate != nil {
-				err := preValidate(newRun)
+				err := preValidate(cmd.Context(), newRun)
 				if err != nil {
 					return err
 				}
 			}
 
 			committedRun := model.Run{}
-			_, err := controlplane.InvokeRequest(http.MethodPost, "v1/runs", newRun, &committedRun)
+			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/runs", newRun, &committedRun)
 			if err != nil {
 				return err
 			}
 
 			if postCreate != nil {
-				err = postCreate(committedRun)
+				err = postCreate(cmd.Context(), committedRun)
 				if err != nil {
 					return err
 				}
@@ -418,7 +419,7 @@ func newRunShowCommand() *cobra.Command {
 		Args:                  exactlyOneArg("run name"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			run := model.Run{}
-			_, err := controlplane.InvokeRequest(http.MethodGet, fmt.Sprintf("v1/runs/%s", args[0]), nil, &run)
+			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, fmt.Sprintf("v1/runs/%s", args[0]), nil, &run)
 			if err != nil {
 				return err
 			}
@@ -454,7 +455,7 @@ func newRunWatchCommand() *cobra.Command {
 
 			consecutiveErrors := 0
 		start:
-			eventChan, errChan := watchRun(runId)
+			eventChan, errChan := watchRun(cmd.Context(), runId)
 			for {
 				select {
 				case err := <-errChan:
@@ -521,7 +522,7 @@ func newRunListCommand() *cobra.Command {
 			}
 
 			relativeUri := fmt.Sprintf("v1/runs?%s", queryOptions.Encode())
-			return controlplane.InvokePageRequests[model.Run](relativeUri, flags.limit, !cmd.Flags().Lookup("limit").Changed)
+			return controlplane.InvokePageRequests[model.Run](cmd.Context(), relativeUri, flags.limit, !cmd.Flags().Lookup("limit").Changed)
 		},
 	}
 
@@ -556,7 +557,7 @@ func newRunLogsCommand() *cobra.Command {
 				}
 			}
 
-			return getLogs(args[0], flags.timestamps, flags.tailLines, sinceTime, flags.follow, os.Stdout)
+			return getLogs(cmd.Context(), args[0], flags.timestamps, flags.tailLines, sinceTime, flags.follow, os.Stdout)
 		},
 	}
 
@@ -568,7 +569,7 @@ func newRunLogsCommand() *cobra.Command {
 	return cmd
 }
 
-func getLogs(runId string, timestamps bool, tailLines int, since *time.Time, follow bool, outputSink io.Writer) error {
+func getLogs(ctx context.Context, runId string, timestamps bool, tailLines int, since *time.Time, follow bool, outputSink io.Writer) error {
 	queryOptions := url.Values{}
 	if follow || timestamps {
 		queryOptions.Add("timestamps", "true")
@@ -587,7 +588,7 @@ func getLogs(runId string, timestamps bool, tailLines int, since *time.Time, fol
 	// If the connection drops while we are following logs, we'll try again from the last received timestamp
 
 	for {
-		resp, err := controlplane.InvokeRequest(http.MethodGet, fmt.Sprintf("v1/runs/%s/logs?%s", runId, queryOptions.Encode()), nil, nil)
+		resp, err := controlplane.InvokeRequest(ctx, http.MethodGet, fmt.Sprintf("v1/runs/%s/logs?%s", runId, queryOptions.Encode()), nil, nil)
 		if err != nil {
 			return err
 		}
@@ -637,14 +638,14 @@ func followLogs(body io.Reader, includeTimestamps bool, outputSink io.Writer) (l
 	}
 }
 
-func watchRun(runId int64) (<-chan model.Run, <-chan error) {
+func watchRun(ctx context.Context, runId int64) (<-chan model.Run, <-chan error) {
 	runEventChan := make(chan model.Run)
 	errChan := make(chan error)
 
 	go func() {
 		defer close(runEventChan)
 
-		resp, err := controlplane.InvokeRequest(http.MethodGet, fmt.Sprintf("v1/runs/%d?watch=true", runId), nil, nil)
+		resp, err := controlplane.InvokeRequest(ctx, http.MethodGet, fmt.Sprintf("v1/runs/%d?watch=true", runId), nil, nil)
 		if resp != nil && resp.StatusCode == http.StatusNotFound {
 			errChan <- errNotFound
 			return

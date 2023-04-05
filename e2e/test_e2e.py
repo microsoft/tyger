@@ -10,7 +10,7 @@ import yaml
 
 from itertools import repeat
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
 
@@ -33,9 +33,13 @@ def scanner_session_id():
     return str(uuid4())
 
 
-def exec_recon(config_file: str, input_file: str, output_file: str):
+def exec_recon(config_file: str, input_file: str, output_file: str, request: pytest.FixtureRequest, scan_name: Optional[str] = None):
+    tyger_args = ["tyger", "run", "exec", "--file", config_file, "--logs", "--baggage", f"testName={request.node.name}"]
+    if scan_name:
+        tyger_args.extend(["--baggage", f"scan={scan_name}"])
+
     to_stream_process = subprocess.Popen(["ismrmrd_hdf5_to_stream", "--use-stdout", "-i", input_file], stdout=subprocess.PIPE)
-    tyger_process = subprocess.Popen(["tyger", "run", "exec", "--file", config_file, "--logs"], stdin=to_stream_process.stdout, stdout=subprocess.PIPE)
+    tyger_process = subprocess.Popen(tyger_args, stdin=to_stream_process.stdout, stdout=subprocess.PIPE)
     to_hdf5_process = subprocess.Popen(["ismrmrd_stream_to_hdf5", "--use-stdin", "-g", "img", "-o", output_file], stdin=tyger_process.stdout)
 
     try:
@@ -114,13 +118,13 @@ def configuration_generator():
         (get_dependency_image("python_recon"), "basic_recon.yml", "image_0"),
         (get_dependency_image("gadgetron"), "basic_gadgetron.yml", "image_0")
     ])
-def test_simple_reconstruction(data_dir: Path, temp_output_filename: str, config: str, image: str, image_variable_name: str, configuration_generator):
+def test_simple_reconstruction(data_dir: Path, temp_output_filename: str, config: str, image: str, image_variable_name: str, configuration_generator, request):
     test_file = str(data_dir/"testdata.h5")
 
     with tempfile.NamedTemporaryFile(prefix=str(data_dir), suffix='.h5') as input_file_instance:  # Enable parallelism by duplicating the file
         subprocess.run(shlex.split(f'cp {test_file} {input_file_instance.name}'), check=True)  # Required due to limitation in ismrmrd.
 
-        exec_recon(configuration_generator(config, image), input_file_instance.name, temp_output_filename)
+        exec_recon(configuration_generator(config, image), input_file_instance.name, temp_output_filename, request)
 
         verify_basic_recon_results(test_file, temp_output_filename, image_variable_name)
 
@@ -144,7 +148,8 @@ def test_reconstruction_against_reference(
         reference_image_variable_name: str,
         temp_output_filename: str,
         tolerance: float,
-        configuration_generator):
+        configuration_generator,
+        request):
     config = configuration_generator(config_file, image)
     infile = str(data_dir/input_file)
     reffile = str(data_dir/reference_file)
@@ -152,7 +157,7 @@ def test_reconstruction_against_reference(
     with tempfile.NamedTemporaryFile(prefix=str(data_dir), suffix='.h5') as input_file_instance:  # Enable parallelism by duplicating the file
         subprocess.run(shlex.split(f'cp {infile} {input_file_instance.name}'), check=True)  # Required due to limitation in ismrmrd.
 
-        exec_recon(configuration_generator(config, image), input_file_instance.name, temp_output_filename)
+        exec_recon(configuration_generator(config, image), input_file_instance.name, temp_output_filename, request)
 
         recon_data: Any = h5py.File(str(temp_output_filename))
         reconstruction = np.squeeze(recon_data[output_image_variable_name]['data'])
@@ -173,7 +178,7 @@ def test_reconstruction_against_reference(
         (get_dependency_image("python_recon"), ("basic_noise.yml", "basic_recon.yml"), "image_0", 1),
         (get_dependency_image("gadgetron"), ("gadgetron_noise.yml", "gadgetron_snr.yml"), "image_1", 10)
     ])
-def test_noise_dependency_reconstruction(data_dir: Path, temp_output_filename: str, image: str, configs: Tuple[str, str], image_variable_name: str, scanner_session_id: str, configuration_generator, scale: float):
+def test_noise_dependency_reconstruction(data_dir: Path, temp_output_filename: str, image: str, configs: Tuple[str, str], image_variable_name: str, scanner_session_id: str, configuration_generator, scale: float, request):
     noise_file = str(data_dir/"noise-scaling"/"data_1.h5")
     data_file = str(data_dir/"noise-scaling"/"data_2.h5")
     config_noise, config_recon = configs
@@ -181,11 +186,11 @@ def test_noise_dependency_reconstruction(data_dir: Path, temp_output_filename: s
     with tempfile.NamedTemporaryFile(prefix=str(data_dir), suffix='.h5') as out_dummy:
         with tempfile.NamedTemporaryFile(prefix=str(data_dir), suffix='.h5') as input_file:  # Enable parallelism by duplicating the file
             subprocess.run(shlex.split(f'cp {noise_file} {input_file.name}'), check=True)  # Required due to limitation in ismrmrd.
-            exec_recon(configuration_generator(config_noise, image), input_file.name, out_dummy.name)
+            exec_recon(configuration_generator(config_noise, image), input_file.name, out_dummy.name, request, "noise")
 
     with tempfile.NamedTemporaryFile(prefix=str(data_dir), suffix='.h5') as input_file:  # Enable parallelism by duplicating the file
         subprocess.run(shlex.split(f'cp {data_file} {input_file.name}'), check=True)  # Required due to limitation in ismrmrd.
-        exec_recon(configuration_generator(config_recon, image), input_file.name, temp_output_filename)
+        exec_recon(configuration_generator(config_recon, image), input_file.name, temp_output_filename, request, "main")
 
     # Within the object being scanned, the standard deviation across repetitions
     # should be close to 1.
@@ -230,16 +235,16 @@ passing_cases = list(filter(lambda case: case['name'] not in failing_cases, case
     list(zip(passing_cases, repeat(get_dependency_image("gadgetron")))),
     ids=[case['name'] for case in passing_cases]
 )
-def test_gadgetron_test_case(test_case, image, scanner_session_id, temp_output_filename, configuration_generator):
+def test_gadgetron_test_case(test_case, image, scanner_session_id, temp_output_filename, configuration_generator, request):
     if test_case.get('noise', None):
         config = configuration_generator(test_case['noise']['run_file_path'], image)
 
         with tempfile.NamedTemporaryFile(prefix='/tmp/', suffix='.h5') as out_dummy:
-            exec_recon(config, test_case['noise']['dat_file_path'], out_dummy.name)
+            exec_recon(config, test_case['noise']['dat_file_path'], out_dummy.name, request, "noise")
 
     if test_case.get('main'):
         config = configuration_generator(test_case['main']['run_file_path'], image)
-        exec_recon(config, test_case['main']['dat_file_path'], temp_output_filename)
+        exec_recon(config, test_case['main']['dat_file_path'], temp_output_filename, request, "main")
 
         def get_output_data(file_path, img_name):
             data: Any = h5py.File(file_path)

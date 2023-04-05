@@ -133,7 +133,7 @@ integration-test: up integration-test-no-up-prereqs
 e2e-no-up-prereqs: e2e-data
 	
 e2e-no-up: e2e-no-up-prereqs cli-ready
-	pytest e2e --workers 100
+	pytest e2e --numprocesses 100 -q
 
 e2e: up e2e-no-up-prereqs
 	$(MAKE) -o e2e-no-up-prereqs e2e-no-up

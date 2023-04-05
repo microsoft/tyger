@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -81,6 +82,27 @@ internal sealed class JsonFormatter : ConsoleFormatter
             }
 
             writer.WriteEndObject();
+        }
+
+        Activity? activity = Activity.Current;
+        if (activity != null)
+        {
+            bool hasBaggage = false;
+            foreach (var baggageEntry in activity.Baggage)
+            {
+                if (!hasBaggage)
+                {
+                    writer.WriteStartObject("baggage");
+                    hasBaggage = true;
+                }
+
+                writer.WriteString(baggageEntry.Key, baggageEntry.Value);
+            }
+
+            if (hasBaggage)
+            {
+                writer.WriteEndObject();
+            }
         }
 
         writer.WriteEndObject();

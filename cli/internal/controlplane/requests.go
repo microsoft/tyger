@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,10 +17,11 @@ import (
 	"github.com/fatih/color"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"go.opentelemetry.io/otel/propagation"
 )
 
-func InvokeRequest(method string, relativeUri string, input interface{}, output interface{}) (*http.Response, error) {
-	ctx, err := GetCliContext()
+func InvokeRequest(ctx context.Context, method string, relativeUri string, input interface{}, output interface{}) (*http.Response, error) {
+	cliContext, err := GetCliContext()
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, errors.New("run 'tyger login' to connect to a Tyger server")
@@ -28,16 +30,16 @@ func InvokeRequest(method string, relativeUri string, input interface{}, output 
 		return nil, err
 	}
 
-	if uri, err := url.Parse(ctx.GetServerUri()); err != nil || !uri.IsAbs() {
+	if uri, err := url.Parse(cliContext.GetServerUri()); err != nil || !uri.IsAbs() {
 		return nil, errors.New("run 'tyger login' to connect to a Tyger server")
 	}
 
-	token, err := ctx.GetAccessToken()
+	token, err := cliContext.GetAccessToken()
 	if err != nil {
 		return nil, fmt.Errorf("run 'tyger login' to connect to a Tyger server: %v", err)
 	}
 
-	absoluteUri := fmt.Sprintf("%s/%s", ctx.GetServerUri(), relativeUri)
+	absoluteUri := fmt.Sprintf("%s/%s", cliContext.GetServerUri(), relativeUri)
 	var body io.Reader = nil
 	if input != nil {
 		serializedBody, err := json.Marshal(input)
@@ -51,6 +53,9 @@ func InvokeRequest(method string, relativeUri string, input interface{}, output 
 	if err != nil {
 		return nil, err
 	}
+
+	propagation.Baggage{}.Inject(ctx, propagation.HeaderCarrier(req.Header))
+
 	req.Header.Set("Content-Type", "application/json")
 
 	if zerolog.GlobalLevel() <= zerolog.TraceLevel {
@@ -98,14 +103,14 @@ func InvokeRequest(method string, relativeUri string, input interface{}, output 
 	return resp, nil
 }
 
-func InvokePageRequests[T any](uri string, limit int, warnIfTruncated bool) error {
+func InvokePageRequests[T any](ctx context.Context, uri string, limit int, warnIfTruncated bool) error {
 	firstPage := true
 	totalPrinted := 0
 	truncated := false
 
 	for uri != "" {
 		page := model.Page[T]{}
-		_, err := InvokeRequest(http.MethodGet, uri, nil, &page)
+		_, err := InvokeRequest(ctx, http.MethodGet, uri, nil, &page)
 		if err != nil {
 			return err
 		}

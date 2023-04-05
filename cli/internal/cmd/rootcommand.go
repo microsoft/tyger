@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/thediveo/enumflag"
+	"go.opentelemetry.io/otel/baggage"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -25,8 +26,9 @@ func NewCommonRootCommand(commit string) *cobra.Command {
 	)
 
 	logFormat := Unspecified
-
 	logLevel := zerolog.InfoLevel
+	baggageEntries := make(map[string]string)
+
 	cmd := &cobra.Command{
 		Version:      commit,
 		SilenceUsage: true,
@@ -51,6 +53,24 @@ func NewCommonRootCommand(commit string) *cobra.Command {
 			}
 
 			log.Logger = log.Logger.With().Str("command", cmd.CommandPath()).Logger()
+
+			if len(baggageEntries) > 0 {
+				b := baggage.Baggage{}
+				for k, v := range baggageEntries {
+					mem, err := baggage.NewMember(k, v)
+					if err != nil {
+						log.Fatal().Err(err).Msg("invalid baggage entry")
+					}
+					b, err = b.SetMember(mem)
+					if err != nil {
+						log.Fatal().Err(err).Msg("invalid baggage entry")
+					}
+
+				}
+
+				ctx := baggage.ContextWithBaggage(cmd.Context(), b)
+				cmd.SetContext(ctx)
+			}
 		},
 	}
 
@@ -82,6 +102,8 @@ func NewCommonRootCommand(commit string) *cobra.Command {
 		enumflag.New(&logFormat, "format", logFormatIds, enumflag.EnumCaseInsensitive),
 		"log-format",
 		"specifies logging format. Can be one of: 'pretty', 'plain', or 'json'. The default is 'pretty' unless stderr is redirected, in which case it will be 'plain'. 'json' is the most efficient.")
+
+	cmd.PersistentFlags().StringToStringVar(&baggageEntries, "baggage", nil, "adds key=value as an HTTP `baggage` header on all requests. Can be specified multiple times.")
 
 	cobra.EnableCommandSorting = false
 
