@@ -30,12 +30,11 @@ public class RunUpdater
 
         Run newRun = run with
         {
-            Status = "Failed",
-            StatusReason = "Canceled"
+            SweeperAction = "Cancel"
         };
 
         await _repository.UpdateRun(newRun, cancellationToken: cancellationToken);
-        _logger.LogInformation("Canceling job {0}", id);
+        _logger.LogInformation("Cancelling job {0}", id);
 
         return newRun;
     }

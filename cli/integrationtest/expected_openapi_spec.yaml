@@ -565,6 +565,10 @@ components:
           type: string
           description: The reason for the status of the run. Populated by the system.
           nullable: true
+        sweeperAction:
+          type: string
+          description: The action for the sweeper to preform the next time it runs this job. Populated by the system.
+          nullable: true
         runningCount:
           type: integer
           description: The number of replicas are running. Populated by the system.

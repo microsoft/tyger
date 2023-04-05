@@ -8,6 +8,9 @@ public static partial class LoggerExtensions
     [LoggerMessage(2, LogLevel.Information, "Created run {runId}")]
     public static partial void CreatedRun(this ILogger logger, long runId);
 
+    [LoggerMessage(3, LogLevel.Information, "Cancelled run {runId}")]
+    public static partial void CancelledRun(this ILogger logger, long runId);
+
     [LoggerMessage(5, LogLevel.Error, "The job {job} for run was not found in the cluster")]
     public static partial void RunMissingJob(this ILogger logger, string job);
 
