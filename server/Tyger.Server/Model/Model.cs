@@ -258,6 +258,11 @@ public record Run : ModelBase
     public string? StatusReason { get; init; }
 
     /// <summary>
+    /// The action for the sweeper to preform the next time it runs this job. Populated by the system.
+    /// </summary>
+    public string? SweeperAction { get; init; }
+
+    /// <summary>
     /// The number of replicas are running. Populated by the system.
     /// </summary>
     public int? RunningCount { get; init; }

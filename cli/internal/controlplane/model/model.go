@@ -117,12 +117,13 @@ type Run struct {
 }
 
 type RunMetadata struct {
-	Id           int64      `json:"id,omitempty"`
-	Status       string     `json:"status,omitempty"`
-	StatusReason string     `json:"statusReason,omitempty"`
-	RunningCount *int       `json:"runningCount,omitempty"`
-	CreatedAt    time.Time  `json:"createdAt,omitempty"`
-	FinishedAt   *time.Time `json:"finishedAt,omitempty"`
+	Id            int64      `json:"id,omitempty"`
+	Status        string     `json:"status,omitempty"`
+	StatusReason  string     `json:"statusReason,omitempty"`
+	SweeperAction string     `json:"sweeperAction,omitempty"`
+	RunningCount  *int       `json:"runningCount,omitempty"`
+	CreatedAt     time.Time  `json:"createdAt,omitempty"`
+	FinishedAt    *time.Time `json:"finishedAt,omitempty"`
 }
 
 type ErrorResponse struct {

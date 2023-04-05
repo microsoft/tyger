@@ -109,15 +109,44 @@ public sealed class RunSweeper : IHostedService, IDisposable
 
             foreach (var job in jobs.Items)
             {
-                if (RunReader.HasJobSucceeded(job) || RunReader.HasJobFailed(job, out _))
+                var runId = long.Parse(job.GetLabel(JobLabel), CultureInfo.InvariantCulture);
+                var runResult = await _repository.GetRun(runId, cancellationToken);
+                bool Cancel = false;
+                switch (runResult?.run.SweeperAction)
                 {
-                    var runId = long.Parse(job.GetLabel(JobLabel), CultureInfo.InvariantCulture);
-                    switch (await _repository.GetRun(runId, cancellationToken))
+                    case "Cancel":
+                        Cancel = true;
+                        break;
+
+                    case null:
+                        break;
+                }
+
+                if (Cancel || RunReader.HasJobSucceeded(job) || RunReader.HasJobFailed(job, out _))
+                {
+                    switch (runResult)
                     {
                         case null:
                             await _repository.DeleteRun(runId, cancellationToken);
                             await DeleteRunResources(runId, cancellationToken);
                             break;
+
+                        case (var run, _, null) when run.SweeperAction == "Cancel":
+                            _logger.CancelledRun(run.Id!.Value);
+                            await ArchiveLogs(run, cancellationToken);
+
+                            Run newRun = run with
+                            {
+                                Status = "Failed",
+                                StatusReason = "Cancelled",
+                                SweeperAction = null,
+                                FinishedAt = DateTimeOffset.UtcNow,
+                            };
+
+                            await _repository.UpdateRun(newRun, final: true, cancellationToken: cancellationToken);
+                            await DeleteRunResources(run.Id!.Value, cancellationToken);
+                            break;
+
                         case (var run, _, null):
                             await ArchiveLogs(run, cancellationToken);
                             break;
