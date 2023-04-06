@@ -111,9 +111,9 @@ public sealed class RunSweeper : IHostedService, IDisposable
             {
                 var runId = long.Parse(job.GetLabel(JobLabel), CultureInfo.InvariantCulture);
                 var runResult = await _repository.GetRun(runId, cancellationToken);
-                bool Cancel = runResult?.run.Status == "Cancelling";
+                bool cancel = runResult?.run.Status == "Cancelling";
 
-                if (Cancel || RunReader.HasJobSucceeded(job) || RunReader.HasJobFailed(job, out _))
+                if (cancel || RunReader.HasJobSucceeded(job) || RunReader.HasJobFailed(job, out _))
                 {
                     switch (runResult)
                     {
