@@ -46,7 +46,7 @@ public class RunUpdater
 
         Run newRun = run with
         {
-            SweeperAction = "Cancel"
+            Status = "Cancelling"
         };
 
         await _repository.UpdateRun(newRun, cancellationToken: cancellationToken);
