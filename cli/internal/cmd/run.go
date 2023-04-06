@@ -548,12 +548,12 @@ func newRunCancelCommand() *cobra.Command {
 				return err
 			}
 
-			formattedRun, err := json.MarshalIndent(run, "", "  ")
-			if err != nil {
-				return err
+			if run.Status == "Cancelling" {
+				fmt.Println("Cancel issued for job", args[0])
+			} else {
+				fmt.Println("Unable to cancel job", args[0])
 			}
 
-			fmt.Println(string(formattedRun))
 			return nil
 		},
 	}

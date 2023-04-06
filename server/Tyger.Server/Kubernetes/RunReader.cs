@@ -265,6 +265,11 @@ public class RunReader
 
         static Run UpdateStatus(Run run, V1Job job, IReadOnlyCollection<V1Pod> jobPods, IReadOnlyCollection<V1Pod> workerPods)
         {
+            if (run.Status == "Cancelling")
+            {
+                return run;
+            }
+
             if (HasJobFailed(job, out var failureCondition))
             {
                 return run with

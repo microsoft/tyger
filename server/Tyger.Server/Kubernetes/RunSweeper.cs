@@ -111,16 +111,7 @@ public sealed class RunSweeper : IHostedService, IDisposable
             {
                 var runId = long.Parse(job.GetLabel(JobLabel), CultureInfo.InvariantCulture);
                 var runResult = await _repository.GetRun(runId, cancellationToken);
-                bool Cancel = false;
-                switch (runResult?.run.SweeperAction)
-                {
-                    case "Cancel":
-                        Cancel = true;
-                        break;
-
-                    case null:
-                        break;
-                }
+                bool Cancel = runResult?.run.Status == "Cancelling";
 
                 if (Cancel || RunReader.HasJobSucceeded(job) || RunReader.HasJobFailed(job, out _))
                 {
@@ -131,7 +122,7 @@ public sealed class RunSweeper : IHostedService, IDisposable
                             await DeleteRunResources(runId, cancellationToken);
                             break;
 
-                        case (var run, _, null) when run.SweeperAction == "Cancel":
+                        case (var run, _, null) when run.Status == "Cancelling":
                             _logger.CancelledRun(run.Id!.Value);
                             await ArchiveLogs(run, cancellationToken);
 
@@ -139,7 +130,6 @@ public sealed class RunSweeper : IHostedService, IDisposable
                             {
                                 Status = "Failed",
                                 StatusReason = "Cancelled",
-                                SweeperAction = null,
                                 FinishedAt = DateTimeOffset.UtcNow,
                             };
 
