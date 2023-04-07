@@ -42,7 +42,7 @@ public class RunLogReader : ILogSource
             case null:
                 return null;
             case (Run run, _, null):
-                if (!options.Follow)
+                if (!options.Follow || run.Status == "Cancelling")
                 {
                     return await GetLogsSnapshot(run, options, cancellationToken);
                 }

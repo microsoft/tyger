@@ -730,7 +730,7 @@ func TestGetLogsFromPod(t *testing.T) {
 		"--image", "busybox",
 		"--command",
 		"--",
-		"sh", "-c", "for i in `seq 1 5`; do echo $i; sleep 60; done; sleep 30")
+		"sh", "-c", "for i in `seq 1 5`; do echo $i; done; sleep 30")
 
 	runId := runTygerSuceeds(t, "run", "create", "--codespec", codespecName, "--timeout", "10m")
 	t.Logf("Run ID: %s", runId)
