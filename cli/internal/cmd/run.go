@@ -552,7 +552,11 @@ func newRunCancelCommand() *cobra.Command {
 			if run.Status == "Cancelling" {
 				fmt.Println("Cancel issued for job", args[0])
 			} else {
-				fmt.Println("Unable to cancel job", args[0])
+				if run.StatusReason != "" {
+					return fmt.Errorf("unable to cancel job %s because status is %s (%s)", args[0], run.Status, run.StatusReason)
+				} else {
+					return fmt.Errorf("unable to cancel job %s because status is %s", args[0], run.Status)
+				}
 			}
 
 			return nil
