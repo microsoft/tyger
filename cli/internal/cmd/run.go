@@ -543,19 +543,21 @@ func newRunCancelCommand() *cobra.Command {
 		Args:                  exactlyOneArg("run name"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			run := model.Run{}
-			_, err := controlplane.InvokeRequest(http.MethodPost, fmt.Sprintf("v1/runs/%s/cancel", args[0]), nil, &run)
+			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, fmt.Sprintf("v1/runs/%s/cancel", args[0]), nil, &run)
 
 			if err != nil {
 				return err
 			}
 
-			if run.Status == "Cancelling" {
+			if run.Status == "Canceling" {
 				fmt.Println("Cancel issued for job", args[0])
+			} else if run.Status == "Canceled" {
+				fmt.Println("Job", args[0], "has already been canceled")
 			} else {
 				if run.StatusReason != "" {
-					return fmt.Errorf("unable to cancel job %s because status is %s (%s)", args[0], run.Status, run.StatusReason)
+					return fmt.Errorf("unable to cancel job %s because status its is %s (%s)", args[0], run.Status, run.StatusReason)
 				} else {
-					return fmt.Errorf("unable to cancel job %s because status is %s", args[0], run.Status)
+					return fmt.Errorf("unable to cancel job %s because status its is %s", args[0], run.Status)
 				}
 			}
 

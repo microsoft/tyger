@@ -929,16 +929,16 @@ func TestCancelJob(t *testing.T) {
 
 	runTygerSuceeds(t, "run", "cancel", runId)
 
-	waitForRunFailure(t, runId)
+	waitForRunCanceled(t, runId)
 
-	// Check that the run failed because it was cancelled.
+	// Check that the run failed because it was canceled.
 	runJson := runTygerSuceeds(t, "run", "show", runId)
 
 	var run model.Run
 	require.NoError(json.Unmarshal([]byte(runJson), &run))
 
-	require.Equal("Failed", run.Status)
-	require.Equal("Cancelled", run.StatusReason)
+	require.Equal("Canceled", run.Status)
+	require.Equal("Canceled by user", run.StatusReason)
 }
 
 func waitForRunStarted(t *testing.T, runId string) model.Run {
@@ -949,11 +949,11 @@ func waitForRunSuccess(t *testing.T, runId string) model.Run {
 	return waitForRun(t, runId, false, false)
 }
 
-func waitForRunFailure(t *testing.T, runId string) model.Run {
+func waitForRunCanceled(t *testing.T, runId string) model.Run {
 	return waitForRun(t, runId, false, true)
 }
 
-func waitForRun(t *testing.T, runId string, returnOnRunning bool, returnOnFailure bool) model.Run {
+func waitForRun(t *testing.T, runId string, returnOnRunning bool, returnOnCancel bool) model.Run {
 	cmd := exec.Command("tyger", "run", "watch", runId, "--full-resource")
 	var outb, errb bytes.Buffer
 	cmd.Stdout = &outb
@@ -975,15 +975,18 @@ func waitForRun(t *testing.T, runId string, returnOnRunning bool, returnOnFailur
 		switch snapshot.Status {
 		case "Pending":
 		case "Running":
+		case "Canceling":
 			if returnOnRunning {
 				return snapshot
 			}
 		case "Succeeded":
 			break
-		case "Failed":
-			if returnOnFailure {
+		case "Canceled":
+			if returnOnCancel {
 				return snapshot
 			}
+			require.FailNowf(t, "run was canceled.", "Run '%d'. Last status: %s", snapshot.Id, snapshot.Status)
+		case "Failed":
 			require.FailNowf(t, "run failed.", "Run '%d'. Last status: %s", snapshot.Id, snapshot.Status)
 		default:
 			require.FailNowf(t, "unexpected run status.", "Run '%d'. Last status: %s", snapshot.Id, snapshot.Status)

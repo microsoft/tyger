@@ -54,7 +54,7 @@ public sealed class RunSweeper : IHostedService, IDisposable
 
         _backgroundCancellationTokenSource.Cancel();
 
-        // wait for the background task to complete, but give up once the cancellation token is cancelled.
+        // wait for the background task to complete, but give up once the cancellation token is canceled.
         var tcs = new TaskCompletionSource();
         cancellationToken.Register(s => ((TaskCompletionSource)s!).SetResult(), tcs);
         await Task.WhenAny(_backgroundTask, tcs.Task);
@@ -111,9 +111,9 @@ public sealed class RunSweeper : IHostedService, IDisposable
             {
                 var runId = long.Parse(job.GetLabel(JobLabel), CultureInfo.InvariantCulture);
                 var runResult = await _repository.GetRun(runId, cancellationToken);
-                bool cancelling = runResult?.run.Status == "Cancelling";
+                bool canceling = runResult?.run.Status == "Canceling";
 
-                if (cancelling || RunReader.HasJobSucceeded(job) || RunReader.HasJobFailed(job, out _))
+                if (canceling || RunReader.HasJobSucceeded(job) || RunReader.HasJobFailed(job, out _))
                 {
                     switch (runResult)
                     {
@@ -127,12 +127,13 @@ public sealed class RunSweeper : IHostedService, IDisposable
                             break;
 
                         case (var run, _, var time) when DateTimeOffset.UtcNow - time > s_minDurationAfterArchivingBeforeDeletingPod:
-                            if (run.Status == "Cancelling")
+                            if (run.Status == "Canceling")
                             {
+                                _logger.CanceledRun(run.Id!.Value);
                                 run = run with
                                 {
-                                    Status = "Failed",
-                                    StatusReason = "Cancelled",
+                                    Status = "Canceled",
+                                    StatusReason = "Canceled by user",
                                     FinishedAt = DateTimeOffset.UtcNow,
                                 };
                             }

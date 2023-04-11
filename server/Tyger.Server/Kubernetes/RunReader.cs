@@ -125,7 +125,7 @@ public class RunReader
         run = UpdateRunFromJobAndPods(run, job, pods.Values);
         yield return run;
 
-        if (run.Status is "Succeeded" or "Failed")
+        if (run.Status is "Succeeded" or "Failed" or "Canceled")
         {
             yield break;
         }
@@ -182,7 +182,7 @@ public class RunReader
 
                 run = updatedRun;
 
-                if (run.Status is "Succeeded" or "Failed")
+                if (run.Status is "Succeeded" or "Failed" or "Canceled")
                 {
                     cts.Cancel();
                     yield break;
@@ -265,7 +265,7 @@ public class RunReader
 
         static Run UpdateStatus(Run run, V1Job job, IReadOnlyCollection<V1Pod> jobPods, IReadOnlyCollection<V1Pod> workerPods)
         {
-            if (run.Status == "Cancelling")
+            if (run.Status == "Canceling")
             {
                 return run;
             }
