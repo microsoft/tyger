@@ -55,7 +55,7 @@ func runTyger(args ...string) (stdout string, stderr string, err error) {
 	return runCommand("tyger", args...)
 }
 
-func runTygerSuceeds(t *testing.T, args ...string) string {
+func runTygerSucceeds(t *testing.T, args ...string) string {
 	args = append([]string{"--log-level", "trace"}, args...)
 	return runCommandSuceeds(t, "tyger", args...)
 }

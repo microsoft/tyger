@@ -24,62 +24,51 @@ import (
 func TestReadingWhileWriting(t *testing.T) {
 	t.Parallel()
 
-	bufferName := runTygerSuceeds(t, "buffer", "create")
-	writeSasUri := runTygerSuceeds(t, "buffer", "access", bufferName, "--write")
-	readSasUri := runTygerSuceeds(t, "buffer", "access", bufferName)
+	bufferName := runTygerSucceeds(t, "buffer", "create")
+	writeSasUri := runTygerSucceeds(t, "buffer", "access", bufferName, "--write")
+	readSasUri := runTygerSucceeds(t, "buffer", "access", bufferName)
 
+	// start the read process
+	readCommand := exec.Command("tyger", "buffer", "read", readSasUri)
+	readStdErr := &bytes.Buffer{}
+	readCommand.Stderr = readStdErr
+	outputHasher := sha256.New()
+	readCommand.Stdout = outputHasher
+
+	assert.NoError(t, readCommand.Start(), "read command failed to start")
+
+	// start the write process
 	writeCommand := exec.Command("tyger", "buffer", "write", writeSasUri)
 	inputWriter, err := writeCommand.StdinPipe()
-	writeStdErr := bytes.NewBuffer(nil)
-	writeCommand.Stderr = writeStdErr
-	require.Nil(t, err)
+	require.NoError(t, err)
 
-	inputHash := make(chan []byte, 1)
-	outputHash := make(chan []byte, 1)
+	writeStdErr := &bytes.Buffer{}
+	writeCommand.Stderr = writeStdErr
 
 	size := 293827382
+	writeCommandErrChan := make(chan error)
 	go func() {
-		defer inputWriter.Close()
-		h := sha256.New()
-		mw := io.MultiWriter(inputWriter, h)
-		cmd.Gen(int64(size), mw)
-		inputHash <- h.Sum(nil)
+		writeCommandErrChan <- writeCommand.Run()
 	}()
 
-	readCommand := exec.Command("tyger", "buffer", "read", readSasUri)
-	readStdErr := bytes.NewBuffer(nil)
-	readCommand.Stderr = readStdErr
-	outputReader, err := readCommand.StdoutPipe()
-	require.Nil(t, err)
+	inputHasher := sha256.New()
+	assert.NoError(t, cmd.Gen(int64(size), io.MultiWriter(inputWriter, inputHasher)), "failed to copy data to writer process")
+	inputWriter.Close()
 
-	go func() {
-		h := sha256.New()
-		io.Copy(h, outputReader)
-		outputHash <- h.Sum(nil)
-	}()
-
-	err = writeCommand.Start()
-	require.Nil(t, err)
-	err = readCommand.Start()
-	require.Nil(t, err)
-
-	err = writeCommand.Wait()
+	assert.NoError(t, <-writeCommandErrChan, "write command failed")
 	t.Log(writeStdErr.String())
-	require.Nil(t, err, "write command failed")
-
-	err = readCommand.Wait()
+	assert.Nil(t, readCommand.Wait(), "read command failed")
 	t.Log(readStdErr.String())
-	require.Nil(t, err, "read command failed")
 
-	assert.Equal(t, <-inputHash, <-outputHash, "hashes do not match")
+	assert.Equal(t, inputHasher.Sum(nil), outputHasher.Sum(nil), "hashes do not match")
 }
 
 func TestAccessStringIsFile(t *testing.T) {
 	t.Parallel()
 
-	bufferName := runTygerSuceeds(t, "buffer", "create")
-	writeSasUri := runTygerSuceeds(t, "buffer", "access", bufferName, "--write")
-	readSasUri := runTygerSuceeds(t, "buffer", "access", bufferName)
+	bufferName := runTygerSucceeds(t, "buffer", "create")
+	writeSasUri := runTygerSucceeds(t, "buffer", "access", bufferName, "--write")
+	readSasUri := runTygerSucceeds(t, "buffer", "access", bufferName)
 
 	tempDir := t.TempDir()
 	writeSasUriFile := path.Join(tempDir, "write-sas-uri.txt")
@@ -121,9 +110,9 @@ func TestNamedPipes(t *testing.T) {
 		t.Run(strconv.Itoa(tc.size), func(t *testing.T) {
 			t.Parallel()
 
-			bufferName := runTygerSuceeds(t, "buffer", "create")
-			writeSasUri := runTygerSuceeds(t, "buffer", "access", bufferName, "--write")
-			readSasUri := runTygerSuceeds(t, "buffer", "access", bufferName)
+			bufferName := runTygerSucceeds(t, "buffer", "create")
+			writeSasUri := runTygerSucceeds(t, "buffer", "access", bufferName, "--write")
+			readSasUri := runTygerSucceeds(t, "buffer", "access", bufferName)
 
 			tempDir := t.TempDir()
 			inputPipePath := path.Join(tempDir, "input-pipe")
@@ -141,7 +130,7 @@ func TestNamedPipes(t *testing.T) {
 
 			go func() {
 				inputPipe, err := os.OpenFile(inputPipePath, os.O_WRONLY, 0644)
-				require.Nil(t, err)
+				require.NoError(t, err)
 				defer inputPipe.Close()
 
 				h := sha256.New()
@@ -156,7 +145,7 @@ func TestNamedPipes(t *testing.T) {
 
 			go func() {
 				outputPipe, err := os.OpenFile(outputPipePath, os.O_RDONLY, 0644)
-				require.Nil(t, err)
+				require.NoError(t, err)
 				defer outputPipe.Close()
 
 				h := sha256.New()
@@ -183,8 +172,8 @@ func TestNamedPipes(t *testing.T) {
 func TestMissingContainer(t *testing.T) {
 	t.Parallel()
 
-	bufferName := runTygerSuceeds(t, "buffer", "create")
-	readSasUri := runTygerSuceeds(t, "buffer", "access", bufferName)
+	bufferName := runTygerSucceeds(t, "buffer", "create")
+	readSasUri := runTygerSucceeds(t, "buffer", "access", bufferName)
 	readSasUri = strings.ReplaceAll(readSasUri, bufferName, bufferName+"missing")
 
 	_, err := exec.Command("tyger", "buffer", "read", readSasUri).Output()
@@ -200,7 +189,7 @@ func TestRunningFromPowershellRaisesWarning(t *testing.T) {
 
 	corruptionWarning := "PowerShell I/O redirection may corrupt binary data"
 
-	bufferId := runTygerSuceeds(t, "buffer", "create")
+	bufferId := runTygerSucceeds(t, "buffer", "create")
 
 	cmd := exec.Command("pwsh", "-Command", fmt.Sprintf("tyger buffer write %s", bufferId))
 	cmd.Stdin = bytes.NewBuffer([]byte("hello world"))
