@@ -916,7 +916,7 @@ func TestCancelJob(t *testing.T) {
 
 	codespecName := strings.ToLower(t.Name())
 
-	runTygerSuceeds(t,
+	runTygerSucceeds(t,
 		"codespec",
 		"create", codespecName,
 		"--image", "busybox",
@@ -924,15 +924,15 @@ func TestCancelJob(t *testing.T) {
 		"--",
 		"sh", "-c", "sleep 10000")
 
-	runId := runTygerSuceeds(t, "run", "create", "--codespec", codespecName, "--timeout", "10m")
+	runId := runTygerSucceeds(t, "run", "create", "--codespec", codespecName, "--timeout", "10m")
 	t.Logf("Run ID: %s", runId)
 
-	runTygerSuceeds(t, "run", "cancel", runId)
+	runTygerSucceeds(t, "run", "cancel", runId)
 
 	waitForRunCanceled(t, runId)
 
 	// Check that the run failed because it was canceled.
-	runJson := runTygerSuceeds(t, "run", "show", runId)
+	runJson := runTygerSucceeds(t, "run", "show", runId)
 
 	var run model.Run
 	require.NoError(json.Unmarshal([]byte(runJson), &run))
