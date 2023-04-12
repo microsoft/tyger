@@ -910,15 +910,50 @@ func TestSpecifyingCacheFileAsEnvironmentVariable(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestCancelJob(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+
+	codespecName := strings.ToLower(t.Name())
+
+	runTygerSucceeds(t,
+		"codespec",
+		"create", codespecName,
+		"--image", "busybox",
+		"--command",
+		"--",
+		"sh", "-c", "sleep 10000")
+
+	runId := runTygerSucceeds(t, "run", "create", "--codespec", codespecName, "--timeout", "10m")
+	t.Logf("Run ID: %s", runId)
+
+	runTygerSucceeds(t, "run", "cancel", runId)
+
+	waitForRunCanceled(t, runId)
+
+	// Check that the run failed because it was canceled.
+	runJson := runTygerSucceeds(t, "run", "show", runId)
+
+	var run model.Run
+	require.NoError(json.Unmarshal([]byte(runJson), &run))
+
+	require.Equal("Canceled", run.Status)
+	require.Equal("Canceled by user", run.StatusReason)
+}
+
 func waitForRunStarted(t *testing.T, runId string) model.Run {
-	return waitForRun(t, runId, true)
+	return waitForRun(t, runId, true, false)
 }
 
 func waitForRunSuccess(t *testing.T, runId string) model.Run {
-	return waitForRun(t, runId, false)
+	return waitForRun(t, runId, false, false)
 }
 
-func waitForRun(t *testing.T, runId string, returnOnRunning bool) model.Run {
+func waitForRunCanceled(t *testing.T, runId string) model.Run {
+	return waitForRun(t, runId, false, true)
+}
+
+func waitForRun(t *testing.T, runId string, returnOnRunning bool, returnOnCancel bool) model.Run {
 	cmd := exec.Command("tyger", "run", "watch", runId, "--full-resource")
 	var outb, errb bytes.Buffer
 	cmd.Stdout = &outb
@@ -940,11 +975,17 @@ func waitForRun(t *testing.T, runId string, returnOnRunning bool) model.Run {
 		switch snapshot.Status {
 		case "Pending":
 		case "Running":
+		case "Canceling":
 			if returnOnRunning {
 				return snapshot
 			}
 		case "Succeeded":
 			break
+		case "Canceled":
+			if returnOnCancel {
+				return snapshot
+			}
+			require.FailNowf(t, "run was canceled.", "Run '%d'. Last status: %s", snapshot.Id, snapshot.Status)
 		case "Failed":
 			require.FailNowf(t, "run failed.", "Run '%d'. Last status: %s", snapshot.Id, snapshot.Status)
 		default:

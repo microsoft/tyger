@@ -132,6 +132,27 @@ public static class Runs
         .Produces(StatusCodes.Status200OK, null, "text/plain")
         .Produces<ErrorBody>(StatusCodes.Status404NotFound);
 
+        app.MapPost("/v1/runs/{runId}/cancel", async (
+            string runId,
+            RunUpdater runUpdater,
+            HttpContext context,
+            JsonSerializerOptions serializerOptions) =>
+        {
+            if (!long.TryParse(runId, out var parsedRunId))
+            {
+                return Responses.NotFound();
+            }
+
+            if (await runUpdater.CancelRun(parsedRunId, context.RequestAborted) is not Run run)
+            {
+                return Responses.NotFound();
+            }
+
+            return Results.Ok(run);
+        })
+        .Produces<Run>(StatusCodes.Status200OK)
+        .Produces<ErrorBody>(StatusCodes.Status404NotFound);
+
         // this endpoint is for testing purposes only, to force the background pod sweep
         app.MapPost("/v1/runs/_sweep", async (RunSweeper runSweeper, CancellationToken cancellationToken) =>
         {

@@ -42,7 +42,7 @@ public class RunLogReader : ILogSource
             case null:
                 return null;
             case (Run run, _, null):
-                if (!options.Follow)
+                if (!options.Follow || run.Status == "Canceling")
                 {
                     return await GetLogsSnapshot(run, options, cancellationToken);
                 }
@@ -150,7 +150,7 @@ public class RunLogReader : ILogSource
                             return;
                         case WatchEventType.Modified:
                             var status = RunReader.UpdateRunFromJobAndPods(run, item, Array.Empty<V1Pod>()).Status;
-                            if (status is "Succeeded" or "Failed")
+                            if (status is "Succeeded" or "Failed" or "Canceled")
                             {
                                 return;
                             }

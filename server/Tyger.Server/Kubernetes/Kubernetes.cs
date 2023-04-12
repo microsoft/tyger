@@ -32,6 +32,7 @@ public static class Kubernetes
 
         services.AddScoped<RunCreator>();
         services.AddScoped<RunReader>();
+        services.AddScoped<RunUpdater>();
         services.AddScoped<ILogSource, RunLogReader>();
         services.AddScoped<RunSweeper>();
         services.AddScoped<IHostedService, RunSweeper>(sp => sp.GetRequiredService<RunSweeper>());

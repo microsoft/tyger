@@ -80,7 +80,7 @@ func tryOpenFileUntilContainerExits(namespace, podName, containerName *string, f
 		err := watchUntilContainerCompletion(watchCtx, clientset, *namespace, *podName, *containerName)
 		if err != nil {
 			if err == context.Canceled {
-				log.Debug().Msg("Container completion watcher cancelled.")
+				log.Debug().Msg("Container completion watcher canceled.")
 				return
 			}
 			log.Warn().Err(err).Msg("Container completion watcher failed with unexpected error.")

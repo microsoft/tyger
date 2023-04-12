@@ -284,7 +284,7 @@ public record Run : ModelBase
     public RunCodeTarget? Worker { get; init; }
 
     /// <summary>
-    /// The mamimum number of seconds to wait for the run to complete. If the run does not complete within this time, it will be cancelled.
+    /// The mamimum number of seconds to wait for the run to complete. If the run does not complete within this time, it will be canceled.
     /// </summary>
     public int? TimeoutSeconds { get; init; } = (int)TimeSpan.FromHours(12).TotalSeconds;
 
