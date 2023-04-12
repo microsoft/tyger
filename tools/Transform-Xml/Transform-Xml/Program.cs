@@ -56,7 +56,7 @@ transformCommand.SetHandler((input, transform, output) =>
     xslt.Load(transform.FullName);
     var outputSettings = new XmlWriterSettings { Indent = true };
 
-    using var outputWriter = output is null ? Console.Out : new StreamWriter(File.OpenWrite(output.FullName));
+    using var outputWriter = output is null ? Console.Out : new StreamWriter(File.Open(output.FullName, FileMode.Create, FileAccess.Write));
     using (var outputXmlWriter = XmlWriter.Create(outputWriter, outputSettings))
     {
         xslt.Transform(inputXmlReader, outputXmlWriter);

@@ -45,6 +45,29 @@ public class TransformTests
         }
     }
 
+    [Fact]
+    public async Task OutputIsExistingFile()
+    {
+        var tempFilePath = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tempFilePath, new string('a', 100_000));
+
+            var (exitCode, stdOut, stdErr) = await Run(stdIn: null, "-i", TestFilePath("1_input.xml"), "-t", TestFilePath("1_transform.xsl"), "-o", tempFilePath);
+            stdErr.ShouldBeEmpty();
+            stdOut.ShouldBeEmpty();
+            exitCode.ShouldBe(0);
+            File.ReadAllText(tempFilePath).ShouldBe(File.ReadAllText(TestFilePath("1_output.xml")));
+        }
+        finally
+        {
+            if (File.Exists(tempFilePath))
+            {
+                File.Delete(tempFilePath);
+            }
+        }
+    }
+
     private static async Task<(int exitCode, string stdOut, string stdErr)> Run(TextReader? stdIn = null, params string[] args)
     {
         ProcessStartInfo startInfo = new()
