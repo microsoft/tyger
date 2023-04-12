@@ -45,6 +45,12 @@ ARG POWERSHELL_VERSION=7.3.3
 RUN script=$(curl -fsSL "https://raw.githubusercontent.com/devcontainers/features/8d3685e09f18dd8b0a6bce50abe3e868dac27a69/src/powershell/install.sh") \
     && VERSION=${POWERSHELL_VERSION} bash -c "$script"
 
+
+ARG KUBECTL_VERSION=1.26.3
+ARG HELM_VERSION=3.11.2
+RUN script=$(curl -fsSL "https://raw.githubusercontent.com/devcontainers/features/8d3685e09f18dd8b0a6bce50abe3e868dac27a69/src/kubectl-helm-minikube/install.sh") \
+    && VERSION=${KUBECTL_VERSION} HELM=${HELM_VERSION} MINIKUBE=none bash -c "$script"
+
 # Setting the ENTRYPOINT to docker-init.sh will configure non-root access to
 # the Docker socket if "overrideCommand": false is set in devcontainer.json.
 # The script will also execute CMD if you need to alter startup behaviors.

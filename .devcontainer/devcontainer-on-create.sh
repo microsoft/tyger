@@ -5,7 +5,7 @@
 set -euo pipefail
 
 # allow kubectl to port forward from port <1024
-sudo setcap CAP_NET_BIND_SERVICE=+eip /opt/conda/envs/tyger/bin/kubectl
+sudo setcap CAP_NET_BIND_SERVICE=+eip $(which kubectl)
 
 # download go and nuget packages
 make -f "$(dirname "$0")/../Makefile" restore || true

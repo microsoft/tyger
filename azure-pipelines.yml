@@ -13,7 +13,7 @@ variables:
   IS_PR: $[ne(variables['System.PullRequest.PullRequestId'], '')]
   IS_CI: $[or(eq(variables['Build.Reason'], 'IndividualCI'), eq(variables['Build.Reason'], 'BatchedCI'))]
 
-  DEVCONTAINER_IMAGE: compimagdevcontainers.azurecr.io/tyger@sha256:8db627df6b48be9e866c1dc35ed271e567014d17e8585d3cd857039a87b542e9
+  DEVCONTAINER_IMAGE: compimagdevcontainers.azurecr.io/tyger@sha256:99397738623db725bc2bc716898110a63acd23b3310e20b65d1dda0594833bf5
 
 jobs:
 - job: buildAndTest
