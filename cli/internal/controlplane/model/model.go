@@ -116,9 +116,76 @@ type Run struct {
 	TimeoutSeconds *int              `json:"timeoutSeconds,omitempty"`
 }
 
+type RunStatus int
+
+const (
+	// The run has been created, but is waiting to start
+	Pending RunStatus = iota
+
+	// The Run is currently running
+	Running
+
+	// Indicates that the run has failed, see the StatusReason field for information on why.
+	Failed
+
+	// Indicates that the run has compeleted successfully
+	Succeeded
+
+	// The run is in the process of being canceled.
+	Canceling
+
+	// The run was canceled.
+	Canceled
+)
+
+var stringToRunStatus = map[string]RunStatus{
+	"Pending":   Pending,
+	"Running":   Running,
+	"Failed":    Failed,
+	"Succeeded": Succeeded,
+	"Canceling": Canceling,
+	"Canceled":  Canceled,
+}
+
+var runStatusToString = func() map[RunStatus]string {
+	m := make(map[RunStatus]string)
+	for k, v := range stringToRunStatus {
+		m[v] = k
+	}
+	return m
+}()
+
+func (status RunStatus) String() string {
+	return runStatusToString[status]
+}
+
+func (status RunStatus) MarshalJSON() ([]byte, error) {
+	buffer := bytes.NewBufferString("\"")
+	buffer.WriteString(runStatusToString[status])
+	buffer.WriteString("\"")
+	return buffer.Bytes(), nil
+}
+
+func (status *RunStatus) UnmarshalJSON(b []byte) error {
+	var statusString string
+	error := json.Unmarshal(b, &statusString)
+	if error != nil {
+		return error
+	}
+
+	value, success := stringToRunStatus[statusString]
+	if success {
+		*status = value
+	} else {
+		return fmt.Errorf("invalid status value: %v", statusString)
+	}
+
+	return nil
+}
+
 type RunMetadata struct {
 	Id           int64      `json:"id,omitempty"`
-	Status       string     `json:"status,omitempty"`
+	Status       RunStatus  `json:"status,omitempty"`
 	StatusReason string     `json:"statusReason,omitempty"`
 	RunningCount *int       `json:"runningCount,omitempty"`
 	CreatedAt    time.Time  `json:"createdAt,omitempty"`

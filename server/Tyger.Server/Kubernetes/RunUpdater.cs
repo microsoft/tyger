@@ -23,14 +23,14 @@ public class RunUpdater
             return null;
         }
 
-        if (final || run.Status is "Succeeded" or "Failed")
+        if (final || run.Status is RunStatus.Succeeded or RunStatus.Failed)
         {
             return run;
         }
 
         Run newRun = run with
         {
-            Status = "Canceling"
+            Status = RunStatus.Canceling
         };
 
         await _repository.UpdateRun(newRun, cancellationToken: cancellationToken);

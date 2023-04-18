@@ -1,3 +1,5 @@
+using Tyger.Server.Model;
+
 namespace Tyger.Server.Kubernetes;
 
 public static partial class LoggerExtensions
@@ -27,7 +29,7 @@ public static partial class LoggerExtensions
     public static partial void DeletingRunThatNeverCreatedResources(this ILogger logger, long run);
 
     [LoggerMessage(12, LogLevel.Information, "Finalizing run {run} with status {status}")]
-    public static partial void FinalizingTerminatedRun(this ILogger logger, long run, string status);
+    public static partial void FinalizingTerminatedRun(this ILogger logger, long run, RunStatus status);
 
     [LoggerMessage(14, LogLevel.Information, "Executed Kubernetes API request {method} {uri}. Status code {statusCode}. {errorBody}")]
     public static partial void ExecutedKubernetesRequest(this ILogger logger, HttpMethod method, string? uri, int statusCode, string? errorBody);

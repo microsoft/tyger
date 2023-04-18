@@ -42,7 +42,7 @@ public class RunLogReader : ILogSource
             case null:
                 return null;
             case (Run run, _, null):
-                if (!options.Follow || run.Status == "Canceling")
+                if (!options.Follow || run.Status == RunStatus.Canceling)
                 {
                     return await GetLogsSnapshot(run, options, cancellationToken);
                 }
@@ -53,7 +53,7 @@ public class RunLogReader : ILogSource
                     return null;
                 }
 
-                if (RunReader.UpdateRunFromJobAndPods(run, jobs.Items.Single(), Array.Empty<V1Pod>()).Status is "Succeeded" or "Failed")
+                if (RunReader.UpdateRunFromJobAndPods(run, jobs.Items.Single(), Array.Empty<V1Pod>()).Status is RunStatus.Succeeded or RunStatus.Failed)
                 {
                     return await GetLogsSnapshot(run, options, cancellationToken);
                 }
@@ -150,7 +150,7 @@ public class RunLogReader : ILogSource
                             return;
                         case WatchEventType.Modified:
                             var status = RunReader.UpdateRunFromJobAndPods(run, item, Array.Empty<V1Pod>()).Status;
-                            if (status is "Succeeded" or "Failed" or "Canceled")
+                            if (status is RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceled)
                             {
                                 return;
                             }

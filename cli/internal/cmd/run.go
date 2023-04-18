@@ -187,19 +187,19 @@ func newRunExecCommand() *cobra.Command {
 				}
 				consecutiveErrors = 0
 
-				logEntry := log.Info().Str("status", event.Status)
+				logEntry := log.Info().Str("status", event.Status.String())
 				if event.RunningCount != nil {
 					logEntry = logEntry.Int("runningCount", *event.RunningCount)
 				}
 				logEntry.Msg("Run status changed")
 
 				switch event.Status {
-				case "Succeeded":
+				case model.Succeeded:
 					goto end
-				case "Pending":
-				case "Running":
+				case model.Pending:
+				case model.Running:
 				default:
-					log.Fatal().Str("status", event.Status).Str("statusReason", event.StatusReason).Msg("Run failed.")
+					log.Fatal().Str("status", event.Status.String()).Str("statusReason", event.StatusReason).Msg("Run failed.")
 				}
 			}
 		}
@@ -549,15 +549,15 @@ func newRunCancelCommand() *cobra.Command {
 				return err
 			}
 
-			if run.Status == "Canceling" {
+			if run.Status == model.Canceling {
 				fmt.Println("Cancel issued for job", args[0])
-			} else if run.Status == "Canceled" {
+			} else if run.Status == model.Canceled {
 				fmt.Println("Job", args[0], "has already been canceled")
 			} else {
 				if run.StatusReason != "" {
-					return fmt.Errorf("unable to cancel job %s because status its is %s (%s)", args[0], run.Status, run.StatusReason)
+					return fmt.Errorf("unable to cancel job %s because its status is %s (%s)", args[0], run.Status, run.StatusReason)
 				} else {
-					return fmt.Errorf("unable to cancel job %s because status its is %s", args[0], run.Status)
+					return fmt.Errorf("unable to cancel job %s because its status is %s", args[0], run.Status)
 				}
 			}
 

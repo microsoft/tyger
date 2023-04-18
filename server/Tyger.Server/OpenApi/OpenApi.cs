@@ -29,6 +29,13 @@ public static class OpenApi
 
             c.MapType<ResourceQuantity>(() => new OpenApiSchema { Type = "string" });
             c.MapType<CommittedCodespecRef>(() => new OpenApiSchema { Type = "string" });
+            c.MapType<RunStatus>(() => new OpenApiSchema
+            {
+                Type = "string",
+                Enum = typeof(RunStatus).GetEnumNames()
+                            .Select(value => new OpenApiString(value))
+                            .ToList<IOpenApiAny>()
+            });
 
             c.SelectSubTypesUsing(type =>
             {

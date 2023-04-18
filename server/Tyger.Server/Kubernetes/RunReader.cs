@@ -125,7 +125,7 @@ public class RunReader
         run = UpdateRunFromJobAndPods(run, job, pods.Values);
         yield return run;
 
-        if (run.Status is "Succeeded" or "Failed" or "Canceled")
+        if (run.Status is RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceled)
         {
             yield break;
         }
@@ -173,7 +173,7 @@ public class RunReader
                 }
 
                 var updatedRun = UpdateRunFromJobAndPods(run, job, pods.Values.ToList());
-                if (!string.Equals(run.Status, updatedRun.Status, StringComparison.Ordinal) ||
+                if (run.Status != updatedRun.Status ||
                     !string.Equals(run.StatusReason, updatedRun.StatusReason, StringComparison.Ordinal) ||
                     run.RunningCount != updatedRun.RunningCount)
                 {
@@ -182,7 +182,7 @@ public class RunReader
 
                 run = updatedRun;
 
-                if (run.Status is "Succeeded" or "Failed" or "Canceled")
+                if (run.Status is RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceled)
                 {
                     cts.Cancel();
                     yield break;
@@ -265,7 +265,7 @@ public class RunReader
 
         static Run UpdateStatus(Run run, V1Job job, IReadOnlyCollection<V1Pod> jobPods, IReadOnlyCollection<V1Pod> workerPods)
         {
-            if (run.Status == "Canceling")
+            if (run.Status == RunStatus.Canceling)
             {
                 return run;
             }
@@ -274,7 +274,7 @@ public class RunReader
             {
                 return run with
                 {
-                    Status = "Failed",
+                    Status = RunStatus.Failed,
                     StatusReason = failureCondition.Reason,
                     FinishedAt = failureCondition.LastTransitionTime!,
                     RunningCount = null
@@ -289,7 +289,7 @@ public class RunReader
                     .Where(t => t != null).Select(t => t!.Value).ToList();
                 return run with
                 {
-                    Status = "Succeeded",
+                    Status = RunStatus.Succeeded,
                     FinishedAt = finishedTimes.Count == 0 ? null : finishedTimes.Min(),
                     RunningCount = null
                 };
@@ -306,12 +306,12 @@ public class RunReader
             {
                 return run with
                 {
-                    Status = "Running",
+                    Status = RunStatus.Running,
                     RunningCount = runningCount
                 };
             }
 
-            return run with { Status = "Pending" };
+            return run with { Status = RunStatus.Pending };
         }
 
         static Run UpdateNodePools(Run run, V1Job job, IReadOnlyCollection<V1Pod> jobPods, IReadOnlyCollection<V1Pod> workerPods)

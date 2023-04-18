@@ -24,6 +24,7 @@ import (
 	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/controlplane"
 	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/controlplane/model"
 	"github.com/andreyvit/diff"
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -509,6 +510,27 @@ func TestOpenApiSpecIsAsExpected(t *testing.T) {
 	}
 }
 
+func TestRunStatusEnumUnmarshal(t *testing.T) {
+
+	expectedFilePath, err := filepath.Abs("expected_openapi_spec.yaml")
+	require.Nil(t, err)
+
+	loader := openapi3.NewLoader()
+	loader.IsExternalRefsAllowed = true
+
+	doc, err := loader.LoadFromFile(expectedFilePath)
+	require.Nil(t, err)
+
+	err = doc.Validate(loader.Context)
+	require.Nil(t, err)
+
+	for _, value := range doc.Components.Schemas["Run"].Value.Properties["status"].Value.Enum {
+		var testStatus model.RunStatus
+		err = testStatus.UnmarshalJSON([]byte("\"" + value.(string) + "\""))
+		require.Nil(t, err)
+	}
+}
+
 func TestListRunsPaging(t *testing.T) {
 	t.Parallel()
 
@@ -937,7 +959,7 @@ func TestCancelJob(t *testing.T) {
 	var run model.Run
 	require.NoError(json.Unmarshal([]byte(runJson), &run))
 
-	require.Equal("Canceled", run.Status)
+	require.Equal(model.Canceled, run.Status)
 	require.Equal("Canceled by user", run.StatusReason)
 }
 
@@ -973,20 +995,20 @@ func waitForRun(t *testing.T, runId string, returnOnRunning bool, returnOnCancel
 		require.NoError(t, json.Unmarshal([]byte(line), &snapshot))
 
 		switch snapshot.Status {
-		case "Pending":
-		case "Running":
-		case "Canceling":
+		case model.Pending:
+		case model.Running:
+		case model.Canceling:
 			if returnOnRunning {
 				return snapshot
 			}
-		case "Succeeded":
+		case model.Succeeded:
 			break
-		case "Canceled":
+		case model.Canceled:
 			if returnOnCancel {
 				return snapshot
 			}
 			require.FailNowf(t, "run was canceled.", "Run '%d'. Last status: %s", snapshot.Id, snapshot.Status)
-		case "Failed":
+		case model.Failed:
 			require.FailNowf(t, "run failed.", "Run '%d'. Last status: %s", snapshot.Id, snapshot.Status)
 		default:
 			require.FailNowf(t, "unexpected run status.", "Run '%d'. Last status: %s", snapshot.Id, snapshot.Status)

@@ -240,6 +240,39 @@ public record CommittedCodespecRef(string Name, int? Version) : ICodespecRef
     public string ReferenceString => Version is null ? Name : $"{Name}/versions/{Version}";
 }
 
+public enum RunStatus
+{
+    /// <summary>
+    /// The run has been created, but is waiting to start
+    /// </summary>
+    Pending,
+
+    /// <summary>
+    /// The Run is currently running
+    /// </summary>
+    Running,
+
+    /// <summary>
+    /// Indicates that the run has failed, see the StatusReason field for information on why.
+    /// </summary>
+    Failed,
+
+    /// <summary>
+    /// Indicates that the run has compeleted successfully
+    /// </summary>
+    Succeeded,
+
+    /// <summary>
+    /// The run is in the process of being canceled.
+    /// </summary>
+    Canceling,
+
+    /// <summary>
+    /// The run was canceled.
+    /// </summary>
+    Canceled,
+}
+
 public record Run : ModelBase
 {
     /// <summary>
@@ -250,7 +283,8 @@ public record Run : ModelBase
     /// <summary>
     /// The status of the run. Populated by the system.
     /// </summary>
-    public string? Status { get; init; }
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public RunStatus? Status { get; init; }
 
     /// <summary>
     /// The reason for the status of the run. Populated by the system.

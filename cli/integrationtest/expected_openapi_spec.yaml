@@ -558,6 +558,13 @@ components:
           format: int64
           nullable: true
         status:
+          enum:
+            - Pending
+            - Running
+            - Failed
+            - Succeeded
+            - Canceling
+            - Canceled
           type: string
           description: The status of the run. Populated by the system.
           nullable: true

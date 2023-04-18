@@ -111,7 +111,7 @@ public sealed class RunSweeper : IHostedService, IDisposable
             {
                 var runId = long.Parse(job.GetLabel(JobLabel), CultureInfo.InvariantCulture);
                 var runResult = await _repository.GetRun(runId, cancellationToken);
-                bool canceling = runResult?.run.Status == "Canceling";
+                bool canceling = runResult?.run.Status == RunStatus.Canceling;
 
                 if (canceling || RunReader.HasJobSucceeded(job) || RunReader.HasJobFailed(job, out _))
                 {
@@ -127,19 +127,19 @@ public sealed class RunSweeper : IHostedService, IDisposable
                             break;
 
                         case (var run, _, var time) when DateTimeOffset.UtcNow - time > s_minDurationAfterArchivingBeforeDeletingPod:
-                            if (run.Status == "Canceling")
+                            if (run.Status == RunStatus.Canceling)
                             {
                                 _logger.CanceledRun(run.Id!.Value);
                                 run = run with
                                 {
-                                    Status = "Canceled",
+                                    Status = RunStatus.Canceled,
                                     StatusReason = "Canceled by user",
                                     FinishedAt = DateTimeOffset.UtcNow,
                                 };
                             }
                             else
                             {
-                                _logger.FinalizingTerminatedRun(run.Id!.Value, run.Status!);
+                                _logger.FinalizingTerminatedRun(run.Id!.Value, run.Status!.Value);
                                 var pods = await _client.EnumeratePodsInNamespace(_k8sOptions.Namespace, labelSelector: $"{RunLabel}={runId}", cancellationToken: cancellationToken)
                                     .ToListAsync(cancellationToken);
 

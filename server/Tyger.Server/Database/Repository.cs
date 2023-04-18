@@ -184,7 +184,7 @@ public class Repository : IRepository
 
         using var reader = await insertCommand.ExecuteReaderAsync(cancellationToken);
         await reader.ReadAsync(cancellationToken);
-        var run = newRun with { Id = reader.GetInt64(0), CreatedAt = reader.GetDateTime(1), Status = "Pending" };
+        var run = newRun with { Id = reader.GetInt64(0), CreatedAt = reader.GetDateTime(1), Status = RunStatus.Pending };
 
         await reader.ReadAsync(cancellationToken);
         await reader.DisposeAsync();
