@@ -185,7 +185,7 @@ func (status *RunStatus) UnmarshalJSON(b []byte) error {
 
 type RunMetadata struct {
 	Id           int64      `json:"id,omitempty"`
-	Status       RunStatus  `json:"status,omitempty"`
+	Status       *RunStatus `json:"status,omitempty"`
 	StatusReason string     `json:"statusReason,omitempty"`
 	RunningCount *int       `json:"runningCount,omitempty"`
 	CreatedAt    time.Time  `json:"createdAt,omitempty"`

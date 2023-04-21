@@ -959,7 +959,7 @@ func TestCancelJob(t *testing.T) {
 	var run model.Run
 	require.NoError(json.Unmarshal([]byte(runJson), &run))
 
-	require.Equal(model.Canceled, run.Status)
+	require.Equal(model.Canceled, *run.Status)
 	require.Equal("Canceled by user", run.StatusReason)
 }
 
@@ -994,7 +994,9 @@ func waitForRun(t *testing.T, runId string, returnOnRunning bool, returnOnCancel
 
 		require.NoError(t, json.Unmarshal([]byte(line), &snapshot))
 
-		switch snapshot.Status {
+		require.NotNil(t, snapshot.Status, "run '%d' status was nil", snapshot.Id)
+
+		switch *snapshot.Status {
 		case model.Pending:
 		case model.Running:
 		case model.Canceling:
@@ -1007,11 +1009,11 @@ func waitForRun(t *testing.T, runId string, returnOnRunning bool, returnOnCancel
 			if returnOnCancel {
 				return snapshot
 			}
-			require.FailNowf(t, "run was canceled.", "Run '%d'. Last status: %s", snapshot.Id, snapshot.Status)
+			require.FailNowf(t, "run was canceled.", "Run '%d'. Last status: %s", snapshot.Id, *snapshot.Status)
 		case model.Failed:
-			require.FailNowf(t, "run failed.", "Run '%d'. Last status: %s", snapshot.Id, snapshot.Status)
+			require.FailNowf(t, "run failed.", "Run '%d'. Last status: %s", snapshot.Id, *snapshot.Status)
 		default:
-			require.FailNowf(t, "unexpected run status.", "Run '%d'. Last status: %s", snapshot.Id, snapshot.Status)
+			require.FailNowf(t, "unexpected run status.", "Run '%d'. Last status: %s", snapshot.Id, *snapshot.Status)
 		}
 	}
 
