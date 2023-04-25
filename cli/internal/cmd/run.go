@@ -138,11 +138,17 @@ func newRunExecCommand() *cobra.Command {
 		}
 
 		mainWg := sync.WaitGroup{}
+
+		var proxyUri string
+		if serviceInfo, err := controlplane.GetPersistedServiceInfo(); err == nil {
+			proxyUri = serviceInfo.GetDataPlaneProxy()
+		}
+
 		if inputSasUri != "" {
 			mainWg.Add(1)
 			go func() {
 				defer mainWg.Done()
-				dataplane.Write(inputSasUri, writeDop, blockSize, os.Stdin)
+				dataplane.Write(inputSasUri, proxyUri, writeDop, blockSize, os.Stdin)
 			}()
 		}
 
@@ -150,7 +156,7 @@ func newRunExecCommand() *cobra.Command {
 			mainWg.Add(1)
 			go func() {
 				defer mainWg.Done()
-				dataplane.Read(outputSasUri, readDop, os.Stdout)
+				dataplane.Read(outputSasUri, proxyUri, readDop, os.Stdout)
 			}()
 		}
 
@@ -628,7 +634,11 @@ func getLogs(ctx context.Context, runId string, timestamps bool, tailLines int, 
 	// If the connection drops while we are following logs, we'll try again from the last received timestamp
 
 	for {
-		resp, err := controlplane.InvokeRequest(ctx, http.MethodGet, fmt.Sprintf("v1/runs/%s/logs?%s", runId, queryOptions.Encode()), nil, nil)
+		queryString := queryOptions.Encode()
+		if len(queryString) > 0 {
+			queryString = "?" + queryString
+		}
+		resp, err := controlplane.InvokeRequest(ctx, http.MethodGet, fmt.Sprintf("v1/runs/%s/logs%s", runId, queryString), nil, nil)
 		if err != nil {
 			return err
 		}

@@ -10,8 +10,9 @@ import (
 )
 
 type ServiceMetadata struct {
-	Authority string `json:"authority"`
-	Audience  string `json:"audience"`
+	Authority      string `json:"authority"`
+	Audience       string `json:"audience"`
+	DataPlaneProxy string `json:"dataPlaneProxy,omitempty"`
 }
 
 type Buffer struct {

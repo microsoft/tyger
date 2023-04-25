@@ -6,10 +6,58 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os/exec"
 	"testing"
 	"time"
 )
+
+type CmdBuilder struct {
+	cmd        *exec.Cmd
+	cancelFunc context.CancelFunc
+}
+
+func NewCmdBuilder(command string, args ...string) *CmdBuilder {
+	ctx, cancelFunc := context.WithTimeout(context.Background(), 15*time.Minute)
+	return &CmdBuilder{cmd: exec.CommandContext(ctx, command, args...), cancelFunc: cancelFunc}
+}
+
+func NewTygerCmdBuilder(args ...string) *CmdBuilder {
+	return NewCmdBuilder("tyger", args...)
+}
+
+func (b *CmdBuilder) Env(key string, value string) *CmdBuilder {
+	b.cmd.Env = append(b.cmd.Env, fmt.Sprintf("%s=%s", key, value))
+	return b
+}
+
+func (b *CmdBuilder) Stdin(stdin string) *CmdBuilder {
+	b.cmd.Stdin = bytes.NewBufferString(stdin)
+	return b
+}
+
+func (b *CmdBuilder) Run() (stdout string, stderr string, err error) {
+	defer b.cancelFunc()
+
+	return runCommandCore(b.cmd)
+}
+
+func (b *CmdBuilder) RunSucceeds(t *testing.T) string {
+	stdout, stderr, err := b.Run()
+	if err != nil {
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) {
+			t.Log(stderr)
+			t.Log(stdout)
+			t.Errorf("Unexpected error code %d", exitError.ExitCode())
+			t.FailNow()
+		}
+		t.Errorf("Failure executing %s: %v", b.cmd.String(), err)
+		t.FailNow()
+	}
+
+	return stdout
+}
 
 func runCommand(command string, args ...string) (stdout string, stderr string, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)

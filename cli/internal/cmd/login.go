@@ -8,15 +8,17 @@ import (
 
 	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/controlplane"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
+	"sigs.k8s.io/yaml"
 )
 
 func NewLoginCommand() *cobra.Command {
-	options := controlplane.LoginOptions{}
 	optionsFilePath := ""
+	options := controlplane.AuthConfig{
+		Persisted: true,
+	}
 
 	loginCmd := &cobra.Command{
-		Use:   "login { SERVER_URL [--service pricipal APPID --certificate CERTPATH] [--use-device-code] url } | --file LOGIN_FILE.yaml",
+		Use:   "login { SERVER_URL [--service-pricipal APPID --certificate CERTPATH] [--use-device-code] url } | --file LOGIN_FILE.yaml",
 		Short: "Login to a server",
 		Long: `Login to the Tyger server at the given URL.
 Subsequent commands will be performed against this server.`,
@@ -56,7 +58,8 @@ Subsequent commands will be performed against this server.`,
 					options.CertificatePath = filepath.Clean(filepath.Join(filepath.Dir(optionsFilePath), options.CertificatePath))
 				}
 
-				return controlplane.Login(options)
+				_, err = controlplane.Login(options)
+				return err
 			case 1:
 				if (options.ServicePrincipal == "") != (options.CertificatePath == "") {
 					return errors.New("--service-principal and --cert must be specified together")
@@ -67,7 +70,8 @@ Subsequent commands will be performed against this server.`,
 				}
 
 				options.ServerUri = args[0]
-				return controlplane.Login(options)
+				_, err := controlplane.Login(options)
+				return err
 			default:
 				return errors.New("too many arguments")
 			}
@@ -92,16 +96,24 @@ func newLoginStatusCommand() *cobra.Command {
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			context, err := controlplane.GetCliContext()
-			if err == nil {
-				err = context.Validate()
-				if err == nil {
-					fmt.Printf("You are logged into %s as %s\n", context.GetServerUri(), context.GetPrincipal())
-					return nil
-				}
+			serviceInfo, err := controlplane.GetPersistedServiceInfo()
+
+			if err != nil || serviceInfo.GetServerUri() == "" {
+				return errors.New("run 'tyger login' to connect to a Tyger server")
 			}
 
-			return fmt.Errorf("you are not currently logged in to any Tyger server: %v", err)
+			_, err = serviceInfo.GetAccessToken()
+			if err != nil {
+				return fmt.Errorf("run `tyger login` to login to a server: %v", err)
+			}
+
+			principal := serviceInfo.GetPrincipal()
+			if principal == "" {
+				fmt.Printf("You are anonymously logged in to %s\n", serviceInfo.GetServerUri())
+			} else {
+				fmt.Printf("You are logged in to %s as %s\n", serviceInfo.GetServerUri(), principal)
+			}
+			return nil
 		},
 	}
 }

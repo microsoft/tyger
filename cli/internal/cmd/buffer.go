@@ -140,7 +140,12 @@ func NewBufferReadCommand(openFileFunc func(name string, flag int, perm fs.FileM
 				outputFile = os.Stdout
 			}
 
-			dataplane.Read(uri, dop, outputFile)
+			var proxyUri string
+			if serviceInfo, err := controlplane.GetPersistedServiceInfo(); err == nil {
+				proxyUri = serviceInfo.GetDataPlaneProxy()
+			}
+
+			dataplane.Read(uri, proxyUri, dop, outputFile)
 		},
 	}
 
@@ -211,7 +216,12 @@ func NewBufferWriteCommand(openFileFunc func(name string, flag int, perm fs.File
 				inputReader = os.Stdin
 			}
 
-			dataplane.Write(uri, dop, blockSize, inputReader)
+			var proxyUri string
+			if serviceInfo, err := controlplane.GetPersistedServiceInfo(); err == nil {
+				proxyUri = serviceInfo.GetDataPlaneProxy()
+			}
+
+			dataplane.Write(uri, proxyUri, dop, blockSize, inputReader)
 		},
 	}
 

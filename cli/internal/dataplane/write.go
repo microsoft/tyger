@@ -20,9 +20,12 @@ const (
 	DefaultBlockSize = 4 * 1024 * 1024
 )
 
-func Write(uri string, dop int, blockSize int, inputReader io.Reader) {
+func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader) {
 	ctx := log.With().Str("operation", "buffer write").Logger().WithContext(context.Background())
-	httpClient := CreateHttpClient()
+	httpClient, err := CreateHttpClient(proxyUri)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to create http client")
+	}
 	container, err := ValidateContainer(uri, httpClient)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Container validation failed")

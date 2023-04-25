@@ -40,7 +40,7 @@ func (e *responseBodyReadError) Error() string {
 	return fmt.Sprintf("error reading response body: %v", e.reason)
 }
 
-func CreateHttpClient() *retryablehttp.Client {
+func CreateHttpClient(proxyUri string) (*retryablehttp.Client, error) {
 	client := retryablehttp.NewClient()
 	client.RetryMax = 6
 	client.HTTPClient.Timeout = 100 * time.Second
@@ -58,7 +58,15 @@ func CreateHttpClient() *retryablehttp.Client {
 	transport.MaxIdleConnsPerHost = 1000
 	transport.ResponseHeaderTimeout = 20 * time.Second
 
-	return client
+	if proxyUri != "" {
+		proxyUrl, err := url.Parse(proxyUri)
+		if err != nil {
+			return nil, fmt.Errorf("invalid proxy url: %w", err)
+		}
+		transport.Proxy = http.ProxyURL(proxyUrl)
+	}
+
+	return client, nil
 }
 
 // Performs a shallow clone of the retryable client adjusting the logger

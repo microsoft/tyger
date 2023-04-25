@@ -181,6 +181,19 @@ login-service-principal: install-cli download-test-client-cert
 	EOF
 	)
 
+start-proxy: install-cli download-test-client-cert
+	tyger-proxy start -f <(cat <<EOF
+	serverUri: ${TYGER_URI}
+	servicePrincipal: ${TEST_CLIENT_IDENTIFIER_URI}
+	certificatePath: ${TEST_CLIENT_CERT_FILE}
+	allowedClientCIDRs: $$(hostname -i | awk '{print $$1"/32"}' | jq -c -R --slurp 'split("\n")[:-1]')
+	logPath: "/tmp/tyger-proxy"
+	EOF
+	)
+
+kill-proxy:
+	killall tyger-proxy
+
 login: install-cli download-test-client-cert
 	tyger login "${TYGER_URI}"	
 
@@ -188,6 +201,7 @@ install-cli:
 	cd cli
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go install -ldflags="-s -w" ./cmd/tyger
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go install -ldflags="-s -w" ./cmd/buffer-sidecar
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go install -ldflags="-s -w" ./cmd/tyger-proxy
 
 cli-ready: install-cli
 	if ! tyger login status &> /dev/null; then

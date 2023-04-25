@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -26,6 +25,7 @@ import (
 	"github.com/andreyvit/diff"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,9 +34,10 @@ func init() {
 	stdout, stderr, err := runTyger("login", "status")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, stderr, stdout)
-		log.Fatal(err)
+		log.Fatal().Err(err).Send()
 	}
-	zerolog.SetGlobalLevel(zerolog.ErrorLevel)
+
+	log.Logger = log.Logger.Level(zerolog.ErrorLevel)
 }
 
 func TestEndToEnd(t *testing.T) {
@@ -199,15 +200,11 @@ timeoutSeconds: 600`
 	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
 	require.NoError(ioutil.WriteFile(runSpecPath, []byte(runSpec), 0644))
 
-	execCommand := exec.Command("tyger", "run", "exec", "--file", runSpecPath, "--log-level", "trace")
-	execCommand.Stdin = bytes.NewReader([]byte("Hello"))
-	execStdErr := bytes.NewBuffer(nil)
-	execCommand.Stderr = execStdErr
+	execStdOut := NewTygerCmdBuilder("run", "exec", "--file", runSpecPath, "--log-level", "trace").
+		Stdin("Hello").
+		RunSucceeds(t)
 
-	execStdOut, err := execCommand.Output()
-	t.Log(string(execStdErr.Bytes()))
-	require.NoError(err)
-	require.Equal("Hello: Bonjour", string(execStdOut))
+	require.Equal("Hello: Bonjour", execStdOut)
 }
 
 func TestEndToEndExecWithYamlWithExistingCodespec(t *testing.T) {
@@ -240,15 +237,10 @@ timeoutSeconds: 600`, codespecName, version)
 	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
 	require.NoError(ioutil.WriteFile(runSpecPath, []byte(runSpec), 0644))
 
-	execCommand := exec.Command("tyger", "run", "exec", "--file", runSpecPath, "--log-level", "trace")
-	execCommand.Stdin = bytes.NewReader([]byte("Hello"))
-	execStdErr := bytes.NewBuffer(nil)
-	execCommand.Stderr = execStdErr
-
-	execStdOut, err := execCommand.Output()
-	t.Log(string(execStdErr.Bytes()))
-	require.NoError(err)
-	require.Equal("Hello: Bonjour", string(execStdOut))
+	execStdOut := NewTygerCmdBuilder("run", "exec", "--file", runSpecPath, "--log-level", "trace").
+		Stdin("Hello").
+		RunSucceeds(t)
+	require.Equal("Hello: Bonjour", execStdOut)
 }
 
 func TestEndToEndWhenPipesAreNotTouched(t *testing.T) {
@@ -274,15 +266,11 @@ timeoutSeconds: 600`
 	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
 	require.NoError(ioutil.WriteFile(runSpecPath, []byte(runSpec), 0644))
 
-	execCommand := exec.Command("tyger", "run", "exec", "--file", runSpecPath, "--log-level", "trace")
-	execCommand.Stdin = bytes.NewReader([]byte("Hello"))
-	execStdErr := bytes.NewBuffer(nil)
-	execCommand.Stderr = execStdErr
+	execStdOut := NewTygerCmdBuilder("run", "exec", "--file", runSpecPath, "--log-level", "trace").
+		Stdin("Hello").
+		RunSucceeds(t)
 
-	execStdOut, err := execCommand.Output()
-	t.Log(string(execStdErr.Bytes()))
-	require.NoError(err)
-	require.Empty(string(execStdOut))
+	require.Empty(execStdOut)
 }
 
 func TestInvalidCodespecNames(t *testing.T) {
@@ -489,9 +477,9 @@ func TestResponseContainsRequestIdHeader(t *testing.T) {
 
 func TestOpenApiSpecIsAsExpected(t *testing.T) {
 	t.Parallel()
-	ctx, err := controlplane.GetCliContext()
+	serviceInfo, err := controlplane.GetPersistedServiceInfo()
 	require.Nil(t, err)
-	swaggerUri := fmt.Sprintf("%s/swagger/v1/swagger.yaml", ctx.GetServerUri())
+	swaggerUri := fmt.Sprintf("%s/swagger/v1/swagger.yaml", serviceInfo.GetServerUri())
 	resp, err := controlplane.NewRetryableClient().Get(swaggerUri)
 	require.Nil(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -906,30 +894,27 @@ func TestConnectivityBetweenJobAndWorkers(t *testing.T) {
 
 func TestAuthenticationRequired(t *testing.T) {
 	t.Parallel()
-	ctx, err := controlplane.GetCliContext()
+	serviceInfo, err := controlplane.GetPersistedServiceInfo()
 	require.Nil(t, err)
-	resp, err := controlplane.NewRetryableClient().Get(fmt.Sprintf("%s/v1/runs/abc", ctx.GetServerUri()))
+	resp, err := controlplane.NewRetryableClient().Get(fmt.Sprintf("%s/v1/runs/abc", serviceInfo.GetServerUri()))
 	require.Nil(t, err)
 	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
 
 func TestSpecifyingCacheFileAsEnvironmentVariable(t *testing.T) {
-	path, err := exec.LookPath("tyger")
-	require.NoError(t, err)
-	cmd := exec.Command(path, "login", "status")
-	cmd.Env = []string{}
+	_, stdErr, err := NewTygerCmdBuilder("login", "status").
+		Env("", ""). // a non-nil environment means that the this process's environment is not used
+		Run()
 
-	_, stdErr, err := runCommandCore(cmd)
 	require.Error(t, err)
-	require.Contains(t, stdErr, "not currently logged in")
+	require.Contains(t, stdErr, "run 'tyger login' to connect to a Tyger server")
 
-	cachePath, err := controlplane.GetContextCachePath()
+	cachePath, err := controlplane.GetCachePath()
 	require.NoError(t, err)
 
-	cmd = exec.Command(path, "login", "status")
-	cmd.Env = []string{fmt.Sprintf("TYGER_CACHE_FILE=%s", cachePath)}
-	_, _, err = runCommandCore(cmd)
-	require.NoError(t, err)
+	NewTygerCmdBuilder("login", "status").
+		Env("TYGER_CACHE_FILE", cachePath).
+		RunSucceeds(t)
 }
 
 func TestCancelJob(t *testing.T) {

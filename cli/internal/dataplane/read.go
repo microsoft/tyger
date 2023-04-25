@@ -26,9 +26,12 @@ var (
 	errPastEndOfBlob = errors.New("past end of blob")
 )
 
-func Read(uri string, dop int, outputWriter io.Writer) {
+func Read(uri, proxyUri string, dop int, outputWriter io.Writer) {
 	ctx := log.With().Str("operation", "buffer read").Logger().WithContext(context.Background())
-	httpClient := CreateHttpClient()
+	httpClient, err := CreateHttpClient(proxyUri)
+	if err != nil {
+		log.Ctx(ctx).Fatal().Err(err).Msg("Failed to create http client")
+	}
 	container, err := ValidateContainer(uri, httpClient)
 	if err != nil {
 		log.Ctx(ctx).Fatal().Err(err).Msg("Container validation failed")
@@ -100,6 +103,11 @@ func WaitForBlobAndDownload(ctx context.Context, httpClient *retryablehttp.Clien
 	for retryCount := 0; ; retryCount++ {
 		start := time.Now()
 
+		if num := atomic.LoadInt64(finalBlobNumber); num >= 0 && num < blobNumber {
+			log.Ctx(ctx).Trace().Msg("Abandoning download after final blob")
+			return nil, errPastEndOfBlob
+		}
+
 		req, err := retryablehttp.NewRequest(http.MethodGet, blobUri, nil)
 		if err != nil {
 			return nil, err
@@ -139,11 +147,6 @@ func WaitForBlobAndDownload(ctx context.Context, httpClient *retryablehttp.Clien
 				time.Sleep(1 * time.Second)
 			default:
 				time.Sleep(5 * time.Second)
-			}
-
-			if num := atomic.LoadInt64(finalBlobNumber); num >= 0 && num < blobNumber {
-				log.Ctx(ctx).Trace().Msg("Abandoning download after final blob")
-				return nil, errPastEndOfBlob
 			}
 
 			continue

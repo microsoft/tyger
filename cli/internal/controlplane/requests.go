@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httputil"
-	"net/url"
 	"os"
 	"strings"
 
@@ -21,25 +20,17 @@ import (
 )
 
 func InvokeRequest(ctx context.Context, method string, relativeUri string, input interface{}, output interface{}) (*http.Response, error) {
-	cliContext, err := GetCliContext()
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, errors.New("run 'tyger login' to connect to a Tyger server")
-		}
-
-		return nil, err
-	}
-
-	if uri, err := url.Parse(cliContext.GetServerUri()); err != nil || !uri.IsAbs() {
+	serviceInfo, err := GetPersistedServiceInfo()
+	if err != nil || serviceInfo.GetServerUri() == "" {
 		return nil, errors.New("run 'tyger login' to connect to a Tyger server")
 	}
 
-	token, err := cliContext.GetAccessToken()
+	token, err := serviceInfo.GetAccessToken()
 	if err != nil {
-		return nil, fmt.Errorf("run 'tyger login' to connect to a Tyger server: %v", err)
+		return nil, fmt.Errorf("run `tyger login` to login to a server: %v", err)
 	}
 
-	absoluteUri := fmt.Sprintf("%s/%s", cliContext.GetServerUri(), relativeUri)
+	absoluteUri := fmt.Sprintf("%s/%s", serviceInfo.GetServerUri(), relativeUri)
 	var body io.Reader = nil
 	if input != nil {
 		serializedBody, err := json.Marshal(input)
