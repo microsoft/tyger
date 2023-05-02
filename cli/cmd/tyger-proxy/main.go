@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"time"
 
 	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/cmd"
@@ -122,7 +125,15 @@ func readProxyOptions(optionsFilePath string, options *proxy.ProxyOptions) error
 		return errors.New("servicePrincipal must be specified in the options file")
 	}
 
-	if options.CertificatePath == "" {
+	if runtime.GOOS == "windows" {
+		if options.CertificatePath == "" && options.CertificateThumbprint == "" {
+			return errors.New("either certificatePath or certificateThumbprint must be specified in the options file")
+		}
+
+		if options.CertificatePath != "" && options.CertificateThumbprint != "" {
+			return errors.New("certificatePath and certificateThumbprint cannot both be specified")
+		}
+	} else if options.CertificatePath == "" {
 		return errors.New("certificatePath must be specified in the options file")
 	}
 
@@ -130,7 +141,7 @@ func readProxyOptions(optionsFilePath string, options *proxy.ProxyOptions) error
 		// make paths relative to the options file
 		optionsFileDirectory := filepath.Dir(optionsFilePath)
 		makeRelativeToOptionsFile := func(path string) string {
-			if filepath.IsAbs(path) {
+			if path == "" || filepath.IsAbs(path) {
 				return path
 			}
 			return filepath.Clean(filepath.Join(optionsFileDirectory, path))
@@ -159,4 +170,20 @@ func exitIfRunning(options *proxy.ProxyOptions, alreadyRunning bool) {
 	case proxy.ErrProxyAlreadyRunningWrongTarget:
 		log.Fatal().Str("logFile", proxyMetadata.LogPath).Msg("A proxy is already running on the specified port, but it is not targeting the same server")
 	}
+}
+
+func isPathDirectoryIntent(p string) bool {
+	if p == "" {
+		return false
+	}
+
+	if strings.HasSuffix(p, string(os.PathSeparator)) {
+		return true
+	}
+
+	if info, err := os.Stat(p); err != nil && info.IsDir() {
+		return true
+	}
+
+	return path.Ext(p) == ""
 }

@@ -13,6 +13,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const proxyIsListeningMessage = "Proxy is listening"
+
 func newProxyRunCommand(optionsFilePath *string, options *proxy.ProxyOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "run",
@@ -28,8 +30,7 @@ func newProxyRunCommand(optionsFilePath *string, options *proxy.ProxyOptions) *c
 
 			var logFile *os.File
 			if options.LogPath != "" {
-				if path.Ext(options.LogPath) == "" {
-					// assuming directory
+				if isPathDirectoryIntent(options.LogPath) {
 					f, err := createLogFileInDirectory(options.LogPath)
 					if err != nil {
 						log.Fatal().Err(err).Msg("failed to create log file")
@@ -77,7 +78,7 @@ func newProxyRunCommand(optionsFilePath *string, options *proxy.ProxyOptions) *c
 				log.Fatal().Err(err).Msg("failed to start proxy")
 			}
 
-			log.Info().Int("port", options.Port).Msg("Proxy is listening.")
+			log.Info().Int("port", options.Port).Msg(proxyIsListeningMessage)
 
 			// wait indefinitely
 			<-(make(chan any))

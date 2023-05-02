@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"time"
@@ -31,18 +32,16 @@ func newProxyStartCommand(optionsFilePath *string, options *proxy.ProxyOptions) 
 				log.Fatal().Msg("When calling start, the options file must specify the `logPath`")
 			}
 
-			if options.Port == 0 {
-				log.Fatal().Msg("When calling start, the options file must specify the `port`")
-			}
-
 			exitIfRunning(options, true)
 
-			logFile, err := createLogFileInDirectory(options.LogPath)
-			if err != nil {
-				log.Fatal().Err(err).Msg("Unable to create log file")
+			if isPathDirectoryIntent(options.LogPath) {
+				logFile, err := createLogFileInDirectory(options.LogPath)
+				if err != nil {
+					log.Fatal().Err(err).Msg("Unable to create log file")
+				}
+				logFile.Close()
+				options.LogPath = logFile.Name()
 			}
-			logFile.Close()
-			options.LogPath = logFile.Name()
 
 			// start the proxy in a separate process
 
@@ -81,22 +80,53 @@ func newProxyStartCommand(optionsFilePath *string, options *proxy.ProxyOptions) 
 						exitIfRunning(options, true)
 						fallthrough
 					default:
-						copyLogs(logFile.Name())
+						copyLogs(options.LogPath)
 						log.Fatal().Int("exitCode", exitCode).Msg("failed to start proxy")
 					}
 
 				case <-time.After(time.Second):
+					if options.Port == 0 {
+						port, err := getPortFromLogs(options.LogPath)
+						if err == nil && port != 0 {
+							options.Port = port
+						}
+					}
 					exitIfRunning(options, false)
 				}
 			}
 
-			copyLogs(logFile.Name())
+			copyLogs(options.LogPath)
 			log.Fatal().Msg("Timed out waiting for proxy to start")
 		},
 	}
 
 	addFileFlag(cmd, optionsFilePath)
 	return cmd
+}
+
+func getPortFromLogs(logFilePath string) (int, error) {
+	f, err := os.Open(logFilePath)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		parsedEntry := make(map[string]any)
+		if err := json.Unmarshal([]byte(line), &parsedEntry); err != nil {
+			return 0, fmt.Errorf("failed to parse log entry: %w", err)
+		}
+
+		if message, ok := parsedEntry["message"].(string); ok && message == proxyIsListeningMessage {
+			if port, ok := parsedEntry["port"].(float64); ok {
+				return int(port), nil
+			}
+		}
+	}
+
+	return 0, nil
 }
 
 func copyLogs(logFilePath string) {

@@ -37,11 +37,12 @@ type ServiceInfo interface {
 }
 
 type AuthConfig struct {
-	ServerUri        string `json:"serverUri"`
-	ServicePrincipal string `json:"servicePrincipal,omitempty"`
-	CertificatePath  string `json:"certificatePath,omitempty"`
-	UseDeviceCode    bool
-	Persisted        bool
+	ServerUri             string `json:"serverUri"`
+	ServicePrincipal      string `json:"servicePrincipal,omitempty"`
+	CertificatePath       string `json:"certificatePath,omitempty"`
+	CertificateThumbprint string `json:"certificateThumbprint,omitempty"`
+	UseDeviceCode         bool
+	Persisted             bool
 }
 
 type serviceInfo struct {
@@ -50,6 +51,7 @@ type serviceInfo struct {
 	LastTokenExpiry    int64  `json:"lastTokenExpiration,omitempty"`
 	Principal          string `json:"principal,omitempty"`
 	CertPath           string `json:"certPath,omitempty"`
+	CertThumbprint     string `json:"certThumbprint,omitempty"`
 	Authority          string `json:"authority,omitempty"`
 	Audience           string `json:"audience,omitempty"`
 	FullCache          string `json:"fullCache,omitempty"`
@@ -86,6 +88,7 @@ func Login(options AuthConfig) (ServiceInfo, error) {
 		Audience:       serviceMetadata.Audience,
 		Principal:      options.ServicePrincipal,
 		CertPath:       options.CertificatePath,
+		CertThumbprint: options.CertificateThumbprint,
 		DataPlaneProxy: serviceMetadata.DataPlaneProxy,
 	}
 
@@ -165,7 +168,7 @@ func (c *serviceInfo) GetAccessToken() (string, error) {
 
 		accounts, err := client.Accounts(context.Background())
 		if err != nil {
-			return "", fmt.Errorf("unable to get accounts from token cache: %v", err)
+			return "", fmt.Errorf("unable to get accounts from token cache: %w", err)
 		}
 		if len(accounts) != 1 {
 			return "", errors.New("corrupted token cache")
@@ -194,7 +197,7 @@ func GetCachePath() (string, error) {
 		var err error
 		cacheDir, err = os.UserCacheDir()
 		if err != nil {
-			return "", fmt.Errorf("unable to locate cache directory: %v; to provide a file path directly, set the $%s environment variable", err, CacheFileEnvVarName)
+			return "", fmt.Errorf("unable to locate cache directory: %w; to provide a file path directly, set the $%s environment variable", err, CacheFileEnvVarName)
 		}
 		cacheDir = filepath.Join(cacheDir, "tyger")
 		fileName = ".tyger"
@@ -218,7 +221,7 @@ func (si *serviceInfo) persist() error {
 	}
 
 	if err != nil {
-		return fmt.Errorf("failed to write auth cache: %v", err)
+		return fmt.Errorf("failed to write auth cache: %w", err)
 	}
 
 	return nil
@@ -226,7 +229,7 @@ func (si *serviceInfo) persist() error {
 
 func persistCacheContents(path string, bytes []byte) error {
 	// Write to a temp file in the same directory first
-	tempFileName := fmt.Sprintf("%s.%v", path, uuid.New())
+	tempFileName := fmt.Sprintf("%s.`%v`", path, uuid.New())
 	defer os.Remove(tempFileName)
 	if err := os.WriteFile(tempFileName, bytes, 0600); err != nil {
 		return err
@@ -305,19 +308,9 @@ func getServiceMetadata(serverUri string) (*model.ServiceMetadata, error) {
 func (si *serviceInfo) performServicePrincipalLogin() (authResult confidential.AuthResult, err error) {
 	newClient := si.confidentialClient == nil
 	if newClient {
-		certBytes, err := os.ReadFile(si.CertPath)
+		cred, err := si.createServicePrincipalCredential()
 		if err != nil {
-			return authResult, fmt.Errorf("unable to read certificate file: %v", err)
-		}
-
-		certs, privateKey, err := confidential.CertFromPEM(certBytes, "")
-		if err != nil {
-			return authResult, fmt.Errorf("error decoding certificate: %v", err)
-		}
-
-		cred, err := confidential.NewCredFromCert(certs, privateKey)
-		if err != nil {
-			return authResult, fmt.Errorf("error creating credential: %v", err)
+			return authResult, fmt.Errorf("error creating credential: %w", err)
 		}
 
 		client, err := confidential.New(si.Authority, si.Principal, cred)
@@ -336,6 +329,29 @@ func (si *serviceInfo) performServicePrincipalLogin() (authResult confidential.A
 	}
 
 	return authResult, err
+}
+
+func (si *serviceInfo) createServicePrincipalCredential() (confidential.Credential, error) {
+	if si.CertThumbprint != "" {
+		return createCredentialFromSystemCertificateStore(si.CertThumbprint)
+	}
+
+	certBytes, err := os.ReadFile(si.CertPath)
+	if err != nil {
+		return confidential.Credential{}, fmt.Errorf("unable to read certificate file: %w", err)
+	}
+
+	certs, privateKey, err := confidential.CertFromPEM(certBytes, "")
+	if err != nil {
+		return confidential.Credential{}, fmt.Errorf("error decoding certificate: %w", err)
+	}
+
+	cred, err := confidential.NewCredFromCert(certs, privateKey)
+	if err != nil {
+		return confidential.Credential{}, fmt.Errorf("error creating credential: %w", err)
+	}
+
+	return cred, nil
 }
 
 func (si *serviceInfo) performUserLogin(useDeviceCode bool) (authResult public.AuthResult, err error) {

@@ -6,8 +6,6 @@ trigger:
 pr:
 - main
 
-pool: tyger
-
 variables:
   DOCKER_BUILDKIT: 1
   IS_PR: $[ne(variables['System.PullRequest.PullRequestId'], '')]
@@ -19,6 +17,7 @@ jobs:
 - job: buildAndTest
   displayName: "Deploy and run tests"
   timeoutInMinutes: 90
+  pool: tyger
   container:
     image: $(DEVCONTAINER_IMAGE)
   variables:
@@ -28,6 +27,9 @@ jobs:
   steps:
 
   - script: |
+      # add the current user to the conda group
+      sudo usermod -aG conda $(whoami)
+      
       # The AzureCLI@2 task needs to be able to execute the az command in the container, before running
       # our script, without activating the conda environment
       echo '##vso[task.prependpath]/opt/conda/envs/tyger/bin'
@@ -40,7 +42,10 @@ jobs:
       fi
 
       echo "##vso[task.setvariable variable=TYGER_ENVIRONMENT_NAME]${environment_name}"
+      tyger_uri=$(TYGER_ENVIRONMENT_NAME="${environment_name}" make -s get-tyger-uri)
+      echo "##vso[task.setvariable variable=TYGER_URI;isOutput=true]${tyger_uri}"
 
+    name: setVariables
     displayName: Set variables
 
   - script: |
@@ -73,6 +78,22 @@ jobs:
         set -euo pipefail
         make -s -j 8
 
+  - script: |
+      set -euo pipefail
+
+      export CGO_ENABLED=1 
+      export GOOS=windows
+      export GOARCH=amd64
+      
+      cd cli
+      go build -ldflags="-s -w" -v -o $(Build.ArtifactStagingDirectory)/windows-cli-tools/tyger.exe ./cmd/tyger
+      go build -ldflags="-s -w" -v -o $(Build.ArtifactStagingDirectory)/windows-cli-tools/tyger-proxy.exe ./cmd/tyger-proxy
+    displayName: Build Windows binaries
+
+  - publish: '$(Build.ArtifactStagingDirectory)/windows-cli-tools'
+    displayName: Publish Windows binaries
+    artifact: windowsCliTools
+
   - task: AzureCLI@2
     condition: and(succeeded(), eq(variables.IS_CI, 'true'))
     displayName: Push Images
@@ -93,28 +114,35 @@ jobs:
       inlineScript: |
         set -euo pipefail
 
-        scripts/get-context-environment-config.sh | deploy/scripts/environment/ensure-environment.sh -c - --fail-if-not-provisioned
-        was_environment_provisioned_exit_code=$?
-
         # Point to scale-to-zero config
         export TYGER_ENVIRONMENT_CONFIG_DIR="${BUILD_SOURCESDIRECTORY}/deploy/config/dev/"
 
-        if [[ "${AGENT_JOBSTATUS}" == "Succeeded" ]]; then
-          if [[ "${IS_PR}" == "True" ]]; then
-            echo "deleting environment"
-            make remove-environment
-            exit
-          fi
-
-          echo "scaling cluster back down"
-          make ensure-environment
-          exit
-        fi
-
-        if [ $was_environment_provisioned_exit_code -eq 0 ]; then
-          echo "leaving environment as-is"
-          exit
-        fi
-
         echo "scaling cluster back down"
         make ensure-environment
+
+- job: windowsSmokeTests
+  displayName: 'Run Windows smoke tests'
+  dependsOn: buildAndTest
+  pool:
+    vmImage: 'windows-latest'
+  variables:
+    GOBIN: $(Agent.TempDirectory)\bin
+    TYGER_URI: $[ dependencies.buildAndTest.outputs['setVariables.TYGER_URI'] ]
+    CLI_TOOLS_IMAGE: $[ dependencies.buildAndTest.outputs['publishCliTools.CLI_TOOLS_IMAGE'] ]
+
+  steps:
+
+    - download: current
+      artifact: windowsCliTools
+
+    - task: AzureCLI@2
+      displayName: Run certificate tests
+      inputs:
+        azureSubscription: BiomedicalImaging-NonProd
+        scriptType: pscore
+        scriptLocation: inlineScript
+        inlineScript: |
+          $env:PATH = "$(Pipeline.Workspace)\windowsCliTools;"+ $env:PATH
+
+          # Run tests
+          .\scripts\Test-CertificateLoginOnWindows.ps1 -ServerUri $env:TYGER_URI

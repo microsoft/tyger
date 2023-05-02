@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/controlplane"
 	"github.com/spf13/cobra"
@@ -49,8 +50,30 @@ Subsequent commands will be performed against this server.`,
 					return errors.New("serverUri must be specified")
 				}
 
-				if (options.ServicePrincipal == "") != (options.CertificatePath == "") {
-					return errors.New("servicePrincipal and certificatePath must be specified together")
+				if options.CertificateThumbprint != "" && runtime.GOOS != "windows" {
+					return errors.New("certificateThumbprint is not suported on this platform")
+				}
+
+				if options.ServicePrincipal != "" {
+					if runtime.GOOS == "windows" {
+						if options.CertificatePath == "" && options.CertificateThumbprint == "" {
+							return errors.New("certificatePath or certificateThumbprint must be specified with when servicePrincipal is specified")
+						}
+
+						if options.CertificatePath != "" && options.CertificateThumbprint != "" {
+							return errors.New("certificatePath and certificateThumbprint cannot both be specified")
+						}
+
+					} else if options.CertificatePath == "" {
+						return errors.New("certificateThumbprint must be specified with when servicePrincipal is specified")
+					}
+				} else {
+					if options.CertificatePath != "" {
+						return errors.New("certificatePath can only be used when servicePrincipal is specified")
+					}
+					if options.CertificateThumbprint != "" {
+						return errors.New("certificateThumbprint can only be used when servicePrincipal is specified")
+					}
 				}
 
 				if options.CertificatePath != "" && !filepath.IsAbs(options.CertificatePath) {
@@ -61,12 +84,25 @@ Subsequent commands will be performed against this server.`,
 				_, err = controlplane.Login(options)
 				return err
 			case 1:
-				if (options.ServicePrincipal == "") != (options.CertificatePath == "") {
-					return errors.New("--service-principal and --cert must be specified together")
-				}
+				if options.ServicePrincipal != "" {
+					if runtime.GOOS == "windows" {
+						if options.CertificatePath == "" && options.CertificateThumbprint == "" {
+							return errors.New("--cert-file or --cert-thumbprint must be specified with --service-principal")
+						}
+					} else if options.CertificatePath == "" {
+						return errors.New("--cert-file must be specified with --service-principal")
+					}
 
-				if options.ServicePrincipal != "" && options.UseDeviceCode {
-					return errors.New("--use-device-code cannot be used with --service-principal")
+					if options.UseDeviceCode {
+						return errors.New("--use-device-code cannot be used with --service-principal")
+					}
+				} else {
+					if options.CertificatePath != "" {
+						return errors.New("--cert-file can only be used with --service-principal")
+					}
+					if options.CertificateThumbprint != "" {
+						return errors.New("--cert-thumbprint can only be used with --service-principal")
+					}
 				}
 
 				options.ServerUri = args[0]
@@ -82,7 +118,13 @@ Subsequent commands will be performed against this server.`,
 
 	loginCmd.Flags().StringVarP(&optionsFilePath, "file", "f", "", "The path to a file containing login options")
 	loginCmd.Flags().StringVarP(&options.ServicePrincipal, "service-principal", "s", "", "The service principal app ID or identifier URI")
-	loginCmd.Flags().StringVarP(&options.CertificatePath, "cert", "c", "", "The path to the certificate in PEM format to use for service principal authentication")
+	loginCmd.Flags().StringVarP(&options.CertificatePath, "cert-file", "c", "", "The path to the certificate in PEM format to use for service principal authentication")
+
+	if runtime.GOOS == "windows" {
+		loginCmd.Flags().StringVarP(&options.CertificateThumbprint, "cert-thumbprint", "t", "", "The thumprint of a certificate in a Windows certificate store to use for service principal authentication")
+		loginCmd.MarkFlagsMutuallyExclusive("cert-file", "cert-thumbprint")
+	}
+
 	loginCmd.Flags().BoolVarP(&options.UseDeviceCode, "use-device-code", "d", false, "Whether to use the device code flow for user logins. Use this mode when the app can't launch a browser on your behalf.")
 
 	return loginCmd
