@@ -134,10 +134,12 @@ public class RunReader
         using var combinedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, cts.Token);
         var jobWatchStream = _client.WatchNamespacedJobsWithRetry(_logger, _k8sOptions.Namespace, fieldSelector: $"metadata.name={JobNameFromRunId(run.Id!.Value)}", resourceVersion: jobList.ResourceVersion(), cancellationToken: combinedCts.Token).Select(t => (t.Item1, (IKubernetesObject)t.Item2));
         var podWatchStream = _client.WatchNamespacedPodsWithRetry(_logger, _k8sOptions.Namespace, labelSelector: $"{JobLabel}={id}", resourceVersion: podList.ResourceVersion(), cancellationToken: combinedCts.Token).Select(t => (t.Item1, (IKubernetesObject)t.Item2));
-
         var combinedStream = AsyncEnumerableEx.Merge(jobWatchStream, podWatchStream).WithCancellation(combinedCts.Token);
 
         var combinedEnumerator = combinedStream.GetAsyncEnumerator();
+
+        bool updateRunFromRepository = false;
+
         try
         {
             while (await combinedEnumerator.MoveNextAsync())
@@ -152,6 +154,7 @@ public class RunReader
                                 job = updatedJob;
                                 break;
                             case WatchEventType.Deleted:
+                                updateRunFromRepository = true;
                                 cts.Cancel();
                                 yield break;
                         }
@@ -166,13 +169,28 @@ public class RunReader
                                 break;
                             case WatchEventType.Deleted:
                                 pods.Remove(updatedPod.Name());
+                                updateRunFromRepository = true;
                                 break;
                         }
 
                         break;
                 }
 
-                var updatedRun = UpdateRunFromJobAndPods(run, job, pods.Values.ToList());
+                var updatedRun = run;
+
+                if (updateRunFromRepository)
+                {
+                    if (await _repository.GetRun(id, cancellationToken) is (Run currentRun, var currentFinal, _))
+                    {
+                        updatedRun = currentRun;
+                        final = currentFinal;
+                    }
+
+                    updateRunFromRepository = false;
+                }
+
+                updatedRun = UpdateRunFromJobAndPods(updatedRun, job, pods.Values.ToList());
+
                 if (run.Status != updatedRun.Status ||
                     !string.Equals(run.StatusReason, updatedRun.StatusReason, StringComparison.Ordinal) ||
                     run.RunningCount != updatedRun.RunningCount)
@@ -182,7 +200,7 @@ public class RunReader
 
                 run = updatedRun;
 
-                if (run.Status is RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceled)
+                if (final || run.Status is RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceled)
                 {
                     cts.Cancel();
                     yield break;
@@ -265,9 +283,20 @@ public class RunReader
 
         static Run UpdateStatus(Run run, V1Job job, IReadOnlyCollection<V1Pod> jobPods, IReadOnlyCollection<V1Pod> workerPods)
         {
-            if (run.Status == RunStatus.Canceling)
+            if (run.Status is RunStatus.Canceling or RunStatus.Canceled)
             {
                 return run;
+            }
+
+            if (job.Metadata.Annotations.ContainsKey("Status"))
+            {
+                if (job.Metadata.Annotations["Status"] == "Canceling")
+                {
+                    return run with
+                    {
+                        Status = RunStatus.Canceling,
+                    };
+                }
             }
 
             if (HasJobFailed(job, out var failureCondition))
