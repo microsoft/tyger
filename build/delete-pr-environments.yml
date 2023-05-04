@@ -1,55 +1,57 @@
 schedules:
-- cron: "0 */6 * * *"
-  displayName: Every six hours
-  branches:
-    include:
-    - main
-  always: true
+  - cron: "0 */6 * * *"
+    displayName: Every six hours
+    branches:
+      include:
+        - main
+    always: true
+
+trigger: none
+pr: none
 
 variables:
   DEVCONTAINER_IMAGE: compimagdevcontainers.azurecr.io/tyger@sha256:4daae2c3bea06bb309ccbc378ed461a6a03e9bc1013683eecec5d67b7cf66b60
 
 jobs:
-- job: deleteEnvironment
-  displayName: "Delete environments"
-  container:
-    image: $(DEVCONTAINER_IMAGE)
-  variables:
-    BASH_ENV: /opt/devcontainer/devcontainer.bashrc
+  - job: deleteEnvironment
+    displayName: "Delete environments"
+    container:
+      image: $(DEVCONTAINER_IMAGE)
+    variables:
+      BASH_ENV: /opt/devcontainer/devcontainer.bashrc
 
-  steps:
+    steps:
+      - script: |
+          # The AzureCLI@2 task needs to be able to execute the az command in the container, before running
+          # our script, without activating the conda environment
+          echo '##vso[task.prependpath]/opt/conda/envs/tyger/bin'
+        displayName: Set variables
 
-  - script: |
-      # The AzureCLI@2 task needs to be able to execute the az command in the container, before running
-      # our script, without activating the conda environment
-      echo '##vso[task.prependpath]/opt/conda/envs/tyger/bin'
-    displayName: Set variables
+      - task: AzureCLI@2
+        displayName: Delete Environments
+        inputs:
+          azureSubscription: BiomedicalImaging-NonProd
+          scriptType: bash
+          scriptLocation: inlineScript
+          inlineScript: |
+            set -euo pipefail
 
+            mapfile -t active_prs < <(curl -sS -H "Authorization: Bearer $(System.AccessToken)" "https://dev.azure.com/msresearch/compimag/_apis/git/repositories/9652e2d6-5c0f-4ada-ae48-53e308ca25c2/pullrequests?api-version=7.0&searchCriteria.status=active" | jq -r '.value[].pullRequestId')
 
-  - task: AzureCLI@2
-    displayName: Delete Environments
-    inputs:
-      azureSubscription: BiomedicalImaging-NonProd
-      scriptType: bash
-      scriptLocation: inlineScript
-      inlineScript: |
-        set -euo pipefail
+            for pr in "${active_prs[@]}"; do
+                echo "Found active PR $pr"
+            done
 
-        mapfile -t active_prs < <(curl -sS -H "Authorization: Bearer $(System.AccessToken)" "https://dev.azure.com/msresearch/compimag/_apis/git/repositories/9652e2d6-5c0f-4ada-ae48-53e308ca25c2/pullrequests?api-version=7.0&searchCriteria.status=active" | jq -r '.value[].pullRequestId')
+            prefix='tyger-pr'
+            resource_groups=$(az group list --query "[?starts_with(name, '${prefix}')]" | jq ".[] | select(.name | test(\"^${prefix}[0-9]+$\")) | .name" -r)
 
-        for pr in "${active_prs[@]}"; do
-            echo "Found active PR $pr"
-        done
+            for rg_name in $resource_groups; do
+                deployed_id="${rg_name#"$prefix"}"
 
-        prefix="tyger-pr"
-        az group list --query "[?starts_with(name, '$prefix')].name" --output tsv | while read -r rg_name; do
-            deployed_id="${rg_name#"$prefix"}"
-
-            if [[ ! " ${active_prs[*]} " =~ ${deployed_id} ]]; then
-                echo "deleting $rg_name"
-                TYGER_ENVIRONMENT_NAME="$rg_name" make remove-environment
-            else
-                echo "Not deleting $rg_name because there is an active PR for it"
-            fi
-
-        done
+                if [[ ! " ${active_prs[*]} " =~ ${deployed_id} ]]; then
+                    echo "deleting $rg_name"
+                    TYGER_ENVIRONMENT_NAME="$rg_name" make remove-environment
+                else
+                    echo "Not deleting $rg_name because there is an active PR for it"
+                fi
+            done
