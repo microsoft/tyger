@@ -26,6 +26,15 @@ function RunTests {
     Invoke-NativeCommand tyger login $ServerUri --service-principal $servicePrincipal --cert-thumbprint $Cert.Thumbprint
     Invoke-NativeCommand tyger run list --limit 1 | Out-Null
 
+    # Make the last token appear expired so that we can test refreshing it
+    $fileContent = Get-Content -Path $cacheFile
+    $propertyName = 'lastTokenExpiration'
+    $propertyLine = $fileContent | Where-Object { $_ -match "^${propertyName}:" }
+    $fileContent = $fileContent -replace [regex]::Escape($propertyLine), "${propertyName}: 10"
+    $fileContent | Set-Content -Path $cacheFile
+
+    Invoke-NativeCommand tyger run list --limit 1 | Out-Null
+
     # Login with certificate thumbprint given in an options file
 
     $optionsFile = New-TemporaryFile

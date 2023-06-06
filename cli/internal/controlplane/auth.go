@@ -148,7 +148,7 @@ func (c *serviceInfo) GetAccessToken() (string, error) {
 	}
 
 	var authResult public.AuthResult
-	if c.CertPath != "" {
+	if c.CertPath != "" || c.CertThumbprint != "" {
 		var err error
 		authResult, err = c.performServicePrincipalLogin()
 		if err != nil {
