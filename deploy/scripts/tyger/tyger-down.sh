@@ -48,13 +48,7 @@ if [[ "$(az group list --query "[?name=='$environment_resource_group'] | length(
     exit 0
 fi
 
-primary_cluster_name=$(echo "${environment_definition}" | jq -r '.primaryCluster')
-context_name=$(kubectl config view -o json | jq -r --arg cluster_name "${primary_cluster_name}" '.contexts | .[]? | select(.context.cluster == $cluster_name).name')
-if [[ -z "${context_name}" ]]; then
-    az aks get-credentials -n "${primary_cluster_name}" -g "${environment_resource_group}" --subscription="${environment_subscription}" --overwrite-existing
-else
-    kubectl config use-context "${context_name}" >/dev/null
-fi
+echo "${environment_definition}" | "$(dirname "$0")"/../../../scripts/use-current-credentials.sh -c -
 
 dns_zone=$(echo "${environment_definition}" | jq -r '.dependencies.dnsZone.name')
 

@@ -57,6 +57,8 @@ fi
 
 environment_resource_group=$(echo "${environment_definition}" | jq -r '.resourceGroup')
 
+echo "${environment_definition}" | "$(dirname "$0")"/../../../scripts/use-current-credentials.sh -c -
+
 primary_cluster_name=$(echo "${environment_definition}" | jq -r '.primaryCluster')
 primary_cluster_resource=$(az aks show -n "${primary_cluster_name}" -g "${environment_resource_group}" 2>/dev/null || echo "{}")
 

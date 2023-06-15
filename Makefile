@@ -18,11 +18,20 @@ TEST_CLIENT_IDENTIFIER_URI=api://tyger-test-client
 AZURE_SUBSCRIPTION=BiomedicalImaging-NonProd
 TYGER_URI = https://$(shell echo '${ENVIRONMENT_CONFIG}' | jq -r '.organizations["${DEFAULT_ORGANIATION}"].subdomain').$(shell echo '${ENVIRONMENT_CONFIG}' | jq -r '.dependencies.dnsZone.name')
 
+get-environment-config:
+	echo '${ENVIRONMENT_CONFIG}'
+
 ensure-environment:
 	echo '${ENVIRONMENT_CONFIG}' | deploy/scripts/environment/ensure-environment.sh -c -
 
+ensure-environment-force:
+	echo '${ENVIRONMENT_CONFIG}' | deploy/scripts/environment/ensure-environment.sh -f -c -
+
 remove-environment: down
 	echo '${ENVIRONMENT_CONFIG}' | deploy/scripts/environment/remove-environment.sh -c -
+
+remove-environment-force:
+	echo '${ENVIRONMENT_CONFIG}' | deploy/scripts/environment/remove-environment.sh -f -c -
 
 set-context:
 	subscription=$$(echo '${ENVIRONMENT_CONFIG}' | jq -r '.subscription')
@@ -31,7 +40,8 @@ set-context:
 
 	az account set --subscription "$${subscription}"
 
-	az aks get-credentials -n "$${primary_cluster_name}" -g "$${resource_group}" --overwrite-existing
+	az aks get-credentials -n "$${primary_cluster_name}" -g "$${resource_group}" --overwrite-existing 
+	kubelogin convert-kubeconfig -l azurecli
 	kubectl config set-context --current --namespace=${HELM_NAMESPACE}
 
 set-localsettings:
@@ -152,7 +162,7 @@ test: unit-test integration-test e2e
 test-no-up: unit-test integration-test-no-up e2e-no-up
 
 forward: set-context
-	scripts/forward-services.sh -n ${HELM_NAMESPACE}
+	echo '${ENVIRONMENT_CONFIG}' | scripts/forward-services.sh -n ${HELM_NAMESPACE} -c -
 
 check-forwarding:
 	if ! curl "http://${HELM_RELEASE}-storage:8080/healthcheck" &> /dev/null ; then

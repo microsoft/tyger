@@ -5,11 +5,13 @@ import "strings"
 #Region: "asia" | "asiapacific" | "australia" | "australiacentral" | "australiacentral2" | "australiaeast" | "australiasoutheast" | "brazil" | "brazilsouth" | "brazilsoutheast" | "canada" | "canadacentral" | "canadaeast" | "centralindia" | "centralus" | "centraluseuap" | "centralusstage" | "eastasia" | "eastasiastage" | "eastus" | "eastus2" | "eastus2euap" | "eastus2stage" | "eastusstage" | "europe" | "france" | "francecentral" | "francesouth" | "germany" | "germanynorth" | "germanywestcentral" | "global" | "india" | "japan" | "japaneast" | "japanwest" | "jioindiacentral" | "jioindiawest" | "korea" | "koreacentral" | "koreasouth" | "northcentralus" | "northcentralusstage" | "northeurope" | "norway" | "norwayeast" | "norwaywest" | "southafrica" | "southafricanorth" | "southafricawest" | "southcentralus" | "southcentralusstage" | "southeastasia" | "southeastasiastage" | "southindia" | "swedencentral" | "switzerland" | "switzerlandnorth" | "switzerlandwest" | "uae" | "uaecentral" | "uaenorth" | "uk" | "uksouth" | "ukwest" | "unitedstates" | "unitedstateseuap" | "westcentralus" | "westeurope" | "westindia" | "westus" | "westus2" | "westus2stage" | "westus3" | "westusstage"
 
 #Dependencies: {
-	subscription:      string
-	dnsZone:           #DnsZone
-	containerRegistry: string
-	keyVault:          #KeyVault
-	logAnalytics: 	   #LogAnalytics
+	subscription:       string
+	dnsZone:            #DnsZone
+	containerRegistry:  string
+	keyVault:           #KeyVault
+	logAnalytics: 	    #LogAnalytics
+	servicePrincipalId: string
+	userGroupId:        string
 }
 
 #Resource: {

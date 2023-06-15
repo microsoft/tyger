@@ -41,15 +41,15 @@ if [[ -z "${config_path:-}" ]]; then
 fi
 
 environment_definition=$(cat "${config_path}")
+environment_subscription=$(echo "${environment_definition}" | jq -r '.subscription')
+environment_resource_group=$(echo "${environment_definition}" | jq -r '.resourceGroup')
 
-primary_cluster_name=$(echo "${environment_definition}" | jq -r '.primaryCluster')
-
-context_name=$(kubectl config view -o json | jq -r --arg cluster_name "${primary_cluster_name}" '.contexts | .[]? | select(.context.cluster == $cluster_name).name')
-if [[ -z "${context_name}" ]]; then
-    az aks get-credentials -n "${primary_cluster_name}" -g "$(echo "${environment_definition}" | jq -r '.resourceGroup')" --subscription="$(echo "${environment_definition}" | jq -r '.subscription')" --overwrite-existing
-else
-    kubectl config use-context "${context_name}" >/dev/null
+if [[ "$(az group list --query "[?name=='$environment_resource_group'] | length(@)" --subscription "${environment_subscription}")" == "0" ]]; then
+    echo "ERROR: no resource groups found."
+    exit 1
 fi
+
+echo "${environment_definition}" | "$(dirname "$0")"/../../../scripts/use-current-credentials.sh -c -
 
 tyger_server_image="$(docker inspect eminence.azurecr.io/tyger-server:dev | jq -r --arg repo eminence.azurecr.io/tyger-server '.[0].RepoDigests[] | select (startswith($repo))')"
 tyger_chart_location="$(dirname "$0")/../../helm/tyger"

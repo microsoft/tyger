@@ -129,7 +129,9 @@ for cluster_name in $(echo "${environment_definition}" | jq -r '.clusters | keys
       --node-vm-size "$system_node_size" \
       --load-balancer-sku standard \
       --dns-name-prefix "$dns_prefix" \
-      --generate-ssh-keys)
+      --generate-ssh-keys \
+      --enable-aad
+      )
   fi
 
   if ! az aks check-acr --acr "$acr" --name "$cluster_name" -g "$environment_resource_group" 2>/dev/null | grep "cluster can pull images from"; then
@@ -192,9 +194,11 @@ for cluster_name in $(echo "${environment_definition}" | jq -r '.clusters | keys
   done
 done
 
-primary_cluster_name=$(echo "${environment_definition}" | jq -r '.primaryCluster')
-primary_cluster_resource=$(az aks show -n "${primary_cluster_name}" -g "${environment_resource_group}")
-az aks get-credentials -n "${primary_cluster_name}" -g "${environment_resource_group}" --overwrite-existing
+  primary_cluster_name=$(echo "${environment_definition}" | jq -r '.primaryCluster')
+  primary_cluster_resource=$(az aks show -n "${primary_cluster_name}" -g "${environment_resource_group}")
+
+  az aks get-credentials -n "${primary_cluster_name}" -g "${environment_resource_group}" --overwrite-existing --admin
+  kubelogin convert-kubeconfig -l azurecli
 
 ####
 # Set up CSI to get secrets from KeyVault
@@ -339,8 +343,66 @@ for organization_name in $(echo "${environment_definition}" | jq -r '.organizati
   organization=$(echo "${environment_definition}" | jq --arg name "$organization_name" '.organizations[$name]')
   organization_resource_group=$(echo "${organization}" | jq -r '.resourceGroup')
   organization_namespace=$(echo "${organization}" | jq -r '.namespace')
+  servicePrincipalId=$(echo "${environment_definition}" | jq '.dependencies.servicePrincipalId')
+  userGroupId=$(echo "${environment_definition}" | jq '.dependencies.userGroupId')
 
   kubectl create namespace "${organization_namespace}" --dry-run=client -o yaml | kubectl apply -f -
+
+  manifest=$(
+cat <<EOF
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: cluster-dev-user-role
+rules:
+- apiGroups: ["", "extensions", "apps"]
+  resources: ["*"]
+  verbs: ["*"]
+- apiGroups: ["batch"]
+  resources:
+  - jobs
+  - cronjobs
+  verbs: ["*"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["create", "delete", "deletecollection", "list"]
+- apiGroups: ["rbac.authorization.k8s.io"]
+  resources: ["roles", "rolebindings"]
+  verbs: ["*"]
+- apiGroups: ["traefik.containo.us"]
+  resources: ["ingressroutes"]
+  verbs: ["*"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: cluster-dev-user-access
+  namespace: ${organization_namespace}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-dev-user-role
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: User
+  name: ${servicePrincipalId}
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: cluster-dev-group-access
+  namespace: ${organization_namespace}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-dev-user-role
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: Group
+  name: ${userGroupId}
+EOF
+)
+  echo "$manifest" | kubectl apply -f -
 
   # Deploy storage accounts
   if [[ -n "${verbose:-}" ]]; then
@@ -363,6 +425,10 @@ for organization_name in $(echo "${environment_definition}" | jq -r '.organizati
     fi
   done
 done
+
+az aks get-credentials -n "${primary_cluster_name}" -g "${environment_resource_group}" --overwrite-existing
+kubelogin convert-kubeconfig -l azurecli
+
 
 # When deployment is complete, add the environment hash as a tag on the resource group
 az tag update --operation Merge --resource-id "${environment_resource_group_id}" --tags "tygerdefinitionhash=${environment_hash}" -o none
