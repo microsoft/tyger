@@ -10,7 +10,7 @@ trigger: none
 pr: none
 
 variables:
-  DEVCONTAINER_IMAGE: compimagdevcontainers.azurecr.io/tyger@sha256:4daae2c3bea06bb309ccbc378ed461a6a03e9bc1013683eecec5d67b7cf66b60
+  DEVCONTAINER_IMAGE: compimagdevcontainers.azurecr.io/tyger@sha256:1285398df96fbd37cdc574834e49c7bdb7260f8c98f7aabb3469ac98085f70af
 
 jobs:
   - job: deleteEnvironment
