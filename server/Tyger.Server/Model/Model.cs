@@ -28,7 +28,16 @@ public record ModelBase : IJsonOnDeserialized
     }
 }
 
-public record Buffer(string Id) : ModelBase;
+public record Buffer : ModelBase
+{
+    public string Id { get; init; } = "";
+
+    public string ETag { get; init; } = "";
+
+    public DateTimeOffset CreatedAt { get; init; }
+
+    public IDictionary<string, string>? Tags { get; init; }
+}
 
 public record BufferAccess(Uri Uri) : ModelBase;
 

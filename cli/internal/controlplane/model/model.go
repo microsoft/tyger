@@ -16,7 +16,10 @@ type ServiceMetadata struct {
 }
 
 type Buffer struct {
-	Id string `json:"id"`
+	Id        string            `json:"id"`
+	ETag      string            `json:"etag"`
+	CreatedAt time.Time         `json:"createdAt"`
+	Tags      map[string]string `json:"tags,omitempty"`
 }
 
 type BufferAccess struct {

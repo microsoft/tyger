@@ -15,4 +15,6 @@ public interface IRepository
     Task<(Run run, bool final, DateTimeOffset? logsArchivedAt)?> GetRun(long id, CancellationToken cancellationToken);
     Task<(IList<(Run run, bool final)>, string? nextContinuationToken)> GetRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken);
     Task<IList<Run>> GetPageOfRunsThatNeverGotResources(CancellationToken cancellationToken);
+    Task<Model.Buffer?> GetBuffer(string id, CancellationToken cancellationToken);
+    Task<Model.Buffer> CreateBuffer(Model.Buffer newBuffer, CancellationToken cancellationToken);
 }

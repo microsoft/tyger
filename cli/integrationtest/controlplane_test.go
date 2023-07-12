@@ -948,6 +948,38 @@ func TestCancelJob(t *testing.T) {
 	require.Equal("Canceled by user", run.StatusReason)
 }
 
+func TestBufferWithoutTags(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+
+	bufferId := runTygerSucceeds(t, "buffer", "create")
+	t.Logf("Buffer ID: %s", bufferId)
+
+	bufferJson := runTygerSucceeds(t, "buffer", "show", bufferId)
+
+	var buffer model.Buffer
+	require.NoError(json.Unmarshal([]byte(bufferJson), &buffer))
+
+	require.Equal(0, len(buffer.Tags))
+}
+
+func TestBufferWithTags(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+
+	bufferId := runTygerSucceeds(t, "buffer", "create", "--tag", "testtag1=testvalue1", "--tag", "testtag2=testvalue2")
+	t.Logf("Buffer ID: %s", bufferId)
+
+	bufferJson := runTygerSucceeds(t, "buffer", "show", bufferId)
+
+	var buffer model.Buffer
+	require.NoError(json.Unmarshal([]byte(bufferJson), &buffer))
+
+	require.Equal(2, len(buffer.Tags))
+	require.Equal("testvalue1", buffer.Tags["testtag1"])
+	require.Equal("testvalue2", buffer.Tags["testtag2"])
+}
+
 func waitForRunStarted(t *testing.T, runId string) model.Run {
 	return waitForRun(t, runId, true, false)
 }

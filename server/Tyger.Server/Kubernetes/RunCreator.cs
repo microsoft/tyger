@@ -520,8 +520,8 @@ public class RunCreator
         {
             if (!argumentsClone.TryGetValue(param.param, out var bufferId))
             {
-                var buffer = await _bufferManager.CreateBuffer(cancellationToken);
-                bufferId = buffer.Id;
+                var buffer = await _bufferManager.CreateBuffer(new Model.Buffer(), cancellationToken);
+                bufferId = buffer.Id!;
                 arguments![param.param] = bufferId;
             }
 

@@ -367,6 +367,16 @@ components:
       properties:
         id:
           type: string
+        eTag:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+          nullable: true
       additionalProperties: false
     BufferAccess:
       type: object

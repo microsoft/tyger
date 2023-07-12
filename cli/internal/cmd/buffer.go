@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -36,24 +37,55 @@ func NewBufferCommand() *cobra.Command {
 	cmd.AddCommand(NewBufferReadCommand(os.OpenFile))
 	cmd.AddCommand(NewBufferWriteCommand(os.OpenFile))
 	cmd.AddCommand(newGenerateCommand())
+	cmd.AddCommand(newBufferShowCommand())
 
 	return cmd
 }
 
 func newBufferCreateCommand() *cobra.Command {
+	tagEntries := make(map[string]string)
 	cmd := &cobra.Command{
-		Use:                   "create",
+		Use:                   "create [--tag key=value ...]",
 		Short:                 "Create a buffer",
 		Long:                  `Create a buffer. Writes the buffer ID to stdout on success.`,
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			bufferResponse := model.Buffer{}
-			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/buffers", nil, &bufferResponse)
+			newBuffer := model.Buffer{Tags: tagEntries}
+			buffer := model.Buffer{}
+			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/buffers", newBuffer, &buffer)
 			if err != nil {
 				return err
 			}
 
-			fmt.Println(bufferResponse.Id)
+			fmt.Println(string(buffer.Id))
+			return nil
+		},
+	}
+	cmd.Flags().StringToStringVar(&tagEntries, "tag", nil, "add a key-value tag to the buffer. Can be specified multiple times.")
+
+	return cmd
+}
+
+func newBufferShowCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:                   "show BUFFER_ID",
+		Short:                 "Show the details of a buffer",
+		Long:                  `Show the details of a buffer`,
+		DisableFlagsInUseLine: true,
+		Args:                  exactlyOneArg("buffer ID"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			buffer := model.Buffer{}
+			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, fmt.Sprintf("v1/buffers/%s", args[0]), nil, &buffer)
+			if err != nil {
+				return err
+			}
+
+			formattedBuffer, err := json.MarshalIndent(buffer, "", "  ")
+			if err != nil {
+				return err
+			}
+
+			fmt.Println(string(formattedBuffer))
 			return nil
 		},
 	}

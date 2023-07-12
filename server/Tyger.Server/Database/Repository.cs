@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using SimpleBase;
 using Tyger.Server.Model;
+using Buffer = Tyger.Server.Model.Buffer;
 
 namespace Tyger.Server.Database;
 
@@ -319,5 +320,125 @@ public class Repository : IRepository
         }
 
         return connection;
+    }
+
+    public async Task<Buffer?> GetBuffer(string id, CancellationToken cancellationToken)
+    {
+        var connection = await GetOpenedConnection(cancellationToken);
+
+        using var command = new NpgsqlCommand
+        {
+            Connection = connection,
+            CommandText = @"
+                SELECT buffers.created_at, buffers.etag, tag_keys.name, tags.value
+                FROM buffers
+                LEFT JOIN tags
+                    on buffers.id = tags.id
+                    and tags.created_at = buffers.created_at
+                LEFT JOIN tag_keys
+                    on tag_keys.id = tags.key
+                WHERE buffers.id = $1",
+            Parameters =
+            {
+                new() { Value = id },
+            },
+        };
+
+        var tags = new Dictionary<string, string>();
+        string eTag = "";
+        DateTimeOffset createdAt = DateTimeOffset.MinValue;
+
+        await using var reader = (await command.ExecuteReaderAsync(cancellationToken))!;
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            if (createdAt == DateTimeOffset.MinValue)
+            {
+                createdAt = reader.GetDateTime(0);
+            }
+
+            if (string.IsNullOrEmpty(eTag))
+            {
+                eTag = reader.GetString(1);
+            }
+
+            if (!reader.IsDBNull(2) && !reader.IsDBNull(3))
+            {
+                var name = reader.GetString(2);
+                var value = reader.GetString(3);
+                tags.Add(name, value);
+            }
+        }
+
+        await reader.ReadAsync(cancellationToken);
+
+        if (eTag == "" && createdAt == DateTimeOffset.MinValue)
+        {
+            return null;
+        }
+
+        return new Buffer { Id = id, ETag = eTag, CreatedAt = createdAt, Tags = tags };
+    }
+
+    public async Task<Buffer> CreateBuffer(Buffer newBuffer, CancellationToken cancellationToken)
+    {
+        var connection = await GetOpenedConnection(cancellationToken);
+        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
+        string eTag = DateTime.UtcNow.Ticks.ToString();
+
+        // Create the buffer DB entry
+        using var insertCommand = new NpgsqlCommand
+        {
+            Connection = connection,
+            Transaction = tx,
+            CommandText = @"
+                    INSERT INTO buffers (id, created_at, etag)
+                    VALUES ($1, now() AT TIME ZONE 'utc', $2)
+                    RETURNING created_at",
+            Parameters =
+                {
+                    new() { Value = newBuffer.Id },
+                    new() { Value = eTag },
+                }
+        };
+
+        var buffer = newBuffer with { ETag = eTag };
+
+        await using (var reader = await insertCommand.ExecuteReaderAsync(cancellationToken))
+        {
+            await reader.ReadAsync(cancellationToken);
+
+            buffer = buffer with { CreatedAt = reader.GetDateTime(0), ETag = eTag };
+
+            await reader.ReadAsync(cancellationToken);
+        }
+
+        if (buffer.Tags != null)
+        {
+            foreach (var tag in buffer.Tags)
+            {
+                using var insertTagCommand = new NpgsqlCommand
+                {
+                    Connection = connection,
+                    Transaction = tx,
+                    CommandText = @"
+                        WITH INS AS (INSERT INTO tag_keys (name) VALUES ($4) ON CONFLICT DO NOTHING RETURNING id)
+                        INSERT INTO tags (id, created_at, key, value)
+                        (SELECT $1, $2, id, $3 FROM INS UNION
+                        SELECT $1, $2, tag_keys.id, $3 FROM tag_keys WHERE name = $4)",
+                    Parameters =
+                    {
+                        new() { Value = buffer.Id },
+                        new() { Value = buffer.CreatedAt },
+                        new() { Value = tag.Value },
+                        new() { Value = tag.Key },
+                    }
+                };
+
+                await insertTagCommand.ExecuteNonQueryAsync(cancellationToken);
+            }
+        }
+
+        await tx.CommitAsync(cancellationToken);
+        return buffer;
     }
 }

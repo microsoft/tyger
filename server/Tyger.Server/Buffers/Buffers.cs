@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Tyger.Server.Json;
 using Tyger.Server.Model;
 using Buffer = Tyger.Server.Model.Buffer;
 
@@ -9,25 +10,29 @@ public static class Buffers
     public static void AddBuffers(this IServiceCollection services)
     {
         services.AddOptions<BufferOptions>().BindConfiguration("buffers").ValidateDataAnnotations().ValidateOnStart();
-        services.AddSingleton<BufferManager>();
+        services.AddScoped<BufferManager>();
+
         services.AddHealthChecks().AddCheck<BufferManager>("buffers");
     }
 
     public static void MapBuffers(this WebApplication app)
     {
-        app.MapPost("/v1/buffers", async (BufferManager manager, CancellationToken cancellationToken) =>
+        app.MapPost("/v1/buffers", async (BufferManager manager, HttpContext context, CancellationToken cancellationToken) =>
             {
-                var buffer = await manager.CreateBuffer(cancellationToken);
+                var newBuffer = await context.Request.ReadAndValidateJson<Buffer>(context.RequestAborted);
+                var buffer = await manager.CreateBuffer(newBuffer, cancellationToken);
+                context.Response.Headers.ETag = buffer.ETag;
                 return Results.CreatedAtRoute("getBufferById", new { buffer.Id }, buffer);
             })
             .WithName("createBuffer")
             .Produces<Buffer>(StatusCodes.Status201Created);
 
-        app.MapGet("/v1/buffers/{id}", async (BufferManager manager, string id, CancellationToken cancellationToken) =>
+        app.MapGet("/v1/buffers/{id}", async (BufferManager manager, HttpContext context, string id, CancellationToken cancellationToken) =>
             {
                 var buffer = await manager.GetBufferById(id, cancellationToken);
                 if (buffer != null)
                 {
+                    context.Response.Headers.ETag = buffer.ETag;
                     return Results.Ok(buffer);
                 }
 
