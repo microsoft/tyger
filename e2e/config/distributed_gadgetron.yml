@@ -14,8 +14,6 @@ job:
       - "$(INPUT_PIPE)"
       - "-o"
       - "$(OUTPUT_PIPE)"
-      - "--storage_address"
-      - "$(MRD_STORAGE_URI)"
     env:
       GADGETRON_REMOTE_WORKER_COMMAND: printenv TYGER_GADGETRON_WORKER_ENDPOINT_ADDRESSES
     resources:
@@ -26,7 +24,7 @@ job:
 worker:
   codespec:
     image: eminencepublic.azurecr.io/gadgetron:current
-    args: ["--storage_address", "$(MRD_STORAGE_URI)"]
+    args: []
     endpoints:
       gadgetron: 9002
     resources:

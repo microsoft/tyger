@@ -6,6 +6,7 @@ job:
         - input
       outputs:
         - output
+        - noisecovariance
     args:
       - "-c"
       - "default_measurement_dependencies.xml"
@@ -14,8 +15,10 @@ job:
       - "$(INPUT_PIPE)"
       - "-o"
       - "$(OUTPUT_PIPE)"
-      - "--storage_address"
-      - "$(MRD_STORAGE_URI)"
+      - --disable_storage
+      - 'true'
+      - --parameter
+      - noisecovarianceout=$(NOISECOVARIANCE_PIPE)
     resources:
       requests:
         cpu: 1

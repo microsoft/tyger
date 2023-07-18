@@ -411,7 +411,7 @@ EOF
 
   az group create -l "${environment_region}" -n "${organization_resource_group}" >/dev/null
 
-  for account in $(echo "${organization}" | jq -c '.storage.buffers + [.storage.storageServer] + [.storage.logs] | .[]'); do
+  for account in $(echo "${organization}" | jq -c '.storage.buffers + [.storage.logs] | .[]'); do
     account_name=$(echo "${account}" | jq -r '.name')
     account_region=$(echo "${account}" | jq -r '.region')
     az storage account create -n "${account_name}" -g "${organization_resource_group}" -l "${account_region}" --only-show-errors -o none

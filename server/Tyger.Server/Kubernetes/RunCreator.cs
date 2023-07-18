@@ -9,7 +9,6 @@ using Microsoft.Extensions.Options;
 using Tyger.Server.Buffers;
 using Tyger.Server.Database;
 using Tyger.Server.Model;
-using Tyger.Server.StorageServer;
 using static Tyger.Server.Kubernetes.KubernetesMetadata;
 
 namespace Tyger.Server.Kubernetes;
@@ -21,7 +20,6 @@ public class RunCreator
     private readonly BufferManager _bufferManager;
     private readonly BufferOptions _bufferOptions;
     private readonly KubernetesOptions _k8sOptions;
-    private readonly StorageServerOptions _storageServerOptions;
     private readonly ILogger<RunCreator> _logger;
 
     public RunCreator(
@@ -29,7 +27,6 @@ public class RunCreator
         IRepository repository,
         BufferManager bufferManager,
         IOptions<KubernetesOptions> k8sOptions,
-        IOptions<StorageServerOptions> storageServerOptions,
         IOptions<BufferOptions> bufferOptions,
         ILogger<RunCreator> logger)
     {
@@ -38,7 +35,6 @@ public class RunCreator
         _bufferManager = bufferManager;
         _bufferOptions = bufferOptions.Value;
         _k8sOptions = k8sOptions.Value;
-        _storageServerOptions = storageServerOptions.Value;
         _logger = logger;
     }
 
@@ -246,6 +242,8 @@ public class RunCreator
         const string PipeVolumeName = "pipevolume";
 
         var mainContainer = GetMainContainer(job.Spec.Template.Spec);
+        mainContainer.Env ??= new List<V1EnvVar>();
+
         foreach (var envVar in bufferMap.Select(p => new V1EnvVar($"{p.Key.ToUpperInvariant()}_PIPE", $"{FifoMountPath}/{p.Key}")))
         {
             mainContainer.Env.Add(envVar);
@@ -353,7 +351,7 @@ public class RunCreator
         return targetCluster;
     }
 
-    private V1PodTemplateSpec CreatePodTemplateSpec(Codespec codespec, RunCodeTarget codeTarget, ClusterOptions? targetCluster, string restartPolicy)
+    private static V1PodTemplateSpec CreatePodTemplateSpec(Codespec codespec, RunCodeTarget codeTarget, ClusterOptions? targetCluster, string restartPolicy)
     {
         var podTemplateSpec = new V1PodTemplateSpec()
         {
@@ -379,14 +377,8 @@ public class RunCreator
         };
 
         AddComputeResources(podTemplateSpec, codespec, codeTarget, targetCluster);
-        AddStorageServer(podTemplateSpec);
 
         return podTemplateSpec;
-    }
-
-    private void AddStorageServer(V1PodTemplateSpec podTemplateSpec)
-    {
-        (GetMainContainer(podTemplateSpec.Spec).Env ??= new List<V1EnvVar>()).Add(new("MRD_STORAGE_URI", _storageServerOptions.Uri));
     }
 
     private static void AddComputeResources(V1PodTemplateSpec podTemplateSpec, Codespec codespec, RunCodeTarget codeTarget, ClusterOptions? targetCluster)

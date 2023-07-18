@@ -14,8 +14,6 @@ job:
       - "$(INPUT_PIPE)"
       - "-o"
       - "$(OUTPUT_PIPE)"
-      - "--storage_address"
-      - "$(MRD_STORAGE_URI)"
     resources:
       requests:
         cpu: 1

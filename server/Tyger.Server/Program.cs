@@ -14,7 +14,6 @@ using Tyger.Server.Middleware;
 using Tyger.Server.Model;
 using Tyger.Server.OpenApi;
 using Tyger.Server.Runs;
-using Tyger.Server.StorageServer;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -40,7 +39,6 @@ builder.Services.AddKubernetes();
 builder.Services.AddLogArchive();
 builder.Services.AddAuth();
 builder.Services.AddBuffers();
-builder.Services.AddStorageServer();
 builder.Services.AddOpenApi();
 builder.Services.AddHealthChecks();
 

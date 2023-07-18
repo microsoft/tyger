@@ -35,28 +35,6 @@ server:
   securityContext: {}
   resources: {}
 
-storageServer:
-  replicaCount: 1
-
-  image:
-  imagePullPolicy: IfNotPresent
-
-  storageAccountConnectionStringSecretName:
-  storageAccountConnectionStringSecretDataKey: connectionString
-
-  imagePullSecrets: []
-  podAnnotations: {}
-  nodeSelector: {}
-  tolerations: []
-  affinity: {}
-  podSecurityContext: {}
-  securityContext: {}
-  resources: {}
-
 db:
   usePasswordFile: true
   postgresqlDatabase: tyger
-
-storagedb:
-  usePasswordFile: true
-  postgresqlDatabase: mrd-storage-server

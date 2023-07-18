@@ -17,15 +17,25 @@ class TestCaseDescriptionGenerator:
         file_dependencies = {}
         case_description = {}
 
-        if case.dependency_client_config:
+        if case.dependency_client_config and not self._skip_dependency_for_case(case):
             file_dependencies.update(self._generate_noise_runfile(case, case_dir, case_description))
 
         if case.reconstruction_client_config:
-            file_dependencies.update(self._generate_main_runfile(case, case_dir, case_description))
+            file_dependencies.update(self._generate_main_runfile(case, case_dir, case_description, case.dependency_client_config is not None))
 
         file_dependencies.update(self._generate_case_description_file(case, case_dir, case_description))
 
         return file_dependencies
+
+    def _skip_dependency_for_case(self, case: GadgetronTestCase) -> bool:
+        # There are a few Gadgetron cases that have dependcies listed,
+        # but don't actually use them. This is a hack to skip those cases.
+        if case.name == 'epi_2d.cfg':
+            return True
+        elif case.name == 'generic_nl_spirit_cartesian_sampling_cine.cfg':
+            return True
+        else:
+            return False
 
     def _generate_noise_runfile(self, case: GadgetronTestCase, case_dir: str, case_description: Dict) -> Dict:
         noise_template_path = os.path.join(os.path.dirname(__file__), '../config/gadgetron_noise.yml')
@@ -49,13 +59,17 @@ class TestCaseDescriptionGenerator:
                 return {os.path.relpath(os.path.normpath(noise_runfile_path),
                                         self._data_dir): hashlib.md5(open(noise_runfile_path, 'rb').read()).hexdigest()}
 
-    def _generate_main_runfile(self, case: GadgetronTestCase, case_dir: str, case_description: Dict) -> Dict:
+    def _generate_main_runfile(self, case: GadgetronTestCase, case_dir: str, case_description: Dict, noise_dependency: bool) -> Dict:
         main_template_path = os.path.join(os.path.dirname(__file__), '../config/gadgetron_default.yml')
 
         with open(main_template_path, 'r') as file:
             config: Dict = yaml.safe_load(file)
             config['job']['codespec']['args'] = [case.reconstruction_client_config.configuration if arg ==
                                                  'default.xml' else arg for arg in config['job']['codespec']['args']]
+
+            if noise_dependency and self._skip_dependency_for_case(case) is False:
+                config['job']['codespec']['buffers']['inputs'].append('noisecovariance')
+                config['job']['codespec']['args'].extend(['--disable_storage', 'true', '--parameter', 'noisecovariancein=$(NOISECOVARIANCE_PIPE)'])
 
             config['job']['codespec']['resources'] |= {}
             config['job']['codespec']['resources']['requests'] |= {}
@@ -76,7 +90,7 @@ class TestCaseDescriptionGenerator:
                     'worker': {
                         'codespec': {
                             'image': 'eminencepublic.azurecr.io/gadgetron:current',
-                            'args': ['--storage_address', '$(MRD_STORAGE_URI)'],
+                            'args': [],
                             'resources': {
                                 'requests': {
                                     'cpu': '3000m',

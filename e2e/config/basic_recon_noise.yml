@@ -1,6 +1,6 @@
 job:
   codespec:
-    image: eminencepublic.azurecr.io/gadgetron:current
+    image: eminence.azurecr.io/recon:current
     buffers:
       inputs:
         - input
@@ -8,17 +8,12 @@ job:
       outputs:
         - output
     args:
-      - "-c"
-      - "Generic_Cartesian_FFT.xml"
-      - "--from_stream"
       - "-i"
       - "$(INPUT_PIPE)"
       - "-o"
       - "$(OUTPUT_PIPE)"
-      - --disable_storage
-      - 'true'
-      - --parameter
-      - noisecovariancein=$(NOISECOVARIANCE_PIPE)
+      - "-n"
+      - "$(NOISECOVARIANCE_PIPE)"
     resources:
       requests:
         cpu: 1

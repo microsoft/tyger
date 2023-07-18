@@ -85,11 +85,7 @@ set-localsettings:
 			},
 			"database": {
 				"connectionString": "Host=tyger-db; Database=tyger; Port=5432; Username=postgres; Password=$${postgres_password}"
-			},
-			"storageServer": {
-				"Uri": "http://${HELM_RELEASE}-storage.${HELM_NAMESPACE}:8080"
 			}
-
 		}
 	EOF
 
@@ -165,7 +161,7 @@ forward: set-context
 	echo '${ENVIRONMENT_CONFIG}' | scripts/forward-services.sh -n ${HELM_NAMESPACE} -c -
 
 check-forwarding:
-	if ! curl "http://${HELM_RELEASE}-storage:8080/healthcheck" &> /dev/null ; then
+	if ! curl "http://${HELM_RELEASE}-server:8080/healthcheck" &> /dev/null ; then
 		echo "run 'make forward' in another terminal before running this target"
 		exit 1
 	fi

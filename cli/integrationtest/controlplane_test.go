@@ -59,7 +59,6 @@ func TestEndToEnd(t *testing.T) {
 		set -euo pipefail
 		inp=$(cat "$INPUT_PIPE")
 		echo "${inp}: Bonjour" > "$OUTPUT_PIPE"
-		curl --fail "${MRD_STORAGE_URI}/healthcheck"
 		`,
 	)
 
@@ -104,7 +103,6 @@ func TestEndToEndWithAutomaticallyCreatedBuffers(t *testing.T) {
 		set -euo pipefail
 		inp=$(cat "$INPUT_PIPE")
 		echo "${inp}: Bonjour" > "$OUTPUT_PIPE"
-		curl --fail "${MRD_STORAGE_URI}/healthcheck"
 		`,
 	)
 
@@ -146,7 +144,6 @@ job:
         set -euo pipefail
         inp=$(cat "$INPUT_PIPE")
         echo "${inp}: Bonjour" > "$OUTPUT_PIPE"
-        curl --fail "${MRD_STORAGE_URI}/healthcheck"
 timeoutSeconds: 600`
 
 	tempDir := t.TempDir()
@@ -193,7 +190,6 @@ job:
         set -euo pipefail
         inp=$(cat "$INPUT_PIPE")
         echo -n "${inp}: Bonjour" > "$OUTPUT_PIPE"
-        curl --fail "${MRD_STORAGE_URI}/healthcheck"
 timeoutSeconds: 600`
 
 	tempDir := t.TempDir()
@@ -224,7 +220,6 @@ func TestEndToEndExecWithYamlWithExistingCodespec(t *testing.T) {
 		set -euo pipefail
 		inp=$(cat "$INPUT_PIPE")
 		echo -n "${inp}: Bonjour" > "$OUTPUT_PIPE"
-		curl --fail "${MRD_STORAGE_URI}/healthcheck"
 		`,
 	)
 

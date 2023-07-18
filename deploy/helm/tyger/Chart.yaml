@@ -28,7 +28,3 @@ dependencies:
   alias: db
   version: 10.14.4
   repository: https://charts.bitnami.com/bitnami
-- name: postgresql
-  alias: storagedb
-  version: 10.14.4
-  repository: https://charts.bitnami.com/bitnami

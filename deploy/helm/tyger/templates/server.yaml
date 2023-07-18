@@ -134,8 +134,6 @@ spec:
               value: {{ required "A value for server.workerWaiterImage is required" $serverValues.workerWaiterImage }}
             - name: Database__ConnectionString
               value: Host={{ template "common.names.fullname" .Subcharts.db }}; Database={{ .Values.db.postgresqlDatabase }}; Port=5432; Username={{ template "postgresql.username" .Subcharts.db }}
-            - name: StorageServer__Uri
-              value: http://{{ include "tyger.fullname" . }}-storage.{{ .Release.Namespace }}:8080
             - name: Buffers__BufferSidecarImage
               value: {{ required "A value for server.bufferSidecarImage is required" $serverValues.bufferSidecarImage }}
           readinessProbe:

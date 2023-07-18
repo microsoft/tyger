@@ -56,7 +56,6 @@ tyger_chart_location="$(dirname "$0")/../../helm/tyger"
 
 helm_release="tyger"
 cluster_config=$(echo "${environment_definition}" | jq -c '.clusters')
-storage_server_image=$(jq -r -c '.dependencies | .[] | select(.name == "mrd-storage-server") | (.repository + ":" + .tag)' "$(dirname "$0")/../../../dependencies.json")
 buffer_sidecar_image="$(docker inspect eminence.azurecr.io/buffer-sidecar:dev | jq -r --arg repo eminence.azurecr.io/buffer-sidecar '.[0].RepoDigests[] | select (startswith($repo))')"
 worker_waiter_image="$(docker inspect eminence.azurecr.io/worker-waiter:dev | jq -r --arg repo eminence.azurecr.io/worker-waiter '.[0].RepoDigests[] | select (startswith($repo))')"
 dns_zone=$(echo "${environment_definition}" | jq -r '.dependencies.dnsZone.name')
@@ -85,9 +84,6 @@ server:
     clusterConfigurationJson: |
         ${cluster_config}
 
-storageServer:
-    image: "${storage_server_image}"
-    storageAccountConnectionStringSecretName: $(echo "${organization}" | jq -r '.storage.storageServer.name')
 END
     )
 

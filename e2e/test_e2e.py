@@ -33,10 +33,22 @@ def scanner_session_id():
     return str(uuid4())
 
 
-def exec_recon(config_file: str, input_file: str, output_file: str, request: pytest.FixtureRequest, scan_name: Optional[str] = None):
+def create_buffer() -> str:
+    tyger_cmd = ["tyger", "buffer", "create"]
+    output = subprocess.check_output(tyger_cmd)
+    return output.decode("utf-8").strip()
+
+
+def exec_recon(config_file: str, input_file: str, output_file: str, request: pytest.FixtureRequest, scan_name: Optional[str] = None, buffers: Optional[Dict[str, str]] = None):
     tyger_args = ["tyger", "run", "exec", "--file", config_file, "--logs", "--baggage", f"testName={request.node.name}"]
     if scan_name:
         tyger_args.extend(["--baggage", f"scan={scan_name}"])
+
+    if buffers:
+        for key, value in buffers.items():
+            tyger_args.extend(["--buffer", f"{key}={value}"])
+
+    print(tyger_args)
 
     to_stream_process = subprocess.Popen(["ismrmrd_hdf5_to_stream", "--use-stdout", "-i", input_file], stdout=subprocess.PIPE)
     tyger_process = subprocess.Popen(tyger_args, stdin=to_stream_process.stdout, stdout=subprocess.PIPE)
@@ -174,8 +186,8 @@ def test_reconstruction_against_reference(
 @pytest.mark.parametrize(
     "image,configs,image_variable_name,scale",
     [
-        (get_dependency_image("recon"), ("basic_noise.yml", "basic_recon.yml"), "image_0", 1),
-        (get_dependency_image("python_recon"), ("basic_noise.yml", "basic_recon.yml"), "image_0", 1),
+        (get_dependency_image("recon"), ("basic_noise.yml", "basic_recon_noise.yml"), "image_0", 1),
+        (get_dependency_image("python_recon"), ("basic_noise.yml", "basic_recon_noise.yml"), "image_0", 1),
         (get_dependency_image("gadgetron"), ("gadgetron_noise.yml", "gadgetron_snr.yml"), "image_1", 10)
     ])
 def test_noise_dependency_reconstruction(data_dir: Path, temp_output_filename: str, image: str, configs: Tuple[str, str], image_variable_name: str, scanner_session_id: str, configuration_generator, scale: float, request):
@@ -183,14 +195,15 @@ def test_noise_dependency_reconstruction(data_dir: Path, temp_output_filename: s
     data_file = str(data_dir/"noise-scaling"/"data_2.h5")
     config_noise, config_recon = configs
 
+    buffers: Dict[str, str] = {'noisecovariance': create_buffer()}
     with tempfile.NamedTemporaryFile(prefix=str(data_dir), suffix='.h5') as out_dummy:
         with tempfile.NamedTemporaryFile(prefix=str(data_dir), suffix='.h5') as input_file:  # Enable parallelism by duplicating the file
             subprocess.run(shlex.split(f'cp {noise_file} {input_file.name}'), check=True)  # Required due to limitation in ismrmrd.
-            exec_recon(configuration_generator(config_noise, image), input_file.name, out_dummy.name, request, "noise")
+            exec_recon(configuration_generator(config_noise, image), input_file.name, out_dummy.name, request, "noise", buffers=buffers)
 
     with tempfile.NamedTemporaryFile(prefix=str(data_dir), suffix='.h5') as input_file:  # Enable parallelism by duplicating the file
         subprocess.run(shlex.split(f'cp {data_file} {input_file.name}'), check=True)  # Required due to limitation in ismrmrd.
-        exec_recon(configuration_generator(config_recon, image), input_file.name, temp_output_filename, request, "main")
+        exec_recon(configuration_generator(config_recon, image), input_file.name, temp_output_filename, request, "main", buffers=buffers)
 
     # Within the object being scanned, the standard deviation across repetitions
     # should be close to 1.
@@ -236,15 +249,17 @@ passing_cases = list(filter(lambda case: case['name'] not in failing_cases, case
     ids=[case['name'] for case in passing_cases]
 )
 def test_gadgetron_test_case(test_case, image, scanner_session_id, temp_output_filename, configuration_generator, request):
+    buffers = {}
     if test_case.get('noise', None):
+        buffers: Dict[str, str] = {'noisecovariance': create_buffer()}
         config = configuration_generator(test_case['noise']['run_file_path'], image)
 
         with tempfile.NamedTemporaryFile(prefix='/tmp/', suffix='.h5') as out_dummy:
-            exec_recon(config, test_case['noise']['dat_file_path'], out_dummy.name, request, "noise")
+            exec_recon(config, test_case['noise']['dat_file_path'], out_dummy.name, request, "noise", buffers=buffers)
 
     if test_case.get('main'):
         config = configuration_generator(test_case['main']['run_file_path'], image)
-        exec_recon(config, test_case['main']['dat_file_path'], temp_output_filename, request, "main")
+        exec_recon(config, test_case['main']['dat_file_path'], temp_output_filename, request, "main", buffers=buffers)
 
         def get_output_data(file_path, img_name):
             data: Any = h5py.File(file_path)

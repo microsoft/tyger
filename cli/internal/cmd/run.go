@@ -91,22 +91,34 @@ func newRunExecCommand() *cobra.Command {
 		if bufferParameters == nil {
 			return nil
 		}
-		switch len(bufferParameters.Inputs) {
+		unmappedInputBuffers := make([]string, 0)
+		for _, input := range bufferParameters.Inputs {
+			if _, ok := run.Job.Buffers[input]; !ok {
+				unmappedInputBuffers = append(unmappedInputBuffers, input)
+			}
+		}
+		unmappedOutputBuffers := make([]string, 0)
+		for _, output := range bufferParameters.Outputs {
+			if _, ok := run.Job.Buffers[output]; !ok {
+				unmappedOutputBuffers = append(unmappedOutputBuffers, output)
+			}
+		}
+		switch len(unmappedInputBuffers) {
 		case 0:
 			break
 		case 1:
-			inputBufferParameter = bufferParameters.Inputs[0]
+			inputBufferParameter = unmappedInputBuffers[0]
 		default:
-			return errors.New("exec cannot be called if the job has multiple input buffers")
+			return errors.New("exec cannot be called if the job has multiple unmapped input buffers")
 		}
 
-		switch len(bufferParameters.Outputs) {
+		switch len(unmappedOutputBuffers) {
 		case 0:
 			break
 		case 1:
-			outputBufferParameter = bufferParameters.Outputs[0]
+			outputBufferParameter = unmappedOutputBuffers[0]
 		default:
-			return errors.New("exec cannot be called if the job has multiple output buffers")
+			return errors.New("exec cannot be called if the job has multiple unmapped output buffers")
 		}
 
 		return nil
