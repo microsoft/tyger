@@ -44,6 +44,12 @@ paths:
       tags:
         - tyger.server
       operationId: createBuffer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Buffer'
+        required: true
       responses:
         '201':
           description: Created
@@ -71,6 +77,44 @@ paths:
                 $ref: '#/components/schemas/Buffer'
         '404':
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  '/v1/buffers/{id}/tags':
+    put:
+      tags:
+        - tyger.server
+      operationId: setBufferTags
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
+        required: true
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Buffer'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '412':
+          description: Client Error
           content:
             application/json:
               schema:

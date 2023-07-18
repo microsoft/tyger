@@ -38,11 +38,13 @@ func NewBufferCommand() *cobra.Command {
 	cmd.AddCommand(NewBufferWriteCommand(os.OpenFile))
 	cmd.AddCommand(newGenerateCommand())
 	cmd.AddCommand(newBufferShowCommand())
+	cmd.AddCommand(newBufferSetCommand())
 
 	return cmd
 }
 
 func newBufferCreateCommand() *cobra.Command {
+	full := false
 	tagEntries := make(map[string]string)
 	cmd := &cobra.Command{
 		Use:                   "create [--tag key=value ...]",
@@ -57,10 +59,65 @@ func newBufferCreateCommand() *cobra.Command {
 				return err
 			}
 
-			fmt.Println(string(buffer.Id))
+			if full {
+				formattedBuffer, err := json.MarshalIndent(buffer, "", "  ")
+				if err != nil {
+					return err
+				}
+
+				fmt.Println(string(formattedBuffer))
+			} else {
+				fmt.Println(string(buffer.Id))
+			}
 			return nil
 		},
 	}
+	cmd.Flags().StringToStringVar(&tagEntries, "tag", nil, "add a key-value tag to the buffer. Can be specified multiple times.")
+	cmd.Flags().BoolVar(&full, "full-resource", false, "return the full buffer resource and not just the buffer ID")
+
+	return cmd
+}
+
+type Tags map[string]string
+
+func (t Tags) MarshalJSON() ([]byte, error) {
+	if len(t) == 0 {
+		return []byte("{}"), nil
+	}
+	return json.Marshal(map[string]string(t))
+}
+
+func newBufferSetCommand() *cobra.Command {
+	var etag string
+	tagEntries := make(map[string]string)
+	cmd := &cobra.Command{
+		Use:                   "set ID [--etag ETAG] [--tag key=value ...]",
+		Short:                 "Sets the tag on an existing buffer",
+		Long:                  `Sets the tag on an existing buffer.`,
+		Args:                  exactlyOneArg("buffer ID"),
+		DisableFlagsInUseLine: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			buffer := model.Buffer{}
+			var headers = make(http.Header)
+			if etag != "" {
+				headers.Add("If-Match", etag)
+			}
+
+			_, err := controlplane.InvokeRequestWithHeaders(cmd.Context(), http.MethodPut, fmt.Sprintf("v1/buffers/%s/tags", args[0]), Tags(tagEntries), &buffer, headers)
+			if err != nil {
+				return err
+			}
+
+			formattedBuffer, err := json.MarshalIndent(buffer, "", "  ")
+			if err != nil {
+				return err
+			}
+
+			fmt.Println(string(formattedBuffer))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&etag, "etag", etag, "the ETag assigned to the buffer, ")
 	cmd.Flags().StringToStringVar(&tagEntries, "tag", nil, "add a key-value tag to the buffer. Can be specified multiple times.")
 
 	return cmd

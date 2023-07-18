@@ -60,7 +60,12 @@ public class BufferManager : IHealthCheck
 
     public async Task<Buffer?> GetBufferById(string id, CancellationToken cancellationToken)
     {
-        var buffer = await _repository.GetBuffer(id, cancellationToken);
+        return await GetBufferById(id, "", cancellationToken);
+    }
+
+    public async Task<Buffer?> GetBufferById(string id, string eTag, CancellationToken cancellationToken)
+    {
+        var buffer = await _repository.GetBuffer(id, eTag, cancellationToken);
 
         if (buffer == null)
         {
@@ -81,6 +86,11 @@ public class BufferManager : IHealthCheck
         }
 
         return null;
+    }
+
+    public async Task<Buffer?> UpdateBufferById(string id, string eTag, IDictionary<string, string>? tags, CancellationToken cancellationToken)
+    {
+        return await _repository.UpdateBufferById(id, eTag, tags, cancellationToken);
     }
 
     internal async Task<BufferAccess?> CreateBufferAccessString(string id, bool writeable, CancellationToken cancellationToken)

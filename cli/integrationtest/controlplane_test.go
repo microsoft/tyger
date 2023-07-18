@@ -975,6 +975,76 @@ func TestBufferWithTags(t *testing.T) {
 	require.Equal("testvalue2", buffer.Tags["testtag2"])
 }
 
+func TestBufferSetTags(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+
+	bufferId := runTygerSucceeds(t, "buffer", "create", "--tag", "testtag1=testvalue1", "--tag", "testtag2=testvalue2")
+	t.Logf("Buffer ID: %s", bufferId)
+
+	bufferJson := runTygerSucceeds(t, "buffer", "set", bufferId, "--tag", "testtag3=testvalue3", "--tag", "testtag4=testvalue4")
+
+	var buffer model.Buffer
+	require.NoError(json.Unmarshal([]byte(bufferJson), &buffer))
+
+	require.Equal(2, len(buffer.Tags))
+	require.Equal("testvalue3", buffer.Tags["testtag3"])
+	require.Equal("testvalue4", buffer.Tags["testtag4"])
+}
+
+func TestBufferSetTagsWithETag(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+
+	bufferJson := runTygerSucceeds(t, "buffer", "create", "--tag", "testtag1=testvalue1", "--tag", "testtag2=testvalue2", "--full-resource")
+
+	var bufferETag model.Buffer
+	require.NoError(json.Unmarshal([]byte(bufferJson), &bufferETag))
+
+	t.Logf("Buffer ID: %s eTag: %s", bufferETag.Id, bufferETag.ETag)
+
+	bufferJson = runTygerSucceeds(t, "buffer", "set", bufferETag.Id, "--tag", "testtag3=testvalue3", "--tag", "testtag4=testvalue4", "--etag", bufferETag.ETag)
+
+	var buffer model.Buffer
+	require.NoError(json.Unmarshal([]byte(bufferJson), &buffer))
+
+	require.Equal(2, len(buffer.Tags))
+	require.Equal("testvalue3", buffer.Tags["testtag3"])
+	require.Equal("testvalue4", buffer.Tags["testtag4"])
+	require.NotEqual(bufferETag.ETag, buffer.ETag)
+}
+
+func TestBufferSetWithInvalidETag(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+
+	bufferId := runTygerSucceeds(t, "buffer", "create", "--tag", "testtag1=testvalue1", "--tag", "testtag2=testvalue2")
+	t.Logf("Buffer ID: %s", bufferId)
+
+	runTygerSucceeds(t, "buffer", "show", bufferId)
+
+	_, stderr, _ := runTyger("buffer", "set", bufferId, "--etag", "bad-etag")
+	require.Contains(stderr, "412 Precondition Failed")
+
+	_, stderr2, _ := runTyger("buffer", "set", "bad-bufferid", "--etag", "bad-etag")
+	require.Contains(stderr2, "404 Not Found")
+}
+
+func TestBufferSetClearTags(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+
+	bufferId := runTygerSucceeds(t, "buffer", "create", "--tag", "testtag1=testvalue1", "--tag", "testtag2=testvalue2")
+	t.Logf("Buffer ID: %s", bufferId)
+
+	bufferJson := runTygerSucceeds(t, "buffer", "set", bufferId)
+
+	var buffer model.Buffer
+	require.NoError(json.Unmarshal([]byte(bufferJson), &buffer))
+
+	require.Equal(0, len(buffer.Tags))
+}
+
 func waitForRunStarted(t *testing.T, runId string) model.Run {
 	return waitForRun(t, runId, true, false)
 }

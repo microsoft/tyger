@@ -5,7 +5,7 @@ namespace Tyger.Server.Json;
 
 public static class RequestBody
 {
-    public static async ValueTask<TValue> ReadAndValidateJson<TValue>(this HttpRequest request, CancellationToken cancellationToken) where TValue : class
+    public static async ValueTask<TValue> ReadAndValidateJson<TValue>(this HttpRequest request, CancellationToken cancellationToken, bool allowEmpty = false) where TValue : class
     {
         TValue? value;
         try
@@ -16,10 +16,13 @@ public static class RequestBody
                 throw new ValidationException("null is not a valid input value");
             }
 
-            value = Normalizer.NormalizeEmptyToNull(value);
-            if (value == null)
+            if (!allowEmpty)
             {
-                throw new ValidationException("An empty object is not a valid input value");
+                value = Normalizer.NormalizeEmptyToNull(value);
+                if (value == null)
+                {
+                    throw new ValidationException("An empty object is not a valid input value");
+                }
             }
 
             Validator.ValidateObject(value, new ValidationContext(value), validateAllProperties: true);

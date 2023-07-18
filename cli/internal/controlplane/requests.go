@@ -20,6 +20,10 @@ import (
 )
 
 func InvokeRequest(ctx context.Context, method string, relativeUri string, input interface{}, output interface{}) (*http.Response, error) {
+	return InvokeRequestWithHeaders(ctx, method, relativeUri, input, output, nil)
+}
+
+func InvokeRequestWithHeaders(ctx context.Context, method string, relativeUri string, input interface{}, output interface{}, headers http.Header) (*http.Response, error) {
 	serviceInfo, err := GetPersistedServiceInfo()
 	if err != nil || serviceInfo.GetServerUri() == "" {
 		return nil, errors.New("run 'tyger login' to connect to a Tyger server")
@@ -46,6 +50,12 @@ func InvokeRequest(ctx context.Context, method string, relativeUri string, input
 	}
 
 	propagation.Baggage{}.Inject(ctx, propagation.HeaderCarrier(req.Header))
+
+	for key, values := range headers {
+		for _, value := range values {
+			req.Header.Add(key, value)
+		}
+	}
 
 	req.Header.Set("Content-Type", "application/json")
 
