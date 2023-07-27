@@ -57,6 +57,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Buffer'
+    get:
+      tags:
+        - tyger.server
+      operationId: getBuffers
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            format: int32
+        - name: _ct
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BufferPage'
   '/v1/buffers/{id}':
     get:
       tags:
@@ -428,6 +449,18 @@ components:
         uri:
           type: string
           format: uri
+      additionalProperties: false
+    BufferPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Buffer'
+        nextLink:
+          type: string
+          format: uri
+          nullable: true
       additionalProperties: false
     BufferParameters:
       type: object

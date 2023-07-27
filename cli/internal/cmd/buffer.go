@@ -8,8 +8,11 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"net/http"
+	"net/url"
 	"os"
+	"strconv"
 
 	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/controlplane"
 	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/controlplane/model"
@@ -39,6 +42,7 @@ func NewBufferCommand() *cobra.Command {
 	cmd.AddCommand(newGenerateCommand())
 	cmd.AddCommand(newBufferShowCommand())
 	cmd.AddCommand(newBufferSetCommand())
+	cmd.AddCommand(newBufferListCommand())
 
 	return cmd
 }
@@ -385,4 +389,36 @@ func Gen(byteCount int64, outputWriter io.Writer) error {
 		byteCount -= count
 	}
 	return nil
+}
+
+func newBufferListCommand() *cobra.Command {
+	limit := 0
+	tagEntries := make(map[string]string)
+
+	cmd := &cobra.Command{
+		Use:                   "list [--tag key=value ...] [--limit COUNT]",
+		Short:                 "List buffers",
+		Long:                  `List buffers. Buffers are sorted by descending created time.`,
+		DisableFlagsInUseLine: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			listOptions := url.Values{}
+			if limit > 0 {
+				listOptions.Add("limit", strconv.Itoa(limit))
+			} else {
+				limit = math.MaxInt
+			}
+
+			for name, value := range tagEntries {
+				listOptions.Add(fmt.Sprintf("tag.%s", name), value)
+			}
+
+			relativeUri := fmt.Sprintf("v1/buffers?%s", listOptions.Encode())
+			return controlplane.InvokePageRequests[model.Buffer](cmd.Context(), relativeUri, limit, !cmd.Flags().Lookup("limit").Changed)
+		},
+	}
+
+	cmd.Flags().StringToStringVar(&tagEntries, "tag", nil, "add a key-value tag to the buffer. Can be specified multiple times.")
+	cmd.Flags().IntVarP(&limit, "limit", "l", 1000, "The maximum number of buffers to list. Default 1000")
+
+	return cmd
 }

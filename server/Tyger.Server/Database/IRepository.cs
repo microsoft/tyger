@@ -16,6 +16,7 @@ public interface IRepository
     Task<(IList<(Run run, bool final)>, string? nextContinuationToken)> GetRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken);
     Task<IList<Run>> GetPageOfRunsThatNeverGotResources(CancellationToken cancellationToken);
     Task<Model.Buffer?> GetBuffer(string id, string eTag, CancellationToken cancellationToken);
+    Task<(IList<Model.Buffer>, string? nextContinuationToken)> GetBuffers(IDictionary<string, string>? tags, int limit, string? continuationToken, CancellationToken cancellationToken);
     Task<Model.Buffer?> UpdateBufferById(string id, string eTag, IDictionary<string, string>? tags, CancellationToken cancellationToken);
     Task<Model.Buffer> CreateBuffer(Model.Buffer newBuffer, CancellationToken cancellationToken);
 }

@@ -354,6 +354,8 @@ public record RunPage(IReadOnlyList<Run> Items, Uri? NextLink);
 
 public record CodespecPage(IList<Codespec> Items, Uri? NextLink);
 
+public record BufferPage(IList<Buffer> Items, Uri? NextLink);
+
 public record Cluster(string Name, string Region, IReadOnlyList<NodePool> NodePools);
 
 public record NodePool(string Name, string VmSize);

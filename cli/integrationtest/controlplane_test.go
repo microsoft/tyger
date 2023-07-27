@@ -24,6 +24,7 @@ import (
 	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/controlplane/model"
 	"github.com/andreyvit/diff"
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/assert"
@@ -1043,6 +1044,84 @@ func TestBufferSetClearTags(t *testing.T) {
 	require.NoError(json.Unmarshal([]byte(bufferJson), &buffer))
 
 	require.Equal(0, len(buffer.Tags))
+}
+
+func TestBufferList(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+
+	uniqueId := uuid.New().String()
+
+	bufferId1 := runTygerSucceeds(t, "buffer", "create", "--tag", "testtag1=testvalue1", "--tag", "testtag2=testvalue2", "--tag", "testtagX="+uniqueId)
+	bufferId2 := runTygerSucceeds(t, "buffer", "create", "--tag", "testtag2=testvalue2", "--tag", "testtag3=testvalue3", "--tag", "testtagX="+uniqueId)
+	bufferId3 := runTygerSucceeds(t, "buffer", "create", "--tag", "testtag1=testvalue1", "--tag", "testtag3=testvalue3", "--tag", "testtagX="+uniqueId)
+
+	bufferJson := runTygerSucceeds(t, "buffer", "list", "--tag", "testtag1=testvalue1", "--tag", "testtag2=testvalue2", "--tag", "testtagX="+uniqueId)
+	var buffers []model.Buffer
+	require.NoError(json.Unmarshal([]byte(bufferJson), &buffers))
+
+	require.Equal(1, len(buffers))
+	require.Equal(3, len(buffers[0].Tags))
+	require.Equal(bufferId1, buffers[0].Id)
+	require.Equal(uniqueId, buffers[0].Tags["testtagX"])
+	require.Equal("testvalue1", buffers[0].Tags["testtag1"])
+	require.Equal("testvalue2", buffers[0].Tags["testtag2"])
+
+	bufferJson = runTygerSucceeds(t, "buffer", "list", "--tag", "testtag2=testvalue2", "--tag", "testtag3=testvalue3", "--tag", "testtagX="+uniqueId)
+	buffers = nil
+	require.NoError(json.Unmarshal([]byte(bufferJson), &buffers))
+
+	require.Equal(1, len(buffers))
+	require.Equal(3, len(buffers[0].Tags))
+	require.Equal(bufferId2, buffers[0].Id)
+	require.Equal(uniqueId, buffers[0].Tags["testtagX"])
+	require.Equal("testvalue2", buffers[0].Tags["testtag2"])
+	require.Equal("testvalue3", buffers[0].Tags["testtag3"])
+
+	bufferJson = runTygerSucceeds(t, "buffer", "list", "--tag", "testtag1=testvalue1", "--tag", "testtag3=testvalue3", "--tag", "testtagX="+uniqueId)
+	buffers = nil
+	require.NoError(json.Unmarshal([]byte(bufferJson), &buffers))
+
+	require.Equal(1, len(buffers))
+	require.Equal(3, len(buffers[0].Tags))
+	require.Equal(bufferId3, buffers[0].Id)
+	require.Equal(uniqueId, buffers[0].Tags["testtagX"])
+	require.Equal("testvalue1", buffers[0].Tags["testtag1"])
+	require.Equal("testvalue3", buffers[0].Tags["testtag3"])
+
+	bufferJson = runTygerSucceeds(t, "buffer", "list", "--tag", "testtag1=testvalue1", "--tag", "testtagX="+uniqueId)
+	require.NoError(json.Unmarshal([]byte(bufferJson), &buffers))
+
+	require.Equal(2, len(buffers))
+}
+
+func TestBufferListWithLimit(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+
+	uniqueId := uuid.New().String()
+
+	runTygerSucceeds(t, "buffer", "create", "--tag", "testtagX="+uniqueId)
+	runTygerSucceeds(t, "buffer", "create", "--tag", "testtagX="+uniqueId)
+	runTygerSucceeds(t, "buffer", "create", "--tag", "testtagX="+uniqueId)
+
+	bufferJson := runTygerSucceeds(t, "buffer", "list", "--limit", "1", "--tag", "testtagX="+uniqueId)
+	var buffers []model.Buffer
+	require.NoError(json.Unmarshal([]byte(bufferJson), &buffers))
+
+	require.Equal(1, len(buffers))
+
+	bufferJson = runTygerSucceeds(t, "buffer", "list", "--limit", "2", "--tag", "testtagX="+uniqueId)
+	buffers = nil
+	require.NoError(json.Unmarshal([]byte(bufferJson), &buffers))
+
+	require.Equal(2, len(buffers))
+
+	bufferJson = runTygerSucceeds(t, "buffer", "list", "--limit", "3", "--tag", "testtagX="+uniqueId)
+	buffers = nil
+	require.NoError(json.Unmarshal([]byte(bufferJson), &buffers))
+
+	require.Equal(3, len(buffers))
 }
 
 func waitForRunStarted(t *testing.T, runId string) model.Run {

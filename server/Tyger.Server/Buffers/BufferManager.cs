@@ -93,6 +93,11 @@ public class BufferManager : IHealthCheck
         return await _repository.UpdateBufferById(id, eTag, tags, cancellationToken);
     }
 
+    public async Task<(IList<Buffer>, string? nextContinuationToken)> GetBuffers(IDictionary<string, string>? tags, int limit, string? continuationToken, CancellationToken cancellationToken)
+    {
+        return await _repository.GetBuffers(tags, limit, continuationToken, cancellationToken);
+    }
+
     internal async Task<BufferAccess?> CreateBufferAccessString(string id, bool writeable, CancellationToken cancellationToken)
     {
         if (await GetBufferById(id, cancellationToken) is null)

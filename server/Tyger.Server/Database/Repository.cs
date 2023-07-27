@@ -385,6 +385,157 @@ public class Repository : IRepository
         return new Buffer { Id = id, ETag = currentETag, CreatedAt = createdAt, Tags = tags };
     }
 
+    private async Task<long?> GetTagId(string name, CancellationToken cancellationToken)
+    {
+        var entity = await _context.TagKeys.AsNoTracking().FirstOrDefaultAsync(r => r.Name == name, cancellationToken);
+        return entity?.Id;
+    }
+
+    public async Task<(IList<Buffer>, string? nextContinuationToken)> GetBuffers(IDictionary<string, string>? tags, int limit, string? continuationToken, CancellationToken cancellationToken)
+    {
+        var connection = await GetOpenedConnection(cancellationToken);
+        using var command = new NpgsqlCommand
+        {
+            Connection = connection,
+            Parameters =
+            {
+                new() { Value = limit + 1},
+            },
+        };
+
+        var commandText = new StringBuilder();
+        string distinct = tags == null ? "DISTINCT" : "";
+        commandText.Append(@$"WITH matches AS (
+            SELECT {distinct} t1.id, t1.created_at
+            FROM tags AS t1
+            ");
+
+        int param = 2;
+
+        if (tags != null)
+        {
+            for (int x = 0; x < tags.Count - 1; x++)
+            {
+                commandText.Append($"INNER JOIN tags AS t{x + 2} ON t1.created_at = t{x + 2}.created_at and t1.id = t{x + 2}.id\n");
+            }
+
+            commandText.Append("WHERE\n");
+
+            int index = 1;
+            foreach (var tag in tags)
+            {
+                if (index != 1)
+                {
+                    commandText.Append(" AND ");
+                }
+
+                var id = await GetTagId(tag.Key, cancellationToken);
+                if (id == null)
+                {
+                    return (new List<Buffer>(), null);
+                }
+
+                commandText.Append($" t{index}.key = ${param} and t{index}.value = ${param + 1}\n");
+                command.Parameters.Add(new() { Value = id.Value });
+                command.Parameters.Add(new() { Value = tag.Value });
+                index++;
+                param += 2;
+            }
+        }
+
+        if (continuationToken != null)
+        {
+            bool valid = false;
+            try
+            {
+                var fields = JsonSerializer.Deserialize<string[]>(Encoding.ASCII.GetString(Base32.ZBase32.Decode(continuationToken)), _serializerOptions);
+                if (fields is { Length: 2 })
+                {
+                    if (tags == null)
+                    {
+                        commandText.Append(" WHERE ");
+                    }
+                    else
+                    {
+                        commandText.Append(" AND ");
+                    }
+
+                    commandText.Append($"(t1.created_at, t1.id) < (${param}, ${param + 1})\n");
+                    command.Parameters.Add(new() { Value = DateTimeOffset.Parse(fields[0]) });
+                    command.Parameters.Add(new() { Value = fields[1] });
+                    param += 2;
+                    valid = true;
+                }
+            }
+            catch (Exception e) when (e is JsonException or FormatException)
+            {
+            }
+
+            if (!valid)
+            {
+                throw new ValidationException("Invalid continuation token.");
+            }
+        }
+
+        commandText.Append(@" ORDER BY t1.created_at DESC, t1.id DESC
+                LIMIT $1
+            )
+            SELECT matches.id, matches.created_at, tag_keys.name, tags.value, buffers.etag
+            FROM matches
+            INNER JOIN tags
+                ON matches.id = tags.id AND matches.created_at = tags.created_at
+            INNER JOIN tag_keys ON tags.key = tag_keys.id
+            INNER JOIN buffers ON tags.id = buffers.id AND tags.created_at = buffers.created_at
+            ORDER BY matches.created_at DESC, matches.id DESC");
+
+        command.CommandText = commandText.ToString();
+
+        var results = new List<Buffer>();
+        var currentTags = new Dictionary<string, string>();
+        var currentBuffer = new Buffer();
+
+        using var reader = (await command.ExecuteReaderAsync(cancellationToken))!;
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var id = reader.GetString(0);
+            var createdAt = reader.GetDateTime(1);
+            var tagname = reader.GetString(2);
+            var tagvalue = reader.GetString(3);
+            var etag = reader.GetString(4);
+
+            if (currentBuffer.Id != id)
+            {
+                if (currentBuffer.Id != "")
+                {
+                    results.Add(currentBuffer with { Tags = currentTags });
+                }
+
+                currentBuffer = currentBuffer with { Id = id, CreatedAt = createdAt, ETag = etag };
+                currentTags = new Dictionary<string, string>();
+            }
+
+            currentTags[tagname] = tagvalue;
+        }
+
+        if (currentBuffer.Id != "")
+        {
+            results.Add(currentBuffer with { Tags = currentTags });
+        }
+
+        await reader.ReadAsync(cancellationToken);
+        await reader.DisposeAsync();
+
+        if (results.Count == limit + 1)
+        {
+            results.RemoveAt(limit);
+            var last = results[^1];
+            string newToken = Base32.ZBase32.Encode(Encoding.ASCII.GetBytes(JsonSerializer.Serialize(new[] { last.CreatedAt.ToString(), last.Id }, _serializerOptions)));
+            return (results, newToken);
+        }
+
+        return (results, null);
+    }
+
     public async Task<Buffer?> UpdateBufferById(string id, string eTag, IDictionary<string, string>? tags, CancellationToken cancellationToken)
     {
         var connection = await GetOpenedConnection(cancellationToken);

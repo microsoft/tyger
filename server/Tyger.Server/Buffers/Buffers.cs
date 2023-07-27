@@ -1,4 +1,7 @@
 using System.ComponentModel.DataAnnotations;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.Extensions.Primitives;
 using Tyger.Server.Json;
 using Tyger.Server.Model;
 using Buffer = Tyger.Server.Model.Buffer;
@@ -27,6 +30,47 @@ public static class Buffers
             .Accepts<Buffer>("application/json")
             .WithName("createBuffer")
             .Produces<Buffer>(StatusCodes.Status201Created);
+
+        app.MapGet("/v1/buffers", async (BufferManager manager, HttpContext context, int? limit, [FromQuery(Name = "_ct")] string? continuationToken, CancellationToken cancellationToken) =>
+            {
+                limit = limit is null ? 20 : Math.Min(limit.Value, 200);
+                var tagQuery = new Dictionary<string, string>();
+
+                foreach (var tag in context.Request.Query)
+                {
+                    if (tag.Key.StartsWith("tag."))
+                    {
+                        tagQuery.Add(tag.Key[4..], tag.Value.FirstOrDefault() ?? "");
+                    }
+                }
+
+                if (tagQuery.Count == 0)
+                {
+                    tagQuery = null;
+                }
+
+                (var buffers, var nextContinuationToken) = await manager.GetBuffers(tagQuery, limit.Value, continuationToken, cancellationToken);
+
+                string? nextLink;
+                if (nextContinuationToken is null)
+                {
+                    nextLink = null;
+                }
+                else if (context.Request.QueryString.HasValue)
+                {
+                    var qd = QueryHelpers.ParseQuery(context.Request.QueryString.Value);
+                    qd["_ct"] = new StringValues(nextContinuationToken);
+                    nextLink = QueryHelpers.AddQueryString(context.Request.Path, qd);
+                }
+                else
+                {
+                    nextLink = QueryHelpers.AddQueryString(context.Request.Path, "_ct", nextContinuationToken);
+                }
+
+                return Results.Ok(new BufferPage(buffers, nextLink == null ? null : new Uri(nextLink)));
+            })
+            .WithName("getBuffers")
+            .Produces<BufferPage>();
 
         app.MapGet("/v1/buffers/{id}", async (BufferManager manager, HttpContext context, string id, CancellationToken cancellationToken) =>
             {
