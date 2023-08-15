@@ -404,15 +404,15 @@ public class Repository : IRepository
         };
 
         var commandText = new StringBuilder();
-        string distinct = tags == null ? "DISTINCT" : "";
+        string table = tags?.Count > 0 ? "tags" : "buffers";
         commandText.Append(@$"WITH matches AS (
-            SELECT {distinct} t1.id, t1.created_at
-            FROM tags AS t1
+            SELECT t1.id, t1.created_at
+            FROM {table} AS t1
             ");
 
         int param = 2;
 
-        if (tags != null)
+        if (tags?.Count > 0)
         {
             for (int x = 0; x < tags.Count - 1; x++)
             {
@@ -482,10 +482,10 @@ public class Repository : IRepository
             )
             SELECT matches.id, matches.created_at, tag_keys.name, tags.value, buffers.etag
             FROM matches
-            INNER JOIN tags
+            LEFT JOIN tags
                 ON matches.id = tags.id AND matches.created_at = tags.created_at
-            INNER JOIN tag_keys ON tags.key = tag_keys.id
-            INNER JOIN buffers ON tags.id = buffers.id AND tags.created_at = buffers.created_at
+            LEFT JOIN tag_keys ON tags.key = tag_keys.id
+            LEFT JOIN buffers ON matches.id = buffers.id AND matches.created_at = buffers.created_at
             ORDER BY matches.created_at DESC, matches.id DESC");
 
         command.CommandText = commandText.ToString();
@@ -499,8 +499,6 @@ public class Repository : IRepository
         {
             var id = reader.GetString(0);
             var createdAt = reader.GetDateTime(1);
-            var tagname = reader.GetString(2);
-            var tagvalue = reader.GetString(3);
             var etag = reader.GetString(4);
 
             if (currentBuffer.Id != id)
@@ -514,7 +512,13 @@ public class Repository : IRepository
                 currentTags = new Dictionary<string, string>();
             }
 
-            currentTags[tagname] = tagvalue;
+            if (!reader.IsDBNull(2) && !reader.IsDBNull(3))
+            {
+                var tagname = reader.GetString(2);
+                var tagvalue = reader.GetString(3);
+
+                currentTags[tagname] = tagvalue;
+            }
         }
 
         if (currentBuffer.Id != "")

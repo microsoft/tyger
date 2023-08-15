@@ -239,6 +239,11 @@ public record JobRunCodeTarget : RunCodeTarget
     /// The IDs of buffers to provide as arguments to the buffer parameters defined in the job codespec.
     /// </summary>
     public Dictionary<string, string>? Buffers { get; init; }
+
+    /// <summary>
+    /// Tags to add to any buffer created for a job
+    /// </summary>
+    public Dictionary<string, string>? Tags { get; init; }
 }
 
 [JsonConverter(typeof(CodespecRefConverter))]
