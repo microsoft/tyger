@@ -12,8 +12,8 @@ permissions:
       contents: read
 
 jobs:
-  Windows-latest:
-      runs-on: ubuntu-latest-4-cores
+  tyger-build-deploy:
+      runs-on: ["self-hosted", "1ES.Pool=tyger-gh-1es"]
       steps:
         - name: 'Login into Azure'
           uses: azure/login@v1
