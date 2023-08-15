@@ -30,7 +30,9 @@ jobs:
         - name: 'Set variables'
           id: set-variables
           run: |
-            if [ "push" == "${{ github.event_name }}" ]; then
+            set -eo pipefail
+            event_name="${{ github.event_name }}"
+            if [ "$event_name" == "push" ]; then
               environment_name="tyger-pr${{ github.event.pull_request.number }}"
             else
               environment_name="tygerwestus2"
@@ -44,5 +46,5 @@ jobs:
             set -eo pipefail
             az group list
             df -h
-            echo "ENVRIONMENT_NAME = ${{ steps.set-variables.outputs.ENVRIONMENT_NAME }}"
+            echo "TYGER_ENVIRONMENT_NAME = ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}"
             echo "TYGER_URI = ${{ steps.set-variables.outputs.TYGER_URI }}"
