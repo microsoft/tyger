@@ -14,6 +14,8 @@ permissions:
 jobs:
   tyger-build-deploy:
       runs-on: ["self-hosted", "1ES.Pool=tyger-gh-1es"]
+      container:
+        image: compimagdevcontainers.azurecr.io/tyger@sha256:1285398df96fbd37cdc574834e49c7bdb7260f8c98f7aabb3469ac98085f70af
       steps:
         - name: 'Login into Azure'
           uses: azure/login@v1
@@ -22,8 +24,25 @@ jobs:
             tenant-id: ${{ secrets.AZURE_TENANT_ID }}
             subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+        - name: Checkout
+          uses: actions/checkout@v3
+
+        - name: 'Set variables'
+          id: set-variables
+          run: |
+            if [ "push" == "${{ github.event_name }}" ]; then
+              environment_name="tyger-pr${{ github.event.pull_request.number }}"}}"
+            else
+              environment_name="tygerwestus2"
+            fi
+            tyger_uri=$(TYGER_ENVIRONMENT_NAME="${environment_name}" make -s get-tyger-uri)
+            echo "TYGER_ENVIRONMENT_NAME=$environment_name" >> "$GITHUB_OUTPUT"
+            echo "TYGER_URI=$tyger_uri" >> "$GITHUB_OUTPUT"
+
         - name: 'Build and test'
           run: |
             set -eo pipefail
             az group list
             df -h
+            echo "ENVRIONMENT_NAME = ${{ steps.set-variables.outputs.ENVRIONMENT_NAME }}"
+            echo "TYGER_URI = ${{ steps.set-variables.outputs.TYGER_URI }}"
