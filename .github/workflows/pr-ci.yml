@@ -26,11 +26,10 @@ jobs:
       runs-on: ["self-hosted", "1ES.Pool=tyger-gh-1es2"]
       container:
         image: compimagdevcontainers.azurecr.io/tyger@sha256:1285398df96fbd37cdc574834e49c7bdb7260f8c98f7aabb3469ac98085f70af
-        options: -v /mnt/storage:/mnt/storage
+        options: -v /mnt/storage:/__w/tyger
       defaults:
         run:
           shell: bash
-          working-directory: /mnt/storage
       steps:
         - name: 'Check disk space'
           run: |
@@ -47,6 +46,7 @@ jobs:
 
         - name: Checkout
           uses: actions/checkout@v3
+          working-directory: /mnt/storage
 
         - name: 'Set variables'
           id: set-variables
