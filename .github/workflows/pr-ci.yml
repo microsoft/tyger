@@ -58,9 +58,12 @@ jobs:
               echo 'Error: the "image" field in devcontainer.json does not reflect the current "devcontainer" target of the Dockerfile. Run .devcontainer/update-devcontainer-image.sh to correct this.'
               exit 1
             fi
-        - name: 'Buid and verify format'
+        - name: 'Bulid and verify format'
           shell: bash
           run: |
+            set -eo pipefail
+            source /etc/profile.d/conda.sh
+            conda activate /opt/conda/envs/tyger
             make restore
             make verify-format
 
@@ -69,7 +72,6 @@ jobs:
           env:
             TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
             TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
-
           run: |
             set -eo pipefail
             source /etc/profile.d/conda.sh
