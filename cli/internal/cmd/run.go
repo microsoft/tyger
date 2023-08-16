@@ -291,6 +291,7 @@ func newRunCreateCommandCore(
 		codespec        string
 		codespecVersion string
 		buffers         map[string]string
+		tags            map[string]string
 		nodePool        string
 		replicas        int
 	}
@@ -345,6 +346,14 @@ func newRunCreateCommandCore(
 				}
 				for k, v := range flags.job.buffers {
 					newRun.Job.Buffers[k] = v
+				}
+			}
+			if len(flags.job.tags) > 0 {
+				if newRun.Job.Tags == nil {
+					newRun.Job.Tags = map[string]string{}
+				}
+				for k, v := range flags.job.tags {
+					newRun.Job.Tags[k] = v
 				}
 			}
 			if flags.job.nodePool != "" {
@@ -418,6 +427,7 @@ func newRunCreateCommandCore(
 	cmd.Flags().IntVarP(&flags.job.replicas, "replicas", "r", 1, "The number of parallel job replicas. Defaults to 1.")
 	cmd.Flags().StringVar(&flags.job.nodePool, "node-pool", "", "The name of the nodepool to execute the job in")
 	cmd.Flags().StringToStringVarP(&flags.job.buffers, "buffer", "b", nil, "maps a codespec buffer parameter to a buffer ID")
+	cmd.Flags().StringToStringVar(&flags.job.tags, "tag", nil, "add a key-value tag to be applied to any buffer created by the job")
 
 	cmd.Flags().StringVar(&flags.worker.codespec, "worker-codespec", "", "The name of the optional worker codespec to execute")
 	cmd.Flags().StringVar(&flags.worker.codespecVersion, "worker-version", "", "The version of the optional worker codespec to execute")

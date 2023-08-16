@@ -70,6 +70,7 @@ type Page[T any] struct {
 type RunCodeTarget struct {
 	Codespec CodespecRef       `json:"codespec"`
 	Buffers  map[string]string `json:"buffers,omitempty"`
+	Tags     map[string]string `json:"tags,omitempty"`
 	NodePool string            `json:"nodePool,omitempty"`
 	Replicas int               `json:"replicas,omitempty"`
 }
@@ -113,11 +114,10 @@ func (ref CodespecRef) MarshalJSON() ([]byte, error) {
 
 type Run struct {
 	RunMetadata
-	Job            RunCodeTarget     `json:"job,omitempty"`
-	Worker         *RunCodeTarget    `json:"worker,omitempty"`
-	Buffers        map[string]string `json:"buffers,omitempty"`
-	Cluster        string            `json:"cluster,omitempty"`
-	TimeoutSeconds *int              `json:"timeoutSeconds,omitempty"`
+	Job            RunCodeTarget  `json:"job,omitempty"`
+	Worker         *RunCodeTarget `json:"worker,omitempty"`
+	Cluster        string         `json:"cluster,omitempty"`
+	TimeoutSeconds *int           `json:"timeoutSeconds,omitempty"`
 }
 
 type RunStatus int

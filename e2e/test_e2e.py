@@ -7,6 +7,7 @@ import shlex
 import subprocess
 import tempfile
 import yaml
+import re
 
 from itertools import repeat
 from pathlib import Path
@@ -39,14 +40,21 @@ def create_buffer() -> str:
     return output.decode("utf-8").strip()
 
 
-def exec_recon(config_file: str, input_file: str, output_file: str, request: pytest.FixtureRequest, scan_name: Optional[str] = None, buffers: Optional[Dict[str, str]] = None):
-    tyger_args = ["tyger", "run", "exec", "--file", config_file, "--logs", "--baggage", f"testName={request.node.name}"]
+def exec_recon(config_file: str, input_file: str, output_file: str, request: pytest.FixtureRequest, scan_name: Optional[str] = None, buffers: Optional[Dict[str, str]] = None, tags: Optional[Dict[str, str]] = None):
+    clean_name = re.sub(r'[^a-zA-Z0-9_\-]', '_', request.node.name)
+
+    tyger_args = ["tyger", "run", "exec", "--file", config_file, "--logs", "--baggage",
+                  f"testName={request.node.name}", "--tag", f"testName={clean_name}"]
     if scan_name:
         tyger_args.extend(["--baggage", f"scan={scan_name}"])
 
     if buffers:
         for key, value in buffers.items():
             tyger_args.extend(["--buffer", f"{key}={value}"])
+
+    if tags:
+        for key, value in tags.items():
+            tyger_args.extend(["--tag", f"{key}={value}"])
 
     print(tyger_args)
 

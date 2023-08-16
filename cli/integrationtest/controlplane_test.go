@@ -108,7 +108,7 @@ func TestEndToEndWithAutomaticallyCreatedBuffers(t *testing.T) {
 	)
 
 	// create run
-	runId := runTygerSucceeds(t, "run", "create", "--codespec", codespecName, "--timeout", "10m")
+	runId := runTygerSucceeds(t, "run", "create", "--codespec", codespecName, "--timeout", "10m", "--tag", "testName=TestEndToEndWithAutomaticallyCreatedBuffers")
 
 	runJson := runTygerSucceeds(t, "run", "show", runId)
 
@@ -145,6 +145,8 @@ job:
         set -euo pipefail
         inp=$(cat "$INPUT_PIPE")
         echo "${inp}: Bonjour" > "$OUTPUT_PIPE"
+  tags:
+    testName: TestEndToEndWithYamlSpecAndAutomaticallyCreatedBuffers
 timeoutSeconds: 600`
 
 	tempDir := t.TempDir()
@@ -191,6 +193,8 @@ job:
         set -euo pipefail
         inp=$(cat "$INPUT_PIPE")
         echo -n "${inp}: Bonjour" > "$OUTPUT_PIPE"
+  tags:
+    testName: TestEndToEndExecWithYamlSpec
 timeoutSeconds: 600`
 
 	tempDir := t.TempDir()
@@ -202,6 +206,46 @@ timeoutSeconds: 600`
 		RunSucceeds(t)
 
 	require.Equal("Hello: Bonjour", execStdOut)
+}
+
+func TestCodespecBufferTagsWithYamlSpec(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+
+	runSpec := `
+job:
+  codespec:
+    image: curlimages/curl
+    buffers:
+      inputs: ["input"]
+      outputs: ["output"]
+    command:
+      - "sh"
+      - "-c"
+      - |
+        set -euo pipefail
+        inp=$(cat "$INPUT_PIPE")
+        echo -n "${inp}: Bonjour" > "$OUTPUT_PIPE"
+timeoutSeconds: 600`
+
+	tempDir := t.TempDir()
+	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
+	require.NoError(ioutil.WriteFile(runSpecPath, []byte(runSpec), 0644))
+
+	uniqueId := uuid.New().String()
+
+	execStdOut := NewTygerCmdBuilder("run", "exec", "--file", runSpecPath, "--tag", "testName=TestCodespecBufferTagsWithYamlSpec", "--tag", "testtagX="+uniqueId, "--log-level", "trace").
+		Stdin("Hello").
+		RunSucceeds(t)
+
+	require.Equal("Hello: Bonjour", execStdOut)
+
+	bufferJson := runTygerSucceeds(t, "buffer", "list", "--tag", "testName=TestCodespecBufferTagsWithYamlSpec", "--tag", "testtagX="+uniqueId)
+
+	var buffers []model.Buffer
+	require.NoError(json.Unmarshal([]byte(bufferJson), &buffers))
+
+	require.Equal(2, len(buffers))
 }
 
 func TestEndToEndExecWithYamlWithExistingCodespec(t *testing.T) {
@@ -233,7 +277,7 @@ timeoutSeconds: 600`, codespecName, version)
 	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
 	require.NoError(ioutil.WriteFile(runSpecPath, []byte(runSpec), 0644))
 
-	execStdOut := NewTygerCmdBuilder("run", "exec", "--file", runSpecPath, "--log-level", "trace").
+	execStdOut := NewTygerCmdBuilder("run", "exec", "--file", runSpecPath, "--tag", "testName=TestEndToEndExecWithYamlWithExistingCodespec", "--log-level", "trace").
 		Stdin("Hello").
 		RunSucceeds(t)
 	require.Equal("Hello: Bonjour", execStdOut)

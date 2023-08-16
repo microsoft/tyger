@@ -85,7 +85,12 @@ public class RunCreator
             newRun = newRun with { Job = newRun.Job with { Buffers = new() } };
         }
 
-        var bufferMap = await GetBufferMap(jobCodespec.Buffers, newRun.Job.Buffers, cancellationToken);
+        if (newRun.Job.Tags == null)
+        {
+            newRun = newRun with { Job = newRun.Job with { Tags = new() } };
+        }
+
+        var bufferMap = await GetBufferMap(jobCodespec.Buffers, newRun.Job.Buffers, newRun.Job.Tags, cancellationToken);
 
         // Phase 2: now that we have performed validation, create a record for this run in the database
 
@@ -500,7 +505,7 @@ public class RunCreator
         return codespec;
     }
 
-    private async Task<Dictionary<string, (bool write, Uri sasUri)>> GetBufferMap(BufferParameters? parameters, Dictionary<string, string> arguments, CancellationToken cancellationToken)
+    private async Task<Dictionary<string, (bool write, Uri sasUri)>> GetBufferMap(BufferParameters? parameters, Dictionary<string, string> arguments, Dictionary<string, string> tags, CancellationToken cancellationToken)
     {
         Dictionary<string, string> argumentsClone = arguments == null ? new(StringComparer.OrdinalIgnoreCase) : new(arguments, StringComparer.OrdinalIgnoreCase);
         IEnumerable<(string param, bool writeable)> combinedParameters = (parameters?.Inputs?.Select(param => (param, false)) ?? Enumerable.Empty<(string, bool)>())
@@ -512,7 +517,10 @@ public class RunCreator
         {
             if (!argumentsClone.TryGetValue(param.param, out var bufferId))
             {
-                var buffer = await _bufferManager.CreateBuffer(new Model.Buffer(), cancellationToken);
+                var newTags = new Dictionary<string, string>(tags) { ["bufferName"] = param.param };
+                var newBuffer = new Model.Buffer() { Tags = newTags };
+
+                var buffer = await _bufferManager.CreateBuffer(newBuffer, cancellationToken);
                 bufferId = buffer.Id!;
                 arguments![param.param] = bufferId;
             }
