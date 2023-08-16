@@ -44,9 +44,10 @@ jobs:
 
         - name: 'Verify devcontainer'
           shell: bash
+          env:
+            DEVCONTAINER_IMAGE: compimagdevcontainers.azurecr.io/tyger@sha256:1285398df96fbd37cdc574834e49c7bdb7260f8c98f7aabb3469ac98085f70af
           run: |
             set -euo pipefail
-            DEVCONTAINER_IMAGE="compimagdevcontainers.azurecr.io/tyger@sha256:1285398df96fbd37cdc574834e49c7bdb7260f8c98f7aabb3469ac98085f70af"
             if [[ "$(.devcontainer/get-devcontainer-image.sh)" != "${DEVCONTAINER_IMAGE}" ]]; then
               echo "The devcontainer image in azure-pipelines.yml and devcontainer.json must be the same"
             fi
@@ -57,12 +58,31 @@ jobs:
               echo 'Error: the "image" field in devcontainer.json does not reflect the current "devcontainer" target of the Dockerfile. Run .devcontainer/update-devcontainer-image.sh to correct this.'
               exit 1
             fi
-
-        - name: 'Build and test'
-          run: |
-            set -eo pipefail
-            az group list
-            df -h
-            echo "TYGER_ENVIRONMENT_NAME = ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}"
-            echo "TYGER_URI = ${{ steps.set-variables.outputs.TYGER_URI }}"
+        - name: 'Buid and verify format'
           shell: bash
+          run: |
+            make restore
+            make verify-format
+
+        - name: 'Deploy and test'
+          shell: bash
+          env:
+            TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
+            TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
+
+          run: |
+            export TYGER_ENVIRONMENT_CONFIG_DIR="${GITHUB_WORKSPACE}/deploy/config/dev/"
+            echo "TYGER_ENVIRONMENT_CONFIG_DIR=$TYGER_ENVIRONMENT_CONFIG_DIR"
+            set -euo pipefail
+            make -s -j 8
+
+        - name: 'Cleanup'
+          shell: bash
+          run: |
+            set -euo pipefail
+
+            # Point to scale-to-zero config
+            export TYGER_ENVIRONMENT_CONFIG_DIR="${GITHUB_WORKSPACE}/deploy/config/dev/"
+
+            echo "scaling cluster back down"
+            make ensure-environment
