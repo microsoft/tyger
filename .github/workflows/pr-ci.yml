@@ -12,6 +12,15 @@ permissions:
       contents: read
 
 jobs:
+  test-disk-space:
+    runs-on: ["self-hosted", "1ES.Pool=tyger-gh-1es2"]
+    steps:
+      - name: 'Check disk space'
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -h
+          df -i
   tyger-build-deploy:
       runs-on: ["self-hosted", "1ES.Pool=tyger-gh-1es2"]
       container:
