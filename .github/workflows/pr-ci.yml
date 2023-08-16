@@ -17,6 +17,13 @@ jobs:
       container:
         image: compimagdevcontainers.azurecr.io/tyger@sha256:1285398df96fbd37cdc574834e49c7bdb7260f8c98f7aabb3469ac98085f70af
       steps:
+        - name: 'Check disk space'
+          shell: bash
+          run: |
+            set -euo pipefail
+            df -h
+            df -i
+
         - name: 'Login into Azure'
           uses: azure/login@v1
           with:
