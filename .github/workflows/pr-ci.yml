@@ -71,6 +71,9 @@ jobs:
             TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
 
           run: |
+            set -eo pipefail
+            source /etc/profile.d/conda.sh
+            conda activate /opt/conda/envs/tyger
             export TYGER_ENVIRONMENT_CONFIG_DIR="${GITHUB_WORKSPACE}/deploy/config/dev/"
             echo "TYGER_ENVIRONMENT_CONFIG_DIR=$TYGER_ENVIRONMENT_CONFIG_DIR"
             set -euo pipefail
@@ -79,7 +82,9 @@ jobs:
         - name: 'Cleanup'
           shell: bash
           run: |
-            set -euo pipefail
+            set -eo pipefail
+            source /etc/profile.d/conda.sh
+            conda activate /opt/conda/envs/tyger
 
             # Point to scale-to-zero config
             export TYGER_ENVIRONMENT_CONFIG_DIR="${GITHUB_WORKSPACE}/deploy/config/dev/"
