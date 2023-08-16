@@ -94,6 +94,7 @@ jobs:
               source /opt/conda/etc/profile.d/conda.sh
               conda activate /opt/conda/envs/tyger
               make integration-test-no-up-prereqs
+              make up
 
         - name: 'Login into Azure 2'
           uses: azure/login@v1
