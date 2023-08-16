@@ -32,7 +32,7 @@ jobs:
           run: |
             set -eo pipefail
             event_name="${{ github.event_name }}"
-            if [ "$event_name" == "push" ]; then
+            if [ "$event_name" == "pull_request" ]; then
               environment_name="tyger-pr${{ github.event.pull_request.number }}"
             else
               environment_name="tygerwestus2"
