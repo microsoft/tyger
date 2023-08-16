@@ -62,7 +62,7 @@ jobs:
           shell: bash
           run: |
             set -eo pipefail
-            source /etc/profile.d/conda.sh
+            source /opt/conda/etc/profile.d/conda.sh
             conda activate /opt/conda/envs/tyger
             make restore
             make verify-format
@@ -74,7 +74,7 @@ jobs:
             TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
           run: |
             set -eo pipefail
-            source /etc/profile.d/conda.sh
+            source /opt/conda/etc/profile.d/conda.sh
             conda activate /opt/conda/envs/tyger
             export TYGER_ENVIRONMENT_CONFIG_DIR="${GITHUB_WORKSPACE}/deploy/config/dev/"
             echo "TYGER_ENVIRONMENT_CONFIG_DIR=$TYGER_ENVIRONMENT_CONFIG_DIR"
@@ -85,7 +85,7 @@ jobs:
           shell: bash
           run: |
             set -eo pipefail
-            source /etc/profile.d/conda.sh
+            source /opt/conda/etc/profile.d/conda.sh
             conda activate /opt/conda/envs/tyger
 
             # Point to scale-to-zero config
