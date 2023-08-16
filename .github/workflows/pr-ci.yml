@@ -93,10 +93,27 @@ jobs:
               set -eo pipefail
               source /opt/conda/etc/profile.d/conda.sh
               conda activate /opt/conda/envs/tyger
-              make integration-test-no-up-prereqs
+              make ensure-environment
               make up
 
         - name: 'Login into Azure 2'
+          uses: azure/login@v1
+          with:
+            client-id: ${{ secrets.AZURE_CLIENT_ID }}
+            tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+            subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+        - name: 'Test prereqs2'
+          env:
+            TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
+            TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
+          run: |
+              set -eo pipefail
+              source /opt/conda/etc/profile.d/conda.sh
+              conda activate /opt/conda/envs/tyger
+              make up
+
+        - name: 'Login into Azure 3'
           uses: azure/login@v1
           with:
             client-id: ${{ secrets.AZURE_CLIENT_ID }}
