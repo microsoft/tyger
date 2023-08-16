@@ -40,6 +40,7 @@ jobs:
             tyger_uri=$(TYGER_ENVIRONMENT_NAME="${environment_name}" make -s get-tyger-uri)
             echo "TYGER_ENVIRONMENT_NAME=$environment_name" >> "$GITHUB_OUTPUT"
             echo "TYGER_URI=$tyger_uri" >> "$GITHUB_OUTPUT"
+          shell: /bin/bash
 
         - name: 'Build and test'
           run: |
@@ -48,3 +49,4 @@ jobs:
             df -h
             echo "TYGER_ENVIRONMENT_NAME = ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}"
             echo "TYGER_URI = ${{ steps.set-variables.outputs.TYGER_URI }}"
+          shell: /bin/bash
