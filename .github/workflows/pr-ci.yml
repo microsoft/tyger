@@ -20,7 +20,7 @@ jobs:
         run: |
           set -euo pipefail
           df -h
-          df -i
+          lsblk
   tyger-build-deploy:
       runs-on: ["self-hosted", "1ES.Pool=tyger-gh-1es2"]
       container:
@@ -31,7 +31,7 @@ jobs:
           run: |
             set -euo pipefail
             df -h
-            df -i
+            lsblk
 
         - name: 'Login into Azure'
           uses: azure/login@v1
