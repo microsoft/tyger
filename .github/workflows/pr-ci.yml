@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   tyger-build-deploy:
-      runs-on: ["self-hosted", "1ES.Pool=tyger-gh-1es"]
+      runs-on: ["self-hosted", "1ES.Pool=tyger-gh-1es2"]
       container:
         image: compimagdevcontainers.azurecr.io/tyger@sha256:1285398df96fbd37cdc574834e49c7bdb7260f8c98f7aabb3469ac98085f70af
       steps:
