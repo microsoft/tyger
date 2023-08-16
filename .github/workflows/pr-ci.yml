@@ -86,11 +86,14 @@ jobs:
             make verify-format
 
         - name: 'Test prereqs'
+          env:
+            TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
+            TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
           run: |
-            set -eo pipefail
-            source /opt/conda/etc/profile.d/conda.sh
-            conda activate /opt/conda/envs/tyger
-            make integration-test-no-up-prereqs
+              set -eo pipefail
+              source /opt/conda/etc/profile.d/conda.sh
+              conda activate /opt/conda/envs/tyger
+              make integration-test-no-up-prereqs
 
         - name: 'Login into Azure 2'
           uses: azure/login@v1
