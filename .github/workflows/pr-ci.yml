@@ -46,7 +46,6 @@ jobs:
 
         - name: Checkout
           uses: actions/checkout@v3
-          working-directory: /mnt/storage
 
         - name: 'Set variables'
           id: set-variables
