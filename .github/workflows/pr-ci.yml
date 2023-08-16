@@ -21,13 +21,18 @@ jobs:
           set -euo pipefail
           df -h
           lsblk
+
   tyger-build-deploy:
       runs-on: ["self-hosted", "1ES.Pool=tyger-gh-1es2"]
       container:
         image: compimagdevcontainers.azurecr.io/tyger@sha256:1285398df96fbd37cdc574834e49c7bdb7260f8c98f7aabb3469ac98085f70af
+        options: -v /mnt/storage:/mnt/storage
+      defaults:
+        run:
+          shell: bash
+          working-directory: /mnt/storage
       steps:
         - name: 'Check disk space'
-          shell: bash
           run: |
             set -euo pipefail
             df -h
@@ -56,7 +61,6 @@ jobs:
             tyger_uri=$(TYGER_ENVIRONMENT_NAME="${environment_name}" make -s get-tyger-uri)
             echo "TYGER_ENVIRONMENT_NAME=$environment_name" >> "$GITHUB_OUTPUT"
             echo "TYGER_URI=$tyger_uri" >> "$GITHUB_OUTPUT"
-          shell: bash
 
         - name: 'Verify devcontainer'
           shell: bash
@@ -75,7 +79,6 @@ jobs:
               exit 1
             fi
         - name: 'Bulid and verify format'
-          shell: bash
           run: |
             set -eo pipefail
             source /opt/conda/etc/profile.d/conda.sh
@@ -84,7 +87,6 @@ jobs:
             make verify-format
 
         - name: 'Deploy and test'
-          shell: bash
           env:
             TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
             TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
@@ -98,7 +100,6 @@ jobs:
             make -s -j 8
 
         - name: 'Cleanup'
-          shell: bash
           run: |
             set -eo pipefail
             source /opt/conda/etc/profile.d/conda.sh
