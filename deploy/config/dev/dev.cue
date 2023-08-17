@@ -4,7 +4,7 @@ package tyger
 _devDependencies: #Dependencies & {
 	let resourceName = "eminence"
 	subscription: "BiomedicalImaging-NonProd"
-	servicePrincipalId: "7c393cbf-de67-4aaf-a197-3b384a5b1799"
+	servicePrincipalId: "5b60f594-a0eb-410c-a3fc-dd3c6f4e28d1"
 	userGroupId: "c0e60aba-35f0-4778-bc9b-fc5d2af14687"
 	dnsZone: {
 		name:          "eminence.ms"
