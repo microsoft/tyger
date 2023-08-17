@@ -63,6 +63,8 @@ jobs:
                 --subscription $AZURE_SUBSCRIPTION_ID \
                 -o none
 
+            az account get-access-token | jq -r .expiresOn
+
         - name: Checkout
           uses: actions/checkout@v3
 
@@ -110,7 +112,7 @@ jobs:
             TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
             TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
           run: |
-            set -xeo pipefail
+            set -eo pipefail
             source /opt/conda/etc/profile.d/conda.sh
             conda activate /opt/conda/envs/tyger
             export TYGER_ENVIRONMENT_CONFIG_DIR="${GITHUB_WORKSPACE}/deploy/config/dev/ci"
