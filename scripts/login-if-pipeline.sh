@@ -9,7 +9,7 @@ if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
     exit 0
 fi
 
-echo "Refreshing Azure for GitHub pipeline"
+echo "Refreshing Azure Credentials for GitHub pipeline"
 
 # get JWT from GitHub's OIDC provider
 # see https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/about-security-hardening-with-openid-connect#updating-your-actions-for-oidc
@@ -32,4 +32,4 @@ az account set \
     --subscription $AZURE_SUBSCRIPTION_ID \
     -o none
 
-az account get-access-token | jq -r .expiresOn
+echo "New token expiration time: $(az account get-access-token | jq -r .expiresOn)"

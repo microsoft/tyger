@@ -94,6 +94,26 @@ jobs:
             set -euo pipefail
             make -s -j 8
 
+        - name: 'Build Windows Binaries'
+          run: |
+            set -euo pipefail
+
+            export CGO_ENABLED=1
+            export GOOS=windows
+            export GOARCH=amd64
+
+            mkdir -p "${GITHUB_WORKSPACE}/windows-cli-tools"
+            cd cli
+            go build -ldflags="-s -w" -v -o "${GITHUB_WORKSPACE}/windows-cli-tools/tyger.exe" ./cmd/tyger
+            go build -ldflags="-s -w" -v -o "${GITHUB_WORKSPACE}/windows-cli-tools/tyger-proxy.exe" ./cmd/tyger-proxy
+
+        - name: Archive production artifacts
+          uses: actions/upload-artifact@v3
+          with:
+            name: windows-cli-tools
+            path: |
+              windows-cli-tools
+
         - name: 'Cleanup'
           if: always()
           env:
@@ -109,3 +129,35 @@ jobs:
 
             echo "scaling cluster back down"
             make ensure-environment
+
+  windows-smoke-tests:
+    runs-on: windows-latest
+    needs: tyger-build-deploy
+    steps:
+      - name: 'Download artifacts'
+        uses: actions/download-artifact@v2
+        with:
+          name: windows-cli-tools
+          path: |
+            windows-cli-tools
+
+      - name: 'Login into Azure'
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          enable-AzPSSession: true
+
+      - name: 'Run smoke tests'
+        env:
+          TYGER_URI: ${{ needs.tyger-build-deploy.outputs.TYGER_URI }}
+        shell: pscore # Use PowerShell Core
+        run: |
+          # Debug information:
+          Get-Item *
+
+          $env:PATH = "${GITHUB_WORKSPACE}\windows-cli-tools;"+ $env:PATH
+
+          # Run tests
+          .\scripts\Test-CertificateLoginOnWindows.ps1 -ServerUri $env:TYGER_URI
