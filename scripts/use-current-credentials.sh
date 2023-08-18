@@ -46,6 +46,9 @@ primary_cluster_name=$(echo "${environment_definition}" | jq -r '.primaryCluster
 
 context_name=$(kubectl config view -o json | jq -r --arg cluster_name "${primary_cluster_name}" '.contexts[]? | select(.context.cluster == $cluster_name and (.context.user | startswith("clusterUser"))).name')
 if [[ -z "${context_name}" ]]; then
+    # Ensure token is up to date if in pipeline
+    "$(dirname "$0")/login-if-pipeline.sh"
+
     az aks get-credentials -n "${primary_cluster_name}" -g "$(echo "${environment_definition}" | jq -r '.resourceGroup')" --subscription="$(echo "${environment_definition}" | jq -r '.subscription')" --overwrite-existing
     kubelogin convert-kubeconfig -l azurecli
 else
