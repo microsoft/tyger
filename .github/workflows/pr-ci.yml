@@ -3,7 +3,6 @@ name: Tyger
 on:
   push:
     branches: [main]
-    tags: ["v*.*.*"]
   pull_request:
     branches: [main]
 
@@ -107,12 +106,20 @@ jobs:
             go build -ldflags="-s -w" -v -o "${GITHUB_WORKSPACE}/windows-cli-tools/tyger.exe" ./cmd/tyger
             go build -ldflags="-s -w" -v -o "${GITHUB_WORKSPACE}/windows-cli-tools/tyger-proxy.exe" ./cmd/tyger-proxy
 
-        - name: Archive production artifacts
+        - name: 'Archive windows-cli-tools'
           uses: actions/upload-artifact@v3
           with:
             name: windows-cli-tools
             path: |
               windows-cli-tools
+
+        - name: 'Publish cli tools Docker image'
+          if: and(success(), ${{ github.event_name }} == 'push')
+          run: |
+            set -eo pipefail
+            source /opt/conda/etc/profile.d/conda.sh
+            conda activate /opt/conda/envs/tyger
+            make publish-cli-tools-image
 
         - name: 'Cleanup'
           if: always()
@@ -152,7 +159,7 @@ jobs:
       - name: 'Run smoke tests'
         env:
           TYGER_URI: ${{ needs.tyger-build-deploy.outputs.TYGER_URI }}
-        shell: pscore # Use PowerShell Core
+        shell: pwsh
         run: |
           # Debug information:
           Get-Item *
