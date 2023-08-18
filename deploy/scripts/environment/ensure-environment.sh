@@ -197,8 +197,9 @@ done
 primary_cluster_name=$(echo "${environment_definition}" | jq -r '.primaryCluster')
 primary_cluster_resource=$(az aks show -n "${primary_cluster_name}" -g "${environment_resource_group}")
 
+
 # Ensure token is up to date if in pipeline
-"$(dirname "$0")/../../../scripts/login-if-pipeline.sh"
+./../../../scripts/login-if-pipeline.sh
 
 az aks get-credentials -n "${primary_cluster_name}" -g "${environment_resource_group}" --overwrite-existing --admin
 kubelogin convert-kubeconfig -l azurecli
@@ -430,7 +431,7 @@ EOF
 done
 
 # Ensure token is up to date if in pipeline
-"$(dirname "$0")/../../../scripts/login-if-pipeline.sh"
+./../../../scripts/login-if-pipeline.sh
 
 az aks get-credentials -n "${primary_cluster_name}" -g "${environment_resource_group}" --overwrite-existing
 kubelogin convert-kubeconfig -l azurecli

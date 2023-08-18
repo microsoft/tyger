@@ -95,6 +95,7 @@ jobs:
             make -s -j 8
 
         - name: 'Cleanup'
+          if: always()
           env:
             TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
             TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
