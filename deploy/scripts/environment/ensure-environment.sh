@@ -429,6 +429,9 @@ EOF
   done
 done
 
+# Ensure token is up to date if in pipeline
+"$(dirname "$0")/../../../scripts/login-if-pipeline.sh"
+
 az aks get-credentials -n "${primary_cluster_name}" -g "${environment_resource_group}" --overwrite-existing
 kubelogin convert-kubeconfig -l azurecli
 
