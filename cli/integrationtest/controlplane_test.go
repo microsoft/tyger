@@ -1168,6 +1168,21 @@ func TestBufferListWithLimit(t *testing.T) {
 	require.Equal(3, len(buffers))
 }
 
+func TestBufferListWithoutTags(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+
+	bufferJson := runTygerSucceeds(t, "buffer", "create", "--full-resource")
+	var buffer model.Buffer
+	require.NoError(json.Unmarshal([]byte(bufferJson), &buffer))
+
+	bufferJson = runTygerSucceeds(t, "buffer", "list")
+	var buffers []model.Buffer
+	require.NoError(json.Unmarshal([]byte(bufferJson), &buffers))
+
+	require.Contains(buffers, buffer)
+}
+
 func waitForRunStarted(t *testing.T, runId string) model.Run {
 	return waitForRun(t, runId, true, false)
 }
