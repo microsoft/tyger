@@ -41,7 +41,7 @@ jobs:
               run: |
                 set -euo pipefail
 
-                mapfile -t active_prs < <(curl -sS -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/microsoft/tyger/pulls" | jq -r .[].number')
+                mapfile -t active_prs < <(curl -sS -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/microsoft/tyger/pulls" | jq -r .[].number)
 
                 for pr in "${active_prs[@]}"; do
                     echo "Found active PR $pr"
