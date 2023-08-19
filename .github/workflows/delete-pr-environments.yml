@@ -22,6 +22,9 @@ jobs:
         runs-on: ubuntu-latest
         container:
             image: compimagdevcontainers.azurecr.io/tyger@sha256:1285398df96fbd37cdc574834e49c7bdb7260f8c98f7aabb3469ac98085f70af
+        defaults:
+            run:
+                shell: bash
         steps:
             - uses: actions/checkout@v2
 
