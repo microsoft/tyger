@@ -47,7 +47,7 @@ jobs:
                     echo "Found active PR $pr"
                 done
 
-                prefix='tyger-pr'
+                prefix='tyger-gpr'
                 resource_groups=$(az group list --query "[?starts_with(name, '${prefix}')]" | jq ".[] | select(.name | test(\"^${prefix}[0-9]+$\")) | .name" -r)
 
                 for rg_name in $resource_groups; do

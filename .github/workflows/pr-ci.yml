@@ -17,7 +17,7 @@ env:
 
 jobs:
   tyger-build-deploy:
-      runs-on: ["self-hosted", "1ES.Pool=tyger-gh-1es2"]
+      runs-on: ["self-hosted", "1ES.Pool=tyger-gh-1es"]
       container:
         image: compimagdevcontainers.azurecr.io/tyger@sha256:1285398df96fbd37cdc574834e49c7bdb7260f8c98f7aabb3469ac98085f70af
         options: -v /mnt/storage:/__w/tyger
@@ -47,7 +47,7 @@ jobs:
             set -eo pipefail
             event_name="${{ github.event_name }}"
             if [ "$event_name" == "pull_request" ]; then
-              environment_name="tyger-pr${{ github.event.pull_request.number }}"
+              environment_name="tyger-gpr${{ github.event.pull_request.number }}"
             else
               environment_name="tygerwestus2"
             fi
@@ -115,6 +115,9 @@ jobs:
 
         - name: 'Publish cli tools Docker image'
           if: and(success(), ${{ github.event_name }} == 'push')
+          env:
+            TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
+            TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
           run: |
             set -eo pipefail
             source /opt/conda/etc/profile.d/conda.sh
