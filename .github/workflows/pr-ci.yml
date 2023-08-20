@@ -144,6 +144,9 @@ jobs:
     runs-on: windows-latest
     needs: tyger-build-deploy
     steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
       - name: 'Download artifacts'
         uses: actions/download-artifact@v2
         with:
