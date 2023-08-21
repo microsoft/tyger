@@ -84,7 +84,6 @@ jobs:
             make verify-format
 
         - name: 'Deploy and test'
-          if: false
           env:
             TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
             TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
@@ -129,7 +128,7 @@ jobs:
             make publish-cli-tools-image
 
         - name: 'Cleanup'
-          if: false
+          if: ${{ always() }}
           env:
             TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
             TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
@@ -171,14 +170,7 @@ jobs:
           TYGER_URI: ${{ needs.tyger-build-deploy.outputs.TYGER_URI }}
         shell: pwsh
         run: |
-          # Debug information:
-          Get-Item *
-
-          Write-Host "Environment: $env:PATH"
           $env:PATH = "$env:GITHUB_WORKSPACE\windows-cli-tools;"+ $env:PATH
-          Write-Host "Environment: $env:PATH"
-
-          Get-Item windows-cli-tools\*
 
           # Run tests
           .\scripts\Test-CertificateLoginOnWindows.ps1 -ServerUri $env:TYGER_URI
