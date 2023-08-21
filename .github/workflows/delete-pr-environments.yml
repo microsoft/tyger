@@ -25,6 +25,9 @@ jobs:
         defaults:
             run:
                 shell: bash
+        permissions:
+            pull-requests: read
+            contents: read
         steps:
             - uses: actions/checkout@v2
 
@@ -36,12 +39,10 @@ jobs:
                 subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
             - name: 'Delete PR Envs'
-              env:
-                GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
                 set -euo pipefail
 
-                mapfile -t active_prs < <(curl -sS -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/microsoft/tyger/pulls" | jq -r .[].number)
+                mapfile -t active_prs < <(curl -sS -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/microsoft/tyger/pulls" | jq -r .[].number)
 
                 for pr in "${active_prs[@]}"; do
                     echo "Found active PR $pr"
