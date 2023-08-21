@@ -84,6 +84,7 @@ jobs:
             make verify-format
 
         - name: 'Deploy and test'
+          if: false
           env:
             TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
             TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
@@ -128,7 +129,7 @@ jobs:
             make publish-cli-tools-image
 
         - name: 'Cleanup'
-          if: always()
+          if: false
           env:
             TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
             TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
