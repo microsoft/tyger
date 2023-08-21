@@ -175,7 +175,7 @@ jobs:
           Get-Item *
 
           Write-Host "Environment: $env:PATH"
-          $env:PATH = "${GITHUB_WORKSPACE}\windows-cli-tools;"+ $env:PATH
+          $env:PATH = "$env:GITHUB_WORKSPACE\windows-cli-tools;"+ $env:PATH
           Write-Host "Environment: $env:PATH"
 
           Get-Item windows-cli-tools\*
