@@ -19,7 +19,7 @@ jobs:
   tyger-build-deploy:
       runs-on: ["self-hosted", "1ES.Pool=tyger-gh-1es"]
       container:
-        image: compimagdevcontainers.azurecr.io/tyger@sha256:1285398df96fbd37cdc574834e49c7bdb7260f8c98f7aabb3469ac98085f70af
+        image: compimagdevcontainers.azurecr.io/tyger@sha256:df2df5320e642fda8e70e40570f899064a9758822481e3ab8aa2715527d8dd78
         options: -v /mnt/storage:/__w/tyger
       defaults:
         run:
@@ -61,7 +61,7 @@ jobs:
         - name: 'Verify devcontainer'
           shell: bash
           env:
-            DEVCONTAINER_IMAGE: compimagdevcontainers.azurecr.io/tyger@sha256:1285398df96fbd37cdc574834e49c7bdb7260f8c98f7aabb3469ac98085f70af
+            DEVCONTAINER_IMAGE: compimagdevcontainers.azurecr.io/tyger@sha256:df2df5320e642fda8e70e40570f899064a9758822481e3ab8aa2715527d8dd78
           run: |
             set -euo pipefail
             if [[ "$(.devcontainer/get-devcontainer-image.sh)" != "${DEVCONTAINER_IMAGE}" ]]; then
@@ -117,7 +117,7 @@ jobs:
               windows-cli-tools
 
         - name: 'Publish cli tools Docker image'
-          if: and(success(), ${{ github.event_name }} == 'push')
+          if: ${{ github.event_name == 'push' }}
           env:
             TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
             TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
@@ -173,7 +173,11 @@ jobs:
           # Debug information:
           Get-Item *
 
+          Write-Host "Environment: $env:PATH"
           $env:PATH = "${GITHUB_WORKSPACE}\windows-cli-tools;"+ $env:PATH
+          Write-Host "Environment: $env:PATH"
+
+          Get-Item windows-cli-tools\*
 
           # Run tests
           .\scripts\Test-CertificateLoginOnWindows.ps1 -ServerUri $env:TYGER_URI
