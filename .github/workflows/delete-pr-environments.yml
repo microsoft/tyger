@@ -4,9 +4,6 @@ on:
   schedule:
     - cron: "0 */6 * * *"
   workflow_dispatch:
-  # For now triggering on PR to test
-  pull_request:
-    branches: [main]
 
 permissions:
   id-token: write
