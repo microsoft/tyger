@@ -47,13 +47,3 @@ COPY --from=runtime-builder /staging/ /
 COPY --from=go-build /go/bin/dist/linux/amd64/buffer-sidecar /
 USER app:app
 ENTRYPOINT ["/buffer-sidecar"]
-
-# A container image to distribute the tyger binaries and not to be executed.
-# Indended usage:
-# $ img=$(docker create tyger-cli-binaries)
-# $ docker cp "${img}:/dist" /tmp/bar
-# $ docker rm $img
-FROM scratch as tyger-cli-binaries
-COPY --from=go-build-tyger /go/bin/dist/ /dist
-# an endpoint is required to be able to call docker create
-ENTRYPOINT [ "x" ]

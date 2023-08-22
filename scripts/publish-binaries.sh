@@ -87,5 +87,5 @@ if [ "$push" -eq 1 ]; then
         az storage container create --auth-mode login --account-name "$storage_account" --name "$storage_container" --fail-on-exist 1>/dev/null
     fi
 
-    az storage blob upload-batch --overwrite --account-name "$storage_account" --destination "$storage_container" --source "${DIST_DIR}" --pattern "*" 2>/dev/null
+    az storage blob upload-batch --auth-mode login --overwrite --account-name "$storage_account" --destination "$storage_container" --source "${DIST_DIR}" --pattern "*"
 fi

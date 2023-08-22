@@ -119,7 +119,7 @@ jobs:
             set -eo pipefail
             source /opt/conda/etc/profile.d/conda.sh
             conda activate /opt/conda/envs/tyger
-            make publish-cli-tools-image
+            make publish-cli-tools
 
         - name: 'Cleanup'
           if: ${{ always() }}
