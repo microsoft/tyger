@@ -13,15 +13,6 @@ RUN --mount=type=cache,target=/root/.cache/go-go-build \
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.commit=${COMMIT_HASH}" -v -o /go/bin/dist/linux/amd64/buffer-sidecar ./cmd/buffer-sidecar \
     && upx /go/bin/dist/linux/amd64/buffer-sidecar
 
-FROM go-build as go-build-tyger
-RUN --mount=type=cache,target=/root/.cache/go-go-build \
-    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.commit=${COMMIT_HASH}" -v -o /go/bin/dist/linux/amd64/tyger ./cmd/tyger \
-    && CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.commit=${COMMIT_HASH}" -v -o /go/bin/dist/windows/amd64/tyger.exe ./cmd/tyger
-
-RUN --mount=type=cache,target=/root/.cache/go-go-build \
-    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.commit=${COMMIT_HASH}" -v -o /go/bin/dist/linux/amd64/tyger-proxy ./cmd/tyger-proxy \
-    && CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.commit=${COMMIT_HASH}" -v -o /go/bin/dist/windows/amd64/tyger-proxy.exe ./cmd/tyger-proxy
-
 FROM mcr.microsoft.com/cbl-mariner/base/core:2.0 as runtime-builder
 # Create a non-root user and group
 RUN mkdir -p /staging/etc \

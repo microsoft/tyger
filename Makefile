@@ -114,7 +114,7 @@ docker-build-test:
 	echo '${ENVIRONMENT_CONFIG}' | scripts/build-images.sh -c - --test --push --push-force --tag test --quiet
 
 publish-cli-tools:
-	./scripts/publish-binaries.sh --push --use-git-hash-as-container-name
+	./scripts/publish-binaries.sh --push --use-git-hash-as-container-name --push-force
 
 up: ensure-environment docker-build
 	echo '${ENVIRONMENT_CONFIG}' | deploy/scripts/tyger/tyger-up.sh -c -

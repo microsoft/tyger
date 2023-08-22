@@ -46,7 +46,12 @@ while [[ $# -gt 0 ]]; do
     shift
     ;;
   --use-git-hash-as-container-name)
-    storage_container="$(git rev-parse HEAD)"
+    if [ -z "$(git status --porcelain -uno)" ]; then
+      storage_container="$(git rev-parse HEAD)"
+    else
+      echo "Git working directory is not clean. Please commit your changes before using the --use-git-hash-as-container-name option."
+      exit 1
+    fi
     shift
     ;;
   -h | --help)
