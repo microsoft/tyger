@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/controlplane"
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/controlplane/model"
+	"github.com/microsoft/tyger/cli/internal/controlplane"
+	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/spf13/cobra"
 )
 
