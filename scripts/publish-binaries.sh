@@ -17,7 +17,8 @@ COMMIT_HASH=$(git rev-parse --short HEAD)
 push=0
 force=0
 storage_account="tygerdist"
-storage_container=""
+storage_container="tyger"
+tag=""
 
 # parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -45,9 +46,9 @@ while [[ $# -gt 0 ]]; do
     force=1
     shift
     ;;
-  --use-git-hash-as-container-name)
+  --use-git-hash-as-tag)
     if [ -z "$(git status --porcelain -uno)" ]; then
-      storage_container="$(git rev-parse HEAD)"
+      tag="$(git rev-parse HEAD)"
     else
       echo "Git working directory is not clean. Please commit your changes before using the --use-git-hash-as-container-name option."
       exit 1
@@ -85,12 +86,6 @@ if [ "$push" -eq 1 ]; then
         exit 1
     fi
 
-    # Check if the container exists
-    if [ "$force" -eq 1 ]; then
-        az storage container create --auth-mode login --account-name "$storage_account" --name "$storage_container" 1>/dev/null
-    else
-        az storage container create --auth-mode login --account-name "$storage_account" --name "$storage_container" --fail-on-exist 1>/dev/null
-    fi
-
-    az storage blob upload-batch --auth-mode login --overwrite --account-name "$storage_account" --destination "$storage_container" --source "${DIST_DIR}" --pattern "*"
+    az storage container create --auth-mode login --account-name "$storage_account" --name "$storage_container" 1>/dev/null
+    az storage blob upload-batch --auth-mode login --overwrite --account-name "$storage_account" --destination "$storage_container" --source "${DIST_DIR}" --pattern "*" --destination-path "${tag}"
 fi
