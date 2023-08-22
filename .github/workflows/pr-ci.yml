@@ -28,12 +28,6 @@ jobs:
         TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
         TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
       steps:
-        - name: 'Check disk space'
-          run: |
-            set -euo pipefail
-            df -h
-            lsblk
-
         - name: 'Login into Azure'
           uses: azure/login@v1
           with:
