@@ -117,6 +117,7 @@ jobs:
               windows-cli-tools
 
         - name: 'Publish cli tools'
+          if: ${{ github.event_name == 'push' }}
           env:
             TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
             TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
