@@ -38,6 +38,19 @@ jobs:
         - name: Checkout
           uses: actions/checkout@v3
 
+        - name: 'Set variables'
+          id: set-variables
+          run: |
+            set -eo pipefail
+            event_name="${{ github.event_name }}"
+            if [ "$event_name" == "pull_request" ]; then
+              environment_name="tyger-gpr${{ github.event.pull_request.number }}"
+            else
+              environment_name="tygerwestus2"
+            fi
+            tyger_uri=$(TYGER_ENVIRONMENT_NAME="${environment_name}" make -s get-tyger-uri)
+            echo "TYGER_ENVIRONMENT_NAME=$environment_name" >> "$GITHUB_OUTPUT"
+            echo "TYGER_URI=$tyger_uri" >> "$GITHUB_OUTPUT"
 
         - name: 'Debug 0'
           env:
@@ -80,20 +93,6 @@ jobs:
             git status --porcelain -uno
             echo "---GIT STATUS---"
             "${GITHUB_WORKSPACE}/scripts/publish-binaries.sh" --push --use-git-hash-as-tag --push-force
-
-        - name: 'Set variables'
-          id: set-variables
-          run: |
-            set -eo pipefail
-            event_name="${{ github.event_name }}"
-            if [ "$event_name" == "pull_request" ]; then
-              environment_name="tyger-gpr${{ github.event.pull_request.number }}"
-            else
-              environment_name="tygerwestus2"
-            fi
-            tyger_uri=$(TYGER_ENVIRONMENT_NAME="${environment_name}" make -s get-tyger-uri)
-            echo "TYGER_ENVIRONMENT_NAME=$environment_name" >> "$GITHUB_OUTPUT"
-            echo "TYGER_URI=$tyger_uri" >> "$GITHUB_OUTPUT"
 
         - name: 'Verify devcontainer'
           shell: bash
