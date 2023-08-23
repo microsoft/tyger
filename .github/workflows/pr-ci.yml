@@ -38,6 +38,19 @@ jobs:
         - name: Checkout
           uses: actions/checkout@v3
 
+        - name: 'Publish cli tools (debug)'
+          env:
+            TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
+            TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
+          run: |
+            set -eo pipefail
+            source /opt/conda/etc/profile.d/conda.sh
+            conda activate /opt/conda/envs/tyger
+            echo "---GIT STATUS---"
+            git status --porcelain -uno
+            echo "---GIT STATUS---"
+            "${GITHUB_WORKSPACE}/scripts/publish-binaries.sh" --push --use-git-hash-as-tag --push-force
+
         - name: 'Set variables'
           id: set-variables
           run: |
@@ -110,7 +123,7 @@ jobs:
             path: |
               windows-cli-tools
 
-        - name: 'Publish cli tools Docker image'
+        - name: 'Publish cli tools'
           if: ${{ github.event_name == 'push' }}
           env:
             TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
