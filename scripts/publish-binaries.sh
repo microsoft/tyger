@@ -50,7 +50,7 @@ while [[ $# -gt 0 ]]; do
     if [ -z "$(git status --porcelain -uno)" ]; then
       tag="$(git rev-parse HEAD)"
     else
-      echo "Git working directory is not clean. Please commit your changes before using the --use-git-hash-as-container-name option."
+      echo "Git working directory is not clean. Please commit your changes before using the --use-git-hash-as-tag option."
       exit 1
     fi
     shift

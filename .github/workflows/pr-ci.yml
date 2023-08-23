@@ -20,7 +20,7 @@ jobs:
       runs-on: ["self-hosted", "1ES.Pool=tyger-gh-1es"]
       container:
         image: compimagdevcontainers.azurecr.io/tyger@sha256:df2df5320e642fda8e70e40570f899064a9758822481e3ab8aa2715527d8dd78
-        options: -v /mnt/storage:/__w/tyger
+        options: -v /mnt/storage:/__w/tyger -v /mnt/storage:/workspaces
       defaults:
         run:
           shell: bash
@@ -87,6 +87,12 @@ jobs:
             conda activate /opt/conda/envs/tyger
             export TYGER_ENVIRONMENT_CONFIG_DIR="${GITHUB_WORKSPACE}/deploy/config/dev/ci"
             echo "TYGER_ENVIRONMENT_CONFIG_DIR=$TYGER_ENVIRONMENT_CONFIG_DIR"
+
+            # We have mounted this location in the container, it is identical to the checkout location
+            # We need to run the testdata generation from this path to make sure the testdata is generated in the right place.
+            # Otherwise, checksums will change and dirty the path and that will cause publishing to fail.
+            cd /workspaces/tyger
+
             set -euo pipefail
             make -s -j 8
 
@@ -110,7 +116,7 @@ jobs:
             path: |
               windows-cli-tools
 
-        - name: 'Publish cli tools Docker image'
+        - name: 'Publish cli tools'
           if: ${{ github.event_name == 'push' }}
           env:
             TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
