@@ -119,7 +119,7 @@ jobs:
             set -eo pipefail
             source /opt/conda/etc/profile.d/conda.sh
             conda activate /opt/conda/envs/tyger
-            make publish-cli-tools-image
+            "${GITHUB_WORKSPACE}/scripts/publish-binaries.sh" --push --use-git-hash-as-tag --push-force
 
         - name: 'Cleanup'
           if: ${{ always() }}

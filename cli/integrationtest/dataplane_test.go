@@ -16,7 +16,7 @@ import (
 	"syscall"
 	"testing"
 
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/cmd"
+	"github.com/microsoft/tyger/cli/internal/cmd"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

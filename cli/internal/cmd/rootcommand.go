@@ -5,7 +5,7 @@ import (
 	"os"
 	"time"
 
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/logging"
+	"github.com/microsoft/tyger/cli/internal/logging"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"

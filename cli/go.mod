@@ -1,4 +1,4 @@
-module dev.azure.com/msresearch/compimag/_git/tyger/cli
+module github.com/microsoft/tyger/cli
 
 go 1.20
 
