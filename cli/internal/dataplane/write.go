@@ -44,6 +44,7 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader) 
 	for i := 0; i < dop; i++ {
 		go func() {
 			defer wg.Done()
+			encodedMD5HashChain := ""
 			for bb := range outputChannel {
 				start := time.Now()
 
@@ -68,7 +69,12 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader) 
 					req.Header.Add("x-ms-blob-type", "BlockBlob")
 
 					md5Hash := md5.Sum(bb.Contents)
-					req.Header.Add("Content-MD5", base64.StdEncoding.EncodeToString(md5Hash[:]))
+					encodedMD5Hash := base64.StdEncoding.EncodeToString(md5Hash[:])
+					req.Header.Add("Content-MD5", encodedMD5Hash)
+
+					md5HashChain := md5.Sum([]byte(encodedMD5HashChain + encodedMD5Hash))
+					encodedMD5HashChain = base64.StdEncoding.EncodeToString(md5HashChain[:])
+					req.Header.Add("x-ms-meta-cumulative_md5_chain", encodedMD5HashChain)
 
 					resp, err := httpClient.Do(req)
 					if err != nil {
