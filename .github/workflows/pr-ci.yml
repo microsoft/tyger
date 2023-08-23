@@ -115,6 +115,7 @@ jobs:
             set -eo pipefail
             echo "---GIT STATUS---"
             git status --porcelain -uno
+            git diff
             echo "---GIT STATUS---"
 
         - name: 'Build Windows Binaries'
