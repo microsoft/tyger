@@ -94,6 +94,7 @@ jobs:
           run: |
             set -eo pipefail
             echo "---GIT STATUS---"
+            make gadgetron-data
             git status --porcelain -uno
             echo "---GIT STATUS---"
 
