@@ -38,6 +38,36 @@ jobs:
         - name: Checkout
           uses: actions/checkout@v3
 
+
+        - name: 'Debug 0'
+          env:
+            TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
+            TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
+          run: |
+            set -eo pipefail
+            source /opt/conda/etc/profile.d/conda.sh
+            conda activate /opt/conda/envs/tyger
+            echo "---GIT STATUS---"
+            make gadgetron-data
+            git status --porcelain -uno
+            git diff
+            echo "---GIT STATUS---"
+
+        - name: 'Archive windows-cli-tools'
+          uses: actions/upload-artifact@v3
+          with:
+            name: debug-data
+            path: |
+              e2e/data/gadgetron/simple_gre
+
+        - name: 'Error'
+          env:
+            TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
+            TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
+          run: |
+            set -eo pipefail
+            exit 1
+
         - name: 'Publish cli tools (debug)'
           env:
             TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
@@ -89,19 +119,6 @@ jobs:
             conda activate /opt/conda/envs/tyger
             make restore
             make verify-format
-
-        - name: 'Debug 1'
-          env:
-            TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
-            TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
-          run: |
-            set -eo pipefail
-            source /opt/conda/etc/profile.d/conda.sh
-            conda activate /opt/conda/envs/tyger
-            echo "---GIT STATUS---"
-            make gadgetron-data
-            git status --porcelain -uno
-            echo "---GIT STATUS---"
 
         - name: 'Deploy and test'
           env:
