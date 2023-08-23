@@ -91,8 +91,13 @@ jobs:
             make verify-format
 
         - name: 'Debug 1'
+          env:
+            TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
+            TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
           run: |
             set -eo pipefail
+            source /opt/conda/etc/profile.d/conda.sh
+            conda activate /opt/conda/envs/tyger
             echo "---GIT STATUS---"
             make gadgetron-data
             git status --porcelain -uno
