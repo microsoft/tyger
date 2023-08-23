@@ -20,7 +20,7 @@ jobs:
       runs-on: ["self-hosted", "1ES.Pool=tyger-gh-1es"]
       container:
         image: compimagdevcontainers.azurecr.io/tyger@sha256:df2df5320e642fda8e70e40570f899064a9758822481e3ab8aa2715527d8dd78
-        options: -v /mnt/storage:/__w/tyger
+        options: -v /mnt/storage:/__w/tyger -v /mnt/storage:/workspaces
       defaults:
         run:
           shell: bash
@@ -60,8 +60,7 @@ jobs:
             set -eo pipefail
             source /opt/conda/etc/profile.d/conda.sh
             conda activate /opt/conda/envs/tyger
-            echo "Umask is $(umask)"
-            umask 0022
+            cd /workspaces/tyger
             echo "---GIT STATUS---"
             make gadgetron-data
             git status --porcelain -uno
