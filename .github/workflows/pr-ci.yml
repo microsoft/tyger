@@ -52,49 +52,6 @@ jobs:
             echo "TYGER_ENVIRONMENT_NAME=$environment_name" >> "$GITHUB_OUTPUT"
             echo "TYGER_URI=$tyger_uri" >> "$GITHUB_OUTPUT"
 
-        - name: 'Debug 0'
-          env:
-            TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
-            TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
-          run: |
-            set -eo pipefail
-            source /opt/conda/etc/profile.d/conda.sh
-            conda activate /opt/conda/envs/tyger
-            cd /workspaces/tyger
-            echo "---GIT STATUS---"
-            make gadgetron-data
-            git status --porcelain -uno
-            git diff
-            echo "---GIT STATUS---"
-
-        - name: 'Archive windows-cli-tools'
-          uses: actions/upload-artifact@v3
-          with:
-            name: debug-data
-            path: |
-              e2e/data/gadgetron/simple_gre
-
-        - name: 'Error'
-          env:
-            TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
-            TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
-          run: |
-            set -eo pipefail
-            exit 1
-
-        - name: 'Publish cli tools (debug)'
-          env:
-            TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
-            TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
-          run: |
-            set -eo pipefail
-            source /opt/conda/etc/profile.d/conda.sh
-            conda activate /opt/conda/envs/tyger
-            echo "---GIT STATUS---"
-            git status --porcelain -uno
-            echo "---GIT STATUS---"
-            "${GITHUB_WORKSPACE}/scripts/publish-binaries.sh" --push --use-git-hash-as-tag --push-force
-
         - name: 'Verify devcontainer'
           shell: bash
           env:
@@ -130,16 +87,14 @@ jobs:
             conda activate /opt/conda/envs/tyger
             export TYGER_ENVIRONMENT_CONFIG_DIR="${GITHUB_WORKSPACE}/deploy/config/dev/ci"
             echo "TYGER_ENVIRONMENT_CONFIG_DIR=$TYGER_ENVIRONMENT_CONFIG_DIR"
+
+            # We have mounted this location in the container, it is identical to the checkout location
+            # We need to run the testdata generation from this path to make sure the testdata is generated in the right place.
+            # Otherwise, checksums will change and dirty the path and that will cause publishing to fail.
+            cd /workspaces/tyger
+
             set -euo pipefail
             make -s -j 8
-
-        - name: 'Debug 2'
-          run: |
-            set -eo pipefail
-            echo "---GIT STATUS---"
-            git status --porcelain -uno
-            git diff
-            echo "---GIT STATUS---"
 
         - name: 'Build Windows Binaries'
           run: |
@@ -154,26 +109,12 @@ jobs:
             go build -ldflags="-s -w" -v -o "${GITHUB_WORKSPACE}/windows-cli-tools/tyger.exe" ./cmd/tyger
             go build -ldflags="-s -w" -v -o "${GITHUB_WORKSPACE}/windows-cli-tools/tyger-proxy.exe" ./cmd/tyger-proxy
 
-        - name: 'Debug 3'
-          run: |
-            set -eo pipefail
-            echo "---GIT STATUS---"
-            git status --porcelain -uno
-            echo "---GIT STATUS---"
-
         - name: 'Archive windows-cli-tools'
           uses: actions/upload-artifact@v3
           with:
             name: windows-cli-tools
             path: |
               windows-cli-tools
-
-        - name: 'Debug 4'
-          run: |
-            set -eo pipefail
-            echo "---GIT STATUS---"
-            git status --porcelain -uno
-            echo "---GIT STATUS---"
 
         - name: 'Publish cli tools'
           env:
@@ -184,13 +125,6 @@ jobs:
             source /opt/conda/etc/profile.d/conda.sh
             conda activate /opt/conda/envs/tyger
             "${GITHUB_WORKSPACE}/scripts/publish-binaries.sh" --push --use-git-hash-as-tag --push-force
-
-        - name: 'Debug 5'
-          run: |
-            set -eo pipefail
-            echo "---GIT STATUS---"
-            git status --porcelain -uno
-            echo "---GIT STATUS---"
 
         - name: 'Cleanup'
           if: ${{ always() }}
