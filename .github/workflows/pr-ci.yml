@@ -90,6 +90,13 @@ jobs:
             make restore
             make verify-format
 
+        - name: 'Debug 1'
+          run: |
+            set -eo pipefail
+            echo "---GIT STATUS---"
+            git status --porcelain -uno
+            echo "---GIT STATUS---"
+
         - name: 'Deploy and test'
           env:
             TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
@@ -102,6 +109,13 @@ jobs:
             echo "TYGER_ENVIRONMENT_CONFIG_DIR=$TYGER_ENVIRONMENT_CONFIG_DIR"
             set -euo pipefail
             make -s -j 8
+
+        - name: 'Debug 2'
+          run: |
+            set -eo pipefail
+            echo "---GIT STATUS---"
+            git status --porcelain -uno
+            echo "---GIT STATUS---"
 
         - name: 'Build Windows Binaries'
           run: |
@@ -116,6 +130,13 @@ jobs:
             go build -ldflags="-s -w" -v -o "${GITHUB_WORKSPACE}/windows-cli-tools/tyger.exe" ./cmd/tyger
             go build -ldflags="-s -w" -v -o "${GITHUB_WORKSPACE}/windows-cli-tools/tyger-proxy.exe" ./cmd/tyger-proxy
 
+        - name: 'Debug 3'
+          run: |
+            set -eo pipefail
+            echo "---GIT STATUS---"
+            git status --porcelain -uno
+            echo "---GIT STATUS---"
+
         - name: 'Archive windows-cli-tools'
           uses: actions/upload-artifact@v3
           with:
@@ -123,8 +144,14 @@ jobs:
             path: |
               windows-cli-tools
 
+        - name: 'Debug 4'
+          run: |
+            set -eo pipefail
+            echo "---GIT STATUS---"
+            git status --porcelain -uno
+            echo "---GIT STATUS---"
+
         - name: 'Publish cli tools'
-          if: ${{ github.event_name == 'push' }}
           env:
             TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
             TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
@@ -133,6 +160,13 @@ jobs:
             source /opt/conda/etc/profile.d/conda.sh
             conda activate /opt/conda/envs/tyger
             "${GITHUB_WORKSPACE}/scripts/publish-binaries.sh" --push --use-git-hash-as-tag --push-force
+
+        - name: 'Debug 5'
+          run: |
+            set -eo pipefail
+            echo "---GIT STATUS---"
+            git status --porcelain -uno
+            echo "---GIT STATUS---"
 
         - name: 'Cleanup'
           if: ${{ always() }}
