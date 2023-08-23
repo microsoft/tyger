@@ -60,6 +60,8 @@ jobs:
             set -eo pipefail
             source /opt/conda/etc/profile.d/conda.sh
             conda activate /opt/conda/envs/tyger
+            echo "Umask is $(umask)"
+            umask 0022
             echo "---GIT STATUS---"
             make gadgetron-data
             git status --porcelain -uno
