@@ -84,6 +84,11 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader) 
 							log.Ctx(ctx).Debug().Msg("MD5 mismatch, retrying")
 							continue
 						}
+					} else if err == errBlobOverwrite {
+						if i > 0 {
+							log.Ctx(ctx).Debug().Msg("Failed blob write actually went through")
+							break
+						}
 					}
 
 					if err != nil {
@@ -148,6 +153,15 @@ func handleWriteResponse(resp *http.Response) error {
 		if resp.Header.Get("x-ms-error-code") == "Md5Mismatch" {
 			io.Copy(io.Discard, resp.Body)
 			return errMd5Mismatch
+		} else if resp.Header.Get("x-ms-error-code") == "UnauthorizedBlobOverwrite" {
+			io.Copy(io.Discard, resp.Body)
+			return errBlobOverwrite
+		}
+		fallthrough
+	case http.StatusForbidden:
+		if resp.Header.Get("x-ms-error-code") == "UnauthorizedBlobOverwrite" {
+			io.Copy(io.Discard, resp.Body)
+			return errBlobOverwrite
 		}
 		fallthrough
 	default:
