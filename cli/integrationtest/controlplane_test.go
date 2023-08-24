@@ -1241,10 +1241,7 @@ func waitForRun(t *testing.T, runId string, returnOnRunning bool, returnOnCancel
 	}
 
 done:
-	fmt.Println("waiting...")
 	err = cmd.Wait()
 	require.NoError(t, err, "tyger run watch failed: %s", errb.String())
-
-	fmt.Println("done")
 	return snapshot
 }
