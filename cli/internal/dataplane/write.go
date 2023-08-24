@@ -51,15 +51,21 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader) 
 				blobUrl := container.GetBlobUri(bb.BlobNumber)
 				ctx := log.Ctx(ctx).With().Int64("blobNumber", bb.BlobNumber).Logger().WithContext(ctx)
 				httpClient := NewClientWithLoggingContext(ctx, httpClient)
-				for i := 0; ; i++ {
-					var body any = bb.Contents
-					if len(bb.Contents) == 0 {
-						// This is a bit subtle, but if we send an empty or nil []byte body,
-						// we will enpty with the Transfer-Encoding: chunked header, which
-						// the blob service does not support.  So we send a nil body instead.
-						body = nil
-					}
+				var body any = bb.Contents
+				if len(bb.Contents) == 0 {
+					// This is a bit subtle, but if we send an empty or nil []byte body,
+					// we will enpty with the Transfer-Encoding: chunked header, which
+					// the blob service does not support.  So we send a nil body instead.
+					body = nil
+				}
 
+				md5Hash := md5.Sum(bb.Contents)
+				encodedMD5Hash := base64.StdEncoding.EncodeToString(md5Hash[:])
+
+				md5HashChain := md5.Sum([]byte(encodedMD5HashChain + encodedMD5Hash))
+				encodedMD5HashChain = base64.StdEncoding.EncodeToString(md5HashChain[:])
+
+				for i := 0; ; i++ {
 					req, err := retryablehttp.NewRequest(http.MethodPut, blobUrl, body)
 					if err != nil {
 						log.Fatal().Err(err).Msg("Unable to create request")
@@ -68,12 +74,7 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader) 
 					AddCommonBlobRequestHeaders(req.Header)
 					req.Header.Add("x-ms-blob-type", "BlockBlob")
 
-					md5Hash := md5.Sum(bb.Contents)
-					encodedMD5Hash := base64.StdEncoding.EncodeToString(md5Hash[:])
 					req.Header.Add("Content-MD5", encodedMD5Hash)
-
-					md5HashChain := md5.Sum([]byte(encodedMD5HashChain + encodedMD5Hash))
-					encodedMD5HashChain = base64.StdEncoding.EncodeToString(md5HashChain[:])
 					req.Header.Add("x-ms-meta-cumulative_md5_chain", encodedMD5HashChain)
 
 					resp, err := httpClient.Do(req)
