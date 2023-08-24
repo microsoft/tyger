@@ -194,11 +194,15 @@ for cluster_name in $(echo "${environment_definition}" | jq -r '.clusters | keys
   done
 done
 
-  primary_cluster_name=$(echo "${environment_definition}" | jq -r '.primaryCluster')
-  primary_cluster_resource=$(az aks show -n "${primary_cluster_name}" -g "${environment_resource_group}")
+primary_cluster_name=$(echo "${environment_definition}" | jq -r '.primaryCluster')
+primary_cluster_resource=$(az aks show -n "${primary_cluster_name}" -g "${environment_resource_group}")
 
-  az aks get-credentials -n "${primary_cluster_name}" -g "${environment_resource_group}" --overwrite-existing --admin
-  kubelogin convert-kubeconfig -l azurecli
+
+# Ensure token is up to date if in pipeline
+./../../../scripts/login-if-pipeline.sh
+
+az aks get-credentials -n "${primary_cluster_name}" -g "${environment_resource_group}" --overwrite-existing --admin
+kubelogin convert-kubeconfig -l azurecli
 
 ####
 # Set up CSI to get secrets from KeyVault
@@ -425,6 +429,9 @@ EOF
     fi
   done
 done
+
+# Ensure token is up to date if in pipeline
+./../../../scripts/login-if-pipeline.sh
 
 az aks get-credentials -n "${primary_cluster_name}" -g "${environment_resource_group}" --overwrite-existing
 kubelogin convert-kubeconfig -l azurecli

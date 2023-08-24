@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/controlplane"
+	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/spf13/cobra"
 )
 

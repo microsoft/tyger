@@ -12,7 +12,6 @@ Usage: $0 [options]
 Options:
   -c, --environment-config         The environment configuration JSON file or - to read from stdin
   --test                           Build (and optionally push) test images, otherwise runtime images
-  --cli-tools                      Build (and optionally push) cli tool distribution images, otherwise runtime images
   --push                           Push runtime images (requires --tag or --use-git-hash-as-tag)
   --push-force                     Force runtime images, will overwrite images with same tag (requires --tag or --use-git-hash-as-tag)
   --tag <tag>                      Tag for runtime images
@@ -31,10 +30,6 @@ while [[ $# -gt 0 ]]; do
   -c | --environment-config)
     config_path="$2"
     shift 2
-    ;;
-  --cli-tools)
-    cli_tools=1
-    shift
     ;;
   --test)
     test=1
@@ -115,23 +110,7 @@ function build_and_push() {
   docker push $quiet "$full_image" >/dev/null
 }
 
-if [[ -n "${cli_tools:-}" ]]; then
-  build_context="${repo_root_dir}/cli"
-  dockerfile_path="${repo_root_dir}/cli/Dockerfile"
-  target="tyger-cli-binaries"
-  local_tag="tyger-cli-binaries"
-  remote_repo="tyger-cli-binaries"
-
-  build_and_push
-
-  build_context="${repo_root_dir}/"
-  dockerfile_path="${repo_root_dir}/tools/Transform-Xml/Dockerfile"
-  target="transform-xml-binaries"
-  local_tag="transform-xml-binaries"
-  remote_repo="transform-xml-binaries"
-
-  build_and_push
-elif [[ -n "${test:-}" ]]; then
+if [[ -n "${test:-}" ]]; then
   build_context="${repo_root_dir}/cli"
   dockerfile_path="${repo_root_dir}/cli/integrationtest/testconnectivity/Dockerfile"
   target="testconnectivity"

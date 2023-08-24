@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/cmd"
+	"github.com/microsoft/tyger/cli/internal/cmd"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"go.opentelemetry.io/otel/baggage"

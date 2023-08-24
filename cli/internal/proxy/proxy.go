@@ -16,10 +16,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/controlplane"
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/controlplane/model"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/microsoft/tyger/cli/internal/controlplane"
+	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )

@@ -12,8 +12,8 @@ import (
 	"os"
 	"strings"
 
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/controlplane/model"
 	"github.com/fatih/color"
+	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel/propagation"

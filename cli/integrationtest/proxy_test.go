@@ -14,9 +14,9 @@ import (
 	"sync"
 	"testing"
 
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/controlplane"
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/controlplane/model"
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/proxy"
+	"github.com/microsoft/tyger/cli/internal/controlplane"
+	"github.com/microsoft/tyger/cli/internal/controlplane/model"
+	"github.com/microsoft/tyger/cli/internal/proxy"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 )

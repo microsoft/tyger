@@ -14,10 +14,10 @@ import (
 	"os"
 	"strconv"
 
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/controlplane"
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/controlplane/model"
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/dataplane"
 	"github.com/alecthomas/units"
+	"github.com/microsoft/tyger/cli/internal/controlplane"
+	"github.com/microsoft/tyger/cli/internal/controlplane/model"
+	"github.com/microsoft/tyger/cli/internal/dataplane"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )

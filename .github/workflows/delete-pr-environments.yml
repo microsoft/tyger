@@ -1,0 +1,58 @@
+name: Tyger-Delete-PR-Envs
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: read
+
+env:
+  AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+jobs:
+  delete-pr-envs:
+    runs-on: ubuntu-latest
+    container:
+      image: compimagdevcontainers.azurecr.io/tyger@sha256:df2df5320e642fda8e70e40570f899064a9758822481e3ab8aa2715527d8dd78
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: "Login into Azure"
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: "Delete PR Envs"
+        run: |
+          set -euo pipefail
+
+          mapfile -t active_prs < <(curl -sS -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/microsoft/tyger/pulls" | jq -r .[].number)
+
+          for pr in "${active_prs[@]}"; do
+              echo "Found active PR $pr"
+          done
+
+          prefix='tyger-gpr'
+          resource_groups=$(az group list --query "[?starts_with(name, '${prefix}')]" | jq ".[] | select(.name | test(\"^${prefix}[0-9]+$\")) | .name" -r)
+
+          for rg_name in $resource_groups; do
+              deployed_id="${rg_name#"$prefix"}"
+
+              if [[ ! " ${active_prs[*]} " =~ ${deployed_id} ]]; then
+                  echo "deleting $rg_name"
+                  TYGER_ENVIRONMENT_NAME="$rg_name" make remove-environment
+              else
+                  echo "Not deleting $rg_name because there is an active PR for it"
+              fi
+          done

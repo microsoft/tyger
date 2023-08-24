@@ -6,9 +6,9 @@ import (
 	"path"
 	"path/filepath"
 
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/controlplane"
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/logging"
-	"dev.azure.com/msresearch/compimag/_git/tyger/cli/internal/proxy"
+	"github.com/microsoft/tyger/cli/internal/controlplane"
+	"github.com/microsoft/tyger/cli/internal/logging"
+	"github.com/microsoft/tyger/cli/internal/proxy"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
