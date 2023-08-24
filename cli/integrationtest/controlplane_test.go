@@ -1197,8 +1197,12 @@ func waitForRunCanceled(t *testing.T, runId string) model.Run {
 
 func waitForRun(t *testing.T, runId string, returnOnRunning bool, returnOnCancel bool) model.Run {
 	cmd := exec.Command("tyger", "run", "watch", runId, "--full-resource")
-	var outb, errb bytes.Buffer
-	cmd.Stdout = &outb
+
+	stdout, err := cmd.StdoutPipe()
+	stdoutScanner := bufio.NewScanner(stdout)
+	require.NoError(t, err, "unable to get stdout pipe for tyger run watch")
+
+	var errb bytes.Buffer
 	cmd.Stderr = &errb
 
 	require.NoError(t, cmd.Start(), "unable to start tyger run watch")
@@ -1206,12 +1210,11 @@ func waitForRun(t *testing.T, runId string, returnOnRunning bool, returnOnCancel
 
 	snapshot := model.Run{}
 	for {
-		line, err := outb.ReadString('\n')
-		if err == io.EOF {
+		if !stdoutScanner.Scan() {
+			require.NoError(t, stdoutScanner.Err(), "error reading stdout from tyger run watch")
 			break
 		}
-		require.NoError(t, err)
-
+		line := stdoutScanner.Text()
 		require.NoError(t, json.Unmarshal([]byte(line), &snapshot))
 
 		require.NotNil(t, snapshot.Status, "run '%d' status was nil", snapshot.Id)
@@ -1224,7 +1227,7 @@ func waitForRun(t *testing.T, runId string, returnOnRunning bool, returnOnCancel
 				return snapshot
 			}
 		case model.Succeeded:
-			break
+			goto done
 		case model.Canceled:
 			if returnOnCancel {
 				return snapshot
@@ -1237,7 +1240,11 @@ func waitForRun(t *testing.T, runId string, returnOnRunning bool, returnOnCancel
 		}
 	}
 
-	err := cmd.Wait()
+done:
+	fmt.Println("waiting...")
+	err = cmd.Wait()
 	require.NoError(t, err, "tyger run watch failed: %s", errb.String())
+
+	fmt.Println("done")
 	return snapshot
 }
