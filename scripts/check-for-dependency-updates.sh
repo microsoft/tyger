@@ -76,12 +76,6 @@ done
 echo "$updated_manifest" > "$dependency_manifest"
 
 if [[ -n "$(git diff "$dependency_manifest")" && -n "${open_pr:-}" ]]; then
-  # If we are in GitHub pipeline, we need to set up git config
-  if [[ -n "${GITHUB_WORKSPACE:-}" ]]; then
-    git config --local user.name "Michael Hansen"
-    git config --local user.email "mihansen@microsoft.com"
-  fi
-
   current_branch="$(git branch --show-current)"
   branch_name="dependency-update/$(sha1sum "$dependency_manifest" | awk '{ print $1 }')"
 
