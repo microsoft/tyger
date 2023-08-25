@@ -106,7 +106,7 @@ if [[ -n "$(git diff "$dependency_manifest")" && -n "${open_pr:-}" ]]; then
 
   # Set up the PR if it is not already there
   if [[ "$(gh pr list --search "$branch_name" --json title | jq -r '. | length')" == "0" ]]; then
-    gh pr create --base main --head "$branch_name" --title "$branch_name" --body "This PR was created automatically by the dependency update script"  --reviewer "microsoft/biomedical-imaging"
+    gh pr create --base main --head "$branch_name" --title "$branch_name" --body "This PR was created automatically by the dependency update script"  --reviewer "biomedical-imaging"
   else
     echo "PR is already active, will not create"
   fi
