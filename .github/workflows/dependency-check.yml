@@ -38,5 +38,7 @@ jobs:
 
       - name: "Dependency Check"
         run: |
-          set -euo pipefail
-          ./scripts/check-for-dependency-updates.sh --simulate --pr
+            set -eo pipefail
+            source /opt/conda/etc/profile.d/conda.sh
+            conda activate /opt/conda/envs/tyger
+            ./scripts/check-for-dependency-updates.sh --simulate --pr
