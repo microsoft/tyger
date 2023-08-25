@@ -28,7 +28,7 @@ jobs:
       TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
       TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
     steps:
-      - name: "Login into Azure"
+      - name: Login into Azure
         uses: azure/login@v1
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -38,7 +38,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: "Set variables"
+      - name: Set variables
         id: set-variables
         run: |
           set -eo pipefail
@@ -52,7 +52,7 @@ jobs:
           echo "TYGER_ENVIRONMENT_NAME=$environment_name" >> "$GITHUB_OUTPUT"
           echo "TYGER_URI=$tyger_uri" >> "$GITHUB_OUTPUT"
 
-      - name: "Verify devcontainer"
+      - name: Verify devcontainer
         shell: bash
         env:
           DEVCONTAINER_IMAGE: compimagdevcontainers.azurecr.io/tyger@sha256:df2df5320e642fda8e70e40570f899064a9758822481e3ab8aa2715527d8dd78
@@ -69,7 +69,7 @@ jobs:
             exit 1
           fi
 
-      - name: "Bulid and verify format"
+      - name: Build and verify format
         run: |
           set -eo pipefail
           source /opt/conda/etc/profile.d/conda.sh
@@ -77,7 +77,7 @@ jobs:
           make restore
           make verify-format
 
-      - name: "Deploy and test"
+      - name: Deploy and test
         env:
           TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
           TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
@@ -96,7 +96,7 @@ jobs:
           set -euo pipefail
           make -s -j 8
 
-      - name: "Build Windows Binaries"
+      - name: Build Windows Binaries
         run: |
           set -euo pipefail
 
@@ -109,14 +109,14 @@ jobs:
           go build -ldflags="-s -w" -v -o "${GITHUB_WORKSPACE}/windows-cli-tools/tyger.exe" ./cmd/tyger
           go build -ldflags="-s -w" -v -o "${GITHUB_WORKSPACE}/windows-cli-tools/tyger-proxy.exe" ./cmd/tyger-proxy
 
-      - name: "Archive windows-cli-tools"
+      - name: Archive windows-cli-tools
         uses: actions/upload-artifact@v3
         with:
           name: windows-cli-tools
           path: |
             windows-cli-tools
 
-      - name: "Publish cli tools"
+      - name: Publish cli tools
         if: ${{ github.event_name == 'push' }}
         env:
           TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
@@ -127,7 +127,7 @@ jobs:
           conda activate /opt/conda/envs/tyger
           "${GITHUB_WORKSPACE}/scripts/publish-binaries.sh" --push --use-git-hash-as-tag --push-force
 
-      - name: "Cleanup"
+      - name: Cleanup
         if: ${{ always() }}
         env:
           TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
@@ -151,14 +151,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: "Download artifacts"
+      - name: Download artifacts
         uses: actions/download-artifact@v2
         with:
           name: windows-cli-tools
           path: |
             windows-cli-tools
 
-      - name: "Login into Azure"
+      - name: Login into Azure
         uses: azure/login@v1
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -166,7 +166,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           enable-AzPSSession: true
 
-      - name: "Run smoke tests"
+      - name: Run smoke tests
         env:
           TYGER_URI: ${{ needs.tyger-build-deploy.outputs.TYGER_URI }}
         shell: pwsh
