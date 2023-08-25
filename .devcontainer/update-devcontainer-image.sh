@@ -49,4 +49,4 @@ escaped_image_repo="$(echo ${devcontainer_repository} | sed 's/\//\\\//')"
 image_digest_pattern="${escaped_image_repo}@sha256:[0-9a-f]*"
 escaped_digest_reference="$(echo "${image_digest_reference}" | sed 's/\//\\\//')"
 
-sed -i "s/${image_digest_pattern}/${escaped_digest_reference}/" "${this_dir}/devcontainer.json" "${this_dir}/../.github/workflows/pr-ci.yml" "${this_dir}/../.github/workflows/delete-pr-environments.yml"
+sed -i "s/${image_digest_pattern}/${escaped_digest_reference}/" "${this_dir}/devcontainer.json" "${this_dir}/../.github/workflows/pr-ci.yml" "${this_dir}/../.github/workflows/delete-pr-environments.yml" "${this_dir}/../.github/workflows/dependency-check.yml"

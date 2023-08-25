@@ -80,7 +80,8 @@ if [[ -n "$(git diff "$dependency_manifest")" && -n "${open_pr:-}" ]]; then
     git config --local user.name "Michael Hansen"
   fi
 
-  if [[ -z "$(git config --get user.email)" ]]; then
+  # In case we are running as root (in pipeline)
+  if [[ -z "$(git config --get user.email)" ]] || [[ "$(git config --get user.email)" == root* ]]; then
     git config --local user.name "mihansen@microsoft.com"
   fi
 

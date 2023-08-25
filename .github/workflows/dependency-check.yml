@@ -1,4 +1,4 @@
-name: Tyger-Delete-PR-Envs
+name: "Tyger Dependency Check"
 
 on:
   schedule:
@@ -19,7 +19,7 @@ env:
   AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
 jobs:
-  delete-pr-envs:
+  dependency-check:
     runs-on: ubuntu-latest
     container:
       image: compimagdevcontainers.azurecr.io/tyger@sha256:df2df5320e642fda8e70e40570f899064a9758822481e3ab8aa2715527d8dd78
