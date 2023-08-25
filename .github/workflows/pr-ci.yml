@@ -209,7 +209,7 @@ jobs:
           source /opt/conda/etc/profile.d/conda.sh
           conda activate /opt/conda/envs/tyger
 
-          TYGER_ENVIRONMENT_NAME="noenv" make -s make unit-test
+          TYGER_ENVIRONMENT_NAME="noenv" make -s unit-test
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v2
