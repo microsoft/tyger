@@ -4,19 +4,19 @@
       "name": "python_recon",
       "type": "acrImage",
       "repository": "eminence.azurecr.io/python_recon",
-      "tag": "ef55c0007337037ea0d9234b9403929662ece39e"
+      "tag": "6a6dba6723bbc1867d1c38aab07928c18fe2cd0b"
     },
     {
       "name": "recon",
       "type": "acrImage",
       "repository": "eminence.azurecr.io/recon",
-      "tag": "ef55c0007337037ea0d9234b9403929662ece39e"
+      "tag": "a3bf6b29374ab3b67b7d475795d8a1acb11d3b46"
     },
     {
       "name": "gadgetron",
       "type": "acrImage",
       "repository": "eminencepublic.azurecr.io/gadgetron",
-      "tag": "1098cf6f8fc37c93aaa545ddd12d83d2dcb2c3e9"
+      "tag": "98669548ae6fbfa9fda6acdc4cf392a7d5fc733b"
     }
   ]
 }
