@@ -76,13 +76,10 @@ done
 echo "$updated_manifest" > "$dependency_manifest"
 
 if [[ -n "$(git diff "$dependency_manifest")" && -n "${open_pr:-}" ]]; then
-  if [[ -z "$(git config --get user.name)" ]]; then
+  # If we are in GitHub pipeline, we need to set up git config
+  if [[ -n "${GITHUB_WORKSPACE:-}" ]]; then
     git config --local user.name "Michael Hansen"
-  fi
-
-  # In case we are running as root (in pipeline)
-  if [[ -z "$(git config --get user.email)" ]] || [[ "$(git config --get user.email)" == root* ]]; then
-    git config --local user.name "mihansen@microsoft.com"
+    git config --local user.email "mihansen@microsoft.com"
   fi
 
   current_branch="$(git branch --show-current)"
