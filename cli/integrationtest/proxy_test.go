@@ -54,7 +54,7 @@ timeoutSeconds: 600`
 
 	proxyOptions := proxy.ProxyOptions{}
 
-	proxyLogBuffer := bytes.Buffer{}
+	proxyLogBuffer := SyncBuffer{}
 	logger := zerolog.New(&proxyLogBuffer)
 
 	closeProxy, err := proxy.RunProxy(serviceInfo, &proxyOptions, logger)
@@ -268,4 +268,10 @@ func (s *SyncBuffer) String() string {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	return s.buffer.String()
+}
+
+func (s *SyncBuffer) Read(p []byte) (n int, err error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	return s.buffer.Read(p)
 }
