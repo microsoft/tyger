@@ -145,7 +145,7 @@ jobs:
   codeQL:
     name: CodeQL
     runs-on: ubuntu-latest
-    if: github.repository == 'microsoft/yardl'
+    if: github.repository == 'microsoft/tyger'
     container:
       image: compimagdevcontainers.azurecr.io/tyger@sha256:df2df5320e642fda8e70e40570f899064a9758822481e3ab8aa2715527d8dd78
       options: -v /mnt/storage:/__w/tyger -v /mnt/storage:/workspaces
