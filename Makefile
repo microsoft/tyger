@@ -89,6 +89,12 @@ set-localsettings:
 		}
 	EOF
 
+build: 
+	find . -name *csproj | xargs -L 1 dotnet build
+	
+	cd cli
+	go build ./...
+
 build-server:
 	cd ${SERVER_PATH}
 	dotnet build --no-restore
