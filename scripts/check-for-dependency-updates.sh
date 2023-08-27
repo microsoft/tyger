@@ -26,6 +26,10 @@ while [[ $# -gt 0 ]]; do
       open_pr=1
       shift
       ;;
+    --simulate)
+      sim=1
+      shift
+      ;;
     -h|--help)
       usage
       exit
@@ -48,12 +52,17 @@ for d in $dependencies; do
   type="$(echo "$dep" | jq -r .type)"
   if [[ "$type" == "acrImage" ]]; then
     repository="$(echo "$dep" | jq -r .repository)"
+    if [[ -n "${sim:-}" ]]; then
+      echo "Simulating update of $repository"
+      # Create sha1 hash of the current time
+      new_tag="$(echo "$(date +%s)-$RANDOM" | sha1sum | awk '{ print $1 }')"
+    else
+      # get the digest of the image tagged with "current"
+      digest=$(az acr manifest show-metadata "${repository}:current" | jq -r '.digest')
 
-    # get the digest of the image tagged with "current"
-    digest=$(az acr manifest show-metadata "${repository}:current" | jq -r '.digest')
-
-    # get all tags for that image and take one that is either a git hash or a version specifier (vX.Y.Z)
-    new_tag=$(az acr manifest show-metadata "${repository}@${digest}" | jq -r '.tags | map(select(test("^(v\\d+\\.\\d+\\.\\d+)|([0-9a-fA-F]{5,40})$"))) | sort[0]')
+      # get all tags for that image and take one that is either a git hash or a version specifier (vX.Y.Z)
+      new_tag=$(az acr manifest show-metadata "${repository}@${digest}" | jq -r '.tags | map(select(test("^(v\\d+\\.\\d+\\.\\d+)|([0-9a-fA-F]{5,40})$"))) | sort[0]')
+    fi
     dep="$(echo "$dep" | jq --arg t "$new_tag" '.tag = $t')"
   else
     echo "Unknown dependency type: $type"
@@ -67,14 +76,6 @@ done
 echo "$updated_manifest" > "$dependency_manifest"
 
 if [[ -n "$(git diff "$dependency_manifest")" && -n "${open_pr:-}" ]]; then
-  if [[ -z "$(git config --get user.name)" ]]; then
-    git config --local user.name "Michael Hansen"
-  fi
-
-  if [[ -z "$(git config --get user.email)" ]]; then
-    git config --local user.name "mihansen@microsoft.com"
-  fi
-
   current_branch="$(git branch --show-current)"
   branch_name="dependency-update/$(sha1sum "$dependency_manifest" | awk '{ print $1 }')"
 
@@ -98,8 +99,8 @@ if [[ -n "$(git diff "$dependency_manifest")" && -n "${open_pr:-}" ]]; then
   fi
 
   # Set up the PR if it is not already there
-  if [[ "$(az repos pr list --organization "https://dev.azure.com/msresearch" --project compimag --repository tyger --query "[?contains(@.sourceRefName, '$branch_name')] | length(@)")" == "0" ]]; then
-    az repos pr create --organization "https://dev.azure.com/msresearch" --project compimag --repository tyger --source-branch "$branch_name" --reviewers "compimag Team" --squash true --delete-source-branch true --title "$branch_name"
+  if [[ "$(gh pr list --search "$branch_name" --json title | jq -r '. | length')" == "0" ]]; then
+    gh pr create --base main --head "$branch_name" --title "$branch_name" --body "This PR was created automatically by the dependency update script"  --reviewer hansenms,johnstairs
   else
     echo "PR is already active, will not create"
   fi
