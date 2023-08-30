@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -1181,6 +1182,31 @@ func TestBufferListWithoutTags(t *testing.T) {
 	require.NoError(json.Unmarshal([]byte(bufferJson), &buffers))
 
 	require.Contains(buffers, buffer)
+}
+
+func TestBufferDoubleWriteFailure(t *testing.T) {
+	t.Parallel()
+
+	inputBufferId := runTygerSucceeds(t, "buffer", "create")
+	inputSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
+
+	runCommandSuceeds(t, "sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, inputSasUri))
+
+	_, _, err := runCommand("sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, inputSasUri))
+	if err == nil {
+		t.Errorf("Second call to buffer write succeeeded")
+		t.FailNow()
+	} else {
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) {
+			if exitError.ExitCode() != 1 {
+				t.Errorf("Second call to buffer write failed with unexpected error code %d", exitError.ExitCode())
+				t.FailNow()
+			}
+		}
+
+	}
+
 }
 
 func waitForRunStarted(t *testing.T, runId string) model.Run {

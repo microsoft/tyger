@@ -84,16 +84,35 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader) 
 							log.Ctx(ctx).Debug().Msg("MD5 mismatch, retrying")
 							continue
 						}
-					} else if err == errBlobOverwrite {
-						if i > 0 {
+					} else if err == errBlobOverwrite && i != 0 {
+						// When retrying failed writes, we might encounter the UnauthorizedBlobOverwrite if the original
+						// write went through. In such cases, we should follow up with a HEAD request to verify the
+						// Content-MD5 and x-ms-meta-cumulative_md5_chain match our expectations.							req, err := retryablehttp.NewRequest(http.MethodHead, blobUrl, nil)
+						req, err := retryablehttp.NewRequest(http.MethodHead, blobUrl, nil)
+						if err != nil {
+							log.Fatal().Err(err).Msg("Unable to create HEAD request")
+						}
+
+						resp, err := httpClient.Do(req)
+						if err != nil {
+							log.Fatal().Err(err).Msg("Unable to send HEAD request")
+						}
+
+						md5Header := resp.Header.Get("Content-MD5")
+
+						if md5Header == base64.StdEncoding.EncodeToString(md5Hash[:]) {
 							log.Ctx(ctx).Debug().Msg("Failed blob write actually went through")
 							break
 						}
+
+						log.Fatal().Err(RedactHttpError(err)).Msg("Unable to write blob")
 					}
 
 					if err != nil {
 						log.Fatal().Err(RedactHttpError(err)).Msg("Unable to write blob")
 					}
+
+					log.Ctx(ctx).Debug().Msg("Loop")
 				}
 
 				metrics.Update(uint64(len(bb.Contents)))
