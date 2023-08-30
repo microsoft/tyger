@@ -17,131 +17,132 @@ env:
 
 jobs:
   tyger-build-deploy:
-      runs-on: ["self-hosted", "1ES.Pool=tyger-gh-1es"]
-      container:
-        image: compimagdevcontainers.azurecr.io/tyger@sha256:df2df5320e642fda8e70e40570f899064a9758822481e3ab8aa2715527d8dd78
-        options: -v /mnt/storage:/__w/tyger -v /mnt/storage:/workspaces
-      defaults:
-        run:
-          shell: bash
-      outputs:
-        TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
-        TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
-      steps:
-        - name: 'Login into Azure'
-          uses: azure/login@v1
-          with:
-            client-id: ${{ secrets.AZURE_CLIENT_ID }}
-            tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-            subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+    runs-on: ["self-hosted", "1ES.Pool=tyger-gh-1es"]
+    container:
+      image: compimagdevcontainers.azurecr.io/tyger@sha256:df2df5320e642fda8e70e40570f899064a9758822481e3ab8aa2715527d8dd78
+      options: -v /mnt/storage:/__w/tyger -v /mnt/storage:/workspaces
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
+      TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
+    steps:
+      - name: Login into Azure
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-        - name: Checkout
-          uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v3
 
-        - name: 'Set variables'
-          id: set-variables
-          run: |
-            set -eo pipefail
-            event_name="${{ github.event_name }}"
-            if [ "$event_name" == "pull_request" ]; then
-              environment_name="tyger-gpr${{ github.event.pull_request.number }}"
-            else
-              environment_name="tygerwestus2"
-            fi
-            tyger_uri=$(TYGER_ENVIRONMENT_NAME="${environment_name}" make -s get-tyger-uri)
-            echo "TYGER_ENVIRONMENT_NAME=$environment_name" >> "$GITHUB_OUTPUT"
-            echo "TYGER_URI=$tyger_uri" >> "$GITHUB_OUTPUT"
+      - name: Set variables
+        id: set-variables
+        run: |
+          set -eo pipefail
+          event_name="${{ github.event_name }}"
+          if [ "$event_name" == "pull_request" ]; then
+            environment_name="tyger-gpr${{ github.event.pull_request.number }}"
+          else
+            environment_name="tygerwestus2"
+          fi
+          tyger_uri=$(TYGER_ENVIRONMENT_NAME="${environment_name}" make -s get-tyger-uri)
+          echo "TYGER_ENVIRONMENT_NAME=$environment_name" >> "$GITHUB_OUTPUT"
+          echo "TYGER_URI=$tyger_uri" >> "$GITHUB_OUTPUT"
 
-        - name: 'Verify devcontainer'
-          shell: bash
-          env:
-            DEVCONTAINER_IMAGE: compimagdevcontainers.azurecr.io/tyger@sha256:df2df5320e642fda8e70e40570f899064a9758822481e3ab8aa2715527d8dd78
-          run: |
-            set -euo pipefail
-            if [[ "$(.devcontainer/get-devcontainer-image.sh)" != "${DEVCONTAINER_IMAGE}" ]]; then
-              echo "The devcontainer image in azure-pipelines.yml and devcontainer.json must be the same"
-            fi
+      - name: Verify devcontainer
+        shell: bash
+        env:
+          DEVCONTAINER_IMAGE: compimagdevcontainers.azurecr.io/tyger@sha256:df2df5320e642fda8e70e40570f899064a9758822481e3ab8aa2715527d8dd78
+        run: |
+          set -euo pipefail
+          if [[ "$(.devcontainer/get-devcontainer-image.sh)" != "${DEVCONTAINER_IMAGE}" ]]; then
+            echo "The devcontainer image in azure-pipelines.yml and devcontainer.json must be the same"
+          fi
 
-            docker build -f .devcontainer/Dockerfile --target devcontainer -t devcontainer --build-arg BUILDKIT_INLINE_CACHE=1 --cache-from ${DEVCONTAINER_IMAGE} .
+          docker build -f .devcontainer/Dockerfile --target devcontainer -t devcontainer --build-arg BUILDKIT_INLINE_CACHE=1 --cache-from ${DEVCONTAINER_IMAGE} .
 
-            if ! .devcontainer/diff-container-images.sh "${DEVCONTAINER_IMAGE}" devcontainer; then
-              echo 'Error: the "image" field in devcontainer.json does not reflect the current "devcontainer" target of the Dockerfile. Run .devcontainer/update-devcontainer-image.sh to correct this.'
-              exit 1
-            fi
+          if ! .devcontainer/diff-container-images.sh "${DEVCONTAINER_IMAGE}" devcontainer; then
+            echo 'Error: the "image" field in devcontainer.json does not reflect the current "devcontainer" target of the Dockerfile. Run .devcontainer/update-devcontainer-image.sh to correct this.'
+            exit 1
+          fi
 
-        - name: 'Bulid and verify format'
-          run: |
-            set -eo pipefail
-            source /opt/conda/etc/profile.d/conda.sh
-            conda activate /opt/conda/envs/tyger
-            make restore
-            make verify-format
+      - name: Build and verify format
+        run: |
+          set -eo pipefail
+          source /opt/conda/etc/profile.d/conda.sh
+          conda activate /opt/conda/envs/tyger
+          make restore
+          make verify-format
 
-        - name: 'Deploy and test'
-          env:
-            TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
-            TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
-          run: |
-            set -eo pipefail
-            source /opt/conda/etc/profile.d/conda.sh
-            conda activate /opt/conda/envs/tyger
-            export TYGER_ENVIRONMENT_CONFIG_DIR="${GITHUB_WORKSPACE}/deploy/config/dev/ci"
-            echo "TYGER_ENVIRONMENT_CONFIG_DIR=$TYGER_ENVIRONMENT_CONFIG_DIR"
+      - name: Deploy and test
+        env:
+          TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
+          TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
+        run: |
+          set -eo pipefail
+          source /opt/conda/etc/profile.d/conda.sh
+          conda activate /opt/conda/envs/tyger
+          export TYGER_ENVIRONMENT_CONFIG_DIR="${GITHUB_WORKSPACE}/deploy/config/dev/ci"
+          echo "TYGER_ENVIRONMENT_CONFIG_DIR=$TYGER_ENVIRONMENT_CONFIG_DIR"
 
-            # We have mounted this location in the container, it is identical to the checkout location
-            # We need to run the testdata generation from this path to make sure the testdata is generated in the right place.
-            # Otherwise, checksums will change and dirty the path and that will cause publishing to fail.
-            cd /workspaces/tyger
+          # We have mounted this location in the container, it is identical to the checkout location
+          # We need to run the testdata generation from this path to make sure the testdata is generated in the right place.
+          # Otherwise, checksums will change and dirty the path and that will cause publishing to fail.
+          cd /workspaces/tyger
 
-            set -euo pipefail
-            make -s -j 8
+          set -euo pipefail
+          make -s -j 8
 
-        - name: 'Build Windows Binaries'
-          run: |
-            set -euo pipefail
+      - name: Build Windows Binaries
+        run: |
+          set -euo pipefail
 
-            export CGO_ENABLED=1
-            export GOOS=windows
-            export GOARCH=amd64
+          export CGO_ENABLED=1
+          export GOOS=windows
+          export GOARCH=amd64
 
-            mkdir -p "${GITHUB_WORKSPACE}/windows-cli-tools"
-            cd cli
-            go build -ldflags="-s -w" -v -o "${GITHUB_WORKSPACE}/windows-cli-tools/tyger.exe" ./cmd/tyger
-            go build -ldflags="-s -w" -v -o "${GITHUB_WORKSPACE}/windows-cli-tools/tyger-proxy.exe" ./cmd/tyger-proxy
+          mkdir -p "${GITHUB_WORKSPACE}/windows-cli-tools"
+          cd cli
+          go build -ldflags="-s -w" -v -o "${GITHUB_WORKSPACE}/windows-cli-tools/tyger.exe" ./cmd/tyger
+          go build -ldflags="-s -w" -v -o "${GITHUB_WORKSPACE}/windows-cli-tools/tyger-proxy.exe" ./cmd/tyger-proxy
 
-        - name: 'Archive windows-cli-tools'
-          uses: actions/upload-artifact@v3
-          with:
-            name: windows-cli-tools
-            path: |
-              windows-cli-tools
+      - name: Archive windows-cli-tools
+        uses: actions/upload-artifact@v3
+        with:
+          name: windows-cli-tools
+          path: |
+            windows-cli-tools
 
-        - name: 'Publish cli tools'
-          if: ${{ github.event_name == 'push' }}
-          env:
-            TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
-            TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
-          run: |
-            set -eo pipefail
-            source /opt/conda/etc/profile.d/conda.sh
-            conda activate /opt/conda/envs/tyger
-            "${GITHUB_WORKSPACE}/scripts/publish-binaries.sh" --push --use-git-hash-as-tag --push-force
+      - name: Publish cli tools
+        if: ${{ github.event_name == 'push' }}
+        env:
+          TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
+          TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
+        run: |
+          set -eo pipefail
+          source /opt/conda/etc/profile.d/conda.sh
+          conda activate /opt/conda/envs/tyger
+          "${GITHUB_WORKSPACE}/scripts/publish-binaries.sh" --push --use-git-hash-as-tag --push-force
 
-        - name: 'Cleanup'
-          if: ${{ always() }}
-          env:
-            TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
-            TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
-          run: |
-            set -eo pipefail
-            source /opt/conda/etc/profile.d/conda.sh
-            conda activate /opt/conda/envs/tyger
+      - name: Cleanup
+        if: ${{ always() }}
+        env:
+          TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
+          TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
+        run: |
+          set -eo pipefail
+          source /opt/conda/etc/profile.d/conda.sh
+          conda activate /opt/conda/envs/tyger
 
-            # Point to scale-to-zero config
-            export TYGER_ENVIRONMENT_CONFIG_DIR="${GITHUB_WORKSPACE}/deploy/config/dev"
+          # Point to scale-to-zero config
+          export TYGER_ENVIRONMENT_CONFIG_DIR="${GITHUB_WORKSPACE}/deploy/config/dev"
 
-            echo "scaling cluster back down"
-            make ensure-environment
+          echo "scaling cluster back down"
+          make ensure-environment
+
 
   windows-smoke-tests:
     runs-on: windows-latest
@@ -150,14 +151,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: 'Download artifacts'
+      - name: Download artifacts
         uses: actions/download-artifact@v2
         with:
           name: windows-cli-tools
           path: |
             windows-cli-tools
 
-      - name: 'Login into Azure'
+      - name: Login into Azure
         uses: azure/login@v1
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -165,7 +166,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           enable-AzPSSession: true
 
-      - name: 'Run smoke tests'
+      - name: Run smoke tests
         env:
           TYGER_URI: ${{ needs.tyger-build-deploy.outputs.TYGER_URI }}
         shell: pwsh
@@ -174,3 +175,42 @@ jobs:
 
           # Run tests
           .\scripts\Test-CertificateLoginOnWindows.ps1 -ServerUri $env:TYGER_URI
+
+  codeQL:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    if: github.repository == 'microsoft/tyger'
+    container:
+      image: compimagdevcontainers.azurecr.io/tyger@sha256:df2df5320e642fda8e70e40570f899064a9758822481e3ab8aa2715527d8dd78
+      options: -v /mnt/storage:/__w/tyger -v /mnt/storage:/workspaces
+    defaults:
+      run:
+        shell: bash
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v2
+        with:
+          languages: csharp, go
+
+      - name: "Build"
+        env:
+          TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
+          TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
+        run: |
+          set -eo pipefail
+          source /opt/conda/etc/profile.d/conda.sh
+          conda activate /opt/conda/envs/tyger
+
+          cd /workspaces/tyger
+          TYGER_ENVIRONMENT_NAME="noenv" make -s build
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
