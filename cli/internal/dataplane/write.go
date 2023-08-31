@@ -172,9 +172,6 @@ func handleWriteResponse(resp *http.Response) error {
 		if resp.Header.Get("x-ms-error-code") == "Md5Mismatch" {
 			io.Copy(io.Discard, resp.Body)
 			return errMd5Mismatch
-		} else if resp.Header.Get("x-ms-error-code") == "UnauthorizedBlobOverwrite" {
-			io.Copy(io.Discard, resp.Body)
-			return errBlobOverwrite
 		}
 		fallthrough
 	case http.StatusForbidden:
