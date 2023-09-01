@@ -108,7 +108,7 @@ public class BufferManager : IHealthCheck
         var permissions = BlobContainerSasPermissions.Read;
         if (writeable)
         {
-            permissions |= BlobContainerSasPermissions.Write;
+            permissions |= BlobContainerSasPermissions.Create;
         }
 
         var containerClient = _serviceClient.GetBlobContainerClient(id);
