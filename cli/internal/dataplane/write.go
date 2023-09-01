@@ -105,14 +105,12 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader) 
 							break
 						}
 
-						log.Fatal().Err(RedactHttpError(err)).Msg("Unable to write blob")
+						log.Fatal().Err(RedactHttpError(err)).Msg("Buffer cannot be overwritten")
 					}
 
 					if err != nil {
-						log.Fatal().Err(RedactHttpError(err)).Msg("Unable to write blob")
+						log.Fatal().Err(RedactHttpError(err)).Msg("Buffer cannot be overwritten")
 					}
-
-					log.Ctx(ctx).Debug().Msg("Loop")
 				}
 
 				metrics.Update(uint64(len(bb.Contents)))
