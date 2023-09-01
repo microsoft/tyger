@@ -28,8 +28,9 @@ const (
 )
 
 var (
-	ErrNotFound    = errors.New("not found")
-	errMd5Mismatch = fmt.Errorf("MD5 mismatch")
+	ErrNotFound      = errors.New("not found")
+	errMd5Mismatch   = fmt.Errorf("MD5 mismatch")
+	errBlobOverwrite = fmt.Errorf("unauthorized blob overwrite")
 )
 
 type responseBodyReadError struct {
