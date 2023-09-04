@@ -181,7 +181,7 @@ func isPathDirectoryIntent(p string) bool {
 		return true
 	}
 
-	if info, err := os.Stat(p); err != nil && info.IsDir() {
+	if info, err := os.Stat(p); err == nil && info.IsDir() {
 		return true
 	}
 
