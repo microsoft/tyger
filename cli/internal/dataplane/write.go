@@ -20,6 +20,24 @@ const (
 	DefaultBlockSize = 4 * 1024 * 1024
 )
 
+var (
+	nextBlobMutex       sync.Mutex
+	nextBlob            int64
+	encodedMD5HashChain string
+)
+
+func getNextBlob() int64 {
+	nextBlobMutex.Lock()
+	defer nextBlobMutex.Unlock()
+	return nextBlob
+}
+
+func setNextBlob(value int64) {
+	nextBlobMutex.Lock()
+	defer nextBlobMutex.Unlock()
+	nextBlob = value
+}
+
 func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader) {
 	ctx := log.With().Str("operation", "buffer write").Logger().WithContext(context.Background())
 	httpClient, err := CreateHttpClient(proxyUri)
@@ -30,6 +48,9 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader) 
 	if err != nil {
 		log.Fatal().Err(err).Msg("Container validation failed")
 	}
+
+	setNextBlob(0)
+	encodedMD5HashChain = ""
 
 	outputChannel := make(chan BufferBlob, dop)
 
@@ -44,7 +65,6 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader) 
 	for i := 0; i < dop; i++ {
 		go func() {
 			defer wg.Done()
-			encodedMD5HashChain := ""
 			for bb := range outputChannel {
 				start := time.Now()
 
@@ -62,8 +82,18 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader) 
 				md5Hash := md5.Sum(bb.Contents)
 				encodedMD5Hash := base64.StdEncoding.EncodeToString(md5Hash[:])
 
-				md5HashChain := md5.Sum([]byte(encodedMD5HashChain + encodedMD5Hash))
-				encodedMD5HashChain = base64.StdEncoding.EncodeToString(md5HashChain[:])
+				for {
+					if getNextBlob() == bb.BlobNumber {
+						md5HashChain := md5.Sum([]byte(encodedMD5HashChain + encodedMD5Hash))
+						encodedMD5HashChain = base64.StdEncoding.EncodeToString(md5HashChain[:])
+
+						setNextBlob(bb.BlobNumber + 1)
+
+						break
+					}
+
+					time.Sleep(1 * time.Nanosecond)
+				}
 
 				for i := 0; ; i++ {
 					req, err := retryablehttp.NewRequest(http.MethodPut, blobUrl, body)
