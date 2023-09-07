@@ -3,8 +3,7 @@ name: Tyger
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
+  pull_request: # all branches
 
 permissions:
   id-token: write
