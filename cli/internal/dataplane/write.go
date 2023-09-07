@@ -81,11 +81,13 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader) 
 
 				md5Hash := md5.Sum(bb.Contents)
 				encodedMD5Hash := base64.StdEncoding.EncodeToString(md5Hash[:])
+				blobEncodedMD5HashChain := ""
 
 				for {
 					if getNextBlob() == bb.BlobNumber {
 						md5HashChain := md5.Sum([]byte(encodedMD5HashChain + encodedMD5Hash))
 						encodedMD5HashChain = base64.StdEncoding.EncodeToString(md5HashChain[:])
+						blobEncodedMD5HashChain = encodedMD5HashChain
 
 						setNextBlob(bb.BlobNumber + 1)
 
@@ -105,7 +107,7 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader) 
 					req.Header.Add("x-ms-blob-type", "BlockBlob")
 
 					req.Header.Add("Content-MD5", encodedMD5Hash)
-					req.Header.Add("x-ms-meta-cumulative_md5_chain", encodedMD5HashChain)
+					req.Header.Add("x-ms-meta-cumulative_md5_chain", blobEncodedMD5HashChain)
 
 					resp, err := httpClient.Do(req)
 					if err != nil {
