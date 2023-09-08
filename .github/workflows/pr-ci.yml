@@ -3,8 +3,8 @@ name: Tyger
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
+  pull_request: # all branches
+  workflow_dispatch:
 
 permissions:
   id-token: write
@@ -19,7 +19,7 @@ jobs:
   tyger-build-deploy:
     runs-on: ["self-hosted", "1ES.Pool=tyger-gh-1es"]
     container:
-      image: compimagdevcontainers.azurecr.io/tyger@sha256:251eebf5e1fa077f5627d388caef91ee4044f1873e10a68d300ce5f0abe76103
+      image: compimagdevcontainers.azurecr.io/tyger@sha256:0d4c01b0099771c576659f498830e870be456305f423bd723523a4ca3176648e
       options: -v /mnt/storage:/__w/tyger -v /mnt/storage:/workspaces
     defaults:
       run:
@@ -55,7 +55,7 @@ jobs:
       - name: Verify devcontainer
         shell: bash
         env:
-          DEVCONTAINER_IMAGE: compimagdevcontainers.azurecr.io/tyger@sha256:251eebf5e1fa077f5627d388caef91ee4044f1873e10a68d300ce5f0abe76103
+          DEVCONTAINER_IMAGE: compimagdevcontainers.azurecr.io/tyger@sha256:0d4c01b0099771c576659f498830e870be456305f423bd723523a4ca3176648e
         run: |
           set -euo pipefail
           if [[ "$(.devcontainer/get-devcontainer-image.sh)" != "${DEVCONTAINER_IMAGE}" ]]; then
@@ -181,7 +181,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.repository == 'microsoft/tyger'
     container:
-      image: compimagdevcontainers.azurecr.io/tyger@sha256:251eebf5e1fa077f5627d388caef91ee4044f1873e10a68d300ce5f0abe76103
+      image: compimagdevcontainers.azurecr.io/tyger@sha256:0d4c01b0099771c576659f498830e870be456305f423bd723523a4ca3176648e
       options: -v /mnt/storage:/__w/tyger -v /mnt/storage:/workspaces
     defaults:
       run:

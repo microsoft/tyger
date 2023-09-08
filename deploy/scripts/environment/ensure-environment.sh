@@ -114,30 +114,35 @@ for cluster_name in $(echo "${environment_definition}" | jq -r '.clusters | keys
   # Is this a create or update?
   if [[ -z "$aks_cluster" ]]; then
     echo "Creating cluster..."
-    aks_cluster=$(az aks create \
-      --resource-group "$environment_resource_group" \
-      --location "$cluster_region" \
-      --name "$cluster_name" \
-      --enable-addons monitoring,azure-keyvault-secrets-provider \
-      --workspace-resource-id "$workspace_id" \
-      --kubernetes-version "$kubernetes_version" \
-      --enable-cluster-autoscaler \
-      --node-count 1 \
-      --min-count 1 \
-      --max-count 3 \
-      --nodepool-name system \
-      --node-vm-size "$system_node_size" \
-      --load-balancer-sku standard \
-      --dns-name-prefix "$dns_prefix" \
-      --generate-ssh-keys \
-      --enable-aad
-      )
-  fi
-
-  if ! az aks check-acr --acr "$acr" --name "$cluster_name" -g "$environment_resource_group" 2>/dev/null | grep "cluster can pull images from"; then
-    # Attach ACR
-    echo "Attaching container registry: $acr"
-    az aks update -n "$cluster_name" -g "$environment_resource_group" --attach-acr "$acr" -o none
+    aks_cluster=$(
+      az aks create \
+        --resource-group "$environment_resource_group" \
+        --location "$cluster_region" \
+        --name "$cluster_name" \
+        --enable-addons monitoring,azure-keyvault-secrets-provider \
+        --workspace-resource-id "$workspace_id" \
+        --kubernetes-version "$kubernetes_version" \
+        --enable-cluster-autoscaler \
+        --node-count 1 \
+        --min-count 1 \
+        --max-count 3 \
+        --nodepool-name system \
+        --node-vm-size "$system_node_size" \
+        --load-balancer-sku standard \
+        --dns-name-prefix "$dns_prefix" \
+        --generate-ssh-keys \
+        --enable-aad \
+        --attach-acr "$acr"
+    )
+  else
+    echo "Checking ACR access..."
+    # Setting this environment variable to ensure kubelogin uses the azure cli context to get a token
+    export AAD_LOGIN_METHOD=azurecli
+    if ! az aks check-acr --acr "$acr" --name "$cluster_name" -g "$environment_resource_group" 2>/dev/null | grep "cluster can pull images from"; then
+      # Attach ACR
+      echo "Attaching container registry: $acr"
+      az aks update -n "$cluster_name" -g "$environment_resource_group" --attach-acr "$acr" -o none
+    fi
   fi
 
   # Nodepools
@@ -158,6 +163,7 @@ for cluster_name in $(echo "${environment_definition}" | jq -r '.clusters | keys
           --update-cluster-autoscaler \
           --min-count "${min_count}" \
           --max-count "${max_count}" \
+          --no-wait \
           -o none
       fi
     else
@@ -177,6 +183,7 @@ for cluster_name in $(echo "${environment_definition}" | jq -r '.clusters | keys
           --labels tyger=run \
           --node-taints tyger=run:NoSchedule,sku=gpu:NoSchedule \
           --aks-custom-headers UseGPUDedicatedVHD=true \
+          --no-wait \
           -o none
       else
         az aks nodepool add -n "$pool_name" --cluster-name "$cluster_name" -g "$environment_resource_group" \
@@ -188,6 +195,7 @@ for cluster_name in $(echo "${environment_definition}" | jq -r '.clusters | keys
           --node-vm-size "${vm_size}" \
           --labels tyger=run \
           --node-taints tyger=run:NoSchedule \
+          --no-wait \
           -o none
       fi
     fi
@@ -196,7 +204,6 @@ done
 
 primary_cluster_name=$(echo "${environment_definition}" | jq -r '.primaryCluster')
 primary_cluster_resource=$(az aks show -n "${primary_cluster_name}" -g "${environment_resource_group}")
-
 
 # Ensure token is up to date if in pipeline
 ./../../../scripts/login-if-pipeline.sh
@@ -284,7 +291,7 @@ echo "$manifest" | kubectl apply -f -
 
 helm repo add traefik https://helm.traefik.io/traefik
 helm upgrade --install traefik traefik/traefik --namespace traefik --create-namespace \
-  -f - <<EOF  > /dev/null
+  -f - <<EOF >/dev/null
 logs:
   general:
     format: "json"
@@ -353,7 +360,7 @@ for organization_name in $(echo "${environment_definition}" | jq -r '.organizati
   kubectl create namespace "${organization_namespace}" --dry-run=client -o yaml | kubectl apply -f -
 
   manifest=$(
-cat <<EOF
+    cat <<EOF
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -405,7 +412,7 @@ subjects:
   kind: Group
   name: ${userGroupId}
 EOF
-)
+  )
   echo "$manifest" | kubectl apply -f -
 
   # Deploy storage accounts
@@ -435,7 +442,6 @@ done
 
 az aks get-credentials -n "${primary_cluster_name}" -g "${environment_resource_group}" --overwrite-existing
 kubelogin convert-kubeconfig -l azurecli
-
 
 # When deployment is complete, add the environment hash as a tag on the resource group
 az tag update --operation Merge --resource-id "${environment_resource_group_id}" --tags "tygerdefinitionhash=${environment_hash}" -o none
