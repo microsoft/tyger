@@ -37,7 +37,7 @@ ARG DOCKER_VERSION="20.10"
 RUN script=$(curl -fsSL "https://raw.githubusercontent.com/devcontainers/features/8d3685e09f18dd8b0a6bce50abe3e868dac27a69/src/docker-outside-of-docker/install.sh") \
     && MOBY=${USE_MOBY} VERSION=${DOCKER_VERSION} bash -c "$script"
 
-ARG AZ_CLI_VERSION=2.45.0
+ARG AZ_CLI_VERSION=2.52.0
 RUN script=$(curl -fsSL "https://raw.githubusercontent.com/devcontainers/features/8d3685e09f18dd8b0a6bce50abe3e868dac27a69/src/azure-cli/install.sh") \
     && VERSION=${AZ_CLI_VERSION} bash -c "$script"
 
