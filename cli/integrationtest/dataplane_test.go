@@ -4,7 +4,10 @@ package integrationtest
 
 import (
 	"bytes"
+	"context"
+	"crypto/md5"
 	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -17,6 +20,9 @@ import (
 	"testing"
 
 	"github.com/microsoft/tyger/cli/internal/cmd"
+	"github.com/microsoft/tyger/cli/internal/controlplane"
+	"github.com/microsoft/tyger/cli/internal/dataplane"
+	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -182,6 +188,80 @@ func TestMissingContainer(t *testing.T) {
 	errorString := string(ee.Stderr)
 
 	assert.Contains(t, errorString, "Container validation failed")
+}
+
+func TestInvaidHashChain(t *testing.T) {
+	t.Parallel()
+
+	inputBufferId := runTygerSucceeds(t, "buffer", "create")
+	writeSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
+
+	// Calling buffer.write directly to make sure an invalid hash chain is generated.
+	var proxyUri string
+	if serviceInfo, err := controlplane.GetPersistedServiceInfo(); err == nil {
+		proxyUri = serviceInfo.GetDataPlaneProxy()
+	}
+
+	inputReader := strings.NewReader("Hello")
+	dataplane.Write(writeSasUri, proxyUri, dataplane.DefaultWriteDop, dataplane.DefaultBlockSize, inputReader, true)
+
+	readSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId)
+
+	_, stdErr, err := runTyger("buffer", "read", readSasUri)
+	if err == nil {
+		t.Fatal("MD5 Hash chain was valid")
+	} else {
+		assert.Contains(t, stdErr, "MD5 Hash chain mismatch")
+	}
+}
+
+func TestHashChain(t *testing.T) {
+	t.Parallel()
+
+	inputBufferId := runTygerSucceeds(t, "buffer", "create")
+	writeSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
+
+	payload := []byte("hello world")
+	writeCommand := exec.Command("tyger", "buffer", "write", writeSasUri)
+	writeCommand.Stdin = bytes.NewBuffer(payload)
+	writeStdErr := bytes.NewBuffer(nil)
+	writeCommand.Stderr = writeStdErr
+	err := writeCommand.Run()
+
+	require.Nil(t, err, "write command failed")
+
+	readSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId)
+
+	// Direct call to the read code in order to get the headers
+	var proxyUri string
+	if serviceInfo, err := controlplane.GetPersistedServiceInfo(); err == nil {
+		proxyUri = serviceInfo.GetDataPlaneProxy()
+	}
+
+	httpClient, err := dataplane.CreateHttpClient(proxyUri)
+	if err != nil {
+		t.Fatal("Failed to create http client")
+	}
+	container, err := dataplane.ValidateContainer(readSasUri, httpClient)
+	if err != nil {
+		t.Fatal("Container validation failed")
+	}
+
+	blobUri := container.GetBlobUri(0)
+
+	ctx := log.With().Str("operation", "buffer read").Logger().WithContext(context.Background())
+	var finalBlobNumber int64 = -1
+	respData, err := dataplane.WaitForBlobAndDownload(ctx, dataplane.NewClientWithLoggingContext(ctx, httpClient), blobUri, 0, &finalBlobNumber)
+
+	// Calculate the MD5 hash chain for this block
+	md5Hash := md5.Sum(payload)
+	encodedMD5Hash := base64.StdEncoding.EncodeToString(md5Hash[:])
+	md5HashChain := md5.Sum([]byte(dataplane.EncodedMD5HashChainInitalValue + encodedMD5Hash))
+	encodedMD5HashChain := base64.StdEncoding.EncodeToString(md5HashChain[:])
+
+	md5ChainHeader := respData.Header.Get("x-ms-meta-cumulative_md5_chain")
+
+	assert.Equal(t, encodedMD5HashChain, md5ChainHeader)
 }
 
 func TestRunningFromPowershellRaisesWarning(t *testing.T) {

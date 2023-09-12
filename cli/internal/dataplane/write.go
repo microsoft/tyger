@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	DefaultWriteDop  = 16
-	DefaultBlockSize = 4 * 1024 * 1024
+	DefaultWriteDop                = 16
+	DefaultBlockSize               = 4 * 1024 * 1024
+	EncodedMD5HashChainInitalValue = "MDAwMDAwMDAwMDAwMDAwMA=="
 )
 
 var (
@@ -38,7 +39,7 @@ func setNextBlob(value int64) {
 	nextBlob = value
 }
 
-func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader) {
+func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, invalidHashChain bool) {
 	ctx := log.With().Str("operation", "buffer write").Logger().WithContext(context.Background())
 	httpClient, err := CreateHttpClient(proxyUri)
 	if err != nil {
@@ -50,7 +51,7 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader) 
 	}
 
 	setNextBlob(0)
-	encodedMD5HashChain = ""
+	encodedMD5HashChain = EncodedMD5HashChainInitalValue
 
 	outputChannel := make(chan BufferBlob, dop)
 
@@ -87,7 +88,11 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader) 
 					if getNextBlob() == bb.BlobNumber {
 						md5HashChain := md5.Sum([]byte(encodedMD5HashChain + encodedMD5Hash))
 						encodedMD5HashChain = base64.StdEncoding.EncodeToString(md5HashChain[:])
-						blobEncodedMD5HashChain = encodedMD5HashChain
+						if invalidHashChain {
+							blobEncodedMD5HashChain = "invalid-MD5-Hash"
+						} else {
+							blobEncodedMD5HashChain = encodedMD5HashChain
+						}
 
 						setNextBlob(bb.BlobNumber + 1)
 

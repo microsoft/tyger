@@ -67,26 +67,26 @@ func Read(uri, proxyUri string, dop int, outputWriter io.Writer) {
 					}
 					log.Ctx(ctx).Fatal().Err(err).Msg("Error downloading blob")
 				}
-				metrics.Update(uint64(len(respData.data)))
+				metrics.Update(uint64(len(respData.Data)))
 
-				md5Header := respData.header.Get("Content-MD5")
-				md5ChainHeader := respData.header.Get("x-ms-meta-cumulative_md5_chain")
+				md5Header := respData.Header.Get("Content-MD5")
+				md5ChainHeader := respData.Header.Get("x-ms-meta-cumulative_md5_chain")
 
-				calculatedMd5 := md5.Sum(respData.data)
+				calculatedMd5 := md5.Sum(respData.Data)
 
 				md5Bytes, _ := base64.StdEncoding.DecodeString(md5Header)
 				if !bytes.Equal(calculatedMd5[:], md5Bytes) {
 					log.Ctx(ctx).Fatal().Err(err).Msg("MD5 mismatch")
 				}
 
-				c <- BufferBlob{BlobNumber: blobNumber, Contents: respData.data, EncodedMD5Hash: md5Header, EncodedMD5ChainHash: md5ChainHeader}
+				c <- BufferBlob{BlobNumber: blobNumber, Contents: respData.Data, EncodedMD5Hash: md5Header, EncodedMD5ChainHash: md5ChainHeader}
 			}
 		}()
 	}
 
 	lastTime := time.Now()
 	var expcetedBlobNumber int64 = 0
-	var encodedMD5HashChain string = ""
+	var encodedMD5HashChain string = EncodedMD5HashChainInitalValue
 	for c := range responseChannel {
 		blobResponse := <-c
 
@@ -153,7 +153,7 @@ func WaitForBlobAndDownload(ctx context.Context, httpClient *retryablehttp.Clien
 				Dur("duration", time.Since(start)).
 				Msg("Downloaded blob")
 
-			if len(respData.data) == 0 {
+			if len(respData.Data) == 0 {
 				atomic.StoreInt64(finalBlobNumber, blobNumber)
 			}
 
@@ -206,8 +206,8 @@ func WaitForBlobAndDownload(ctx context.Context, httpClient *retryablehttp.Clien
 }
 
 type readData struct {
-	data   []byte
-	header http.Header
+	Data   []byte
+	Header http.Header
 }
 
 func handleReadResponse(ctx context.Context, resp *http.Response) (*readData, error) {
@@ -239,8 +239,8 @@ func handleReadResponse(ctx context.Context, resp *http.Response) (*readData, er
 
 		response := readData{}
 
-		response.data = buf
-		response.header = resp.Header
+		response.Data = buf
+		response.Header = resp.Header
 
 		return &response, nil
 	case http.StatusNotFound:

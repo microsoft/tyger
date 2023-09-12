@@ -314,7 +314,7 @@ func NewBufferWriteCommand(openFileFunc func(name string, flag int, perm fs.File
 				proxyUri = serviceInfo.GetDataPlaneProxy()
 			}
 
-			dataplane.Write(uri, proxyUri, dop, blockSize, inputReader)
+			dataplane.Write(uri, proxyUri, dop, blockSize, inputReader, false)
 		},
 	}
 
