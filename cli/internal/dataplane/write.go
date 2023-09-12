@@ -143,8 +143,9 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 						}
 
 						md5Header := resp.Header.Get("Content-MD5")
+						md5ChainHeader := resp.Header.Get("x-ms-meta-cumulative_md5_chain")
 
-						if md5Header == base64.StdEncoding.EncodeToString(md5Hash[:]) {
+						if md5Header == encodedMD5Hash && md5ChainHeader == blobEncodedMD5HashChain {
 							log.Ctx(ctx).Debug().Msg("Failed blob write actually went through")
 							break
 						}
