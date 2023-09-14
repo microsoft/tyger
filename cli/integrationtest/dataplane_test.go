@@ -190,7 +190,7 @@ func TestMissingContainer(t *testing.T) {
 	assert.Contains(t, errorString, "Container validation failed")
 }
 
-func TestInvaidHashChain(t *testing.T) {
+func TestInvalidHashChain(t *testing.T) {
 	t.Parallel()
 
 	inputBufferId := runTygerSucceeds(t, "buffer", "create")
