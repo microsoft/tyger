@@ -1,0 +1,25 @@
+name: jostairs
+
+azure:
+  subscription: BiomedicalImaging-NonProd
+  defaultResourceGroup: jostairs
+
+  dnsZone:
+    resourceGroup: eminence
+    name: eminence.ms
+
+  containerRegistries:
+    - resourceGroup: eminence
+      name: eminence.ms
+
+  keyVault:
+    resourceGroup: eminence
+    name: eminence
+
+  logAnalytics:
+    resourceGroup: eminence
+    name: eminence
+
+  clusterPrincipalIds:
+    - 5b60f594-a0eb-410c-a3fc-dd3c6f4e28d1
+    - c0e60aba-35f0-4778-bc9b-fc5d2af14687

@@ -1,0 +1,25 @@
+kind: IngressRoute
+apiVersion: traefik.containo.us/v1alpha1
+metadata:
+  name: whoami
+  namespace: default
+  annotations: # If you are using local certs and not lets Encrypt - Remove this
+    kubernetes.io/ingress.class: traefik  # If you are using local certs and not lets Encrypt - Remove this
+    cert-manager.io/cluster-issuer: whoami-cert  # If you are using local certs and not lets Encrypt - Remove this
+
+spec:
+  entryPoints:
+    - websecure
+  tls:
+    secretName: js-tyger.westus2.cloudapp.azure.com-tls # Lets Encrypt Generated Cert from 004-lets-encrypt-cert.yaml - Change this to local cert if you don't want to use Lets Encrypt.
+    domains:
+    - main: js-tyger.westus2.cloudapp.azure.com
+      sans:
+      - js-tyger.westus2.cloudapp.azure.com
+
+  routes:
+  - match: Host(`js-tyger.westus2.cloudapp.azure.com`)
+    kind: Rule
+    services:
+    - name: whoami
+      port: 80

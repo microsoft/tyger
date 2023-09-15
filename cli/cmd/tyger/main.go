@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/microsoft/tyger/cli/internal/cmd"
+	"github.com/microsoft/tyger/cli/internal/cmd/env"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"go.opentelemetry.io/otel/baggage"
@@ -53,6 +54,7 @@ func newRootCommand() *cobra.Command {
 	rootCommand.AddCommand(cmd.NewCodespecCommand())
 	rootCommand.AddCommand(cmd.NewRunCommand())
 	rootCommand.AddCommand(cmd.NewClusterCommand())
+	rootCommand.AddCommand(env.NewEnvCommand())
 
 	return rootCommand
 }

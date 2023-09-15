@@ -1,0 +1,13 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: js-tyger.westus2.cloudapp.azure.com # This should be your domain name
+  namespace: default
+spec:
+  secretName: js-tyger.westus2.cloudapp.azure.com-tls # This will be your cert name in Kubernetes
+  issuerRef:
+    name: whoami-cert # This should match from 003-lets-encrypt.yaml
+    kind: ClusterIssuer
+  commonName: js-tyger.westus2.cloudapp.azure.com # This is the main DNS name for the cert
+  dnsNames:
+  - js-tyger.westus2.cloudapp.azure.com # You can add subdomains if you wish
