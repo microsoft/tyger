@@ -110,7 +110,7 @@ func Read(uri, proxyUri string, dop int, outputWriter io.Writer) {
 		encodedMD5HashChain = base64.StdEncoding.EncodeToString(md5HashChain[:])
 
 		if blobResponse.EncodedMD5ChainHash != encodedMD5HashChain {
-			log.Ctx(ctx).Fatal().Err(err).Msg("MD5 Hash chain mismatch")
+			log.Ctx(ctx).Fatal().Err(err).Msg("Hash chain mismatch")
 		}
 
 		timeNow := time.Now()
@@ -237,10 +237,7 @@ func handleReadResponse(ctx context.Context, resp *http.Response) (*readData, er
 			return nil, &responseBodyReadError{reason: errors.New("expected x-ms-meta-cumulative_md5_chain header missing")}
 		}
 
-		response := readData{}
-
-		response.Data = buf
-		response.Header = resp.Header
+		response := readData{Data: buf, Header: resp.Header}
 
 		return &response, nil
 	case http.StatusNotFound:

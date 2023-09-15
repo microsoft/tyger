@@ -21,6 +21,8 @@ const (
 	EncodedMD5HashChainInitalValue = "MDAwMDAwMDAwMDAwMDAwMA=="
 )
 
+// If invalidHashChain is set to true, the value of the hash chain attached to the blob will
+// always be the Inital Value. This should only be set for testing.
 func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, invalidHashChain bool) {
 	ctx := log.With().Str("operation", "buffer write").Logger().WithContext(context.Background())
 	httpClient, err := CreateHttpClient(proxyUri)
@@ -62,9 +64,9 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 				md5Hash := md5.Sum(bb.Contents)
 				encodedMD5Hash := base64.StdEncoding.EncodeToString(md5Hash[:])
 
-				previouseMD5HashChain := <-bb.PreviousCumulativeHash
+				previousMD5HashChain := <-bb.PreviousCumulativeHash
 
-				md5HashChain := md5.Sum([]byte(previouseMD5HashChain + encodedMD5Hash))
+				md5HashChain := md5.Sum([]byte(previousMD5HashChain + encodedMD5Hash))
 				encodedMD5HashChain := base64.StdEncoding.EncodeToString(md5HashChain[:])
 
 				bb.CurrentCumulativeHash <- encodedMD5HashChain
@@ -140,9 +142,9 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 	}
 
 	var blobNumber int64 = 0
-	previouseHashChannel := make(chan string, 1)
+	previousHashChannel := make(chan string, 1)
 
-	previouseHashChannel <- EncodedMD5HashChainInitalValue
+	previousHashChannel <- EncodedMD5HashChainInitalValue
 
 	for {
 
@@ -158,11 +160,11 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 			outputChannel <- BufferBlob{
 				BlobNumber:             blobNumber,
 				Contents:               buffer[:bytesRead],
-				PreviousCumulativeHash: previouseHashChannel,
+				PreviousCumulativeHash: previousHashChannel,
 				CurrentCumulativeHash:  currentHashChannel,
 			}
 
-			previouseHashChannel = currentHashChannel
+			previousHashChannel = currentHashChannel
 			blobNumber++
 		}
 
@@ -180,7 +182,7 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 	outputChannel <- BufferBlob{
 		BlobNumber:             blobNumber,
 		Contents:               []byte{},
-		PreviousCumulativeHash: previouseHashChannel,
+		PreviousCumulativeHash: previousHashChannel,
 		CurrentCumulativeHash:  currentHashChannel,
 	}
 	close(outputChannel)
