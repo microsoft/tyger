@@ -1,12 +1,15 @@
 package env
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -20,6 +23,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"helm.sh/helm/v3/pkg/repo"
+	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -47,6 +51,8 @@ func NewEnvCommand() *cobra.Command {
 
 			subName := "biomedicalimaging-nonprod"
 			environmentName := "js"
+			// location := "westus2"
+			dnsLabel := environmentName + "-tyger"
 
 			subId, err := getSubscriptionId(subName, cred)
 			if err != nil {
@@ -92,7 +98,22 @@ func NewEnvCommand() *cobra.Command {
 				log.Fatal().Err(err).Msg("failed to create cluster rbac")
 			}
 
-			err = addTraefik(adminRESTConfig, adminClientset, environmentName+"-tyger")
+			// managementClient, err := armnetwork.NewManagementClient(subId, cred, nil)
+			// if err != nil {
+			// 	log.Fatal().Err(err).Msg("failed to create management client")
+			// }
+
+			// resp, err := managementClient.CheckDNSNameAvailability(context.TODO(), location, dnsLabel, nil)
+			// if err != nil {
+			// 	log.Fatal().Err(err).Msg("failed to check dns name availability")
+			// }
+			// if !*resp.Available {
+			// 	log.Fatal().Msg("dns name not available")
+			// }
+
+			// return
+
+			err = addTraefik(adminRESTConfig, adminClientset, dnsLabel)
 			if err != nil {
 				log.Fatal().Err(err).Msg("failed to add traefik")
 			}
@@ -103,9 +124,14 @@ func NewEnvCommand() *cobra.Command {
 }
 
 func addTraefik(adminRESTConfig *rest.Config, adminClientset *kubernetes.Clientset, dnsLabel string) error {
+
 	helmOptions := helmclient.RestConfClientOptions{
 		RestConfig: adminRESTConfig,
-		Options:    &helmclient.Options{},
+		Options: &helmclient.Options{
+			DebugLog: func(format string, v ...interface{}) {
+				log.Info().Msgf(format, v...)
+			},
+		},
 	}
 	helmClient, err := helmclient.NewClientFromRestConf(&helmOptions)
 	if err != nil {
@@ -119,7 +145,7 @@ func addTraefik(adminRESTConfig *rest.Config, adminClientset *kubernetes.Clients
 		return fmt.Errorf("failed to add traefik repo: %w", err)
 	}
 
-	values := fmt.Sprintf(`
+	valuesTemplateText := `
 logs:
   general:
     format: "json"
@@ -128,18 +154,50 @@ logs:
     format: "json"
 service:
   annotations: # We need to add the azure dns label, otherwise the public IP will not have a DNS name, which we need for cname record later.
-    "service.beta.kubernetes.io/azure-dns-label-name": "%s"
-`, dnsLabel)
+    "service.beta.kubernetes.io/azure-dns-label-name": "{{.DnsLabel}}"
+`
+
+	valuesTemplate := template.Must(template.New("values").Parse(valuesTemplateText))
+	var values bytes.Buffer
+	err = valuesTemplate.Execute(&values, struct{ DnsLabel string }{DnsLabel: dnsLabel})
+	if err != nil {
+		return fmt.Errorf("failed to execute values template: %w", err)
+	}
 
 	chartSpec := helmclient.ChartSpec{
 		ReleaseName:     "traefik",
 		ChartName:       "traefik/traefik",
 		Namespace:       "traefik",
 		CreateNamespace: true,
-		ValuesYaml:      values,
+		Wait:            true,
+		WaitForJobs:     true,
+		Atomic:          true,
+		UpgradeCRDs:     true,
+		Timeout:         1 * time.Minute,
+		ValuesYaml:      values.String(),
 	}
 
+	startTime := time.Now().Add(-10 * time.Second)
+
 	if _, err := helmClient.InstallOrUpgradeChart(context.Background(), &chartSpec, nil); err != nil {
+		installErr := err
+
+		// List warning events in the namespace
+		events, err := adminClientset.CoreV1().Events("traefik").List(context.TODO(), metav1.ListOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to install Traefik: %w", installErr)
+		}
+
+		sort.SliceStable(events.Items, func(i, j int) bool {
+			return events.Items[i].LastTimestamp.After(events.Items[j].LastTimestamp.Time)
+		})
+
+		for _, event := range events.Items {
+			if event.Type == corev1.EventTypeWarning && event.LastTimestamp.After(startTime) {
+				log.Warn().Str("Reason", event.Reason).Msg(event.Message)
+			}
+		}
+
 		return fmt.Errorf("failed to install traefik: %w", err)
 	}
 
@@ -150,13 +208,19 @@ service:
 		return fmt.Errorf("failed to add jetstack repo: %w", err)
 	}
 
-	values = "installCRDs: true"
+	certManagerValues := "installCRDs: true"
+
 	chartSpec = helmclient.ChartSpec{
 		ReleaseName:     "cert-manager",
 		ChartName:       "jetstack/cert-manager",
 		Namespace:       "cert-manager",
 		CreateNamespace: true,
-		ValuesYaml:      values,
+		Wait:            true,
+		WaitForJobs:     true,
+		Atomic:          true,
+		UpgradeCRDs:     true,
+		Timeout:         5 * time.Minute,
+		ValuesYaml:      certManagerValues,
 	}
 
 	if _, err := helmClient.InstallOrUpgradeChart(context.Background(), &chartSpec, nil); err != nil {
@@ -248,9 +312,7 @@ func createClusterRbac(clientset *kubernetes.Clientset) error {
 	return nil
 }
 
-func createCluster(mcc *armcontainerservice.ManagedClustersClient, subscriptionId string, credential azcore.TokenCredential, environmentName string, attachedContainerRegistries []string) (*runtime.Poller[armcontainerservice.ManagedClustersClientCreateOrUpdateResponse], error) {
-	location := "westus2"
-
+func createCluster(mcc *armcontainerservice.ManagedClustersClient, subscriptionId string, location string, credential azcore.TokenCredential, environmentName string, attachedContainerRegistries []string) (*runtime.Poller[armcontainerservice.ManagedClustersClientCreateOrUpdateResponse], error) {
 	mc := armcontainerservice.ManagedCluster{
 		Location: Ptr(location),
 		Identity: &armcontainerservice.ManagedClusterIdentity{

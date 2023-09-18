@@ -1,0 +1,16 @@
+server:
+  image: eminence.azurecr.io/tyger-server@sha256:1f0da31be6fa1816cf98719ed609978a5c0bf4330bbe25d82a3862a5c97994cb
+  hostname: js-tyger.westus2.cloudapp.azure.com
+  security:
+    enabled: true
+    authority: https://login.microsoftonline.com/76d3279b-830e-4bea-baf8-12863cdeba4c/
+    audience: api://tyger-server
+  tls:
+    letsEncrypt:
+      enabled: true
+  storageAccountConnectionStringSecretName: jostairslamnabuf
+  bufferSidecarImage: eminence.azurecr.io/buffer-sidecar@sha256:a7bec88495ef35f2a643c0fabdad44eb6d132035c9d670957fdcc2497976ecb8
+  workerWaiterImage: eminence.azurecr.io/worker-waiter@sha256:d62537874be993b3d549ea06b394fa3a02fe4e0d18a4987ca0426b938994dd2f
+  logsStorageAccountConnectionStringSecretName: jostairslamnalog
+  clusterConfigurationJson: |
+    {"jostairs":{"isPrimary":true,"region":"westus2","systemNodeSize":"Standard_DS2_v2","userNodePools":{"cpunp":{"vmSize":"Standard_DS12_v2","minCount":0,"maxCount":10},"gpunp":{"vmSize":"Standard_NC6s_v3","minCount":0,"maxCount":10}}}}
