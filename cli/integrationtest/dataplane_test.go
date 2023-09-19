@@ -209,9 +209,9 @@ func TestInvalidHashChain(t *testing.T) {
 
 	_, stdErr, err := runTyger("buffer", "read", readSasUri)
 	if err == nil {
-		t.Fatal("MD5 Hash chain was valid")
+		t.Fatal("Hash chain was valid")
 	} else {
-		assert.Contains(t, stdErr, "MD5 Hash chain mismatch")
+		assert.Contains(t, stdErr, "Hash chain mismatch")
 	}
 }
 

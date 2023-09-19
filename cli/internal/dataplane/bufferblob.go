@@ -1,7 +1,6 @@
 package dataplane
 
 type BufferBlob struct {
-	BlobName   string
 	BlobNumber int64
 	Contents   []byte
 
@@ -12,12 +11,4 @@ type BufferBlob struct {
 	// For Reading
 	EncodedMD5Hash      string
 	EncodedMD5ChainHash string
-}
-
-type BufferFormat struct {
-	Version string `json:"version"`
-}
-
-type BufferFinalization struct {
-	Status string `json:"status"`
 }
