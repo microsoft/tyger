@@ -16,11 +16,14 @@ import (
 )
 
 const (
-	DefaultWriteDop  = 16
-	DefaultBlockSize = 4 * 1024 * 1024
+	DefaultWriteDop                = 16
+	DefaultBlockSize               = 4 * 1024 * 1024
+	EncodedMD5HashChainInitalValue = "MDAwMDAwMDAwMDAwMDAwMA=="
 )
 
-func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader) {
+// If invalidHashChain is set to true, the value of the hash chain attached to the blob will
+// always be the Inital Value. This should only be set for testing.
+func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, invalidHashChain bool) {
 	ctx := log.With().Str("operation", "buffer write").Logger().WithContext(context.Background())
 	httpClient, err := CreateHttpClient(proxyUri)
 	if err != nil {
@@ -50,15 +53,30 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader) 
 				blobUrl := container.GetBlobUri(bb.BlobNumber)
 				ctx := log.Ctx(ctx).With().Int64("blobNumber", bb.BlobNumber).Logger().WithContext(ctx)
 				httpClient := NewClientWithLoggingContext(ctx, httpClient)
-				for i := 0; ; i++ {
-					var body any = bb.Contents
-					if len(bb.Contents) == 0 {
-						// This is a bit subtle, but if we send an empty or nil []byte body,
-						// we will enpty with the Transfer-Encoding: chunked header, which
-						// the blob service does not support.  So we send a nil body instead.
-						body = nil
-					}
+				var body any = bb.Contents
+				if len(bb.Contents) == 0 {
+					// This is a bit subtle, but if we send an empty or nil []byte body,
+					// we will enpty with the Transfer-Encoding: chunked header, which
+					// the blob service does not support.  So we send a nil body instead.
+					body = nil
+				}
 
+				md5Hash := md5.Sum(bb.Contents)
+				encodedMD5Hash := base64.StdEncoding.EncodeToString(md5Hash[:])
+
+				previousMD5HashChain := <-bb.PreviousCumulativeHash
+
+				md5HashChain := md5.Sum([]byte(previousMD5HashChain + encodedMD5Hash))
+				encodedMD5HashChain := base64.StdEncoding.EncodeToString(md5HashChain[:])
+
+				bb.CurrentCumulativeHash <- encodedMD5HashChain
+				blobEncodedMD5HashChain := EncodedMD5HashChainInitalValue
+
+				if !invalidHashChain {
+					blobEncodedMD5HashChain = encodedMD5HashChain
+				}
+
+				for i := 0; ; i++ {
 					req, err := retryablehttp.NewRequest(http.MethodPut, blobUrl, body)
 					if err != nil {
 						log.Fatal().Err(err).Msg("Unable to create request")
@@ -67,8 +85,8 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader) 
 					AddCommonBlobRequestHeaders(req.Header)
 					req.Header.Add("x-ms-blob-type", "BlockBlob")
 
-					md5Hash := md5.Sum(bb.Contents)
-					req.Header.Add("Content-MD5", base64.StdEncoding.EncodeToString(md5Hash[:]))
+					req.Header.Add("Content-MD5", encodedMD5Hash)
+					req.Header.Add("x-ms-meta-cumulative_md5_chain", blobEncodedMD5HashChain)
 
 					resp, err := httpClient.Do(req)
 					if err != nil {
@@ -99,8 +117,9 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader) 
 						}
 
 						md5Header := resp.Header.Get("Content-MD5")
+						md5ChainHeader := resp.Header.Get("x-ms-meta-cumulative_md5_chain")
 
-						if md5Header == base64.StdEncoding.EncodeToString(md5Hash[:]) {
+						if md5Header == encodedMD5Hash && md5ChainHeader == blobEncodedMD5HashChain {
 							log.Ctx(ctx).Debug().Msg("Failed blob write actually went through")
 							break
 						}
@@ -123,6 +142,10 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader) 
 	}
 
 	var blobNumber int64 = 0
+	previousHashChannel := make(chan string, 1)
+
+	previousHashChannel <- EncodedMD5HashChainInitalValue
+
 	for {
 
 		buffer := pool.Get(blockSize)
@@ -132,11 +155,16 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader) 
 		}
 
 		if bytesRead > 0 {
+			currentHashChannel := make(chan string, 1)
+
 			outputChannel <- BufferBlob{
-				BlobNumber: blobNumber,
-				Contents:   buffer[:bytesRead],
+				BlobNumber:             blobNumber,
+				Contents:               buffer[:bytesRead],
+				PreviousCumulativeHash: previousHashChannel,
+				CurrentCumulativeHash:  currentHashChannel,
 			}
 
+			previousHashChannel = currentHashChannel
 			blobNumber++
 		}
 
@@ -149,9 +177,13 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader) 
 		}
 	}
 
+	currentHashChannel := make(chan string, 1)
+
 	outputChannel <- BufferBlob{
-		BlobNumber: blobNumber,
-		Contents:   []byte{},
+		BlobNumber:             blobNumber,
+		Contents:               []byte{},
+		PreviousCumulativeHash: previousHashChannel,
+		CurrentCumulativeHash:  currentHashChannel,
 	}
 	close(outputChannel)
 
