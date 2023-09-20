@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"regexp"
 	"sort"
 	"strings"
+	"syscall"
 	"text/template"
 	"time"
 
@@ -19,6 +21,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v4"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armsubscriptions"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -44,6 +47,17 @@ func NewEnvCommand() *cobra.Command {
 		Args:                  cobra.NoArgs,
 		Run: func(*cobra.Command, []string) {
 
+			ctx := context.Background()
+			ctx, cancel := context.WithCancel(ctx)
+			// Set up channel on which to send signal notifications.
+			cSignal := make(chan os.Signal, 2)
+			signal.Notify(cSignal, os.Interrupt, syscall.SIGTERM)
+			go func() {
+				<-cSignal
+				log.Warn().Msg("Cancelling...")
+				cancel()
+			}()
+
 			cred, err := azidentity.NewDefaultAzureCredential(nil)
 			if err != nil {
 				log.Fatal().Err(err).Msg("failed to get credential")
@@ -51,7 +65,7 @@ func NewEnvCommand() *cobra.Command {
 
 			subName := "biomedicalimaging-nonprod"
 			environmentName := "js"
-			// location := "westus2"
+			location := "westus2"
 			dnsLabel := environmentName + "-tyger"
 
 			subId, err := getSubscriptionId(subName, cred)
@@ -64,28 +78,53 @@ func NewEnvCommand() *cobra.Command {
 				log.Fatal().Err(err).Msg("failed to get clusters client")
 			}
 
-			// containerRegistries := []string{"eminence"}
+			storageAccounts := make(map[string]*runtime.Poller[armstorage.AccountsClientCreateResponse])
+			storageAccounts["jstygerbuf"] = nil
+			storageAccounts["jstygerlog"] = nil
 
-			// for i, name := range containerRegistries {
-			// 	containerRegistries[i], err = getContainerRegistry(name, subId, cred)
-			// 	if err != nil {
-			// 		log.Fatal().Err(err).Msg("failed to get container registry")
-			// 	}
-			// }
+			storageClient, err := armstorage.NewAccountsClient(subId, cred, nil)
+			if err != nil {
+				log.Fatal().Err(err).Msg("failed to create storage client")
+			}
 
-			// for _, acr := range containerRegistries {
-			// 	attachAcr("19ff3c33-d99b-44be-98fb-3402c77f98b1", acr, subId, cred)
-			// }
+			for k := range storageAccounts {
+				parameters := armstorage.AccountCreateParameters{
+					Location:   Ptr(location),
+					Kind:       Ptr(armstorage.KindStorageV2),
+					SKU:        &armstorage.SKU{Name: Ptr(armstorage.SKUNameStandardLRS)},
+					Properties: &armstorage.AccountPropertiesCreateParameters{},
+				}
+				poller, err := storageClient.BeginCreate(context.TODO(), environmentName, k, parameters, nil)
+				if err != nil {
+					log.Fatal().Err(err).Msg("failed to create storage account")
+				}
+				storageAccounts[k] = poller
+			}
 
-			// clusterPoller, err := createCluster(subId, cred, "js", containerRegistries)
-			// if err != nil {
-			// 	log.Fatal().Err(err).Msg("failed to create cluster")
-			// }
+			containerRegistries := []string{"eminence"}
 
-			// clusterResp, err := clusterPoller.PollUntilDone(context.Background(), nil)
-			// if err != nil {
-			// 	log.Fatal().Err(err).Msg("failed to create cluster")
-			// }
+			for i, name := range containerRegistries {
+				containerRegistries[i], err = getContainerRegistry(name, subId, cred)
+				if err != nil {
+					log.Fatal().Err(err).Msg("failed to get container registry")
+				}
+			}
+
+			for _, acr := range containerRegistries {
+				attachAcr("19ff3c33-d99b-44be-98fb-3402c77f98b1", acr, subId, cred)
+			}
+
+			return
+
+			clusterPoller, err := createCluster(clustersClient, subId, location, cred, environmentName, containerRegistries)
+			if err != nil {
+				log.Fatal().Err(err).Msg("failed to create cluster")
+			}
+
+			_, err = clusterPoller.PollUntilDone(context.Background(), nil)
+			if err != nil {
+				log.Fatal().Err(err).Msg("failed to create cluster")
+			}
 
 			adminRESTConfig, err := getAdminRESTConfig(clustersClient, environmentName)
 			if err != nil {
@@ -117,6 +156,47 @@ func NewEnvCommand() *cobra.Command {
 			if err != nil {
 				log.Fatal().Err(err).Msg("failed to add traefik")
 			}
+
+			for _, poller := range storageAccounts {
+				res, err := poller.PollUntilDone(context.TODO(), nil)
+				if err != nil {
+					log.Fatal().Err(err).Msg("failed to create storage account")
+				}
+
+				keysResponse, err := storageClient.ListKeys(context.TODO(), environmentName, *res.Name, nil)
+				if err != nil {
+					log.Fatal().Err(err).Msg("failed to get storage account key")
+				}
+				components := []string{
+					"DefaultEndpointsProtocol=https",
+					fmt.Sprintf("BlobEndpoint=%s", *res.Properties.PrimaryEndpoints.Blob),
+					fmt.Sprintf("AccountName=%s", *res.Name),
+					fmt.Sprintf("AccountKey=%s", *keysResponse.Keys[0].Value),
+				}
+
+				connectionString := strings.Join(components, ";")
+				secret := corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: *res.Name,
+					},
+					Type: "Opaque",
+					Data: map[string][]byte{
+						"connectionString": []byte(connectionString),
+					},
+				}
+
+				secrets := adminClientset.CoreV1().Secrets("tyger")
+				_, err = secrets.Create(context.TODO(), &secret, metav1.CreateOptions{})
+				if err != nil {
+					if apierrors.IsAlreadyExists(err) {
+						if _, err := secrets.Update(context.TODO(), &secret, metav1.UpdateOptions{}); err != nil {
+							log.Fatal().Err(err).Msg("failed to update secret")
+						}
+					} else {
+						log.Fatal().Err(err).Msg("failed to create secret")
+					}
+				}
+			}
 		},
 	}
 
@@ -129,7 +209,7 @@ func addTraefik(adminRESTConfig *rest.Config, adminClientset *kubernetes.Clients
 		RestConfig: adminRESTConfig,
 		Options: &helmclient.Options{
 			DebugLog: func(format string, v ...interface{}) {
-				log.Info().Msgf(format, v...)
+				log.Debug().Msgf(format, v...)
 			},
 		},
 	}
@@ -179,7 +259,9 @@ service:
 
 	startTime := time.Now().Add(-10 * time.Second)
 
-	if _, err := helmClient.InstallOrUpgradeChart(context.Background(), &chartSpec, nil); err != nil {
+	x, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if _, err := helmClient.InstallOrUpgradeChart(x, &chartSpec, nil); err != nil {
 		installErr := err
 
 		// List warning events in the namespace
@@ -198,7 +280,7 @@ service:
 			}
 		}
 
-		return fmt.Errorf("failed to install traefik: %w", err)
+		return fmt.Errorf("failed to install traefik: %w", installErr)
 	}
 
 	log.Info().Msg("installing cert-manager")
@@ -312,7 +394,12 @@ func createClusterRbac(clientset *kubernetes.Clientset) error {
 	return nil
 }
 
-func createCluster(mcc *armcontainerservice.ManagedClustersClient, subscriptionId string, location string, credential azcore.TokenCredential, environmentName string, attachedContainerRegistries []string) (*runtime.Poller[armcontainerservice.ManagedClustersClientCreateOrUpdateResponse], error) {
+func createCluster(mcc *armcontainerservice.ManagedClustersClient,
+	subscriptionId string,
+	location string,
+	credential azcore.TokenCredential,
+	environmentName string,
+	attachedContainerRegistries []string) (*runtime.Poller[armcontainerservice.ManagedClustersClientCreateOrUpdateResponse], error) {
 	mc := armcontainerservice.ManagedCluster{
 		Location: Ptr(location),
 		Identity: &armcontainerservice.ManagedClusterIdentity{
@@ -402,19 +489,23 @@ func createCluster(mcc *armcontainerservice.ManagedClustersClient, subscriptionI
 	}
 
 	for _, containerRegistry := range attachedContainerRegistries {
-		attachAcr(kubeletObjectId, containerRegistry, subscriptionId, credential)
+		err := attachAcr(kubeletObjectId, containerRegistry, subscriptionId, credential)
+		if err != nil {
+			return nil, fmt.Errorf("failed to attach acr: %w", err)
+		}
 	}
 
 	return poller, nil
 }
 
 func attachAcr(kubeletObjectId, containerRegistry, subscriptionId string, credential azcore.TokenCredential) error {
+	log.Info().Msgf("attaching acr '%s' to cluster", containerRegistry)
 	roleDefClient, err := armauthorization.NewRoleDefinitionsClient(credential, nil)
 	if err != nil {
 		return err
 	}
 
-	pager := roleDefClient.NewListPager(containerRegistry, &armauthorization.RoleDefinitionsClientListOptions{Filter: Ptr("rolename eq 'acrpull")})
+	pager := roleDefClient.NewListPager(containerRegistry, &armauthorization.RoleDefinitionsClientListOptions{Filter: Ptr("rolename eq 'acrpull'")})
 
 	var acrPullRoleId string
 	for pager.More() && acrPullRoleId == "" {
@@ -424,6 +515,9 @@ func attachAcr(kubeletObjectId, containerRegistry, subscriptionId string, creden
 		}
 
 		for _, rd := range page.Value {
+			if *rd.Properties.RoleName != "AcrPull" {
+				panic(fmt.Sprintf("unexpected role name '%s'", *rd.Name))
+			}
 			acrPullRoleId = *rd.ID
 			break
 		}
