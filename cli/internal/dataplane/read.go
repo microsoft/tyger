@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -42,6 +43,35 @@ func Read(uri, proxyUri string, dop int, outputWriter io.Writer) {
 		Container: container,
 	}
 	metrics.Start()
+
+	// Read the blob meta data
+	blobUri := container.GetNamedBlobUri(".bufferstart")
+	respData, err := DownloadBlob(ctx, NewClientWithLoggingContext(ctx, httpClient), blobUri)
+	if err != nil {
+		log.Ctx(ctx).Fatal().Err(err).Msg(".bufferStart missing, buffer is invalid")
+	}
+
+	var bufferFormat BufferFormat
+	json.Unmarshal(respData.Data, &bufferFormat)
+
+	if bufferFormat.Version != "0.1.0" {
+		log.Ctx(ctx).Fatal().Msg("Invaild buffer format")
+	}
+
+	blobUri = container.GetNamedBlobUri(".bufferend")
+	respData, err = DownloadBlob(ctx, NewClientWithLoggingContext(ctx, httpClient), blobUri)
+
+	if err != nil {
+		if err != ErrNotFound {
+			log.Ctx(ctx).Fatal().Err(err).Msg("unable to read .bufferend")
+		}
+	} else {
+		var bufferFinalization BufferFinalization
+		json.Unmarshal(respData.Data, &bufferFinalization)
+		if bufferFinalization.Status == "Failed" {
+			log.Ctx(ctx).Fatal().Msg("buffer is invalid")
+		}
+	}
 
 	responseChannel := make(chan chan BufferBlob, dop*2)
 	var lock sync.Mutex
@@ -121,6 +151,32 @@ func Read(uri, proxyUri string, dop int, outputWriter io.Writer) {
 	metrics.Stop()
 }
 
+func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUri string) (*readData, error) {
+	req, err := retryablehttp.NewRequest(http.MethodGet, blobUri, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	AddCommonBlobRequestHeaders(req.Header)
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, RedactHttpError(err)
+	}
+
+	respData, err := handleReadResponse(ctx, resp)
+
+	if err == nil {
+		log.Ctx(ctx).Trace().
+			Int("contentLength", int(resp.ContentLength)).
+			Msg("Downloaded blob")
+
+		return respData, nil
+	}
+
+	return nil, err
+}
+
 func WaitForBlobAndDownload(ctx context.Context, httpClient *retryablehttp.Client, blobUri string, blobNumber int64, finalBlobNumber *int64) (*readData, error) {
 	// The last error that occurred relating to reading the body. retryablehttp does not retry when these happen
 	// because reading the body happens after the call to HttpClient.Do()
@@ -147,6 +203,11 @@ func WaitForBlobAndDownload(ctx context.Context, httpClient *retryablehttp.Clien
 		}
 
 		respData, err := handleReadResponse(ctx, resp)
+
+		if err == nil && resp.Header.Get("x-ms-meta-cumulative_md5_chain") == "" {
+			err = &responseBodyReadError{reason: errors.New("expected x-ms-meta-cumulative_md5_chain header missing")}
+		}
+
 		if err == nil {
 			log.Ctx(ctx).Trace().
 				Int("contentLength", int(resp.ContentLength)).
@@ -231,10 +292,6 @@ func handleReadResponse(ctx context.Context, resp *http.Response) (*readData, er
 
 		if resp.Header.Get("Content-MD5") == "" {
 			return nil, &responseBodyReadError{reason: errors.New("expected Content-MD5 header missing")}
-		}
-
-		if resp.Header.Get("x-ms-meta-cumulative_md5_chain") == "" {
-			return nil, &responseBodyReadError{reason: errors.New("expected x-ms-meta-cumulative_md5_chain header missing")}
 		}
 
 		response := readData{Data: buf, Header: resp.Header}

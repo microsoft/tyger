@@ -171,6 +171,10 @@ func (c *Container) GetBlobUri(blobNumber int64) string {
 	return c.URL.JoinPath(strconv.FormatInt(blobNumber, 10)).String()
 }
 
+func (c *Container) GetNamedBlobUri(blobName string) string {
+	return c.URL.JoinPath(blobName).String()
+}
+
 func (c *Container) GetContainerName() string {
 	return path.Base(c.Path)
 }
