@@ -8,6 +8,7 @@ import (
 	"crypto/md5"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -253,6 +254,8 @@ func TestHashChain(t *testing.T) {
 	var finalBlobNumber int64 = -1
 	respData, err := dataplane.WaitForBlobAndDownload(ctx, dataplane.NewClientWithLoggingContext(ctx, httpClient), blobUri, 0, &finalBlobNumber)
 
+	assert.Nil(t, err, "Couldn't read blob")
+
 	// Calculate the MD5 hash chain for this block
 	md5Hash := md5.Sum(payload)
 	encodedMD5Hash := base64.StdEncoding.EncodeToString(md5Hash[:])
@@ -262,6 +265,64 @@ func TestHashChain(t *testing.T) {
 	md5ChainHeader := respData.Header.Get("x-ms-meta-cumulative_md5_chain")
 
 	assert.Equal(t, encodedMD5HashChain, md5ChainHeader)
+}
+
+func TestBufferMetadata(t *testing.T) {
+	t.Parallel()
+
+	inputBufferId := runTygerSucceeds(t, "buffer", "create")
+	writeSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
+
+	payload := []byte("hello world")
+	writeCommand := exec.Command("tyger", "buffer", "write", writeSasUri)
+	writeCommand.Stdin = bytes.NewBuffer(payload)
+	writeStdErr := bytes.NewBuffer(nil)
+	writeCommand.Stderr = writeStdErr
+	err := writeCommand.Run()
+
+	require.Nil(t, err, "write command failed")
+
+	readSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId)
+
+	// Direct call to the read code in order to get the headers
+	var proxyUri string
+	if serviceInfo, err := controlplane.GetPersistedServiceInfo(); err == nil {
+		proxyUri = serviceInfo.GetDataPlaneProxy()
+	}
+
+	httpClient, err := dataplane.CreateHttpClient(proxyUri)
+	if err != nil {
+		t.Fatal("Failed to create http client")
+	}
+	container, err := dataplane.ValidateContainer(readSasUri, httpClient)
+	if err != nil {
+		t.Fatal("Container validation failed")
+	}
+
+	blobUri := container.GetNamedBlobUri(".bufferstart")
+
+	ctx := log.With().Str("operation", "buffer read").Logger().WithContext(context.Background())
+	respData, err := dataplane.DownloadBlob(ctx, dataplane.NewClientWithLoggingContext(ctx, httpClient), blobUri)
+
+	assert.Nil(t, err, "Couldn't read .bufferstart")
+
+	var bufferFormat dataplane.BufferFormat
+	json.Unmarshal(respData.Data, &bufferFormat)
+
+	assert.Equal(t, bufferFormat.Version, "0.1.0")
+
+	blobUri = container.GetNamedBlobUri(".bufferend")
+
+	ctx = log.With().Str("operation", "buffer read").Logger().WithContext(context.Background())
+	respData, err = dataplane.DownloadBlob(ctx, dataplane.NewClientWithLoggingContext(ctx, httpClient), blobUri)
+
+	assert.Nil(t, err, "Couldn't read .bufferend")
+
+	var bufferFinalization dataplane.BufferFinalization
+	json.Unmarshal(respData.Data, &bufferFinalization)
+
+	assert.Equal(t, bufferFinalization.Status, "Completed")
+
 }
 
 func TestRunningFromPowershellRaisesWarning(t *testing.T) {

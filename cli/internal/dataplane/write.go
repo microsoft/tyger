@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -50,9 +51,17 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 			for bb := range outputChannel {
 				start := time.Now()
 
-				blobUrl := container.GetBlobUri(bb.BlobNumber)
-				ctx := log.Ctx(ctx).With().Int64("blobNumber", bb.BlobNumber).Logger().WithContext(ctx)
+				var blobUrl string
+				if bb.BlobName != "" {
+					blobUrl = container.GetNamedBlobUri(bb.BlobName)
+					ctx = log.Ctx(ctx).With().Str("blobName", bb.BlobName).Logger().WithContext(ctx)
+				} else {
+					blobUrl = container.GetBlobUri(bb.BlobNumber)
+					ctx = log.Ctx(ctx).With().Int64("blobNumber", bb.BlobNumber).Logger().WithContext(ctx)
+				}
+
 				httpClient := NewClientWithLoggingContext(ctx, httpClient)
+
 				var body any = bb.Contents
 				if len(bb.Contents) == 0 {
 					// This is a bit subtle, but if we send an empty or nil []byte body,
@@ -64,16 +73,22 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 				md5Hash := md5.Sum(bb.Contents)
 				encodedMD5Hash := base64.StdEncoding.EncodeToString(md5Hash[:])
 
-				previousMD5HashChain := <-bb.PreviousCumulativeHash
-
-				md5HashChain := md5.Sum([]byte(previousMD5HashChain + encodedMD5Hash))
-				encodedMD5HashChain := base64.StdEncoding.EncodeToString(md5HashChain[:])
-
-				bb.CurrentCumulativeHash <- encodedMD5HashChain
 				blobEncodedMD5HashChain := EncodedMD5HashChainInitalValue
 
-				if !invalidHashChain {
-					blobEncodedMD5HashChain = encodedMD5HashChain
+				if bb.BlobName == "" {
+					// Only created the Hash Chain on unnamed blobs
+					previousMD5HashChain := <-bb.PreviousCumulativeHash
+
+					md5HashChain := md5.Sum([]byte(previousMD5HashChain + encodedMD5Hash))
+					encodedMD5HashChain := base64.StdEncoding.EncodeToString(md5HashChain[:])
+
+					bb.CurrentCumulativeHash <- encodedMD5HashChain
+
+					if !invalidHashChain {
+						blobEncodedMD5HashChain = encodedMD5HashChain
+					}
+				} else {
+					blobEncodedMD5HashChain = ""
 				}
 
 				for i := 0; ; i++ {
@@ -86,7 +101,9 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 					req.Header.Add("x-ms-blob-type", "BlockBlob")
 
 					req.Header.Add("Content-MD5", encodedMD5Hash)
-					req.Header.Add("x-ms-meta-cumulative_md5_chain", blobEncodedMD5HashChain)
+					if bb.BlobName == "" {
+						req.Header.Add("x-ms-meta-cumulative_md5_chain", blobEncodedMD5HashChain)
+					}
 
 					resp, err := httpClient.Do(req)
 					if err != nil {
@@ -146,6 +163,17 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 
 	previousHashChannel <- EncodedMD5HashChainInitalValue
 
+	formatBlob := BufferFormat{Version: "0.1.0"}
+	serializedBlob, _ := json.Marshal(formatBlob)
+
+	outputChannel <- BufferBlob{
+		BlobName:               ".bufferstart",
+		BlobNumber:             -1,
+		Contents:               serializedBlob,
+		PreviousCumulativeHash: nil,
+		CurrentCumulativeHash:  nil,
+	}
+
 	for {
 
 		buffer := pool.Get(blockSize)
@@ -185,6 +213,18 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 		PreviousCumulativeHash: previousHashChannel,
 		CurrentCumulativeHash:  currentHashChannel,
 	}
+
+	finalizationBlob := BufferFinalization{Status: "Completed"}
+	serializedBlob, _ = json.Marshal(finalizationBlob)
+
+	outputChannel <- BufferBlob{
+		BlobName:               ".bufferend",
+		BlobNumber:             -1,
+		Contents:               serializedBlob,
+		PreviousCumulativeHash: nil,
+		CurrentCumulativeHash:  nil,
+	}
+
 	close(outputChannel)
 
 	wg.Wait()
