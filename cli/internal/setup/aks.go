@@ -56,7 +56,7 @@ func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (any, erro
 				MinCount:          Ptr(int32(1)),
 				MaxCount:          Ptr(int32(3)),
 				OSType:            Ptr(armcontainerservice.OSTypeLinux),
-				OSSKU:             Ptr(armcontainerservice.OSSKUCBLMariner),
+				OSSKU:             Ptr(armcontainerservice.OSSKU("AzureLinux")),
 			},
 		}
 
@@ -69,6 +69,8 @@ func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (any, erro
 				Count:             &np.Count,
 				MinCount:          &np.MinCount,
 				MaxCount:          &np.MaxCount,
+				OSType:            Ptr(armcontainerservice.OSTypeLinux),
+				OSSKU:             Ptr(armcontainerservice.OSSKU("AzureLinux")),
 				NodeLabels: map[string]*string{
 					"tyger": Ptr("run"),
 				},
@@ -84,7 +86,7 @@ func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (any, erro
 			mc.Properties.AgentPoolProfiles = append(mc.Properties.AgentPoolProfiles, &profile)
 		}
 
-		log.Info().Msgf("Creating or updating cluster %s", clusterConfig.Name)
+		log.Info().Msgf("Creating or updating cluster '%s'", clusterConfig.Name)
 		poller, err = clustersClient.BeginCreateOrUpdate(ctx, config.EnvironmentName, clusterConfig.Name, mc, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create cluster: %w", err)
@@ -108,20 +110,27 @@ func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (any, erro
 		}
 
 		for _, containerRegistry := range config.AttachedContainerRegistries {
-			log.Info().Msgf("attaching ACR '%s' to cluster '%s", containerRegistry, clusterConfig.Name)
+			log.Info().Msgf("attaching ACR '%s' to cluster '%s'", containerRegistry, clusterConfig.Name)
 			containerRegistryId, err := getContainerRegistryId(ctx, containerRegistry, config.SubscriptionID, cred)
 			if err != nil {
 				return nil, err
 			}
 
-			if err := attachAcr(kubeletObjectId, containerRegistryId, config.SubscriptionID, cred); err != nil {
-				return nil, fmt.Errorf("failed to attach acr: %w", err)
+			if err := attachAcr(ctx, kubeletObjectId, containerRegistryId, config.SubscriptionID, cred); err != nil {
+				return nil, fmt.Errorf("failed to attach ACR: %w", err)
 			}
 		}
 	}
 
 	if poller != nil {
-		return poller.PollUntilDone(ctx, nil)
+		if !poller.Done() {
+			log.Info().Msgf("Waiting for cluster '%s' to be ready", clusterConfig.Name)
+		}
+		_, err := poller.PollUntilDone(ctx, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create cluster '%s': %w", clusterConfig.Name, err)
+		}
+		log.Info().Msgf("Cluster '%s' ready", clusterConfig.Name)
 	}
 
 	return nil, nil
@@ -131,7 +140,7 @@ func getClusterDnsPrefix(environmentName, clusterName, subId string) string {
 	return fmt.Sprintf("%s-tyger-%s", regexp.MustCompile("[^a-zA-Z0-9-]").ReplaceAllString(environmentName+"-"+clusterName, ""), subId[0:8])
 }
 
-func attachAcr(kubeletObjectId, id, subscriptionId string, credential azcore.TokenCredential) error {
+func attachAcr(ctx context.Context, kubeletObjectId, id, subscriptionId string, credential azcore.TokenCredential) error {
 	roleDefClient, err := armauthorization.NewRoleDefinitionsClient(credential, nil)
 	if err != nil {
 		return err
@@ -164,24 +173,35 @@ func attachAcr(kubeletObjectId, id, subscriptionId string, credential azcore.Tok
 		return err
 	}
 
-	_, err = roleAssignmentClient.Create(
-		context.TODO(),
-		id,
-		uuid.New().String(),
-		armauthorization.RoleAssignmentCreateParameters{
-			Properties: &armauthorization.RoleAssignmentProperties{
-				RoleDefinitionID: Ptr(acrPullRoleId),
-				PrincipalID:      Ptr(kubeletObjectId),
-			},
-		}, nil)
-	if err != nil {
-		var respErr *azcore.ResponseError
-		if errors.As(err, &respErr) && respErr.ErrorCode == "RoleAssignmentExists" {
-			return nil
+	for i := 0; ; i++ {
+		_, err = roleAssignmentClient.Create(
+			ctx,
+			id,
+			uuid.New().String(),
+			armauthorization.RoleAssignmentCreateParameters{
+				Properties: &armauthorization.RoleAssignmentProperties{
+					RoleDefinitionID: Ptr(acrPullRoleId),
+					PrincipalID:      Ptr(kubeletObjectId),
+				},
+			}, nil)
+		if err != nil {
+			var respErr *azcore.ResponseError
+			if errors.As(err, &respErr) {
+				switch respErr.ErrorCode {
+				case "RoleAssignmentExists":
+					return nil
+				case "PrincipalNotFound":
+					if i > 60 {
+						break
+					}
+					time.Sleep(10 * time.Second)
+					continue
+				}
+			}
 		}
-	}
 
-	return err
+		return err
+	}
 }
 
 func getContainerRegistryId(ctx context.Context, name string, subscriptionId string, credential azcore.TokenCredential) (string, error) {

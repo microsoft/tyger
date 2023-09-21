@@ -2,6 +2,7 @@ package setup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -18,6 +19,14 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"k8s.io/client-go/rest"
+)
+
+const (
+	LogsStorageContainerName = "runs"
+)
+
+var (
+	ErrDependencyFailed = errors.New("dependency failed")
 )
 
 func SetupInfrastructure(config *Config, options *Options) {
@@ -64,15 +73,15 @@ func SetupInfrastructure(config *Config, options *Options) {
 	allPromises := createPromises(ctx, config)
 
 	for _, p := range allPromises {
-		if err := p.AwaitErr(); err != nil {
+		if err := p.AwaitErr(); err != nil && err != ErrDependencyFailed {
 			log.Error().Err(err).Send()
 		}
 	}
 
 	if logHook.HasError() {
-		log.Fatal().Msg("Setup was not successful.")
+		log.Fatal().Msg("Setup was not successful")
 	} else {
-		log.Info().Msg("Setup complete.")
+		log.Info().Msg("Setup complete")
 	}
 }
 
@@ -80,6 +89,8 @@ func createPromises(ctx context.Context, config *Config) []UntypedPromise {
 	allPromises := make([]UntypedPromise, 0)
 
 	var getAdminCredsPromise *Promise[*rest.Config]
+	var createTygerNamespacePromise *Promise[any]
+
 	for _, clusterConfig := range config.Clusters {
 		createClusterPromise := NewPromise(
 			ctx,
@@ -101,19 +112,34 @@ func createPromises(ctx context.Context, config *Config) []UntypedPromise {
 			installCertManagerPromise := NewPromise(ctx, func(ctx context.Context) (any, error) {
 				return installCertManager(ctx, getAdminCredsPromise)
 			})
-
-			createLogStorageAccountPromise := NewPromise(ctx, func(ctx context.Context) (any, error) {
-				return CreateStorageAccount(ctx, clusterConfig.ControlPlane.LogStorage, getAdminCredsPromise)
+			installNvidiaDevicePluginPromise := NewPromise(ctx, func(ctx context.Context) (any, error) {
+				return installNvidiaDevicePlugin(ctx, getAdminCredsPromise)
 			})
 
-			allPromises = append(allPromises, getAdminCredsPromise, installTraefikPromise, installCertManagerPromise, createLogStorageAccountPromise)
+			createTygerNamespacePromise = NewPromise(ctx, func(ctx context.Context) (any, error) {
+				return createTygerNamespace(ctx, getAdminCredsPromise)
+			})
+
+			createLogStorageAccountPromise := NewPromiseAfter(ctx, func(ctx context.Context) (any, error) {
+				return CreateStorageAccount(ctx, clusterConfig.ControlPlane.LogStorage, getAdminCredsPromise, LogsStorageContainerName)
+			}, createTygerNamespacePromise)
+
+			allPromises = append(
+				allPromises,
+				getAdminCredsPromise,
+				installTraefikPromise,
+				installCertManagerPromise,
+				installNvidiaDevicePluginPromise,
+				createLogStorageAccountPromise,
+				createTygerNamespacePromise,
+			)
 		}
 	}
 
 	for _, buf := range config.Buffers {
-		createBufferStorageAccountPromise := NewPromise(ctx, func(ctx context.Context) (any, error) {
+		createBufferStorageAccountPromise := NewPromiseAfter(ctx, func(ctx context.Context) (any, error) {
 			return CreateStorageAccount(ctx, buf, getAdminCredsPromise)
-		})
+		}, createTygerNamespacePromise)
 		allPromises = append(allPromises, createBufferStorageAccountPromise)
 	}
 
@@ -346,7 +372,7 @@ func WaitForPoller[T any](ctx context.Context, promise *Promise[*runtime.Poller[
 	poller, err := promise.Await()
 	if err != nil {
 		var t T
-		return t, err
+		return t, ErrDependencyFailed
 	}
 
 	return poller.PollUntilDone(ctx, nil)

@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 	"github.com/rs/zerolog/log"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -14,7 +16,11 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-func CreateStorageAccount(ctx context.Context, storageAccountConfig *StorageAccountConfig, restConfigPromise *Promise[*rest.Config]) (any, error) {
+func CreateStorageAccount(ctx context.Context,
+	storageAccountConfig *StorageAccountConfig,
+	restConfigPromise *Promise[*rest.Config],
+	containers ...string,
+) (any, error) {
 	config := GetConfigFromContext(ctx)
 	cred := GetAzureCredentialFromContext(ctx)
 
@@ -30,12 +36,12 @@ func CreateStorageAccount(ctx context.Context, storageAccountConfig *StorageAcco
 		Properties: &armstorage.AccountPropertiesCreateParameters{},
 	}
 
-	log.Info().Msgf("Creating or updating storage account %s", storageAccountConfig.Name)
+	log.Info().Msgf("Creating or updating storage account '%s'", storageAccountConfig.Name)
 	poller, err := storageClient.BeginCreate(context.TODO(), config.EnvironmentName, storageAccountConfig.Name, parameters, nil)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create storage account")
 	}
-	log.Info().Msgf("Storage account %s ready", storageAccountConfig.Name)
+	log.Info().Msgf("Storage account '%s' ready", storageAccountConfig.Name)
 
 	res, err := poller.PollUntilDone(ctx, nil)
 	if err != nil {
@@ -66,7 +72,7 @@ func CreateStorageAccount(ctx context.Context, storageAccountConfig *StorageAcco
 
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
-		return nil, err
+		return nil, ErrDependencyFailed
 	}
 
 	clientset := kubernetes.NewForConfigOrDie(restConfig)
@@ -76,11 +82,27 @@ func CreateStorageAccount(ctx context.Context, storageAccountConfig *StorageAcco
 	if err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			if _, err := secrets.Update(context.TODO(), &secret, metav1.UpdateOptions{}); err != nil {
-				log.Fatal().Err(err).Msg("failed to update secret")
+				return nil, fmt.Errorf("failed to update secret: %w", err)
 			}
 		} else {
-			log.Fatal().Err(err).Msg("failed to create secret")
+			return nil, fmt.Errorf("failed to create secret: %w", err)
 		}
+	}
+
+	for _, containerName := range containers {
+		blobClient, err := azblob.NewClientFromConnectionString(connectionString, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create blob client: %w", err)
+		}
+
+		if _, err := blobClient.CreateContainer(ctx, containerName, nil); err != nil {
+			if !bloberror.HasCode(err, bloberror.ContainerAlreadyExists) {
+				return nil, fmt.Errorf("failed to create container '%s': %w", containerName, err)
+			}
+		} else {
+			log.Info().Msgf("Created container '%s' on storage account '%s'", containerName, storageAccountConfig.Name)
+		}
+
 	}
 
 	return nil, nil

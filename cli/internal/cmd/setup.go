@@ -78,7 +78,7 @@ func newsetupCloudCommand() *cobra.Command {
 			}
 
 			options := &setup.Options{
-				SkipClusterSetup: true,
+				// SkipClusterSetup: true,
 			}
 
 			setup.SetupInfrastructure(config, options)

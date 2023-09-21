@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"helm.sh/helm/v3/pkg/repo"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -40,12 +41,28 @@ func getAdminRESTConfig(ctx context.Context) (*rest.Config, error) {
 	return clientcmd.RESTConfigFromKubeConfig(credResp.Kubeconfigs[0].Value)
 }
 
+func createTygerNamespace(ctx context.Context, restConfigPromise *Promise[*rest.Config]) (any, error) {
+	restConfig, err := restConfigPromise.Await()
+	if err != nil {
+		return nil, ErrDependencyFailed
+	}
+
+	clientset := kubernetes.NewForConfigOrDie(restConfig)
+
+	_, err = clientset.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "tyger"}}, metav1.CreateOptions{})
+	if err == nil || apierrors.IsAlreadyExists(err) {
+		return nil, nil
+	}
+
+	return nil, fmt.Errorf("failed to create 'tyger' namespace: %w", err)
+}
+
 func installTraefik(ctx context.Context, restConfigPromise *Promise[*rest.Config]) (any, error) {
 	config := GetConfigFromContext(ctx)
 
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
-		return nil, err
+		return nil, ErrDependencyFailed
 	}
 
 	log.Info().Msg("Installing Traefik")
@@ -135,7 +152,7 @@ service:
 func installCertManager(ctx context.Context, restConfigPromise *Promise[*rest.Config]) (any, error) {
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
-		return nil, err
+		return nil, ErrDependencyFailed
 	}
 
 	log.Info().Msg("Installing cert-manager")
@@ -178,6 +195,81 @@ func installCertManager(ctx context.Context, restConfigPromise *Promise[*rest.Co
 
 	if _, err := helmClient.InstallOrUpgradeChart(context.Background(), &chartSpec, nil); err != nil {
 		return nil, fmt.Errorf("failed to install cert-manager: %w", err)
+	}
+
+	return nil, nil
+}
+
+func installNvidiaDevicePlugin(ctx context.Context, restConfigPromise *Promise[*rest.Config]) (any, error) {
+	restConfig, err := restConfigPromise.Await()
+	if err != nil {
+		return nil, ErrDependencyFailed
+	}
+
+	log.Info().Msg("Installing nvidia-device-plugin")
+
+	namespace := "nvidia-device-plugin"
+
+	helmOptions := helmclient.RestConfClientOptions{
+		RestConfig: restConfig,
+		Options: &helmclient.Options{
+			DebugLog: func(format string, v ...interface{}) {
+				log.Debug().Msgf(format, v...)
+			},
+			Namespace: namespace,
+		},
+	}
+	helmClient, err := helmclient.NewClientFromRestConf(&helmOptions)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create helm client: %w", err)
+	}
+
+	err = helmClient.AddOrUpdateChartRepo(repo.Entry{Name: "nvdp", URL: "https://nvidia.github.io/k8s-device-plugin"})
+	if err != nil {
+		return nil, fmt.Errorf("failed to add jetstack repo: %w", err)
+	}
+
+	values := `
+nodeSelector:
+  kubernetes.azure.com/accelerator: nvidia
+
+tolerations:
+
+  # Allow this pod to be rescheduled while the node is in "critical add-ons only" mode.
+  # This, along with the annotation above marks this pod as a critical add-on.
+  - key: CriticalAddonsOnly
+    operator: Exists
+
+  - key: nvidia.com/gpu
+    operator: Exists
+    effect: NoSchedule
+
+  - key: "sku"
+    operator: "Equal"
+    value: "gpu"
+    effect: "NoSchedule"
+
+  - key: tyger
+    operator: Equal
+    value: run
+    effect: NoSchedule
+`
+
+	chartSpec := helmclient.ChartSpec{
+		ReleaseName:     namespace,
+		ChartName:       "nvdp/nvidia-device-plugin",
+		Namespace:       namespace,
+		CreateNamespace: true,
+		Wait:            true,
+		WaitForJobs:     true,
+		Atomic:          true,
+		UpgradeCRDs:     true,
+		Timeout:         5 * time.Minute,
+		ValuesYaml:      values,
+	}
+
+	if _, err := helmClient.InstallOrUpgradeChart(context.Background(), &chartSpec, nil); err != nil {
+		return nil, fmt.Errorf("failed to install NVIDIA device plugin: %w", err)
 	}
 
 	return nil, nil
