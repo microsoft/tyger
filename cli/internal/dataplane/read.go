@@ -46,9 +46,9 @@ func Read(uri, proxyUri string, dop int, outputWriter io.Writer) {
 
 	// Read the blob meta data
 	blobUri := container.GetNamedBlobUri(".bufferstart")
-	respData, err := DownloadBlob(ctx, NewClientWithLoggingContext(ctx, httpClient), blobUri)
+	respData, err := WaitForBlobAndDownload(ctx, NewClientWithLoggingContext(ctx, httpClient), blobUri, 0, nil)
 	if err != nil {
-		log.Ctx(ctx).Fatal().Err(err).Msg(".bufferStart missing, buffer is invalid")
+		log.Ctx(ctx).Fatal().Err(err).Msg("Buffer is invalid")
 	}
 
 	var bufferFormat BufferFormat
@@ -185,9 +185,11 @@ func WaitForBlobAndDownload(ctx context.Context, httpClient *retryablehttp.Clien
 	for retryCount := 0; ; retryCount++ {
 		start := time.Now()
 
-		if num := atomic.LoadInt64(finalBlobNumber); num >= 0 && num < blobNumber {
-			log.Ctx(ctx).Trace().Msg("Abandoning download after final blob")
-			return nil, errPastEndOfBlob
+		if finalBlobNumber != nil {
+			if num := atomic.LoadInt64(finalBlobNumber); num >= 0 && num < blobNumber {
+				log.Ctx(ctx).Trace().Msg("Abandoning download after final blob")
+				return nil, errPastEndOfBlob
+			}
 		}
 
 		req, err := retryablehttp.NewRequest(http.MethodGet, blobUri, nil)
@@ -204,7 +206,7 @@ func WaitForBlobAndDownload(ctx context.Context, httpClient *retryablehttp.Clien
 
 		respData, err := handleReadResponse(ctx, resp)
 
-		if err == nil && resp.Header.Get("x-ms-meta-cumulative_md5_chain") == "" {
+		if finalBlobNumber != nil && err == nil && resp.Header.Get("x-ms-meta-cumulative_md5_chain") == "" {
 			err = &responseBodyReadError{reason: errors.New("expected x-ms-meta-cumulative_md5_chain header missing")}
 		}
 
@@ -214,7 +216,7 @@ func WaitForBlobAndDownload(ctx context.Context, httpClient *retryablehttp.Clien
 				Dur("duration", time.Since(start)).
 				Msg("Downloaded blob")
 
-			if len(respData.Data) == 0 {
+			if len(respData.Data) == 0 && finalBlobNumber != nil {
 				atomic.StoreInt64(finalBlobNumber, blobNumber)
 			}
 
