@@ -90,14 +90,12 @@ function build_and_push() {
     return 0
   fi
 
-  "$(dirname "${0}")"/login-acr-if-needed.sh "${container_registry_fqdn}"
-
   full_image="${container_registry_fqdn}/${remote_repo}:${image_tag}"
 
   # Push image
   if [[ -z "${force:-}" ]]; then
     # First try to pull the image
-    image_exists=$(docker pull "$full_image" 2>/dev/null || true)
+    image_exists=$("$(dirname "${0}")/docker-auth-wrapper.sh" pull "$full_image" 2>/dev/null || true)
     if [[ -n "$image_exists" ]]; then
       echo "Attempting to push an image that already exists: $full_image"
       echo "Use \"--push-force\" to overwrite existing image tags"
@@ -107,7 +105,7 @@ function build_and_push() {
 
   docker tag "${local_tag}" "$full_image"
   echo "Pushing image ${full_image}..."
-  docker push $quiet "$full_image" >/dev/null
+  "$(dirname "${0}")/docker-auth-wrapper.sh" push $quiet "$full_image" >/dev/null
 }
 
 if [[ -n "${test:-}" ]]; then
