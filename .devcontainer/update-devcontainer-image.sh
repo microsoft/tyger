@@ -32,13 +32,9 @@ if [ -z "$existing_account" ]; then
     az login
 fi
 
-az account set -s "${azure_subscription}"
-
-"${this_dir}"/../scripts/login-acr-if-needed.sh "${devcontainer_registry_subdomain}"
-
 # push the image to ACR
 
-docker push ${devcontainer_repository}
+"${this_dir}"/../scripts/docker-auth-wrapper.sh push ${devcontainer_repository}
 
 # Get the image digest for this repository (it is not the same as the image ID).
 image_digest_reference="$(docker inspect $devcontainer_repository | jq -r --arg repo ${devcontainer_repository} '.[0].RepoDigests[] | select (startswith($repo))')"
