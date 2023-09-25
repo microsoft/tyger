@@ -1,15 +1,13 @@
 package setup
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"sort"
 	"strings"
-	"text/template"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice"
+	"dario.cat/mergo"
 	helmclient "github.com/mittwald/go-helm-client"
 	"github.com/rs/zerolog/log"
 	"helm.sh/helm/v3/pkg/repo"
@@ -18,29 +16,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
+	"sigs.k8s.io/yaml"
 )
 
 const (
 	TygerNamespace = "tyger"
 )
-
-func getAdminRESTConfig(ctx context.Context) (*rest.Config, error) {
-	config := GetConfigFromContext(ctx)
-	cred := GetAzureCredentialFromContext(ctx)
-
-	clustersClient, err := armcontainerservice.NewManagedClustersClient(config.Cloud.SubscriptionID, cred, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create clusters client: %w", err)
-	}
-
-	credResp, err := clustersClient.ListClusterAdminCredentials(ctx, config.Cloud.ResourceGroup, config.Cloud.Compute.GetApiHostCluster().Name, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return clientcmd.RESTConfigFromKubeConfig(credResp.Kubeconfigs[0].Value)
-}
 
 func createTygerNamespace(ctx context.Context, restConfigPromise *Promise[*rest.Config]) (any, error) {
 	restConfig, err := restConfigPromise.Await()
@@ -79,36 +60,46 @@ func installTraefik(ctx context.Context, restConfigPromise *Promise[*rest.Config
 			Namespace: namespace,
 		},
 	}
+
+	traefikConfig := HelmChartConfig{
+		ChartRepo:    "https://helm.traefik.io/traefik",
+		ChartVersion: "24.0.0",
+		Values: map[string]any{
+			"logs": map[string]any{
+				"general": map[string]any{
+					"format": "json",
+				},
+				"access": map[string]any{
+					"enabled": "true",
+					"format":  "json",
+				},
+			},
+			"service": map[string]any{
+				"annotations": map[string]any{
+					"service.beta.kubernetes.io/azure-dns-label-name": strings.Split(config.Api.DomainName, ".")[0],
+				},
+			},
+		}}
+
+	if config.Api.Helm != nil && config.Api.Helm.Traefik != nil {
+		if err := mergo.Merge(&traefikConfig, config.Api.Helm.Traefik, mergo.WithOverride); err != nil {
+			return nil, fmt.Errorf("failed to merge traefik config: %w", err)
+		}
+	}
+
+	values, err := yaml.Marshal(traefikConfig.Values)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal traefik values: %w", err)
+	}
+
 	helmClient, err := helmclient.NewClientFromRestConf(&helmOptions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create helm client: %w", err)
 	}
 
-	err = helmClient.AddOrUpdateChartRepo(repo.Entry{Name: "traefik", URL: "https://helm.traefik.io/traefik"})
+	err = helmClient.AddOrUpdateChartRepo(repo.Entry{Name: "traefik", URL: traefikConfig.ChartRepo})
 	if err != nil {
 		return nil, fmt.Errorf("failed to add traefik repo: %w", err)
-	}
-
-	valuesTemplateText := `
-logs:
-  general:
-    format: "json"
-  access:
-    enabled: "true"
-    format: "json"
-service:
-  annotations: # We need to add the azure dns label, otherwise the public IP will not have a DNS name, which we need for cname record later.
-    "service.beta.kubernetes.io/azure-dns-label-name": "{{.DnsLabel}}"
-`
-	dnsLabel := strings.Split(config.Api.DomainName, ".")[0]
-	valueParams := struct{ DnsLabel string }{DnsLabel: dnsLabel}
-
-	valuesTemplate := template.Must(template.New("values").Parse(valuesTemplateText))
-
-	var values bytes.Buffer
-	err = valuesTemplate.Execute(&values, valueParams)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute values template: %w", err)
 	}
 
 	chartSpec := helmclient.ChartSpec{
@@ -116,12 +107,13 @@ service:
 		ChartName:       "traefik/traefik",
 		Namespace:       namespace,
 		CreateNamespace: true,
+		Version:         traefikConfig.ChartVersion,
 		Wait:            true,
 		WaitForJobs:     true,
 		Atomic:          true,
 		UpgradeCRDs:     true,
 		Timeout:         2 * time.Minute,
-		ValuesYaml:      values.String(),
+		ValuesYaml:      string(values),
 	}
 
 	startTime := time.Now().Add(-10 * time.Second)
@@ -152,6 +144,7 @@ service:
 }
 
 func installCertManager(ctx context.Context, restConfigPromise *Promise[*rest.Config]) (any, error) {
+	config := GetConfigFromContext(ctx)
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
 		return nil, ErrDependencyFailed
@@ -170,29 +163,48 @@ func installCertManager(ctx context.Context, restConfigPromise *Promise[*rest.Co
 			Namespace: namespace,
 		},
 	}
+
+	certManagerConfig := HelmChartConfig{
+		ChartRepo:    "https://charts.jetstack.io",
+		ChartVersion: "v1.13.0",
+		Values: map[string]any{
+			"installCRDs": true,
+		},
+	}
+
+	if config.Api.Helm != nil && config.Api.Helm.CertManager != nil {
+		if err := mergo.Merge(&certManagerConfig, config.Api.Helm.CertManager, mergo.WithOverride); err != nil {
+			return nil, fmt.Errorf("failed to merge cert-manager config: %w", err)
+		}
+	}
+
+	values, err := yaml.Marshal(certManagerConfig.Values)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal cert-manager values: %w", err)
+	}
+
 	helmClient, err := helmclient.NewClientFromRestConf(&helmOptions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create helm client: %w", err)
 	}
 
-	err = helmClient.AddOrUpdateChartRepo(repo.Entry{Name: "jetstack", URL: "https://charts.jetstack.io"})
+	err = helmClient.AddOrUpdateChartRepo(repo.Entry{Name: "jetstack", URL: certManagerConfig.ChartRepo})
 	if err != nil {
 		return nil, fmt.Errorf("failed to add jetstack repo: %w", err)
 	}
-
-	certManagerValues := "installCRDs: true"
 
 	chartSpec := helmclient.ChartSpec{
 		ReleaseName:     namespace,
 		ChartName:       "jetstack/cert-manager",
 		Namespace:       namespace,
 		CreateNamespace: true,
+		Version:         certManagerConfig.ChartVersion,
 		Wait:            true,
 		WaitForJobs:     true,
 		Atomic:          true,
 		UpgradeCRDs:     true,
 		Timeout:         5 * time.Minute,
-		ValuesYaml:      certManagerValues,
+		ValuesYaml:      string(values),
 	}
 
 	if _, err := helmClient.InstallOrUpgradeChart(context.Background(), &chartSpec, nil); err != nil {
@@ -203,6 +215,8 @@ func installCertManager(ctx context.Context, restConfigPromise *Promise[*rest.Co
 }
 
 func installNvidiaDevicePlugin(ctx context.Context, restConfigPromise *Promise[*rest.Config]) (any, error) {
+	config := GetConfigFromContext(ctx)
+
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
 		return nil, ErrDependencyFailed
@@ -231,43 +245,63 @@ func installNvidiaDevicePlugin(ctx context.Context, restConfigPromise *Promise[*
 		return nil, fmt.Errorf("failed to add jetstack repo: %w", err)
 	}
 
-	values := `
-nodeSelector:
-  kubernetes.azure.com/accelerator: nvidia
+	nvdpConfig := HelmChartConfig{
+		ChartRepo:    "https://nvidia.github.io/k8s-device-plugin",
+		ChartVersion: "0.14.1",
+		Values: map[string]any{
+			"nodeSelector": map[string]any{
+				"kubernetes.azure.com/accelerator": "nvidia",
+			},
+			"tolerations": []any{
+				map[string]any{
+					// Allow this pod to be rescheduled while the node is in "critical add-ons only" mode.
+					// This, along with the annotation above marks this pod as a critical add-on.
+					"key":      "CriticalAddonsOnly",
+					"operator": "Exists",
+				},
+				map[string]any{
+					"key":      "nvidia.com/gpu",
+					"operator": "Exists",
+					"effect":   "NoSchedule",
+				},
+				map[string]any{
+					"key":      "sku",
+					"operator": "Equal",
+					"value":    "gpu",
+					"effect":   "NoSchedule",
+				},
+				map[string]any{
+					"key":      "tyger",
+					"operator": "Equal",
+					"value":    "run",
+					"effect":   "NoSchedule",
+				},
+			},
+		},
+	}
+	if config.Api.Helm != nil && config.Api.Helm.NvidiaDevicePlugin != nil {
+		if err := mergo.Merge(&nvdpConfig, config.Api.Helm.NvidiaDevicePlugin, mergo.WithOverride); err != nil {
+			return nil, fmt.Errorf("failed to merge NVDIA device plugin config: %w", err)
+		}
+	}
 
-tolerations:
-
-  # Allow this pod to be rescheduled while the node is in "critical add-ons only" mode.
-  # This, along with the annotation above marks this pod as a critical add-on.
-  - key: CriticalAddonsOnly
-    operator: Exists
-
-  - key: nvidia.com/gpu
-    operator: Exists
-    effect: NoSchedule
-
-  - key: "sku"
-    operator: "Equal"
-    value: "gpu"
-    effect: "NoSchedule"
-
-  - key: tyger
-    operator: Equal
-    value: run
-    effect: NoSchedule
-`
+	values, err := yaml.Marshal(nvdpConfig.Values)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal traefik values: %w", err)
+	}
 
 	chartSpec := helmclient.ChartSpec{
 		ReleaseName:     namespace,
 		ChartName:       "nvdp/nvidia-device-plugin",
 		Namespace:       namespace,
 		CreateNamespace: true,
+		Version:         nvdpConfig.ChartVersion,
 		Wait:            true,
 		WaitForJobs:     true,
 		Atomic:          true,
 		UpgradeCRDs:     true,
 		Timeout:         5 * time.Minute,
-		ValuesYaml:      values,
+		ValuesYaml:      string(values),
 	}
 
 	if _, err := helmClient.InstallOrUpgradeChart(context.Background(), &chartSpec, nil); err != nil {

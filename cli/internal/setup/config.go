@@ -58,12 +58,9 @@ type StorageAccountConfig struct {
 }
 
 type ApiConfig struct {
-	DomainName string `json:"domainName"`
-
-	Auth *AuthConfig `json:"auth"`
-
-	TraefikVersion     string `json:"traefikVersion,omitempty"`
-	CertManagerVersion string `json:"certManagerVersion,omitempty"`
+	DomainName string      `json:"domainName"`
+	Auth       *AuthConfig `json:"auth"`
+	Helm       *HelmConfig `json:"helm"`
 }
 
 type AuthConfig struct {
@@ -73,9 +70,10 @@ type AuthConfig struct {
 }
 
 type HelmConfig struct {
-	Tyger       *HelmChartConfig `json:"tyger"`
-	Traefik     *HelmChartConfig `json:"traefik"`
-	CertManager *HelmChartConfig `json:"certManager"`
+	Tyger              *HelmChartConfig `json:"tyger"`
+	Traefik            *HelmChartConfig `json:"traefik"`
+	CertManager        *HelmChartConfig `json:"certManager"`
+	NvidiaDevicePlugin *HelmChartConfig `json:"nvidiaDevicePlugin"`
 }
 
 type HelmChartConfig struct {

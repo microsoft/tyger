@@ -60,3 +60,8 @@ api:
   #     chartRepo: https://containous.github.io/traefik-helm-chart
   #     chartVersion: 9.14.2
   #     values:
+
+  #   nvidiaDevicePlugin:
+  #     chartRepo: https://containous.github.io/traefik-helm-chart
+  #     chartVersion: 9.14.2
+  #     values:

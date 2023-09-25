@@ -16,6 +16,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (any, error) {
@@ -288,4 +290,21 @@ func getContainerRegistryId(ctx context.Context, name string, subscriptionId str
 	}
 
 	return "", fmt.Errorf("container registry '%s' not found in subscription", name)
+}
+
+func getAdminRESTConfig(ctx context.Context) (*rest.Config, error) {
+	config := GetConfigFromContext(ctx)
+	cred := GetAzureCredentialFromContext(ctx)
+
+	clustersClient, err := armcontainerservice.NewManagedClustersClient(config.Cloud.SubscriptionID, cred, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create clusters client: %w", err)
+	}
+
+	credResp, err := clustersClient.ListClusterAdminCredentials(ctx, config.Cloud.ResourceGroup, config.Cloud.Compute.GetApiHostCluster().Name, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return clientcmd.RESTConfigFromKubeConfig(credResp.Kubeconfigs[0].Value)
 }
