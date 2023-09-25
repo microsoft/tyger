@@ -2,9 +2,12 @@ package cmd
 
 import (
 	"errors"
+	"os"
 
 	"github.com/microsoft/tyger/cli/internal/setup"
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
+	"sigs.k8s.io/yaml"
 )
 
 func NewSetupCommand() *cobra.Command {
@@ -32,56 +35,21 @@ func newsetupCloudCommand() *cobra.Command {
 		Long:                  "Setup cloud infrastructure",
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
+			configBytes, err := os.ReadFile("/workspaces/tyger/config.yml")
+			if err != nil {
+				log.Fatal().Err(err).Msg("failed to read config file")
+			}
 
-			config := &setup.Config{
-				EnvironmentName:               "js",
-				SubscriptionID:                "biomedicalimaging-nonprod",
-				Location:                      "westus2",
-				AttachedContainerRegistries:   []string{"eminence"},
-				ClusterUserPrincipalObjectIds: []string{},
-
-				Clusters: []*setup.ClusterConfig{
-					{
-						Name:              "js",
-						Location:          "westus2",
-						KubernetesVersion: "1.27",
-						UserNodePools: []*setup.NodePoolConfig{
-							{
-								Name:     "cpunp",
-								VMSize:   "Standard_DS2_v2",
-								MinCount: 0,
-								MaxCount: 5,
-								Count:    0,
-							},
-							{
-								Name:     "gpunp",
-								VMSize:   "Standard_NC6s_v3",
-								MinCount: 0,
-								MaxCount: 10,
-								Count:    0,
-							},
-						},
-						ControlPlane: &setup.ControlPlaneClusterConfig{
-							LogStorage: &setup.StorageAccountConfig{
-								Name: "jstygerlog",
-							},
-							DnsLabel: "js-tyger",
-						},
-					},
-				},
-
-				Buffers: []*setup.StorageAccountConfig{
-					{
-						Name: "jstygerbuf",
-					},
-				},
+			var config setup.EnvironmentConfig
+			if err = yaml.UnmarshalStrict(configBytes, &config, yaml.DisallowUnknownFields); err != nil {
+				log.Fatal().Err(err).Msg("failed to unmarshal config file")
 			}
 
 			options := &setup.Options{
 				// SkipClusterSetup: true,
 			}
 
-			setup.SetupInfrastructure(config, options)
+			setup.SetupInfrastructure(&config, options)
 		},
 	}
 

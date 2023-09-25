@@ -1,40 +1,42 @@
 package setup
 
-type Config struct {
-	EnvironmentName string `json:"environmentName"`
-	SubscriptionID  string `json:"subscriptionId"`
-	Location        string `json:"location"`
-
-	AttachedContainerRegistries   []string `json:"containerRegistries"`
-	ClusterUserPrincipalObjectIds []string `json:"clusterUserPrincipalObjectIds"`
-
-	Clusters []*ClusterConfig        `json:"clusters"`
-	Buffers  []*StorageAccountConfig `json:"buffers"`
+type EnvironmentConfig struct {
+	EnvironmentName string       `json:"environmentName"`
+	Cloud           *CloudConfig `json:"cloud"`
+	Api             *ApiConfig   `json:"api"`
 }
 
-func (c *Config) GetControlPlaneCluster() *ClusterConfig {
-	for _, cluster := range c.Clusters {
-		if cluster.ControlPlane != nil {
-			return cluster
+type CloudConfig struct {
+	TenantID        string         `json:"tenantId"`
+	SubscriptionID  string         `json:"subscriptionId"`
+	DefaultLocation string         `json:"defaultLocation"`
+	ResourceGroup   string         `json:"resourceGroup"`
+	Compute         *ComputeConfig `json:"compute"`
+	Storage         *StorageConfig `json:"storage"`
+}
+
+type ComputeConfig struct {
+	Clusters                   []*ClusterConfig `json:"clusters"`
+	ManagementPrincipalIds     []string         `json:"managementPrincipalIds"`
+	PrivateContainerRegistries []string         `json:"privateContainerRegistries"`
+}
+
+func (c *ComputeConfig) GetApiHostCluster() *ClusterConfig {
+	for _, c := range c.Clusters {
+		if c.ApiHost {
+			return c
 		}
 	}
 
-	panic("no control plane cluster found - this should have been validated")
+	panic("API host cluster not found - this should have been caught during validation")
 }
 
 type ClusterConfig struct {
-	Name              string                     `json:"name"`
-	Location          string                     `json:"location"`
-	KubernetesVersion string                     `json:"kubernetesVersion"`
-	UserNodePools     []*NodePoolConfig          `json:"userNodePools"`
-	ControlPlane      *ControlPlaneClusterConfig `json:"controlPlane,omitempty"`
-}
-
-type ControlPlaneClusterConfig struct {
-	DnsLabel           string                `json:"dnsLabel"`
-	LogStorage         *StorageAccountConfig `json:"logStorage"`
-	TraefikVersion     string                `json:"traefikVersion,omitempty"`
-	CertManagerVersion string                `json:"certManagerVersion,omitempty"`
+	Name              string            `json:"name"`
+	ApiHost           bool              `json:"apiHost"`
+	Location          string            `json:"location"`
+	KubernetesVersion string            `json:"kubernetesVersion"`
+	UserNodePools     []*NodePoolConfig `json:"userNodePools"`
 }
 
 type NodePoolConfig struct {
@@ -42,13 +44,44 @@ type NodePoolConfig struct {
 	VMSize   string `json:"vmSize"`
 	MinCount int32  `json:"minCount"`
 	MaxCount int32  `json:"maxCount"`
-	Count    int32  `json:"count"`
+}
+
+type StorageConfig struct {
+	Buffers []*StorageAccountConfig `json:"buffers"`
+	Logs    *StorageAccountConfig   `json:"logs"`
 }
 
 type StorageAccountConfig struct {
 	Name     string `json:"name"`
 	Location string `json:"location"`
 	Sku      string `json:"sku"`
+}
+
+type ApiConfig struct {
+	DomainName string `json:"domainName"`
+
+	Auth *AuthConfig `json:"auth"`
+
+	TraefikVersion     string `json:"traefikVersion,omitempty"`
+	CertManagerVersion string `json:"certManagerVersion,omitempty"`
+}
+
+type AuthConfig struct {
+	TenantID  string `json:"tenantId"`
+	ApiAppUri string `json:"apiAppUri"`
+	CliAppUri string `json:"cliAppUri"`
+}
+
+type HelmConfig struct {
+	Tyger       *HelmChartConfig `json:"tyger"`
+	Traefik     *HelmChartConfig `json:"traefik"`
+	CertManager *HelmChartConfig `json:"certManager"`
+}
+
+type HelmChartConfig struct {
+	ChartRepo    string         `json:"chartRepo"`
+	ChartVersion string         `json:"chartVersion"`
+	Values       map[string]any `json:"values"`
 }
 
 type Options struct {

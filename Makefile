@@ -209,9 +209,12 @@ kill-proxy:
 login: install-cli download-test-client-cert
 	tyger login "${TYGER_URI}"	
 
-install-cli:
+install-cli-tyger-only:
 	cd cli
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go install -ldflags="-s -w" ./cmd/tyger
+
+install-cli: install-cli-tyger-only
+	cd cli
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go install -ldflags="-s -w" ./cmd/buffer-sidecar
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go install -ldflags="-s -w" ./cmd/tyger-proxy
 

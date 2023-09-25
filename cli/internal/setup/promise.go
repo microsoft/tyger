@@ -1,6 +1,8 @@
 package setup
 
-import "context"
+import (
+	"context"
+)
 
 type Promise[T any] struct {
 	function func(context.Context) (T, error)
@@ -13,7 +15,9 @@ type UntypedPromise interface {
 	AwaitErr() error
 }
 
-func NewPromise[T any](ctx context.Context, function func(context.Context) (T, error)) *Promise[T] {
+type PromiseGroup []UntypedPromise
+
+func NewPromise[T any](ctx context.Context, group *PromiseGroup, function func(context.Context) (T, error)) *Promise[T] {
 	p := &Promise[T]{
 		function: function,
 		channel:  make(chan T),
@@ -24,10 +28,11 @@ func NewPromise[T any](ctx context.Context, function func(context.Context) (T, e
 		close(p.channel)
 	}()
 
+	*group = PromiseGroup(append(*group, p))
 	return p
 }
 
-func NewPromiseAfter[T any](ctx context.Context, function func(context.Context) (T, error), dependencies ...UntypedPromise) *Promise[T] {
+func NewPromiseAfter[T any](ctx context.Context, group *PromiseGroup, function func(context.Context) (T, error), dependencies ...UntypedPromise) *Promise[T] {
 	f := func(ctx context.Context) (T, error) {
 		for _, d := range dependencies {
 			if err := d.AwaitErr(); err != nil {
@@ -39,7 +44,7 @@ func NewPromiseAfter[T any](ctx context.Context, function func(context.Context) 
 		return function(ctx)
 	}
 
-	return NewPromise(ctx, f)
+	return NewPromise(ctx, group, f)
 }
 
 func (p *Promise[T]) Await() (T, error) {

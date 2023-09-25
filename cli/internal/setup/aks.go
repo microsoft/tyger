@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"strings"
 	"time"
@@ -22,81 +23,110 @@ func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (any, erro
 	cred := GetAzureCredentialFromContext(ctx)
 	options := GetSetupOptionsFromContext(ctx)
 
-	clustersClient, err := armcontainerservice.NewManagedClustersClient(config.SubscriptionID, cred, nil)
+	clustersClient, err := armcontainerservice.NewManagedClustersClient(config.Cloud.SubscriptionID, cred, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create clusters client: %w", err)
 	}
 
 	var poller *runtime.Poller[armcontainerservice.ManagedClustersClientCreateOrUpdateResponse]
 
-	if !options.SkipClusterSetup {
-		mc := armcontainerservice.ManagedCluster{
-			Location: Ptr(clusterConfig.Location),
-			Identity: &armcontainerservice.ManagedClusterIdentity{
-				Type: Ptr(armcontainerservice.ResourceIdentityTypeSystemAssigned),
+	var clusterAlreadyExists bool
+	existingCluster, err := clustersClient.Get(ctx, config.Cloud.ResourceGroup, clusterConfig.Name, nil)
+	if err == nil {
+		clusterAlreadyExists = true
+	} else {
+		var respErr *azcore.ResponseError
+		if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
+			clusterAlreadyExists = false
+		} else {
+			return nil, fmt.Errorf("failed to get cluster: %w", err)
+		}
+	}
+
+	kubernetesVersion := "1.26.6"
+	if clusterConfig.KubernetesVersion != "" {
+		kubernetesVersion = clusterConfig.KubernetesVersion
+	}
+
+	cluster := armcontainerservice.ManagedCluster{
+		Location: Ptr(clusterConfig.Location),
+		Identity: &armcontainerservice.ManagedClusterIdentity{
+			Type: Ptr(armcontainerservice.ResourceIdentityTypeSystemAssigned),
+		},
+		Properties: &armcontainerservice.ManagedClusterProperties{
+			DNSPrefix:         Ptr(getClusterDnsPrefix(config.EnvironmentName, clusterConfig.Name, config.Cloud.SubscriptionID)),
+			KubernetesVersion: &kubernetesVersion,
+			EnableRBAC:        Ptr(true),
+			AADProfile: &armcontainerservice.ManagedClusterAADProfile{
+				Managed:         Ptr(true),
+				EnableAzureRBAC: Ptr(false),
 			},
-			Properties: &armcontainerservice.ManagedClusterProperties{
-				DNSPrefix:                Ptr(getClusterDnsPrefix(config.EnvironmentName, clusterConfig.Name, config.SubscriptionID)),
-				CurrentKubernetesVersion: Ptr("1.25.6"),
-				EnableRBAC:               Ptr(true),
-				AADProfile: &armcontainerservice.ManagedClusterAADProfile{
-					Managed:         Ptr(true),
-					EnableAzureRBAC: Ptr(false),
-				},
+		},
+	}
+
+	cluster.Properties.AgentPoolProfiles = []*armcontainerservice.ManagedClusterAgentPoolProfile{
+		{
+			Name:              Ptr("system"),
+			Mode:              Ptr(armcontainerservice.AgentPoolModeSystem),
+			VMSize:            Ptr("Standard_DS2_v2"),
+			EnableAutoScaling: Ptr(true),
+			Count:             Ptr(int32(1)),
+			MinCount:          Ptr(int32(1)),
+			MaxCount:          Ptr(int32(3)),
+			OSType:            Ptr(armcontainerservice.OSTypeLinux),
+			OSSKU:             Ptr(armcontainerservice.OSSKU("AzureLinux")),
+		},
+	}
+
+	for _, np := range clusterConfig.UserNodePools {
+		profile := armcontainerservice.ManagedClusterAgentPoolProfile{
+			Name:              &np.Name,
+			Mode:              Ptr(armcontainerservice.AgentPoolModeUser),
+			VMSize:            &np.VMSize,
+			EnableAutoScaling: Ptr(true),
+			Count:             &np.MinCount,
+			MinCount:          &np.MinCount,
+			MaxCount:          &np.MaxCount,
+			OSType:            Ptr(armcontainerservice.OSTypeLinux),
+			OSSKU:             Ptr(armcontainerservice.OSSKU("AzureLinux")),
+			NodeLabels: map[string]*string{
+				"tyger": Ptr("run"),
+			},
+			NodeTaints: []*string{
+				Ptr("tyger=run:NoSchedule"),
 			},
 		}
 
-		mc.Properties.AgentPoolProfiles = []*armcontainerservice.ManagedClusterAgentPoolProfile{
-			{
-				Name:              Ptr("system"),
-				Mode:              Ptr(armcontainerservice.AgentPoolModeSystem),
-				VMSize:            Ptr("Standard_DS2_v2"),
-				EnableAutoScaling: Ptr(true),
-				Count:             Ptr(int32(1)),
-				MinCount:          Ptr(int32(1)),
-				MaxCount:          Ptr(int32(3)),
-				OSType:            Ptr(armcontainerservice.OSTypeLinux),
-				OSSKU:             Ptr(armcontainerservice.OSSKU("AzureLinux")),
-			},
-		}
-
-		for _, np := range clusterConfig.UserNodePools {
-			profile := armcontainerservice.ManagedClusterAgentPoolProfile{
-				Name:              &np.Name,
-				Mode:              Ptr(armcontainerservice.AgentPoolModeUser),
-				VMSize:            &np.VMSize,
-				EnableAutoScaling: Ptr(true),
-				Count:             &np.Count,
-				MinCount:          &np.MinCount,
-				MaxCount:          &np.MaxCount,
-				OSType:            Ptr(armcontainerservice.OSTypeLinux),
-				OSSKU:             Ptr(armcontainerservice.OSSKU("AzureLinux")),
-				NodeLabels: map[string]*string{
-					"tyger": Ptr("run"),
-				},
-				NodeTaints: []*string{
-					Ptr("tyger=run:NoSchedule"),
-				},
+		if clusterAlreadyExists {
+			for _, existingNp := range existingCluster.Properties.AgentPoolProfiles {
+				if *existingNp.Name == np.Name {
+					profile.Count = existingNp.Count
+					break
+				}
 			}
-
-			if strings.Contains(strings.ToLower(np.VMSize), "standard_n") {
-				profile.NodeTaints = append(profile.NodeTaints, Ptr("sku=gpu:NoSchedule"))
-			}
-
-			mc.Properties.AgentPoolProfiles = append(mc.Properties.AgentPoolProfiles, &profile)
 		}
 
+		if strings.Contains(strings.ToLower(np.VMSize), "standard_n") {
+			profile.NodeTaints = append(profile.NodeTaints, Ptr("sku=gpu:NoSchedule"))
+		}
+
+		cluster.Properties.AgentPoolProfiles = append(cluster.Properties.AgentPoolProfiles, &profile)
+	}
+
+	if clusterNeedsUpdating(cluster, existingCluster.ManagedCluster) {
 		log.Info().Msgf("Creating or updating cluster '%s'", clusterConfig.Name)
-		poller, err = clustersClient.BeginCreateOrUpdate(ctx, config.EnvironmentName, clusterConfig.Name, mc, nil)
+		poller, err = clustersClient.BeginCreateOrUpdate(ctx, config.Cloud.ResourceGroup, clusterConfig.Name, cluster, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create cluster: %w", err)
 		}
+	} else {
+		log.Info().Msgf("Cluster '%s' already exists and appears to be up to date", clusterConfig.Name)
 	}
 
 	if !options.SkipAttachAcr {
 		var kubeletObjectId string
 		for ; ; time.Sleep(10 * time.Second) {
-			getResp, err := clustersClient.Get(ctx, config.EnvironmentName, clusterConfig.Name, nil)
+			getResp, err := clustersClient.Get(ctx, config.Cloud.ResourceGroup, clusterConfig.Name, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -109,14 +139,14 @@ func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (any, erro
 			}
 		}
 
-		for _, containerRegistry := range config.AttachedContainerRegistries {
+		for _, containerRegistry := range config.Cloud.Compute.PrivateContainerRegistries {
 			log.Info().Msgf("attaching ACR '%s' to cluster '%s'", containerRegistry, clusterConfig.Name)
-			containerRegistryId, err := getContainerRegistryId(ctx, containerRegistry, config.SubscriptionID, cred)
+			containerRegistryId, err := getContainerRegistryId(ctx, containerRegistry, config.Cloud.SubscriptionID, cred)
 			if err != nil {
 				return nil, err
 			}
 
-			if err := attachAcr(ctx, kubeletObjectId, containerRegistryId, config.SubscriptionID, cred); err != nil {
+			if err := attachAcr(ctx, kubeletObjectId, containerRegistryId, config.Cloud.SubscriptionID, cred); err != nil {
 				return nil, fmt.Errorf("failed to attach ACR: %w", err)
 			}
 		}
@@ -134,6 +164,40 @@ func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (any, erro
 	}
 
 	return nil, nil
+}
+
+func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCluster) bool {
+	if *cluster.Properties.KubernetesVersion != *existingCluster.Properties.KubernetesVersion {
+		return true
+	}
+
+	if len(cluster.Properties.AgentPoolProfiles) != len(existingCluster.Properties.AgentPoolProfiles) {
+		return true
+	}
+
+	for _, np := range cluster.Properties.AgentPoolProfiles {
+		found := false
+		for _, existingNp := range existingCluster.Properties.AgentPoolProfiles {
+			if *np.Name == *existingNp.Name {
+				found = true
+				if *np.VMSize != *existingNp.VMSize {
+					return true
+				}
+				if *np.MinCount != *existingNp.MinCount {
+					return true
+				}
+				if *np.MaxCount != *existingNp.MaxCount {
+					return true
+				}
+				break
+			}
+		}
+		if !found {
+			return true
+		}
+	}
+
+	return false
 }
 
 func getClusterDnsPrefix(environmentName, clusterName, subId string) string {

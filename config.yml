@@ -1,0 +1,62 @@
+environmentName: js
+
+# Cloud infrastructure configuration
+cloud:
+  tenantId: 72f988bf-86f1-41af-91ab-2d7cd011db47
+  subscriptionId: biomedicalimaging-nonprod
+  defaultLocation: westus2
+
+  compute:
+    clusters:
+      - name: js
+        apiHost: true
+        # location: westus2
+        # kubernetesVersion: ""
+        userNodePools:
+          - name: cpunp
+            vmSize: Standard_DS2_v2
+            # minCount: 0
+            maxCount: 10
+          - name: gpunp
+            vmSize: Standard_NC6s_v3
+            # minCount: 0
+            maxCount: 10
+    managementPrincipalIds: []
+    privateContainerRegistries:
+      - eminence
+
+  storage:
+    buffers:
+      - name: jstygerbuf
+        # location: ""
+        # sku: ""
+    logs:
+      name: jstygerlog
+      # location: ""
+      # sku: ""
+
+# Tyger API configuration
+api:
+  domainName: js-tyger.westus2.cloudapp.azure.com
+
+  auth:
+    tenantId: 76d3279b-830e-4bea-baf8-12863cdeba4c
+    ApiAppUri: "api://tyger-server"
+    cliAppUri: "api://tyger-cli"
+
+  # optional Helm overrides
+  # helm:
+  #   tyger:
+  #     chartRepo: https://tyger-server.azurewebsites.net/helm
+  #     chartVersion: 0.0.1
+  #     values:
+
+  #   certManager:
+  #     chartRepo: https://charts.jetstack.io
+  #     chartVersion: v1.0.2
+  #     values:
+
+  #   traefik:
+  #     chartRepo: https://containous.github.io/traefik-helm-chart
+  #     chartVersion: 9.14.2
+  #     values:

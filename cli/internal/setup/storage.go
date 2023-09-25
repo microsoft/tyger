@@ -24,7 +24,7 @@ func CreateStorageAccount(ctx context.Context,
 	config := GetConfigFromContext(ctx)
 	cred := GetAzureCredentialFromContext(ctx)
 
-	storageClient, err := armstorage.NewAccountsClient(config.SubscriptionID, cred, nil)
+	storageClient, err := armstorage.NewAccountsClient(config.Cloud.SubscriptionID, cred, nil)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create storage client")
 	}
@@ -37,7 +37,7 @@ func CreateStorageAccount(ctx context.Context,
 	}
 
 	log.Info().Msgf("Creating or updating storage account '%s'", storageAccountConfig.Name)
-	poller, err := storageClient.BeginCreate(context.TODO(), config.EnvironmentName, storageAccountConfig.Name, parameters, nil)
+	poller, err := storageClient.BeginCreate(ctx, config.Cloud.ResourceGroup, storageAccountConfig.Name, parameters, nil)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create storage account")
 	}
@@ -48,7 +48,7 @@ func CreateStorageAccount(ctx context.Context,
 		log.Fatal().Err(err).Msg("failed to create storage account")
 	}
 
-	keysResponse, err := storageClient.ListKeys(ctx, config.EnvironmentName, storageAccountConfig.Name, nil)
+	keysResponse, err := storageClient.ListKeys(ctx, config.Cloud.ResourceGroup, storageAccountConfig.Name, nil)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to get storage account key")
 	}

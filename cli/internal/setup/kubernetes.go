@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"text/template"
 	"time"
 
@@ -28,12 +29,12 @@ func getAdminRESTConfig(ctx context.Context) (*rest.Config, error) {
 	config := GetConfigFromContext(ctx)
 	cred := GetAzureCredentialFromContext(ctx)
 
-	clustersClient, err := armcontainerservice.NewManagedClustersClient(config.SubscriptionID, cred, nil)
+	clustersClient, err := armcontainerservice.NewManagedClustersClient(config.Cloud.SubscriptionID, cred, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create clusters client: %w", err)
 	}
 
-	credResp, err := clustersClient.ListClusterAdminCredentials(ctx, config.EnvironmentName, config.GetControlPlaneCluster().Name, nil)
+	credResp, err := clustersClient.ListClusterAdminCredentials(ctx, config.Cloud.ResourceGroup, config.Cloud.Compute.GetApiHostCluster().Name, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +100,8 @@ service:
   annotations: # We need to add the azure dns label, otherwise the public IP will not have a DNS name, which we need for cname record later.
     "service.beta.kubernetes.io/azure-dns-label-name": "{{.DnsLabel}}"
 `
-	valueParams := struct{ DnsLabel string }{config.GetControlPlaneCluster().ControlPlane.DnsLabel}
+	dnsLabel := strings.Split(config.Api.DomainName, ".")[0]
+	valueParams := struct{ DnsLabel string }{DnsLabel: dnsLabel}
 
 	valuesTemplate := template.Must(template.New("values").Parse(valuesTemplateText))
 
