@@ -1,16 +1,20 @@
-package setup
+package install
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 	"time"
 
 	"dario.cat/mergo"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
 	helmclient "github.com/mittwald/go-helm-client"
 	"github.com/rs/zerolog/log"
 	"helm.sh/helm/v3/pkg/repo"
+	"helm.sh/helm/v3/pkg/storage/driver"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,7 +30,7 @@ const (
 func createTygerNamespace(ctx context.Context, restConfigPromise *Promise[*rest.Config]) (any, error) {
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
-		return nil, ErrDependencyFailed
+		return nil, errDependencyFailed
 	}
 
 	clientset := kubernetes.NewForConfigOrDie(restConfig)
@@ -44,7 +48,7 @@ func installTraefik(ctx context.Context, restConfigPromise *Promise[*rest.Config
 
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
-		return nil, ErrDependencyFailed
+		return nil, errDependencyFailed
 	}
 
 	log.Info().Msg("Installing Traefik")
@@ -63,6 +67,7 @@ func installTraefik(ctx context.Context, restConfigPromise *Promise[*rest.Config
 
 	traefikConfig := HelmChartConfig{
 		ChartRepo:    "https://helm.traefik.io/traefik",
+		ChartRef:     "traefik/traefik",
 		ChartVersion: "24.0.0",
 		Values: map[string]any{
 			"logs": map[string]any{
@@ -99,15 +104,15 @@ func installTraefik(ctx context.Context, restConfigPromise *Promise[*rest.Config
 
 	err = helmClient.AddOrUpdateChartRepo(repo.Entry{Name: "traefik", URL: traefikConfig.ChartRepo})
 	if err != nil {
-		return nil, fmt.Errorf("failed to add traefik repo: %w", err)
+		return nil, fmt.Errorf("failed to add helm repo: %w", err)
 	}
 
 	chartSpec := helmclient.ChartSpec{
 		ReleaseName:     namespace,
-		ChartName:       "traefik/traefik",
+		ChartName:       traefikConfig.ChartRef,
+		Version:         traefikConfig.ChartVersion,
 		Namespace:       namespace,
 		CreateNamespace: true,
-		Version:         traefikConfig.ChartVersion,
 		Wait:            true,
 		WaitForJobs:     true,
 		Atomic:          true,
@@ -147,7 +152,7 @@ func installCertManager(ctx context.Context, restConfigPromise *Promise[*rest.Co
 	config := GetConfigFromContext(ctx)
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
-		return nil, ErrDependencyFailed
+		return nil, errDependencyFailed
 	}
 
 	log.Info().Msg("Installing cert-manager")
@@ -166,6 +171,7 @@ func installCertManager(ctx context.Context, restConfigPromise *Promise[*rest.Co
 
 	certManagerConfig := HelmChartConfig{
 		ChartRepo:    "https://charts.jetstack.io",
+		ChartRef:     "jetstack/cert-manager",
 		ChartVersion: "v1.13.0",
 		Values: map[string]any{
 			"installCRDs": true,
@@ -190,12 +196,12 @@ func installCertManager(ctx context.Context, restConfigPromise *Promise[*rest.Co
 
 	err = helmClient.AddOrUpdateChartRepo(repo.Entry{Name: "jetstack", URL: certManagerConfig.ChartRepo})
 	if err != nil {
-		return nil, fmt.Errorf("failed to add jetstack repo: %w", err)
+		return nil, fmt.Errorf("failed to add helm repo: %w", err)
 	}
 
 	chartSpec := helmclient.ChartSpec{
 		ReleaseName:     namespace,
-		ChartName:       "jetstack/cert-manager",
+		ChartName:       certManagerConfig.ChartRef,
 		Namespace:       namespace,
 		CreateNamespace: true,
 		Version:         certManagerConfig.ChartVersion,
@@ -207,7 +213,7 @@ func installCertManager(ctx context.Context, restConfigPromise *Promise[*rest.Co
 		ValuesYaml:      string(values),
 	}
 
-	if _, err := helmClient.InstallOrUpgradeChart(context.Background(), &chartSpec, nil); err != nil {
+	if _, err := helmClient.InstallOrUpgradeChart(ctx, &chartSpec, nil); err != nil {
 		return nil, fmt.Errorf("failed to install cert-manager: %w", err)
 	}
 
@@ -219,7 +225,7 @@ func installNvidiaDevicePlugin(ctx context.Context, restConfigPromise *Promise[*
 
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
-		return nil, ErrDependencyFailed
+		return nil, errDependencyFailed
 	}
 
 	log.Info().Msg("Installing nvidia-device-plugin")
@@ -240,13 +246,9 @@ func installNvidiaDevicePlugin(ctx context.Context, restConfigPromise *Promise[*
 		return nil, fmt.Errorf("failed to create helm client: %w", err)
 	}
 
-	err = helmClient.AddOrUpdateChartRepo(repo.Entry{Name: "nvdp", URL: "https://nvidia.github.io/k8s-device-plugin"})
-	if err != nil {
-		return nil, fmt.Errorf("failed to add jetstack repo: %w", err)
-	}
-
 	nvdpConfig := HelmChartConfig{
 		ChartRepo:    "https://nvidia.github.io/k8s-device-plugin",
+		ChartRef:     "nvdp/nvidia-device-plugin",
 		ChartVersion: "0.14.1",
 		Values: map[string]any{
 			"nodeSelector": map[string]any{
@@ -292,7 +294,7 @@ func installNvidiaDevicePlugin(ctx context.Context, restConfigPromise *Promise[*
 
 	chartSpec := helmclient.ChartSpec{
 		ReleaseName:     namespace,
-		ChartName:       "nvdp/nvidia-device-plugin",
+		ChartName:       nvdpConfig.ChartRef,
 		Namespace:       namespace,
 		CreateNamespace: true,
 		Version:         nvdpConfig.ChartVersion,
@@ -304,9 +306,152 @@ func installNvidiaDevicePlugin(ctx context.Context, restConfigPromise *Promise[*
 		ValuesYaml:      string(values),
 	}
 
-	if _, err := helmClient.InstallOrUpgradeChart(context.Background(), &chartSpec, nil); err != nil {
+	err = helmClient.AddOrUpdateChartRepo(repo.Entry{Name: "nvdp", URL: nvdpConfig.ChartRepo})
+	if err != nil {
+		return nil, fmt.Errorf("failed to add helm repo: %w", err)
+	}
+
+	if _, err := helmClient.InstallOrUpgradeChart(ctx, &chartSpec, nil); err != nil {
 		return nil, fmt.Errorf("failed to install NVIDIA device plugin: %w", err)
 	}
 
 	return nil, nil
+}
+
+func InstallTyger(ctx context.Context) error {
+	config := GetConfigFromContext(ctx)
+
+	restConfig, err := getAdminRESTConfig(ctx)
+	if err != nil {
+		return err
+	}
+
+	namespace := "tyger"
+
+	helmOptions := helmclient.RestConfClientOptions{
+		RestConfig: restConfig,
+		Options: &helmclient.Options{
+			DebugLog: func(format string, v ...interface{}) {
+				log.Debug().Msgf(format, v...)
+			},
+			Namespace: namespace,
+		},
+	}
+	helmClient, err := helmclient.NewClientFromRestConf(&helmOptions)
+	if err != nil {
+		return fmt.Errorf("failed to create helm client: %w", err)
+	}
+
+	clustersConfigJson, err := json.Marshal(config.Cloud.Compute.Clusters)
+	if err != nil {
+		return fmt.Errorf("failed to marshal cluster configuration: %w", err)
+	}
+
+	helmConfig := HelmChartConfig{
+		ChartRepo:    "",
+		ChartRef:     "tyger/tyger",
+		ChartVersion: "",
+		Values: map[string]any{
+			"server": map[string]any{
+				"image":              "TODO",
+				"bufferSidecarImage": "TODO",
+				"workerWaiterImage":  "TODO",
+				"hostname":           config.Api.DomainName,
+				"security": map[string]any{
+					"enabled":   true,
+					"authority": cloud.AzurePublic.ActiveDirectoryAuthorityHost + config.Api.Auth.TenantID,
+					"audience":  config.Api.Auth.ApiAppUri,
+				},
+				"tls": map[string]any{
+					"letsEncrypt": map[string]any{
+						"enabled": true,
+					},
+				},
+				"storageAccountConnectionStringSecretName":     config.Cloud.Storage.Buffers[0].Name, // TODO: multiple buffers
+				"logsStorageAccountConnectionStringSecretName": config.Cloud.Storage.Logs.Name,
+				"clusterConfigurationJson":                     string(clustersConfigJson),
+			},
+		},
+	}
+
+	if config.Api.Helm != nil && config.Api.Helm.Tyger != nil {
+		if err := mergo.Merge(&helmConfig, config.Api.Helm.Tyger, mergo.WithOverride); err != nil {
+			return fmt.Errorf("failed to merge Tyger Helm config: %w", err)
+		}
+	}
+
+	values, err := yaml.Marshal(helmConfig.Values)
+	if err != nil {
+		return fmt.Errorf("failed to marshal Tyger Helm values: %w", err)
+	}
+
+	if helmConfig.ChartRepo != "" {
+		err = helmClient.AddOrUpdateChartRepo(repo.Entry{Name: "tyger", URL: helmConfig.ChartRepo})
+		if err != nil {
+			return fmt.Errorf("failed to add helm repo: %w", err)
+		}
+	}
+
+	atomic := true
+	_, err = helmClient.GetRelease(namespace)
+	if err != nil {
+		if err == driver.ErrReleaseNotFound {
+			// This is the the initial release. In case of failure, we do not want to roll back, since the database PVCs
+			// are not deleted and the subsequent installation will create new new secrets that will not be the same
+			// as the passwords stored in the PVCs.
+			atomic = false
+		} else {
+			return err
+		}
+	}
+
+	chartSpec := helmclient.ChartSpec{
+		ReleaseName:     namespace,
+		ChartName:       helmConfig.ChartRef,
+		Namespace:       namespace,
+		CreateNamespace: true,
+		Version:         helmConfig.ChartVersion,
+		Wait:            true,
+		WaitForJobs:     true,
+		Atomic:          atomic,
+		Timeout:         5 * time.Minute,
+		ValuesYaml:      string(values),
+	}
+
+	go func() {
+		<-ctx.Done()
+		log.Warn().Msg("HELM Cancelling...")
+	}()
+
+	if _, err := helmClient.InstallOrUpgradeChart(ctx, &chartSpec, nil); err != nil {
+		return fmt.Errorf("failed to install Tyger Helm chart: %w", err)
+	}
+
+	healthCheckEndpoint := fmt.Sprintf("https://%s/healthcheck", config.Api.DomainName)
+
+	for i := 0; ; i++ {
+		resp, err := http.Get(healthCheckEndpoint)
+		errorLogger := log.Debug()
+		exit := false
+		if i == 30 {
+			exit = true
+			errorLogger = log.Error()
+		}
+		if err != nil {
+			errorLogger.Err(err).Msg("Tyger health check failed")
+		} else if resp.StatusCode != http.StatusOK {
+			errorLogger.Msgf("Tyger health check failed with status code %d", resp.StatusCode)
+		} else {
+			log.Info().Msgf("Tyger API up at %s", healthCheckEndpoint)
+			break
+		}
+
+		if exit {
+			return ErrAlreadyLoggedError
+		}
+
+		time.Sleep(time.Second)
+	}
+
+	return nil
 }

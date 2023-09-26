@@ -45,23 +45,26 @@ api:
     cliAppUri: "api://tyger-cli"
 
   # optional Helm overrides
-  # helm:
-  #   tyger:
-  #     chartRepo: https://tyger-server.azurewebsites.net/helm
-  #     chartVersion: 0.0.1
-  #     values:
+  helm:
+    tyger:
+      chartRef: /workspaces/tyger/deploy/helm/tyger
+      values:
+        server:
+          image: eminence.azurecr.io/tyger-server@sha256:4a0a2a55b28839ee8dbace1257057f63f51aea1ff87e9333b9b8ca9fef3c4a31
+          bufferSidecarImage: eminence.azurecr.io/buffer-sidecar@sha256:cf7bdf802b7065a3dfed8818655c7600e139ca54ab2579f977fa894129b0ba71
+          workerWaiterImage: eminence.azurecr.io/worker-waiter@sha256:0b71d9edece1fad1715f8d59d481c3db2618ea572fbbc6b18af4c2645857df38
 
-  #   certManager:
-  #     chartRepo: https://charts.jetstack.io
-  #     chartVersion: v1.0.2
-  #     values:
+    # certManager:
+    #   chartRepo: https://charts.jetstack.io
+    #   chartVersion: v1.0.2
+    #   values:
 
-  #   traefik:
-  #     chartRepo: https://containous.github.io/traefik-helm-chart
-  #     chartVersion: 9.14.2
-  #     values:
+    # traefik:
+    #   chartRepo: https://containous.github.io/traefik-helm-chart
+    #   chartVersion: 9.14.2
+    #   values:
 
-  #   nvidiaDevicePlugin:
-  #     chartRepo: https://containous.github.io/traefik-helm-chart
-  #     chartVersion: 9.14.2
-  #     values:
+    # nvidiaDevicePlugin:
+    #   chartRepo: https://containous.github.io/traefik-helm-chart
+    #   chartVersion: 9.14.2
+    #   values:

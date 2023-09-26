@@ -1,0 +1,221 @@
+package install
+
+import (
+	"fmt"
+	"net/url"
+	"regexp"
+
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage"
+	"github.com/rs/zerolog/log"
+)
+
+var (
+	resourceNameRegex       = regexp.MustCompile(`^[a-z][a-z\-0-9]*$`)
+	storageAccountNameRegex = regexp.MustCompile(`^[a-z0-9]{3,24}$`)
+)
+
+func QuickValidateEnvironmentConfig(config *EnvironmentConfig) bool {
+	success := true
+
+	if config.EnvironmentName == "" {
+		validationError(&success, "The `environmentName` field is required")
+	} else if !resourceNameRegex.MatchString(config.EnvironmentName) {
+		validationError(&success, "The `environmentName` field must match the pattern "+resourceNameRegex.String())
+	}
+
+	quickValidateCloudConfig(&success, config)
+	quickValidateApiConfig(&success, config)
+
+	return success
+}
+
+func quickValidateCloudConfig(success *bool, environmentConfig *EnvironmentConfig) {
+	cloudConfig := environmentConfig.Cloud
+	if cloudConfig == nil {
+		validationError(success, "The `cloud` field is required")
+		return
+	}
+
+	if cloudConfig.SubscriptionID == "" {
+		validationError(success, "The `cloud.subscriptionId` field is required")
+	}
+
+	if cloudConfig.DefaultLocation == "" {
+		validationError(success, "The `cloud.defaultLocation` field is required")
+	}
+
+	if cloudConfig.ResourceGroup == "" {
+		cloudConfig.ResourceGroup = environmentConfig.EnvironmentName
+	} else if !resourceNameRegex.MatchString(cloudConfig.ResourceGroup) {
+		validationError(success, "The `cloud.resourceGroup` field must match the pattern "+resourceNameRegex.String())
+	}
+
+	quickValidateComputeConfig(success, cloudConfig)
+	quickValidateStorageConfig(success, cloudConfig)
+}
+
+func quickValidateComputeConfig(success *bool, cloudConfig *CloudConfig) {
+	computeConfig := cloudConfig.Compute
+	if computeConfig == nil {
+		validationError(success, "The `cloud.compute` field is required")
+		return
+	}
+
+	if len(computeConfig.Clusters) == 0 {
+		validationError(success, "At least one cluster must be specified")
+	}
+
+	hasApiHost := false
+	clusterNames := make(map[string]any)
+	for _, cluster := range computeConfig.Clusters {
+		if cluster.Name == "" {
+			validationError(success, "The `name` field is required on a cluster")
+		} else if !resourceNameRegex.MatchString(cluster.Name) {
+			validationError(success, "The cluster `name` field must match the pattern "+resourceNameRegex.String())
+		} else {
+			if _, ok := clusterNames[cluster.Name]; ok {
+				validationError(success, "Cluster names must be unique")
+			}
+			clusterNames[cluster.Name] = nil
+		}
+
+		if cluster.Location == "" {
+			cluster.Location = cloudConfig.DefaultLocation
+		}
+
+		if len(cluster.UserNodePools) == 0 {
+			validationError(success, "At least one user node pool must be specified")
+		}
+		for _, np := range cluster.UserNodePools {
+			if np.Name == "" {
+				validationError(success, "The `name` field is required on a node pool")
+			} else if !resourceNameRegex.MatchString(np.Name) {
+				validationError(success, "The node pool `name` field must match the pattern "+resourceNameRegex.String())
+			}
+
+			if np.VMSize == "" {
+				validationError(success, "The `vmSize` field is required on a node pool")
+			}
+
+			if np.MinCount < 0 {
+				validationError(success, "The `minCount` field must be greater than or equal to zero")
+			}
+
+			if np.MaxCount < 0 {
+				validationError(success, "The `maxCount` field must be greater than or equal to zero")
+			}
+
+			if np.MinCount > np.MaxCount {
+				validationError(success, "The `minCount` field must be less than or equal to the `maxCount` field")
+			}
+		}
+
+		if cluster.ApiHost {
+			if hasApiHost {
+				validationError(success, "Only one cluster can be the API host")
+			}
+			hasApiHost = true
+		}
+	}
+
+	if !hasApiHost {
+		validationError(success, "One cluster must have `apiHost` set to true")
+	}
+}
+
+func quickValidateStorageConfig(success *bool, cloudConfig *CloudConfig) {
+	storageConfig := cloudConfig.Storage
+	if storageConfig == nil {
+		validationError(success, "The `cloud.storage` field is required")
+		return
+	}
+
+	if storageConfig.Logs == nil {
+		validationError(success, "The `cloud.storage.logs` field is required")
+	} else {
+		quickValidateStorageAccountConfig(success, cloudConfig, "cloud.storage.logs", storageConfig.Logs)
+	}
+
+	if len(storageConfig.Buffers) == 0 {
+		validationError(success, "At least one `cloud.storage.buffers` account must be specified")
+	}
+	for i, buf := range storageConfig.Buffers {
+		quickValidateStorageAccountConfig(success, cloudConfig, fmt.Sprintf("cloud.storage.buffers[%d]", i), buf)
+	}
+}
+
+func quickValidateStorageAccountConfig(success *bool, cloudConfig *CloudConfig, path string, storageConfig *StorageAccountConfig) {
+	if storageConfig.Name == "" {
+		validationError(success, "The `%s.name` field is required", path)
+	} else if !storageAccountNameRegex.MatchString(storageConfig.Name) {
+		validationError(success, "The `%s.name` field must match the pattern "+storageAccountNameRegex.String())
+	}
+
+	if storageConfig.Location == "" {
+		storageConfig.Location = cloudConfig.DefaultLocation
+	}
+
+	if storageConfig.Sku == "" {
+		storageConfig.Sku = string(armstorage.SKUNameStandardLRS)
+	} else {
+		match := false
+		for _, at := range armstorage.PossibleSKUNameValues() {
+			if storageConfig.Sku == string(at) {
+				match = true
+				break
+			}
+		}
+		if !match {
+			validationError(success, "The `%s.sku` field must be one of %v", path, armstorage.PossibleSKUNameValues())
+		}
+	}
+}
+
+func quickValidateApiConfig(success *bool, environmentConfig *EnvironmentConfig) {
+	apiConfig := environmentConfig.Api
+	if apiConfig == nil {
+		validationError(success, "The `api` field is required")
+		return
+	}
+
+	if environmentConfig.Cloud != nil && environmentConfig.Cloud.Compute != nil {
+		apiHostCluster := environmentConfig.Cloud.Compute.GetApiHostCluster()
+		if apiHostCluster.Location != "" {
+			apiHostLocation := environmentConfig.Cloud.Compute.GetApiHostCluster().Location
+			domainNameRegex := regexp.MustCompile(fmt.Sprintf(`^[a-zA-Z]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.%s.cloudapp.azure.com$`, apiHostLocation))
+			if !domainNameRegex.MatchString(apiConfig.DomainName) {
+				validationError(success, "The `api.domainName` field must match the pattern "+domainNameRegex.String())
+			}
+		}
+	}
+
+	if apiConfig.Auth == nil {
+		validationError(success, "The `api.auth` field is required")
+	} else {
+		authConfig := apiConfig.Auth
+		if authConfig.TenantID == "" {
+			validationError(success, "The `api.auth.tenantId` field is required")
+		}
+
+		if authConfig.ApiAppUri == "" {
+			validationError(success, "The `api.auth.apiAppUri` field is required")
+		} else {
+			if _, err := url.ParseRequestURI(authConfig.ApiAppUri); err != nil {
+				validationError(success, "The `api.auth.apiAppUri` field must be a valid URI")
+			}
+		}
+
+		if authConfig.CliAppUri == "" {
+			validationError(success, "The `api.auth.cliAppUri` field is required")
+		} else {
+			if _, err := url.ParseRequestURI(authConfig.CliAppUri); err != nil {
+				validationError(success, "The `api.auth.cliAppUri` field must be a valid URI")
+			}
+		}
+	}
+}
+
+func validationError(success *bool, format string, args ...any) {
+	*success = false
+	log.Error().Msgf(format, args...)
+}

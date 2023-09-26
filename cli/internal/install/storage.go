@@ -1,4 +1,4 @@
-package setup
+package install
 
 import (
 	"context"
@@ -72,7 +72,7 @@ func CreateStorageAccount(ctx context.Context,
 
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
-		return nil, ErrDependencyFailed
+		return nil, errDependencyFailed
 	}
 
 	clientset := kubernetes.NewForConfigOrDie(restConfig)

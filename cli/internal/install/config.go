@@ -1,4 +1,4 @@
-package setup
+package install
 
 type EnvironmentConfig struct {
 	EnvironmentName string       `json:"environmentName"`
@@ -35,7 +35,7 @@ type ClusterConfig struct {
 	Name              string            `json:"name"`
 	ApiHost           bool              `json:"apiHost"`
 	Location          string            `json:"location"`
-	KubernetesVersion string            `json:"kubernetesVersion"`
+	KubernetesVersion string            `json:"kubernetesVersion,omitempty"`
 	UserNodePools     []*NodePoolConfig `json:"userNodePools"`
 }
 
@@ -79,10 +79,6 @@ type HelmConfig struct {
 type HelmChartConfig struct {
 	ChartRepo    string         `json:"chartRepo"`
 	ChartVersion string         `json:"chartVersion"`
+	ChartRef     string         `json:"chartRef"`
 	Values       map[string]any `json:"values"`
-}
-
-type Options struct {
-	SkipClusterSetup bool
-	SkipAttachAcr    bool
 }

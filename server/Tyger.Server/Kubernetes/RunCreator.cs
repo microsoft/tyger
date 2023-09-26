@@ -398,7 +398,8 @@ public class RunCreator
             }
 
             targetNodePool = codeTarget.NodePool;
-            if (!targetCluster.UserNodePools.TryGetValue(codeTarget.NodePool, out var pool))
+            NodePoolOptions? pool;
+            if ((pool = targetCluster.UserNodePools.FirstOrDefault(np => string.Equals(np.Name, codeTarget.NodePool, StringComparison.OrdinalIgnoreCase))) == null)
             {
                 throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "Unknown nodepool '{0}'", targetNodePool));
             }

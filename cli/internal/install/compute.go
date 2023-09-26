@@ -1,4 +1,4 @@
-package setup
+package install
 
 import (
 	"context"
@@ -23,7 +23,6 @@ import (
 func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (any, error) {
 	config := GetConfigFromContext(ctx)
 	cred := GetAzureCredentialFromContext(ctx)
-	options := GetSetupOptionsFromContext(ctx)
 
 	clustersClient, err := armcontainerservice.NewManagedClustersClient(config.Cloud.SubscriptionID, cred, nil)
 	if err != nil {
@@ -125,32 +124,30 @@ func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (any, erro
 		log.Info().Msgf("Cluster '%s' already exists and appears to be up to date", clusterConfig.Name)
 	}
 
-	if !options.SkipAttachAcr {
-		var kubeletObjectId string
-		for ; ; time.Sleep(10 * time.Second) {
-			getResp, err := clustersClient.Get(ctx, config.Cloud.ResourceGroup, clusterConfig.Name, nil)
-			if err != nil {
-				return nil, err
-			}
-
-			if getResp.Properties.IdentityProfile != nil {
-				if kubeletIdentity := getResp.Properties.IdentityProfile["kubeletidentity"]; kubeletIdentity != nil {
-					kubeletObjectId = *kubeletIdentity.ObjectID
-					break
-				}
-			}
+	var kubeletObjectId string
+	for ; ; time.Sleep(10 * time.Second) {
+		getResp, err := clustersClient.Get(ctx, config.Cloud.ResourceGroup, clusterConfig.Name, nil)
+		if err != nil {
+			return nil, err
 		}
 
-		for _, containerRegistry := range config.Cloud.Compute.PrivateContainerRegistries {
-			log.Info().Msgf("attaching ACR '%s' to cluster '%s'", containerRegistry, clusterConfig.Name)
-			containerRegistryId, err := getContainerRegistryId(ctx, containerRegistry, config.Cloud.SubscriptionID, cred)
-			if err != nil {
-				return nil, err
+		if getResp.Properties.IdentityProfile != nil {
+			if kubeletIdentity := getResp.Properties.IdentityProfile["kubeletidentity"]; kubeletIdentity != nil {
+				kubeletObjectId = *kubeletIdentity.ObjectID
+				break
 			}
+		}
+	}
 
-			if err := attachAcr(ctx, kubeletObjectId, containerRegistryId, config.Cloud.SubscriptionID, cred); err != nil {
-				return nil, fmt.Errorf("failed to attach ACR: %w", err)
-			}
+	for _, containerRegistry := range config.Cloud.Compute.PrivateContainerRegistries {
+		log.Info().Msgf("attaching ACR '%s' to cluster '%s'", containerRegistry, clusterConfig.Name)
+		containerRegistryId, err := getContainerRegistryId(ctx, containerRegistry, config.Cloud.SubscriptionID, cred)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := attachAcr(ctx, kubeletObjectId, containerRegistryId, config.Cloud.SubscriptionID, cred); err != nil {
+			return nil, fmt.Errorf("failed to attach ACR: %w", err)
 		}
 	}
 

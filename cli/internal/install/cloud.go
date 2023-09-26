@@ -1,22 +1,16 @@
-package setup
+package install
 
 import (
 	"context"
 	"errors"
 	"fmt"
 	"os"
-	"os/signal"
 	"strings"
-	"sync/atomic"
-	"syscall"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armsubscriptions"
 	"github.com/fatih/color"
-	"github.com/google/uuid"
-	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -25,68 +19,24 @@ const (
 )
 
 var (
-	ErrDependencyFailed = errors.New("dependency failed")
+	ErrAlreadyLoggedError = errors.New("already logged error")
+	errDependencyFailed   = errors.New("dependency failed")
 )
 
-func SetupInfrastructure(config *EnvironmentConfig, options *Options) {
-	logHook := &LogHook{}
-	log.Logger = log.Hook(logHook)
-
-	ctx := context.Background()
-	ctx = SetConfigOnContext(ctx, config)
-
-	ctx = SetSetupOptionsOnContext(ctx, options)
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	// Set up channel on which to send signal notifications.
-	cSignal := make(chan os.Signal, 2)
-	signal.Notify(cSignal, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-cSignal
-		log.Warn().Msg("Cancelling...")
-		cancel()
-	}()
-
-	log.Info().Msg("Starting setup")
-
-	quickValidateEnvironmentConfig(config)
-
-	if logHook.HasError() {
-		os.Exit(1)
-	}
-
-	cred, err := azidentity.NewDefaultAzureCredential(nil)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to get credentials. Make sure the Azure CLI is installed and and you have run `az login`.")
-		os.Exit(1)
-	}
-
-	ctx = SetAzureCredentialOnContext(ctx, cred)
-
-	// Get the subscription ID if we are given the name.
-	if _, err := uuid.Parse(config.Cloud.SubscriptionID); err != nil {
-		config.Cloud.SubscriptionID, err = getSubscriptionId(ctx, config.Cloud.SubscriptionID, cred)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to get subscription ID.")
-			os.Exit(1)
-		}
-	}
+func InstallCloud(ctx context.Context) (err error) {
+	config := GetConfigFromContext(ctx)
 
 	ensureResourceGroupCreated(ctx)
 
 	allPromises := createPromises(ctx, config)
 	for _, p := range allPromises {
-		if err := p.AwaitErr(); err != nil && err != ErrDependencyFailed {
-			logError(err, "")
+		if promiseErr := p.AwaitErr(); promiseErr != nil && promiseErr != errDependencyFailed {
+			logError(promiseErr, "")
+			err = ErrAlreadyLoggedError
 		}
 	}
 
-	if logHook.HasError() {
-		os.Exit(1)
-	}
-
-	log.Info().Msg("Setup complete")
+	return err
 }
 
 func ensureResourceGroupCreated(ctx context.Context) error {
@@ -182,7 +132,7 @@ func createPromises(ctx context.Context, config *EnvironmentConfig) PromiseGroup
 	return *group
 }
 
-func getSubscriptionId(ctx context.Context, subName string, cred *azidentity.DefaultAzureCredential) (string, error) {
+func GetSubscriptionId(ctx context.Context, subName string, cred *azidentity.DefaultAzureCredential) (string, error) {
 	lowerSubName := strings.ToLower(subName)
 	c, err := armsubscriptions.NewClient(cred, nil)
 	if err != nil {
@@ -205,62 +155,6 @@ func getSubscriptionId(ctx context.Context, subName string, cred *azidentity.Def
 	return "", fmt.Errorf("subscription with name '%s' not found", subName)
 }
 
-type LogHook struct {
-	hasError atomic.Bool
-}
-
-func (h *LogHook) HasError() bool {
-	return h.hasError.Load()
-}
-
-func (h *LogHook) Run(e *zerolog.Event, level zerolog.Level, msg string) {
-	if int(level) >= int(zerolog.ErrorLevel) {
-		h.hasError.Store(true)
-	}
-}
-
 func Ptr[T any](t T) *T {
 	return &t
-}
-
-type configContextKeyType int
-
-const (
-	configKey          configContextKeyType = 0
-	azureCredentialKey configContextKeyType = 1
-	setupOptionsKey    configContextKeyType = 2
-)
-
-func GetConfigFromContext(ctx context.Context) *EnvironmentConfig {
-	return ctx.Value(configKey).(*EnvironmentConfig)
-}
-
-func SetConfigOnContext(ctx context.Context, config *EnvironmentConfig) context.Context {
-	return context.WithValue(ctx, configKey, config)
-}
-
-func GetAzureCredentialFromContext(ctx context.Context) *azidentity.DefaultAzureCredential {
-	return ctx.Value(azureCredentialKey).(*azidentity.DefaultAzureCredential)
-}
-
-func SetAzureCredentialOnContext(ctx context.Context, cred *azidentity.DefaultAzureCredential) context.Context {
-	return context.WithValue(ctx, azureCredentialKey, cred)
-}
-
-func GetSetupOptionsFromContext(ctx context.Context) *Options {
-	return ctx.Value(setupOptionsKey).(*Options)
-}
-
-func SetSetupOptionsOnContext(ctx context.Context, options *Options) context.Context {
-	return context.WithValue(ctx, setupOptionsKey, options)
-}
-
-func WaitForPoller[T any](ctx context.Context, promise *Promise[*runtime.Poller[T]]) (T, error) {
-	poller, err := promise.Await()
-	if err != nil {
-		var t T
-		return t, ErrDependencyFailed
-	}
-
-	return poller.PollUntilDone(ctx, nil)
 }
