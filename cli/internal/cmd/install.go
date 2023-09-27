@@ -6,18 +6,25 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path"
 	"syscall"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/google/uuid"
+	"github.com/knadh/koanf/parsers/yaml"
+	"github.com/knadh/koanf/providers/file"
+	"github.com/knadh/koanf/v2"
 	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/mitchellh/mapstructure"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 )
 
 func NewInstallCommand() *cobra.Command {
+	var configPath string
+	var setOverrides map[string]string
+
 	var installCmd *cobra.Command
 	installCmd = &cobra.Command{
 		Use:                   "install",
@@ -31,24 +38,46 @@ func NewInstallCommand() *cobra.Command {
 				parent.PersistentPreRun(parent, args)
 			}
 
-			v := viper.New()
-			v.SetConfigName("config")
-			v.AddConfigPath("/workspaces/tyger")
-
-			err := v.ReadInConfig() // Find and read the config file
-			if err != nil {         // Handle errors reading the config file
-				log.Fatal().Err(err).Msg("Fatal error reading config file")
+			// The k8s client library can noisily log to stderr using klog with entries like https://github.com/helm/helm/issues/11772
+			utilruntime.ErrorHandlers = []func(error){
+				func(err error) {
+					log.Debug().Err(err).Msg("Kubernetes client runtime error")
+				},
 			}
 
-			var config install.EnvironmentConfig
-			err = v.Unmarshal(&config, func(dc *mapstructure.DecoderConfig) {
-				dc.WeaklyTypedInput = true
-				dc.ErrorUnused = true
-				dc.TagName = "json"
+			koanfConfig := koanf.New(".")
+			if configPath == "" {
+				configPath = getDefaultConfigPath()
+			}
+
+			if err := koanfConfig.Load(file.Provider(configPath), yaml.Parser()); err != nil {
+				if os.IsNotExist(err) {
+					if configPath != "" {
+						log.Fatal().Err(err).Msgf("Config file not found at %s", configPath)
+					} else {
+						log.Fatal().Err(err).Msgf("Config file not found at %s", getDefaultConfigPath())
+					}
+				} else {
+					log.Fatal().Err(err).Msg("Error reading config file")
+				}
+			}
+
+			for k, v := range setOverrides {
+				koanfConfig.Set(k, v)
+			}
+
+			config := install.EnvironmentConfig{}
+			err := koanfConfig.UnmarshalWithConf("", &config, koanf.UnmarshalConf{
+				Tag: "json",
+				DecoderConfig: &mapstructure.DecoderConfig{
+					WeaklyTypedInput: true,
+					ErrorUnused:      true,
+					Result:           &config,
+				},
 			})
 
 			if err != nil {
-				panic(fmt.Errorf("fatal error config file: %w", err))
+				log.Fatal().Err(err).Msg("Failed to parse config file")
 			}
 
 			ctx := cmd.Context()
@@ -75,7 +104,19 @@ func NewInstallCommand() *cobra.Command {
 	installCmd.AddCommand(newInstallCloudCommand())
 	installCmd.AddCommand(newInstallApiCommand())
 
+	installCmd.PersistentFlags().StringVarP(&configPath, "file", "f", "", "path to config file")
+	installCmd.PersistentFlags().StringToStringVar(&setOverrides, "set", nil, "override config values (e.g. --set cloud.subscriptionID=1234 --set cloud.resourceGroup=foo)")
+
 	return installCmd
+}
+
+func getDefaultConfigPath() string {
+	userConfigDir, err := os.UserConfigDir()
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to get user config dir")
+	}
+	defaultPath := path.Join(userConfigDir, "tyger", "config.yml")
+	return defaultPath
 }
 
 func newInstallCloudCommand() *cobra.Command {

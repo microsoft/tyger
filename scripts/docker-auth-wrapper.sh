@@ -40,7 +40,7 @@ if [[ "$error_output" =~ "unauthorized: authentication required" ]]; then
 
     registry_name=$(echo "$image_name" | cut -d'/' -f1)
     "$(dirname "${0}")"/check-login.sh
-    az acr login -n "$registry_name" --only-show-errors
+    az acr login -n "$registry_name"
 
     # Run the command again
     docker "$@"

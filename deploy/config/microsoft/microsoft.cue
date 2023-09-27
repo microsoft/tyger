@@ -1,6 +1,10 @@
 package tyger
 
-#EnvironmentConfig & {
+developerConfig: #DeveloperConfig & {
+	containerRegistry: "eminence"
+}
+
+config: #EnvironmentConfig & {
 	environmentName: string @tag(environmentName)
 	cloud: {
 		tenantId:        "72f988bf-86f1-41af-91ab-2d7cd011db47"
@@ -29,7 +33,7 @@ package tyger
 				"5b60f594-a0eb-410c-a3fc-dd3c6f4e28d1",
 				"c0e60aba-35f0-4778-bc9b-fc5d2af14687",
 			]
-			privateContainerRegistries: ["eminence"]
+			privateContainerRegistries: [developerConfig.containerRegistry]
 		}
 	}
 	api: {

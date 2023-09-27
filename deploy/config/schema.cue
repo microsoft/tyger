@@ -70,7 +70,7 @@ import "strings"
 
 #HelmConfig: {
 	tyger: #HelmChartConfig & {
-		chartName: string @tag(tygerHelmChartDir)
+		chartRef: string @tag(tygerHelmChartDir)
 	}
 	traefik?:            #HelmChartConfig
 	certManager?:        #HelmChartConfig
@@ -79,10 +79,11 @@ import "strings"
 
 #HelmChartConfig: {
 	chartRepo?: string
-	chartName?: string
+	chartRef?: string
 	values?: [string]: _
 }
 
 #DeveloperConfig: {
 	containerRegistry!: string
+	containerRegistryFQDN: *"\(containerRegistry).azurecr.io" | string
 }

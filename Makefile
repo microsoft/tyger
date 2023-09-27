@@ -19,7 +19,10 @@ AZURE_SUBSCRIPTION=BiomedicalImaging-NonProd
 TYGER_URI = https://$(shell echo '${ENVIRONMENT_CONFIG}' | jq -r '.organizations["${DEFAULT_ORGANIATION}"].subdomain').$(shell echo '${ENVIRONMENT_CONFIG}' | jq -r '.dependencies.dnsZone.name')
 
 get-environment-config:
-	echo '${ENVIRONMENT_CONFIG}'
+	scripts/get-context-environment-config.sh
+
+install-cloud: install-cli-tyger-only
+	tyger install cloud -f <(scripts/get-context-environment-config.sh)
 
 ensure-environment:
 	echo '${ENVIRONMENT_CONFIG}' | deploy/scripts/environment/ensure-environment.sh -c -
@@ -114,7 +117,8 @@ unit-test:
 	go test ./... | { grep -v "\\[[no test files\\]" || true; }
 
 docker-build:
-	echo '${ENVIRONMENT_CONFIG}' | scripts/build-images.sh -c - --push --push-force --tag dev --quiet
+	registry=$$(scripts/get-context-environment-config.sh -e developerConfig.containerRegistry)
+	scripts/build-images.sh --push --push-force --tag dev --quiet --registry "$${registry}"
 
 docker-build-test:
 	echo '${ENVIRONMENT_CONFIG}' | scripts/build-images.sh -c - --test --push --push-force --tag test --quiet
@@ -122,8 +126,20 @@ docker-build-test:
 publish-cli-tools:
 	./scripts/publish-binaries.sh --push --use-git-hash-as-tag
 
-up: ensure-environment docker-build
-	echo '${ENVIRONMENT_CONFIG}' | deploy/scripts/tyger/tyger-up.sh -c -
+up: docker-build install-cli-tyger-only
+	repo_fqdn=$$(scripts/get-context-environment-config.sh -e developerConfig.containerRegistryFQDN)
+
+	tyger_server_image="$$(docker inspect "$${repo_fqdn}/tyger-server:dev" | jq -r --arg repo "$${repo_fqdn}/tyger-server" '.[0].RepoDigests[] | select (startswith($$repo))')"
+	buffer_sidecar_image="$$(docker inspect "$${repo_fqdn}/buffer-sidecar:dev" | jq -r --arg repo "$${repo_fqdn}/buffer-sidecar" '.[0].RepoDigests[] | select (startswith($$repo))')"
+	worker_waiter_image="$$(docker inspect "$${repo_fqdn}/worker-waiter:dev" | jq -r --arg repo "$${repo_fqdn}/worker-waiter" '.[0].RepoDigests[] | select (startswith($$repo))')"
+
+	chart_dir=$$(readlink -f deploy/helm/tyger)
+	
+	tyger install api -f <(scripts/get-context-environment-config.sh) \
+		--set api.helm.tyger.chartRef="$${chart_dir}" \
+		--set api.helm.tyger.values.server.image="$${tyger_server_image}" \
+		--set api.helm.tyger.values.server.bufferSidecarImage="$${buffer_sidecar_image}" \
+		--set api.helm.tyger.values.server.workerWaiterImage="$${worker_waiter_image}"
 
 down:
 	echo '${ENVIRONMENT_CONFIG}' | deploy/scripts/tyger/tyger-down.sh -c -

@@ -10,7 +10,7 @@ Builds container images
 Usage: $0 [options]
 
 Options:
-  -c, --environment-config         The environment configuration JSON file or - to read from stdin
+  -r, --registry                   The name of the container registry to push to. This is not its fully-qualified name.
   --test                           Build (and optionally push) test images, otherwise runtime images
   --push                           Push runtime images (requires --tag or --use-git-hash-as-tag)
   --push-force                     Force runtime images, will overwrite images with same tag (requires --tag or --use-git-hash-as-tag)
@@ -27,8 +27,8 @@ while [[ $# -gt 0 ]]; do
   key="$1"
 
   case $key in
-  -c | --environment-config)
-    config_path="$2"
+  -r | --registry)
+    container_registry_name="$2"
     shift 2
     ;;
   --test)
@@ -68,18 +68,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "${config_path:-}" ]]; then
-  echo "ERROR: --environment-config parameter not specified"
-  exit 1
-fi
-
-environment_definition=$(cat "${config_path}")
-
 export DOCKER_BUILDKIT=1
 
 repo_root_dir="$(dirname "$0")/.."
 
-container_registry_name=$(echo "${environment_definition}" | jq -r '.dependencies.containerRegistry')
 container_registry_fqdn="${container_registry_name}.azurecr.io"
 
 function build_and_push() {

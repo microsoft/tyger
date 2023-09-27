@@ -107,14 +107,14 @@ func createPromises(ctx context.Context, config *EnvironmentConfig) PromiseGroup
 		return createTygerNamespace(ctx, getAdminCredsPromise)
 	})
 
-	NewPromiseAfter(ctx, group, func(ctx context.Context) (any, error) {
-		return CreateStorageAccount(ctx, config.Cloud.Storage.Logs, getAdminCredsPromise, LogsStorageContainerName)
-	}, createTygerNamespacePromise)
+	NewPromise(ctx, group, func(ctx context.Context) (any, error) {
+		return CreateStorageAccount(ctx, config.Cloud.Storage.Logs, getAdminCredsPromise, createTygerNamespacePromise, LogsStorageContainerName)
+	})
 
 	for _, buf := range config.Cloud.Storage.Buffers {
-		NewPromiseAfter(ctx, group, func(ctx context.Context) (any, error) {
-			return CreateStorageAccount(ctx, buf, getAdminCredsPromise)
-		}, createTygerNamespacePromise)
+		NewPromise(ctx, group, func(ctx context.Context) (any, error) {
+			return CreateStorageAccount(ctx, buf, getAdminCredsPromise, createTygerNamespacePromise)
+		})
 	}
 
 	NewPromise(ctx, group, func(ctx context.Context) (any, error) {

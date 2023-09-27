@@ -114,8 +114,13 @@ func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (any, erro
 		cluster.Properties.AgentPoolProfiles = append(cluster.Properties.AgentPoolProfiles, &profile)
 	}
 
-	if clusterNeedsUpdating(cluster, existingCluster.ManagedCluster) {
-		log.Info().Msgf("Creating or updating cluster '%s'", clusterConfig.Name)
+	if !clusterAlreadyExists || clusterNeedsUpdating(cluster, existingCluster.ManagedCluster) {
+		if clusterAlreadyExists {
+			log.Info().Msgf("Updating cluster '%s'", clusterConfig.Name)
+		} else {
+			log.Info().Msgf("Creating cluster '%s'", clusterConfig.Name)
+		}
+
 		poller, err = clustersClient.BeginCreateOrUpdate(ctx, config.Cloud.ResourceGroup, clusterConfig.Name, cluster, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create cluster: %w", err)

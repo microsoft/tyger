@@ -19,6 +19,7 @@ import (
 func CreateStorageAccount(ctx context.Context,
 	storageAccountConfig *StorageAccountConfig,
 	restConfigPromise *Promise[*rest.Config],
+	namespaceCreatedPromise *Promise[any],
 	containers ...string,
 ) (any, error) {
 	config := GetConfigFromContext(ctx)
