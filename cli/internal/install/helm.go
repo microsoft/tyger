@@ -17,33 +17,12 @@ import (
 	"helm.sh/helm/v3/pkg/repo"
 	"helm.sh/helm/v3/pkg/storage/driver"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/yaml"
 )
-
-const (
-	TygerNamespace = "tyger"
-)
-
-func createTygerNamespace(ctx context.Context, restConfigPromise *Promise[*rest.Config]) (any, error) {
-	restConfig, err := restConfigPromise.Await()
-	if err != nil {
-		return nil, errDependencyFailed
-	}
-
-	clientset := kubernetes.NewForConfigOrDie(restConfig)
-
-	_, err = clientset.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "tyger"}}, metav1.CreateOptions{})
-	if err == nil || apierrors.IsAlreadyExists(err) {
-		return nil, nil
-	}
-
-	return nil, fmt.Errorf("failed to create 'tyger' namespace: %w", err)
-}
 
 func installTraefik(ctx context.Context, restConfigPromise *Promise[*rest.Config]) (any, error) {
 	config := GetConfigFromContext(ctx)
@@ -206,7 +185,7 @@ func installNvidiaDevicePlugin(ctx context.Context, restConfigPromise *Promise[*
 func InstallTyger(ctx context.Context) error {
 	config := GetConfigFromContext(ctx)
 
-	restConfig, err := getAdminRESTConfig(ctx)
+	restConfig, err := getUserRESTConfig(ctx)
 	if err != nil {
 		return err
 	}
@@ -250,7 +229,8 @@ func InstallTyger(ctx context.Context) error {
 		overrides = config.Api.Helm.Tyger
 	}
 
-	adjustAtomic := func(cs *helmclient.ChartSpec, c helmclient.Client) error {
+	ajustSpec := func(cs *helmclient.ChartSpec, c helmclient.Client) error {
+		cs.CreateNamespace = false
 		cs.Atomic = true
 		_, err = c.GetRelease(helmConfig.Namespace)
 		if err != nil {
@@ -266,7 +246,7 @@ func InstallTyger(ctx context.Context) error {
 		return nil
 	}
 
-	if err := installHelmChart(ctx, restConfig, &helmConfig, overrides, adjustAtomic); err != nil {
+	if err := installHelmChart(ctx, restConfig, &helmConfig, overrides, ajustSpec); err != nil {
 		return fmt.Errorf("failed to install Tyger Helm chart: %w", err)
 	}
 
@@ -378,7 +358,7 @@ func installHelmChart(
 }
 
 func UninstallTyger(ctx context.Context) error {
-	restConfig, err := getAdminRESTConfig(ctx)
+	restConfig, err := getUserRESTConfig(ctx)
 	if err != nil {
 		return err
 	}

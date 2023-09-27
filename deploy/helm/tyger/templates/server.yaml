@@ -204,7 +204,7 @@ spec:
 ---
 {{- if $serverValues.tls.letsEncrypt.enabled }}
 apiVersion: cert-manager.io/v1
-kind: ClusterIssuer
+kind: Issuer
 metadata:
   name: {{ include "tyger.fullname" . }}-cert
 spec:
@@ -226,7 +226,7 @@ spec:
   secretName: {{ $serverValues.hostname }}-tls
   issuerRef:
     name: {{ include "tyger.fullname" . }}-cert
-    kind: ClusterIssuer
+    kind: Issuer
   dnsNames:
     - {{ $serverValues.hostname }}
 
@@ -239,7 +239,7 @@ metadata:
   {{- if $serverValues.tls.letsEncrypt.enabled }}
   annotations:
     kubernetes.io/ingress.class: traefik
-    cert-manager.io/cluster-issuer: {{ include "tyger.fullname" . }}-cert
+    cert-manager.io/issuer: {{ include "tyger.fullname" . }}-cert
   {{- end }}
 spec:
   {{- if $serverValues.tls.enabled }}

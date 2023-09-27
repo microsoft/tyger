@@ -260,15 +260,17 @@ func newUninstallApiCommand() *cobra.Command {
 }
 
 func loginAndValidateSubscription(ctx context.Context) (context.Context, error) {
-	cred, err := azidentity.NewDefaultAzureCredential(nil)
+	cred, err := azidentity.NewDefaultAzureCredential(
+		&azidentity.DefaultAzureCredentialOptions{
+			AdditionallyAllowedTenants: []string{"*"},
+		})
 	if err != nil {
 		log.Debug().Err(err).Msg("Failed to get credentials")
 		return ctx, errors.New("failed to get credentials; make sure the Azure CLI is installed and and you have run `az login`")
 	}
 
-	config := install.GetConfigFromContext(ctx)
-
 	ctx = install.SetAzureCredentialOnContext(ctx, cred)
+	config := install.GetConfigFromContext(ctx)
 
 	// Get the subscription ID if we are given the name.
 	if _, err := uuid.Parse(config.Cloud.SubscriptionID); err != nil {

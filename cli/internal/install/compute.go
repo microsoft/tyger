@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 	"time"
@@ -343,6 +345,42 @@ func getAdminRESTConfig(ctx context.Context) (*rest.Config, error) {
 	}
 
 	return clientcmd.RESTConfigFromKubeConfig(credResp.Kubeconfigs[0].Value)
+}
+
+func getUserRESTConfig(ctx context.Context) (*rest.Config, error) {
+	config := GetConfigFromContext(ctx)
+	cred := GetAzureCredentialFromContext(ctx)
+
+	clustersClient, err := armcontainerservice.NewManagedClustersClient(config.Cloud.SubscriptionID, cred, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create clusters client: %w", err)
+	}
+
+	credResp, err := clustersClient.ListClusterUserCredentials(ctx, config.Cloud.ResourceGroup, config.Cloud.Compute.GetApiHostCluster().Name, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	tempKubeconfig, err := os.CreateTemp("", "kubeconfig")
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(tempKubeconfig.Name())
+
+	if err := os.WriteFile(tempKubeconfig.Name(), []byte(credResp.Kubeconfigs[0].Value), 0600); err != nil {
+		return nil, err
+	}
+
+	if err := exec.Command("kubelogin", "convert-kubeconfig", "--login", "azurecli", "--kubeconfig", tempKubeconfig.Name()).Run(); err != nil {
+		return nil, err
+	}
+
+	kubeconfig, err := os.ReadFile(tempKubeconfig.Name())
+	if err != nil {
+		return nil, err
+	}
+
+	return clientcmd.RESTConfigFromKubeConfig(kubeconfig)
 }
 
 func onDeleteCluster(ctx context.Context, clusterConfig *ClusterConfig) error {
