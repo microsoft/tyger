@@ -39,6 +39,33 @@ func InstallCloud(ctx context.Context) (err error) {
 	return err
 }
 
+func UninstallCloud(ctx context.Context) (err error) {
+	config := GetConfigFromContext(ctx)
+	for _, c := range config.Cloud.Compute.Clusters {
+		if err := onDeleteCluster(ctx, c); err != nil {
+			return err
+		}
+	}
+
+	log.Info().Msgf("Deleting resource group '%s'", config.Cloud.ResourceGroup)
+	cred := GetAzureCredentialFromContext(ctx)
+	c, err := armresources.NewResourceGroupsClient(config.Cloud.SubscriptionID, cred, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create resource groups client: %w", err)
+	}
+	poller, err := c.BeginDelete(ctx, config.Cloud.ResourceGroup, nil)
+	if err != nil {
+		return fmt.Errorf("failed to delete resource group: %w", err)
+	}
+
+	_, err = poller.PollUntilDone(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to delete resource group: %w", err)
+	}
+
+	return nil
+}
+
 func ensureResourceGroupCreated(ctx context.Context) error {
 	config := GetConfigFromContext(ctx)
 	cred := GetAzureCredentialFromContext(ctx)

@@ -3,6 +3,7 @@ package install
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -18,6 +19,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/yaml"
@@ -41,82 +43,6 @@ func createTygerNamespace(ctx context.Context, restConfigPromise *Promise[*rest.
 	}
 
 	return nil, fmt.Errorf("failed to create 'tyger' namespace: %w", err)
-}
-
-func installHelmChart(
-	ctx context.Context,
-	restConfig *rest.Config,
-	helmChartConfig,
-	overrideHelmChartConfig *HelmChartConfig,
-	customizeSpec ...func(*helmclient.ChartSpec, helmclient.Client) error,
-) error {
-	helmOptions := helmclient.RestConfClientOptions{
-		RestConfig: restConfig,
-		Options: &helmclient.Options{
-			DebugLog: func(format string, v ...interface{}) {
-				log.Debug().Msgf(format, v...)
-			},
-			Namespace: helmChartConfig.Namespace,
-		},
-	}
-
-	if overrideHelmChartConfig != nil {
-		if err := mergo.Merge(helmChartConfig, overrideHelmChartConfig, mergo.WithOverride); err != nil {
-			return fmt.Errorf("failed to merge helm config: %w", err)
-		}
-	}
-
-	values, err := yaml.Marshal(helmChartConfig.Values)
-	if err != nil {
-		return fmt.Errorf("failed to marshal helm values: %w", err)
-	}
-
-	helmClient, err := helmclient.NewClientFromRestConf(&helmOptions)
-	if err != nil {
-		return fmt.Errorf("failed to create helm client: %w", err)
-	}
-
-	if helmChartConfig.ChartRepo != "" {
-		err = helmClient.AddOrUpdateChartRepo(repo.Entry{Name: helmChartConfig.Name, URL: helmChartConfig.ChartRepo})
-		if err != nil {
-			return fmt.Errorf("failed to add helm repo: %w", err)
-		}
-	}
-
-	chartSpec := helmclient.ChartSpec{
-		ReleaseName:     helmChartConfig.Namespace,
-		ChartName:       helmChartConfig.ChartRef,
-		Version:         helmChartConfig.ChartVersion,
-		Namespace:       helmChartConfig.Namespace,
-		CreateNamespace: true,
-		Wait:            true,
-		WaitForJobs:     true,
-		Atomic:          true,
-		UpgradeCRDs:     true,
-		Timeout:         2 * time.Minute,
-		ValuesYaml:      string(values),
-	}
-
-	for _, f := range customizeSpec {
-		if err := f(&chartSpec, helmClient); err != nil {
-			return err
-		}
-	}
-
-	for i := 0; ; i++ {
-		_, err = helmClient.InstallOrUpgradeChart(ctx, &chartSpec, nil)
-		if err == nil || i == 30 {
-			break
-		}
-
-		if strings.Contains(err.Error(), "the server could not find the requested resource") {
-			log.Warn().Err(err).Msg("Possible transient error. Will retry...")
-			time.Sleep(10 * time.Second)
-		} else {
-			return err
-		}
-	}
-	return err
 }
 
 func installTraefik(ctx context.Context, restConfigPromise *Promise[*rest.Config]) (any, error) {
@@ -370,6 +296,185 @@ func InstallTyger(ctx context.Context) error {
 		}
 
 		time.Sleep(time.Second)
+	}
+
+	return nil
+}
+
+func installHelmChart(
+	ctx context.Context,
+	restConfig *rest.Config,
+	helmChartConfig,
+	overrideHelmChartConfig *HelmChartConfig,
+	customizeSpec ...func(*helmclient.ChartSpec, helmclient.Client) error,
+) error {
+	helmOptions := helmclient.RestConfClientOptions{
+		RestConfig: restConfig,
+		Options: &helmclient.Options{
+			DebugLog: func(format string, v ...interface{}) {
+				log.Debug().Msgf(format, v...)
+			},
+			Namespace: helmChartConfig.Namespace,
+		},
+	}
+
+	if overrideHelmChartConfig != nil {
+		if err := mergo.Merge(helmChartConfig, overrideHelmChartConfig, mergo.WithOverride); err != nil {
+			return fmt.Errorf("failed to merge helm config: %w", err)
+		}
+	}
+
+	values, err := yaml.Marshal(helmChartConfig.Values)
+	if err != nil {
+		return fmt.Errorf("failed to marshal helm values: %w", err)
+	}
+
+	helmClient, err := helmclient.NewClientFromRestConf(&helmOptions)
+	if err != nil {
+		return fmt.Errorf("failed to create helm client: %w", err)
+	}
+
+	if helmChartConfig.ChartRepo != "" {
+		err = helmClient.AddOrUpdateChartRepo(repo.Entry{Name: helmChartConfig.Name, URL: helmChartConfig.ChartRepo})
+		if err != nil {
+			return fmt.Errorf("failed to add helm repo: %w", err)
+		}
+	}
+
+	chartSpec := helmclient.ChartSpec{
+		ReleaseName:     helmChartConfig.Namespace,
+		ChartName:       helmChartConfig.ChartRef,
+		Version:         helmChartConfig.ChartVersion,
+		Namespace:       helmChartConfig.Namespace,
+		CreateNamespace: true,
+		Wait:            true,
+		WaitForJobs:     true,
+		Atomic:          true,
+		UpgradeCRDs:     true,
+		Timeout:         2 * time.Minute,
+		ValuesYaml:      string(values),
+	}
+
+	for _, f := range customizeSpec {
+		if err := f(&chartSpec, helmClient); err != nil {
+			return err
+		}
+	}
+
+	for i := 0; ; i++ {
+		_, err = helmClient.InstallOrUpgradeChart(ctx, &chartSpec, nil)
+		if err == nil || i == 30 {
+			break
+		}
+
+		if strings.Contains(err.Error(), "the server could not find the requested resource") {
+			log.Warn().Err(err).Msg("Possible transient error. Will retry...")
+			time.Sleep(10 * time.Second)
+		} else {
+			return err
+		}
+	}
+	return err
+}
+
+func UninstallTyger(ctx context.Context) error {
+	restConfig, err := getAdminRESTConfig(ctx)
+	if err != nil {
+		return err
+	}
+
+	helmOptions := helmclient.RestConfClientOptions{
+		RestConfig: restConfig,
+		Options: &helmclient.Options{
+			DebugLog: func(format string, v ...interface{}) {
+				log.Debug().Msgf(format, v...)
+			},
+			Namespace: TygerNamespace,
+		},
+	}
+
+	helmClient, err := helmclient.NewClientFromRestConf(&helmOptions)
+	if err != nil {
+		return fmt.Errorf("failed to create helm client: %w", err)
+	}
+
+	if err := helmClient.UninstallReleaseByName(TygerNamespace); err != nil {
+		if !errors.Is(err, driver.ErrReleaseNotFound) {
+			return fmt.Errorf("failed to uninstall Tyger Helm chart: %w", err)
+		}
+	}
+
+	clientset, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create Kubernetes client: %w", err)
+	}
+
+	err = clientset.CoreV1().PersistentVolumeClaims(TygerNamespace).DeleteCollection(
+		ctx, metav1.DeleteOptions{}, metav1.ListOptions{
+			LabelSelector: fmt.Sprintf("app.kubernetes.io/instance=%s", TygerNamespace),
+		})
+	if err != nil {
+		return fmt.Errorf("failed to delete PVCs: %w", err)
+	}
+
+	labelSelector := "tyger-run"
+	// remove finalizer from pods
+	pods, err := clientset.CoreV1().Pods(TygerNamespace).List(ctx, metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list pods: %w", err)
+	}
+	patchData := []byte(`[ { "op": "remove", "path": "/metadata/finalizers" } ]`)
+	for _, pod := range pods.Items {
+		_, err := clientset.CoreV1().Pods(TygerNamespace).Patch(ctx, pod.Name, types.JSONPatchType, patchData, metav1.PatchOptions{})
+		if err != nil {
+			fmt.Printf("Failed to patch pod %s: %v\n", pod.Name, err)
+		}
+	}
+
+	// 2. Delete other resources
+	deleteOpts := metav1.DeleteOptions{
+		PropagationPolicy: func() *metav1.DeletionPropagation {
+			v := metav1.DeletePropagationForeground
+			return &v
+		}(),
+	}
+
+	// Jobs
+	err = clientset.BatchV1().Jobs(TygerNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete jobs: %w", err)
+	}
+	// StatefulSets
+	err = clientset.AppsV1().StatefulSets(TygerNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete statefulsets: %w", err)
+	}
+	// Secrets
+	err = clientset.CoreV1().Secrets(TygerNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete secrets: %w", err)
+	}
+
+	// Services. For some reason, there is no DeleteCollection method for services.
+	services, err := clientset.CoreV1().Services(TygerNamespace).List(ctx, metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list services: %w", err)
+	}
+	for _, s := range services.Items {
+		err = clientset.CoreV1().Services(TygerNamespace).Delete(ctx, s.Name, deleteOpts)
+		if err != nil {
+			return fmt.Errorf("failed to delete service '%s': %w", s.Name, err)
+		}
 	}
 
 	return nil

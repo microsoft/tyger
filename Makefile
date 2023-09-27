@@ -5,8 +5,9 @@ SHELL = /bin/bash
 .DEFAULT_GOAL := test
 
 # trick to lazily evaluate this at most once: https://make.mad-scientist.net/deferred-simple-variable-expansion/
-ENVIRONMENT_CONFIG = $(eval ENVIRONMENT_CONFIG := $$(shell scripts/get-context-environment-config.sh))$(if $(ENVIRONMENT_CONFIG),$(ENVIRONMENT_CONFIG),$(error "get-context-environment-config.sh failed"))
+ENVIRONMENT_CONFIG_JSON = $(eval ENVIRONMENT_CONFIG := $$(shell scripts/get-context-environment-config.sh -o json))$(if $(ENVIRONMENT_CONFIG),$(ENVIRONMENT_CONFIG),$(error "get-context-environment-config.sh failed"))
 
+EC=$(shell scripts/get-context-environment-config.sh)
 SERVER_PATH=server/Tyger.Server
 SECURITY_ENABLED=true
 DEFAULT_ORGANIATION=lamna
@@ -16,25 +17,17 @@ TEST_CLIENT_CERT_VERSION=1db664a6a3c74b6f817f3d842424003d
 TEST_CLIENT_CERT_FILE=$${HOME}/tyger_test_client_cert_${TEST_CLIENT_CERT_VERSION}.pem
 TEST_CLIENT_IDENTIFIER_URI=api://tyger-test-client
 AZURE_SUBSCRIPTION=BiomedicalImaging-NonProd
-TYGER_URI = https://$(shell echo '${ENVIRONMENT_CONFIG}' | jq -r '.organizations["${DEFAULT_ORGANIATION}"].subdomain').$(shell echo '${ENVIRONMENT_CONFIG}' | jq -r '.dependencies.dnsZone.name')
+TYGER_URI = https://$(shell echo '${ENVIRONMENT_CONFIG_JSON}' | yq '.api.domainName')
+
 
 get-environment-config:
-	scripts/get-context-environment-config.sh
+	echo '${ENVIRONMENT_CONFIG_JSON}' | yq -P
 
 install-cloud: install-cli-tyger-only
 	tyger install cloud -f <(scripts/get-context-environment-config.sh)
 
-ensure-environment:
-	echo '${ENVIRONMENT_CONFIG}' | deploy/scripts/environment/ensure-environment.sh -c -
-
-ensure-environment-force:
-	echo '${ENVIRONMENT_CONFIG}' | deploy/scripts/environment/ensure-environment.sh -f -c -
-
-remove-environment: down
-	echo '${ENVIRONMENT_CONFIG}' | deploy/scripts/environment/remove-environment.sh -c -
-
-remove-environment-force:
-	echo '${ENVIRONMENT_CONFIG}' | deploy/scripts/environment/remove-environment.sh -f -c -
+uninstall-cloud: install-cli-tyger-only
+	tyger uninstall cloud -f <(scripts/get-context-environment-config.sh)
 
 set-context:
 	subscription=$$(echo '${ENVIRONMENT_CONFIG}' | jq -r '.subscription')
@@ -141,8 +134,8 @@ up: docker-build install-cli-tyger-only
 		--set api.helm.tyger.values.server.bufferSidecarImage="$${buffer_sidecar_image}" \
 		--set api.helm.tyger.values.server.workerWaiterImage="$${worker_waiter_image}"
 
-down:
-	echo '${ENVIRONMENT_CONFIG}' | deploy/scripts/tyger/tyger-down.sh -c -
+down: install-cli-tyger-only
+	tyger uninstall api -f <(scripts/get-context-environment-config.sh)
 
 integration-test-no-up-prereqs: docker-build-test
 

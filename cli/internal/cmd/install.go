@@ -21,79 +21,22 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 )
 
-func NewInstallCommand() *cobra.Command {
+func NewInstallCommand(parentCommand *cobra.Command) *cobra.Command {
 	var configPath string
 	var setOverrides map[string]string
 
-	var installCmd *cobra.Command
-	installCmd = &cobra.Command{
+	installCmd := &cobra.Command{
 		Use:                   "install",
-		Aliases:               []string{"install"},
 		Short:                 "Install cloud infrastructure and the Tyger API",
 		Long:                  "Install cloud infrastructure and the Tyger API",
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.NoArgs,
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
-			if parent := installCmd.Parent(); parent != nil && parent.PersistentPreRun != nil {
-				parent.PersistentPreRun(parent, args)
+			if parentCommand.PersistentPreRun != nil {
+				parentCommand.PersistentPreRun(cmd, args)
 			}
 
-			// The k8s client library can noisily log to stderr using klog with entries like https://github.com/helm/helm/issues/11772
-			utilruntime.ErrorHandlers = []func(error){
-				func(err error) {
-					log.Debug().Err(err).Msg("Kubernetes client runtime error")
-				},
-			}
-
-			koanfConfig := koanf.New(".")
-			if configPath == "" {
-				configPath = getDefaultConfigPath()
-			}
-
-			if err := koanfConfig.Load(file.Provider(configPath), yaml.Parser()); err != nil {
-				if os.IsNotExist(err) {
-					if configPath != "" {
-						log.Fatal().Err(err).Msgf("Config file not found at %s", configPath)
-					} else {
-						log.Fatal().Err(err).Msgf("Config file not found at %s", getDefaultConfigPath())
-					}
-				} else {
-					log.Fatal().Err(err).Msg("Error reading config file")
-				}
-			}
-
-			for k, v := range setOverrides {
-				koanfConfig.Set(k, v)
-			}
-
-			config := install.EnvironmentConfig{}
-			err := koanfConfig.UnmarshalWithConf("", &config, koanf.UnmarshalConf{
-				Tag: "json",
-				DecoderConfig: &mapstructure.DecoderConfig{
-					WeaklyTypedInput: true,
-					ErrorUnused:      true,
-					Result:           &config,
-				},
-			})
-
-			if err != nil {
-				log.Fatal().Err(err).Msg("Failed to parse config file")
-			}
-
-			ctx := cmd.Context()
-			ctx = install.SetConfigOnContext(ctx, &config)
-
-			ctx, _ = signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-			cmd.SetContext(ctx)
-
-			go func() {
-				<-ctx.Done()
-				log.Warn().Msg("Cancelling...")
-			}()
-
-			if !install.QuickValidateEnvironmentConfig(&config) {
-				os.Exit(1)
-			}
+			commonPrerun(configPath, setOverrides, cmd)
 
 		},
 		RunE: func(*cobra.Command, []string) error {
@@ -108,6 +51,97 @@ func NewInstallCommand() *cobra.Command {
 	installCmd.PersistentFlags().StringToStringVar(&setOverrides, "set", nil, "override config values (e.g. --set cloud.subscriptionID=1234 --set cloud.resourceGroup=foo)")
 
 	return installCmd
+}
+
+func NewUninstallCommand(parentCommand *cobra.Command) *cobra.Command {
+	var configPath string
+	var setOverrides map[string]string
+
+	installCmd := &cobra.Command{
+		Use:                   "uninstall",
+		Short:                 "Uninstall cloud infrastructure and the Tyger API",
+		Long:                  "Uninstall cloud infrastructure and the Tyger API",
+		DisableFlagsInUseLine: true,
+		Args:                  cobra.NoArgs,
+		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+			if parentCommand.PersistentPreRun != nil {
+				parentCommand.PersistentPreRun(cmd, args)
+			}
+
+			commonPrerun(configPath, setOverrides, cmd)
+
+		},
+		RunE: func(*cobra.Command, []string) error {
+			return errors.New("a command is required")
+		},
+	}
+
+	installCmd.AddCommand(newUninstallCloudCommand())
+	installCmd.AddCommand(newUninstallApiCommand())
+
+	installCmd.PersistentFlags().StringVarP(&configPath, "file", "f", "", "path to config file")
+	installCmd.PersistentFlags().StringToStringVar(&setOverrides, "set", nil, "override config values (e.g. --set cloud.subscriptionID=1234 --set cloud.resourceGroup=foo)")
+
+	return installCmd
+}
+
+func commonPrerun(configPath string, setOverrides map[string]string, cmd *cobra.Command) string {
+	utilruntime.ErrorHandlers = []func(error){
+		func(err error) {
+			log.Debug().Err(err).Msg("Kubernetes client runtime error")
+		},
+	}
+
+	koanfConfig := koanf.New(".")
+	if configPath == "" {
+		configPath = getDefaultConfigPath()
+	}
+
+	if err := koanfConfig.Load(file.Provider(configPath), yaml.Parser()); err != nil {
+		if os.IsNotExist(err) {
+			if configPath != "" {
+				log.Fatal().Err(err).Msgf("Config file not found at %s", configPath)
+			} else {
+				log.Fatal().Err(err).Msgf("Config file not found at %s", getDefaultConfigPath())
+			}
+		} else {
+			log.Fatal().Err(err).Msg("Error reading config file")
+		}
+	}
+
+	for k, v := range setOverrides {
+		koanfConfig.Set(k, v)
+	}
+
+	config := install.EnvironmentConfig{}
+	err := koanfConfig.UnmarshalWithConf("", &config, koanf.UnmarshalConf{
+		Tag: "json",
+		DecoderConfig: &mapstructure.DecoderConfig{
+			WeaklyTypedInput: true,
+			ErrorUnused:      true,
+			Result:           &config,
+		},
+	})
+
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to parse config file")
+	}
+
+	ctx := cmd.Context()
+	ctx = install.SetConfigOnContext(ctx, &config)
+
+	ctx, _ = signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	cmd.SetContext(ctx)
+
+	go func() {
+		<-ctx.Done()
+		log.Warn().Msg("Cancelling...")
+	}()
+
+	if !install.QuickValidateEnvironmentConfig(&config) {
+		os.Exit(1)
+	}
+	return configPath
 }
 
 func getDefaultConfigPath() string {
@@ -145,6 +179,32 @@ func newInstallCloudCommand() *cobra.Command {
 	return cmd
 }
 
+func newUninstallCloudCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:                   "cloud",
+		Short:                 "Uninstall cloud infrastructure",
+		Long:                  "uninstall cloud infrastructure",
+		DisableFlagsInUseLine: true,
+		Run: func(cmd *cobra.Command, args []string) {
+			log.Info().Msg("Starting cloud uninstall")
+			ctx, err := loginAndValidateSubscription(cmd.Context())
+			if err != nil {
+				log.Fatal().Err(err).Send()
+			}
+
+			if err := install.UninstallCloud(ctx); err != nil {
+				if err != install.ErrAlreadyLoggedError {
+					log.Fatal().Err(err).Send()
+				}
+				os.Exit(1)
+			}
+			log.Info().Msg("Uninstall complete")
+		},
+	}
+
+	return cmd
+}
+
 func newInstallApiCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                   "api",
@@ -166,6 +226,33 @@ func newInstallApiCommand() *cobra.Command {
 				os.Exit(1)
 			}
 			log.Info().Msg("Install complete")
+		},
+	}
+
+	return cmd
+}
+
+func newUninstallApiCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:                   "api",
+		Short:                 "Install the Tyger API",
+		Long:                  "Install the Tyger API",
+		DisableFlagsInUseLine: true,
+		Run: func(cmd *cobra.Command, args []string) {
+			log.Info().Msg("Starting Tyger API uninstall")
+
+			ctx, err := loginAndValidateSubscription(cmd.Context())
+			if err != nil {
+				log.Fatal().Err(err).Send()
+			}
+
+			if err := install.UninstallTyger(ctx); err != nil {
+				if err != install.ErrAlreadyLoggedError {
+					log.Fatal().Err(err).Send()
+				}
+				os.Exit(1)
+			}
+			log.Info().Msg("Uninstall complete")
 		},
 	}
 

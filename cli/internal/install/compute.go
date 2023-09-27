@@ -208,43 +208,21 @@ func getClusterDnsPrefix(environmentName, clusterName, subId string) string {
 	return fmt.Sprintf("%s-tyger-%s", regexp.MustCompile("[^a-zA-Z0-9-]").ReplaceAllString(environmentName+"-"+clusterName, ""), subId[0:8])
 }
 
-func attachAcr(ctx context.Context, kubeletObjectId, id, subscriptionId string, credential azcore.TokenCredential) error {
-	roleDefClient, err := armauthorization.NewRoleDefinitionsClient(credential, nil)
+func attachAcr(ctx context.Context, kubeletObjectId, containerRegistryId, subscriptionId string, credential azcore.TokenCredential) error {
+	acrPullRoleId, err := getAcrPullRole(credential, containerRegistryId)
 	if err != nil {
-		return err
-	}
-
-	pager := roleDefClient.NewListPager(id, &armauthorization.RoleDefinitionsClientListOptions{Filter: Ptr("rolename eq 'acrpull'")})
-
-	var acrPullRoleId string
-	for pager.More() && acrPullRoleId == "" {
-		page, err := pager.NextPage(context.TODO())
-		if err != nil {
-			return err
-		}
-
-		for _, rd := range page.Value {
-			if *rd.Properties.RoleName != "AcrPull" {
-				panic(fmt.Sprintf("unexpected role name '%s'", *rd.Name))
-			}
-			acrPullRoleId = *rd.ID
-			break
-		}
-	}
-
-	if acrPullRoleId == "" {
-		return fmt.Errorf("unable to find 'AcrPull' role")
+		return fmt.Errorf("failed to get AcrPull role: %w", err)
 	}
 
 	roleAssignmentClient, err := armauthorization.NewRoleAssignmentsClient(subscriptionId, credential, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create role assignments client: %w", err)
 	}
 
 	for i := 0; ; i++ {
 		_, err = roleAssignmentClient.Create(
 			ctx,
-			id,
+			containerRegistryId,
 			uuid.New().String(),
 			armauthorization.RoleAssignmentCreateParameters{
 				Properties: &armauthorization.RoleAssignmentProperties{
@@ -270,6 +248,62 @@ func attachAcr(ctx context.Context, kubeletObjectId, id, subscriptionId string, 
 
 		return err
 	}
+}
+
+func detachAcr(ctx context.Context, kubeletObjectId, containerRegistryId, subscriptionId string, credential azcore.TokenCredential) error {
+	roleAssignmentClient, err := armauthorization.NewRoleAssignmentsClient(subscriptionId, credential, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create role assignments client: %w", err)
+	}
+
+	pager := roleAssignmentClient.NewListForScopePager(containerRegistryId, nil)
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to list role assignments: %w", err)
+		}
+
+		for _, ra := range page.RoleAssignmentListResult.Value {
+			if *ra.Properties.PrincipalID == kubeletObjectId {
+				_, err = roleAssignmentClient.DeleteByID(ctx, *ra.ID, nil)
+				if err != nil {
+					return fmt.Errorf("failed to delete role assignment: %w", err)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func getAcrPullRole(credential azcore.TokenCredential, containerRegistryId string) (string, error) {
+	roleDefClient, err := armauthorization.NewRoleDefinitionsClient(credential, nil)
+	if err != nil {
+		return "", err
+	}
+
+	pager := roleDefClient.NewListPager(containerRegistryId, &armauthorization.RoleDefinitionsClientListOptions{Filter: Ptr("rolename eq 'acrpull'")})
+
+	var acrPullRoleId string
+	for pager.More() && acrPullRoleId == "" {
+		page, err := pager.NextPage(context.TODO())
+		if err != nil {
+			return "", err
+		}
+
+		for _, rd := range page.Value {
+			if *rd.Properties.RoleName != "AcrPull" {
+				panic(fmt.Sprintf("unexpected role name '%s'", *rd.Name))
+			}
+			acrPullRoleId = *rd.ID
+			break
+		}
+	}
+
+	if acrPullRoleId == "" {
+		return "", fmt.Errorf("unable to find 'AcrPull' role")
+	}
+	return acrPullRoleId, nil
 }
 
 func getContainerRegistryId(ctx context.Context, name string, subscriptionId string, credential azcore.TokenCredential) (string, error) {
@@ -309,4 +343,52 @@ func getAdminRESTConfig(ctx context.Context) (*rest.Config, error) {
 	}
 
 	return clientcmd.RESTConfigFromKubeConfig(credResp.Kubeconfigs[0].Value)
+}
+
+func onDeleteCluster(ctx context.Context, clusterConfig *ClusterConfig) error {
+	config := GetConfigFromContext(ctx)
+	cred := GetAzureCredentialFromContext(ctx)
+
+	clustersClient, err := armcontainerservice.NewManagedClustersClient(config.Cloud.SubscriptionID, cred, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create clusters client: %w", err)
+	}
+
+	clusterResponse, err := clustersClient.Get(ctx, config.Cloud.ResourceGroup, clusterConfig.Name, nil)
+	if err != nil {
+		var respErr *azcore.ResponseError
+		if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
+			return nil
+		}
+		return err
+	}
+
+	if clusterResponse.Properties.IdentityProfile == nil {
+		return nil
+	}
+
+	kubeletIdentity := clusterResponse.Properties.IdentityProfile["kubeletidentity"]
+	if kubeletIdentity == nil {
+		return nil
+	}
+
+	kubeletObjectId := *kubeletIdentity.ObjectID
+
+	for _, containerRegistry := range config.Cloud.Compute.PrivateContainerRegistries {
+		log.Info().Msgf("detaching ACR '%s' from cluster '%s'", containerRegistry, clusterConfig.Name)
+		containerRegistryId, err := getContainerRegistryId(ctx, containerRegistry, config.Cloud.SubscriptionID, cred)
+		if err != nil {
+			var respErr *azcore.ResponseError
+			if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
+				continue
+			}
+			return err
+		}
+
+		if err := detachAcr(ctx, kubeletObjectId, containerRegistryId, config.Cloud.SubscriptionID, cred); err != nil {
+			return fmt.Errorf("failed to detatch ACR: %w", err)
+		}
+	}
+
+	return nil
 }
