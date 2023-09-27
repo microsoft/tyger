@@ -134,7 +134,7 @@ require (
 	github.com/xlab/treeprint v1.2.0 // indirect
 	go.opentelemetry.io/otel/metric v1.18.0 // indirect
 	go.opentelemetry.io/otel/trace v1.18.0 // indirect
-	go.starlark.net v0.0.0-20230921161717-a9587466d7a5 // indirect
+	go.starlark.net v0.0.0-20230925163745-10651d5192ab // indirect
 	golang.org/x/crypto v0.13.0 // indirect
 	golang.org/x/net v0.15.0 // indirect
 	golang.org/x/oauth2 v0.12.0 // indirect
@@ -175,7 +175,7 @@ require (
 	github.com/mitchellh/go-ps v1.0.0
 	github.com/pkg/browser v0.0.0-20210911075715-681adbf594b8 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/rs/zerolog v1.30.0
+	github.com/rs/zerolog v1.31.0
 	github.com/sergi/go-diff v1.2.0 // indirect
 	github.com/spf13/pflag v1.0.5
 	github.com/thediveo/enumflag v0.10.1
