@@ -16,7 +16,7 @@ set -e
 
 # Check if the command failed and the error text contains the specific string
 if [[ "$error_output" =~ "unauthorized: authentication required" ]]; then
-    echo "Attempting to log in..." >&2
+    echo "Logging in to ACR..." >&2
 
     image_name=""
     counter=0
@@ -38,7 +38,7 @@ if [[ "$error_output" =~ "unauthorized: authentication required" ]]; then
         exit 1
     fi
 
-    registry_name=$(echo "$image_name" | cut -d'/' -f1)
+    registry_name=$(echo "$image_name" | cut -d'.' -f1)
     "$(dirname "${0}")"/check-login.sh
     az acr login -n "$registry_name"
 

@@ -383,6 +383,8 @@ func UninstallTyger(ctx context.Context) error {
 		return err
 	}
 
+	// 1. Remove the Helm chart
+
 	helmOptions := helmclient.RestConfClientOptions{
 		RestConfig: restConfig,
 		Options: &helmclient.Options{
@@ -417,10 +419,12 @@ func UninstallTyger(ctx context.Context) error {
 		return fmt.Errorf("failed to delete PVCs: %w", err)
 	}
 
-	labelSelector := "tyger-run"
-	// remove finalizer from pods
+	// 2. Remove the finalizer we put on run pods so that they can be deleted
+
+	tygerRunLabelSelector := "tyger-run"
+
 	pods, err := clientset.CoreV1().Pods(TygerNamespace).List(ctx, metav1.ListOptions{
-		LabelSelector: labelSelector,
+		LabelSelector: tygerRunLabelSelector,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to list pods: %w", err)
@@ -433,7 +437,8 @@ func UninstallTyger(ctx context.Context) error {
 		}
 	}
 
-	// 2. Delete other resources
+	// 3. Delete all the resources created by Tyger
+
 	deleteOpts := metav1.DeleteOptions{
 		PropagationPolicy: func() *metav1.DeletionPropagation {
 			v := metav1.DeletePropagationForeground
@@ -441,23 +446,31 @@ func UninstallTyger(ctx context.Context) error {
 		}(),
 	}
 
+	// Pods
+	err = clientset.CoreV1().Pods(TygerNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
+		LabelSelector: tygerRunLabelSelector,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete pods: %w", err)
+	}
+
 	// Jobs
 	err = clientset.BatchV1().Jobs(TygerNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
-		LabelSelector: labelSelector,
+		LabelSelector: tygerRunLabelSelector,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to delete jobs: %w", err)
 	}
 	// StatefulSets
 	err = clientset.AppsV1().StatefulSets(TygerNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
-		LabelSelector: labelSelector,
+		LabelSelector: tygerRunLabelSelector,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to delete statefulsets: %w", err)
 	}
 	// Secrets
 	err = clientset.CoreV1().Secrets(TygerNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
-		LabelSelector: labelSelector,
+		LabelSelector: tygerRunLabelSelector,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to delete secrets: %w", err)
@@ -465,7 +478,7 @@ func UninstallTyger(ctx context.Context) error {
 
 	// Services. For some reason, there is no DeleteCollection method for services.
 	services, err := clientset.CoreV1().Services(TygerNamespace).List(ctx, metav1.ListOptions{
-		LabelSelector: labelSelector,
+		LabelSelector: tygerRunLabelSelector,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to list services: %w", err)
