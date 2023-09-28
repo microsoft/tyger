@@ -1,9 +1,5 @@
 package tyger
 
-developerConfig: #DeveloperConfig & {
-	containerRegistry: "eminence"
-}
-
 config: #EnvironmentConfig & {
 	environmentName: string @tag(environmentName)
 	cloud: {
@@ -18,7 +14,7 @@ config: #EnvironmentConfig & {
 					userNodePools: [
 						{
 							name:     "cpunp"
-							vmSize:   "Standard_DS2_v2"
+							vmSize:   "Standard_DS12_v2"
 							maxCount: 10
 						},
 						{
@@ -42,5 +38,19 @@ config: #EnvironmentConfig & {
 			apiAppUri: "api://tyger-server"
 			cliAppUri: "api://tyger-cli"
 		}
+	}
+}
+
+developerConfig: #DeveloperConfig & {
+	containerRegistry: "eminence"
+	keyVault:          "eminence"
+	testAppUri:        "api://tyger-test-client"
+	pemCertSecret: {
+		name:    "tyger-test-client-cert"
+		version: "1db664a6a3c74b6f817f3d842424003d"
+	}
+	pkcs12CertSecret: {
+		name:    "tyger-test-client-cert-pkcs12"
+		version: "f8b1b7dde7034217bf12ce4ea772b470"
 	}
 }

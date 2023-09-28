@@ -5,18 +5,14 @@ SHELL = /bin/bash
 .DEFAULT_GOAL := full
 
 # trick to lazily evaluate this at most once: https://make.mad-scientist.net/deferred-simple-variable-expansion/
-ENVIRONMENT_CONFIG_JSON = $(eval ENVIRONMENT_CONFIG := $$(shell scripts/get-context-environment-config.sh -o json))$(if $(ENVIRONMENT_CONFIG),$(ENVIRONMENT_CONFIG),$(error "get-context-environment-config.sh failed"))
+ENVIRONMENT_CONFIG_JSON = $(eval ENVIRONMENT_CONFIG := $$(shell scripts/get-context-environment-config.sh -o json | jq -c))$(if $(ENVIRONMENT_CONFIG),$(ENVIRONMENT_CONFIG),$(error "get-context-environment-config.sh failed"))
 
 SERVER_PATH=server/Tyger.Server
 SECURITY_ENABLED=true
 HELM_NAMESPACE=tyger
 HELM_RELEASE=tyger
-TEST_CLIENT_CERT_VERSION=1db664a6a3c74b6f817f3d842424003d
-TEST_CLIENT_CERT_FILE=$${HOME}/tyger_test_client_cert_${TEST_CLIENT_CERT_VERSION}.pem
-TEST_CLIENT_IDENTIFIER_URI=api://tyger-test-client
 TYGER_URI = https://$(shell echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.domainName')
-SHOULD_INSTALL_CLOUD=false
-
+INSTALL_CLOUD=false
 
 get-environment-config:
 	echo '${ENVIRONMENT_CONFIG_JSON}' | yq -P
@@ -25,7 +21,7 @@ install-cloud: install-cli-tyger-only
 	tyger install cloud -f <(scripts/get-context-environment-config.sh)
 
 install-cloud-conditionally: install-cli-tyger-only
-	if [[ "${SHOULD_INSTALL_CLOUD}" == "true" ]]; then
+	if [[ "${INSTALL_CLOUD}" == "true" ]]; then
 		tyger install cloud -f <(scripts/get-context-environment-config.sh)
 	fi
 
@@ -35,13 +31,13 @@ uninstall-cloud: install-cli-tyger-only
 # Sets up the az subscription and kubectl config for the current environment
 set-context:
 	subscription=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.cloud.subscriptionId')
-	resource_group=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.cloud.resourceGroup // .environmentName')
+	resource_group=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.cloud.resourceGroup')
 
 	for cluster in $$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -c '.cloud.compute.clusters | .[]'); do
 		if [[ "$$(echo "$$cluster" | jq -r '.apiHost')" == "true" ]]; then
 			cluster_name=$$(echo "$$cluster" | jq -r '.name')
 			az account set --subscription "$${subscription}"
-			az aks get-credentials -n "$${cluster_name}" -g "$${resource_group}" --overwrite-existing 
+			az aks get-credentials -n "$${cluster_name}" -g "$${resource_group}" --overwrite-existing --only-show-errors
 			kubelogin convert-kubeconfig -l azurecli
 			kubectl config set-context --current --namespace=${HELM_NAMESPACE}
 		fi
@@ -52,10 +48,10 @@ set-localsettings:
 		echo "Run 'make up' before this target"; exit 1
 	fi
 
-	buffer_secret_name=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.organizations["${DEFAULT_ORGANIATION}"].storage.buffers[0].name')
+	buffer_secret_name=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.cloud.storage.buffers[0].name')
 	buffer_secret_value="$$(kubectl get secrets -n ${HELM_NAMESPACE} $${buffer_secret_name} -o jsonpath="{.data.connectionString}" | base64 -d)"
 
-	logs_secret_name=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.organizations["${DEFAULT_ORGANIATION}"].storage.logs.name')
+	logs_secret_name=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.cloud.storage.logs.name')
 	logs_secret_value="$$(kubectl get secrets -n ${HELM_NAMESPACE} $${logs_secret_name} -o jsonpath="{.data.connectionString}" | base64 -d)"
 
 	postgres_password="$$(kubectl get secrets -n ${HELM_NAMESPACE} ${HELM_RELEASE}-db -o jsonpath="{.data.postgresql-password}" | base64 -d)"
@@ -68,8 +64,8 @@ set-localsettings:
 			"logging": { "Console": {"FormatterName": "simple" } },
 			"auth": {
 				"enabled": "${SECURITY_ENABLED}",
-				"authority":"$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.organizations["${DEFAULT_ORGANIATION}"].authority')",
-				"audience":"$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.organizations["${DEFAULT_ORGANIATION}"].audience')"
+				"authority":"https://login.microsoftonline.com/$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.auth.tenantId')",
+				"audience":"$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.auth.apiAppUri')"
 			},
 			"kubernetes": {
 				"kubeconfigPath": "$${HOME}/.kube/config",
@@ -77,7 +73,7 @@ set-localsettings:
 				"jobServiceAccount": "${HELM_RELEASE}-job",
 				"noOpConfigMap": "${HELM_RELEASE}-no-op",
 				"workerWaiterImage": "$${worker_waiter_image}",
-				"clusters": $$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -c '.clusters')
+				"clusters": $$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -c '.cloud.compute.clusters')
 			},
 			"logArchive": {
 				"storageAccountConnectionString": "$${logs_secret_value}"
@@ -106,7 +102,7 @@ run: check-forwarding set-localsettings
 	cd ${SERVER_PATH}
 	dotnet run -v m --no-restore
 
-watch: check-forwarding set-localsettings
+watch: check-rding set-localsettings
 	cd ${SERVER_PATH}
 	dotnet watch
 
@@ -174,12 +170,12 @@ e2e-data: dvc-data gadgetron-data
 test: unit-test integration-test e2e
 
 full:
-	$(MAKE) test SHOULD_INSTALL_CLOUD=true
+	$(MAKE) test INSTALL_CLOUD=true
 
 test-no-up: unit-test integration-test-no-up e2e-no-up
 
-forward: set-context
-	scripts/forward-services.sh -n ${HELM_NAMESPACE}
+forward:
+	echo '${ENVIRONMENT_CONFIG_JSON}' | scripts/forward-services.sh -c -
 
 check-forwarding:
 	if ! curl "http://${HELM_RELEASE}-server:8080/healthcheck" &> /dev/null ; then
@@ -188,11 +184,17 @@ check-forwarding:
 	fi
 
 download-test-client-cert:
-	if [[ ! -f ${TEST_CLIENT_CERT_FILE} ]]; then
-		rm -f ${TEST_CLIENT_CERT_FILE}
+	developer_config=$$(scripts/get-context-environment-config.sh -e developerConfig -o json)
+	cert_version=$$(echo "$${developer_config}" | jq -r '.pemCertSecret.version')
+	cert_path=$${HOME}/tyger_test_client_cert_$${cert_version}.pem
+	if [[ ! -f $${cert_path} ]]; then
+		rm -f $${cert_path}
 		subscription=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | yq '.cloud.subscriptionId')
-		az keyvault secret download --vault-name eminence --name tyger-test-client-cert --version ${TEST_CLIENT_CERT_VERSION} --file ${TEST_CLIENT_CERT_FILE} --subscription $${subscription}
-		chmod 600 ${TEST_CLIENT_CERT_FILE}
+		vault_name=$$(echo "$${developer_config}" | jq -r '.keyVault')
+		cert_name=$$(echo "$${developer_config}" | jq -r '.pemCertSecret.name')
+		cert_version=$$(echo "$${developer_config}" | jq -r '.pemCertSecret.version')
+		az keyvault secret download --vault-name "$${vault_name}" --name "$${cert_name}" --version "$${cert_version}" --file "$${cert_path}" --subscription "$${subscription}"
+		chmod 600 "$${cert_path}"
 	fi
 
 check-test-client-cert:

@@ -5,6 +5,13 @@ import "strings"
 #EnvironmentConfig: {
 	environmentName!: string
 	cloud!:           #CloudConfig & {
+		resourceGroup: *environmentName | string
+		compute: {
+			#DefaultedClusterConfig: #ClusterConfig & {
+				location: *cloud.defaultLocation | string
+			}
+			clusters: [#DefaultedClusterConfig, ...#DefaultedClusterConfig]
+		}
 		storage: {
 			buffers: *[{name: *strings.Replace("\(environmentName)tygerbuf", "-", "", -1) | string}] | [#StorageAccountConfig, ...#StorageAccountConfig]
 			logs: {name: *strings.Replace("\(environmentName)tygerlog", "-", "", -1) | string}
@@ -79,11 +86,20 @@ import "strings"
 
 #HelmChartConfig: {
 	chartRepo?: string
-	chartRef?: string
+	chartRef?:  string
 	values?: [string]: _
 }
 
 #DeveloperConfig: {
-	containerRegistry!: string
+	containerRegistry!:    string
 	containerRegistryFQDN: *"\(containerRegistry).azurecr.io" | string
+	keyVault!:             string
+	testAppUri!:           string
+	pemCertSecret!:        #Secret
+	pkcs12CertSecret!:     #Secret
+}
+
+#Secret: {
+	name!:    string
+	version!: string
 }

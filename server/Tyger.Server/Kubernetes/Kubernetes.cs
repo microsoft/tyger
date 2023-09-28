@@ -11,13 +11,7 @@ public static class Kubernetes
     public static void AddKubernetes(this IServiceCollection services)
     {
         services.AddOptions<KubernetesOptions>().BindConfiguration("kubernetes").ValidateDataAnnotations().ValidateOnStart()
-            .PostConfigure(o =>
-                {
-                    foreach ((var name, var cluster) in o.Clusters)
-                    {
-                        cluster.Name = name;
-                    }
-                });
+;
 
         services.AddSingleton<LoggingHandler>();
         services.AddSingleton(sp =>
@@ -62,12 +56,12 @@ public static class Kubernetes
     private static IReadOnlyList<Cluster> GetClustersResponse(KubernetesOptions options)
     {
         return options.Clusters
-            .Where(c => c.Value.ApiHost) // For now we don't support multiple clusters
+            .Where(c => c.ApiHost) // For now we don't support multiple clusters
             .Select(c =>
                 new Cluster(
-                    c.Key,
-                    c.Value.Location,
-                    c.Value.UserNodePools.Select(np =>
+                    c.Name,
+                    c.Location,
+                    c.UserNodePools.Select(np =>
                         new NodePool(np.Name, np.VmSize)).ToList()))
             .ToList();
     }
@@ -90,7 +84,7 @@ public class KubernetesOptions
     public required string WorkerWaiterImage { get; init; }
 
     [MinLength(1)]
-    public Dictionary<string, ClusterOptions> Clusters { get; } = new(StringComparer.Ordinal);
+    public List<ClusterOptions> Clusters { get; } = new();
 }
 
 public class ClusterOptions

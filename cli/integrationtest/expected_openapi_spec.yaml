@@ -481,7 +481,7 @@ components:
       properties:
         name:
           type: string
-        region:
+        location:
           type: string
         nodePools:
           type: array

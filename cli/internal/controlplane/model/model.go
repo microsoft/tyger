@@ -212,5 +212,6 @@ type NodePool struct {
 
 type Cluster struct {
 	Name      string     `json:"name"`
+	Location  string     `json:"location"`
 	NodePools []NodePool `json:"nodePools"`
 }
