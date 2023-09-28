@@ -13,6 +13,7 @@ mkdir -p "${DIST_DIR}/linux/amd64"
 mkdir -p "${DIST_DIR}/windows/amd64"
 
 COMMIT_HASH=$(git rev-parse --short HEAD)
+tag=$(git describe --tags)
 
 push=0
 force=0

@@ -20,11 +20,11 @@ import (
 
 var (
 	// set during build
-	commit = ""
+	version = ""
 )
 
 func newRootCommand() *cobra.Command {
-	rootCommand := cmd.NewCommonRootCommand(commit)
+	rootCommand := cmd.NewCommonRootCommand(version)
 	rootCommand.Use = "buffer-sidecar"
 
 	namespace := ""

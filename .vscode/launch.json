@@ -28,7 +28,7 @@
       "mode": "auto",
       "program": "cli/cmd/tyger",
       "cwd": "${workspaceFolder}",
-      "args": ["install", "cloud", "-f", "/workspaces/tyger/foo.yml"]
+      "args": ["install", "api"]
     }
   ]
 }

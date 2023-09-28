@@ -10,7 +10,7 @@ Builds container images
 Usage: $0 [options]
 
 Options:
-  -r, --registry                   The name of the container registry to push to. This is not its fully-qualified name.
+  -r, --registry                   The FQDN of container registry to push to.
   --test                           Build (and optionally push) test images, otherwise runtime images
   --push                           Push runtime images (requires --tag or --use-git-hash-as-tag)
   --push-force                     Force runtime images, will overwrite images with same tag (requires --tag or --use-git-hash-as-tag)
@@ -28,7 +28,7 @@ while [[ $# -gt 0 ]]; do
 
   case $key in
   -r | --registry)
-    container_registry_name="$2"
+    container_registry_fqdn="$2"
     shift 2
     ;;
   --test)
@@ -71,8 +71,6 @@ done
 export DOCKER_BUILDKIT=1
 
 repo_root_dir="$(dirname "$0")/.."
-
-container_registry_fqdn="${container_registry_name}.azurecr.io"
 
 function build_and_push() {
   echo "Building image ${local_tag}..."

@@ -24,6 +24,12 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+var (
+	// set during build but we provide defaults so that there is some value when debugging
+	officialContainerRegistry string = "tyger.azurecr.io"
+	officialContainerImageTag string = "latest"
+)
+
 func installTraefik(ctx context.Context, restConfigPromise *Promise[*rest.Config]) (any, error) {
 	config := GetConfigFromContext(ctx)
 
@@ -183,6 +189,14 @@ func installNvidiaDevicePlugin(ctx context.Context, restConfigPromise *Promise[*
 }
 
 func InstallTyger(ctx context.Context) error {
+	if officialContainerRegistry == "" {
+		panic("officialContainerRegistry not set during build")
+	}
+
+	if officialContainerImageTag == "" {
+		panic("officialContainerImageTag not set during build")
+	}
+
 	config := GetConfigFromContext(ctx)
 
 	restConfig, err := getUserRESTConfig(ctx)
@@ -203,9 +217,9 @@ func InstallTyger(ctx context.Context) error {
 		ChartVersion: "",
 		Values: map[string]any{
 			"server": map[string]any{
-				"image":              "TODO",
-				"bufferSidecarImage": "TODO",
-				"workerWaiterImage":  "TODO",
+				"image":              fmt.Sprintf("%s/tyger-server:%s", officialContainerRegistry, officialContainerImageTag),
+				"bufferSidecarImage": fmt.Sprintf("%s/buffer-sidecar:%s", officialContainerRegistry, officialContainerImageTag),
+				"workerWaiterImage":  fmt.Sprintf("%s/worker-waiter:%s", officialContainerRegistry, officialContainerImageTag),
 				"hostname":           config.Api.DomainName,
 				"security": map[string]any{
 					"enabled":   true,

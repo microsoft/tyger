@@ -11,11 +11,11 @@ import (
 
 var (
 	// set during build
-	commit = ""
+	version = ""
 )
 
 func newRootCommand() *cobra.Command {
-	rootCommand := cmd.NewCommonRootCommand(commit)
+	rootCommand := cmd.NewCommonRootCommand(version)
 	rootCommand.Use = "tyger"
 	rootCommand.Short = "A command-line interface to the Tyger control plane."
 	rootCommand.Long = `A command-line interface to the Tyger control plane.`

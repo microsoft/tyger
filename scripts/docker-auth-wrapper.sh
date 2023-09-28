@@ -46,4 +46,5 @@ if [[ "$error_output" =~ "unauthorized: authentication required" ]]; then
     docker "$@"
 else
     echo "$error_output" >&2
+    exit 1
 fi

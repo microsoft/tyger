@@ -91,15 +91,21 @@ import "strings"
 }
 
 #DeveloperConfig: {
-	containerRegistry!:    string
-	containerRegistryFQDN: *"\(containerRegistry).azurecr.io" | string
-	keyVault!:             string
-	testAppUri!:           string
-	pemCertSecret!:        #Secret
-	pkcs12CertSecret!:     #Secret
+	wipContainerRegistry:      #ContainerRegistry
+	officialContainerRegistry: #ContainerRegistry
+
+	keyVault!:         string
+	testAppUri!:       string
+	pemCertSecret!:    #Secret
+	pkcs12CertSecret!: #Secret
 }
 
 #Secret: {
 	name!:    string
 	version!: string
+}
+
+#ContainerRegistry: {
+	name!: string
+	fqdn:  *"\(name).azurecr.io" | string
 }

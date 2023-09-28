@@ -29,7 +29,7 @@ config: #EnvironmentConfig & {
 				"5b60f594-a0eb-410c-a3fc-dd3c6f4e28d1",
 				"c0e60aba-35f0-4778-bc9b-fc5d2af14687",
 			]
-			privateContainerRegistries: [developerConfig.containerRegistry]
+			privateContainerRegistries: [developerConfig.wipContainerRegistry.name]
 		}
 	}
 	api: {
@@ -42,9 +42,14 @@ config: #EnvironmentConfig & {
 }
 
 developerConfig: #DeveloperConfig & {
-	containerRegistry: "eminence"
-	keyVault:          "eminence"
-	testAppUri:        "api://tyger-test-client"
+	wipContainerRegistry: {
+		name: "eminence"
+	}
+	officialContainerRegistry: {
+		name: "tyger"
+	}
+	keyVault:   "eminence"
+	testAppUri: "api://tyger-test-client"
 	pemCertSecret: {
 		name:    "tyger-test-client-cert"
 		version: "1db664a6a3c74b6f817f3d842424003d"

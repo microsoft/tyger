@@ -28,7 +28,7 @@ func NewInstallCommand(parentCommand *cobra.Command) *cobra.Command {
 	installCmd := &cobra.Command{
 		Use:                   "install",
 		Short:                 "Install cloud infrastructure and the Tyger API",
-		Long:                  "Install cloud infrastructure and the Tyger API",
+		Long:                  "Install cloud infrastructure and the Tyger API...",
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.NoArgs,
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
