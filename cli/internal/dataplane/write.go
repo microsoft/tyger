@@ -22,6 +22,74 @@ const (
 	EncodedMD5HashChainInitalValue = "MDAwMDAwMDAwMDAwMDAwMA=="
 )
 
+func WriteBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, blobUrl string, contents any, encodedMD5Hash string, encodedMD5HashChain string) error {
+	for i := 0; ; i++ {
+		req, err := retryablehttp.NewRequest(http.MethodPut, blobUrl, contents)
+		if err != nil {
+			log.Err(err).Msg("Unable to create request")
+			return err
+		}
+
+		AddCommonBlobRequestHeaders(req.Header)
+		req.Header.Add("x-ms-blob-type", "BlockBlob")
+
+		req.Header.Add("Content-MD5", encodedMD5Hash)
+		if encodedMD5HashChain != "" {
+			req.Header.Add("x-ms-meta-cumulative_md5_chain", encodedMD5HashChain)
+		}
+
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			log.Err(RedactHttpError(err)).Msg("Unable to send request")
+			return err
+		}
+		err = handleWriteResponse(resp)
+		if err == nil {
+			break
+		}
+
+		if err == errMd5Mismatch {
+			if i < 5 {
+				log.Ctx(ctx).Debug().Msg("MD5 mismatch, retrying")
+				continue
+			}
+		} else if err == errBlobOverwrite && i != 0 {
+			// When retrying failed writes, we might encounter the UnauthorizedBlobOverwrite if the original
+			// write went through. In such cases, we should follow up with a HEAD request to verify the
+			// Content-MD5 and x-ms-meta-cumulative_md5_chain match our expectations.
+			req, err := retryablehttp.NewRequest(http.MethodHead, blobUrl, nil)
+			if err != nil {
+				log.Err(err).Msg("Unable to create HEAD request")
+				return err
+			}
+
+			resp, err := httpClient.Do(req)
+			if err != nil {
+				log.Err(err).Msg("Unable to send HEAD request")
+				return err
+			}
+
+			md5Header := resp.Header.Get("Content-MD5")
+			md5ChainHeader := resp.Header.Get("x-ms-meta-cumulative_md5_chain")
+
+			if md5Header == encodedMD5Hash && md5ChainHeader == encodedMD5HashChain {
+				log.Ctx(ctx).Debug().Msg("Failed blob write actually went through")
+				break
+			}
+
+			log.Err(RedactHttpError(err)).Msg("Buffer cannot be overwritten")
+			return err
+		}
+
+		if err != nil {
+			log.Err(RedactHttpError(err)).Msg("Buffer cannot be overwritten")
+			return err
+		}
+	}
+
+	return nil
+}
+
 // If invalidHashChain is set to true, the value of the hash chain attached to the blob will
 // always be the Inital Value. This should only be set for testing.
 func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, invalidHashChain bool) {
@@ -102,77 +170,11 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 					blobEncodedMD5HashChain = ""
 				}
 
-				for i := 0; ; i++ {
-					req, err := retryablehttp.NewRequest(http.MethodPut, blobUrl, body)
-					if err != nil {
-						log.Err(err).Msg("Unable to create request")
-						if !hasFailed() {
-							close(errorChannel)
-						}
-					}
+				err := WriteBlobWithRetry(ctx, httpClient, blobUrl, body, encodedMD5Hash, blobEncodedMD5HashChain)
 
-					AddCommonBlobRequestHeaders(req.Header)
-					req.Header.Add("x-ms-blob-type", "BlockBlob")
-
-					req.Header.Add("Content-MD5", encodedMD5Hash)
-					if bb.BlobName == "" {
-						req.Header.Add("x-ms-meta-cumulative_md5_chain", blobEncodedMD5HashChain)
-					}
-
-					resp, err := httpClient.Do(req)
-					if err != nil {
-						log.Err(RedactHttpError(err)).Msg("Unable to send request")
-						if !hasFailed() {
-							close(errorChannel)
-						}
-					}
-					err = handleWriteResponse(resp)
-					if err == nil {
-						break
-					}
-
-					if err == errMd5Mismatch {
-						if i < 5 {
-							log.Ctx(ctx).Debug().Msg("MD5 mismatch, retrying")
-							continue
-						}
-					} else if err == errBlobOverwrite && i != 0 {
-						// When retrying failed writes, we might encounter the UnauthorizedBlobOverwrite if the original
-						// write went through. In such cases, we should follow up with a HEAD request to verify the
-						// Content-MD5 and x-ms-meta-cumulative_md5_chain match our expectations.							req, err := retryablehttp.NewRequest(http.MethodHead, blobUrl, nil)
-						req, err := retryablehttp.NewRequest(http.MethodHead, blobUrl, nil)
-						if err != nil {
-							log.Err(err).Msg("Unable to create HEAD request")
-							if !hasFailed() {
-								close(errorChannel)
-							}
-						}
-
-						resp, err := httpClient.Do(req)
-						if err != nil {
-							log.Err(err).Msg("Unable to send HEAD request")
-							if !hasFailed() {
-								close(errorChannel)
-							}
-						}
-
-						md5Header := resp.Header.Get("Content-MD5")
-						md5ChainHeader := resp.Header.Get("x-ms-meta-cumulative_md5_chain")
-
-						if md5Header == encodedMD5Hash && md5ChainHeader == blobEncodedMD5HashChain {
-							log.Ctx(ctx).Debug().Msg("Failed blob write actually went through")
-							break
-						}
-
-						log.Err(RedactHttpError(err)).Msg("Buffer cannot be overwritten")
+				if err != nil {
+					if !hasFailed() {
 						close(errorChannel)
-					}
-
-					if err != nil {
-						log.Err(RedactHttpError(err)).Msg("Buffer cannot be overwritten")
-						if !hasFailed() {
-							close(errorChannel)
-						}
 					}
 				}
 
@@ -241,6 +243,9 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 		CurrentCumulativeHash:  currentHashChannel,
 	}
 
+	close(outputChannel)
+	wg.Wait()
+
 	finalizationBlob := BufferFinalization{Status: "Completed"}
 
 	if hasFailed() {
@@ -249,17 +254,24 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 
 	serializedBlob, _ = json.Marshal(finalizationBlob)
 
-	outputChannel <- BufferBlob{
-		BlobName:               ".bufferend",
-		BlobNumber:             -1,
-		Contents:               serializedBlob,
-		PreviousCumulativeHash: nil,
-		CurrentCumulativeHash:  nil,
+	blobUrl := container.GetNamedBlobUri(".bufferend")
+	md5Hash := md5.Sum(serializedBlob)
+	encodedMD5Hash := base64.StdEncoding.EncodeToString(md5Hash[:])
+
+	err = WriteBlobWithRetry(ctx, httpClient, blobUrl, serializedBlob, encodedMD5Hash, "")
+
+	if err != nil || hasFailed() {
+		log.Fatal().Msg("Buffer write failed")
 	}
 
-	close(outputChannel)
+	// outputChannel <- BufferBlob{
+	// 	BlobName:               ".bufferend",
+	// 	BlobNumber:             -1,
+	// 	Contents:               serializedBlob,
+	// 	PreviousCumulativeHash: nil,
+	// 	CurrentCumulativeHash:  nil,
+	// }
 
-	wg.Wait()
 	metrics.Stop()
 }
 
