@@ -116,7 +116,15 @@ func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (any, erro
 		cluster.Properties.AgentPoolProfiles = append(cluster.Properties.AgentPoolProfiles, &profile)
 	}
 
-	if !clusterAlreadyExists || clusterNeedsUpdating(cluster, existingCluster.ManagedCluster) {
+	var needsUpdate bool
+	var onlyScaleDown bool
+	if clusterAlreadyExists {
+		needsUpdate, onlyScaleDown = clusterNeedsUpdating(cluster, existingCluster.ManagedCluster)
+	} else {
+		needsUpdate = true
+	}
+
+	if needsUpdate {
 		if clusterAlreadyExists {
 			log.Info().Msgf("Updating cluster '%s'", clusterConfig.Name)
 		} else {
@@ -126,6 +134,12 @@ func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (any, erro
 		poller, err = clustersClient.BeginCreateOrUpdate(ctx, config.Cloud.ResourceGroup, clusterConfig.Name, cluster, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create cluster: %w", err)
+		}
+
+		if onlyScaleDown {
+			log.Info().Msgf("Cluster '%s' only needs to scale down", clusterConfig.Name)
+			// we won't wait for the operation to complete
+			poller = nil
 		}
 	} else {
 		log.Info().Msgf("Cluster '%s' already exists and appears to be up to date", clusterConfig.Name)
@@ -172,13 +186,18 @@ func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (any, erro
 	return nil, nil
 }
 
-func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCluster) bool {
+func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCluster) (hasChanges bool, onlyScaleDown bool) {
+	if *existingCluster.Properties.ProvisioningState != "Succeeded" {
+		return true, false
+	}
+
+	onlyScaleDown = true
 	if *cluster.Properties.KubernetesVersion != *existingCluster.Properties.KubernetesVersion {
-		return true
+		return true, false
 	}
 
 	if len(cluster.Properties.AgentPoolProfiles) != len(existingCluster.Properties.AgentPoolProfiles) {
-		return true
+		return true, false
 	}
 
 	for _, np := range cluster.Properties.AgentPoolProfiles {
@@ -187,23 +206,29 @@ func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCl
 			if *np.Name == *existingNp.Name {
 				found = true
 				if *np.VMSize != *existingNp.VMSize {
-					return true
+					return true, false
 				}
 				if *np.MinCount != *existingNp.MinCount {
-					return true
+					hasChanges = true
+					if *np.MinCount > *existingNp.MinCount {
+						onlyScaleDown = false
+					}
 				}
 				if *np.MaxCount != *existingNp.MaxCount {
-					return true
+					hasChanges = true
+					if *np.MaxCount > *existingNp.MaxCount {
+						onlyScaleDown = false
+					}
 				}
 				break
 			}
 		}
 		if !found {
-			return true
+			return true, false
 		}
 	}
 
-	return false
+	return hasChanges, onlyScaleDown
 }
 
 func getClusterDnsPrefix(environmentName, clusterName, subId string) string {
@@ -330,6 +355,54 @@ func getContainerRegistryId(ctx context.Context, name string, subscriptionId str
 	return "", fmt.Errorf("container registry '%s' not found in subscription", name)
 }
 
+func onDeleteCluster(ctx context.Context, clusterConfig *ClusterConfig) error {
+	config := GetConfigFromContext(ctx)
+	cred := GetAzureCredentialFromContext(ctx)
+
+	clustersClient, err := armcontainerservice.NewManagedClustersClient(config.Cloud.SubscriptionID, cred, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create clusters client: %w", err)
+	}
+
+	clusterResponse, err := clustersClient.Get(ctx, config.Cloud.ResourceGroup, clusterConfig.Name, nil)
+	if err != nil {
+		var respErr *azcore.ResponseError
+		if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
+			return nil
+		}
+		return err
+	}
+
+	if clusterResponse.Properties.IdentityProfile == nil {
+		return nil
+	}
+
+	kubeletIdentity := clusterResponse.Properties.IdentityProfile["kubeletidentity"]
+	if kubeletIdentity == nil {
+		return nil
+	}
+
+	kubeletObjectId := *kubeletIdentity.ObjectID
+
+	for _, containerRegistry := range config.Cloud.Compute.PrivateContainerRegistries {
+		log.Info().Msgf("detaching ACR '%s' from cluster '%s'", containerRegistry, clusterConfig.Name)
+		containerRegistryId, err := getContainerRegistryId(ctx, containerRegistry, config.Cloud.SubscriptionID, cred)
+		if err != nil {
+			var respErr *azcore.ResponseError
+			if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
+				continue
+			}
+			return err
+		}
+
+		if err := detachAcr(ctx, kubeletObjectId, containerRegistryId, config.Cloud.SubscriptionID, cred); err != nil {
+			return fmt.Errorf("failed to detatch ACR: %w", err)
+		}
+	}
+
+	return nil
+}
+
 func getAdminRESTConfig(ctx context.Context) (*rest.Config, error) {
 	config := GetConfigFromContext(ctx)
 	cred := GetAzureCredentialFromContext(ctx)
@@ -381,52 +454,4 @@ func getUserRESTConfig(ctx context.Context) (*rest.Config, error) {
 	}
 
 	return clientcmd.RESTConfigFromKubeConfig(kubeconfig)
-}
-
-func onDeleteCluster(ctx context.Context, clusterConfig *ClusterConfig) error {
-	config := GetConfigFromContext(ctx)
-	cred := GetAzureCredentialFromContext(ctx)
-
-	clustersClient, err := armcontainerservice.NewManagedClustersClient(config.Cloud.SubscriptionID, cred, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create clusters client: %w", err)
-	}
-
-	clusterResponse, err := clustersClient.Get(ctx, config.Cloud.ResourceGroup, clusterConfig.Name, nil)
-	if err != nil {
-		var respErr *azcore.ResponseError
-		if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
-			return nil
-		}
-		return err
-	}
-
-	if clusterResponse.Properties.IdentityProfile == nil {
-		return nil
-	}
-
-	kubeletIdentity := clusterResponse.Properties.IdentityProfile["kubeletidentity"]
-	if kubeletIdentity == nil {
-		return nil
-	}
-
-	kubeletObjectId := *kubeletIdentity.ObjectID
-
-	for _, containerRegistry := range config.Cloud.Compute.PrivateContainerRegistries {
-		log.Info().Msgf("detaching ACR '%s' from cluster '%s'", containerRegistry, clusterConfig.Name)
-		containerRegistryId, err := getContainerRegistryId(ctx, containerRegistry, config.Cloud.SubscriptionID, cred)
-		if err != nil {
-			var respErr *azcore.ResponseError
-			if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
-				continue
-			}
-			return err
-		}
-
-		if err := detachAcr(ctx, kubeletObjectId, containerRegistryId, config.Cloud.SubscriptionID, cred); err != nil {
-			return fmt.Errorf("failed to detatch ACR: %w", err)
-		}
-	}
-
-	return nil
 }

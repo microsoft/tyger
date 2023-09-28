@@ -33,11 +33,21 @@ func createTygerNamespace(ctx context.Context, restConfigPromise *Promise[*rest.
 	return nil, fmt.Errorf("failed to create 'tyger' namespace: %w", err)
 }
 
-func createTygerNamespaceRBAC(ctx context.Context, restConfigPromise *Promise[*rest.Config]) (any, error) {
+func createTygerClusterRBAC(ctx context.Context, restConfigPromise *Promise[*rest.Config], createTygerNamespacePromise *Promise[any]) (any, error) {
 	config := GetConfigFromContext(ctx)
+
+	// we can fetch the principals from the Graph API while we wait for the cluster to be ready
+	principals, err := ObjectsIdToPrincipals(ctx, config.Cloud.Compute.ManagementPrincipalIds)
+	if err != nil {
+		return nil, err
+	}
 
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
+		return nil, errDependencyFailed
+	}
+
+	if _, err := createTygerNamespacePromise.Await(); err != nil {
 		return nil, errDependencyFailed
 	}
 
@@ -75,11 +85,6 @@ func createTygerNamespaceRBAC(ctx context.Context, restConfigPromise *Promise[*r
 		Subjects: make([]rbacv1.Subject, 0),
 	}
 
-	principals, err := ObjectsIdToPrincipals(ctx, config.Cloud.Compute.ManagementPrincipalIds)
-	if err != nil {
-		return nil, err
-	}
-
 	for _, principal := range principals {
 		subject := rbacv1.Subject{
 			Name:      principal.Id,
@@ -104,14 +109,61 @@ func createTygerNamespaceRBAC(ctx context.Context, restConfigPromise *Promise[*r
 		}
 	}
 
-	if _, err := clientset.RbacV1().RoleBindings(TygerNamespace).Create(context.TODO(), &roleBinding, metav1.CreateOptions{}); err != nil {
+	if _, err := clientset.RbacV1().RoleBindings(TygerNamespace).Create(ctx, &roleBinding, metav1.CreateOptions{}); err != nil {
 		if apierrors.IsAlreadyExists(err) {
-			_, err = clientset.RbacV1().RoleBindings(TygerNamespace).Update(context.TODO(), &roleBinding, metav1.UpdateOptions{})
+			_, err = clientset.RbacV1().RoleBindings(TygerNamespace).Update(ctx, &roleBinding, metav1.UpdateOptions{})
 			if err != nil {
 				return nil, fmt.Errorf("failed to update role binding: %w", err)
 			}
 		} else {
 			return nil, fmt.Errorf("failed to create role binding: %w", err)
+		}
+	}
+
+	clusterRole := rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "tyger-node-reader",
+		},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{"*"},
+				Resources: []string{"nodes"},
+				Verbs:     []string{"get", "list", "watch"},
+			},
+		},
+	}
+
+	clusterRoleBinding := rbacv1.ClusterRoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "tyger-node-reader-rolebinding",
+		},
+		RoleRef: rbacv1.RoleRef{
+			APIGroup: "rbac.authorization.k8s.io",
+			Kind:     "ClusterRole",
+			Name:     clusterRole.Name,
+		},
+		Subjects: roleBinding.Subjects,
+	}
+
+	if _, err := clientset.RbacV1().ClusterRoles().Create(ctx, &clusterRole, metav1.CreateOptions{}); err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			_, err = clientset.RbacV1().ClusterRoles().Update(ctx, &clusterRole, metav1.UpdateOptions{})
+			if err != nil {
+				return nil, fmt.Errorf("failed to update cluster role: %w", err)
+			}
+		} else {
+			return nil, fmt.Errorf("failed to create cluster role: %w", err)
+		}
+	}
+
+	if _, err := clientset.RbacV1().ClusterRoleBindings().Create(context.TODO(), &clusterRoleBinding, metav1.CreateOptions{}); err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			_, err = clientset.RbacV1().ClusterRoleBindings().Update(context.TODO(), &clusterRoleBinding, metav1.UpdateOptions{})
+			if err != nil {
+				return nil, fmt.Errorf("failed to update cluster role binding: %w", err)
+			}
+		} else {
+			return nil, fmt.Errorf("failed to create cluster role binding: %w", err)
 		}
 	}
 

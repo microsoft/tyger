@@ -2,22 +2,20 @@
 SHELL = /bin/bash
 .SHELLFLAGS = -ecuo pipefail
 
-.DEFAULT_GOAL := test
+.DEFAULT_GOAL := full
 
 # trick to lazily evaluate this at most once: https://make.mad-scientist.net/deferred-simple-variable-expansion/
 ENVIRONMENT_CONFIG_JSON = $(eval ENVIRONMENT_CONFIG := $$(shell scripts/get-context-environment-config.sh -o json))$(if $(ENVIRONMENT_CONFIG),$(ENVIRONMENT_CONFIG),$(error "get-context-environment-config.sh failed"))
 
-EC=$(shell scripts/get-context-environment-config.sh)
 SERVER_PATH=server/Tyger.Server
 SECURITY_ENABLED=true
-DEFAULT_ORGANIATION=lamna
-HELM_NAMESPACE=lamna
+HELM_NAMESPACE=tyger
 HELM_RELEASE=tyger
 TEST_CLIENT_CERT_VERSION=1db664a6a3c74b6f817f3d842424003d
 TEST_CLIENT_CERT_FILE=$${HOME}/tyger_test_client_cert_${TEST_CLIENT_CERT_VERSION}.pem
 TEST_CLIENT_IDENTIFIER_URI=api://tyger-test-client
-AZURE_SUBSCRIPTION=BiomedicalImaging-NonProd
-TYGER_URI = https://$(shell echo '${ENVIRONMENT_CONFIG_JSON}' | yq '.api.domainName')
+TYGER_URI = https://$(shell echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.domainName')
+SHOULD_INSTALL_CLOUD=false
 
 
 get-environment-config:
@@ -26,29 +24,38 @@ get-environment-config:
 install-cloud: install-cli-tyger-only
 	tyger install cloud -f <(scripts/get-context-environment-config.sh)
 
+install-cloud-conditionally: install-cli-tyger-only
+	if [[ "${SHOULD_INSTALL_CLOUD}" == "true" ]]; then
+		tyger install cloud -f <(scripts/get-context-environment-config.sh)
+	fi
+
 uninstall-cloud: install-cli-tyger-only
 	tyger uninstall cloud -f <(scripts/get-context-environment-config.sh)
 
+# Sets up the az subscription and kubectl config for the current environment
 set-context:
-	subscription=$$(echo '${ENVIRONMENT_CONFIG}' | jq -r '.subscription')
-	resource_group=$$(echo '${ENVIRONMENT_CONFIG}' | jq -r '.resourceGroup')
-	primary_cluster_name=$$(echo '${ENVIRONMENT_CONFIG}' | jq -r '.primaryCluster')
+	subscription=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.cloud.subscriptionId')
+	resource_group=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.cloud.resourceGroup // .environmentName')
 
-	az account set --subscription "$${subscription}"
-
-	az aks get-credentials -n "$${primary_cluster_name}" -g "$${resource_group}" --overwrite-existing 
-	kubelogin convert-kubeconfig -l azurecli
-	kubectl config set-context --current --namespace=${HELM_NAMESPACE}
+	for cluster in $$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -c '.cloud.compute.clusters | .[]'); do
+		if [[ "$$(echo "$$cluster" | jq -r '.apiHost')" == "true" ]]; then
+			cluster_name=$$(echo "$$cluster" | jq -r '.name')
+			az account set --subscription "$${subscription}"
+			az aks get-credentials -n "$${cluster_name}" -g "$${resource_group}" --overwrite-existing 
+			kubelogin convert-kubeconfig -l azurecli
+			kubectl config set-context --current --namespace=${HELM_NAMESPACE}
+		fi
+	done
 
 set-localsettings:
 	if [[ $$(helm list -n "${HELM_NAMESPACE}" -l name=${HELM_RELEASE} -o json | jq length) == 0 ]]; then
 		echo "Run 'make up' before this target"; exit 1
 	fi
 
-	buffer_secret_name=$$(echo '${ENVIRONMENT_CONFIG}' | jq -r '.organizations["${DEFAULT_ORGANIATION}"].storage.buffers[0].name')
+	buffer_secret_name=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.organizations["${DEFAULT_ORGANIATION}"].storage.buffers[0].name')
 	buffer_secret_value="$$(kubectl get secrets -n ${HELM_NAMESPACE} $${buffer_secret_name} -o jsonpath="{.data.connectionString}" | base64 -d)"
 
-	logs_secret_name=$$(echo '${ENVIRONMENT_CONFIG}' | jq -r '.organizations["${DEFAULT_ORGANIATION}"].storage.logs.name')
+	logs_secret_name=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.organizations["${DEFAULT_ORGANIATION}"].storage.logs.name')
 	logs_secret_value="$$(kubectl get secrets -n ${HELM_NAMESPACE} $${logs_secret_name} -o jsonpath="{.data.connectionString}" | base64 -d)"
 
 	postgres_password="$$(kubectl get secrets -n ${HELM_NAMESPACE} ${HELM_RELEASE}-db -o jsonpath="{.data.postgresql-password}" | base64 -d)"
@@ -61,8 +68,8 @@ set-localsettings:
 			"logging": { "Console": {"FormatterName": "simple" } },
 			"auth": {
 				"enabled": "${SECURITY_ENABLED}",
-				"authority":"$$(echo '${ENVIRONMENT_CONFIG}' | jq -r '.organizations["${DEFAULT_ORGANIATION}"].authority')",
-				"audience":"$$(echo '${ENVIRONMENT_CONFIG}' | jq -r '.organizations["${DEFAULT_ORGANIATION}"].audience')"
+				"authority":"$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.organizations["${DEFAULT_ORGANIATION}"].authority')",
+				"audience":"$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.organizations["${DEFAULT_ORGANIATION}"].audience')"
 			},
 			"kubernetes": {
 				"kubeconfigPath": "$${HOME}/.kube/config",
@@ -70,7 +77,7 @@ set-localsettings:
 				"jobServiceAccount": "${HELM_RELEASE}-job",
 				"noOpConfigMap": "${HELM_RELEASE}-no-op",
 				"workerWaiterImage": "$${worker_waiter_image}",
-				"clusters": $$(echo '${ENVIRONMENT_CONFIG}' | jq -c '.clusters')
+				"clusters": $$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -c '.clusters')
 			},
 			"logArchive": {
 				"storageAccountConnectionString": "$${logs_secret_value}"
@@ -114,12 +121,13 @@ docker-build:
 	scripts/build-images.sh --push --push-force --tag dev --quiet --registry "$${registry}"
 
 docker-build-test:
-	echo '${ENVIRONMENT_CONFIG}' | scripts/build-images.sh -c - --test --push --push-force --tag test --quiet
+	registry=$$(scripts/get-context-environment-config.sh -e developerConfig.containerRegistry)
+	scripts/build-images.sh --test --push --push-force --tag test --quiet --registry "$${registry}"
 
 publish-cli-tools:
 	./scripts/publish-binaries.sh --push --use-git-hash-as-tag
 
-up: docker-build install-cli-tyger-only
+up: install-cloud-conditionally docker-build install-cli-tyger-only
 	repo_fqdn=$$(scripts/get-context-environment-config.sh -e developerConfig.containerRegistryFQDN)
 
 	tyger_server_image="$$(docker inspect "$${repo_fqdn}/tyger-server:dev" | jq -r --arg repo "$${repo_fqdn}/tyger-server" '.[0].RepoDigests[] | select (startswith($$repo))')"
@@ -140,16 +148,11 @@ down: install-cli-tyger-only
 integration-test-no-up-prereqs: docker-build-test
 
 integration-test-no-up: integration-test-no-up-prereqs cli-ready
-	if ! echo '${ENVIRONMENT_CONFIG}' | timeout --foreground 30m scripts/wait-for-cluster-to-scale.sh -c -; then
-		echo "timed out waiting for nodepools to scale"
-		exit 1
-	fi
-
 	pushd cli/integrationtest
 	go test -tags=integrationtest
 
 integration-test: up integration-test-no-up-prereqs
-	$(MAKE) -o integration-test-no-up-prereqs integration-test-no-up
+	$(MAKE) integration-test-no-up-prereqs integration-test-no-up
 
 e2e-no-up-prereqs: e2e-data
 	
@@ -157,7 +160,7 @@ e2e-no-up: e2e-no-up-prereqs cli-ready
 	pytest e2e --numprocesses 100 -q
 
 e2e: up e2e-no-up-prereqs
-	$(MAKE) -o e2e-no-up-prereqs e2e-no-up
+	$(MAKE) e2e-no-up-prereqs e2e-no-up
 
 dvc-data:
 	scripts/check-login.sh
@@ -170,10 +173,13 @@ e2e-data: dvc-data gadgetron-data
 
 test: unit-test integration-test e2e
 
+full:
+	$(MAKE) test SHOULD_INSTALL_CLOUD=true
+
 test-no-up: unit-test integration-test-no-up e2e-no-up
 
 forward: set-context
-	echo '${ENVIRONMENT_CONFIG}' | scripts/forward-services.sh -n ${HELM_NAMESPACE} -c -
+	scripts/forward-services.sh -n ${HELM_NAMESPACE}
 
 check-forwarding:
 	if ! curl "http://${HELM_RELEASE}-server:8080/healthcheck" &> /dev/null ; then
@@ -184,7 +190,8 @@ check-forwarding:
 download-test-client-cert:
 	if [[ ! -f ${TEST_CLIENT_CERT_FILE} ]]; then
 		rm -f ${TEST_CLIENT_CERT_FILE}
-		az keyvault secret download --vault-name eminence --name tyger-test-client-cert --version ${TEST_CLIENT_CERT_VERSION} --file ${TEST_CLIENT_CERT_FILE} --subscription ${AZURE_SUBSCRIPTION}
+		subscription=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | yq '.cloud.subscriptionId')
+		az keyvault secret download --vault-name eminence --name tyger-test-client-cert --version ${TEST_CLIENT_CERT_VERSION} --file ${TEST_CLIENT_CERT_FILE} --subscription $${subscription}
 		chmod 600 ${TEST_CLIENT_CERT_FILE}
 	fi
 
@@ -232,7 +239,7 @@ cli-ready: install-cli
 		$(MAKE) login-service-principal
 	fi
 
-connect-db:
+connect-db: set-context
 	postgres_password=$(shell kubectl get secrets ${HELM_RELEASE}-db -o jsonpath="{.data.postgresql-password}" | base64 -d)
 	cmd="PGPASSWORD=$${postgres_password} psql -d tyger -U postgres"
 	kubectl exec ${HELM_RELEASE}-db-0 -it -- bash -c "$${cmd}"

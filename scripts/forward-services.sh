@@ -13,7 +13,6 @@ these endpoints from your development environment as if you were running in a po
 Usage: $0 [options]
 
 Options:
-  -c | --environment-config     The environment configuration JSON file or - to read from stdin
   --namespace,-n <namespace>    The namespace of services and pods to forward to, otherwise the current context's default
   -h, --help                    Brings up this menu
 EOF
@@ -25,10 +24,6 @@ while [[ $# -gt 0 ]]; do
   key="$1"
 
   case $key in
-    -c | --environment-config)
-        config_path="$2"
-        shift 2
-        ;;
     --namespace|-n)
       namespace="${2}"
       shift
@@ -46,11 +41,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "${config_path:-}" ]]; then
-    echo "ERROR: --environment-config parameter not specified"
-    exit 1
-fi
-
 original_hosts=$(cat /etc/hosts)
 
 function revert()
@@ -60,10 +50,6 @@ function revert()
 }
 
 trap revert EXIT
-
-environment_definition=$(cat "${config_path}")
-
-echo "${environment_definition}" | "$(dirname "$0")"/../scripts/use-current-credentials.sh -c -
 
 mapfile -t services_to_forward < <(kubectl get svc -n "${namespace}" -o json | jq -r -c '.items[] | select(.spec.type == "ClusterIP" and .spec.clusterIP != "None" and .spec.selector) |  { "name": .metadata.name, "ports": [.spec.ports | .[] | .port] } ')
 
