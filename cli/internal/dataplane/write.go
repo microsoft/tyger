@@ -128,10 +128,6 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 					}
 					err = handleWriteResponse(resp)
 					if err == nil {
-						if !hasFailed() {
-							log.Err(err).Msg("Write Failed")
-							close(errorChannel)
-						}
 						break
 					}
 
