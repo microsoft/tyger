@@ -26,6 +26,7 @@ const (
 // always be the Inital Value. This should only be set for testing.
 func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, invalidHashChain bool) {
 	ctx := log.With().Str("operation", "buffer write").Logger().WithContext(context.Background())
+
 	httpClient, err := CreateHttpClient(proxyUri)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create http client")
@@ -36,6 +37,16 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 	}
 
 	outputChannel := make(chan BufferBlob, dop)
+	errorChannel := make(chan struct{})
+
+	hasFailed := func() bool {
+		select {
+		case <-errorChannel:
+			return true
+		default:
+			return false
+		}
+	}
 
 	wg := sync.WaitGroup{}
 	wg.Add(dop)
@@ -94,7 +105,10 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 				for i := 0; ; i++ {
 					req, err := retryablehttp.NewRequest(http.MethodPut, blobUrl, body)
 					if err != nil {
-						log.Fatal().Err(err).Msg("Unable to create request")
+						log.Err(err).Msg("Unable to create request")
+						if !hasFailed() {
+							close(errorChannel)
+						}
 					}
 
 					AddCommonBlobRequestHeaders(req.Header)
@@ -107,10 +121,17 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 
 					resp, err := httpClient.Do(req)
 					if err != nil {
-						log.Fatal().Err(RedactHttpError(err)).Msg("Unable to send request")
+						log.Err(RedactHttpError(err)).Msg("Unable to send request")
+						if !hasFailed() {
+							close(errorChannel)
+						}
 					}
 					err = handleWriteResponse(resp)
 					if err == nil {
+						if !hasFailed() {
+							log.Err(err).Msg("Write Failed")
+							close(errorChannel)
+						}
 						break
 					}
 
@@ -125,12 +146,18 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 						// Content-MD5 and x-ms-meta-cumulative_md5_chain match our expectations.							req, err := retryablehttp.NewRequest(http.MethodHead, blobUrl, nil)
 						req, err := retryablehttp.NewRequest(http.MethodHead, blobUrl, nil)
 						if err != nil {
-							log.Fatal().Err(err).Msg("Unable to create HEAD request")
+							log.Err(err).Msg("Unable to create HEAD request")
+							if !hasFailed() {
+								close(errorChannel)
+							}
 						}
 
 						resp, err := httpClient.Do(req)
 						if err != nil {
-							log.Fatal().Err(err).Msg("Unable to send HEAD request")
+							log.Err(err).Msg("Unable to send HEAD request")
+							if !hasFailed() {
+								close(errorChannel)
+							}
 						}
 
 						md5Header := resp.Header.Get("Content-MD5")
@@ -141,11 +168,15 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 							break
 						}
 
-						log.Fatal().Err(RedactHttpError(err)).Msg("Buffer cannot be overwritten")
+						log.Err(RedactHttpError(err)).Msg("Buffer cannot be overwritten")
+						close(errorChannel)
 					}
 
 					if err != nil {
-						log.Fatal().Err(RedactHttpError(err)).Msg("Buffer cannot be overwritten")
+						log.Err(RedactHttpError(err)).Msg("Buffer cannot be overwritten")
+						if !hasFailed() {
+							close(errorChannel)
+						}
 					}
 				}
 
@@ -196,7 +227,7 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 			blobNumber++
 		}
 
-		if err == io.EOF || err == io.ErrUnexpectedEOF {
+		if err == io.EOF || err == io.ErrUnexpectedEOF || hasFailed() {
 			break
 		}
 
@@ -215,6 +246,11 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 	}
 
 	finalizationBlob := BufferFinalization{Status: "Completed"}
+
+	if hasFailed() {
+		finalizationBlob.Status = "Failed"
+	}
+
 	serializedBlob, _ = json.Marshal(finalizationBlob)
 
 	outputChannel <- BufferBlob{
