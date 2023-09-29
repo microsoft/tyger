@@ -56,8 +56,9 @@ set-localsettings:
 
 	postgres_password="$$(kubectl get secrets -n ${HELM_NAMESPACE} ${HELM_RELEASE}-db -o jsonpath="{.data.postgresql-password}" | base64 -d)"
 
-	buffer_sidecar_image="$$(docker inspect eminence.azurecr.io/buffer-sidecar:dev | jq -r --arg repo eminence.azurecr.io/buffer-sidecar '.[0].RepoDigests[] | select (startswith($$repo))')"
-	worker_waiter_image="$$(docker inspect eminence.azurecr.io/worker-waiter:dev | jq -r --arg repo eminence.azurecr.io/worker-waiter '.[0].RepoDigests[] | select (startswith($$repo))')"
+	registry=$$(scripts/get-context-environment-config.sh -e developerConfig.wipContainerRegistry.fqdn)
+	buffer_sidecar_image="$$(docker inspect $${registry}/buffer-sidecar:dev | jq -r --arg repo $${registry}/buffer-sidecar '.[0].RepoDigests[] | select (startswith($$repo))')"
+	worker_waiter_image="$$(docker inspect $${registry}/worker-waiter:dev | jq -r --arg repo $${registry}/worker-waiter '.[0].RepoDigests[] | select (startswith($$repo))')"
 
 	jq <<- EOF > ${SERVER_PATH}/appsettings.local.json
 		{
@@ -123,7 +124,7 @@ docker-build-test:
 publish-official-images:
 	registry=$$(scripts/get-context-environment-config.sh -e developerConfig.officialContainerRegistry.fqdn)
 	tag=$$(git describe --tags)
-	scripts/build-images.sh --push --push-force --tag "$${tag}" --quiet --registry "$${registry}"
+	scripts/build-images.sh --push --push-force --helm --tag "$${tag}" --quiet --registry "$${registry}"
 
 publish-cli-tools:
 	./scripts/publish-binaries.sh --push --use-git-hash-as-tag

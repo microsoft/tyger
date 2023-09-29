@@ -27,7 +27,7 @@ import (
 var (
 	// set during build but we provide defaults so that there is some value when debugging
 	officialContainerRegistry string = "tyger.azurecr.io"
-	officialContainerImageTag string = "latest"
+	officialContainerImageTag string = "v0.1.0-19-g2d156b1"
 )
 
 func installTraefik(ctx context.Context, restConfigPromise *Promise[*rest.Config]) (any, error) {
@@ -41,11 +41,11 @@ func installTraefik(ctx context.Context, restConfigPromise *Promise[*rest.Config
 	log.Info().Msg("Installing Traefik")
 
 	traefikConfig := HelmChartConfig{
-		Name:         "traefik",
-		Namespace:    "traefik",
-		ChartRepo:    "https://helm.traefik.io/traefik",
-		ChartRef:     "traefik/traefik",
-		ChartVersion: "24.0.0",
+		RepoName:  "traefik",
+		Namespace: "traefik",
+		RepoUrl:   "https://helm.traefik.io/traefik",
+		ChartRef:  "traefik/traefik",
+		Version:   "24.0.0",
 		Values: map[string]any{
 			"logs": map[string]any{
 				"general": map[string]any{
@@ -106,11 +106,11 @@ func installCertManager(ctx context.Context, restConfigPromise *Promise[*rest.Co
 	log.Info().Msg("Installing cert-manager")
 
 	certManagerConfig := HelmChartConfig{
-		Name:         "jetstack",
-		Namespace:    "cert-manager",
-		ChartRepo:    "https://charts.jetstack.io",
-		ChartRef:     "jetstack/cert-manager",
-		ChartVersion: "v1.13.0",
+		Namespace: "cert-manager",
+		RepoName:  "jetstack",
+		RepoUrl:   "https://charts.jetstack.io",
+		ChartRef:  "jetstack/cert-manager",
+		Version:   "v1.13.0",
 		Values: map[string]any{
 			"installCRDs": true,
 		},
@@ -139,11 +139,11 @@ func installNvidiaDevicePlugin(ctx context.Context, restConfigPromise *Promise[*
 	log.Info().Msg("Installing nvidia-device-plugin")
 
 	nvdpConfig := HelmChartConfig{
-		Name:         "nvdp",
-		Namespace:    "nvidia-device-plugin",
-		ChartRepo:    "https://nvidia.github.io/k8s-device-plugin",
-		ChartRef:     "nvdp/nvidia-device-plugin",
-		ChartVersion: "0.14.1",
+		Namespace: "nvidia-device-plugin",
+		RepoName:  "nvdp",
+		RepoUrl:   "https://nvidia.github.io/k8s-device-plugin",
+		ChartRef:  "nvdp/nvidia-device-plugin",
+		Version:   "0.14.1",
 		Values: map[string]any{
 			"nodeSelector": map[string]any{
 				"kubernetes.azure.com/accelerator": "nvidia",
@@ -210,11 +210,9 @@ func InstallTyger(ctx context.Context) error {
 	}
 
 	helmConfig := HelmChartConfig{
-		Name:         "tyger",
-		Namespace:    TygerNamespace,
-		ChartRepo:    "",
-		ChartRef:     "tyger/tyger",
-		ChartVersion: "",
+		Namespace: TygerNamespace,
+		ChartRef:  fmt.Sprintf("oci://%s/helm/tyger", officialContainerRegistry),
+		Version:   officialContainerImageTag,
 		Values: map[string]any{
 			"server": map[string]any{
 				"image":              fmt.Sprintf("%s/tyger-server:%s", officialContainerRegistry, officialContainerImageTag),
@@ -328,8 +326,8 @@ func installHelmChart(
 		return fmt.Errorf("failed to create helm client: %w", err)
 	}
 
-	if helmChartConfig.ChartRepo != "" {
-		err = helmClient.AddOrUpdateChartRepo(repo.Entry{Name: helmChartConfig.Name, URL: helmChartConfig.ChartRepo})
+	if helmChartConfig.RepoUrl != "" {
+		err = helmClient.AddOrUpdateChartRepo(repo.Entry{Name: helmChartConfig.RepoName, URL: helmChartConfig.RepoUrl})
 		if err != nil {
 			return fmt.Errorf("failed to add helm repo: %w", err)
 		}
@@ -338,7 +336,7 @@ func installHelmChart(
 	chartSpec := helmclient.ChartSpec{
 		ReleaseName:     helmChartConfig.Namespace,
 		ChartName:       helmChartConfig.ChartRef,
-		Version:         helmChartConfig.ChartVersion,
+		Version:         helmChartConfig.Version,
 		Namespace:       helmChartConfig.Namespace,
 		CreateNamespace: true,
 		Wait:            true,

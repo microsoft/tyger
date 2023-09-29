@@ -77,10 +77,10 @@ type HelmConfig struct {
 }
 
 type HelmChartConfig struct {
-	Name         string         `json:"name"`
-	ChartRepo    string         `json:"chartRepo"`
-	ChartVersion string         `json:"chartVersion"`
-	ChartRef     string         `json:"chartRef"`
-	Namespace    string         `json:"namespace"`
-	Values       map[string]any `json:"values"`
+	RepoName  string
+	RepoUrl   string         `json:"repoUrl"`
+	Version   string         `json:"version"`
+	ChartRef  string         `json:"chartRef"`
+	Namespace string         `json:"namespace"`
+	Values    map[string]any `json:"values"`
 }

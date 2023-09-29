@@ -12,6 +12,7 @@ Usage: $0 [options]
 Options:
   -r, --registry                   The FQDN of container registry to push to.
   --test                           Build (and optionally push) test images, otherwise runtime images
+  --helm                           Package and push the Tyger Helm chart
   --push                           Push runtime images (requires --tag or --use-git-hash-as-tag)
   --push-force                     Force runtime images, will overwrite images with same tag (requires --tag or --use-git-hash-as-tag)
   --tag <tag>                      Tag for runtime images
@@ -33,6 +34,10 @@ while [[ $# -gt 0 ]]; do
     ;;
   --test)
     test=1
+    shift
+    ;;
+  --helm)
+    helm=1
     shift
     ;;
   --push)
@@ -130,4 +135,34 @@ else
   remote_repo="buffer-sidecar"
 
   build_and_push
+fi
+
+if [[ -n "${helm:-}" ]]; then
+  echo "logging in to ACR to publish helm chart..."
+  token=$(az acr login --name "${container_registry_fqdn}" --expose-token --output tsv --query accessToken --only-show-errors)
+  username="00000000-0000-0000-0000-000000000000"
+  echo "${token}" | docker login "${container_registry_fqdn}" -u "${username}" --password-stdin
+
+  helm_repo_namespace="oci://${container_registry_fqdn}/helm"
+  chart_dir=${repo_root_dir}/deploy/helm/tyger
+  package_dir=$(mktemp -d)
+
+  if [[ -z "${force:-}" ]]; then
+    # Check to see if this chart already exists in the registry
+    chart_already_exists=$(helm pull "${helm_repo_namespace}/tyger" --version "${image_tag}" --destination "${package_dir}" 2>/dev/null || true)
+    if [[ -n "$chart_already_exists" ]]; then
+      echo "Attempting to push an helm chart that already exists: ${image_tag}"
+      echo "Use \"--push-force\" to overwrite an existing chart"
+      rm -rf "${package_dir}"
+      exit 1
+    fi
+  fi
+
+  helm package "${chart_dir}" --destination "${package_dir}" --app-version "${image_tag}" --version "${image_tag}" >/dev/null
+  package_name=$(ls "${package_dir}")
+
+  echo "Pushing helm chart..."
+  helm push "${package_dir}/${package_name}" "${helm_repo_namespace}"
+
+  rm -rf "${package_dir}"
 fi
