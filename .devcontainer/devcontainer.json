@@ -52,8 +52,6 @@
           "build.buildFlags": ["-tags=integrationtest"]
         },
 
-        "indentRainbow.includedLanguages": ["yaml", "helm"],
-
         "shellcheck.customArgs": ["-x"],
         "shellcheck.useWorkspaceRootAsCwd": true,
 
@@ -87,7 +85,6 @@
         "ms-dotnettools.csharp",
         "ms-kubernetes-tools.vscode-kubernetes-tools",
         "ms-python.python",
-        "oderwat.indent-rainbow",
         "timonwong.shellcheck"
       ]
     }
@@ -105,6 +102,7 @@
   "remoteUser": "vscode",
   "overrideCommand": false,
   "onCreateCommand": ".devcontainer/devcontainer-on-create.sh",
+  "postAttachCommand": "make install-cli || true",
 
   "containerEnv": {
     "HOST_WORKSPACE_DIR": "${localWorkspaceFolder}", // The host's path to the repo's folder
