@@ -126,9 +126,6 @@ publish-official-images:
 	tag=$$(git describe --tags)
 	scripts/build-images.sh --push --push-force --helm --tag "$${tag}" --quiet --registry "$${registry}"
 
-publish-cli-tools:
-	./scripts/publish-binaries.sh --push --use-git-hash-as-tag
-
 up: ensure-environment-conditionally docker-build install-cli-tyger-only
 	repo_fqdn=$$(scripts/get-context-environment-config.sh -e developerConfig.wipContainerRegistry.fqdn)
 
