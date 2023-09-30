@@ -11,6 +11,7 @@ server:
     enabled: true
     authority:
     audience:
+    cliAppUri:
 
   hostname:
   tls:

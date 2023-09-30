@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -16,6 +18,7 @@ import (
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/cache"
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/confidential"
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/public"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"sigs.k8s.io/yaml"
@@ -23,7 +26,6 @@ import (
 
 const (
 	CacheFileEnvVarName                 = "TYGER_CACHE_FILE"
-	cliClientId                         = "d81fc78a-b30f-49ee-8697-54775895e218" // this needs to be the app ID and not the identifier URI, otherwise the refresh tokens will not work.
 	userScope                           = "Read.Write"
 	servicePrincipalScope               = ".default"
 	discardTokenIfExpiringWithinSeconds = 10 * 60
@@ -47,6 +49,8 @@ type AuthConfig struct {
 
 type serviceInfo struct {
 	ServerUri          string `json:"serverUri"`
+	ClientAppUri       string `json:"clientAppUri,omitempty"`
+	ClientId           string `json:"clientId,omitempty"`
 	LastToken          string `json:"lastToken,omitempty"`
 	LastTokenExpiry    int64  `json:"lastTokenExpiration,omitempty"`
 	Principal          string `json:"principal,omitempty"`
@@ -86,6 +90,7 @@ func Login(options AuthConfig) (ServiceInfo, error) {
 		ServerUri:      options.ServerUri,
 		Authority:      serviceMetadata.Authority,
 		Audience:       serviceMetadata.Audience,
+		ClientAppUri:   serviceMetadata.CliAppUri,
 		Principal:      options.ServicePrincipal,
 		CertPath:       options.CertificatePath,
 		CertThumbprint: options.CertificateThumbprint,
@@ -110,6 +115,16 @@ func Login(options AuthConfig) (ServiceInfo, error) {
 
 		if !useServicePrincipal {
 			si.Principal = authResult.IDToken.PreferredUsername
+
+			// We used the client app URI as the client ID when logging in interactively.
+			// This works, but the refresh token will only be valid for the client ID (GUID).
+			// So we need to extract the client ID from the access token and use that next time.
+			claims := jwt.MapClaims{}
+			if _, _, err := jwt.NewParser().ParseUnverified(authResult.AccessToken, claims); err != nil {
+				return nil, fmt.Errorf("unable to parse access token: %w", err)
+			} else {
+				si.ClientId = claims["appid"].(string)
+			}
 		}
 	}
 
@@ -155,11 +170,18 @@ func (c *serviceInfo) GetAccessToken() (string, error) {
 			return "", err
 		}
 	} else {
+		customHttpClient := &clientIdReplacingHttpClient{
+			clientAppUri: c.ClientAppUri,
+			clientAppId:  c.ClientId,
+			innerClient:  http.DefaultClient,
+		}
+
 		// fall back to using the refresh token from the cache
 		client, err := public.New(
-			cliClientId,
+			c.ClientAppUri,
 			public.WithAuthority(c.Authority),
 			public.WithCache(c),
+			public.WithHTTPClient(customHttpClient),
 		)
 
 		if err != nil {
@@ -356,7 +378,7 @@ func (si *serviceInfo) createServicePrincipalCredential() (confidential.Credenti
 
 func (si *serviceInfo) performUserLogin(useDeviceCode bool) (authResult public.AuthResult, err error) {
 	client, err := public.New(
-		cliClientId,
+		si.ClientAppUri,
 		public.WithAuthority(si.Authority),
 		public.WithCache(si),
 	)
@@ -416,7 +438,7 @@ func (si *serviceInfo) performUserLogin(useDeviceCode bool) (authResult public.A
 
 	var exitError *exec.ExitError
 	if errors.Is(err, exec.ErrNotFound) || errors.As(err, &exitError) {
-		// this means that we were not able to bring up the brower. Fall back to using the device code flow.
+		// this means that we were not able to bring up the browser. Fall back to using the device code flow.
 		return si.performUserLogin(true)
 	}
 
@@ -441,4 +463,35 @@ func (si *serviceInfo) Export(ctx context.Context, marshaler cache.Marshaler, hi
 	}
 
 	return err
+}
+
+type clientIdReplacingHttpClient struct {
+	innerClient  *http.Client
+	clientAppUri string
+	clientAppId  string
+}
+
+func (c *clientIdReplacingHttpClient) Do(req *http.Request) (*http.Response, error) {
+	if req.Method == http.MethodPost && c.clientAppId != "" && c.clientAppUri != "" {
+		// Replace the client_id in the form data with the client ID of the CLI app
+		// when POSTing to the token endpoint.
+		// We used the client app URI as the client ID when logging in interactively,
+		// but AAD requires the client ID when using the refresh token.
+		if err := req.ParseForm(); err == nil && req.PostForm != nil {
+			if clientId := req.PostForm.Get("client_id"); clientId == c.clientAppUri {
+				req.PostForm.Set("client_id", c.clientAppId)
+				enc := req.PostForm.Encode()
+				req.ContentLength = int64(len(enc))
+				req.Body = io.NopCloser(strings.NewReader(enc))
+				req.GetBody = func() (io.ReadCloser, error) {
+					return io.NopCloser(strings.NewReader(enc)), nil
+				}
+			}
+		}
+	}
+	return c.innerClient.Do(req)
+}
+
+func (c *clientIdReplacingHttpClient) CloseIdleConnections() {
+	c.innerClient.CloseIdleConnections()
 }

@@ -223,6 +223,7 @@ func InstallTyger(ctx context.Context) error {
 					"enabled":   true,
 					"authority": cloud.AzurePublic.ActiveDirectoryAuthorityHost + config.Api.Auth.TenantID,
 					"audience":  config.Api.Auth.ApiAppUri,
+					"cliAppUri": config.Api.Auth.CliAppUri,
 				},
 				"tls": map[string]any{
 					"letsEncrypt": map[string]any{

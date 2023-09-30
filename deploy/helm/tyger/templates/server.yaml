@@ -123,6 +123,8 @@ spec:
               value: {{ required "When server.security.enabled is true, a value for server.security.authority is required" $serverValues.security.authority }}
             - name: Auth__Audience
               value: {{ required "When server.security.enabled is true, a value for server.security.audience is required" $serverValues.security.audience }}
+            - name: Auth__CliAppUri
+              value: {{ required "When server.security.enabled is true, a value for server.security.cliAppUri is required" $serverValues.security.cliAppUri }}
           {{- end }}
             - name: Kubernetes__Namespace
               value: {{ .Release.Namespace }}

@@ -15,7 +15,7 @@ import (
 	"unsafe"
 
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/confidential"
-	"github.com/golang-jwt/jwt/v4"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"golang.org/x/sys/windows"
 )
@@ -230,16 +230,16 @@ func (m *rsaCngSiningMethod) Alg() string {
 	return jwt.SigningMethodRS256.Alg()
 }
 
-func (m *rsaCngSiningMethod) Sign(signingString string, key any) (string, error) {
+func (m *rsaCngSiningMethod) Sign(signingString string, key any) ([]byte, error) {
 	privateKey := key.(privateKeyHandle)
 	sig, err := signPayload([]byte(signingString), privateKey, crypto.SHA256)
 	if err != nil {
-		return "", fmt.Errorf("failed to sign payload: %w", err)
+		return nil, fmt.Errorf("failed to sign payload: %w", err)
 	}
 
-	return base64.RawURLEncoding.EncodeToString(sig), nil
+	return sig, nil
 }
 
-func (m *rsaCngSiningMethod) Verify(signingString, signature string, key any) error {
+func (m *rsaCngSiningMethod) Verify(signingString string, signature []byte, key any) error {
 	return errors.New("not implemented")
 }
