@@ -5,13 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
-	"os/exec"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/authorization/armauthorization"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice"
@@ -434,24 +433,41 @@ func getUserRESTConfig(ctx context.Context) (*rest.Config, error) {
 		return nil, err
 	}
 
-	tempKubeconfig, err := os.CreateTemp("", "kubeconfig")
-	if err != nil {
-		return nil, err
-	}
-	defer os.Remove(tempKubeconfig.Name())
-
-	if err := os.WriteFile(tempKubeconfig.Name(), []byte(credResp.Kubeconfigs[0].Value), 0600); err != nil {
-		return nil, err
-	}
-
-	if err := exec.Command("kubelogin", "convert-kubeconfig", "--login", "azurecli", "--kubeconfig", tempKubeconfig.Name()).Run(); err != nil {
-		return nil, err
-	}
-
-	kubeconfig, err := os.ReadFile(tempKubeconfig.Name())
+	kubeConfig, err := clientcmd.Load(credResp.Kubeconfigs[0].Value)
 	if err != nil {
 		return nil, err
 	}
 
-	return clientcmd.RESTConfigFromKubeConfig(kubeconfig)
+	// get a token and update the kubeconfig so that kebelogin does not need to be installed
+	authInfo := kubeConfig.AuthInfos[kubeConfig.Contexts[kubeConfig.CurrentContext].AuthInfo]
+	var serverId string
+	for i, v := range authInfo.Exec.Args {
+		if v == "--server-id" {
+			serverId = authInfo.Exec.Args[i+1]
+			break
+		}
+	}
+
+	if serverId == "" {
+		panic("Unable to understand kubeconfig command line args")
+	}
+
+	// Use the token provider to get a new token
+	cliAccessToken, err := cred.GetToken(context.Background(), policy.TokenRequestOptions{Scopes: []string{serverId}})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get token: %w", err)
+	}
+	if cliAccessToken.Token == "" {
+		return nil, errors.New("did not receive a token")
+	}
+
+	authInfo.Token = cliAccessToken.Token
+	authInfo.Exec = nil
+
+	bytes, err := clientcmd.Write(*kubeConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to write kubeconfig: %w", err)
+	}
+
+	return clientcmd.RESTConfigFromKubeConfig(bytes)
 }
