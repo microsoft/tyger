@@ -60,22 +60,41 @@ func Read(uri, proxyUri string, dop int, outputWriter io.Writer) {
 
 				blobUri := container.GetBlobUri(blobNumber)
 				ctx := log.Ctx(ctx).With().Int64("blobNumber", blobNumber).Logger().WithContext(ctx)
-				bytes, err := WaitForBlobAndDownload(ctx, NewClientWithLoggingContext(ctx, httpClient), blobUri, blobNumber, &finalBlobNumber)
+				respData, err := WaitForBlobAndDownload(ctx, NewClientWithLoggingContext(ctx, httpClient), blobUri, blobNumber, &finalBlobNumber)
 				if err != nil {
 					if err == errPastEndOfBlob {
 						break
 					}
 					log.Ctx(ctx).Fatal().Err(err).Msg("Error downloading blob")
 				}
-				metrics.Update(uint64(len(bytes)))
-				c <- BufferBlob{BlobNumber: blobNumber, Contents: bytes}
+				metrics.Update(uint64(len(respData.Data)))
+
+				md5Header := respData.Header.Get("Content-MD5")
+				md5ChainHeader := respData.Header.Get("x-ms-meta-cumulative_md5_chain")
+
+				calculatedMd5 := md5.Sum(respData.Data)
+
+				md5Bytes, _ := base64.StdEncoding.DecodeString(md5Header)
+				if !bytes.Equal(calculatedMd5[:], md5Bytes) {
+					log.Ctx(ctx).Fatal().Err(err).Msg("MD5 mismatch")
+				}
+
+				c <- BufferBlob{BlobNumber: blobNumber, Contents: respData.Data, EncodedMD5Hash: md5Header, EncodedMD5ChainHash: md5ChainHeader}
 			}
 		}()
 	}
 
 	lastTime := time.Now()
+	var expcetedBlobNumber int64 = 0
+	var encodedMD5HashChain string = EncodedMD5HashChainInitalValue
 	for c := range responseChannel {
 		blobResponse := <-c
+
+		if blobResponse.BlobNumber != expcetedBlobNumber {
+			log.Ctx(ctx).Fatal().Err(err).Msg("Blob number returned out of sequence")
+		}
+
+		expcetedBlobNumber++
 
 		if len(blobResponse.Contents) == 0 {
 			break
@@ -87,6 +106,13 @@ func Read(uri, proxyUri string, dop int, outputWriter io.Writer) {
 
 		pool.Put(blobResponse.Contents)
 
+		md5HashChain := md5.Sum([]byte(encodedMD5HashChain + blobResponse.EncodedMD5Hash))
+		encodedMD5HashChain = base64.StdEncoding.EncodeToString(md5HashChain[:])
+
+		if blobResponse.EncodedMD5ChainHash != encodedMD5HashChain {
+			log.Ctx(ctx).Fatal().Err(err).Msg("Hash chain mismatch")
+		}
+
 		timeNow := time.Now()
 		log.Ctx(ctx).Trace().Int64("blobNumber", blobResponse.BlobNumber).Dur("duration", timeNow.Sub(lastTime)).Msg("blob written to output")
 		lastTime = timeNow
@@ -95,7 +121,7 @@ func Read(uri, proxyUri string, dop int, outputWriter io.Writer) {
 	metrics.Stop()
 }
 
-func WaitForBlobAndDownload(ctx context.Context, httpClient *retryablehttp.Client, blobUri string, blobNumber int64, finalBlobNumber *int64) ([]byte, error) {
+func WaitForBlobAndDownload(ctx context.Context, httpClient *retryablehttp.Client, blobUri string, blobNumber int64, finalBlobNumber *int64) (*readData, error) {
 	// The last error that occurred relating to reading the body. retryablehttp does not retry when these happen
 	// because reading the body happens after the call to HttpClient.Do()
 	var lastBodyReadError *responseBodyReadError
@@ -120,18 +146,18 @@ func WaitForBlobAndDownload(ctx context.Context, httpClient *retryablehttp.Clien
 			return nil, RedactHttpError(err)
 		}
 
-		data, err := handleReadResponse(resp)
+		respData, err := handleReadResponse(ctx, resp)
 		if err == nil {
 			log.Ctx(ctx).Trace().
 				Int("contentLength", int(resp.ContentLength)).
 				Dur("duration", time.Since(start)).
 				Msg("Downloaded blob")
 
-			if len(data) == 0 {
+			if len(respData.Data) == 0 {
 				atomic.StoreInt64(finalBlobNumber, blobNumber)
 			}
 
-			return data, nil
+			return respData, nil
 		}
 		if err == ErrNotFound {
 			log.Ctx(ctx).Trace().Msg("Waiting for blob")
@@ -179,7 +205,12 @@ func WaitForBlobAndDownload(ctx context.Context, httpClient *retryablehttp.Clien
 	}
 }
 
-func handleReadResponse(resp *http.Response) ([]byte, error) {
+type readData struct {
+	Data   []byte
+	Header http.Header
+}
+
+func handleReadResponse(ctx context.Context, resp *http.Response) (*readData, error) {
 	defer resp.Body.Close()
 
 	switch resp.StatusCode {
@@ -198,20 +229,17 @@ func handleReadResponse(resp *http.Response) ([]byte, error) {
 			return nil, &responseBodyReadError{reason: err}
 		}
 
-		calculatedMd5 := md5.Sum(buf)
-
-		md5Header := resp.Header.Get("Content-MD5")
-		if md5Header == "" {
+		if resp.Header.Get("Content-MD5") == "" {
 			return nil, &responseBodyReadError{reason: errors.New("expected Content-MD5 header missing")}
 		}
 
-		md5Bytes, _ := base64.StdEncoding.DecodeString(md5Header)
-		if !bytes.Equal(calculatedMd5[:], md5Bytes) {
-			pool.Put(buf)
-			return nil, &responseBodyReadError{reason: errMd5Mismatch}
+		if resp.Header.Get("x-ms-meta-cumulative_md5_chain") == "" {
+			return nil, &responseBodyReadError{reason: errors.New("expected x-ms-meta-cumulative_md5_chain header missing")}
 		}
 
-		return buf, nil
+		response := readData{Data: buf, Header: resp.Header}
+
+		return &response, nil
 	case http.StatusNotFound:
 		io.Copy(io.Discard, resp.Body)
 		return nil, ErrNotFound
