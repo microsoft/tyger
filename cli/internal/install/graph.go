@@ -73,6 +73,7 @@ type aadAppPublicClient struct {
 
 type aadApp struct {
 	Id                     string                         `json:"id,omitempty"`
+	AppId                  string                         `json:"appId,omitempty"`
 	DisplayName            string                         `json:"displayName,omitempty"`
 	IdentifierUris         []string                       `json:"identifierUris,omitempty"`
 	SignInAudience         string                         `json:"signInAudience,omitempty"`
@@ -163,17 +164,58 @@ func executeGraphCall(ctx context.Context, method, url string, request, response
 	return nil
 }
 
+func GetServicePrincipalByAppId(ctx context.Context, appId string) (string, error) {
+	type responseType struct {
+		Value []struct {
+			Id string `json:"id"`
+		} `json:"value"`
+	}
+
+	response := responseType{}
+	if err := executeGraphCall(ctx, http.MethodGet, fmt.Sprintf("https://graph.microsoft.com/v1.0/servicePrincipals/?$filter=appId%%20eq%%20'%s'", appId), nil, &response); err != nil {
+		return "", fmt.Errorf("failed to get service principal by app id: %w", err)
+	}
+
+	if len(response.Value) == 0 {
+		return "", errNotFound
+	}
+
+	return response.Value[0].Id, nil
+}
+
 func GetServicePrincipalDisplayName(ctx context.Context, objectId string) (string, error) {
 	type responseType struct {
 		DisplayName string `json:"displayName"`
 	}
 
 	response := responseType{}
-	if err := executeGraphCall(ctx, http.MethodGet, fmt.Sprintf("https://graph.microsoft.com/v1.0/servicePrincipals/%s", objectId), nil, &response); err != nil {
+	if err := executeGraphCall(ctx, http.MethodGet, fmt.Sprintf("https://graph.microsoft.com/beta/servicePrincipals/%s", objectId), nil, &response); err != nil {
 		return "", fmt.Errorf("failed to get service principal details: %w", err)
 	}
 
 	return response.DisplayName, nil
+}
+
+func CreateServicePrincipal(ctx context.Context, appId string) (string, error) {
+	type requestType struct {
+		AppId string `json:"appId"`
+	}
+
+	type responseType struct {
+		Id string `json:"id"`
+	}
+
+	requestBody := requestType{
+		AppId: appId,
+	}
+
+	log.Info().Msgf("Creating service principal for app %s", appId)
+	response := responseType{}
+	if err := executeGraphCall(ctx, http.MethodPost, "https://graph.microsoft.com/beta/servicePrincipals", requestBody, &response); err != nil {
+		return "", fmt.Errorf("failed to create service principal: %w", err)
+	}
+
+	return response.Id, nil
 }
 
 func ObjectsIdToPrincipals(ctx context.Context, objectIds []string) ([]Principal, error) {

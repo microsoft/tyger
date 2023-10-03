@@ -55,5 +55,19 @@ func InstallIdentities(ctx context.Context) error {
 		return fmt.Errorf("failed to create or update CLI app: %w", err)
 	}
 
+	cliApp, err = GetAppByUri(ctx, config.Api.Auth.CliAppUri)
+	if err != nil {
+		return fmt.Errorf("failed to get CLI app: %w", err)
+	}
+
+	if _, err := GetServicePrincipalByAppId(ctx, cliApp.AppId); err != nil {
+		if err != errNotFound {
+			return fmt.Errorf("failed to get service principal for CLI app: %w", err)
+		}
+		if _, err := CreateServicePrincipal(ctx, cliApp.AppId); err != nil {
+			return fmt.Errorf("failed to create service principal for CLI app: %w", err)
+		}
+	}
+
 	return nil
 }
