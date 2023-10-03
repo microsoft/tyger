@@ -10,8 +10,8 @@ import (
 )
 
 var (
-	resourceNameRegex       = regexp.MustCompile(`^[a-z][a-z\-0-9]*$`)
-	storageAccountNameRegex = regexp.MustCompile(`^[a-z0-9]{3,24}$`)
+	ResourceNameRegex       = regexp.MustCompile(`^[a-z][a-z\-0-9]{1,23}$`)
+	StorageAccountNameRegex = regexp.MustCompile(`^[a-z0-9]{3,24}$`)
 )
 
 func QuickValidateEnvironmentConfig(config *EnvironmentConfig) bool {
@@ -19,8 +19,8 @@ func QuickValidateEnvironmentConfig(config *EnvironmentConfig) bool {
 
 	if config.EnvironmentName == "" {
 		validationError(&success, "The `environmentName` field is required")
-	} else if !resourceNameRegex.MatchString(config.EnvironmentName) {
-		validationError(&success, "The `environmentName` field must match the pattern "+resourceNameRegex.String())
+	} else if !ResourceNameRegex.MatchString(config.EnvironmentName) {
+		validationError(&success, "The `environmentName` field must match the pattern "+ResourceNameRegex.String())
 	}
 
 	quickValidateCloudConfig(&success, config)
@@ -46,8 +46,8 @@ func quickValidateCloudConfig(success *bool, environmentConfig *EnvironmentConfi
 
 	if cloudConfig.ResourceGroup == "" {
 		cloudConfig.ResourceGroup = environmentConfig.EnvironmentName
-	} else if !resourceNameRegex.MatchString(cloudConfig.ResourceGroup) {
-		validationError(success, "The `cloud.resourceGroup` field must match the pattern "+resourceNameRegex.String())
+	} else if !ResourceNameRegex.MatchString(cloudConfig.ResourceGroup) {
+		validationError(success, "The `cloud.resourceGroup` field must match the pattern "+ResourceNameRegex.String())
 	}
 
 	quickValidateComputeConfig(success, cloudConfig)
@@ -70,8 +70,8 @@ func quickValidateComputeConfig(success *bool, cloudConfig *CloudConfig) {
 	for _, cluster := range computeConfig.Clusters {
 		if cluster.Name == "" {
 			validationError(success, "The `name` field is required on a cluster")
-		} else if !resourceNameRegex.MatchString(cluster.Name) {
-			validationError(success, "The cluster `name` field must match the pattern "+resourceNameRegex.String())
+		} else if !ResourceNameRegex.MatchString(cluster.Name) {
+			validationError(success, "The cluster `name` field must match the pattern "+ResourceNameRegex.String())
 		} else {
 			if _, ok := clusterNames[cluster.Name]; ok {
 				validationError(success, "Cluster names must be unique")
@@ -89,8 +89,8 @@ func quickValidateComputeConfig(success *bool, cloudConfig *CloudConfig) {
 		for _, np := range cluster.UserNodePools {
 			if np.Name == "" {
 				validationError(success, "The `name` field is required on a node pool")
-			} else if !resourceNameRegex.MatchString(np.Name) {
-				validationError(success, "The node pool `name` field must match the pattern "+resourceNameRegex.String())
+			} else if !ResourceNameRegex.MatchString(np.Name) {
+				validationError(success, "The node pool `name` field must match the pattern "+ResourceNameRegex.String())
 			}
 
 			if np.VMSize == "" {
@@ -147,8 +147,8 @@ func quickValidateStorageConfig(success *bool, cloudConfig *CloudConfig) {
 func quickValidateStorageAccountConfig(success *bool, cloudConfig *CloudConfig, path string, storageConfig *StorageAccountConfig) {
 	if storageConfig.Name == "" {
 		validationError(success, "The `%s.name` field is required", path)
-	} else if !storageAccountNameRegex.MatchString(storageConfig.Name) {
-		validationError(success, "The `%s.name` field must match the pattern "+storageAccountNameRegex.String())
+	} else if !StorageAccountNameRegex.MatchString(storageConfig.Name) {
+		validationError(success, "The `%s.name` field must match the pattern "+StorageAccountNameRegex.String())
 	}
 
 	if storageConfig.Location == "" {
@@ -171,6 +171,14 @@ func quickValidateStorageAccountConfig(success *bool, cloudConfig *CloudConfig, 
 	}
 }
 
+func GetDomainNameSuffix(location string) string {
+	return fmt.Sprintf(".%s.cloudapp.azure.com", location)
+}
+
+func GetDomainNameRegex(location string) *regexp.Regexp {
+	return regexp.MustCompile(fmt.Sprintf(`^[a-zA-Z]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?%s$`, regexp.QuoteMeta(GetDomainNameSuffix(location))))
+}
+
 func quickValidateApiConfig(success *bool, environmentConfig *EnvironmentConfig) {
 	apiConfig := environmentConfig.Api
 	if apiConfig == nil {
@@ -182,7 +190,7 @@ func quickValidateApiConfig(success *bool, environmentConfig *EnvironmentConfig)
 		apiHostCluster := environmentConfig.Cloud.Compute.GetApiHostCluster()
 		if apiHostCluster.Location != "" {
 			apiHostLocation := environmentConfig.Cloud.Compute.GetApiHostCluster().Location
-			domainNameRegex := regexp.MustCompile(fmt.Sprintf(`^[a-zA-Z]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.%s.cloudapp.azure.com$`, apiHostLocation))
+			domainNameRegex := GetDomainNameRegex(apiHostLocation)
 			if !domainNameRegex.MatchString(apiConfig.DomainName) {
 				validationError(success, "The `api.domainName` field must match the pattern "+domainNameRegex.String())
 			}

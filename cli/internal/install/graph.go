@@ -75,6 +75,19 @@ func executeGraphCall(ctx context.Context, method, url string, request, response
 	return nil
 }
 
+func GetServicePrincipalDisplayName(ctx context.Context, objectId string) (string, error) {
+	type responseType struct {
+		DisplayName string `json:"displayName"`
+	}
+
+	response := responseType{}
+	if err := executeGraphCall(ctx, http.MethodGet, fmt.Sprintf("https://graph.microsoft.com/v1.0/servicePrincipals/%s", objectId), nil, &response); err != nil {
+		return "", fmt.Errorf("failed to get service principal details: %w", err)
+	}
+
+	return response.DisplayName, nil
+}
+
 func ObjectsIdToPrincipals(ctx context.Context, objectIds []string) ([]Principal, error) {
 	type requestType struct {
 		Ids []string `json:"ids"`

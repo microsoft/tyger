@@ -28,7 +28,7 @@
       "mode": "auto",
       "program": "cli/cmd/tyger",
       "cwd": "${workspaceFolder}",
-      "args": ["install", "api"]
+      "args": ["config", "create"]
     }
   ]
 }

@@ -1,5 +1,14 @@
 package install
 
+import (
+	_ "embed"
+	"io"
+	"text/template"
+)
+
+//go:embed config.tpl
+var configTemplate string
+
 type EnvironmentConfig struct {
 	EnvironmentName string       `json:"environmentName"`
 	Cloud           *CloudConfig `json:"cloud"`
@@ -77,10 +86,32 @@ type HelmConfig struct {
 }
 
 type HelmChartConfig struct {
-	RepoName  string
+	RepoName  string         `json:"repoName"`
 	RepoUrl   string         `json:"repoUrl"`
 	Version   string         `json:"version"`
 	ChartRef  string         `json:"chartRef"`
 	Namespace string         `json:"namespace"`
 	Values    map[string]any `json:"values"`
+}
+
+type ConfigTemplateValues struct {
+	EnvironmentName          string
+	TenantId                 string
+	SubscriptionId           string
+	DefaultLocation          string
+	CurrentUserId            string
+	CurrentUserDisplayName   string
+	BufferStorageAccountName string
+	LogsStorageAccountName   string
+	DomainName               string
+	ApiTenantId              string
+}
+
+func RenderConfig(templateValues *ConfigTemplateValues, writer io.Writer) error {
+	t, err := template.New("config").Parse(configTemplate)
+	if err != nil {
+		panic(err)
+	}
+
+	return t.Execute(writer, templateValues)
 }
