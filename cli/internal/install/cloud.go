@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armsubscriptions"
 	"github.com/fatih/color"
@@ -163,7 +163,7 @@ func createPromises(ctx context.Context, config *EnvironmentConfig) PromiseGroup
 	return *group
 }
 
-func GetSubscriptionId(ctx context.Context, subName string, cred *azidentity.DefaultAzureCredential) (string, error) {
+func GetSubscriptionId(ctx context.Context, subName string, cred azcore.TokenCredential) (string, error) {
 	lowerSubName := strings.ToLower(subName)
 	c, err := armsubscriptions.NewClient(cred, nil)
 	if err != nil {

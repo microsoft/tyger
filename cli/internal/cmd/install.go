@@ -302,8 +302,8 @@ func newInstallIdentitiesCommand() *cobra.Command {
 }
 
 func loginAndValidateSubscription(ctx context.Context) (context.Context, error) {
-	cred, err := azidentity.NewDefaultAzureCredential(
-		&azidentity.DefaultAzureCredentialOptions{
+	cred, err := azidentity.NewAzureCLICredential(
+		&azidentity.AzureCLICredentialOptions{
 			AdditionallyAllowedTenants: []string{"*"},
 		})
 	if err != nil {
