@@ -46,6 +46,7 @@ func NewInstallCommand(parentCommand *cobra.Command) *cobra.Command {
 
 	installCmd.AddCommand(newInstallCloudCommand())
 	installCmd.AddCommand(newInstallApiCommand())
+	installCmd.AddCommand(newInstallIdentitiesCommand())
 
 	installCmd.PersistentFlags().StringVarP(&configPath, "file", "f", "", "path to config file")
 	installCmd.PersistentFlags().StringToStringVar(&setOverrides, "set", nil, "override config values (e.g. --set cloud.subscriptionID=1234 --set cloud.resourceGroup=foo)")
@@ -253,6 +254,47 @@ func newUninstallApiCommand() *cobra.Command {
 				os.Exit(1)
 			}
 			log.Info().Msg("Uninstall complete")
+		},
+	}
+
+	return cmd
+}
+
+func newInstallIdentitiesCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:                   "identities",
+		Short:                 "Install Entra ID identities",
+		Long:                  "Install Entra ID identities",
+		DisableFlagsInUseLine: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			config := install.GetConfigFromContext(cmd.Context())
+			cred, err := azidentity.NewAzureCLICredential(&azidentity.AzureCLICredentialOptions{TenantID: config.Api.Auth.TenantID})
+			if err != nil {
+				return err
+			}
+			ctx := cmd.Context()
+			for {
+				ctx = install.SetAzureCredentialOnContext(ctx, cred)
+				if _, err := install.GetGraphToken(ctx); err != nil {
+					fmt.Printf("Run 'az login --tenant %s --allow-no-subscriptions' from another terminal window.\nPress any key when ready...\n\n", config.Api.Auth.TenantID)
+					getSingleKey()
+					continue
+				}
+				break
+			}
+
+			log.Info().Msg("Starting identities install")
+
+			if err := install.InstallIdentities(ctx); err != nil {
+				if err != install.ErrAlreadyLoggedError {
+					log.Fatal().Err(err).Send()
+				}
+				os.Exit(1)
+			}
+
+			log.Info().Msg("Install complete")
+
+			return nil
 		},
 	}
 

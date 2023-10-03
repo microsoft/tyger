@@ -108,10 +108,7 @@ func newConfigCreateCommand() *cobra.Command {
 					if err != nil {
 						if err == errNotLoggedIn {
 							fmt.Printf("You are not logged in to Azure. Please run `az login` in another terminal window.\nPress any key to continue when ready...\n\n")
-							_, _, err := keyboard.GetSingleKey()
-							if err != nil {
-								panic(err)
-							}
+							getSingleKey()
 							continue
 						}
 						return err
@@ -130,10 +127,7 @@ func newConfigCreateCommand() *cobra.Command {
 				}
 
 				fmt.Printf("Please run `az login` in another terminal window.\nPress any key to continue when ready...\n\n")
-				_, _, err = keyboard.GetSingleKey()
-				if err != nil {
-					panic(err)
-				}
+				getSingleKey()
 			}
 
 			templateValues.TenantId, err = chooseTenant(cred, "Select the tenant associated with the subscription:", false)
@@ -155,10 +149,7 @@ func newConfigCreateCommand() *cobra.Command {
 					if strings.Contains(err.Error(), "AADSTS50076") {
 						// MFA is required
 						fmt.Printf("Run 'az login --tenant %s' in another terminal window to explicitly login to this tenant.\nPress any key when ready...\n\n", templateValues.TenantId)
-						_, _, err := keyboard.GetSingleKey()
-						if err != nil {
-							panic(err)
-						}
+						getSingleKey()
 						continue
 					}
 					return err
@@ -210,10 +201,7 @@ func newConfigCreateCommand() *cobra.Command {
 
 					if res == "other" {
 						fmt.Printf("Run 'az login' in another terminal window.\nPress any key when ready...\n\n")
-						_, _, err := keyboard.GetSingleKey()
-						if err != nil {
-							panic(err)
-						}
+						getSingleKey()
 						continue
 					} else {
 						templateValues.ApiTenantId = res
@@ -236,7 +224,7 @@ func newConfigCreateCommand() *cobra.Command {
 				return fmt.Errorf("failed to write config file: %w", err)
 			}
 
-			fmt.Println("Config file written to ", configPath)
+			fmt.Println("Config file written to", configPath)
 			return nil
 		},
 	}
@@ -443,4 +431,14 @@ func prompt(question, initialValue string, validationRegex *regexp.Regexp) (stri
 
 	defer fmt.Println()
 	return input.RunPrompt()
+}
+
+func getSingleKey() {
+	_, key, err := keyboard.GetSingleKey()
+	if err != nil {
+		panic(err)
+	}
+	if key == keyboard.KeyCtrlC {
+		os.Exit(1)
+	}
 }

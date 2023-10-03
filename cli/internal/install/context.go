@@ -3,8 +3,8 @@ package install
 import (
 	"context"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
-	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 )
 
 type configContextKeyType int
@@ -23,11 +23,11 @@ func SetConfigOnContext(ctx context.Context, config *EnvironmentConfig) context.
 	return context.WithValue(ctx, configKey, config)
 }
 
-func GetAzureCredentialFromContext(ctx context.Context) *azidentity.DefaultAzureCredential {
-	return ctx.Value(azureCredentialKey).(*azidentity.DefaultAzureCredential)
+func GetAzureCredentialFromContext(ctx context.Context) azcore.TokenCredential {
+	return ctx.Value(azureCredentialKey).(azcore.TokenCredential)
 }
 
-func SetAzureCredentialOnContext(ctx context.Context, cred *azidentity.DefaultAzureCredential) context.Context {
+func SetAzureCredentialOnContext(ctx context.Context, cred azcore.TokenCredential) context.Context {
 	return context.WithValue(ctx, azureCredentialKey, cred)
 }
 
