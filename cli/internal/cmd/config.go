@@ -33,8 +33,8 @@ var (
 func NewConfigCommand(parentCommand *cobra.Command) *cobra.Command {
 	installCmd := &cobra.Command{
 		Use:                   "config",
-		Short:                 "Manage Tyger configuration",
-		Long:                  "Manage Tyger configuration",
+		Short:                 "Manage the Tyger configuration file",
+		Long:                  "Manage the Tyger configuration file",
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error {

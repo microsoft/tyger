@@ -120,6 +120,64 @@ func CreateOrUpdateAppByUri(ctx context.Context, app aadApp) (objectId string, e
 	return existingApp.Id, nil
 }
 
+func ObjectsIdToPrincipals(ctx context.Context, objectIds []string) ([]Principal, error) {
+	type requestType struct {
+		Ids []string `json:"ids"`
+	}
+
+	type responseValueType struct {
+		Type string `json:"@odata.type"`
+		Id   string `json:"id"`
+	}
+
+	type responseType struct {
+		Value []responseValueType `json:"value"`
+	}
+
+	requestBody := requestType{
+		Ids: objectIds,
+	}
+
+	var responseBody responseType
+	err := executeGraphCall(ctx, http.MethodPost, "https://graph.microsoft.com/v1.0/directoryObjects/getByIds", requestBody, &responseBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get principal types: %w", err)
+	}
+
+	principals := make([]Principal, len(objectIds))
+	for i, inputId := range objectIds {
+		inputId = strings.ToLower(inputId)
+		var principal *Principal
+		for _, value := range responseBody.Value {
+			if inputId == strings.ToLower(value.Id) {
+				var kind PrincipalKind
+				switch value.Type {
+				case "#microsoft.graph.user":
+					kind = PrincipalKindUser
+				case "#microsoft.graph.group":
+					kind = PrincipalKindGroup
+				case "#microsoft.graph.servicePrincipal":
+					kind = PrincipalKindServicePrincipal
+				default:
+					return nil, fmt.Errorf("unknown principal type %s", value.Type)
+				}
+
+				principal = &Principal{
+					Id:   value.Id,
+					Kind: kind,
+				}
+				break
+			}
+		}
+		if principal == nil {
+			return nil, fmt.Errorf("no principal found for object id %s", inputId)
+		}
+		principals[i] = *principal
+	}
+
+	return principals, nil
+}
+
 func executeGraphCall(ctx context.Context, method, url string, request, response any) error {
 	var requestBodyReader io.Reader
 	if request != nil {
@@ -216,62 +274,4 @@ func CreateServicePrincipal(ctx context.Context, appId string) (string, error) {
 	}
 
 	return response.Id, nil
-}
-
-func ObjectsIdToPrincipals(ctx context.Context, objectIds []string) ([]Principal, error) {
-	type requestType struct {
-		Ids []string `json:"ids"`
-	}
-
-	type responseValueType struct {
-		Type string `json:"@odata.type"`
-		Id   string `json:"id"`
-	}
-
-	type responseType struct {
-		Value []responseValueType `json:"value"`
-	}
-
-	requestBody := requestType{
-		Ids: objectIds,
-	}
-
-	var responseBody responseType
-	err := executeGraphCall(ctx, http.MethodPost, "https://graph.microsoft.com/v1.0/directoryObjects/getByIds", requestBody, &responseBody)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get principal types: %w", err)
-	}
-
-	principals := make([]Principal, len(objectIds))
-	for i, inputId := range objectIds {
-		inputId = strings.ToLower(inputId)
-		var principal *Principal
-		for _, value := range responseBody.Value {
-			if inputId == strings.ToLower(value.Id) {
-				var kind PrincipalKind
-				switch value.Type {
-				case "#microsoft.graph.user":
-					kind = PrincipalKindUser
-				case "#microsoft.graph.group":
-					kind = PrincipalKindGroup
-				case "#microsoft.graph.servicePrincipal":
-					kind = PrincipalKindServicePrincipal
-				default:
-					return nil, fmt.Errorf("unknown principal type %s", value.Type)
-				}
-
-				principal = &Principal{
-					Id:   value.Id,
-					Kind: kind,
-				}
-				break
-			}
-		}
-		if principal == nil {
-			return nil, fmt.Errorf("no principal found for object id %s", inputId)
-		}
-		principals[i] = *principal
-	}
-
-	return principals, nil
 }

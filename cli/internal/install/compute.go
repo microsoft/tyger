@@ -12,8 +12,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
-	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/authorization/armauthorization"
-	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/authorization/armauthorization/v2"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v4"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
@@ -76,7 +76,7 @@ func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (any, erro
 			MinCount:          Ptr(int32(1)),
 			MaxCount:          Ptr(int32(3)),
 			OSType:            Ptr(armcontainerservice.OSTypeLinux),
-			OSSKU:             Ptr(armcontainerservice.OSSKU("AzureLinux")),
+			OSSKU:             Ptr(armcontainerservice.OSSKUAzureLinux),
 		},
 	}
 
@@ -90,7 +90,7 @@ func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (any, erro
 			MinCount:          &np.MinCount,
 			MaxCount:          &np.MaxCount,
 			OSType:            Ptr(armcontainerservice.OSTypeLinux),
-			OSSKU:             Ptr(armcontainerservice.OSSKU("AzureLinux")),
+			OSSKU:             Ptr(armcontainerservice.OSSKUAzureLinux),
 			NodeLabels: map[string]*string{
 				"tyger": Ptr("run"),
 			},
