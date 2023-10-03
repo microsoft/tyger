@@ -5,7 +5,8 @@ SHELL = /bin/bash
 .DEFAULT_GOAL := full
 
 # trick to lazily evaluate this at most once: https://make.mad-scientist.net/deferred-simple-variable-expansion/
-ENVIRONMENT_CONFIG_JSON = $(eval ENVIRONMENT_CONFIG := $$(shell scripts/get-context-environment-config.sh -o json | jq -c))$(if $(ENVIRONMENT_CONFIG),$(ENVIRONMENT_CONFIG),$(error "get-context-environment-config.sh failed"))
+ENVIRONMENT_CONFIG_JSON = $(eval ENVIRONMENT_CONFIG_JSON := $$(shell scripts/get-context-environment-config.sh -o json | jq -c))$(if $(ENVIRONMENT_CONFIG_JSON),$(ENVIRONMENT_CONFIG_JSON),$(error "get-context-environment-config.sh failed"))
+DEVELOPER_CONFIG_JSON = $(eval DEVELOPER_CONFIG_JSON := $$(shell scripts/get-context-environment-config.sh -e developerConfig -o json | jq -c))$(if $(DEVELOPER_CONFIG_JSON),$(DEVELOPER_CONFIG_JSON),$(error "get-context-environment-config.sh failed"))
 
 SERVER_PATH=server/Tyger.Server
 SECURITY_ENABLED=true
@@ -186,39 +187,49 @@ check-forwarding:
 		exit 1
 	fi
 
+
 download-test-client-cert:
-	developer_config=$$(scripts/get-context-environment-config.sh -e developerConfig -o json)
-	cert_version=$$(echo "$${developer_config}" | jq -r '.pemCertSecret.version')
+	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.version')
 	cert_path=$${HOME}/tyger_test_client_cert_$${cert_version}.pem
-	if [[ ! -f $${cert_path} ]]; then
-		rm -f $${cert_path}
+	if [[ ! -f "$${cert_path}" ]]; then
+		rm -f "$${cert_path}"
 		subscription=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | yq '.cloud.subscriptionId')
-		vault_name=$$(echo "$${developer_config}" | jq -r '.keyVault')
-		cert_name=$$(echo "$${developer_config}" | jq -r '.pemCertSecret.name')
-		cert_version=$$(echo "$${developer_config}" | jq -r '.pemCertSecret.version')
+		vault_name=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.keyVault')
+		cert_name=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.name')
+		cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.version')
 		az keyvault secret download --vault-name "$${vault_name}" --name "$${cert_name}" --version "$${cert_version}" --file "$${cert_path}" --subscription "$${subscription}"
 		chmod 600 "$${cert_path}"
 	fi
 
 check-test-client-cert:
+	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}'' | jq -r '.pemCertSecret.version')
+	cert_path=$${HOME}/tyger_test_client_cert_$${cert_version}.pem
 	[ -f ${TEST_CLIENT_CERT_FILE} ]
 
 get-tyger-uri:
 	echo ${TYGER_URI}
 
 login-service-principal: install-cli download-test-client-cert
+	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.version')
+	cert_path=$${HOME}/tyger_test_client_cert_$${cert_version}.pem
+	test_app_uri=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.testAppUri')
+
 	tyger login -f <(cat <<EOF
 	serverUri: ${TYGER_URI}
-	servicePrincipal: ${TEST_CLIENT_IDENTIFIER_URI}
-	certificatePath: ${TEST_CLIENT_CERT_FILE}
+	servicePrincipal: $${test_app_uri}
+	certificatePath: $${cert_path}
 	EOF
 	)
 
 start-proxy: install-cli download-test-client-cert
+	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.version')
+	cert_path=$${HOME}/tyger_test_client_cert_$${cert_version}.pem
+	test_app_uri=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.testAppUri')
+
 	tyger-proxy start -f <(cat <<EOF
 	serverUri: ${TYGER_URI}
-	servicePrincipal: ${TEST_CLIENT_IDENTIFIER_URI}
-	certificatePath: ${TEST_CLIENT_CERT_FILE}
+	servicePrincipal: $${test_app_uri}
+	certificatePath: $${cert_path}
 	allowedClientCIDRs: $$(hostname -i | awk '{print $$1"/32"}' | jq -c -R --slurp 'split("\n")[:-1]')
 	logPath: "/tmp/tyger-proxy"
 	EOF
