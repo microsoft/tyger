@@ -85,7 +85,7 @@ jobs:
           set -eo pipefail
           source /opt/conda/etc/profile.d/conda.sh
           conda activate /opt/conda/envs/tyger
-          export TYGER_ENVIRONMENT_CONFIG_DIR="${GITHUB_WORKSPACE}/deploy/config/dev/ci"
+          export TYGER_ENVIRONMENT_CONFIG_DIR="${GITHUB_WORKSPACE}/deploy/config/microsoft/ci"
           echo "TYGER_ENVIRONMENT_CONFIG_DIR=$TYGER_ENVIRONMENT_CONFIG_DIR"
 
           # We have mounted this location in the container, it is identical to the checkout location
@@ -127,7 +127,7 @@ jobs:
           conda activate /opt/conda/envs/tyger
 
           # Point to scale-to-zero config
-          export TYGER_ENVIRONMENT_CONFIG_DIR="${GITHUB_WORKSPACE}/deploy/config/dev"
+          export TYGER_ENVIRONMENT_CONFIG_DIR="${GITHUB_WORKSPACE}/deploy/config/microsoft"
 
           echo "scaling cluster back down"
           make ensure-environment
