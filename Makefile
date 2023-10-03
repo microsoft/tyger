@@ -18,15 +18,15 @@ INSTALL_CLOUD=false
 get-environment-config:
 	echo '${ENVIRONMENT_CONFIG_JSON}' | yq -P
 
-ensure-environment: install-cli-tyger-only
+ensure-environment: install-cli
 	tyger install cloud -f <(scripts/get-context-environment-config.sh)
 
-ensure-environment-conditionally: install-cli-tyger-only
+ensure-environment-conditionally: install-cli
 	if [[ "${INSTALL_CLOUD}" == "true" ]]; then
 		tyger install cloud -f <(scripts/get-context-environment-config.sh)
 	fi
 
-remove-environment: install-cli-tyger-only
+remove-environment: install-cli
 	tyger uninstall cloud -f <(scripts/get-context-environment-config.sh)
 
 # Sets up the az subscription and kubectl config for the current environment
@@ -104,7 +104,7 @@ run: check-forwarding set-localsettings
 	cd ${SERVER_PATH}
 	dotnet run -v m --no-restore
 
-watch: check-rding set-localsettings
+watch: check-forwarding set-localsettings
 	cd ${SERVER_PATH}
 	dotnet watch
 
@@ -127,7 +127,7 @@ publish-official-images:
 	tag=$$(git describe --tags)
 	scripts/build-images.sh --push --push-force --helm --tag "$${tag}" --quiet --registry "$${registry}"
 
-up: ensure-environment-conditionally docker-build install-cli-tyger-only
+up: ensure-environment-conditionally docker-build install-cli
 	repo_fqdn=$$(scripts/get-context-environment-config.sh -e developerConfig.wipContainerRegistry.fqdn)
 
 	tyger_server_image="$$(docker inspect "$${repo_fqdn}/tyger-server:dev" | jq -r --arg repo "$${repo_fqdn}/tyger-server" '.[0].RepoDigests[] | select (startswith($$repo))')"
@@ -142,7 +142,7 @@ up: ensure-environment-conditionally docker-build install-cli-tyger-only
 		--set api.helm.tyger.values.server.bufferSidecarImage="$${buffer_sidecar_image}" \
 		--set api.helm.tyger.values.server.workerWaiterImage="$${worker_waiter_image}"
 
-down: install-cli-tyger-only
+down: install-cli
 	tyger uninstall api -f <(scripts/get-context-environment-config.sh)
 
 integration-test-no-up-prereqs: docker-build-test
@@ -241,17 +241,14 @@ kill-proxy:
 login: install-cli download-test-client-cert
 	tyger login "${TYGER_URI}"	
 
-install-cli-tyger-only:
+install-cli:
 	official_container_registry=$$(scripts/get-context-environment-config.sh -e developerConfig.officialContainerRegistry.fqdn)
 	cd cli
-	tag=$$(git describe --tags)
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go install -ldflags="-s -w -X main.version=$${tag} -X github.com/microsoft/tyger/cli/internal/install.officialContainerRegistry=$${official_container_registry}" ./cmd/tyger
-
-install-cli: install-cli-tyger-only
-	official_container_registry=$$(scripts/get-context-environment-config.sh -e developerConfig.officialContainerRegistry.fqdn)
-	cd cli
-	tag=$$(git describe --tags)
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go install -ldflags="-s -w -X main.version=$${tag} -X github.com/microsoft/tyger/cli/internal/install.officialContainerRegistry=$${official_container_registry}" ./cmd/tyger ./cmd/buffer-sidecar ./cmd/tyger-proxy
+	tag=$$(git describe --tags 2> /dev/null || echo "0.0.0")
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go install -ldflags="-s -w \
+		-X main.version=$${tag} \
+		-X github.com/microsoft/tyger/cli/internal/install.officialContainerRegistry=$${official_container_registry}" \
+		./cmd/tyger ./cmd/buffer-sidecar ./cmd/tyger-proxy
 
 cli-ready: install-cli
 	if ! tyger login status &> /dev/null; then

@@ -6,7 +6,7 @@ import (
 	"text/template"
 )
 
-//go:embed config.tmpl
+//go:embed config.tpl
 var configTemplate string
 
 type EnvironmentConfig struct {

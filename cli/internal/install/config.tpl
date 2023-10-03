@@ -8,7 +8,7 @@ cloud:
 
   compute:
     clusters:
-      - name: jostairs
+      - name: {{ .EnvironmentName }}
         apiHost: true
         # location: Defaults to defaultLocation
 

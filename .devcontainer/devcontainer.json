@@ -102,7 +102,6 @@
   "remoteUser": "vscode",
   "overrideCommand": false,
   "onCreateCommand": ".devcontainer/devcontainer-on-create.sh",
-  "postAttachCommand": "make install-cli || true",
 
   "containerEnv": {
     "HOST_WORKSPACE_DIR": "${localWorkspaceFolder}", // The host's path to the repo's folder
