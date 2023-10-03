@@ -35,6 +35,20 @@ func InstallIdentities(ctx context.Context) error {
 		return fmt.Errorf("failed to create or update server app: %w", err)
 	}
 
+	serverApp, err = GetAppByUri(ctx, config.Api.Auth.ApiAppUri)
+	if err != nil {
+		return fmt.Errorf("failed to get server app: %w", err)
+	}
+
+	if _, err := GetServicePrincipalByAppId(ctx, serverApp.AppId); err != nil {
+		if err != errNotFound {
+			return fmt.Errorf("failed to get service principal for server app: %w", err)
+		}
+		if _, err := CreateServicePrincipal(ctx, serverApp.AppId); err != nil {
+			return fmt.Errorf("failed to create service principal for server app: %w", err)
+		}
+	}
+
 	cliApp := aadApp{
 		DisplayName:    "Tyger CLI",
 		IdentifierUris: []string{config.Api.Auth.CliAppUri},
@@ -49,6 +63,13 @@ func InstallIdentities(ctx context.Context) error {
 				},
 			},
 		},
+		IsFallbackPublicClient: true,
+		PublicClient: &aadAppPublicClient{
+			RedirectUris: []string{
+				"http://localhost",
+			},
+		},
+		SignInAudience: "AzureADMyOrg",
 	}
 
 	if _, err := CreateOrUpdateAppByUri(ctx, cliApp); err != nil {
