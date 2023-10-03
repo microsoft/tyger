@@ -23,7 +23,7 @@ import (
 
 const (
 	CacheFileEnvVarName                 = "TYGER_CACHE_FILE"
-	cliClientId                         = "d81fc78a-b30f-49ee-8697-54775895e218" // this needs to be the app ID and not the identifier URI, otherwise the refresh tokens will not work.
+	cliClientId                         = "f13d0630-3b5f-4a9f-aafa-34bd3bb6062b" // this needs to be the app ID and not the identifier URI, otherwise the refresh tokens will not work.
 	userScope                           = "Read.Write"
 	servicePrincipalScope               = ".default"
 	discardTokenIfExpiringWithinSeconds = 10 * 60
