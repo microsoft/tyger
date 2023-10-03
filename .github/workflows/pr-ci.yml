@@ -37,6 +37,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v3
+        with:
+          fetch-tags: true
 
       - name: Set variables
         id: set-variables
@@ -139,6 +141,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
+        with:
+          fetch-tags: true
 
       - name: Download artifacts
         uses: actions/download-artifact@v2
@@ -183,6 +187,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
+        with:
+          fetch-tags: true
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v2
