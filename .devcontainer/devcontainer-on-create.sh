@@ -21,5 +21,3 @@ if [ -d "/home/.host/.azure/" ]; then
     # logged in on the host.
     cp -r /home/.host/.azure/ ~/.azure/
 fi
-
-make install-cli || true

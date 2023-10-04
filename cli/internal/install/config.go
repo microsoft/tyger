@@ -26,7 +26,7 @@ type CloudConfig struct {
 
 type ComputeConfig struct {
 	Clusters                   []*ClusterConfig `json:"clusters"`
-	ManagementPrincipals       []Principal      `json:"managementPrincipals"`
+	ManagementPrincipals       []Principal      `apjson:"managementPrincipals"`
 	PrivateContainerRegistries []string         `json:"privateContainerRegistries"`
 }
 
@@ -109,6 +109,7 @@ type HelmChartConfig struct {
 
 type ConfigTemplateValues struct {
 	EnvironmentName          string
+	ResourceGroup            string
 	TenantId                 string
 	SubscriptionId           string
 	DefaultLocation          string

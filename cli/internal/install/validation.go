@@ -12,6 +12,7 @@ import (
 var (
 	ResourceNameRegex       = regexp.MustCompile(`^[a-z][a-z\-0-9]{1,23}$`)
 	StorageAccountNameRegex = regexp.MustCompile(`^[a-z0-9]{3,24}$`)
+	SubdomainRegex          = regexp.MustCompile(`^[a-zA-Z]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?$`)
 )
 
 func QuickValidateEnvironmentConfig(config *EnvironmentConfig) bool {

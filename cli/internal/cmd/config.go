@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html/template"
 	"os"
 	"os/exec"
 	"path"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/erikgeiser/promptkit"
 	"github.com/erikgeiser/promptkit/confirmation"
 	"github.com/erikgeiser/promptkit/selection"
 	"github.com/erikgeiser/promptkit/textinput"
@@ -82,7 +84,8 @@ func newConfigCreateCommand() *cobra.Command {
 
 			configPath := getDefaultConfigPath()
 			if _, err := os.Stat(configPath); err == nil {
-				input := confirmation.New(fmt.Sprintf("A config file already exists at %s and will be deleted. Continue?", configPath), confirmation.Yes)
+				input := confirmation.New(fmt.Sprintf("A config file already exists at %s and will be overwritten. Continue?", configPath), confirmation.Yes)
+				input.WrapMode = promptkit.WordWrap
 				ready, err := input.RunPrompt()
 				if err != nil {
 					return err
@@ -95,10 +98,6 @@ func newConfigCreateCommand() *cobra.Command {
 			fmt.Printf("\nFirst, let's collect settings for the Azure subscription to use. This is where cloud resources will be deployed.\n\n")
 
 			cred, _ := azidentity.NewAzureCLICredential(nil)
-			if _, err := cred.GetToken(context.Background(), policy.TokenRequestOptions{Scopes: []string{cloud.AzurePublic.Services[cloud.ResourceManager].Audience}}); err != nil {
-				panic(fmt.Errorf("unable to construct Azure CLI credential: %w", err))
-			}
-
 			templateValues := &install.ConfigTemplateValues{}
 			var err error
 
@@ -117,6 +116,7 @@ func newConfigCreateCommand() *cobra.Command {
 				}
 
 				input := confirmation.New(fmt.Sprintf("You are logged in as %s. Is that the right account?", templateValues.PrincipalDisplayName), confirmation.Yes)
+				input.WrapMode = promptkit.WordWrap
 				ready, err := input.RunPrompt()
 				if err != nil {
 					return err
@@ -157,7 +157,12 @@ func newConfigCreateCommand() *cobra.Command {
 				break
 			}
 
-			templateValues.EnvironmentName, err = prompt("Give this environment a name:", "", install.ResourceNameRegex)
+			templateValues.EnvironmentName, err = prompt("Give this environment a name:", "", "", install.ResourceNameRegex)
+			if err != nil {
+				return err
+			}
+
+			templateValues.ResourceGroup, err = prompt("Enter a name for a resource group:", templateValues.EnvironmentName, "", install.ResourceNameRegex)
 			if err != nil {
 				return err
 			}
@@ -167,24 +172,25 @@ func newConfigCreateCommand() *cobra.Command {
 				return err
 			}
 
-			templateValues.BufferStorageAccountName, err = prompt("Give the buffer storage account a name:", fmt.Sprintf("%s%sbuf", templateValues.EnvironmentName, templateValues.DefaultLocation), install.StorageAccountNameRegex)
+			templateValues.BufferStorageAccountName, err = prompt("Give the buffer storage account a name:", fmt.Sprintf("%s%sbuf", templateValues.EnvironmentName, templateValues.DefaultLocation), "", install.StorageAccountNameRegex)
 			if err != nil {
 				return err
 			}
 
-			templateValues.LogsStorageAccountName, err = prompt("Give the logs storage account a name:", fmt.Sprintf("%stygerlogs", templateValues.EnvironmentName), install.StorageAccountNameRegex)
+			templateValues.LogsStorageAccountName, err = prompt("Give the logs storage account a name:", fmt.Sprintf("%stygerlogs", templateValues.EnvironmentName), "", install.StorageAccountNameRegex)
 			if err != nil {
 				return err
 			}
 
-			suggestedDomainName := fmt.Sprintf("%s-tyger%s", templateValues.EnvironmentName, install.GetDomainNameSuffix(templateValues.DefaultLocation))
-			templateValues.DomainName, err = prompt("Choose a domain name for the Tyger service:", suggestedDomainName, install.GetDomainNameRegex(templateValues.DefaultLocation))
+			suggestedDomainName := fmt.Sprintf("%s-tyger", templateValues.EnvironmentName)
+			templateValues.DomainName, err = prompt("Choose a domain name for the Tyger service:", suggestedDomainName, install.GetDomainNameSuffix(templateValues.DefaultLocation), install.SubdomainRegex)
 			if err != nil {
 				return err
 			}
 
 			fmt.Printf("Now for the tenant associated with the Tyger service.\n\n")
 			input := confirmation.New("Do you want to use the same tenant for the Tyger service?", confirmation.Yes)
+			input.WrapMode = promptkit.WordWrap
 			sameTenant, err := input.RunPrompt()
 			if err != nil {
 				return err
@@ -410,15 +416,21 @@ func (t IdAndName) MatchesFilter(filterText string) bool {
 	return strings.Contains(strings.ReplaceAll(strings.ToLower(t.String()), " ", ""), strings.ToLower(filterText))
 }
 
-func prompt(question, initialValue string, validationRegex *regexp.Regexp) (string, error) {
-	const template = `
-	{{- Bold .Prompt }} {{ .Input -}}
-	{{- if .ValidationError }} {{ Foreground "1" (Bold "✘") }} {{ Faint (Bold .ValidationError.Error) }}
-	{{- else }} {{ Foreground "2" (Bold "✔") }}
-	{{- end -}}
+func prompt(question, initialValue string, suffix string, validationRegex *regexp.Regexp) (string, error) {
+	const tmpl = `
+{{- Bold .Prompt }} {{ .Input -}} {{ Suffix }}
+{{- if .ValidationError }} {{ Foreground "1" (Bold "✘") }}
+{{ Faint (Bold .ValidationError.Error) }}
+{{- else }} {{ Foreground "2" (Bold "✔") }}
+{{- end -}}
+	`
+
+	const resultTmpl = `
+	{{- print .Prompt " " (Foreground "32"  (Mask .FinalValue)) (Suffix) "\n" -}}
 	`
 
 	input := textinput.New(question)
+	input.WrapMode = promptkit.WordWrap
 	input.InitialValue = initialValue
 	input.Validate = func(s string) error {
 		if validationRegex.MatchString(s) {
@@ -427,7 +439,14 @@ func prompt(question, initialValue string, validationRegex *regexp.Regexp) (stri
 
 		return fmt.Errorf("must match the regex %s", validationRegex.String())
 	}
-	input.Template = template
+	input.ExtendedTemplateFuncs = template.FuncMap{
+		"Suffix": func() string {
+			return suffix
+		},
+	}
+
+	input.Template = tmpl
+	input.ResultTemplate = resultTmpl
 
 	defer fmt.Println()
 	return input.RunPrompt()

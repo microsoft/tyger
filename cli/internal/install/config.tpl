@@ -3,8 +3,8 @@ environmentName: {{ .EnvironmentName }}
 cloud:
   tenantId: {{ .TenantId }}
   subscriptionId: {{ .SubscriptionId }}
+  resourceGroup: {{ .ResourceGroup }}
   defaultLocation: {{ .DefaultLocation}}
-  # resourceGroup: # defaults to the environmentName
 
   compute:
     clusters:
@@ -25,7 +25,7 @@ cloud:
     # These are the principals that will be granted full access to the
     # "tyger" namespace in each cluster.
     managementPrincipalIds:
-      - objectId: {{ .CurrentUserId }} # {{ .CurrentUserDisplayName }}
+      - objectId: {{ .PrincipalId }} # {{ .PrincipalDisplayName }}
         type: {{ .PrincipalKind }}
 
     # The names of private container registries that the clusters must be able to pull from
