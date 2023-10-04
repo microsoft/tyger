@@ -19,5 +19,6 @@ type BufferFormat struct {
 }
 
 type BufferFinalization struct {
-	Status string `json:"status"`
+	BlobCount int64  `json:"blobCount"`
+	Status    string `json:"status"`
 }

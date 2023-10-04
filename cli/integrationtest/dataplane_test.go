@@ -302,7 +302,7 @@ func TestBufferMetadata(t *testing.T) {
 	blobUri := container.GetNamedBlobUri(".bufferstart")
 
 	ctx := log.With().Str("operation", "buffer read").Logger().WithContext(context.Background())
-	respData, err := dataplane.DownloadBlob(ctx, dataplane.NewClientWithLoggingContext(ctx, httpClient), blobUri)
+	respData, err := dataplane.WaitForBlobAndDownload(ctx, dataplane.NewClientWithLoggingContext(ctx, httpClient), blobUri, -1, nil)
 
 	assert.Nil(t, err, "Couldn't read .bufferstart")
 
@@ -314,7 +314,7 @@ func TestBufferMetadata(t *testing.T) {
 	blobUri = container.GetNamedBlobUri(".bufferend")
 
 	ctx = log.With().Str("operation", "buffer read").Logger().WithContext(context.Background())
-	respData, err = dataplane.DownloadBlob(ctx, dataplane.NewClientWithLoggingContext(ctx, httpClient), blobUri)
+	respData, err = dataplane.WaitForBlobAndDownload(ctx, dataplane.NewClientWithLoggingContext(ctx, httpClient), blobUri, -1, nil)
 
 	assert.Nil(t, err, "Couldn't read .bufferend")
 

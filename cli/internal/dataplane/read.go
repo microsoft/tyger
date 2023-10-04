@@ -58,25 +58,52 @@ func Read(uri, proxyUri string, dop int, outputWriter io.Writer) {
 		log.Ctx(ctx).Fatal().Msg("Invaild buffer format")
 	}
 
-	blobUri = container.GetNamedBlobUri(".bufferend")
-	respData, err = DownloadBlob(ctx, NewClientWithLoggingContext(ctx, httpClient), blobUri)
+	var nextBlobNumber int64 = 0
+	var finalBlobNumber int64 = -1
 
-	if err != nil {
-		if err != ErrNotFound {
-			log.Ctx(ctx).Fatal().Err(err).Msg("unable to read .bufferend")
-		}
-	} else {
+	blobUri = container.GetNamedBlobUri(".bufferend")
+	respData, err = WaitForBlobAndDownload(ctx, NewClientWithLoggingContext(ctx, httpClient), blobUri, -1, nil)
+
+	if err == nil {
 		var bufferFinalization BufferFinalization
 		json.Unmarshal(respData.Data, &bufferFinalization)
 		if bufferFinalization.Status == "Failed" {
 			log.Ctx(ctx).Fatal().Msg("buffer is invalid")
 		}
+		atomic.StoreInt64(&finalBlobNumber, bufferFinalization.BlobCount)
+	} else if err != ErrNotFound {
+		log.Ctx(ctx).Fatal().Err(err).Msg("unable to read .bufferend")
+	} else {
+		go func() {
+			for {
+				blobUri = container.GetNamedBlobUri(".bufferend")
+				respData, err = WaitForBlobAndDownload(ctx, NewClientWithLoggingContext(ctx, httpClient), blobUri, -1, nil)
+
+				if err == nil {
+					var bufferFinalization BufferFinalization
+					json.Unmarshal(respData.Data, &bufferFinalization)
+					if bufferFinalization.Status == "Failed" {
+						log.Ctx(ctx).Fatal().Msg("buffer is invalid")
+					}
+
+					if atomic.LoadInt64(&finalBlobNumber) == -1 {
+						atomic.StoreInt64(&finalBlobNumber, bufferFinalization.BlobCount)
+					} else if atomic.LoadInt64(&finalBlobNumber) != bufferFinalization.BlobCount {
+						log.Ctx(ctx).Fatal().Msg("blob count mismatch")
+					}
+
+					log.Ctx(ctx).Trace().Msg(".bufferend read")
+
+					break
+				} else if err != ErrNotFound {
+					log.Ctx(ctx).Fatal().Err(err).Msg("unable to read .bufferend")
+				}
+			}
+		}()
 	}
 
 	responseChannel := make(chan chan BufferBlob, dop*2)
 	var lock sync.Mutex
-	var nextBlobNumber int64 = 0
-	var finalBlobNumber int64 = -1
 
 	for i := 0; i < dop; i++ {
 		go func() {
@@ -151,32 +178,6 @@ func Read(uri, proxyUri string, dop int, outputWriter io.Writer) {
 	metrics.Stop()
 }
 
-func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUri string) (*readData, error) {
-	req, err := retryablehttp.NewRequest(http.MethodGet, blobUri, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	AddCommonBlobRequestHeaders(req.Header)
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, RedactHttpError(err)
-	}
-
-	respData, err := handleReadResponse(ctx, resp)
-
-	if err == nil {
-		log.Ctx(ctx).Trace().
-			Int("contentLength", int(resp.ContentLength)).
-			Msg("Downloaded blob")
-
-		return respData, nil
-	}
-
-	return nil, err
-}
-
 func WaitForBlobAndDownload(ctx context.Context, httpClient *retryablehttp.Client, blobUri string, blobNumber int64, finalBlobNumber *int64) (*readData, error) {
 	// The last error that occurred relating to reading the body. retryablehttp does not retry when these happen
 	// because reading the body happens after the call to HttpClient.Do()
@@ -217,12 +218,21 @@ func WaitForBlobAndDownload(ctx context.Context, httpClient *retryablehttp.Clien
 				Msg("Downloaded blob")
 
 			if len(respData.Data) == 0 && finalBlobNumber != nil {
-				atomic.StoreInt64(finalBlobNumber, blobNumber)
+				num := atomic.LoadInt64(finalBlobNumber)
+				if num == -1 {
+					atomic.StoreInt64(finalBlobNumber, blobNumber)
+				} else if num != blobNumber {
+					log.Ctx(ctx).Fatal().Msg("blob count mismatch")
+				}
 			}
 
 			return respData, nil
 		}
 		if err == ErrNotFound {
+			if blobNumber == -1 {
+				return nil, err
+			}
+
 			log.Ctx(ctx).Trace().Msg("Waiting for blob")
 			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()

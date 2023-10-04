@@ -246,7 +246,7 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 	close(outputChannel)
 	wg.Wait()
 
-	finalizationBlob := BufferFinalization{Status: "Completed"}
+	finalizationBlob := BufferFinalization{Status: "Completed", BlobCount: blobNumber}
 
 	if hasFailed() {
 		finalizationBlob.Status = "Failed"
