@@ -621,6 +621,9 @@ components:
         audience:
           type: string
           nullable: true
+        cliAppUri:
+          type: string
+          nullable: true
       additionalProperties: false
     NodePool:
       type: object
