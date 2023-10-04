@@ -121,6 +121,20 @@ func quickValidateComputeConfig(success *bool, cloudConfig *CloudConfig) {
 	if !hasApiHost {
 		validationError(success, "One cluster must have `apiHost` set to true")
 	}
+
+	if len(computeConfig.ManagementPrincipals) == 0 {
+		validationError(success, "At least one management principal is required")
+	}
+
+	for _, p := range computeConfig.ManagementPrincipals {
+		switch p.Kind {
+		case PrincipalKindUser, PrincipalKindGroup, PrincipalKindServicePrincipal:
+		case "":
+			validationError(success, "The `kind` field is required on a management principal")
+		default:
+			validationError(success, "The `kind` field must be one of %v", []PrincipalKind{PrincipalKindUser, PrincipalKindGroup, PrincipalKindServicePrincipal})
+		}
+	}
 }
 
 func quickValidateStorageConfig(success *bool, cloudConfig *CloudConfig) {

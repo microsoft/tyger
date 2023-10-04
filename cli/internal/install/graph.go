@@ -14,20 +14,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type PrincipalKind string
-
-const (
-	PrincipalKindUser             PrincipalKind = "User"
-	PrincipalKindGroup            PrincipalKind = "Group"
-	PrincipalKindServicePrincipal PrincipalKind = "ServicePrincipal"
-)
-
 var errNotFound = fmt.Errorf("not found")
-
-type Principal struct {
-	Id   string
-	Kind PrincipalKind
-}
 
 func GetGraphToken(ctx context.Context) (azcore.AccessToken, error) {
 	cred := GetAzureCredentialFromContext(ctx)
@@ -163,8 +150,8 @@ func ObjectsIdToPrincipals(ctx context.Context, objectIds []string) ([]Principal
 				}
 
 				principal = &Principal{
-					Id:   value.Id,
-					Kind: kind,
+					ObjectId: value.Id,
+					Kind:     kind,
 				}
 				break
 			}

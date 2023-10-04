@@ -5,7 +5,6 @@
 
 set -euo pipefail
 
-azure_subscription="BiomedicalImaging-NonProd"
 devcontainer_registry_subdomain="compimagdevcontainers"
 devcontainer_registry="${devcontainer_registry_subdomain}.azurecr.io"
 devcontainer_repository="${devcontainer_registry}/tyger"

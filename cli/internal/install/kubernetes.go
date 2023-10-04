@@ -35,13 +35,6 @@ func createTygerNamespace(ctx context.Context, restConfigPromise *Promise[*rest.
 
 func createTygerClusterRBAC(ctx context.Context, restConfigPromise *Promise[*rest.Config], createTygerNamespacePromise *Promise[any]) (any, error) {
 	config := GetConfigFromContext(ctx)
-
-	// we can fetch the principals from the Graph API while we wait for the cluster to be ready
-	principals, err := ObjectsIdToPrincipals(ctx, config.Cloud.Compute.ManagementPrincipalIds)
-	if err != nil {
-		return nil, err
-	}
-
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
 		return nil, errDependencyFailed
@@ -85,9 +78,9 @@ func createTygerClusterRBAC(ctx context.Context, restConfigPromise *Promise[*res
 		Subjects: make([]rbacv1.Subject, 0),
 	}
 
-	for _, principal := range principals {
+	for _, principal := range config.Cloud.Compute.ManagementPrincipals {
 		subject := rbacv1.Subject{
-			Name:      principal.Id,
+			Name:      principal.ObjectId,
 			Namespace: TygerNamespace,
 		}
 		if principal.Kind == PrincipalKindGroup {

@@ -25,9 +25,10 @@ cloud:
     # These are the principals that will be granted full access to the
     # "tyger" namespace in each cluster.
     managementPrincipalIds:
-      - {{ .CurrentUserId }} # {{ .CurrentUserDisplayName }}
+      - objectId: {{ .CurrentUserId }} # {{ .CurrentUserDisplayName }}
+        type: {{ .PrincipalKind }}
 
-    # Specify the names of private container registries that the clusters must be able to pull from
+    # The names of private container registries that the clusters must be able to pull from
     # privateContainerRegistries:
     #   - myprivateregistry
 

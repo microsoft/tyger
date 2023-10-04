@@ -25,9 +25,15 @@ config: #EnvironmentConfig & {
 					]
 				},
 			]
-			managementPrincipalIds: [
-				"5b60f594-a0eb-410c-a3fc-dd3c6f4e28d1",
-				"c0e60aba-35f0-4778-bc9b-fc5d2af14687",
+			managementPrincipals: [
+				{
+					objectId: "5b60f594-a0eb-410c-a3fc-dd3c6f4e28d1"
+					kind:     "ServicePrincipal"
+				},
+				{
+					objectId: "c0e60aba-35f0-4778-bc9b-fc5d2af14687"
+					kind:     "Group"
+				},
 			]
 			privateContainerRegistries: [developerConfig.wipContainerRegistry.name]
 		}

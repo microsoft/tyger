@@ -31,9 +31,14 @@ import "strings"
 	storage!:         #StorageConfig
 }
 
+#Principal: {
+	objectId!: string
+	kind!:     "User" | "Group" | "ServicePrincipal"
+}
+
 #ComputeConfig: {
 	clusters!: [...#ClusterConfig]
-	managementPrincipalIds?: [...string]
+	managementPrincipals?: [...#Principal]
 	privateContainerRegistries?: [...string]
 }
 

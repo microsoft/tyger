@@ -104,7 +104,7 @@ func newConfigCreateCommand() *cobra.Command {
 
 			for {
 				for {
-					templateValues.CurrentUserId, templateValues.CurrentUserDisplayName, err = getCurrentPrincipal(cred)
+					templateValues.PrincipalId, templateValues.PrincipalDisplayName, templateValues.PrincipalKind, err = getCurrentPrincipal(cred)
 					if err != nil {
 						if err == errNotLoggedIn {
 							fmt.Printf("You are not logged in to Azure. Please run `az login` in another terminal window.\nPress any key to continue when ready...\n\n")
@@ -116,7 +116,7 @@ func newConfigCreateCommand() *cobra.Command {
 					break
 				}
 
-				input := confirmation.New(fmt.Sprintf("You are logged in as %s. Is that the right account?", templateValues.CurrentUserDisplayName), confirmation.Yes)
+				input := confirmation.New(fmt.Sprintf("You are logged in as %s. Is that the right account?", templateValues.PrincipalDisplayName), confirmation.Yes)
 				ready, err := input.RunPrompt()
 				if err != nil {
 					return err
@@ -306,42 +306,42 @@ func chooseSubscription(cred azcore.TokenCredential) (string, error) {
 	return sub.id, nil
 }
 
-func getCurrentPrincipal(cred azcore.TokenCredential) (oid, display string, err error) {
+func getCurrentPrincipal(cred azcore.TokenCredential) (oid, display string, kind install.PrincipalKind, err error) {
 	tokenResponse, err := cred.GetToken(context.Background(), policy.TokenRequestOptions{Scopes: []string{cloud.AzurePublic.Services[cloud.ResourceManager].Audience}})
 	if err != nil {
-		return "", "", errNotLoggedIn
+		return "", "", "", errNotLoggedIn
 	}
 
 	claims := jwt.MapClaims{}
 	_, _, err = jwt.NewParser().ParseUnverified(tokenResponse.Token, claims)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to parse token: %w", err)
+		return "", "", "", fmt.Errorf("failed to parse token: %w", err)
 	}
 	oid = claims["oid"].(string)
 	if unique_name, ok := claims["unique_name"]; ok {
 		display = unique_name.(string)
-		return oid, display, nil
+		return oid, display, install.PrincipalKindUser, nil
 	}
 
 	principals, err := install.ObjectsIdToPrincipals(context.Background(), []string{oid})
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 
 	if len(principals) == 0 {
-		return "", "", errors.New("principal not found")
+		return "", "", "", errors.New("principal not found")
 	}
 
 	if principals[0].Kind != install.PrincipalKindServicePrincipal {
-		return "", "", errors.New("principal is not a service principal")
+		return "", "", "", errors.New("principal was expected to be a service principal but isn't")
 	}
 
-	display, err = install.GetServicePrincipalDisplayName(context.Background(), principals[0].Id)
+	display, err = install.GetServicePrincipalDisplayName(context.Background(), principals[0].ObjectId)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 
-	return oid, display, nil
+	return oid, display, install.PrincipalKindServicePrincipal, nil
 }
 
 func chooseTenant(cred azcore.TokenCredential, prompt string, presentOtherOption bool) (string, error) {

@@ -26,8 +26,21 @@ type CloudConfig struct {
 
 type ComputeConfig struct {
 	Clusters                   []*ClusterConfig `json:"clusters"`
-	ManagementPrincipalIds     []string         `json:"managementPrincipalIds"`
+	ManagementPrincipals       []Principal      `json:"managementPrincipals"`
 	PrivateContainerRegistries []string         `json:"privateContainerRegistries"`
+}
+
+type PrincipalKind string
+
+const (
+	PrincipalKindUser             PrincipalKind = "User"
+	PrincipalKindGroup            PrincipalKind = "Group"
+	PrincipalKindServicePrincipal PrincipalKind = "ServicePrincipal"
+)
+
+type Principal struct {
+	ObjectId string        `json:"objectId"`
+	Kind     PrincipalKind `json:"kind"`
 }
 
 func (c *ComputeConfig) GetApiHostCluster() *ClusterConfig {
@@ -99,8 +112,9 @@ type ConfigTemplateValues struct {
 	TenantId                 string
 	SubscriptionId           string
 	DefaultLocation          string
-	CurrentUserId            string
-	CurrentUserDisplayName   string
+	PrincipalId              string
+	PrincipalDisplayName     string
+	PrincipalKind            PrincipalKind
 	BufferStorageAccountName string
 	LogsStorageAccountName   string
 	DomainName               string
