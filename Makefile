@@ -127,7 +127,7 @@ publish-official-images:
 	tag=$$(git describe --tags)
 	scripts/build-images.sh --push --push-force --helm --tag "$${tag}" --quiet --registry "$${registry}"
 
-up: ensure-environment-conditionally docker-build install-cli
+up: ensure-environment-conditionally docker-build
 	repo_fqdn=$$(scripts/get-context-environment-config.sh -e developerConfig.wipContainerRegistry.fqdn)
 
 	tyger_server_image="$$(docker inspect "$${repo_fqdn}/tyger-server:dev" | jq -r --arg repo "$${repo_fqdn}/tyger-server" '.[0].RepoDigests[] | select (startswith($$repo))')"
@@ -171,7 +171,7 @@ gadgetron-data:
 
 e2e-data: dvc-data gadgetron-data
 
-test: unit-test integration-test e2e
+test: up unit-test integration-test e2e
 
 full:
 	$(MAKE) test INSTALL_CLOUD=true
