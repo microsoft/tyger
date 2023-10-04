@@ -1,5 +1,5 @@
 package tyger
 
 #NodePoolConfig: {
-	minCount: *1 | int
+	minCount: *5 | int
 }
