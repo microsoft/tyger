@@ -178,6 +178,32 @@ func Read(uri, proxyUri string, dop int, outputWriter io.Writer) {
 	metrics.Stop()
 }
 
+func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUri string) (*readData, error) {
+	req, err := retryablehttp.NewRequest(http.MethodGet, blobUri, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	AddCommonBlobRequestHeaders(req.Header)
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, RedactHttpError(err)
+	}
+
+	respData, err := handleReadResponse(ctx, resp)
+
+	if err == nil {
+		log.Ctx(ctx).Trace().
+			Int("contentLength", int(resp.ContentLength)).
+			Msg("Downloaded blob")
+
+		return respData, nil
+	}
+
+	return nil, err
+}
+
 func WaitForBlobAndDownload(ctx context.Context, httpClient *retryablehttp.Client, blobUri string, blobNumber int64, finalBlobNumber *int64) (*readData, error) {
 	// The last error that occurred relating to reading the body. retryablehttp does not retry when these happen
 	// because reading the body happens after the call to HttpClient.Do()
