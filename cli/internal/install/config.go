@@ -25,9 +25,15 @@ type CloudConfig struct {
 }
 
 type ComputeConfig struct {
-	Clusters                   []*ClusterConfig `json:"clusters"`
-	ManagementPrincipals       []Principal      `apjson:"managementPrincipals"`
-	PrivateContainerRegistries []string         `json:"privateContainerRegistries"`
+	Clusters                   []*ClusterConfig    `json:"clusters"`
+	LogAnalyticsWorkspace      *NamedAzureResource `json:"logAnalyticsWorkspace"`
+	ManagementPrincipals       []Principal         `apjson:"managementPrincipals"`
+	PrivateContainerRegistries []string            `json:"privateContainerRegistries"`
+}
+
+type NamedAzureResource struct {
+	ResourceGroup string `json:"resourceGroup"`
+	Name          string `json:"name"`
 }
 
 type PrincipalKind string

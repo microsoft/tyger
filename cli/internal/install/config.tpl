@@ -28,16 +28,23 @@ cloud:
       - objectId: {{ .PrincipalId }} # {{ .PrincipalDisplayName }}
         kind: {{ .PrincipalKind }}
 
+    # Optionally point an existing Log Analytics workspace to send logs to.
+    # logAnalytics:
+    #   resourceGroup:
+    #   name:
+
     # The names of private container registries that the clusters must be able to pull from
     # privateContainerRegistries:
     #   - myprivateregistry
 
   storage:
+    # Storage accounts for buffers.
     buffers:
       - name: {{ .BufferStorageAccountName }}
         # location: Defaults to defaultLocation
         # sku: Defaults to Standard_LRS
 
+    # The storage account where run logs will be stored.
     logs:
       name: {{ .LogsStorageAccountName }}
       # location: Defaults to defaultLocation

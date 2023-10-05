@@ -14,6 +14,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/authorization/armauthorization/v2"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v4"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/operationalinsights/armoperationalinsights"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
@@ -64,6 +65,29 @@ func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (any, erro
 				EnableAzureRBAC: Ptr(false),
 			},
 		},
+	}
+
+	if workspace := config.Cloud.Compute.LogAnalyticsWorkspace; workspace != nil {
+		oic, err := armoperationalinsights.NewWorkspacesClient(config.Cloud.SubscriptionID, cred, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create operational insights client: %w", err)
+		}
+
+		resp, err := oic.Get(ctx, workspace.ResourceGroup, workspace.Name, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get Log Analytics workspace: %w", err)
+		}
+
+		if cluster.Properties.AddonProfiles == nil {
+			cluster.Properties.AddonProfiles = make(map[string]*armcontainerservice.ManagedClusterAddonProfile)
+		}
+		cluster.Properties.AddonProfiles["omsagent"] = &armcontainerservice.ManagedClusterAddonProfile{
+			Enabled: Ptr(true),
+			Config: map[string]*string{
+				"logAnalyticsWorkspaceResourceID": resp.ID,
+			},
+		}
+
 	}
 
 	cluster.Properties.AgentPoolProfiles = []*armcontainerservice.ManagedClusterAgentPoolProfile{
@@ -224,6 +248,32 @@ func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCl
 		}
 		if !found {
 			return true, false
+		}
+	}
+
+	if len(cluster.Properties.AddonProfiles) != len(existingCluster.Properties.AddonProfiles) {
+		return true, false
+	}
+
+	for k, v := range cluster.Properties.AddonProfiles {
+		existingV, ok := existingCluster.Properties.AddonProfiles[k]
+		if !ok {
+			return true, false
+		}
+		if *v.Enabled != *existingV.Enabled {
+			return true, false
+		}
+		if len(v.Config) != len(existingV.Config) {
+			return true, false
+		}
+		for k2, v2 := range v.Config {
+			existingV2, ok := existingV.Config[k2]
+			if !ok {
+				return true, false
+			}
+			if *v2 != *existingV2 {
+				return true, false
+			}
 		}
 	}
 

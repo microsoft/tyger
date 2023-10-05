@@ -39,7 +39,13 @@ import "strings"
 #ComputeConfig: {
 	clusters!: [...#ClusterConfig]
 	managementPrincipals?: [...#Principal]
+	logAnalyticsWorkspace?: #NamedAzureResource
 	privateContainerRegistries?: [...string]
+}
+
+#NamedAzureResource: {
+	resourceGroup!: string
+	name!:          string
 }
 
 #ClusterConfig: {

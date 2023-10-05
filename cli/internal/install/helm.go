@@ -361,7 +361,8 @@ func installHelmChart(
 		}
 
 		if strings.Contains(err.Error(), "the server could not find the requested resource") {
-			log.Warn().Err(err).Msg("Possible transient error. Will retry...")
+			// we get this transient error from time to time, related to the installation of CRDs
+			log.Info().Err(err).Msg("Possible transient error. Will retry...")
 			time.Sleep(10 * time.Second)
 		} else {
 			return err

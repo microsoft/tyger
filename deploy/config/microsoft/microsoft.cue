@@ -25,6 +25,10 @@ config: #EnvironmentConfig & {
 					]
 				},
 			]
+			logAnalyticsWorkspace: {
+				resourceGroup: "eminence"
+				name:          "eminence"
+			}
 			managementPrincipals: [
 				{
 					objectId: "5b60f594-a0eb-410c-a3fc-dd3c6f4e28d1"
