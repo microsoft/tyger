@@ -51,14 +51,16 @@ this_dir=$(dirname "${0}")
 config_dir="${TYGER_ENVIRONMENT_CONFIG_DIR:-${this_dir}/../deploy/config/microsoft}"
 helm_chart_dir=$(readlink -f "${this_dir}/../deploy/helm")
 
-environment_name="${TYGER_ENVIRONMENT_NAME:-}"
-if [[ -z "${environment_name:-}" ]]; then
+if [[ "$expression" == "config" || "$expression" == config.* ]]; then
+  environment_name="${TYGER_ENVIRONMENT_NAME:-}"
+  if [[ -z "${environment_name:-}" ]]; then
     if [[ ! "$(git config user.email)" =~ [^@]+ ]]; then
-        >&2 echo "git email is not set"
-        exit 1
+      echo >&2 "Set the TYGER_ENVIRONMENT_NAME environment variable or ensure your git email is set"
+      exit 1
     fi
     environment_name="${BASH_REMATCH[0]//[.\-_]/}"
+  fi
 fi
 
 cd "${config_dir}"
-cue export . --out "${output}" -t environmentName="${environment_name}" -t tygerHelmChartDir="${helm_chart_dir}" -e "${expression}"
+cue export . --out "${output}" -t environmentName="${environment_name:-}" -t tygerHelmChartDir="${helm_chart_dir}" -e "${expression}"
