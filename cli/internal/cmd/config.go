@@ -183,10 +183,12 @@ func newConfigCreateCommand() *cobra.Command {
 			}
 
 			suggestedDomainName := fmt.Sprintf("%s-tyger", templateValues.EnvironmentName)
-			templateValues.DomainName, err = prompt("Choose a domain name for the Tyger service:", suggestedDomainName, install.GetDomainNameSuffix(templateValues.DefaultLocation), install.SubdomainRegex)
+			domainSuffix := install.GetDomainNameSuffix(templateValues.DefaultLocation)
+			domainLabel, err := prompt("Choose a domain name for the Tyger service:", suggestedDomainName, domainSuffix, install.SubdomainRegex)
 			if err != nil {
 				return err
 			}
+			templateValues.DomainName = fmt.Sprintf("%s%s", domainLabel, domainSuffix)
 
 			fmt.Printf("Now for the tenant associated with the Tyger service.\n\n")
 			input := confirmation.New("Do you want to use the same tenant for the Tyger service?", confirmation.Yes)
