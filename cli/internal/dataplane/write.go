@@ -5,6 +5,7 @@ import (
 	"crypto/md5"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,6 +22,8 @@ const (
 	DefaultBlockSize               = 4 * 1024 * 1024
 	EncodedMD5HashChainInitalValue = "MDAwMDAwMDAwMDAwMDAwMA=="
 )
+
+type WriteBlobWithRetryFunc func(ctx context.Context, httpClient *retryablehttp.Client, blobUrl string, contents any, encodedMD5Hash string, encodedMD5HashChain string) error
 
 func WriteBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, blobUrl string, contents any, encodedMD5Hash string, encodedMD5HashChain string) error {
 	for i := 0; ; i++ {
@@ -92,16 +95,22 @@ func WriteBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, b
 
 // If invalidHashChain is set to true, the value of the hash chain attached to the blob will
 // always be the Inital Value. This should only be set for testing.
-func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, invalidHashChain bool) {
+func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, invalidHashChain bool, writeFunc WriteBlobWithRetryFunc) error {
+	if writeFunc == nil {
+		writeFunc = WriteBlobWithRetry
+	}
+
 	ctx := log.With().Str("operation", "buffer write").Logger().WithContext(context.Background())
 
 	httpClient, err := CreateHttpClient(proxyUri)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to create http client")
+		log.Err(err).Msg("Failed to create http client")
+		return err
 	}
 	container, err := ValidateContainer(uri, httpClient)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Container validation failed")
+		log.Err(err).Msg("Container validation failed")
+		return err
 	}
 
 	outputChannel := make(chan BufferBlob, dop)
@@ -170,7 +179,7 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 					blobEncodedMD5HashChain = ""
 				}
 
-				err := WriteBlobWithRetry(ctx, httpClient, blobUrl, body, encodedMD5Hash, blobEncodedMD5HashChain)
+				err := writeFunc(ctx, httpClient, blobUrl, body, encodedMD5Hash, blobEncodedMD5HashChain)
 
 				if err != nil {
 					if !hasFailed() {
@@ -230,7 +239,8 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 		}
 
 		if err != nil {
-			log.Fatal().Err(err).Msg("Error reading from input")
+			log.Err(err).Msg("Error reading from input")
+			return err
 		}
 	}
 
@@ -258,21 +268,20 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 	md5Hash := md5.Sum(serializedBlob)
 	encodedMD5Hash := base64.StdEncoding.EncodeToString(md5Hash[:])
 
-	err = WriteBlobWithRetry(ctx, httpClient, blobUrl, serializedBlob, encodedMD5Hash, "")
+	err = writeFunc(ctx, httpClient, blobUrl, serializedBlob, encodedMD5Hash, "")
 
 	if err != nil || hasFailed() {
-		log.Fatal().Msg("Buffer write failed")
+		log.Err(err).Msg("Buffer write failed")
+		if err == nil {
+			return errors.New("buffer write failed")
+		} else {
+			return err
+		}
 	}
 
-	// outputChannel <- BufferBlob{
-	// 	BlobName:               ".bufferend",
-	// 	BlobNumber:             -1,
-	// 	Contents:               serializedBlob,
-	// 	PreviousCumulativeHash: nil,
-	// 	CurrentCumulativeHash:  nil,
-	// }
-
 	metrics.Stop()
+
+	return nil
 }
 
 func handleWriteResponse(resp *http.Response) error {

@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -20,6 +21,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/hashicorp/go-retryablehttp"
 	"github.com/microsoft/tyger/cli/internal/cmd"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/dataplane"
@@ -204,7 +206,7 @@ func TestInvalidHashChain(t *testing.T) {
 	}
 
 	inputReader := strings.NewReader("Hello")
-	dataplane.Write(writeSasUri, proxyUri, dataplane.DefaultWriteDop, dataplane.DefaultBlockSize, inputReader, true)
+	dataplane.Write(writeSasUri, proxyUri, dataplane.DefaultWriteDop, dataplane.DefaultBlockSize, inputReader, true, nil)
 
 	readSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId)
 
@@ -323,6 +325,30 @@ func TestBufferMetadata(t *testing.T) {
 
 	assert.Equal(t, bufferFinalization.Status, "Completed")
 
+}
+
+func TestBufferFinalizeWithError(t *testing.T) {
+	t.Parallel()
+
+	mock := func(ctx context.Context, httpClient *retryablehttp.Client, blobUrl string, contents any, encodedMD5Hash string, encodedMD5HashChain string) error {
+		if strings.Contains(blobUrl, ".bufferend") {
+			var bufferFinalization dataplane.BufferFinalization
+			json.Unmarshal(contents.([]byte), &bufferFinalization)
+			assert.Equal(t, bufferFinalization.Status, "Failed")
+			return nil
+		} else if strings.Contains(blobUrl, ".bufferstart") {
+			return nil
+		}
+		return errors.New("mock error")
+	}
+
+	inputBufferId := runTygerSucceeds(t, "buffer", "create")
+	writeSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
+
+	inputReader := strings.NewReader("Hello")
+	err := dataplane.Write(writeSasUri, "", dataplane.DefaultWriteDop, dataplane.DefaultBlockSize, inputReader, false, mock)
+
+	assert.Error(t, err, "Write didn't fail")
 }
 
 func TestRunningFromPowershellRaisesWarning(t *testing.T) {

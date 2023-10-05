@@ -160,7 +160,7 @@ func newRunExecCommand() *cobra.Command {
 			mainWg.Add(1)
 			go func() {
 				defer mainWg.Done()
-				dataplane.Write(inputSasUri, proxyUri, writeDop, blockSize, os.Stdin, false)
+				dataplane.Write(inputSasUri, proxyUri, writeDop, blockSize, os.Stdin, false, nil)
 			}()
 		}
 
