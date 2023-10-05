@@ -76,6 +76,10 @@ func CreateStorageAccount(ctx context.Context,
 		return nil, errDependencyFailed
 	}
 
+	if _, err := namespaceCreatedPromise.Await(); err != nil {
+		return nil, errDependencyFailed
+	}
+
 	clientset := kubernetes.NewForConfigOrDie(restConfig)
 
 	secrets := clientset.CoreV1().Secrets("tyger")
