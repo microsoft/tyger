@@ -79,7 +79,7 @@ repo_root_dir="$(dirname "$0")/.."
 
 function build_and_push() {
   echo "Building image ${local_tag}..."
-  docker build -f "${dockerfile_path}" -t "${local_tag}" --target "${target}" $quiet "${build_context}" >/dev/null
+  docker build -f "${dockerfile_path}" -t "${local_tag}" --target "${target}" --build-arg TYGER_VERSION="${image_tag}" $quiet "${build_context}" >/dev/null
 
   if [[ -z "${push:-}" ]]; then
     return 0

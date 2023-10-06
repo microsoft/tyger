@@ -25,7 +25,9 @@ import (
 )
 
 var (
-	// set during build but we provide defaults so that there is some value when debugging
+	// Set during build but we provide defaults so that there is some value when debugging.
+	// We will need to update these from time to time. Alternatively, you can set the registry
+	// values using the --set command-line arugment.
 	containerRegistry string = "tyger.azurecr.io"
 	containerImageTag string = "v0.1.0-49-g5526c35"
 )

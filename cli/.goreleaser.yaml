@@ -10,8 +10,9 @@ builds:
       - CGO_ENABLED=0
     ldflags:
       - -s -w
-      - -X main.version={{.Tag}}
+      - -X main.version={{ .Tag }}
       - -X github.com/microsoft/tyger/cli/internal/install.containerRegistry={{ .Env.OFFICIAL_CONTAINER_REGISTRY }}
+      - -X github.com/microsoft/tyger/cli/internal/install.containerImageTag={{ .Tag }}
     goos:
       - linux
       - windows
