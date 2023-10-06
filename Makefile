@@ -247,7 +247,7 @@ install-cli:
 	tag=$$(git describe --tags 2> /dev/null || echo "0.0.0")
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go install -ldflags="-s -w \
 		-X main.version=$${tag} \
-		-X github.com/microsoft/tyger/cli/internal/install.officialContainerRegistry=$${official_container_registry}" \
+		-X github.com/microsoft/tyger/cli/internal/install.containerRegistry=$${official_container_registry}" \
 		./cmd/tyger ./cmd/buffer-sidecar ./cmd/tyger-proxy
 
 cli-ready: install-cli

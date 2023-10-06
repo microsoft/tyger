@@ -26,8 +26,8 @@ import (
 
 var (
 	// set during build but we provide defaults so that there is some value when debugging
-	officialContainerRegistry string = "tyger.azurecr.io"
-	officialContainerImageTag string = "v0.1.0-19-g2d156b1"
+	containerRegistry string = "tyger.azurecr.io"
+	containerImageTag string = "v0.1.0-49-g5526c35"
 )
 
 func installTraefik(ctx context.Context, restConfigPromise *Promise[*rest.Config]) (any, error) {
@@ -189,11 +189,11 @@ func installNvidiaDevicePlugin(ctx context.Context, restConfigPromise *Promise[*
 }
 
 func InstallTyger(ctx context.Context) error {
-	if officialContainerRegistry == "" {
+	if containerRegistry == "" {
 		panic("officialContainerRegistry not set during build")
 	}
 
-	if officialContainerImageTag == "" {
+	if containerImageTag == "" {
 		panic("officialContainerImageTag not set during build")
 	}
 
@@ -211,13 +211,13 @@ func InstallTyger(ctx context.Context) error {
 
 	helmConfig := HelmChartConfig{
 		Namespace: TygerNamespace,
-		ChartRef:  fmt.Sprintf("oci://%s/helm/tyger", officialContainerRegistry),
-		Version:   officialContainerImageTag,
+		ChartRef:  fmt.Sprintf("oci://%s/helm/tyger", containerRegistry),
+		Version:   containerImageTag,
 		Values: map[string]any{
 			"server": map[string]any{
-				"image":              fmt.Sprintf("%s/tyger-server:%s", officialContainerRegistry, officialContainerImageTag),
-				"bufferSidecarImage": fmt.Sprintf("%s/buffer-sidecar:%s", officialContainerRegistry, officialContainerImageTag),
-				"workerWaiterImage":  fmt.Sprintf("%s/worker-waiter:%s", officialContainerRegistry, officialContainerImageTag),
+				"image":              fmt.Sprintf("%s/tyger-server:%s", containerRegistry, containerImageTag),
+				"bufferSidecarImage": fmt.Sprintf("%s/buffer-sidecar:%s", containerRegistry, containerImageTag),
+				"workerWaiterImage":  fmt.Sprintf("%s/worker-waiter:%s", containerRegistry, containerImageTag),
 				"hostname":           config.Api.DomainName,
 				"security": map[string]any{
 					"enabled":   true,
