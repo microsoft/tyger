@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
 )
@@ -15,9 +16,9 @@ func TestRenderConfig(t *testing.T) {
 		TenantId:                 "tenant",
 		SubscriptionId:           "sub",
 		DefaultLocation:          "westus",
-		PrincipalId:              "me",
-		PrincipalDisplayName:     "It's me",
-		PrincipalKind:            "User",
+		PrincipalId:              uuid.New().String(),
+		PrincipalUpn:             "me@example.com",
+		PrincipalKind:            PrincipalKindUser,
 		BufferStorageAccountName: "acc1",
 		LogsStorageAccountName:   "acc2",
 		DomainName:               "dom.ain",
@@ -26,7 +27,7 @@ func TestRenderConfig(t *testing.T) {
 
 	var buf bytes.Buffer
 
-	require.NoError(t, RenderConfig(&values, &buf))
+	require.NoError(t, RenderConfig(values, &buf))
 
 	config := EnvironmentConfig{}
 	require.NoError(t, yaml.UnmarshalStrict(buf.Bytes(), &config))
@@ -36,10 +37,20 @@ func TestRenderConfig(t *testing.T) {
 	require.Equal(t, values.TenantId, config.Cloud.TenantID)
 	require.Equal(t, values.SubscriptionId, config.Cloud.SubscriptionID)
 	require.Equal(t, values.DefaultLocation, config.Cloud.DefaultLocation)
-	require.Equal(t, values.PrincipalId, config.Cloud.Compute.ManagementPrincipals[0].ObjectId)
+	require.Equal(t, values.PrincipalUpn, config.Cloud.Compute.ManagementPrincipals[0].UserPrincipalName)
 	require.Equal(t, values.PrincipalKind, config.Cloud.Compute.ManagementPrincipals[0].Kind)
 	require.Equal(t, values.BufferStorageAccountName, config.Cloud.Storage.Buffers[0].Name)
 	require.Equal(t, values.LogsStorageAccountName, config.Cloud.Storage.Logs.Name)
 	require.Equal(t, values.DomainName, config.Api.DomainName)
 	require.Equal(t, values.ApiTenantId, config.Api.Auth.TenantID)
+
+	values.PrincipalKind = PrincipalKindServicePrincipal
+
+	buf.Reset()
+	require.NoError(t, RenderConfig(values, &buf))
+	config = EnvironmentConfig{}
+	require.NoError(t, yaml.UnmarshalStrict(buf.Bytes(), &config))
+
+	require.Equal(t, values.PrincipalId, config.Cloud.Compute.ManagementPrincipals[0].ObjectId)
+
 }

@@ -45,8 +45,9 @@ const (
 )
 
 type Principal struct {
-	ObjectId string        `json:"objectId"`
-	Kind     PrincipalKind `json:"kind"`
+	ObjectId          string        `json:"objectId"`
+	UserPrincipalName string        `json:"userPrincipalName"`
+	Kind              PrincipalKind `json:"kind"`
 }
 
 func (c *ComputeConfig) GetApiHostCluster() *ClusterConfig {
@@ -120,6 +121,7 @@ type ConfigTemplateValues struct {
 	SubscriptionId           string
 	DefaultLocation          string
 	PrincipalId              string
+	PrincipalUpn             string
 	PrincipalDisplayName     string
 	PrincipalKind            PrincipalKind
 	BufferStorageAccountName string
@@ -128,7 +130,7 @@ type ConfigTemplateValues struct {
 	ApiTenantId              string
 }
 
-func RenderConfig(templateValues *ConfigTemplateValues, writer io.Writer) error {
+func RenderConfig(templateValues ConfigTemplateValues, writer io.Writer) error {
 	t, err := template.New("config").Parse(configTemplate)
 	if err != nil {
 		panic(err)

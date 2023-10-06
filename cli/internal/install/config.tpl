@@ -24,9 +24,16 @@ cloud:
 
     # These are the principals that will be granted full access to the
     # "tyger" namespace in each cluster.
+    # For users, kind must be "User" and userPrincipalName must be set (the user's email).
+    # For service principals, kind must also be "User" and objectId must be set (the service principal's object ID).
+    # For groups, kind must be "Group" and objectId must be set (the group's object ID).
     managementPrincipals:
-      - objectId: {{ .PrincipalId }} # {{ .PrincipalDisplayName }}
-        kind: {{ .PrincipalKind }}
+      - kind: {{ .PrincipalKind }}
+        {{- if eq .PrincipalKind "User" }}
+        userPrincipalName: {{ .PrincipalUpn }}
+        {{- else }}
+        objectId: {{ .PrincipalId }} # {{ .PrincipalDisplayName }}
+        {{- end }}
 
     # Optionally point an existing Log Analytics workspace to send logs to.
     # logAnalytics:
