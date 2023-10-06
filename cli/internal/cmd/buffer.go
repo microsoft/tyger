@@ -316,7 +316,7 @@ func NewBufferWriteCommand(openFileFunc func(name string, flag int, perm fs.File
 
 			err = dataplane.Write(uri, proxyUri, dop, blockSize, inputReader, false, nil)
 			if err != nil {
-				log.Fatal().Err(err).Msg("buffer write faild")
+				log.Fatal().Err(err).Msg("buffer write failed")
 			}
 
 		},
