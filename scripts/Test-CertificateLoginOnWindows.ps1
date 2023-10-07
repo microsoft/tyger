@@ -6,16 +6,16 @@
 
 param(
     [Parameter(Mandatory = $true)]
-    [string]$ServerUri
+    [string]$Server Uri, 
 
     [Parameter(Mandatory = $true)]
-    [string]$servicePrincipal
+    [string]$servicePrincipal,
 
     [Parameter(Mandatory = $true)]
-    $KeyVaultName
+    $KeyVaultName, 
 
     [Parameter(Mandatory = $true)]
-    $CertificateName
+    $CertificateName, 
 
     [Parameter(Mandatory = $true)]
     $CertificateVersion
