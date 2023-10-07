@@ -27,7 +27,8 @@ jobs:
         shell: bash
     outputs:
       TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
-      TYGER_COMBINED_CONFIG: ${{ steps.set-variables.outputs.TYGER_COMBINED_CONFIG }}
+      TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
+      DEVELOPER_CONFIG: ${{ steps.set-variables.outputs.DEVELOPER_CONFIG }}
     steps:
       - name: Login into Azure
         uses: azure/login@v1
@@ -53,13 +54,16 @@ jobs:
           fi
 
           export TYGER_ENVIRONMENT_NAME="${environment_name}"
+
           tyger_uri=$(make -s get-tyger-uri)
+          echo "TYGER_URI=$tyger_uri" >> "$GITHUB_OUTPUT"
+
           echo "TYGER_ENVIRONMENT_NAME=$environment_name" >> "$GITHUB_OUTPUT"
           echo "TYGER_ENVIRONMENT_NAME=$environment_name" >> "$GITHUB_ENV"
 
-          combined_config=$(scripts/get-context-environment-config.sh -e "" -o json | jq -c)
-          echo "TYGER_COMBINED_CONFIG=$combined_config" >> "$GITHUB_OUTPUT"
-          echo "TYGER_COMBINED_CONFIG=$combined_config" >> "$GITHUB_ENV"
+          developer_config=$(scripts/get-context-environment-config.sh -e "developerConfig" -o json | jq -c)
+          echo "DEVELOPER_CONFIG=$developer_config" >> "$GITHUB_OUTPUT"
+          echo "DEVELOPER_CONFIG=$developer_config" >> "$GITHUB_ENV"
 
       - name: Verify devcontainer
         shell: bash
@@ -153,21 +157,21 @@ jobs:
 
       - name: Run smoke tests
         env:
-          TYGER_COMBINED_CONFIG: ${{ needs.tyger-build-deploy.outputs.TYGER_COMBINED_CONFIG }}
+          DEVELOPER_CONFIG: ${{ needs.tyger-build-deploy.outputs.DEVELOPER_CONFIG }}
+          TYGER_URI: ${{ needs.tyger-build-deploy.outputs.TYGER_URI }}
         shell: pwsh
         run: |
           $env:PATH = "$env:GITHUB_WORKSPACE\dist\tyger_windows_amd64_v1;" + $env:PATH
 
-          $combinedConfig = $env:TYGER_COMBINED_CONFIG | ConvertFrom-Json
-          $tygerUri = "https://" + $combinedConfig.config.api.domainName
-          $servicePrincipal = $combinedConfig.developerConfig.testAppUri
-          $keyVaultName = $combinedConfig.developerConfig.keyVault
-          $certificateName = $combinedConfig.developerConfig.pkcs12CertSecret.name
-          $certificateVersion = $combinedConfig.developerConfig.pkcs12CertSecret.version
+          $developerConfig = $env:DEVELOPER_CONFIG | ConvertFrom-Json
+          $servicePrincipal = $developerConfig.testAppUri
+          $keyVaultName = $developerConfig.keyVault
+          $certificateName = $developerConfig.pkcs12CertSecret.name
+          $certificateVersion = $developerConfig.pkcs12CertSecret.version
 
           # Run tests
           .\scripts\Test-CertificateLoginOnWindows.ps1 \
-            -ServerUri $tygerUri \
+            -ServerUri $env:TYGER_URI \
             -ServicePrincipal $servicePrincipal \
             -KeyVaultName $keyVaultName \
             -CertificateName $certificateName \
