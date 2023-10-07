@@ -7,6 +7,18 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$ServerUri
+
+    [Parameter(Mandatory = $true)]
+    [string]$servicePrincipal
+
+    [Parameter(Mandatory = $true)]
+    $KeyVaultName
+
+    [Parameter(Mandatory = $true)]
+    $CertificateName
+
+    [Parameter(Mandatory = $true)]
+    $CertificateVersion
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,10 +28,8 @@ function RunTests {
     param (
         [X509Certificate]$Cert
     )
-    
-    Write-Host "Running tests..."
 
-    $servicePrincipal = "api://tyger-test-client"
+    Write-Host "Running tests..."
 
     # Login with certificate thumbprint given as a command-line argument
 
@@ -53,7 +63,7 @@ function RunTests {
     Invoke-NativeCommand tyger logout
     Invoke-NativeCommand tyger login --file $optionsFile.FullName
     $codespecVersion = Invoke-NativeCommand tyger codespec create cert-test --image busybox --command '--' sh -c 'echo "hello world"'
-    $runId = Invoke-NativeCommand tyger run create --codespec cert-test --version $codespecVersion 
+    $runId = Invoke-NativeCommand tyger run create --codespec cert-test --version $codespecVersion
 
     # Start tyger-proxy using a certificate thumbprint
 
@@ -83,7 +93,7 @@ function RunTests {
 
     Invoke-NativeCommandEnsureFailure -ExpectedErrorSubstring "certificatePath and certificateThumbprint cannot both be specified" `
         tyger login -f $optionsFile.FullName
-    
+
     Invoke-NativeCommandEnsureFailure -ExpectedErrorSubstring "certificatePath and certificateThumbprint cannot both be specified" `
         tyger-proxy start -f $optionsFile.FullName
 }
@@ -141,15 +151,10 @@ function Invoke-NativeCommandEnsureFailure() {
     $global:LASTEXITCODE = 0
 }
 
-$keyVaultName = "eminence"
-$certificateName = "tyger-test-client-cert-pkcs12"
-$certificateVersion = "f8b1b7dde7034217bf12ce4ea772b470"
-
-
 Write-Host "Checking for certificate..."
 
 # See if the certificate is already in the store
-$certMetadata = Invoke-NativeCommand az keyvault certificate show --vault-name $keyVaultName -n $certificateName --version $certificateVersion -o json | ConvertFrom-Json
+$certMetadata = Invoke-NativeCommand az keyvault certificate show --vault-name $KeyVaultName -n $CertificateName --version $CertificateVersion -o json | ConvertFrom-Json
 $cert = Get-Item "cert:\CurrentUser\My\$($certMetadata.x509ThumbprintHex)" -ErrorAction SilentlyContinue
 $installCertificate = -not $cert
 
@@ -166,8 +171,8 @@ try {
         Remove-Item $temporaryPath
 
         try {
-            Invoke-NativeCommand az keyvault secret download --file $temporaryPath --vault-name $keyVaultName -n $certificateName --version $certificateVersion
-            
+            Invoke-NativeCommand az keyvault secret download --file $temporaryPath --vault-name $KeyVaultName -n $CertificateName --version $CertificateVersion
+
             # The private key will not be exportable.
             $cert = Import-PfxCertificate -FilePath $temporaryPath -CertStoreLocation Cert:\CurrentUser\My
         }
@@ -184,6 +189,6 @@ finally {
     if ($installCertificate) {
         Remove-Item $cert.PSPath -ErrorAction SilentlyContinue
     }
-    
+
     Remove-Item $cacheFile.FullName -ErrorAction SilentlyContinue
 }

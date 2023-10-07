@@ -51,7 +51,7 @@ this_dir=$(dirname "${0}")
 config_dir="${TYGER_ENVIRONMENT_CONFIG_DIR:-${this_dir}/../deploy/config/microsoft}"
 helm_chart_dir=$(readlink -f "${this_dir}/../deploy/helm")
 
-if [[ "$expression" == "config" || "$expression" == config.* ]]; then
+if [[ "$expression" == "config" || "$expression" == config.* || "$expression" == "" ]]; then
   environment_name="${TYGER_ENVIRONMENT_NAME:-}"
   if [[ -z "${environment_name:-}" ]]; then
     if [[ ! "$(git config user.email)" =~ [^@]+ ]]; then

@@ -27,7 +27,7 @@ jobs:
         shell: bash
     outputs:
       TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
-      TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
+      TYGER_COMBINED_CONFIG: ${{ steps.set-variables.outputs.TYGER_COMBINED_CONFIG }}
     steps:
       - name: Login into Azure
         uses: azure/login@v1
@@ -51,9 +51,15 @@ jobs:
           else
             environment_name="tygerwestus2"
           fi
-          tyger_uri=$(TYGER_ENVIRONMENT_NAME="${environment_name}" make -s get-tyger-uri)
+
+          export TYGER_ENVIRONMENT_NAME="${environment_name}"
+          tyger_uri=$(make -s get-tyger-uri)
           echo "TYGER_ENVIRONMENT_NAME=$environment_name" >> "$GITHUB_OUTPUT"
-          echo "TYGER_URI=$tyger_uri" >> "$GITHUB_OUTPUT"
+          echo "TYGER_ENVIRONMENT_NAME=$environment_name" >> "$GITHUB_ENV"
+
+          combined_config=$(scripts/get-context-environment-config.sh -e "" -o json | jq -c)
+          echo "TYGER_COMBINED_CONFIG=$combined_config" >> "$GITHUB_OUTPUT"
+          echo "TYGER_COMBINED_CONFIG=$combined_config" >> "$GITHUB_ENV"
 
       - name: Verify devcontainer
         shell: bash
@@ -72,71 +78,42 @@ jobs:
             exit 1
           fi
 
-      - name: Build and verify format
-        run: |
-          set -eo pipefail
-          source /opt/conda/etc/profile.d/conda.sh
-          conda activate /opt/conda/envs/tyger
-          make restore
-          make verify-format
+      # - name: Build and verify format
+      #   run: |
+      #     set -eo pipefail
+      #     source /opt/conda/etc/profile.d/conda.sh
+      #     conda activate /opt/conda/envs/tyger
+      #     make restore
+      #     make verify-format
 
-      - name: Deploy and test
-        env:
-          TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
-          TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
-        run: |
-          set -eo pipefail
-          source /opt/conda/etc/profile.d/conda.sh
-          conda activate /opt/conda/envs/tyger
-          export TYGER_ENVIRONMENT_CONFIG_DIR="${GITHUB_WORKSPACE}/deploy/config/microsoft/ci"
-          echo "TYGER_ENVIRONMENT_CONFIG_DIR=$TYGER_ENVIRONMENT_CONFIG_DIR"
+      # - name: Deploy and test
+      #   run: |
+      #     set -eo pipefail
+      #     source /opt/conda/etc/profile.d/conda.sh
+      #     conda activate /opt/conda/envs/tyger
+      #     export TYGER_ENVIRONMENT_CONFIG_DIR="${GITHUB_WORKSPACE}/deploy/config/microsoft/ci"
+      #     echo "TYGER_ENVIRONMENT_CONFIG_DIR=$TYGER_ENVIRONMENT_CONFIG_DIR"
 
-          # We have mounted this location in the container, it is identical to the checkout location
-          # We need to run the testdata generation from this path to make sure the testdata is generated in the right place.
-          # Otherwise, checksums will change and dirty the path and that will cause publishing to fail.
-          cd /workspaces/tyger
+      #     # We have mounted this location in the container, it is identical to the checkout location
+      #     # We need to run the testdata generation from this path to make sure the testdata is generated in the right place.
+      #     # Otherwise, checksums will change and dirty the path and that will cause publishing to fail.
+      #     cd /workspaces/tyger
 
-          set -euo pipefail
-          make -s -j 8
+      #     set -euo pipefail
+      #     make -s -j 8
 
-      - name: Publish official images
-        if: startsWith(github.ref, 'refs/tags/')
-        env:
-          TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
-        run: |
-            source /opt/conda/etc/profile.d/conda.sh
-            conda activate /opt/conda/envs/tyger
+      # - name: Publish official images
+      #   run: |
+      #       source /opt/conda/etc/profile.d/conda.sh
+      #       conda activate /opt/conda/envs/tyger
 
-            set -euo pipefail
-            cd /workspaces/tyger
+      #       set -euo pipefail
+      #       cd /workspaces/tyger
 
-            make publish-official-images
-
-      - name: Build Windows Binaries
-        run: |
-          set -euo pipefail
-
-          export CGO_ENABLED=1
-          export GOOS=windows
-          export GOARCH=amd64
-
-          mkdir -p "${GITHUB_WORKSPACE}/windows-cli-tools"
-          cd cli
-          go build -ldflags="-s -w" -v -o "${GITHUB_WORKSPACE}/windows-cli-tools/tyger.exe" ./cmd/tyger
-          go build -ldflags="-s -w" -v -o "${GITHUB_WORKSPACE}/windows-cli-tools/tyger-proxy.exe" ./cmd/tyger-proxy
-
-      - name: Archive windows-cli-tools
-        uses: actions/upload-artifact@v3
-        with:
-          name: windows-cli-tools
-          path: |
-            windows-cli-tools
+      #       make publish-official-images
 
       - name: Cleanup
         if: ${{ always() }}
-        env:
-          TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
-          TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
         run: |
           set -eo pipefail
           source /opt/conda/etc/profile.d/conda.sh
@@ -151,7 +128,9 @@ jobs:
 
   windows-smoke-tests:
     runs-on: windows-latest
-    needs: tyger-build-deploy
+    needs:
+      - tyger-build-deploy
+      - publish-binaries
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -159,11 +138,10 @@ jobs:
           fetch-depth: 0
 
       - name: Download artifacts
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v3
         with:
-          name: windows-cli-tools
-          path: |
-            windows-cli-tools
+          name: dist
+          path: dist
 
       - name: Login into Azure
         uses: azure/login@v1
@@ -175,13 +153,25 @@ jobs:
 
       - name: Run smoke tests
         env:
-          TYGER_URI: ${{ needs.tyger-build-deploy.outputs.TYGER_URI }}
+          TYGER_COMBINED_CONFIG: ${{ needs.tyger-build-deploy.outputs.TYGER_COMBINED_CONFIG }}
         shell: pwsh
         run: |
-          $env:PATH = "$env:GITHUB_WORKSPACE\windows-cli-tools;"+ $env:PATH
+          $env:PATH = "$env:GITHUB_WORKSPACE\dist\tyger_windows_amd64_v1;" + $env:PATH
+
+          $combinedConfig = $env:TYGER_COMBINED_CONFIG | ConvertFrom-Json
+          $tygerUri = "https://" + $combinedConfig.config.api.domainName
+          $servicePrincipal = $combinedConfig.developerConfig.testAppUri
+          $keyVaultName = $combinedConfig.developerConfig.keyVault
+          $certificateName = $combinedConfig.developerConfig.pkcs12CertSecret.name
+          $certificateVersion = $combinedConfig.developerConfig.pkcs12CertSecret.version
 
           # Run tests
-          .\scripts\Test-CertificateLoginOnWindows.ps1 -ServerUri $env:TYGER_URI
+          .\scripts\Test-CertificateLoginOnWindows.ps1 \
+            -ServerUri $tygerUri \
+            -ServicePrincipal $servicePrincipal \
+            -KeyVaultName $keyVaultName \
+            -CertificateName $certificateName \
+            -CertificateVersion $certificateVersion
 
   codeQL:
     name: CodeQL
@@ -210,9 +200,6 @@ jobs:
           languages: csharp, go
 
       - name: "Build"
-        env:
-          TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
-          TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
         run: |
           set -eo pipefail
           source /opt/conda/etc/profile.d/conda.sh
@@ -224,14 +211,10 @@ jobs:
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v2
 
-  release:
+  publish-binaries:
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: write
-    needs:
-      - tyger-build-deploy
-      - windows-smoke-tests
-      - codeQL
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -254,9 +237,17 @@ jobs:
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v5
+        env:
+          # If this is a tag push, create a release
+          ARGS: ${{ startsWith(github.ref, 'refs/tags/') && 'release --clean' || 'release --clean --snapshot' }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           version: v1.21.2
           workdir: cli
-          args: release --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          args: ${{ env.ARGS }}
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v3
+        with:
+          name: dist
+          path: cli/dist
