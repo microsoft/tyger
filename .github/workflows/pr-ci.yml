@@ -182,7 +182,7 @@ jobs:
           $ErrorActionPreference = "Stop"
           Set-StrictMode -Version Latest
 
-          $env:PATH = "$env:GITHUB_WORKSPACE\windows-cli-tools\tyger_windows_amd64_v1;" + $env:PATH
+          $env:PATH = "$env:GITHUB_WORKSPACE\windows-cli-tools;" + $env:PATH
 
           $developerConfig = $env:DEVELOPER_CONFIG | ConvertFrom-Json
 
