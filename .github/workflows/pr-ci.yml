@@ -82,39 +82,39 @@ jobs:
             exit 1
           fi
 
-      # - name: Build and verify format
-      #   run: |
-      #     set -eo pipefail
-      #     source /opt/conda/etc/profile.d/conda.sh
-      #     conda activate /opt/conda/envs/tyger
-      #     make restore
-      #     make verify-format
+      - name: Build and verify format
+        run: |
+          set -eo pipefail
+          source /opt/conda/etc/profile.d/conda.sh
+          conda activate /opt/conda/envs/tyger
+          make restore
+          make verify-format
 
-      # - name: Deploy and test
-      #   run: |
-      #     set -eo pipefail
-      #     source /opt/conda/etc/profile.d/conda.sh
-      #     conda activate /opt/conda/envs/tyger
-      #     export TYGER_ENVIRONMENT_CONFIG_DIR="${GITHUB_WORKSPACE}/deploy/config/microsoft/ci"
-      #     echo "TYGER_ENVIRONMENT_CONFIG_DIR=$TYGER_ENVIRONMENT_CONFIG_DIR"
+      - name: Deploy and test
+        run: |
+          set -eo pipefail
+          source /opt/conda/etc/profile.d/conda.sh
+          conda activate /opt/conda/envs/tyger
+          export TYGER_ENVIRONMENT_CONFIG_DIR="${GITHUB_WORKSPACE}/deploy/config/microsoft/ci"
+          echo "TYGER_ENVIRONMENT_CONFIG_DIR=$TYGER_ENVIRONMENT_CONFIG_DIR"
 
-      #     # We have mounted this location in the container, it is identical to the checkout location
-      #     # We need to run the testdata generation from this path to make sure the testdata is generated in the right place.
-      #     # Otherwise, checksums will change and dirty the path and that will cause publishing to fail.
-      #     cd /workspaces/tyger
+          # We have mounted this location in the container, it is identical to the checkout location
+          # We need to run the testdata generation from this path to make sure the testdata is generated in the right place.
+          # Otherwise, checksums will change and dirty the path and that will cause publishing to fail.
+          cd /workspaces/tyger
 
-      #     set -euo pipefail
-      #     make -s -j 8
+          set -euo pipefail
+          make -s -j 8
 
-      # - name: Publish official images
-      #   run: |
-      #       source /opt/conda/etc/profile.d/conda.sh
-      #       conda activate /opt/conda/envs/tyger
+      - name: Publish official images
+        run: |
+            source /opt/conda/etc/profile.d/conda.sh
+            conda activate /opt/conda/envs/tyger
 
-      #       set -euo pipefail
-      #       cd /workspaces/tyger
+            set -euo pipefail
+            cd /workspaces/tyger
 
-      #       make publish-official-images
+            make publish-official-images
 
       - name: Cleanup
         if: ${{ always() }}
@@ -167,7 +167,6 @@ jobs:
           $env:PATH = "$env:GITHUB_WORKSPACE\dist\tyger_windows_amd64_v1;" + $env:PATH
 
           $developerConfig = $env:DEVELOPER_CONFIG | ConvertFrom-Json
-          echo $developerConfig
 
           $servicePrincipal = $developerConfig.testAppUri
           $keyVaultName = $developerConfig.keyVault

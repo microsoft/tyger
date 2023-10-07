@@ -14,22 +14,22 @@ builds:
       - -X github.com/microsoft/tyger/cli/internal/install.containerRegistry={{ .Env.OFFICIAL_CONTAINER_REGISTRY }}
       - -X github.com/microsoft/tyger/cli/internal/install.containerImageTag={{ .Tag }}
     goos:
-      # - linux
+      - linux
       - windows
-      # - darwin
+      - darwin
 
-  # - id: tyger-proxy
-  #   main: ./cmd/tyger-proxy
-  #   binary: tyger-proxy
-  #   env:
-  #     - CGO_ENABLED=0
-  #   ldflags:
-  #     - -s -w
-  #     - -X main.version={{.Tag}}
-  #   goos:
-  #     - linux
-  #     - windows
-  #     - darwin
+  - id: tyger-proxy
+    main: ./cmd/tyger-proxy
+    binary: tyger-proxy
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+      - -X main.version={{.Tag}}
+    goos:
+      - linux
+      - windows
+      - darwin
 
 archives:
   - format: tar.gz
