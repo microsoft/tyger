@@ -161,20 +161,25 @@ jobs:
           TYGER_URI: ${{ needs.tyger-build-deploy.outputs.TYGER_URI }}
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
+          Set-StrictMode -Version Latest
+
           $env:PATH = "$env:GITHUB_WORKSPACE\dist\tyger_windows_amd64_v1;" + $env:PATH
 
           $developerConfig = $env:DEVELOPER_CONFIG | ConvertFrom-Json
+          echo $developerConfig
+
           $servicePrincipal = $developerConfig.testAppUri
           $keyVaultName = $developerConfig.keyVault
           $certificateName = $developerConfig.pkcs12CertSecret.name
           $certificateVersion = $developerConfig.pkcs12CertSecret.version
 
           # Run tests
-          .\scripts\Test-CertificateLoginOnWindows.ps1 \
-            -ServerUri $env:TYGER_URI \
-            -ServicePrincipal $servicePrincipal \
-            -KeyVaultName $keyVaultName \
-            -CertificateName $certificateName \
+          .\scripts\Test-CertificateLoginOnWindows.ps1 `
+            -ServerUri $env:TYGER_URI `
+            -ServicePrincipal $servicePrincipal `
+            -KeyVaultName $keyVaultName `
+            -CertificateName $certificateName `
             -CertificateVersion $certificateVersion
 
   codeQL:
