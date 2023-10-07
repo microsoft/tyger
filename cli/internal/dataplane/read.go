@@ -27,15 +27,21 @@ var (
 	errPastEndOfBlob = errors.New("past end of blob")
 )
 
-func Read(uri, proxyUri string, dop int, outputWriter io.Writer) {
+func Read(uri, proxyUri string, dop int, outputWriter io.Writer, readFunc WaitForBlobAndDownloadfunc) error {
+	if readFunc == nil {
+		readFunc = WaitForBlobAndDownload
+	}
+
 	ctx := log.With().Str("operation", "buffer read").Logger().WithContext(context.Background())
 	httpClient, err := CreateHttpClient(proxyUri)
 	if err != nil {
-		log.Ctx(ctx).Fatal().Err(err).Msg("Failed to create http client")
+		log.Ctx(ctx).Err(err).Msg("Failed to create http client")
+		return err
 	}
 	container, err := ValidateContainer(uri, httpClient)
 	if err != nil {
-		log.Ctx(ctx).Fatal().Err(err).Msg("Container validation failed")
+		log.Ctx(ctx).Err(err).Msg("Container validation failed")
+		return err
 	}
 
 	metrics := TransferMetrics{
@@ -46,64 +52,86 @@ func Read(uri, proxyUri string, dop int, outputWriter io.Writer) {
 
 	// Read the blob meta data
 	blobUri := container.GetNamedBlobUri(".bufferstart")
-	respData, err := WaitForBlobAndDownload(ctx, NewClientWithLoggingContext(ctx, httpClient), blobUri, 0, nil)
+	respData, err := readFunc(ctx, NewClientWithLoggingContext(ctx, httpClient), blobUri, 0, nil)
 	if err != nil {
-		log.Ctx(ctx).Fatal().Err(err).Msg("Buffer is invalid")
+		log.Ctx(ctx).Err(err).Msg("Buffer is invalid")
+		return err
 	}
 
 	var bufferFormat BufferFormat
 	json.Unmarshal(respData.Data, &bufferFormat)
 
-	if bufferFormat.Version != "0.1.0" {
-		log.Ctx(ctx).Fatal().Msg("Invaild buffer format")
+	if bufferFormat.Version != BufferVersion {
+		err = errors.New("invalid buffer format")
+		log.Ctx(ctx).Err(err).Msg("Invaild buffer format")
+		return err
 	}
 
 	var nextBlobNumber int64 = 0
 	var finalBlobNumber int64 = -1
 
 	blobUri = container.GetNamedBlobUri(".bufferend")
-	respData, err = WaitForBlobAndDownload(ctx, NewClientWithLoggingContext(ctx, httpClient), blobUri, -1, nil)
+	respData, err = readFunc(ctx, NewClientWithLoggingContext(ctx, httpClient), blobUri, -1, nil)
+
+	responseChannel := make(chan chan BufferBlob, dop*2)
+	var lock sync.Mutex
 
 	if err == nil {
 		var bufferFinalization BufferFinalization
 		json.Unmarshal(respData.Data, &bufferFinalization)
 		if bufferFinalization.Status == "Failed" {
-			log.Ctx(ctx).Fatal().Msg("buffer is invalid")
+			err = errors.New("buffer in invalid")
+			log.Ctx(ctx).Err(err).Msg("buffer is invalid")
+			return err
 		}
 		atomic.StoreInt64(&finalBlobNumber, bufferFinalization.BlobCount)
 	} else if err != ErrNotFound {
-		log.Ctx(ctx).Fatal().Err(err).Msg("unable to read .bufferend")
+		log.Ctx(ctx).Err(err).Msg("unable to read .bufferend")
+		return err
 	} else {
 		go func() {
 			for {
 				blobUri = container.GetNamedBlobUri(".bufferend")
-				respData, err = WaitForBlobAndDownload(ctx, NewClientWithLoggingContext(ctx, httpClient), blobUri, -1, nil)
+				respData, err = readFunc(ctx, NewClientWithLoggingContext(ctx, httpClient), blobUri, -1, nil)
 
 				if err == nil {
 					var bufferFinalization BufferFinalization
 					json.Unmarshal(respData.Data, &bufferFinalization)
 					if bufferFinalization.Status == "Failed" {
-						log.Ctx(ctx).Fatal().Msg("buffer is invalid")
+						log.Ctx(ctx).Error().Msg("buffer is invalid")
+
+						c := make(chan BufferBlob, 5)
+						responseChannel <- c
+						c <- BufferBlob{BlobNumber: -1, LastError: errors.New("buffer is invalid")}
+						break
 					}
 
 					if atomic.LoadInt64(&finalBlobNumber) == -1 {
 						atomic.StoreInt64(&finalBlobNumber, bufferFinalization.BlobCount)
 					} else if atomic.LoadInt64(&finalBlobNumber) != bufferFinalization.BlobCount {
-						log.Ctx(ctx).Fatal().Msg("blob count mismatch")
+						log.Ctx(ctx).Error().Msg("blob count mismatch")
+
+						c := make(chan BufferBlob, 5)
+						responseChannel <- c
+						c <- BufferBlob{BlobNumber: -1, LastError: errors.New("blob count mismatch")}
+
+						break
 					}
 
 					log.Ctx(ctx).Trace().Msg(".bufferend read")
 
 					break
 				} else if err != ErrNotFound {
-					log.Ctx(ctx).Fatal().Err(err).Msg("unable to read .bufferend")
+					log.Ctx(ctx).Err(err).Msg("unable to read .bufferend")
+
+					c := make(chan BufferBlob, 5)
+					responseChannel <- c
+					c <- BufferBlob{BlobNumber: -1, LastError: err}
+					break
 				}
 			}
 		}()
 	}
-
-	responseChannel := make(chan chan BufferBlob, dop*2)
-	var lock sync.Mutex
 
 	for i := 0; i < dop; i++ {
 		go func() {
@@ -117,12 +145,13 @@ func Read(uri, proxyUri string, dop int, outputWriter io.Writer) {
 
 				blobUri := container.GetBlobUri(blobNumber)
 				ctx := log.Ctx(ctx).With().Int64("blobNumber", blobNumber).Logger().WithContext(ctx)
-				respData, err := WaitForBlobAndDownload(ctx, NewClientWithLoggingContext(ctx, httpClient), blobUri, blobNumber, &finalBlobNumber)
+				respData, err := readFunc(ctx, NewClientWithLoggingContext(ctx, httpClient), blobUri, blobNumber, &finalBlobNumber)
 				if err != nil {
-					if err == errPastEndOfBlob {
-						break
+					if err != errPastEndOfBlob {
+						log.Ctx(ctx).Err(err).Msg("Error downloading blob")
+						c <- BufferBlob{BlobNumber: blobNumber, LastError: err}
 					}
-					log.Ctx(ctx).Fatal().Err(err).Msg("Error downloading blob")
+					break
 				}
 				metrics.Update(uint64(len(respData.Data)))
 
@@ -133,10 +162,12 @@ func Read(uri, proxyUri string, dop int, outputWriter io.Writer) {
 
 				md5Bytes, _ := base64.StdEncoding.DecodeString(md5Header)
 				if !bytes.Equal(calculatedMd5[:], md5Bytes) {
-					log.Ctx(ctx).Fatal().Err(err).Msg("MD5 mismatch")
+					log.Ctx(ctx).Error().Msg("MD5 mismatch")
+					c <- BufferBlob{BlobNumber: blobNumber, LastError: errors.New("MD5 mismatch")}
+					break
 				}
 
-				c <- BufferBlob{BlobNumber: blobNumber, Contents: respData.Data, EncodedMD5Hash: md5Header, EncodedMD5ChainHash: md5ChainHeader}
+				c <- BufferBlob{BlobNumber: blobNumber, Contents: respData.Data, EncodedMD5Hash: md5Header, EncodedMD5ChainHash: md5ChainHeader, LastError: nil}
 			}
 		}()
 	}
@@ -147,8 +178,14 @@ func Read(uri, proxyUri string, dop int, outputWriter io.Writer) {
 	for c := range responseChannel {
 		blobResponse := <-c
 
+		if blobResponse.LastError != nil {
+			return blobResponse.LastError
+		}
+
 		if blobResponse.BlobNumber != expcetedBlobNumber {
-			log.Ctx(ctx).Fatal().Err(err).Msg("Blob number returned out of sequence")
+			err = errors.New("blob number returned out of sequence")
+			log.Ctx(ctx).Err(err).Msg("Blob number returned out of sequence")
+			return err
 		}
 
 		expcetedBlobNumber++
@@ -158,7 +195,8 @@ func Read(uri, proxyUri string, dop int, outputWriter io.Writer) {
 		}
 
 		if _, err := outputWriter.Write(blobResponse.Contents); err != nil {
-			log.Ctx(ctx).Fatal().Err(err).Msg("Error writing to output")
+			log.Ctx(ctx).Err(err).Msg("Error writing to output")
+			return err
 		}
 
 		pool.Put(blobResponse.Contents)
@@ -167,7 +205,9 @@ func Read(uri, proxyUri string, dop int, outputWriter io.Writer) {
 		encodedMD5HashChain = base64.StdEncoding.EncodeToString(md5HashChain[:])
 
 		if blobResponse.EncodedMD5ChainHash != encodedMD5HashChain {
-			log.Ctx(ctx).Fatal().Err(err).Msg("Hash chain mismatch")
+			err = errors.New("hash chain mismatch")
+			log.Ctx(ctx).Err(err).Msg("Hash chain mismatch")
+			return err
 		}
 
 		timeNow := time.Now()
@@ -176,35 +216,13 @@ func Read(uri, proxyUri string, dop int, outputWriter io.Writer) {
 	}
 
 	metrics.Stop()
+
+	return nil
 }
 
-func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUri string) (*readData, error) {
-	req, err := retryablehttp.NewRequest(http.MethodGet, blobUri, nil)
-	if err != nil {
-		return nil, err
-	}
+type WaitForBlobAndDownloadfunc func(ctx context.Context, httpClient *retryablehttp.Client, blobUri string, blobNumber int64, finalBlobNumber *int64) (*ReadBlobData, error)
 
-	AddCommonBlobRequestHeaders(req.Header)
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, RedactHttpError(err)
-	}
-
-	respData, err := handleReadResponse(ctx, resp)
-
-	if err == nil {
-		log.Ctx(ctx).Trace().
-			Int("contentLength", int(resp.ContentLength)).
-			Msg("Downloaded blob")
-
-		return respData, nil
-	}
-
-	return nil, err
-}
-
-func WaitForBlobAndDownload(ctx context.Context, httpClient *retryablehttp.Client, blobUri string, blobNumber int64, finalBlobNumber *int64) (*readData, error) {
+func WaitForBlobAndDownload(ctx context.Context, httpClient *retryablehttp.Client, blobUri string, blobNumber int64, finalBlobNumber *int64) (*ReadBlobData, error) {
 	// The last error that occurred relating to reading the body. retryablehttp does not retry when these happen
 	// because reading the body happens after the call to HttpClient.Do()
 	var lastBodyReadError *responseBodyReadError
@@ -304,12 +322,12 @@ func WaitForBlobAndDownload(ctx context.Context, httpClient *retryablehttp.Clien
 	}
 }
 
-type readData struct {
+type ReadBlobData struct {
 	Data   []byte
 	Header http.Header
 }
 
-func handleReadResponse(ctx context.Context, resp *http.Response) (*readData, error) {
+func handleReadResponse(ctx context.Context, resp *http.Response) (*ReadBlobData, error) {
 	defer resp.Body.Close()
 
 	switch resp.StatusCode {
@@ -332,7 +350,7 @@ func handleReadResponse(ctx context.Context, resp *http.Response) (*readData, er
 			return nil, &responseBodyReadError{reason: errors.New("expected Content-MD5 header missing")}
 		}
 
-		response := readData{Data: buf, Header: resp.Header}
+		response := ReadBlobData{Data: buf, Header: resp.Header}
 
 		return &response, nil
 	case http.StatusNotFound:

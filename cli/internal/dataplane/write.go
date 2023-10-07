@@ -93,9 +93,7 @@ func WriteBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, b
 	return nil
 }
 
-// If invalidHashChain is set to true, the value of the hash chain attached to the blob will
-// always be the Inital Value. This should only be set for testing.
-func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, invalidHashChain bool, writeFunc WriteBlobWithRetryFunc) error {
+func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, writeFunc WriteBlobWithRetryFunc) error {
 	if writeFunc == nil {
 		writeFunc = WriteBlobWithRetry
 	}
@@ -171,10 +169,7 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 					encodedMD5HashChain := base64.StdEncoding.EncodeToString(md5HashChain[:])
 
 					bb.CurrentCumulativeHash <- encodedMD5HashChain
-
-					if !invalidHashChain {
-						blobEncodedMD5HashChain = encodedMD5HashChain
-					}
+					blobEncodedMD5HashChain = encodedMD5HashChain
 				} else {
 					blobEncodedMD5HashChain = ""
 				}
@@ -201,7 +196,7 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 
 	previousHashChannel <- EncodedMD5HashChainInitalValue
 
-	formatBlob := BufferFormat{Version: "0.1.0"}
+	formatBlob := BufferFormat{Version: BufferVersion}
 	serializedBlob, _ := json.Marshal(formatBlob)
 
 	outputChannel <- BufferBlob{
@@ -271,12 +266,11 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 	err = writeFunc(ctx, httpClient, blobUrl, serializedBlob, encodedMD5Hash, "")
 
 	if err != nil || hasFailed() {
-		log.Err(err).Msg("Buffer write failed")
 		if err == nil {
-			return errors.New("buffer write failed")
-		} else {
-			return err
+			err = errors.New("buffer write failed")
 		}
+		log.Err(err).Msg("Buffer write failed")
+		return err
 	}
 
 	metrics.Stop()

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"os/exec"
 	"path"
@@ -197,25 +198,35 @@ func TestInvalidHashChain(t *testing.T) {
 	t.Parallel()
 
 	inputBufferId := runTygerSucceeds(t, "buffer", "create")
-	writeSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
+	inputSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
+	runCommandSuceeds(t, "sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, inputSasUri))
 
-	// Calling buffer.write directly to make sure an invalid hash chain is generated.
-	var proxyUri string
-	if serviceInfo, err := controlplane.GetPersistedServiceInfo(); err == nil {
-		proxyUri = serviceInfo.GetDataPlaneProxy()
+	mock := func(ctx context.Context, httpClient *retryablehttp.Client, blobUrl string, blobNumber int64, finalBlobNumber *int64) (*dataplane.ReadBlobData, error) {
+		blobData := dataplane.ReadBlobData{Header: make(http.Header)}
+		if strings.Contains(blobUrl, ".bufferstart") {
+
+			formatBlob := dataplane.BufferFormat{Version: dataplane.BufferVersion}
+			blobData.Data, _ = json.Marshal(formatBlob)
+		} else if strings.Contains(blobUrl, ".bufferend") {
+			finalizationBlob := dataplane.BufferFinalization{Status: "Completed", BlobCount: 42}
+			blobData.Data, _ = json.Marshal(finalizationBlob)
+		} else {
+			blobData.Data = []byte("Hello")
+			md5Hash := md5.Sum(blobData.Data)
+			encodedMD5Hash := base64.StdEncoding.EncodeToString(md5Hash[:])
+
+			blobData.Header.Add("Content-MD5", encodedMD5Hash)
+			blobData.Header.Add("x-ms-meta-cumulative_md5_chain", dataplane.EncodedMD5HashChainInitalValue)
+		}
+		return &blobData, nil
 	}
 
-	inputReader := strings.NewReader("Hello")
-	dataplane.Write(writeSasUri, proxyUri, dataplane.DefaultWriteDop, dataplane.DefaultBlockSize, inputReader, true, nil)
+	outputSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId)
 
-	readSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId)
+	input := bytes.NewBuffer(nil)
 
-	_, stdErr, err := runTyger("buffer", "read", readSasUri)
-	if err == nil {
-		t.Fatal("Hash chain was valid")
-	} else {
-		assert.Contains(t, stdErr, "Hash chain mismatch")
-	}
+	err := dataplane.Read(outputSasUri, "", dataplane.DefaultWriteDop, input, mock)
+	assert.Error(t, err, "Read didn't fail")
 }
 
 func TestHashChain(t *testing.T) {
@@ -304,19 +315,19 @@ func TestBufferMetadata(t *testing.T) {
 	blobUri := container.GetNamedBlobUri(".bufferstart")
 
 	ctx := log.With().Str("operation", "buffer read").Logger().WithContext(context.Background())
-	respData, err := dataplane.DownloadBlob(ctx, dataplane.NewClientWithLoggingContext(ctx, httpClient), blobUri)
+	respData, err := dataplane.WaitForBlobAndDownload(ctx, dataplane.NewClientWithLoggingContext(ctx, httpClient), blobUri, -1, nil)
 
 	assert.Nil(t, err, "Couldn't read .bufferstart")
 
 	var bufferFormat dataplane.BufferFormat
 	json.Unmarshal(respData.Data, &bufferFormat)
 
-	assert.Equal(t, bufferFormat.Version, "0.1.0")
+	assert.Equal(t, bufferFormat.Version, dataplane.BufferVersion)
 
 	blobUri = container.GetNamedBlobUri(".bufferend")
 
 	ctx = log.With().Str("operation", "buffer read").Logger().WithContext(context.Background())
-	respData, err = dataplane.DownloadBlob(ctx, dataplane.NewClientWithLoggingContext(ctx, httpClient), blobUri)
+	respData, err = dataplane.WaitForBlobAndDownload(ctx, dataplane.NewClientWithLoggingContext(ctx, httpClient), blobUri, -1, nil)
 
 	assert.Nil(t, err, "Couldn't read .bufferend")
 
@@ -346,7 +357,7 @@ func TestBufferFinalizeWithError(t *testing.T) {
 	writeSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
 
 	inputReader := strings.NewReader("Hello")
-	err := dataplane.Write(writeSasUri, "", dataplane.DefaultWriteDop, dataplane.DefaultBlockSize, inputReader, false, mock)
+	err := dataplane.Write(writeSasUri, "", dataplane.DefaultWriteDop, dataplane.DefaultBlockSize, inputReader, mock)
 
 	assert.Error(t, err, "Write didn't fail")
 }

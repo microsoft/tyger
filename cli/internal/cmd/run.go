@@ -160,7 +160,7 @@ func newRunExecCommand() *cobra.Command {
 			mainWg.Add(1)
 			go func() {
 				defer mainWg.Done()
-				err := dataplane.Write(inputSasUri, proxyUri, writeDop, blockSize, os.Stdin, false, nil)
+				err := dataplane.Write(inputSasUri, proxyUri, writeDop, blockSize, os.Stdin, nil)
 				if err != nil {
 					log.Fatal().Err(err).Msg("buffer write failed")
 				}
@@ -171,7 +171,10 @@ func newRunExecCommand() *cobra.Command {
 			mainWg.Add(1)
 			go func() {
 				defer mainWg.Done()
-				dataplane.Read(outputSasUri, proxyUri, readDop, os.Stdout)
+				err := dataplane.Read(outputSasUri, proxyUri, readDop, os.Stdout, nil)
+				if err != nil {
+					log.Fatal().Err(err).Msg("buffer read failed")
+				}
 			}()
 		}
 
