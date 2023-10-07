@@ -139,6 +139,8 @@ fi
 
 if [[ -n "${helm:-}" ]]; then
   echo "logging in to ACR to publish helm chart..."
+  "$(dirname "${0}")/check-login.sh"
+
   token=$(az acr login --name "${container_registry_fqdn}" --expose-token --output tsv --query accessToken --only-show-errors)
   username="00000000-0000-0000-0000-000000000000"
   echo "${token}" | docker login "${container_registry_fqdn}" -u "${username}" --password-stdin

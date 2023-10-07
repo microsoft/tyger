@@ -245,7 +245,7 @@ install-cli:
 	official_container_registry=$$(scripts/get-context-environment-config.sh -e developerConfig.officialContainerRegistry.fqdn)
 	cd cli
 	tag=$$(git describe --tags 2> /dev/null || echo "0.0.0")
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go install -ldflags="-s -w \
+	CGO_ENABLED=0 go install -ldflags="-s -w \
 		-X main.version=$${tag} \
 		-X github.com/microsoft/tyger/cli/internal/install.containerRegistry=$${official_container_registry} \
 		-X github.com/microsoft/tyger/cli/internal/install.containerImageTag=$${tag}" \

@@ -28,6 +28,7 @@ jobs:
     outputs:
       TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
       TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
+      DEVELOPER_CONFIG: ${{ steps.set-variables.outputs.DEVELOPER_CONFIG }}
     steps:
       - name: Login into Azure
         uses: azure/login@v1
@@ -51,9 +52,18 @@ jobs:
           else
             environment_name="tygerwestus2"
           fi
-          tyger_uri=$(TYGER_ENVIRONMENT_NAME="${environment_name}" make -s get-tyger-uri)
-          echo "TYGER_ENVIRONMENT_NAME=$environment_name" >> "$GITHUB_OUTPUT"
+
+          export TYGER_ENVIRONMENT_NAME="${environment_name}"
+
+          tyger_uri=$(make -s get-tyger-uri)
           echo "TYGER_URI=$tyger_uri" >> "$GITHUB_OUTPUT"
+
+          echo "TYGER_ENVIRONMENT_NAME=$environment_name" >> "$GITHUB_OUTPUT"
+          echo "TYGER_ENVIRONMENT_NAME=$environment_name" >> "$GITHUB_ENV"
+
+          developer_config=$(scripts/get-context-environment-config.sh -e "developerConfig" -o json | jq -c)
+          echo "DEVELOPER_CONFIG=$developer_config" >> "$GITHUB_OUTPUT"
+          echo "DEVELOPER_CONFIG=$developer_config" >> "$GITHUB_ENV"
 
       - name: Verify devcontainer
         shell: bash
@@ -81,9 +91,6 @@ jobs:
           make verify-format
 
       - name: Deploy and test
-        env:
-          TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
-          TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
         run: |
           set -eo pipefail
           source /opt/conda/etc/profile.d/conda.sh
@@ -100,17 +107,14 @@ jobs:
           make -s -j 8
 
       - name: Publish official images
-        if: startsWith(github.ref, 'refs/tags/')
-        env:
-          TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
         run: |
-            source /opt/conda/etc/profile.d/conda.sh
-            conda activate /opt/conda/envs/tyger
+          source /opt/conda/etc/profile.d/conda.sh
+          conda activate /opt/conda/envs/tyger
 
-            set -euo pipefail
-            cd /workspaces/tyger
+          set -euo pipefail
+          cd /workspaces/tyger
 
-            make publish-official-images
+          make publish-official-images
 
       - name: Build Windows Binaries
         run: |
@@ -120,23 +124,20 @@ jobs:
           export GOOS=windows
           export GOARCH=amd64
 
-          mkdir -p "${GITHUB_WORKSPACE}/windows-cli-tools"
-          cd cli
-          go build -ldflags="-s -w" -v -o "${GITHUB_WORKSPACE}/windows-cli-tools/tyger.exe" ./cmd/tyger
-          go build -ldflags="-s -w" -v -o "${GITHUB_WORKSPACE}/windows-cli-tools/tyger-proxy.exe" ./cmd/tyger-proxy
+          make install-cli
+
+          destination="${GITHUB_WORKSPACE}/windows-cli-tools"
+          mkdir -p "$destination"
+          cp -a "$(go env GOPATH)/bin/$(go env GOOS)_$(go env GOARCH)/." "$destination"
 
       - name: Archive windows-cli-tools
         uses: actions/upload-artifact@v3
         with:
           name: windows-cli-tools
-          path: |
-            windows-cli-tools
+          path: windows-cli-tools
 
       - name: Cleanup
         if: ${{ always() }}
-        env:
-          TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
-          TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
         run: |
           set -eo pipefail
           source /opt/conda/etc/profile.d/conda.sh
@@ -148,10 +149,10 @@ jobs:
           echo "scaling cluster back down"
           make ensure-environment
 
-
   windows-smoke-tests:
     runs-on: windows-latest
-    needs: tyger-build-deploy
+    needs:
+      - tyger-build-deploy
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -159,11 +160,10 @@ jobs:
           fetch-depth: 0
 
       - name: Download artifacts
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v3
         with:
           name: windows-cli-tools
-          path: |
-            windows-cli-tools
+          path: windows-cli-tools
 
       - name: Login into Azure
         uses: azure/login@v1
@@ -175,13 +175,29 @@ jobs:
 
       - name: Run smoke tests
         env:
+          DEVELOPER_CONFIG: ${{ needs.tyger-build-deploy.outputs.DEVELOPER_CONFIG }}
           TYGER_URI: ${{ needs.tyger-build-deploy.outputs.TYGER_URI }}
         shell: pwsh
         run: |
-          $env:PATH = "$env:GITHUB_WORKSPACE\windows-cli-tools;"+ $env:PATH
+          $ErrorActionPreference = "Stop"
+          Set-StrictMode -Version Latest
+
+          $env:PATH = "$env:GITHUB_WORKSPACE\windows-cli-tools;" + $env:PATH
+
+          $developerConfig = $env:DEVELOPER_CONFIG | ConvertFrom-Json
+
+          $servicePrincipal = $developerConfig.testAppUri
+          $keyVaultName = $developerConfig.keyVault
+          $certificateName = $developerConfig.pkcs12CertSecret.name
+          $certificateVersion = $developerConfig.pkcs12CertSecret.version
 
           # Run tests
-          .\scripts\Test-CertificateLoginOnWindows.ps1 -ServerUri $env:TYGER_URI
+          .\scripts\Test-CertificateLoginOnWindows.ps1 `
+            -ServerUri $env:TYGER_URI `
+            -ServicePrincipal $servicePrincipal `
+            -KeyVaultName $keyVaultName `
+            -CertificateName $certificateName `
+            -CertificateVersion $certificateVersion
 
   codeQL:
     name: CodeQL
@@ -210,9 +226,6 @@ jobs:
           languages: csharp, go
 
       - name: "Build"
-        env:
-          TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
-          TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
         run: |
           set -eo pipefail
           source /opt/conda/etc/profile.d/conda.sh
@@ -226,12 +239,13 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/')
-    permissions:
-      contents: write
     needs:
       - tyger-build-deploy
       - windows-smoke-tests
-      - codeQL
+    env:
+      DEVELOPER_CONFIG: ${{ needs.tyger-build-deploy.outputs.DEVELOPER_CONFIG }}
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -239,24 +253,19 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@v4
         with:
-          go-version-file: 'cli/go.mod'
-
-      - uses: cue-lang/setup-cue@v1.0.0
-        with:
-          version: v0.6.0
-        name: install CUE
+          go-version-file: "cli/go.mod"
 
       - name: get container registry
         run: |
           set -euo pipefail
-          official_container_registry=$(scripts/get-context-environment-config.sh -e developerConfig.officialContainerRegistry.fqdn)
+          official_container_registry=$(echo "$DEVELOPER_CONFIG" | jr -r '.officialContainerRegistry.fqdn')
           echo "OFFICIAL_CONTAINER_REGISTRY=$(echo $official_container_registry)" >> $GITHUB_ENV
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           version: v1.21.2
           workdir: cli
           args: release --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
