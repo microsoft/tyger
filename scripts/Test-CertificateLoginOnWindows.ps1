@@ -6,7 +6,7 @@
 
 param(
     [Parameter(Mandatory = $true)]
-    [string]$Server Uri, 
+    [string]$ServerUri, 
 
     [Parameter(Mandatory = $true)]
     [string]$servicePrincipal,
