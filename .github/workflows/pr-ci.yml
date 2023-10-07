@@ -212,7 +212,6 @@ jobs:
         uses: github/codeql-action/analyze@v2
 
   publish-binaries:
-    if: startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: write
     runs-on: ubuntu-latest
