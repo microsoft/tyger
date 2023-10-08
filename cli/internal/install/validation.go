@@ -84,6 +84,10 @@ func quickValidateComputeConfig(success *bool, cloudConfig *CloudConfig) {
 			cluster.Location = cloudConfig.DefaultLocation
 		}
 
+		if cluster.KubernetesVersion == "" {
+			cluster.KubernetesVersion = DefaultKubernetesVersion
+		}
+
 		if len(cluster.UserNodePools) == 0 {
 			validationError(success, "At least one user node pool must be specified")
 		}

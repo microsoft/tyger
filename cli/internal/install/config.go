@@ -120,6 +120,7 @@ type ConfigTemplateValues struct {
 	TenantId                 string
 	SubscriptionId           string
 	DefaultLocation          string
+	KubernetesVersion        string
 	PrincipalId              string
 	PrincipalUpn             string
 	PrincipalDisplayName     string

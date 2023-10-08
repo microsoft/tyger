@@ -22,6 +22,8 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
+const DefaultKubernetesVersion = "1.27" // LTS
+
 func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (any, error) {
 	config := GetConfigFromContext(ctx)
 	cred := GetAzureCredentialFromContext(ctx)
@@ -58,11 +60,6 @@ func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (any, erro
 	}
 	tags[TagKey] = &config.EnvironmentName
 
-	kubernetesVersion := "1.26.6"
-	if clusterConfig.KubernetesVersion != "" {
-		kubernetesVersion = clusterConfig.KubernetesVersion
-	}
-
 	cluster := armcontainerservice.ManagedCluster{
 		Tags:     tags,
 		Location: Ptr(clusterConfig.Location),
@@ -71,7 +68,7 @@ func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (any, erro
 		},
 		Properties: &armcontainerservice.ManagedClusterProperties{
 			DNSPrefix:         Ptr(getClusterDnsPrefix(config.EnvironmentName, clusterConfig.Name, config.Cloud.SubscriptionID)),
-			KubernetesVersion: &kubernetesVersion,
+			KubernetesVersion: &clusterConfig.KubernetesVersion,
 			EnableRBAC:        Ptr(true),
 			AADProfile: &armcontainerservice.ManagedClusterAADProfile{
 				Managed:         Ptr(true),

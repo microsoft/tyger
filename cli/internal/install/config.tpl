@@ -10,6 +10,7 @@ cloud:
     clusters:
       - name: {{ .EnvironmentName }}
         apiHost: true
+        kubernetesVersion: {{ .KubernetesVersion }}
         # location: Defaults to defaultLocation
 
         userNodePools:
@@ -36,7 +37,7 @@ cloud:
         {{- end }}
 
     # Optionally point an existing Log Analytics workspace to send logs to.
-    # logAnalytics:
+    # logAnalyticsWorkspace:
     #   resourceGroup:
     #   name:
 

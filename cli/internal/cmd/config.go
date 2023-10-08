@@ -98,7 +98,9 @@ func newConfigCreateCommand() *cobra.Command {
 			fmt.Printf("\nFirst, let's collect settings for the Azure subscription to use. This is where cloud resources will be deployed.\n\n")
 
 			cred, _ := azidentity.NewAzureCLICredential(nil)
-			templateValues := install.ConfigTemplateValues{}
+			templateValues := install.ConfigTemplateValues{
+				KubernetesVersion: install.DefaultKubernetesVersion,
+			}
 			var err error
 
 			for {
