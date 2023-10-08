@@ -32,11 +32,18 @@ func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (any, erro
 	}
 
 	var poller *runtime.Poller[armcontainerservice.ManagedClustersClientCreateOrUpdateResponse]
+	var tags map[string]*string
 
 	var clusterAlreadyExists bool
 	existingCluster, err := clustersClient.Get(ctx, config.Cloud.ResourceGroup, clusterConfig.Name, nil)
 	if err == nil {
 		clusterAlreadyExists = true
+		if existingTag, ok := existingCluster.Tags[TagKey]; ok {
+			if *existingTag != config.EnvironmentName {
+				return nil, fmt.Errorf("cluster '%s' is already in use by enrironment '%s'", *existingCluster.Name, *existingTag)
+			}
+			tags = existingCluster.Tags
+		}
 	} else {
 		var respErr *azcore.ResponseError
 		if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
@@ -46,12 +53,18 @@ func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (any, erro
 		}
 	}
 
+	if tags == nil {
+		tags = make(map[string]*string)
+	}
+	tags[TagKey] = &config.EnvironmentName
+
 	kubernetesVersion := "1.26.6"
 	if clusterConfig.KubernetesVersion != "" {
 		kubernetesVersion = clusterConfig.KubernetesVersion
 	}
 
 	cluster := armcontainerservice.ManagedCluster{
+		Tags:     tags,
 		Location: Ptr(clusterConfig.Location),
 		Identity: &armcontainerservice.ManagedClusterIdentity{
 			Type: Ptr(armcontainerservice.ResourceIdentityTypeSystemAssigned),
@@ -184,7 +197,7 @@ func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (any, erro
 	}
 
 	for _, containerRegistry := range config.Cloud.Compute.PrivateContainerRegistries {
-		log.Info().Msgf("attaching ACR '%s' to cluster '%s'", containerRegistry, clusterConfig.Name)
+		log.Info().Msgf("Attaching ACR '%s' to cluster '%s'", containerRegistry, clusterConfig.Name)
 		containerRegistryId, err := getContainerRegistryId(ctx, containerRegistry, config.Cloud.SubscriptionID, cred)
 		if err != nil {
 			return nil, err
@@ -217,6 +230,20 @@ func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCl
 	onlyScaleDown = true
 	if *cluster.Properties.KubernetesVersion != *existingCluster.Properties.KubernetesVersion {
 		return true, false
+	}
+
+	if len(cluster.Tags) != len(existingCluster.Tags) {
+		return true, false
+	}
+
+	for k, v := range cluster.Tags {
+		existingV, ok := existingCluster.Tags[k]
+		if !ok {
+			return true, false
+		}
+		if *v != *existingV {
+			return true, false
+		}
 	}
 
 	if len(cluster.Properties.AgentPoolProfiles) != len(existingCluster.Properties.AgentPoolProfiles) {
@@ -285,7 +312,7 @@ func getClusterDnsPrefix(environmentName, clusterName, subId string) string {
 }
 
 func attachAcr(ctx context.Context, kubeletObjectId, containerRegistryId, subscriptionId string, credential azcore.TokenCredential) error {
-	acrPullRoleId, err := getAcrPullRole(credential, containerRegistryId)
+	acrPullRoleId, err := getAcrPullRole(ctx, credential, containerRegistryId)
 	if err != nil {
 		return fmt.Errorf("failed to get AcrPull role: %w", err)
 	}
@@ -352,7 +379,7 @@ func detachAcr(ctx context.Context, kubeletObjectId, containerRegistryId, subscr
 	return nil
 }
 
-func getAcrPullRole(credential azcore.TokenCredential, containerRegistryId string) (string, error) {
+func getAcrPullRole(ctx context.Context, credential azcore.TokenCredential, containerRegistryId string) (string, error) {
 	roleDefClient, err := armauthorization.NewRoleDefinitionsClient(credential, nil)
 	if err != nil {
 		return "", err
@@ -362,7 +389,7 @@ func getAcrPullRole(credential azcore.TokenCredential, containerRegistryId strin
 
 	var acrPullRoleId string
 	for pager.More() && acrPullRoleId == "" {
-		page, err := pager.NextPage(context.TODO())
+		page, err := pager.NextPage(ctx)
 		if err != nil {
 			return "", err
 		}
@@ -392,7 +419,7 @@ func getContainerRegistryId(ctx context.Context, name string, subscriptionId str
 	})
 
 	for pager.More() {
-		p, err := pager.NextPage(context.TODO())
+		p, err := pager.NextPage(ctx)
 		if err != nil {
 			return "", err
 		}
@@ -434,7 +461,7 @@ func onDeleteCluster(ctx context.Context, clusterConfig *ClusterConfig) error {
 	kubeletObjectId := *kubeletIdentity.ObjectID
 
 	for _, containerRegistry := range config.Cloud.Compute.PrivateContainerRegistries {
-		log.Info().Msgf("detaching ACR '%s' from cluster '%s'", containerRegistry, clusterConfig.Name)
+		log.Info().Msgf("Detaching ACR '%s' from cluster '%s'", containerRegistry, clusterConfig.Name)
 		containerRegistryId, err := getContainerRegistryId(ctx, containerRegistry, config.Cloud.SubscriptionID, cred)
 		if err != nil {
 			var respErr *azcore.ResponseError

@@ -154,9 +154,9 @@ func createTygerClusterRBAC(ctx context.Context, restConfigPromise *Promise[*res
 		}
 	}
 
-	if _, err := clientset.RbacV1().ClusterRoleBindings().Create(context.TODO(), &clusterRoleBinding, metav1.CreateOptions{}); err != nil {
+	if _, err := clientset.RbacV1().ClusterRoleBindings().Create(ctx, &clusterRoleBinding, metav1.CreateOptions{}); err != nil {
 		if apierrors.IsAlreadyExists(err) {
-			_, err = clientset.RbacV1().ClusterRoleBindings().Update(context.TODO(), &clusterRoleBinding, metav1.UpdateOptions{})
+			_, err = clientset.RbacV1().ClusterRoleBindings().Update(ctx, &clusterRoleBinding, metav1.UpdateOptions{})
 			if err != nil {
 				return nil, fmt.Errorf("failed to update cluster role binding: %w", err)
 			}

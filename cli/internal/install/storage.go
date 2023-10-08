@@ -30,7 +30,23 @@ func CreateStorageAccount(ctx context.Context,
 		log.Fatal().Err(err).Msg("failed to create storage client")
 	}
 
+	var tags map[string]*string
+	if resp, err := storageClient.GetProperties(ctx, config.Cloud.ResourceGroup, storageAccountConfig.Name, nil); err == nil {
+		if existingTag, ok := resp.Tags[TagKey]; ok {
+			if *existingTag != config.EnvironmentName {
+				return nil, fmt.Errorf("storage account '%s' is already in use by enrironment '%s'", storageAccountConfig.Name, *existingTag)
+			}
+			tags = resp.Tags
+		}
+	}
+
+	if tags == nil {
+		tags = make(map[string]*string)
+	}
+	tags[TagKey] = &config.EnvironmentName
+
 	parameters := armstorage.AccountCreateParameters{
+		Tags:       tags,
 		Location:   &storageAccountConfig.Location,
 		Kind:       Ptr(armstorage.KindStorageV2),
 		SKU:        &armstorage.SKU{Name: (*armstorage.SKUName)(&storageAccountConfig.Sku)},
@@ -42,12 +58,13 @@ func CreateStorageAccount(ctx context.Context,
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create storage account")
 	}
-	log.Info().Msgf("Storage account '%s' ready", storageAccountConfig.Name)
 
 	res, err := poller.PollUntilDone(ctx, nil)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create storage account")
 	}
+
+	log.Info().Msgf("Storage account '%s' ready", storageAccountConfig.Name)
 
 	keysResponse, err := storageClient.ListKeys(ctx, config.Cloud.ResourceGroup, storageAccountConfig.Name, nil)
 	if err != nil {
@@ -61,38 +78,6 @@ func CreateStorageAccount(ctx context.Context,
 	}
 
 	connectionString := strings.Join(components, ";")
-	secret := corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: *res.Name,
-		},
-		Type: "Opaque",
-		Data: map[string][]byte{
-			"connectionString": []byte(connectionString),
-		},
-	}
-
-	restConfig, err := restConfigPromise.Await()
-	if err != nil {
-		return nil, errDependencyFailed
-	}
-
-	if _, err := namespaceCreatedPromise.Await(); err != nil {
-		return nil, errDependencyFailed
-	}
-
-	clientset := kubernetes.NewForConfigOrDie(restConfig)
-
-	secrets := clientset.CoreV1().Secrets("tyger")
-	_, err = secrets.Create(context.TODO(), &secret, metav1.CreateOptions{})
-	if err != nil {
-		if apierrors.IsAlreadyExists(err) {
-			if _, err := secrets.Update(context.TODO(), &secret, metav1.UpdateOptions{}); err != nil {
-				return nil, fmt.Errorf("failed to update secret: %w", err)
-			}
-		} else {
-			return nil, fmt.Errorf("failed to create secret: %w", err)
-		}
-	}
 
 	for _, containerName := range containers {
 		blobClient, err := azblob.NewClientFromConnectionString(connectionString, nil)
@@ -107,7 +92,39 @@ func CreateStorageAccount(ctx context.Context,
 		} else {
 			log.Info().Msgf("Created container '%s' on storage account '%s'", containerName, storageAccountConfig.Name)
 		}
+	}
 
+	restConfig, err := restConfigPromise.Await()
+	if err != nil {
+		return nil, errDependencyFailed
+	}
+
+	if _, err := namespaceCreatedPromise.Await(); err != nil {
+		return nil, errDependencyFailed
+	}
+
+	clientset := kubernetes.NewForConfigOrDie(restConfig)
+
+	secrets := clientset.CoreV1().Secrets("tyger")
+	secret := corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: *res.Name,
+		},
+		Type: "Opaque",
+		Data: map[string][]byte{
+			"connectionString": []byte(connectionString),
+		},
+	}
+
+	_, err = secrets.Create(ctx, &secret, metav1.CreateOptions{})
+	if err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			if _, err := secrets.Update(ctx, &secret, metav1.UpdateOptions{}); err != nil {
+				return nil, fmt.Errorf("failed to update secret: %w", err)
+			}
+		} else {
+			return nil, fmt.Errorf("failed to create secret: %w", err)
+		}
 	}
 
 	return nil, nil

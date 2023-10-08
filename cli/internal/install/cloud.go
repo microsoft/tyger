@@ -16,6 +16,7 @@ import (
 
 const (
 	LogsStorageContainerName = "runs"
+	TagKey                   = "tyger-environment"
 )
 
 var (
@@ -47,8 +48,80 @@ func UninstallCloud(ctx context.Context) (err error) {
 		}
 	}
 
-	log.Info().Msgf("Deleting resource group '%s'", config.Cloud.ResourceGroup)
 	cred := GetAzureCredentialFromContext(ctx)
+
+	// See if all the resources in the resource group are from this environment
+
+	resourcesClient, err := armresources.NewClient(config.Cloud.SubscriptionID, cred, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create resources client: %w", err)
+	}
+
+	pager := resourcesClient.NewListByResourceGroupPager(config.Cloud.ResourceGroup, nil)
+	resourcesFromThisEnvironment := make([]*armresources.GenericResourceExpanded, 0)
+	resourceGroupContainsOtherResources := false
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			var respErr *azcore.ResponseError
+			if errors.As(err, &respErr) && respErr.ErrorCode == "ResourceGroupNotFound" {
+				log.Debug().Msgf("Resource group '%s' not found", config.Cloud.ResourceGroup)
+				return nil
+			}
+			return fmt.Errorf("failed to list resources: %w", err)
+		}
+		for _, res := range page.ResourceListResult.Value {
+			if envName, ok := res.Tags[TagKey]; ok && *envName == config.EnvironmentName {
+				resourcesFromThisEnvironment = append(resourcesFromThisEnvironment, res)
+			} else {
+				resourceGroupContainsOtherResources = true
+			}
+		}
+	}
+
+	if resourceGroupContainsOtherResources {
+		log.Info().Msgf("Resource group '%s' contains resources that are not part of this environment", config.Cloud.ResourceGroup)
+
+		providersClient, err := armresources.NewProvidersClient(config.Cloud.SubscriptionID, cred, nil)
+		if err != nil {
+			return fmt.Errorf("failed to create providers client: %w", err)
+		}
+
+		pg := PromiseGroup{}
+		for _, res := range resourcesFromThisEnvironment {
+			resourceId := *res.ID
+			NewPromise(ctx, &pg, func(ctx context.Context) (any, error) {
+				log.Info().Msgf("Deleting resource '%s'", resourceId)
+
+				apiVersion, err := GetDefaultApiVersionForResource(ctx, resourceId, providersClient)
+				if err != nil {
+					return nil, err
+				}
+
+				poller, err := resourcesClient.BeginDeleteByID(ctx, resourceId, apiVersion, nil)
+				if err != nil {
+					return nil, fmt.Errorf("failed to delete resource '%s': %w", resourceId, err)
+				}
+
+				if _, err := poller.PollUntilDone(ctx, nil); err != nil {
+					return nil, fmt.Errorf("failed to delete resource '%s': %w", resourceId, err)
+				}
+				log.Info().Msgf("Deleted resource '%s'", resourceId)
+				return nil, nil
+			})
+		}
+
+		for _, p := range pg {
+			if promiseErr := p.AwaitErr(); promiseErr != nil && promiseErr != errDependencyFailed {
+				logError(promiseErr, "")
+				err = ErrAlreadyLoggedError
+			}
+		}
+
+		return err
+	}
+
+	log.Info().Msgf("Deleting resource group '%s'", config.Cloud.ResourceGroup)
 	c, err := armresources.NewResourceGroupsClient(config.Cloud.SubscriptionID, cred, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create resource groups client: %w", err)
@@ -64,6 +137,43 @@ func UninstallCloud(ctx context.Context) (err error) {
 	}
 
 	return nil
+}
+
+func GetDefaultApiVersionForResource(ctx context.Context, resourceId string, providersClient *armresources.ProvidersClient) (string, error) {
+	providerNamespace, resourceType, err := getProviderNamespaceAndResourceType(resourceId)
+	if err != nil {
+		return "", fmt.Errorf("failed to get provider namespace and resource type from resource ID '%s': %w", resourceId, err)
+	}
+	provider, err := providersClient.Get(ctx, providerNamespace, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to get resource provider for namespace '%s': %w", providerNamespace, err)
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to get provider namespace from resource ID '%s': %w", resourceId, err)
+	}
+	var apiVersion string
+	for _, t := range provider.Provider.ResourceTypes {
+		if *t.ResourceType == resourceType {
+			apiVersion = *t.DefaultAPIVersion
+			break
+		}
+	}
+	if apiVersion == "" {
+		return "", fmt.Errorf("failed to find API version for resource type '%s'", resourceType)
+	}
+	return apiVersion, nil
+}
+
+func getProviderNamespaceAndResourceType(resourceID string) (string, string, error) {
+	parts := strings.Split(resourceID, "/")
+	for i, part := range parts {
+		if part == "providers" && len(parts) > i+1 {
+			namespace := parts[i+1]
+			resourceType := strings.Join(parts[i+2:len(parts)-1], "/")
+			return namespace, resourceType, nil
+		}
+	}
+	return "", "", fmt.Errorf("provider namespace not found in resource ID")
 }
 
 func ensureResourceGroupCreated(ctx context.Context) error {
