@@ -515,7 +515,7 @@ func getUserRESTConfig(ctx context.Context) (*rest.Config, error) {
 		return nil, err
 	}
 
-	// get a token and update the kubeconfig so that kebelogin does not need to be installed
+	// get a token and update the kubeconfig so that kubelogin does not need to be installed
 	authInfo := kubeConfig.AuthInfos[kubeConfig.Contexts[kubeConfig.CurrentContext].AuthInfo]
 	var serverId string
 	for i, v := range authInfo.Exec.Args {
@@ -530,7 +530,7 @@ func getUserRESTConfig(ctx context.Context) (*rest.Config, error) {
 	}
 
 	// Use the token provider to get a new token
-	cliAccessToken, err := cred.GetToken(context.Background(), policy.TokenRequestOptions{Scopes: []string{serverId}})
+	cliAccessToken, err := cred.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{serverId}})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get token: %w", err)
 	}

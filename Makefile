@@ -142,6 +142,8 @@ up: ensure-environment-conditionally docker-build
 		--set api.helm.tyger.values.server.bufferSidecarImage="$${buffer_sidecar_image}" \
 		--set api.helm.tyger.values.server.workerWaiterImage="$${worker_waiter_image}"
 
+	$(MAKE) cli-ready
+
 down: install-cli
 	tyger uninstall api -f <(scripts/get-context-environment-config.sh)
 
