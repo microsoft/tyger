@@ -9,6 +9,8 @@ import (
 	"path"
 	"syscall"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/google/uuid"
 	"github.com/knadh/koanf/parsers/yaml"
@@ -275,7 +277,7 @@ func newInstallIdentitiesCommand() *cobra.Command {
 			ctx := cmd.Context()
 			for {
 				ctx = install.SetAzureCredentialOnContext(ctx, cred)
-				if _, err := install.GetGraphToken(ctx); err != nil {
+				if _, err := install.GetGraphToken(ctx, cred); err != nil {
 					fmt.Printf("Run 'az login --tenant %s --allow-no-subscriptions' from another terminal window.\nPress any key when ready...\n\n", config.Api.Auth.TenantID)
 					getSingleKey()
 					continue
@@ -285,7 +287,7 @@ func newInstallIdentitiesCommand() *cobra.Command {
 
 			log.Info().Msg("Starting identities install")
 
-			if err := install.InstallIdentities(ctx); err != nil {
+			if err := install.InstallIdentities(ctx, cred); err != nil {
 				if err != install.ErrAlreadyLoggedError {
 					log.Fatal().Err(err).Send()
 				}
@@ -302,17 +304,21 @@ func newInstallIdentitiesCommand() *cobra.Command {
 }
 
 func loginAndValidateSubscription(ctx context.Context) (context.Context, error) {
+	config := install.GetConfigFromContext(ctx)
 	cred, err := azidentity.NewAzureCLICredential(
 		&azidentity.AzureCLICredentialOptions{
-			AdditionallyAllowedTenants: []string{"*"},
+			TenantID: config.Cloud.TenantID,
 		})
+
+	if err == nil {
+		_, err = cred.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{cloud.AzurePublic.Services[cloud.ResourceManager].Audience}})
+	}
+
 	if err != nil {
-		log.Debug().Err(err).Msg("Failed to get credentials")
-		return ctx, errors.New("failed to get credentials; make sure the Azure CLI is installed and and you have run `az login`")
+		return ctx, fmt.Errorf("please log in with the Azure CLI with the command `az login --tenant %s`", config.Cloud.TenantID)
 	}
 
 	ctx = install.SetAzureCredentialOnContext(ctx, cred)
-	config := install.GetConfigFromContext(ctx)
 
 	// Get the subscription ID if we are given the name.
 	if _, err := uuid.Parse(config.Cloud.SubscriptionID); err != nil {

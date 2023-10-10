@@ -32,7 +32,7 @@ import "strings"
 }
 
 #Principal: {
-	objectId!: string
+	id!: string
 	kind!:     "User" | "Group" | "ServicePrincipal"
 }
 

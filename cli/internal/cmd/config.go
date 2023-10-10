@@ -102,10 +102,12 @@ func newConfigCreateCommand() *cobra.Command {
 				KubernetesVersion: install.DefaultKubernetesVersion,
 			}
 			var err error
+			ctx := cmd.Context()
 
 			for {
+				var principal ExtendedPrincipal
 				for {
-					err = getCurrentPrincipal(cred, &templateValues)
+					principal, err = getCurrentPrincipal(ctx, cred)
 					if err != nil {
 						if err == errNotLoggedIn {
 							fmt.Printf("You are not logged in to Azure. Please run `az login` in another terminal window.\nPress any key to continue when ready...\n\n")
@@ -117,7 +119,7 @@ func newConfigCreateCommand() *cobra.Command {
 					break
 				}
 
-				input := confirmation.New(fmt.Sprintf("You are logged in as %s. Is that the right account?", templateValues.PrincipalUpn), confirmation.Yes)
+				input := confirmation.New(fmt.Sprintf("You are logged in as %s. Is that the right account?", principal.String()), confirmation.Yes)
 				input.WrapMode = promptkit.WordWrap
 				ready, err := input.RunPrompt()
 				if err != nil {
@@ -143,6 +145,30 @@ func newConfigCreateCommand() *cobra.Command {
 				})
 			if err != nil {
 				return err
+			}
+
+			// get the principal again, this time in the context of the chosen tenant
+			principal, err := getCurrentPrincipal(ctx, tenantCred)
+			if err != nil {
+				return err
+			}
+
+			switch principal.Kind {
+			case install.PrincipalKindUser:
+				templateValues.PrincipalKind = principal.Kind
+				templateValues.PrincipalDisplay = principal.Upn
+
+				if principal.IsFromCurrentTenant {
+					templateValues.PrincipalId = principal.Upn
+				} else {
+					templateValues.PrincipalId = principal.ObjectId
+				}
+			case install.PrincipalKindServicePrincipal:
+				templateValues.PrincipalKind = principal.Kind
+				templateValues.PrincipalId = principal.ObjectId
+				templateValues.PrincipalDisplay = principal.Display
+			default:
+				panic(fmt.Sprintf("unexpected principal kind: %s", principal.Kind))
 			}
 
 			for {
@@ -316,44 +342,52 @@ func chooseSubscription(cred azcore.TokenCredential) (string, error) {
 	return sub.id, nil
 }
 
-func getCurrentPrincipal(cred azcore.TokenCredential, templateValues *install.ConfigTemplateValues) error {
-	tokenResponse, err := cred.GetToken(context.Background(), policy.TokenRequestOptions{Scopes: []string{cloud.AzurePublic.Services[cloud.ResourceManager].Audience}})
+func getCurrentPrincipal(ctx context.Context, cred azcore.TokenCredential) (principal ExtendedPrincipal, err error) {
+	tokenResponse, err := cred.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{cloud.AzurePublic.Services[cloud.ResourceManager].Audience}})
 	if err != nil {
-		return errNotLoggedIn
+		return principal, errNotLoggedIn
 	}
 
 	claims := jwt.MapClaims{}
 	_, _, err = jwt.NewParser().ParseUnverified(tokenResponse.Token, claims)
 	if err != nil {
-		return fmt.Errorf("failed to parse token: %w", err)
+		return principal, fmt.Errorf("failed to parse token: %w", err)
 	}
-	templateValues.PrincipalId = claims["oid"].(string)
-	if unique_name, ok := claims["unique_name"]; ok {
-		templateValues.PrincipalKind = install.PrincipalKindUser
-		templateValues.PrincipalUpn = unique_name.(string)
-		return nil
-	}
+	principal.ObjectId = claims["oid"].(string)
 
-	principals, err := install.ObjectsIdToPrincipals(context.Background(), []string{templateValues.PrincipalId})
+	principals, err := install.ObjectsIdToPrincipals(ctx, cred, []string{principal.ObjectId})
 	if err != nil {
-		return err
+		return principal, err
 	}
 
 	if len(principals) == 0 {
-		return errors.New("principal not found")
+		return principal, errors.New("principal not found")
 	}
 
-	if principals[0].Kind != install.PrincipalKindServicePrincipal {
-		return errors.New("principal was expected to be a service principal but isn't")
+	principal.Kind = principals[0].Kind
+
+	switch principals[0].Kind {
+	case install.PrincipalKindUser:
+		principal.Upn, err = install.GetUserPrincipalName(ctx, cred, principals[0].ObjectId)
+		if err != nil {
+			return principal, err
+		}
+
+		if idpClaim, hasIdpClaim := claims["idp"]; hasIdpClaim && idpClaim.(string) != claims["iss"].(string) {
+			principal.IsFromCurrentTenant = false
+		} else {
+			principal.IsFromCurrentTenant = true
+		}
+	case install.PrincipalKindServicePrincipal:
+		principal.Display, err = install.GetServicePrincipalDisplayName(ctx, cred, principals[0].ObjectId)
+		if err != nil {
+			return principal, err
+		}
+	default:
+		panic(fmt.Sprintf("unexpected principal kind: %s", principals[0].Kind))
 	}
 
-	templateValues.PrincipalKind = install.PrincipalKindServicePrincipal
-	templateValues.PrincipalDisplayName, err = install.GetServicePrincipalDisplayName(context.Background(), principals[0].ObjectId)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return principal, nil
 }
 
 func chooseTenant(cred azcore.TokenCredential, prompt string, presentOtherOption bool) (string, error) {
@@ -466,4 +500,23 @@ func getSingleKey() {
 	if key == keyboard.KeyCtrlC {
 		os.Exit(1)
 	}
+}
+
+type ExtendedPrincipal struct {
+	install.Principal
+	Upn                 string
+	Display             string
+	IsFromCurrentTenant bool
+}
+
+func (p ExtendedPrincipal) String() string {
+	if p.Upn != "" {
+		return p.Upn
+	}
+
+	if p.Display != "" {
+		return p.Display
+	}
+
+	return p.ObjectId
 }

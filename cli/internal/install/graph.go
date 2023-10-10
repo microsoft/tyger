@@ -14,10 +14,22 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+type PrincipalKind string
+
+const (
+	PrincipalKindUser             PrincipalKind = "User"
+	PrincipalKindGroup            PrincipalKind = "Group"
+	PrincipalKindServicePrincipal PrincipalKind = "ServicePrincipal"
+)
+
+type Principal struct {
+	ObjectId string        `json:"objectId"`
+	Kind     PrincipalKind `json:"kind"`
+}
+
 var errNotFound = fmt.Errorf("not found")
 
-func GetGraphToken(ctx context.Context) (azcore.AccessToken, error) {
-	cred := GetAzureCredentialFromContext(ctx)
+func GetGraphToken(ctx context.Context, cred azcore.TokenCredential) (azcore.AccessToken, error) {
 	tokenResponse, err := cred.GetToken(ctx, policy.TokenRequestOptions{
 		Scopes: []string{"https://graph.microsoft.com"},
 	})
@@ -70,13 +82,13 @@ type aadApp struct {
 	PublicClient           *aadAppPublicClient            `json:"publicClient,omitempty"`
 }
 
-func GetAppByUri(ctx context.Context, uri string) (aadApp, error) {
+func GetAppByUri(ctx context.Context, cred azcore.TokenCredential, uri string) (aadApp, error) {
 	type responseType struct {
 		Value []aadApp `json:"value"`
 	}
 
 	response := responseType{}
-	if err := executeGraphCall(ctx, http.MethodGet, fmt.Sprintf("https://graph.microsoft.com/beta/applications/?$filter=identifierUris/any(x:x%%20eq%%20'%s')", uri), nil, &response); err != nil {
+	if err := executeGraphCall(ctx, cred, http.MethodGet, fmt.Sprintf("https://graph.microsoft.com/beta/applications/?$filter=identifierUris/any(x:x%%20eq%%20'%s')", uri), nil, &response); err != nil {
 		return aadApp{}, fmt.Errorf("failed to get app by uri: %w", err)
 	}
 
@@ -87,18 +99,18 @@ func GetAppByUri(ctx context.Context, uri string) (aadApp, error) {
 	return response.Value[0], nil
 }
 
-func CreateOrUpdateAppByUri(ctx context.Context, app aadApp) (objectId string, err error) {
-	existingApp, err := GetAppByUri(ctx, app.IdentifierUris[0])
+func CreateOrUpdateAppByUri(ctx context.Context, cred azcore.TokenCredential, app aadApp) (objectId string, err error) {
+	existingApp, err := GetAppByUri(ctx, cred, app.IdentifierUris[0])
 	if err != nil && err != errNotFound {
 		return "", fmt.Errorf("failed to get existing app: %w", err)
 	}
 
 	if err == errNotFound {
 		log.Info().Msgf("Creating app %s", app.IdentifierUris[0])
-		err = executeGraphCall(ctx, http.MethodPost, "https://graph.microsoft.com/beta/applications", app, &existingApp)
+		err = executeGraphCall(ctx, cred, http.MethodPost, "https://graph.microsoft.com/beta/applications", app, &existingApp)
 	} else {
 		log.Info().Msgf("Updating app %s", app.IdentifierUris[0])
-		err = executeGraphCall(ctx, http.MethodPatch, fmt.Sprintf("https://graph.microsoft.com/beta/applications/%s", existingApp.Id), app, nil)
+		err = executeGraphCall(ctx, cred, http.MethodPatch, fmt.Sprintf("https://graph.microsoft.com/beta/applications/%s", existingApp.Id), app, nil)
 	}
 
 	if err != nil {
@@ -107,7 +119,7 @@ func CreateOrUpdateAppByUri(ctx context.Context, app aadApp) (objectId string, e
 	return existingApp.Id, nil
 }
 
-func ObjectsIdToPrincipals(ctx context.Context, objectIds []string) ([]Principal, error) {
+func ObjectsIdToPrincipals(ctx context.Context, cred azcore.TokenCredential, objectIds []string) ([]Principal, error) {
 	type requestType struct {
 		Ids []string `json:"ids"`
 	}
@@ -126,7 +138,7 @@ func ObjectsIdToPrincipals(ctx context.Context, objectIds []string) ([]Principal
 	}
 
 	var responseBody responseType
-	err := executeGraphCall(ctx, http.MethodPost, "https://graph.microsoft.com/v1.0/directoryObjects/getByIds", requestBody, &responseBody)
+	err := executeGraphCall(ctx, cred, http.MethodPost, "https://graph.microsoft.com/v1.0/directoryObjects/getByIds", requestBody, &responseBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get principal types: %w", err)
 	}
@@ -165,7 +177,7 @@ func ObjectsIdToPrincipals(ctx context.Context, objectIds []string) ([]Principal
 	return principals, nil
 }
 
-func executeGraphCall(ctx context.Context, method, url string, request, response any) error {
+func executeGraphCall(ctx context.Context, cred azcore.TokenCredential, method, url string, request, response any) error {
 	var requestBodyReader io.Reader
 	if request != nil {
 		requestBytes, err := json.Marshal(request)
@@ -180,7 +192,7 @@ func executeGraphCall(ctx context.Context, method, url string, request, response
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
-	tokenResponse, err := GetGraphToken(ctx)
+	tokenResponse, err := GetGraphToken(ctx, cred)
 	if err != nil {
 		return nil
 	}
@@ -209,7 +221,7 @@ func executeGraphCall(ctx context.Context, method, url string, request, response
 	return nil
 }
 
-func GetServicePrincipalByAppId(ctx context.Context, appId string) (string, error) {
+func GetServicePrincipalByAppId(ctx context.Context, cred azcore.TokenCredential, appId string) (string, error) {
 	type responseType struct {
 		Value []struct {
 			Id string `json:"id"`
@@ -217,7 +229,7 @@ func GetServicePrincipalByAppId(ctx context.Context, appId string) (string, erro
 	}
 
 	response := responseType{}
-	if err := executeGraphCall(ctx, http.MethodGet, fmt.Sprintf("https://graph.microsoft.com/v1.0/servicePrincipals/?$filter=appId%%20eq%%20'%s'", appId), nil, &response); err != nil {
+	if err := executeGraphCall(ctx, cred, http.MethodGet, fmt.Sprintf("https://graph.microsoft.com/v1.0/servicePrincipals/?$filter=appId%%20eq%%20'%s'", appId), nil, &response); err != nil {
 		return "", fmt.Errorf("failed to get service principal by app id: %w", err)
 	}
 
@@ -228,20 +240,33 @@ func GetServicePrincipalByAppId(ctx context.Context, appId string) (string, erro
 	return response.Value[0].Id, nil
 }
 
-func GetServicePrincipalDisplayName(ctx context.Context, objectId string) (string, error) {
+func GetServicePrincipalDisplayName(ctx context.Context, cred azcore.TokenCredential, objectId string) (string, error) {
 	type responseType struct {
 		DisplayName string `json:"displayName"`
 	}
 
 	response := responseType{}
-	if err := executeGraphCall(ctx, http.MethodGet, fmt.Sprintf("https://graph.microsoft.com/beta/servicePrincipals/%s", objectId), nil, &response); err != nil {
+	if err := executeGraphCall(ctx, cred, http.MethodGet, fmt.Sprintf("https://graph.microsoft.com/beta/servicePrincipals/%s", objectId), nil, &response); err != nil {
 		return "", fmt.Errorf("failed to get service principal details: %w", err)
 	}
 
 	return response.DisplayName, nil
 }
 
-func CreateServicePrincipal(ctx context.Context, appId string) (string, error) {
+func GetUserPrincipalName(ctx context.Context, cred azcore.TokenCredential, objectId string) (string, error) {
+	type responseType struct {
+		UserPrincipalName string `json:"userPrincipalName"`
+	}
+
+	response := responseType{}
+	if err := executeGraphCall(ctx, cred, http.MethodGet, fmt.Sprintf("https://graph.microsoft.com/v1.0/users/%s", objectId), nil, &response); err != nil {
+		return "", fmt.Errorf("failed to get user details: %w", err)
+	}
+
+	return response.UserPrincipalName, nil
+}
+
+func CreateServicePrincipal(ctx context.Context, cred azcore.TokenCredential, appId string) (string, error) {
 	type requestType struct {
 		AppId string `json:"appId"`
 	}
@@ -256,7 +281,7 @@ func CreateServicePrincipal(ctx context.Context, appId string) (string, error) {
 
 	log.Info().Msgf("Creating service principal for app %s", appId)
 	response := responseType{}
-	if err := executeGraphCall(ctx, http.MethodPost, "https://graph.microsoft.com/beta/servicePrincipals", requestBody, &response); err != nil {
+	if err := executeGraphCall(ctx, cred, http.MethodPost, "https://graph.microsoft.com/beta/servicePrincipals", requestBody, &response); err != nil {
 		return "", fmt.Errorf("failed to create service principal: %w", err)
 	}
 

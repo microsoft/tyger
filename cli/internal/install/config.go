@@ -3,6 +3,7 @@ package install
 import (
 	_ "embed"
 	"io"
+	"strings"
 	"text/template"
 )
 
@@ -27,7 +28,7 @@ type CloudConfig struct {
 type ComputeConfig struct {
 	Clusters                   []*ClusterConfig    `json:"clusters"`
 	LogAnalyticsWorkspace      *NamedAzureResource `json:"logAnalyticsWorkspace"`
-	ManagementPrincipals       []Principal         `apjson:"managementPrincipals"`
+	ManagementPrincipals       []AksPrincipal      `apjson:"managementPrincipals"`
 	PrivateContainerRegistries []string            `json:"privateContainerRegistries"`
 }
 
@@ -36,18 +37,9 @@ type NamedAzureResource struct {
 	Name          string `json:"name"`
 }
 
-type PrincipalKind string
-
-const (
-	PrincipalKindUser             PrincipalKind = "User"
-	PrincipalKindGroup            PrincipalKind = "Group"
-	PrincipalKindServicePrincipal PrincipalKind = "ServicePrincipal"
-)
-
-type Principal struct {
-	ObjectId          string        `json:"objectId"`
-	UserPrincipalName string        `json:"userPrincipalName"`
-	Kind              PrincipalKind `json:"kind"`
+type AksPrincipal struct {
+	Kind PrincipalKind `json:"kind"`
+	Id   string        `json:"id"`
 }
 
 func (c *ComputeConfig) GetApiHostCluster() *ClusterConfig {
@@ -122,8 +114,7 @@ type ConfigTemplateValues struct {
 	DefaultLocation          string
 	KubernetesVersion        string
 	PrincipalId              string
-	PrincipalUpn             string
-	PrincipalDisplayName     string
+	PrincipalDisplay         string
 	PrincipalKind            PrincipalKind
 	BufferStorageAccountName string
 	LogsStorageAccountName   string
@@ -132,10 +123,11 @@ type ConfigTemplateValues struct {
 }
 
 func RenderConfig(templateValues ConfigTemplateValues, writer io.Writer) error {
-	t, err := template.New("config").Parse(configTemplate)
-	if err != nil {
-		panic(err)
+	funcs := map[string]any{
+		"contains": strings.Contains,
 	}
+
+	t := template.Must(template.New("config").Funcs(funcs).Parse(configTemplate))
 
 	return t.Execute(writer, templateValues)
 }

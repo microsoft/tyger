@@ -17,7 +17,6 @@ func TestRenderConfig(t *testing.T) {
 		SubscriptionId:           "sub",
 		DefaultLocation:          "westus",
 		PrincipalId:              uuid.New().String(),
-		PrincipalUpn:             "me@example.com",
 		PrincipalKind:            PrincipalKindUser,
 		BufferStorageAccountName: "acc1",
 		LogsStorageAccountName:   "acc2",
@@ -37,7 +36,6 @@ func TestRenderConfig(t *testing.T) {
 	require.Equal(t, values.TenantId, config.Cloud.TenantID)
 	require.Equal(t, values.SubscriptionId, config.Cloud.SubscriptionID)
 	require.Equal(t, values.DefaultLocation, config.Cloud.DefaultLocation)
-	require.Equal(t, values.PrincipalUpn, config.Cloud.Compute.ManagementPrincipals[0].UserPrincipalName)
 	require.Equal(t, values.PrincipalKind, config.Cloud.Compute.ManagementPrincipals[0].Kind)
 	require.Equal(t, values.BufferStorageAccountName, config.Cloud.Storage.Buffers[0].Name)
 	require.Equal(t, values.LogsStorageAccountName, config.Cloud.Storage.Logs.Name)
@@ -51,6 +49,6 @@ func TestRenderConfig(t *testing.T) {
 	config = EnvironmentConfig{}
 	require.NoError(t, yaml.UnmarshalStrict(buf.Bytes(), &config))
 
-	require.Equal(t, values.PrincipalId, config.Cloud.Compute.ManagementPrincipals[0].ObjectId)
+	require.Equal(t, values.PrincipalId, config.Cloud.Compute.ManagementPrincipals[0].Id)
 
 }

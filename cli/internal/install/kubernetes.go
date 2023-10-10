@@ -79,20 +79,16 @@ func createTygerClusterRBAC(ctx context.Context, restConfigPromise *Promise[*res
 	}
 
 	for _, principal := range config.Cloud.Compute.ManagementPrincipals {
-		subject := rbacv1.Subject{}
+		subject := rbacv1.Subject{
+			Name: principal.Id,
+		}
 		switch principal.Kind {
 		case PrincipalKindServicePrincipal:
-			subject.Name = principal.ObjectId
-			subject.Kind = "User"
-		case PrincipalKindGroup:
-			subject.Name = principal.ObjectId
-			subject.Kind = "Group"
-		case PrincipalKindUser:
-			subject.Name = principal.UserPrincipalName
-			subject.Kind = "User"
+			subject.Kind = string(PrincipalKindUser)
 		default:
-			return nil, fmt.Errorf("unknown principal kind: %s", principal.Kind)
+			subject.Kind = string(principal.Kind)
 		}
+
 		roleBinding.Subjects = append(roleBinding.Subjects, subject)
 	}
 

@@ -3,9 +3,11 @@ package install
 import (
 	"context"
 	"fmt"
+
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 )
 
-func InstallIdentities(ctx context.Context) error {
+func InstallIdentities(ctx context.Context, cred azcore.TokenCredential) error {
 	const permissionScopeId = "6291652f-fd9d-4a31-aa5f-87306c599bb6"
 	config := GetConfigFromContext(ctx)
 
@@ -30,21 +32,21 @@ func InstallIdentities(ctx context.Context) error {
 		},
 	}
 
-	serverObjectId, err := CreateOrUpdateAppByUri(ctx, serverApp)
+	serverObjectId, err := CreateOrUpdateAppByUri(ctx, cred, serverApp)
 	if err != nil {
 		return fmt.Errorf("failed to create or update server app: %w", err)
 	}
 
-	serverApp, err = GetAppByUri(ctx, config.Api.Auth.ApiAppUri)
+	serverApp, err = GetAppByUri(ctx, cred, config.Api.Auth.ApiAppUri)
 	if err != nil {
 		return fmt.Errorf("failed to get server app: %w", err)
 	}
 
-	if _, err := GetServicePrincipalByAppId(ctx, serverApp.AppId); err != nil {
+	if _, err := GetServicePrincipalByAppId(ctx, cred, serverApp.AppId); err != nil {
 		if err != errNotFound {
 			return fmt.Errorf("failed to get service principal for server app: %w", err)
 		}
-		if _, err := CreateServicePrincipal(ctx, serverApp.AppId); err != nil {
+		if _, err := CreateServicePrincipal(ctx, cred, serverApp.AppId); err != nil {
 			return fmt.Errorf("failed to create service principal for server app: %w", err)
 		}
 	}
@@ -72,20 +74,20 @@ func InstallIdentities(ctx context.Context) error {
 		SignInAudience: "AzureADMyOrg",
 	}
 
-	if _, err := CreateOrUpdateAppByUri(ctx, cliApp); err != nil {
+	if _, err := CreateOrUpdateAppByUri(ctx, cred, cliApp); err != nil {
 		return fmt.Errorf("failed to create or update CLI app: %w", err)
 	}
 
-	cliApp, err = GetAppByUri(ctx, config.Api.Auth.CliAppUri)
+	cliApp, err = GetAppByUri(ctx, cred, config.Api.Auth.CliAppUri)
 	if err != nil {
 		return fmt.Errorf("failed to get CLI app: %w", err)
 	}
 
-	if _, err := GetServicePrincipalByAppId(ctx, cliApp.AppId); err != nil {
+	if _, err := GetServicePrincipalByAppId(ctx, cred, cliApp.AppId); err != nil {
 		if err != errNotFound {
 			return fmt.Errorf("failed to get service principal for CLI app: %w", err)
 		}
-		if _, err := CreateServicePrincipal(ctx, cliApp.AppId); err != nil {
+		if _, err := CreateServicePrincipal(ctx, cred, cliApp.AppId); err != nil {
 			return fmt.Errorf("failed to create service principal for CLI app: %w", err)
 		}
 	}
