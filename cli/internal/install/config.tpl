@@ -57,7 +57,7 @@ cloud:
       # sku: Defaults to Standard_LRS
 
 api:
-  # The domain name for the Tyger API.
+  # The fully qualified domain name for the Tyger API.
   domainName: {{ .DomainName }}
 
   auth:
