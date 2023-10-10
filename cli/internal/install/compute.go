@@ -412,7 +412,7 @@ func getContainerRegistryId(ctx context.Context, name string, subscriptionId str
 		return "", err
 	}
 	pager := resourceClient.NewListPager(&armresources.ClientListOptions{
-		Filter: Ptr(fmt.Sprintf("resourceType eq 'Microsoft.ContainerRegistry/registries' and name eq '%s'", "eminence")),
+		Filter: Ptr(fmt.Sprintf("resourceType eq 'Microsoft.ContainerRegistry/registries' and name eq '%s'", name)),
 	})
 
 	for pager.More() {

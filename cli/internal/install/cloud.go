@@ -27,7 +27,18 @@ var (
 func InstallCloud(ctx context.Context) (err error) {
 	config := GetConfigFromContext(ctx)
 
-	ensureResourceGroupCreated(ctx)
+	if err := ensureResourceGroupCreated(ctx); err != nil {
+		logError(err, "")
+		return ErrAlreadyLoggedError
+	}
+
+	if err := preflightCheck(ctx); err != nil {
+		if err != ErrAlreadyLoggedError {
+			logError(err, "")
+			return ErrAlreadyLoggedError
+		}
+		return err
+	}
 
 	allPromises := createPromises(ctx, config)
 	for _, p := range allPromises {
@@ -79,64 +90,71 @@ func UninstallCloud(ctx context.Context) (err error) {
 		}
 	}
 
-	if resourceGroupContainsOtherResources {
-		log.Info().Msgf("Resource group '%s' contains resources that are not part of this environment", config.Cloud.ResourceGroup)
-
-		providersClient, err := armresources.NewProvidersClient(config.Cloud.SubscriptionID, cred, nil)
+	if !resourceGroupContainsOtherResources {
+		log.Info().Msgf("Deleting resource group '%s'", config.Cloud.ResourceGroup)
+		c, err := armresources.NewResourceGroupsClient(config.Cloud.SubscriptionID, cred, nil)
 		if err != nil {
-			return fmt.Errorf("failed to create providers client: %w", err)
+			return fmt.Errorf("failed to create resource groups client: %w", err)
 		}
-
-		pg := PromiseGroup{}
-		for _, res := range resourcesFromThisEnvironment {
-			resourceId := *res.ID
-			NewPromise(ctx, &pg, func(ctx context.Context) (any, error) {
-				log.Info().Msgf("Deleting resource '%s'", resourceId)
-
-				apiVersion, err := GetDefaultApiVersionForResource(ctx, resourceId, providersClient)
-				if err != nil {
-					return nil, err
-				}
-
-				poller, err := resourcesClient.BeginDeleteByID(ctx, resourceId, apiVersion, nil)
-				if err != nil {
-					return nil, fmt.Errorf("failed to delete resource '%s': %w", resourceId, err)
-				}
-
-				if _, err := poller.PollUntilDone(ctx, nil); err != nil {
-					return nil, fmt.Errorf("failed to delete resource '%s': %w", resourceId, err)
-				}
-				log.Info().Msgf("Deleted resource '%s'", resourceId)
-				return nil, nil
-			})
-		}
-
-		for _, p := range pg {
-			if promiseErr := p.AwaitErr(); promiseErr != nil && promiseErr != errDependencyFailed {
-				logError(promiseErr, "")
-				err = ErrAlreadyLoggedError
+		poller, err := c.BeginDelete(ctx, config.Cloud.ResourceGroup, nil)
+		if err != nil {
+			var respErr *azcore.ResponseError
+			if errors.As(err, &respErr) && respErr.ErrorCode == "AuthorizationFailed" {
+				log.Info().Msg("Insufficient permisssions to delete resource group. Deleting resources individually instead")
+				goto deleteOneByOne
 			}
+			return fmt.Errorf("failed to delete resource group: %w", err)
 		}
 
-		return err
+		_, err = poller.PollUntilDone(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("failed to delete resource group: %w", err)
+		}
+
+		return nil
 	}
 
-	log.Info().Msgf("Deleting resource group '%s'", config.Cloud.ResourceGroup)
-	c, err := armresources.NewResourceGroupsClient(config.Cloud.SubscriptionID, cred, nil)
+	log.Info().Msgf("Resource group '%s' contains resources that are not part of this environment", config.Cloud.ResourceGroup)
+
+deleteOneByOne:
+
+	providersClient, err := armresources.NewProvidersClient(config.Cloud.SubscriptionID, cred, nil)
 	if err != nil {
-		return fmt.Errorf("failed to create resource groups client: %w", err)
-	}
-	poller, err := c.BeginDelete(ctx, config.Cloud.ResourceGroup, nil)
-	if err != nil {
-		return fmt.Errorf("failed to delete resource group: %w", err)
+		return fmt.Errorf("failed to create providers client: %w", err)
 	}
 
-	_, err = poller.PollUntilDone(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to delete resource group: %w", err)
+	pg := PromiseGroup{}
+	for _, res := range resourcesFromThisEnvironment {
+		resourceId := *res.ID
+		NewPromise(ctx, &pg, func(ctx context.Context) (any, error) {
+			log.Info().Msgf("Deleting resource '%s'", resourceId)
+
+			apiVersion, err := GetDefaultApiVersionForResource(ctx, resourceId, providersClient)
+			if err != nil {
+				return nil, err
+			}
+
+			poller, err := resourcesClient.BeginDeleteByID(ctx, resourceId, apiVersion, nil)
+			if err != nil {
+				return nil, fmt.Errorf("failed to delete resource '%s': %w", resourceId, err)
+			}
+
+			if _, err := poller.PollUntilDone(ctx, nil); err != nil {
+				return nil, fmt.Errorf("failed to delete resource '%s': %w", resourceId, err)
+			}
+			log.Info().Msgf("Deleted resource '%s'", resourceId)
+			return nil, nil
+		})
 	}
 
-	return nil
+	for _, p := range pg {
+		if promiseErr := p.AwaitErr(); promiseErr != nil && promiseErr != errDependencyFailed {
+			logError(promiseErr, "")
+			err = ErrAlreadyLoggedError
+		}
+	}
+
+	return err
 }
 
 func GetDefaultApiVersionForResource(ctx context.Context, resourceId string, providersClient *armresources.ProvidersClient) (string, error) {

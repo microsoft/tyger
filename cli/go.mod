@@ -14,6 +14,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage v1.4.0
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.1.0
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.2.0
+	github.com/IGLOU-EU/go-wildcard/v2 v2.0.2
 	github.com/andreyvit/diff v0.0.0-20170406064948-c7f18ee00883
 	github.com/eiannone/keyboard v0.0.0-20220611211555-0d226195f203
 	github.com/erikgeiser/promptkit v0.9.0

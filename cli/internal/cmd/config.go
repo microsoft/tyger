@@ -406,10 +406,15 @@ func chooseTenant(cred azcore.TokenCredential, prompt string, presentOtherOption
 		}
 
 		for _, ten := range page.TenantListResult.Value {
-			tenants = append(tenants, IdAndName{
-				id:   *ten.TenantID,
-				name: *ten.DisplayName,
-			})
+			tenant := IdAndName{
+				id: *ten.TenantID,
+			}
+			if ten.DisplayName != nil {
+				tenant.name = *ten.DisplayName
+			} else {
+				tenant.name = tenant.id
+			}
+			tenants = append(tenants, tenant)
 		}
 	}
 
