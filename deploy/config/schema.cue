@@ -2,108 +2,121 @@ package tyger
 
 import "strings"
 
-#Region: "asia" | "asiapacific" | "australia" | "australiacentral" | "australiacentral2" | "australiaeast" | "australiasoutheast" | "brazil" | "brazilsouth" | "brazilsoutheast" | "canada" | "canadacentral" | "canadaeast" | "centralindia" | "centralus" | "centraluseuap" | "centralusstage" | "eastasia" | "eastasiastage" | "eastus" | "eastus2" | "eastus2euap" | "eastus2stage" | "eastusstage" | "europe" | "france" | "francecentral" | "francesouth" | "germany" | "germanynorth" | "germanywestcentral" | "global" | "india" | "japan" | "japaneast" | "japanwest" | "jioindiacentral" | "jioindiawest" | "korea" | "koreacentral" | "koreasouth" | "northcentralus" | "northcentralusstage" | "northeurope" | "norway" | "norwayeast" | "norwaywest" | "southafrica" | "southafricanorth" | "southafricawest" | "southcentralus" | "southcentralusstage" | "southeastasia" | "southeastasiastage" | "southindia" | "swedencentral" | "switzerland" | "switzerlandnorth" | "switzerlandwest" | "uae" | "uaecentral" | "uaenorth" | "uk" | "uksouth" | "ukwest" | "unitedstates" | "unitedstateseuap" | "westcentralus" | "westeurope" | "westindia" | "westus" | "westus2" | "westus2stage" | "westus3" | "westusstage"
-
-#Dependencies: {
-	subscription:       string
-	dnsZone:            #DnsZone
-	containerRegistry:  string
-	keyVault:           #KeyVault
-	logAnalytics: 	    #LogAnalytics
-	servicePrincipalId: string
-	userGroupId:        string
-}
-
-#Resource: {
-	name:               string
-	resourceGroup:      string
-}
-
-#KeyVault: {
-	#Resource
-	tlsCertificateName: string
-}
-
-#DnsZone: {
-	#Resource
-}
-
-#LogAnalytics: {
-	#Resource
-}
-
-#StorageAccount: {
-	name:   =~"^[a-z0-9]{3,24}$"
-	region: #Region
-}
-
-#Environment: {
-	let environmentName = name
-	name:          =~"^[a-z][a-z\\-0-9]*$"
-	resourceGroup: *name | string
-	defaultRegion: #Region
-	subscription:  *dependencies.subscription | string
-	isEphemeral:   *false | bool
-	dependencies: #Dependencies
-
-	let defaultCluster = #Cluster & {
-		isPrimary: true
-		region:    defaultRegion
-	}
-
-	clusters: *{"\(environmentName)": defaultCluster} | {[string]: #Cluster}
-
-	// validate that there is exactly one primary cluster
-	primaryCluster: string & {
-		for k, v in clusters {
-			if v.isPrimary {
-				k
+#EnvironmentConfig: {
+	environmentName!: string
+	cloud!:           #CloudConfig & {
+		resourceGroup: *environmentName | string
+		compute: {
+			#DefaultedClusterConfig: #ClusterConfig & {
+				location: *cloud.defaultLocation | string
 			}
+			clusters: [#DefaultedClusterConfig, ...#DefaultedClusterConfig]
 		}
-	}
-
-	#OrganizationWithDefaults: {
-		#Organization
-		_name:          string
-		namespace: *_name | string
-		resourceGroup: *"\(environmentName)-\(_name)" | string
-		let organizationName = _name
 		storage: {
-			buffers: *[{name: *strings.Replace("\(environmentName)\(organizationName)buf", "-", "", -1) | string, region: defaultRegion}] | [#StorageAccount, ...#StorageAccount]
-			logs: {name: *strings.Replace("\(environmentName)\(organizationName)log", "-", "", -1) | string, region: *defaultRegion | #Region}
+			buffers: *[{name: *strings.Replace("\(environmentName)tygerbuf", "-", "", -1) | string}] | [#StorageAccountConfig, ...#StorageAccountConfig]
+			logs: {name: *strings.Replace("\(environmentName)tygerlog", "-", "", -1) | string}
 		}
 	}
-
-	organizations: { [Name=string]: #OrganizationWithDefaults & { _name: Name } }
-}
-
-#Cluster: {
-	isPrimary:      *false | bool
-	region:         #Region
-	systemNodeSize: *"Standard_DS2_v2" | string
-
-	userNodePools: *defaultNodePools | {[string]: #NodePool}
-
-	let defaultNodePools = {[string]: #NodePool} & {
-		cpunp: vmSize: "Standard_DS12_v2"
-		gpunp: vmSize: "Standard_NC6s_v3"
+	api!: #ApiConfig & {
+		domainName: *"\(environmentName)-tyger.\(cloud.defaultLocation).cloudapp.azure.com" | string
 	}
 }
 
-#NodePool: {
-	vmSize:   string
-	minCount: *0 | >0
-	maxCount: *10 | >=minCount
+#CloudConfig: {
+	tenantId!:        string
+	subscriptionId!:  string
+	defaultLocation!: string
+	resourceGroup?:   string
+	compute!:         #ComputeConfig
+	storage!:         #StorageConfig
 }
 
-#Organization: {
-	namespace?:     string
-	resourceGroup?: string
-	subdomain:     string
-	authority:     string
-	audience:      *"api://tyger-server" | string
-	storage: {
-		buffers: [#StorageAccount, ...#StorageAccount]
-		logs: #StorageAccount
+#Principal: {
+	id!: string
+	kind!:     "User" | "Group" | "ServicePrincipal"
+}
+
+#ComputeConfig: {
+	clusters!: [...#ClusterConfig]
+	managementPrincipals?: [...#Principal]
+	logAnalyticsWorkspace?: #NamedAzureResource
+	privateContainerRegistries?: [...string]
+}
+
+#NamedAzureResource: {
+	resourceGroup!: string
+	name!:          string
+}
+
+#ClusterConfig: {
+	name!:              string
+	apiHost!:           bool
+	location?:          string
+	kubernetesVersion?: string
+	userNodePools!: [...#NodePoolConfig]
+}
+
+#NodePoolConfig: {
+	name!:     string
+	vmSize!:   string
+	minCount?: int
+	maxCount!: int
+}
+
+#StorageConfig: {
+	buffers!: [#StorageAccountConfig, ...#StorageAccountConfig]
+	logs!: #StorageAccountConfig
+}
+
+#StorageAccountConfig: {
+	name!:     string
+	location?: string
+	sku?:      string
+}
+
+#ApiConfig: {
+	domainName!: string
+	auth:        #AuthConfig
+	helm:        #HelmConfig
+}
+
+#AuthConfig: {
+	tenantId!:  string
+	apiAppUri!: string
+	cliAppUri!: string
+}
+
+#HelmConfig: {
+	tyger: #HelmChartConfig & {
+		chartRef: string @tag(tygerHelmChartDir)
 	}
+	traefik?:            #HelmChartConfig
+	certManager?:        #HelmChartConfig
+	nvidiaDevicePlugin?: #HelmChartConfig
+}
+
+#HelmChartConfig: {
+	chartRepo?: string
+	chartRef?:  string
+	values?: [string]: _
+}
+
+#DeveloperConfig: {
+	wipContainerRegistry:      #ContainerRegistry
+	officialContainerRegistry: #ContainerRegistry
+
+	keyVault!:         string
+	testAppUri!:       string
+	pemCertSecret!:    #Secret
+	pkcs12CertSecret!: #Secret
+}
+
+#Secret: {
+	name!:    string
+	version!: string
+}
+
+#ContainerRegistry: {
+	name!: string
+	fqdn:  *"\(name).azurecr.io" | string
 }

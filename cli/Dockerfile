@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/oss/go/microsoft/golang:1.20-bullseye as go-build
+FROM mcr.microsoft.com/oss/go/microsoft/golang:1.21.0-bullseye as go-build
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     upx \
@@ -6,11 +6,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /go/src/app
 COPY ./go.mod .
-ARG COMMIT_HASH=""
-RUN --mount=type=cache,target=/root/.cache/go-mod-download go mod download
+ARG TYGER_VERSION="a"
+RUN --mount=type=cache,target=/go/pkg/mod/cache go mod download
 COPY . .
-RUN --mount=type=cache,target=/root/.cache/go-go-build \
-    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.commit=${COMMIT_HASH}" -v -o /go/bin/dist/linux/amd64/buffer-sidecar ./cmd/buffer-sidecar \
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.version=${TYGER_VERSION}" -v -o /go/bin/dist/linux/amd64/buffer-sidecar ./cmd/buffer-sidecar \
     && upx /go/bin/dist/linux/amd64/buffer-sidecar
 
 FROM mcr.microsoft.com/cbl-mariner/base/core:2.0 as runtime-builder

@@ -47,6 +47,7 @@ public class AuthOptions : IValidatableObject
     public bool Enabled { get; set; } = true;
     public string? Authority { get; init; }
     public string? Audience { get; init; }
+    public string? CliAppUri { get; init; }
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
@@ -57,7 +58,7 @@ public class AuthOptions : IValidatableObject
 
         if (string.IsNullOrWhiteSpace(Authority) || string.IsNullOrWhiteSpace(Audience))
         {
-            yield return new ValidationResult("When security is enabled, both Authority and Audience must be specified");
+            yield return new ValidationResult("When security is enabled, Authority, Audience, and CliAppUri must be specified");
         }
     }
 }

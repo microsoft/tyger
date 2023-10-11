@@ -481,7 +481,7 @@ components:
       properties:
         name:
           type: string
-        region:
+        location:
           type: string
         nodePools:
           type: array
@@ -619,6 +619,9 @@ components:
           type: string
           nullable: true
         audience:
+          type: string
+          nullable: true
+        cliAppUri:
           type: string
           nullable: true
       additionalProperties: false

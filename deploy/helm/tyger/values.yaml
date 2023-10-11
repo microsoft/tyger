@@ -11,8 +11,15 @@ server:
     enabled: true
     authority:
     audience:
+    cliAppUri:
 
   hostname:
+  tls:
+    enabled: true
+    letsEncypt:
+      enabled: true
+      email:
+
   tlsEnabled: true
 
   storageAccountConnectionStringSecretName:

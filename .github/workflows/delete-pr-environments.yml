@@ -19,7 +19,7 @@ jobs:
   delete-pr-envs:
     runs-on: ubuntu-latest
     container:
-      image: compimagdevcontainers.azurecr.io/tyger@sha256:4d03176f1420e3285a954c2ee333e8a952ee4608ec01594ab1f3ad04157ff094
+      image: compimagdevcontainers.azurecr.io/tyger@sha256:3bb5632271f0f5361b39f22d1511ee7ffd59b736523726251d0bab974eadba02
     defaults:
       run:
         shell: bash

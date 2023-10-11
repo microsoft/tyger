@@ -12,6 +12,7 @@ import (
 type ServiceMetadata struct {
 	Authority      string `json:"authority"`
 	Audience       string `json:"audience"`
+	CliAppUri      string `json:"cliAppUri"`
 	DataPlaneProxy string `json:"dataPlaneProxy,omitempty"`
 }
 
@@ -212,5 +213,6 @@ type NodePool struct {
 
 type Cluster struct {
 	Name      string     `json:"name"`
+	Location  string     `json:"location"`
 	NodePools []NodePool `json:"nodePools"`
 }

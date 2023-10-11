@@ -41,7 +41,7 @@ public record Buffer : ModelBase
 
 public record BufferAccess(Uri Uri) : ModelBase;
 
-public record Metadata(string? Authority = null, string? Audience = null) : ModelBase;
+public record Metadata(string? Authority = null, string? Audience = null, string? CliAppUri = null) : ModelBase;
 
 [Equatable]
 public partial record BufferParameters(
@@ -361,6 +361,6 @@ public record CodespecPage(IList<Codespec> Items, Uri? NextLink);
 
 public record BufferPage(IList<Buffer> Items, Uri? NextLink);
 
-public record Cluster(string Name, string Region, IReadOnlyList<NodePool> NodePools);
+public record Cluster(string Name, string Location, IReadOnlyList<NodePool> NodePools);
 
 public record NodePool(string Name, string VmSize);

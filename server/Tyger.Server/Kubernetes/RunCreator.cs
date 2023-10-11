@@ -340,17 +340,13 @@ public class RunCreator
         ClusterOptions? targetCluster;
         if (!string.IsNullOrEmpty(newRun.Cluster))
         {
-            if (!_k8sOptions.Clusters.TryGetValue(newRun.Cluster, out var cluster))
-            {
+            targetCluster = _k8sOptions.Clusters.FirstOrDefault(c => string.Equals(c.Name, newRun.Cluster, StringComparison.OrdinalIgnoreCase)) ??
                 throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "Unknown cluster '{0}'", newRun.Cluster));
-            }
-
-            targetCluster = cluster;
         }
         else
         {
             // Only supporting single cluster for the moment
-            targetCluster = _k8sOptions.Clusters.Values.First();
+            targetCluster = _k8sOptions.Clusters.First();
         }
 
         return targetCluster;
@@ -398,7 +394,8 @@ public class RunCreator
             }
 
             targetNodePool = codeTarget.NodePool;
-            if (!targetCluster.UserNodePools.TryGetValue(codeTarget.NodePool, out var pool))
+            NodePoolOptions? pool;
+            if ((pool = targetCluster.UserNodePools.FirstOrDefault(np => string.Equals(np.Name, codeTarget.NodePool, StringComparison.OrdinalIgnoreCase))) == null)
             {
                 throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "Unknown nodepool '{0}'", targetNodePool));
             }
@@ -476,24 +473,16 @@ public class RunCreator
 
         if (committedCodespecRef.Version == null)
         {
-            var latestCodespec = await _repository.GetLatestCodespec(committedCodespecRef.Name, cancellationToken);
-            if (latestCodespec == null)
-            {
-                throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The codespec '{0}' was not found", committedCodespecRef.Name));
-            }
-
-            return latestCodespec;
+            return await _repository.GetLatestCodespec(committedCodespecRef.Name, cancellationToken)
+                ?? throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The codespec '{0}' was not found", committedCodespecRef.Name));
         }
 
         var codespec = await _repository.GetCodespecAtVersion(committedCodespecRef.Name, committedCodespecRef.Version.Value, cancellationToken);
         if (codespec == null)
         {
             // See if it's just the version number that was not found
-            var latestCodespec = await _repository.GetLatestCodespec(committedCodespecRef.Name, cancellationToken);
-            if (latestCodespec == null)
-            {
-                throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The codespec '{0}' was not found", committedCodespecRef.Name));
-            }
+            var latestCodespec = await _repository.GetLatestCodespec(committedCodespecRef.Name, cancellationToken)
+                ?? throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The codespec '{0}' was not found", committedCodespecRef.Name));
 
             throw new ValidationException(
                 string.Format(
@@ -525,12 +514,8 @@ public class RunCreator
                 arguments![param.param] = bufferId;
             }
 
-            var bufferAccess = await _bufferManager.CreateBufferAccessString(bufferId, param.writeable, cancellationToken);
-            if (bufferAccess == null)
-            {
-                throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The buffer '{0}' was not found", bufferId));
-            }
-
+            var bufferAccess = await _bufferManager.CreateBufferAccessString(bufferId, param.writeable, cancellationToken)
+                ?? throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The buffer '{0}' was not found", bufferId));
             outputMap[param.param] = (param.writeable, bufferAccess.Uri);
             argumentsClone.Remove(param.param);
         }

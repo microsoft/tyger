@@ -20,7 +20,7 @@ import (
 
 var (
 	// set during build
-	commit = ""
+	version = ""
 )
 
 func main() {
@@ -29,7 +29,7 @@ func main() {
 		Port: 6888,
 	}
 
-	rootCommand := cmd.NewCommonRootCommand(commit)
+	rootCommand := cmd.NewCommonRootCommand(version)
 	rootCommand.Use = "tyger-proxy"
 	rootCommand.Long = `tyger-proxy is an HTTP proxy for Tyger. It allows accessing a subset of the
 control-plane API without authentication and to tunnel data-plane requests to Azure Storage.

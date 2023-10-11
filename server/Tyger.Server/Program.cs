@@ -67,7 +67,7 @@ app.MapCodespecs();
 app.MapRuns();
 
 app.MapHealthChecks("/healthcheck").AllowAnonymous();
-app.MapGet("/v1/metadata", (IOptions<AuthOptions> auth) => auth.Value.Enabled ? new Metadata(auth.Value.Authority, auth.Value.Audience) : new Metadata())
+app.MapGet("/v1/metadata", (IOptions<AuthOptions> auth) => auth.Value.Enabled ? new Metadata(auth.Value.Authority, auth.Value.Audience, auth.Value.CliAppUri) : new Metadata())
     .AllowAnonymous();
 
 app.MapFallback(() => Responses.BadRequest("InvalidRoute", "The request path was not recognized."));

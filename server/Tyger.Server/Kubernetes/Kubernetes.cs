@@ -11,13 +11,7 @@ public static class Kubernetes
     public static void AddKubernetes(this IServiceCollection services)
     {
         services.AddOptions<KubernetesOptions>().BindConfiguration("kubernetes").ValidateDataAnnotations().ValidateOnStart()
-            .PostConfigure(o =>
-                {
-                    foreach ((var name, var cluster) in o.Clusters)
-                    {
-                        cluster.Name = name;
-                    }
-                });
+;
 
         services.AddSingleton<LoggingHandler>();
         services.AddSingleton(sp =>
@@ -62,13 +56,13 @@ public static class Kubernetes
     private static IReadOnlyList<Cluster> GetClustersResponse(KubernetesOptions options)
     {
         return options.Clusters
-            .Where(c => c.Value.IsPrimary) // For now we don't support multiple clusters
+            .Where(c => c.ApiHost) // For now we don't support multiple clusters
             .Select(c =>
                 new Cluster(
-                    c.Key,
-                    c.Value.Region,
-                    c.Value.UserNodePools.Select(n =>
-                        new NodePool(n.Key, n.Value.VmSize)).ToList()))
+                    c.Name,
+                    c.Location,
+                    c.UserNodePools.Select(np =>
+                        new NodePool(np.Name, np.VmSize)).ToList()))
             .ToList();
     }
 }
@@ -90,25 +84,31 @@ public class KubernetesOptions
     public required string WorkerWaiterImage { get; init; }
 
     [MinLength(1)]
-    public Dictionary<string, ClusterOptions> Clusters { get; } = new(StringComparer.Ordinal);
+    public List<ClusterOptions> Clusters { get; } = new();
 }
 
 public class ClusterOptions
 {
-    public string Name { get; set; } = null!;
+    [Required]
+    public required string Name { get; set; }
 
     [Required]
-    public string Region { get; init; } = null!;
+    public required string Location { get; init; }
 
-    public bool IsPrimary { get; init; }
+    [Required]
+    public required bool ApiHost { get; init; }
 
-    public Dictionary<string, NodePoolOptions> UserNodePools { get; } = new(StringComparer.Ordinal);
+    [Required]
+    public List<NodePoolOptions> UserNodePools { get; } = new();
 }
 
 public class NodePoolOptions
 {
     [Required]
-    public string VmSize { get; init; } = null!;
+    public required string Name { get; init; }
+
+    [Required]
+    public required string VmSize { get; init; }
 }
 
 /// <summary>

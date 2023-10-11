@@ -123,6 +123,8 @@ spec:
               value: {{ required "When server.security.enabled is true, a value for server.security.authority is required" $serverValues.security.authority }}
             - name: Auth__Audience
               value: {{ required "When server.security.enabled is true, a value for server.security.audience is required" $serverValues.security.audience }}
+            - name: Auth__CliAppUri
+              value: {{ required "When server.security.enabled is true, a value for server.security.cliAppUri is required" $serverValues.security.cliAppUri }}
           {{- end }}
             - name: Kubernetes__Namespace
               value: {{ .Release.Namespace }}
@@ -202,15 +204,57 @@ spec:
       port: 8080
       targetPort: 5000
 ---
+{{- if $serverValues.tls.letsEncrypt.enabled }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "tyger.fullname" . }}-cert
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: {{ $serverValues.tls.letsEncrypt.email }}
+    privateKeySecretRef:
+      name: {{ include "tyger.fullname" . }}-cert
+    solvers:
+      - http01:
+          ingress:
+            class: traefik
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ $serverValues.hostname }}
+spec:
+  secretName: {{ $serverValues.hostname }}-tls
+  issuerRef:
+    name: {{ include "tyger.fullname" . }}-cert
+    kind: Issuer
+  dnsNames:
+    - {{ $serverValues.hostname }}
+
+---
+{{- end }}
 apiVersion: traefik.containo.us/v1alpha1
 kind: IngressRoute
 metadata:
   name: {{ include "tyger.fullname" . }}-server
+  {{- if $serverValues.tls.letsEncrypt.enabled }}
+  annotations:
+    kubernetes.io/ingress.class: traefik
+    cert-manager.io/issuer: {{ include "tyger.fullname" . }}-cert
+  {{- end }}
 spec:
-  {{- if $serverValues.tlsEnabled }}
+  {{- if $serverValues.tls.enabled }}
   entryPoints:
-  - websecure
+    - websecure
+  {{- if $serverValues.tls.letsEncrypt.enabled }}
+  tls:
+    secretName: {{ $serverValues.hostname }}-tls
+    domains:
+      - main: {{ $serverValues.hostname }}
+  {{- else }}
   tls: {}
+  {{- end }}
   {{- else }}
   entryPoints:
   - web

@@ -199,7 +199,7 @@ func NewBufferReadCommand(openFileFunc func(name string, flag int, perm fs.FileM
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			WarnIfRunningInPowerShell()
+			warnIfRunningInPowerShell()
 
 			if dop < 1 {
 				log.Fatal().Msg("the degree of parallelism (dop) must be at least 1")
@@ -259,7 +259,7 @@ func NewBufferWriteCommand(openFileFunc func(name string, flag int, perm fs.File
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			WarnIfRunningInPowerShell()
+			warnIfRunningInPowerShell()
 
 			if dop < 1 {
 				log.Fatal().Msg("the degree of parallelism (dop) must be at least 1")

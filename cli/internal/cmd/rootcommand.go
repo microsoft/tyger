@@ -55,10 +55,6 @@ func NewCommonRootCommand(commit string) *cobra.Command {
 				logSink = os.Stderr
 			}
 
-			if cmd.CommandPath() != "" {
-				log.Logger = log.Logger.With().Str("command", cmd.CommandPath()).Logger()
-			}
-
 			zerolog.DefaultContextLogger = &log.Logger
 			ctx := logging.SetLogSinkOnContext(cmd.Context(), logSink)
 			ctx = log.Logger.WithContext(ctx)

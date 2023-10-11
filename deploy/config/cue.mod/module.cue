@@ -1,1 +1,1 @@
-module: "tyger.research.microsoft.com"
+module: "github.com/microsoft/tyger"

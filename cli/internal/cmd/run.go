@@ -251,7 +251,7 @@ func newRunExecCommand() *cobra.Command {
 
 	blockSizeString := ""
 	cmd.PreRunE = func(cmd *cobra.Command, args []string) error {
-		WarnIfRunningInPowerShell()
+		warnIfRunningInPowerShell()
 
 		if blockSizeString != "" {
 			if blockSizeString != "" && blockSizeString[len(blockSizeString)-1] != 'B' {

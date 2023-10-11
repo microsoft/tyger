@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/microsoft/tyger/cli/internal/cmd"
+	"github.com/microsoft/tyger/cli/internal/cmd/install"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"go.opentelemetry.io/otel/baggage"
@@ -11,11 +12,11 @@ import (
 
 var (
 	// set during build
-	commit = ""
+	version = ""
 )
 
 func newRootCommand() *cobra.Command {
-	rootCommand := cmd.NewCommonRootCommand(commit)
+	rootCommand := cmd.NewCommonRootCommand(version)
 	rootCommand.Use = "tyger"
 	rootCommand.Short = "A command-line interface to the Tyger control plane."
 	rootCommand.Long = `A command-line interface to the Tyger control plane.`
@@ -53,6 +54,10 @@ func newRootCommand() *cobra.Command {
 	rootCommand.AddCommand(cmd.NewCodespecCommand())
 	rootCommand.AddCommand(cmd.NewRunCommand())
 	rootCommand.AddCommand(cmd.NewClusterCommand())
+	rootCommand.AddCommand(install.NewConfigCommand(rootCommand))
+	rootCommand.AddCommand(install.NewCloudCommand(rootCommand))
+	rootCommand.AddCommand(install.NewApiCommand(rootCommand))
+	rootCommand.AddCommand(install.NewIdentitiesCommand(rootCommand))
 
 	return rootCommand
 }
