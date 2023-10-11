@@ -122,7 +122,9 @@ jobs:
 
       - name: Build Windows Binaries
         run: |
-          set -euo pipefail
+          set -eo pipefail
+          source /opt/conda/etc/profile.d/conda.sh
+          conda activate /opt/conda/envs/tyger
 
           export CGO_ENABLED=1
           export GOOS=windows
