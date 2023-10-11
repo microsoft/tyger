@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/microsoft/tyger/cli/internal/cmd"
+	"github.com/microsoft/tyger/cli/internal/cmd/install"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"go.opentelemetry.io/otel/baggage"
@@ -53,9 +54,10 @@ func newRootCommand() *cobra.Command {
 	rootCommand.AddCommand(cmd.NewCodespecCommand())
 	rootCommand.AddCommand(cmd.NewRunCommand())
 	rootCommand.AddCommand(cmd.NewClusterCommand())
-	rootCommand.AddCommand(cmd.NewConfigCommand(rootCommand))
-	rootCommand.AddCommand(cmd.NewInstallCommand(rootCommand))
-	rootCommand.AddCommand(cmd.NewUninstallCommand(rootCommand))
+	rootCommand.AddCommand(install.NewConfigCommand(rootCommand))
+	rootCommand.AddCommand(install.NewCloudCommand(rootCommand))
+	rootCommand.AddCommand(install.NewApiCommand(rootCommand))
+	rootCommand.AddCommand(install.NewIdentitiesCommand(rootCommand))
 
 	return rootCommand
 }

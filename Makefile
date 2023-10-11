@@ -19,15 +19,15 @@ get-environment-config:
 	echo '${ENVIRONMENT_CONFIG_JSON}' | yq -P
 
 ensure-environment: install-cli
-	tyger install cloud -f <(scripts/get-context-environment-config.sh)
+	tyger cloud install -f <(scripts/get-context-environment-config.sh)
 
 ensure-environment-conditionally: install-cli
 	if [[ "${INSTALL_CLOUD}" == "true" ]]; then
-		tyger install cloud -f <(scripts/get-context-environment-config.sh)
+		tyger cloud install -f <(scripts/get-context-environment-config.sh)
 	fi
 
 remove-environment: install-cli
-	tyger uninstall cloud -f <(scripts/get-context-environment-config.sh)
+	tyger cloud uninstall -f <(scripts/get-context-environment-config.sh)
 
 # Sets up the az subscription and kubectl config for the current environment
 set-context:
@@ -136,7 +136,7 @@ up: ensure-environment-conditionally docker-build
 
 	chart_dir=$$(readlink -f deploy/helm/tyger)
 	
-	tyger install api -f <(scripts/get-context-environment-config.sh) \
+	tyger api install -f <(scripts/get-context-environment-config.sh) \
 		--set api.helm.tyger.chartRef="$${chart_dir}" \
 		--set api.helm.tyger.values.server.image="$${tyger_server_image}" \
 		--set api.helm.tyger.values.server.bufferSidecarImage="$${buffer_sidecar_image}" \
@@ -145,7 +145,7 @@ up: ensure-environment-conditionally docker-build
 	$(MAKE) cli-ready
 
 down: install-cli
-	tyger uninstall api -f <(scripts/get-context-environment-config.sh)
+	tyger api uninstall -f <(scripts/get-context-environment-config.sh)
 
 integration-test-no-up-prereqs: docker-build-test
 
