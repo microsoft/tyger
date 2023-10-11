@@ -46,6 +46,9 @@ jobs:
         id: set-variables
         run: |
           set -eo pipefail
+          source /opt/conda/etc/profile.d/conda.sh
+          conda activate /opt/conda/envs/tyger
+
           event_name="${{ github.event_name }}"
           if [ "$event_name" == "pull_request" ]; then
             environment_name="tyger-gpr${{ github.event.pull_request.number }}"
