@@ -1,0 +1,48 @@
+environmentName: ${TYGER_ENVIRONMENT_NAME}
+cloud:
+  tenantId: 72f988bf-86f1-41af-91ab-2d7cd011db47
+  subscriptionId: 87d8acb3-5176-4651-b457-6ab9cefd8e3d
+  defaultLocation: ${TYGER_LOCATION}
+  resourceGroup: ${TYGER_ENVIRONMENT_NAME}
+  compute:
+    clusters:
+      - name: ${TYGER_ENVIRONMENT_NAME}
+        apiHost: true
+        kubernetesVersion: 1.27
+        userNodePools:
+          - name: cpunp
+            vmSize: Standard_DS12_v2
+            minCount: ${TYGER_MIN_NODE_COUNT}
+            maxCount: 10
+          - name: gpunp
+            vmSize: Standard_NC6s_v3
+            minCount: ${TYGER_MIN_NODE_COUNT}
+            maxCount: 10
+
+    managementPrincipals:
+      - id: 5b60f594-a0eb-410c-a3fc-dd3c6f4e28d1
+        kind: ServicePrincipal
+      - id: c0e60aba-35f0-4778-bc9b-fc5d2af14687
+        kind: Group
+
+    logAnalyticsWorkspace:
+      resourceGroup: eminence
+      name: eminence
+
+    privateContainerRegistries:
+      - eminence
+
+  storage:
+    buffers:
+      - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}tygerbuf
+    logs:
+      name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}tygerlog
+api:
+  domainName: ${TYGER_ENVIRONMENT_NAME}-tyger.westus2.cloudapp.azure.com
+  auth:
+    tenantId: 76d3279b-830e-4bea-baf8-12863cdeba4c
+    apiAppUri: api://tyger-server
+    cliAppUri: api://tyger-cli
+  helm:
+    tyger:
+      chartRef: ${TYGER_HELM_CHART_DIR}

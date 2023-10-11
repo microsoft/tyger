@@ -3,7 +3,7 @@
 {
   "name": "Tyger",
 
-  "image": "compimagdevcontainers.azurecr.io/tyger@sha256:3bb5632271f0f5361b39f22d1511ee7ffd59b736523726251d0bab974eadba02",
+  "image": "compimagdevcontainers.azurecr.io/tyger@sha256:4d208439d99d0d99c50f17fcdf524e4ba9e42802f50e0572e4beb8052081a6f9",
 
   "runArgs": [
     "--init",
@@ -79,7 +79,6 @@
         "GitHub.copilot",
         "golang.go",
         "humao.rest-client",
-        "jallen7usa.vscode-cue-fmt",
         "mhutchie.git-graph",
         "ms-azuretools.vscode-docker",
         "ms-dotnettools.csharp",
