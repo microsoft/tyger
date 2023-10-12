@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/bits"
 	"net/http"
 	"net/url"
 	"path"
-	"strconv"
 	"strings"
 	"time"
 
@@ -167,8 +167,50 @@ type Container struct {
 	*url.URL
 }
 
+func clearBit(value int64, pos int) int64 {
+	mask := int64(^(1 << pos))
+	return value & mask
+}
+
 func (c *Container) GetBlobUri(blobNumber int64) string {
-	return c.URL.JoinPath(strconv.FormatInt(blobNumber, 10)).String()
+	// The bottom 12-bit of the blob number are used for the file number
+	// After shifting the file number off, the position of the topmost bit
+	// will be the root directory number. That bit is then also cleared
+	// What remains of the blob number will be split into bytes and used to
+	// generate the sub folders
+
+	fileNumber := blobNumber & 0xFFF
+	blobNumber = blobNumber >> 12
+	rootDir := 64 - bits.LeadingZeros64(uint64(blobNumber))
+
+	folders := []int64{}
+
+	// Folder 00 and 01 don't have any sub folders
+	if rootDir > 1 {
+		blobNumber = clearBit(blobNumber, rootDir-1)
+
+		// Work out how many sub folders there will be
+		subFolderCount := ((rootDir - 2) / 8) + 1
+
+		for i := 0; i < subFolderCount; i++ {
+			folders = append(folders, blobNumber&0xFF)
+			blobNumber = blobNumber >> 8
+		}
+	}
+
+	// Add the root folder to the URL
+	blobURL := c.URL.JoinPath(fmt.Sprintf("%02X", rootDir))
+
+	// The folders are added to the array in reverse order, so we need to run over it back to front
+	// instead of using range.
+	for i := len(folders) - 1; i >= 0; i-- {
+		blobURL = blobURL.JoinPath(fmt.Sprintf("%02X", folders[i]))
+	}
+
+	// and finally add the file number
+	blobURL = blobURL.JoinPath(fmt.Sprintf("%03X", fileNumber))
+
+	return blobURL.String()
 }
 
 func (c *Container) GetContainerName() string {
