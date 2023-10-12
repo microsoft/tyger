@@ -1,0 +1,14 @@
+wipContainerRegistry:
+  name: eminence
+  fqdn: eminence.azurecr.io
+officialContainerRegistry:
+  name: tyger
+  fqdn: tyger.azurecr.io
+keyVault: eminence
+testAppUri: api://tyger-test-client
+pemCertSecret:
+  name: tyger-test-client-cert
+  version: 1db664a6a3c74b6f817f3d842424003d
+pkcs12CertSecret:
+  name: tyger-test-client-cert-pkcs12
+  version: f8b1b7dde7034217bf12ce4ea772b470

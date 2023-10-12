@@ -15,10 +15,6 @@ wget "https://github.com/uzimaru0000/tv/releases/download/${TV_VERSION}/tv-x86_6
 && unzip tv-x86_64-unknown-linux-gnu.zip \
 && mv tv-x86_64-unknown-linux-gnu/tv /usr/bin
 
-# CUE
-CUE_VERSION=v0.6.0
-go install cuelang.org/go/cmd/cue@${CUE_VERSION}
-
 # install kubelogin
 KUBELOGIN_VERSION=0.0.30
 sudo az aks install-cli --kubelogin-version "${KUBELOGIN_VERSION}" --install-location "/dev/null"

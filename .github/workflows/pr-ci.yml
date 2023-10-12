@@ -20,7 +20,7 @@ jobs:
   tyger-build-deploy:
     runs-on: ["self-hosted", "1ES.Pool=tyger-gh-1es"]
     container:
-      image: compimagdevcontainers.azurecr.io/tyger@sha256:3bb5632271f0f5361b39f22d1511ee7ffd59b736523726251d0bab974eadba02
+      image: compimagdevcontainers.azurecr.io/tyger@sha256:4d208439d99d0d99c50f17fcdf524e4ba9e42802f50e0572e4beb8052081a6f9
       options: -v /mnt/storage:/__w/tyger -v /mnt/storage:/workspaces
     defaults:
       run:
@@ -46,6 +46,9 @@ jobs:
         id: set-variables
         run: |
           set -eo pipefail
+          source /opt/conda/etc/profile.d/conda.sh
+          conda activate /opt/conda/envs/tyger
+
           event_name="${{ github.event_name }}"
           if [ "$event_name" == "pull_request" ]; then
             environment_name="tyger-gpr${{ github.event.pull_request.number }}"
@@ -61,14 +64,16 @@ jobs:
           echo "TYGER_ENVIRONMENT_NAME=$environment_name" >> "$GITHUB_OUTPUT"
           echo "TYGER_ENVIRONMENT_NAME=$environment_name" >> "$GITHUB_ENV"
 
-          developer_config=$(scripts/get-context-environment-config.sh -e "developerConfig" -o json | jq -c)
+          echo "TYGER_MIN_NODE_COUNT=5" >> "GITHUB_ENV"
+
+          developer_config=$(scripts/get-config.sh --dev -o json | jq -c)
           echo "DEVELOPER_CONFIG=$developer_config" >> "$GITHUB_OUTPUT"
           echo "DEVELOPER_CONFIG=$developer_config" >> "$GITHUB_ENV"
 
       - name: Verify devcontainer
         shell: bash
         env:
-          DEVCONTAINER_IMAGE: compimagdevcontainers.azurecr.io/tyger@sha256:3bb5632271f0f5361b39f22d1511ee7ffd59b736523726251d0bab974eadba02
+          DEVCONTAINER_IMAGE: compimagdevcontainers.azurecr.io/tyger@sha256:4d208439d99d0d99c50f17fcdf524e4ba9e42802f50e0572e4beb8052081a6f9
         run: |
           set -euo pipefail
           if [[ "$(.devcontainer/get-devcontainer-image.sh)" != "${DEVCONTAINER_IMAGE}" ]]; then
@@ -96,7 +101,6 @@ jobs:
           source /opt/conda/etc/profile.d/conda.sh
           conda activate /opt/conda/envs/tyger
           export TYGER_ENVIRONMENT_CONFIG_DIR="${GITHUB_WORKSPACE}/deploy/config/microsoft/ci"
-          echo "TYGER_ENVIRONMENT_CONFIG_DIR=$TYGER_ENVIRONMENT_CONFIG_DIR"
 
           # We have mounted this location in the container, it is identical to the checkout location
           # We need to run the testdata generation from this path to make sure the testdata is generated in the right place.
@@ -118,7 +122,9 @@ jobs:
 
       - name: Build Windows Binaries
         run: |
-          set -euo pipefail
+          set -eo pipefail
+          source /opt/conda/etc/profile.d/conda.sh
+          conda activate /opt/conda/envs/tyger
 
           export CGO_ENABLED=1
           export GOOS=windows
@@ -143,10 +149,8 @@ jobs:
           source /opt/conda/etc/profile.d/conda.sh
           conda activate /opt/conda/envs/tyger
 
-          # Point to scale-to-zero config
-          export TYGER_ENVIRONMENT_CONFIG_DIR="${GITHUB_WORKSPACE}/deploy/config/microsoft"
-
           echo "scaling cluster back down"
+          export TYGER_MIN_NODE_COUNT=0
           make ensure-environment
 
   windows-smoke-tests:
@@ -204,7 +208,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.repository == 'microsoft/tyger'
     container:
-      image: compimagdevcontainers.azurecr.io/tyger@sha256:3bb5632271f0f5361b39f22d1511ee7ffd59b736523726251d0bab974eadba02
+      image: compimagdevcontainers.azurecr.io/tyger@sha256:4d208439d99d0d99c50f17fcdf524e4ba9e42802f50e0572e4beb8052081a6f9
       options: -v /mnt/storage:/__w/tyger -v /mnt/storage:/workspaces
     defaults:
       run:

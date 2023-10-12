@@ -5,8 +5,8 @@ SHELL = /bin/bash
 .DEFAULT_GOAL := full
 
 # trick to lazily evaluate this at most once: https://make.mad-scientist.net/deferred-simple-variable-expansion/
-ENVIRONMENT_CONFIG_JSON = $(eval ENVIRONMENT_CONFIG_JSON := $$(shell scripts/get-context-environment-config.sh -o json | jq -c))$(if $(ENVIRONMENT_CONFIG_JSON),$(ENVIRONMENT_CONFIG_JSON),$(error "get-context-environment-config.sh failed"))
-DEVELOPER_CONFIG_JSON = $(eval DEVELOPER_CONFIG_JSON := $$(shell scripts/get-context-environment-config.sh -e developerConfig -o json | jq -c))$(if $(DEVELOPER_CONFIG_JSON),$(DEVELOPER_CONFIG_JSON),$(error "get-context-environment-config.sh failed"))
+ENVIRONMENT_CONFIG_JSON = $(shell scripts/get-config.sh -o json | jq -c)
+DEVELOPER_CONFIG_JSON = $(shell scripts/get-config.sh --dev -o json | jq -c)
 
 SERVER_PATH=server/Tyger.Server
 SECURITY_ENABLED=true
@@ -19,15 +19,15 @@ get-environment-config:
 	echo '${ENVIRONMENT_CONFIG_JSON}' | yq -P
 
 ensure-environment: install-cli
-	tyger cloud install -f <(scripts/get-context-environment-config.sh)
+	tyger cloud install -f <(scripts/get-config.sh)
 
 ensure-environment-conditionally: install-cli
 	if [[ "${INSTALL_CLOUD}" == "true" ]]; then
-		tyger cloud install -f <(scripts/get-context-environment-config.sh)
+		tyger cloud install -f <(scripts/get-config.sh)
 	fi
 
 remove-environment: install-cli
-	tyger cloud uninstall -f <(scripts/get-context-environment-config.sh)
+	tyger cloud uninstall -f <(scripts/get-config.sh)
 
 # Sets up the az subscription and kubectl config for the current environment
 set-context:
@@ -57,7 +57,7 @@ set-localsettings:
 
 	postgres_password="$$(kubectl get secrets -n ${HELM_NAMESPACE} ${HELM_RELEASE}-db -o jsonpath="{.data.postgresql-password}" | base64 -d)"
 
-	registry=$$(scripts/get-context-environment-config.sh -e developerConfig.wipContainerRegistry.fqdn)
+	registry=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
 	buffer_sidecar_image="$$(docker inspect $${registry}/buffer-sidecar:dev | jq -r --arg repo $${registry}/buffer-sidecar '.[0].RepoDigests[] | select (startswith($$repo))')"
 	worker_waiter_image="$$(docker inspect $${registry}/worker-waiter:dev | jq -r --arg repo $${registry}/worker-waiter '.[0].RepoDigests[] | select (startswith($$repo))')"
 
@@ -115,20 +115,20 @@ unit-test:
 	go test ./... | { grep -v "\\[[no test files\\]" || true; }
 
 docker-build:
-	registry=$$(scripts/get-context-environment-config.sh -e developerConfig.wipContainerRegistry.fqdn)
+	registry=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
 	scripts/build-images.sh --push --push-force --tag dev --quiet --registry "$${registry}"
 
 docker-build-test:
-	registry=$$(scripts/get-context-environment-config.sh -e developerConfig.wipContainerRegistry.fqdn)
+	registry=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
 	scripts/build-images.sh --test --push --push-force --tag test --quiet --registry "$${registry}"
 
 publish-official-images:
-	registry=$$(scripts/get-context-environment-config.sh -e developerConfig.officialContainerRegistry.fqdn)
+	registry=$$(scripts/get-config.sh --dev -e .officialContainerRegistry.fqdn)
 	tag=$$(git describe --tags)
 	scripts/build-images.sh --push --push-force --helm --tag "$${tag}" --quiet --registry "$${registry}"
 
 up: ensure-environment-conditionally docker-build
-	repo_fqdn=$$(scripts/get-context-environment-config.sh -e developerConfig.wipContainerRegistry.fqdn)
+	repo_fqdn=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
 
 	tyger_server_image="$$(docker inspect "$${repo_fqdn}/tyger-server:dev" | jq -r --arg repo "$${repo_fqdn}/tyger-server" '.[0].RepoDigests[] | select (startswith($$repo))')"
 	buffer_sidecar_image="$$(docker inspect "$${repo_fqdn}/buffer-sidecar:dev" | jq -r --arg repo "$${repo_fqdn}/buffer-sidecar" '.[0].RepoDigests[] | select (startswith($$repo))')"
@@ -136,7 +136,7 @@ up: ensure-environment-conditionally docker-build
 
 	chart_dir=$$(readlink -f deploy/helm/tyger)
 	
-	tyger api install -f <(scripts/get-context-environment-config.sh) \
+	tyger api install -f <(scripts/get-config.sh) \
 		--set api.helm.tyger.chartRef="$${chart_dir}" \
 		--set api.helm.tyger.values.server.image="$${tyger_server_image}" \
 		--set api.helm.tyger.values.server.bufferSidecarImage="$${buffer_sidecar_image}" \
@@ -145,7 +145,7 @@ up: ensure-environment-conditionally docker-build
 	$(MAKE) cli-ready
 
 down: install-cli
-	tyger api uninstall -f <(scripts/get-context-environment-config.sh)
+	tyger api uninstall -f <(scripts/get-config.sh)
 
 integration-test-no-up-prereqs: docker-build-test
 
@@ -244,7 +244,7 @@ login: install-cli download-test-client-cert
 	tyger login "${TYGER_URI}"	
 
 install-cli:
-	official_container_registry=$$(scripts/get-context-environment-config.sh -e developerConfig.officialContainerRegistry.fqdn)
+	official_container_registry=$$(scripts/get-config.sh --dev -e .officialContainerRegistry.fqdn)
 	cd cli
 	tag=$$(git describe --tags 2> /dev/null || echo "0.0.0")
 	CGO_ENABLED=0 go install -ldflags="-s -w \
