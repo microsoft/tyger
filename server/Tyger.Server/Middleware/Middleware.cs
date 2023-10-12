@@ -78,6 +78,10 @@ public class ExceptionHandler
         catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
         {
         }
+        catch (AggregateException e) when (context.RequestAborted.IsCancellationRequested
+                                            && e.InnerExceptions.Any(ie => ie is OperationCanceledException))
+        {
+        }
         catch (HttpOperationException e)
         {
             if (!context.Response.HasStarted)
@@ -116,13 +120,14 @@ public class RequestLogging
 
     public async Task Invoke(HttpContext context)
     {
-        var start = Stopwatch.GetTimestamp();
         if (!_logger.IsEnabled(LogLevel.Information))
         {
             // Logger isn't enabled.
             await _next(context);
+            return;
         }
 
+        var start = Stopwatch.GetTimestamp();
         try
         {
             await _next(context);
