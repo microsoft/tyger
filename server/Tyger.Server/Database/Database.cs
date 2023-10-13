@@ -6,6 +6,8 @@ using Npgsql;
 using Npgsql.Internal;
 using Npgsql.Internal.TypeHandlers;
 using Npgsql.Internal.TypeHandling;
+using Polly;
+using Polly.Retry;
 
 namespace Tyger.Server.Database;
 
@@ -14,7 +16,28 @@ public static class Database
     public static void AddDatabase(this IServiceCollection services)
     {
         services.AddOptions<DatabaseOptions>().BindConfiguration("database").ValidateDataAnnotations().ValidateOnStart();
-        services.AddScoped<IRepository, Repository>();
+        services.AddSingleton(sp =>
+        {
+            var logger = sp.GetService<ILogger<RepositoryWithRetry>>();
+            return new ResiliencePipelineBuilder().AddRetry(new RetryStrategyOptions
+            {
+                ShouldHandle = new PredicateBuilder().Handle<NpgsqlException>(e => e.IsTransient),
+                BackoffType = DelayBackoffType.Exponential,
+                UseJitter = true,
+                MaxRetryAttempts = 4,
+                Delay = TimeSpan.FromMilliseconds(250),
+                OnRetry = args =>
+                {
+                    var exception = args.Outcome.Exception as NpgsqlException;
+                    logger?.RetryingDatabaseOperation(
+                        exception?.SqlState,
+                        (exception as PostgresException)?.MessageText ?? exception?.Message);
+                    return default;
+                }
+            }).Build();
+        });
+
+        services.AddScoped<IRepository, RepositoryWithRetry>();
         services.AddDbContext<TygerDbContext>((sp, options) =>
             {
                 var databaseOptions = sp.GetRequiredService<IOptions<DatabaseOptions>>().Value;
