@@ -109,7 +109,8 @@ public sealed class RunSweeper : IHostedService, IDisposable
 
             foreach (var job in jobs.Items)
             {
-                if (RunReader.IsJobCanceling(job) || RunReader.HasJobSucceeded(job) || RunReader.HasJobFailed(job, out _))
+                bool isCanceling = RunReader.IsJobCanceling(job);
+                if (isCanceling || RunReader.HasJobSucceeded(job) || RunReader.HasJobFailed(job, out _))
                 {
                     var runId = long.Parse(job.GetLabel(JobLabel), CultureInfo.InvariantCulture);
 
@@ -122,7 +123,7 @@ public sealed class RunSweeper : IHostedService, IDisposable
 
                         case (var run, _, null):
                             await ArchiveLogs(run, cancellationToken);
-                            if (RunReader.IsJobCanceling(job))
+                            if (isCanceling)
                             {
                                 // now that we have collected the logs, terminate the pods.
                                 string labelSelector = $"{RunLabel}={runId}";
@@ -131,13 +132,24 @@ public sealed class RunSweeper : IHostedService, IDisposable
 
                             break;
 
-                        case (var run, _, var time) when DateTimeOffset.UtcNow - time > s_minDurationAfterArchivingBeforeDeletingPod || RunReader.IsJobCanceling(job):
-                            _logger.FinalizingTerminatedRun(run.Id!.Value, run.Status!.Value);
+                        case (var run, _, var time) when DateTimeOffset.UtcNow - time > s_minDurationAfterArchivingBeforeDeletingPod || isCanceling:
                             var pods = await _client.EnumeratePodsInNamespace(_k8sOptions.Namespace, labelSelector: $"{RunLabel}={runId}", cancellationToken: cancellationToken)
                                 .ToListAsync(cancellationToken);
 
                             run = RunReader.UpdateRunFromJobAndPods(run, job, pods);
+                            if (isCanceling && run.Status != RunStatus.Canceled)
+                            {
+                                // the pods did not termintate in time. Override the status.
+                                run = run with
+                                {
+                                    Status = RunStatus.Canceled,
+                                    StatusReason = "Canceled by user",
+                                    RunningCount = 0,
+                                    FinishedAt = run.FinishedAt ?? DateTimeOffset.UtcNow
+                                };
+                            }
 
+                            _logger.FinalizingTerminatedRun(run.Id!.Value, run.Status!.Value);
                             await _repository.UpdateRun(run, final: true, cancellationToken: cancellationToken);
                             await DeleteRunResources(run.Id!.Value, cancellationToken);
                             break;
