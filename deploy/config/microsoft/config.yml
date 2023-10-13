@@ -20,7 +20,7 @@ cloud:
             maxCount: 10
 
     managementPrincipals:
-      - id: 5b60f594-a0eb-410c-a3fc-dd3c6f4e28d1
+      - id: 2e3f2a18-8bbf-44c7-8164-8019843c68fc
         kind: ServicePrincipal
       - id: c0e60aba-35f0-4778-bc9b-fc5d2af14687
         kind: Group
