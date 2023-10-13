@@ -25,6 +25,8 @@ jobs:
     defaults:
       run:
         shell: bash
+    env:
+      TYGER_MIN_NODE_COUNT: "5"
     outputs:
       TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
       TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
@@ -63,8 +65,6 @@ jobs:
 
           echo "TYGER_ENVIRONMENT_NAME=$environment_name" >> "$GITHUB_OUTPUT"
           echo "TYGER_ENVIRONMENT_NAME=$environment_name" >> "$GITHUB_ENV"
-
-          echo "TYGER_MIN_NODE_COUNT=5" >> "GITHUB_ENV"
 
           developer_config=$(scripts/get-config.sh --dev -o json | jq -c)
           echo "DEVELOPER_CONFIG=$developer_config" >> "$GITHUB_OUTPUT"
