@@ -68,7 +68,7 @@ jobs:
           # it as an output variable. So we base64 encode it as a workaround.
           # There is no secret in this value.
 
-          developer_config_base64=$(scripts/get-config.sh --dev -o json | jq -c | base64)
+          developer_config_base64=$(scripts/get-config.sh --dev -o json | jq -c | base64 -w 0)
           echo "DEVELOPER_CONFIG_BASE64=$developer_config_base64" >> "$GITHUB_OUTPUT"
           echo "DEVELOPER_CONFIG_BASE64=$developer_config_base64" >> "$GITHUB_ENV"
 
