@@ -30,7 +30,7 @@ jobs:
     outputs:
       TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
       TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
-      DEVELOPER_CONFIG: ${{ steps.set-variables.outputs.DEVELOPER_CONFIG }}
+      DEVELOPER_CONFIG_BASE64: ${{ steps.set-variables.outputs.DEVELOPER_CONFIG_BASE64 }}
     steps:
       - name: Login into Azure
         uses: azure/login@v1
@@ -64,9 +64,13 @@ jobs:
           echo "TYGER_ENVIRONMENT_NAME=$environment_name" >> "$GITHUB_OUTPUT"
           echo "TYGER_ENVIRONMENT_NAME=$environment_name" >> "$GITHUB_ENV"
 
-          developer_config=$(scripts/get-config.sh --dev -o json | jq -c)
-          echo "DEVELOPER_CONFIG=$developer_config" >> "$GITHUB_OUTPUT"
-          echo "DEVELOPER_CONFIG=$developer_config" >> "$GITHUB_ENV"
+          # GitHub Actions thinks this holds a secret, which prevents us from using
+          # it as an output variable. So we base64 encode it as a workaround.
+          # There is no secret in this value.
+
+          developer_config_base64=$(scripts/get-config.sh --dev -o json | jq -c | base64)
+          echo "DEVELOPER_CONFIG_BASE64=$developer_config_base64" >> "$GITHUB_OUTPUT"
+          echo "DEVELOPER_CONFIG_BASE64=$developer_config_base64" >> "$GITHUB_ENV"
 
       - name: Verify devcontainer
         shell: bash
@@ -175,7 +179,7 @@ jobs:
 
       - name: Run smoke tests
         env:
-          DEVELOPER_CONFIG: ${{ needs.tyger-build-deploy.outputs.DEVELOPER_CONFIG }}
+          DEVELOPER_CONFIG_BASE64: ${{ needs.tyger-build-deploy.outputs.DEVELOPER_CONFIG_BASE64 }}
           TYGER_URI: ${{ needs.tyger-build-deploy.outputs.TYGER_URI }}
         shell: pwsh
         run: |
@@ -184,7 +188,7 @@ jobs:
 
           $env:PATH = "$env:GITHUB_WORKSPACE\windows-cli-tools;" + $env:PATH
 
-          $developerConfig = $env:DEVELOPER_CONFIG | ConvertFrom-Json
+          $developerConfig = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($env:DEVELOPER_CONFIG_BASE64)) | ConvertFrom-Json
 
           $servicePrincipal = $developerConfig.testAppUri
           $keyVaultName = $developerConfig.keyVault
@@ -243,7 +247,7 @@ jobs:
       - tyger-build-deploy
       - windows-smoke-tests
     env:
-      DEVELOPER_CONFIG: ${{ needs.tyger-build-deploy.outputs.DEVELOPER_CONFIG }}
+      DEVELOPER_CONFIG_BASE64: ${{ needs.tyger-build-deploy.outputs.DEVELOPER_CONFIG_BASE64 }}
     permissions:
       contents: write
     runs-on: ubuntu-latest
@@ -258,7 +262,7 @@ jobs:
       - name: get container registry
         run: |
           set -euo pipefail
-          official_container_registry=$(echo "$DEVELOPER_CONFIG" | jr -r '.officialContainerRegistry.fqdn')
+          official_container_registry=$(echo "$DEVELOPER_CONFIG_BASE64" | jr -r '.officialContainerRegistry.fqdn')
           echo "OFFICIAL_CONTAINER_REGISTRY=$(echo $official_container_registry)" >> $GITHUB_ENV
 
       - name: Run GoReleaser
