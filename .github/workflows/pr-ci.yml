@@ -262,7 +262,7 @@ jobs:
       - name: get container registry
         run: |
           set -euo pipefail
-          official_container_registry=$(echo "$DEVELOPER_CONFIG_BASE64" | jr -r '.officialContainerRegistry.fqdn')
+          official_container_registry=$(echo "$DEVELOPER_CONFIG_BASE64" | base64 -d | jq -r '.officialContainerRegistry.fqdn')
           echo "OFFICIAL_CONTAINER_REGISTRY=$(echo $official_container_registry)" >> $GITHUB_ENV
 
       - name: Run GoReleaser
