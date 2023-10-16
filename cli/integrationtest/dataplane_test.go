@@ -26,10 +26,15 @@ import (
 	"github.com/microsoft/tyger/cli/internal/cmd"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/dataplane"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func init() {
+	log.Logger = log.Logger.Level(zerolog.Disabled)
+}
 
 func TestReadingWhileWriting(t *testing.T) {
 	t.Parallel()
