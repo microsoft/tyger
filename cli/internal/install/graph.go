@@ -34,7 +34,7 @@ func GetGraphToken(ctx context.Context, cred azcore.TokenCredential) (azcore.Acc
 		Scopes: []string{"https://graph.microsoft.com"},
 	})
 	if err != nil {
-		return azcore.AccessToken{}, fmt.Errorf("failed to get token: %w", err)
+		return azcore.AccessToken{}, fmt.Errorf("failed to get a Graph access token: %w", err)
 	}
 
 	return tokenResponse, nil
@@ -194,7 +194,7 @@ func executeGraphCall(ctx context.Context, cred azcore.TokenCredential, method, 
 
 	tokenResponse, err := GetGraphToken(ctx, cred)
 	if err != nil {
-		return nil
+		return err
 	}
 
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", tokenResponse.Token))
