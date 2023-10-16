@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Data;
 using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
@@ -314,7 +315,7 @@ public class Repository : IRepository
     private async ValueTask<NpgsqlConnection> GetOpenedConnection(CancellationToken cancellationToken)
     {
         var connection = (NpgsqlConnection)_context.Database.GetDbConnection();
-        if (connection.State != System.Data.ConnectionState.Open)
+        if (connection.State != ConnectionState.Open)
         {
             await connection.OpenAsync(cancellationToken);
         }
@@ -543,7 +544,7 @@ public class Repository : IRepository
     public async Task<Buffer?> UpdateBufferById(string id, string eTag, IDictionary<string, string>? tags, CancellationToken cancellationToken)
     {
         var connection = await GetOpenedConnection(cancellationToken);
-        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tx = await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
         string newETag = DateTime.UtcNow.Ticks.ToString();
 
         // Update and validate the buffer
@@ -639,13 +640,16 @@ public class Repository : IRepository
             }
         };
 
-        await insertTagCommand.ExecuteNonQueryAsync(cancellationToken);
+        if (await insertTagCommand.ExecuteNonQueryAsync(cancellationToken) != 1)
+        {
+            throw new InvalidOperationException("Failed to insert tag: incorrect number of rows inserted");
+        }
     }
 
     public async Task<Buffer> CreateBuffer(Buffer newBuffer, CancellationToken cancellationToken)
     {
         var connection = await GetOpenedConnection(cancellationToken);
-        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tx = await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
         string eTag = DateTime.UtcNow.Ticks.ToString();
 
         // Create the buffer DB entry
