@@ -286,3 +286,19 @@ func TestRunningFromPowershellRaisesWarning(t *testing.T) {
 	assert.Nil(t, cmd.Run())
 	assert.NotContains(t, stdErrBuffer.String(), corruptionWarning)
 }
+
+func TestBufferDoubleWriteFailure(t *testing.T) {
+	t.Parallel()
+
+	inputBufferId := runTygerSucceeds(t, "buffer", "create")
+	inputSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
+
+	runCommandSuceeds(t, "sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, inputSasUri))
+
+	_, _, err := runCommand("sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, inputSasUri))
+	require.Error(t, err, "Second call to buffer write succeeded")
+
+	var exitError *exec.ExitError
+	require.ErrorAs(t, err, &exitError)
+	require.NotEqual(t, 0, exitError.ExitCode(), "Second call to buffer write had unexpected exit code")
+}

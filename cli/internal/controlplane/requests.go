@@ -59,7 +59,7 @@ func InvokeRequestWithHeaders(ctx context.Context, method string, relativeUri st
 
 	req.Header.Set("Content-Type", "application/json")
 
-	if zerolog.GlobalLevel() <= zerolog.TraceLevel {
+	if log.Logger.GetLevel() <= zerolog.TraceLevel {
 		if token != "" {
 			req.Header.Add("Authorization", "Bearer --REDACTED--")
 		}
@@ -78,7 +78,7 @@ func InvokeRequestWithHeaders(ctx context.Context, method string, relativeUri st
 		return resp, fmt.Errorf("unable to connect to server: %v", err)
 	}
 
-	if zerolog.GlobalLevel() <= zerolog.TraceLevel {
+	if log.Logger.GetLevel() <= zerolog.TraceLevel {
 		if debugOutput, err := httputil.DumpResponse(resp, true); err == nil {
 			log.Trace().Str("response", string(debugOutput)).Msg("response received")
 		}

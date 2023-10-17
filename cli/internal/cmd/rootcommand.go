@@ -40,8 +40,8 @@ func NewCommonRootCommand(commit string) *cobra.Command {
 				}
 			}
 
-			zerolog.SetGlobalLevel(logLevel)
 			zerolog.TimeFieldFormat = time.RFC3339Nano
+			log.Logger = log.Logger.Level(logLevel)
 			var logSink io.Writer
 			switch logFormat {
 			case Pretty, Plain:

@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -28,7 +27,6 @@ import (
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -42,6 +40,10 @@ func init() {
 	log.Logger = log.Logger.Level(zerolog.ErrorLevel)
 }
 
+const (
+	BasicImage = "mcr.microsoft.com/cbl-mariner/base/core:2.0"
+)
+
 func TestEndToEnd(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
@@ -53,7 +55,7 @@ func TestEndToEnd(t *testing.T) {
 		"codespec",
 		"create", codespecName,
 		"-i=input", "-o=output",
-		"--image", "curlimages/curl",
+		"--image", BasicImage,
 		"--command",
 		"--",
 		"sh", "-c",
@@ -97,7 +99,7 @@ func TestEndToEndWithAutomaticallyCreatedBuffers(t *testing.T) {
 		"codespec",
 		"create", codespecName,
 		"-i=input", "-o=output",
-		"--image", "curlimages/curl",
+		"--image", BasicImage,
 		"--command",
 		"--",
 		"sh", "-c",
@@ -132,10 +134,10 @@ func TestEndToEndWithYamlSpecAndAutomaticallyCreatedBuffers(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
 
-	runSpec := `
+	runSpec := fmt.Sprintf(`
 job:
   codespec:
-    image: curlimages/curl
+    image: %s
     buffers:
       inputs: ["input"]
       outputs: ["output"]
@@ -148,7 +150,7 @@ job:
         echo "${inp}: Bonjour" > "$OUTPUT_PIPE"
   tags:
     testName: TestEndToEndWithYamlSpecAndAutomaticallyCreatedBuffers
-timeoutSeconds: 600`
+timeoutSeconds: 600`, BasicImage)
 
 	tempDir := t.TempDir()
 	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
@@ -180,10 +182,10 @@ func TestEndToEndExecWithYamlSpec(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
 
-	runSpec := `
+	runSpec := fmt.Sprintf(`
 job:
   codespec:
-    image: curlimages/curl
+    image: %s
     buffers:
       inputs: ["input"]
       outputs: ["output"]
@@ -196,7 +198,7 @@ job:
         echo -n "${inp}: Bonjour" > "$OUTPUT_PIPE"
   tags:
     testName: TestEndToEndExecWithYamlSpec
-timeoutSeconds: 600`
+timeoutSeconds: 600`, BasicImage)
 
 	tempDir := t.TempDir()
 	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
@@ -213,10 +215,10 @@ func TestCodespecBufferTagsWithYamlSpec(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
 
-	runSpec := `
+	runSpec := fmt.Sprintf(`
 job:
   codespec:
-    image: curlimages/curl
+    image: %s
     buffers:
       inputs: ["input"]
       outputs: ["output"]
@@ -227,7 +229,7 @@ job:
         set -euo pipefail
         inp=$(cat "$INPUT_PIPE")
         echo -n "${inp}: Bonjour" > "$OUTPUT_PIPE"
-timeoutSeconds: 600`
+timeoutSeconds: 600`, BasicImage)
 
 	tempDir := t.TempDir()
 	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
@@ -258,7 +260,7 @@ func TestEndToEndExecWithYamlWithExistingCodespec(t *testing.T) {
 		"codespec",
 		"create", codespecName,
 		"-i=input", "-o=output",
-		"--image", "curlimages/curl",
+		"--image", BasicImage,
 		"--command",
 		"--",
 		"sh", "-c",
@@ -288,10 +290,10 @@ func TestEndToEndWhenPipesAreNotTouched(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
 
-	runSpec := `
+	runSpec := fmt.Sprintf(`
 job:
   codespec:
-    image: curlimages/curl
+    image: %s
     buffers:
       inputs: ["input"]
       outputs: ["output"]
@@ -301,7 +303,7 @@ job:
       - |
         set -euo pipefail
         echo "hello world"
-timeoutSeconds: 600`
+timeoutSeconds: 600`, BasicImage)
 
 	tempDir := t.TempDir()
 	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
@@ -326,27 +328,27 @@ func TestInvalidCodespecNames(t *testing.T) {
 	}
 	for _, tC := range testCases {
 		t.Run(tC.name, func(t *testing.T) {
-			_, stdErr, err := runTyger("codespec", "create", tC.name, "--image", "busybox")
+			_, stdErr, err := runTyger("codespec", "create", tC.name, "--image", BasicImage)
 			if tC.valid {
-				assert.Nil(t, err)
+				require.Nil(t, err)
 			} else {
-				assert.NotNil(t, err)
-				assert.Contains(t, stdErr, "codespec name")
+				require.NotNil(t, err)
+				require.Contains(t, stdErr, "codespec name")
 			}
 
-			newCodespec := model.Codespec{Kind: "worker", Image: "busybox"}
+			newCodespec := model.Codespec{Kind: "worker", Image: BasicImage}
 			_, err = controlplane.InvokeRequest(context.Background(), http.MethodPut, fmt.Sprintf("v1/codespecs/%s", tC.name), newCodespec, nil)
 			if tC.valid {
-				assert.Nil(t, err)
+				require.Nil(t, err)
 			} else {
-				assert.NotNil(t, err)
+				require.NotNil(t, err)
 			}
 		})
 	}
 }
 
 func TestCodespecNameRequirements(t *testing.T) {
-	runTyger("codespec", "create", "Foo", "--image", "busybox")
+	runTyger("codespec", "create", "Foo", "--image", BasicImage)
 }
 
 // Verify that a run using a codespec that requires a GPU
@@ -370,8 +372,8 @@ func TestGpuResourceRequirement(t *testing.T) {
 	run := waitForRunSuccess(t, runId)
 
 	require.NoError(t, json.Unmarshal([]byte(runTygerSucceeds(t, "run", "show", runId)), &run))
-	assert.NotEmpty(t, run.Cluster)
-	assert.Equal(t, "gpunp", run.Job.NodePool)
+	require.NotEmpty(t, run.Cluster)
+	require.Equal(t, "gpunp", run.Job.NodePool)
 }
 
 // Verify that a run using a codespec that does not require a GPU
@@ -437,7 +439,7 @@ func TestTargetingInvalidClusterReturnsError(t *testing.T) {
 	runTygerSucceeds(t,
 		"codespec",
 		"create", codespecName,
-		"--image", "ubuntu")
+		"--image", BasicImage)
 
 	_, stderr, _ := runTyger("run", "create", "--codespec", codespecName, "--cluster", "invalid")
 	require.Contains(t, stderr, "Unknown cluster")
@@ -450,7 +452,7 @@ func TestTargetingInvalidNodePoolReturnsError(t *testing.T) {
 	runTygerSucceeds(t,
 		"codespec",
 		"create", codespecName,
-		"--image", "ubuntu")
+		"--image", BasicImage)
 
 	_, stderr, _ := runTyger("run", "create", "--codespec", codespecName, "--node-pool", "invalid")
 	require.Contains(t, stderr, "Unknown nodepool")
@@ -463,7 +465,7 @@ func TestTargetCpuNodePoolWithGpuResourcesReturnsError(t *testing.T) {
 	runTygerSucceeds(t,
 		"codespec",
 		"create", codespecName,
-		"--image", "ubuntu",
+		"--image", BasicImage,
 		"--gpu", "1")
 
 	_, stderr, _ := runTyger("run", "create", "--codespec", codespecName, "--node-pool", "cpunp", "--timeout", "10m")
@@ -566,7 +568,7 @@ func TestListRunsPaging(t *testing.T) {
 	runTygerSucceeds(t,
 		"codespec",
 		"create", "exitimmediately",
-		"--image", "busybox",
+		"--image", BasicImage,
 		"--command",
 		"--",
 		"echo", "hi")
@@ -603,7 +605,7 @@ func TestListCodespecsFromCli(t *testing.T) {
 	codespecNames := [4]string{prefix + "kspace_half_sampled", prefix + "4dcardiac", prefix + "zloc_10mm", prefix + "axial_1mm"}
 	codespecMap := make(map[string]string)
 	for _, name := range codespecNames {
-		codespecMap[name] = runTygerSucceeds(t, "codespec", "create", name, "--image", "busybox")
+		codespecMap[name] = runTygerSucceeds(t, "codespec", "create", name, "--image", BasicImage)
 	}
 	var results = runTygerSucceeds(t, "codespec", "list", "--prefix", prefix)
 	var returnedCodespecs []model.Codespec
@@ -622,28 +624,28 @@ func TestListCodespecsFromCli(t *testing.T) {
 
 func TestRecreateCodespec(t *testing.T) {
 	t.Parallel()
-	codespecName := strings.ToLower(t.Name())
+	codespecName := strings.ToLower(t.Name() + uuid.NewString())
 	version1 := runTygerSucceeds(t, "codespec", "create", codespecName, "--image", "busybee", "--command", "--", "echo", "hi I am first")
-	version2 := runTygerSucceeds(t, "codespec", "create", codespecName, "--image", "busybox", "--gpu", "2", "--memory-request", "2048048", "--env", "os=ubuntu", "--command", "--", "echo", "hi I am latest")
+	version2 := runTygerSucceeds(t, "codespec", "create", codespecName, "--image", BasicImage, "--gpu", "2", "--memory-request", "2048048", "--env", "os=ubuntu", "--command", "--", "echo", "hi I am latest")
 	require.NotEqual(t, version1, version2)
 
-	version3 := runTygerSucceeds(t, "codespec", "create", codespecName, "--image", "busybox", "--gpu", "2", "--memory-request", "2048048", "--env", "os=ubuntu", "--command", "--", "echo", "hi I am latest")
+	version3 := runTygerSucceeds(t, "codespec", "create", codespecName, "--image", BasicImage, "--gpu", "2", "--memory-request", "2048048", "--env", "os=ubuntu", "--command", "--", "echo", "hi I am latest")
 	require.Equal(t, version2, version3)
 
-	version4 := runTygerSucceeds(t, "codespec", "create", codespecName, "--image", "busybox", "--memory-request", "2048048", "--gpu", "2", "--env", "os=ubuntu", "--command", "--", "echo", "hi I am latest")
+	version4 := runTygerSucceeds(t, "codespec", "create", codespecName, "--image", BasicImage, "--memory-request", "2048048", "--gpu", "2", "--env", "os=ubuntu", "--command", "--", "echo", "hi I am latest")
 	require.Equal(t, version3, version4)
 
-	version5 := runTygerSucceeds(t, "codespec", "create", codespecName, "--image", "busybox", "--memory-request", "2048048", "--gpu", "2", "--env", "os=ubuntu", "--env", "platform=highT", "--command", "--", "echo", "hi I am latest")
-	version6 := runTygerSucceeds(t, "codespec", "create", codespecName, "--image", "busybox", "--gpu", "2", "--memory-request", "2048048", "--env", "platform=highT", "--env", "os=ubuntu", "--command", "--", "echo", "hi I am latest")
+	version5 := runTygerSucceeds(t, "codespec", "create", codespecName, "--image", BasicImage, "--memory-request", "2048048", "--gpu", "2", "--env", "os=ubuntu", "--env", "platform=highT", "--command", "--", "echo", "hi I am latest")
+	version6 := runTygerSucceeds(t, "codespec", "create", codespecName, "--image", BasicImage, "--gpu", "2", "--memory-request", "2048048", "--env", "platform=highT", "--env", "os=ubuntu", "--command", "--", "echo", "hi I am latest")
 	require.Equal(t, version5, version6)
 
-	version7 := runTygerSucceeds(t, "codespec", "create", codespecName, "--image", "busybox", "--memory-request", "2048048", "--gpu", "2", "--env", "platform=highT", "--env", "os=windows", "--command", "--", "echo", "hi I am latest")
+	version7 := runTygerSucceeds(t, "codespec", "create", codespecName, "--image", BasicImage, "--memory-request", "2048048", "--gpu", "2", "--env", "platform=highT", "--env", "os=windows", "--command", "--", "echo", "hi I am latest")
 	require.NotEqual(t, version6, version7)
 }
 
 func TestListCodespecsPaging(t *testing.T) {
 	t.Parallel()
-	prefix := strings.ToLower(t.Name()) + "_"
+	prefix := strings.ToLower(t.Name()+uuid.NewString()) + "_"
 	inputNames := [12]string{"klamath", "allagash", "middlefork", "johnday", "missouri", "riogrande", "chattooga", "loxahatchee", "noatak", "tuolumne", "riogrande", "allagash"}
 	expectedNames1 := [5]string{"allagash", "chattooga", "johnday", "klamath", "loxahatchee"}
 	expectedNames2 := [5]string{"middlefork", "missouri", "noatak", "riogrande", "tuolumne"}
@@ -662,7 +664,7 @@ func TestListCodespecsPaging(t *testing.T) {
 
 	codespecs := make(map[string]string)
 	for _, name := range inputNames {
-		codespecs[name] = runTygerSucceeds(t, "codespec", "create", name, "--image", "busybox")
+		codespecs[name] = runTygerSucceeds(t, "codespec", "create", name, "--image", BasicImage)
 	}
 	require.Equal(t, len(codespecs), 10)
 
@@ -685,7 +687,7 @@ func TestListCodespecsPaging(t *testing.T) {
 			}
 			//simulate concurrent codespec update while paging
 			if expectedIdx == 6 && expectedKlamathVersion == 0 {
-				var tmp = runTygerSucceeds(t, "codespec", "create", prefix+"klamath", "--image", "busybox", "--", "something different")
+				var tmp = runTygerSucceeds(t, "codespec", "create", prefix+"klamath", "--image", BasicImage, "--", "something different")
 				expectedKlamathVersion, err = strconv.Atoi(tmp)
 				require.Nil(t, err)
 				require.Equal(t, expectedKlamathVersion, currentKlamathVersion+1)
@@ -714,7 +716,7 @@ func TestListRunsSince(t *testing.T) {
 	runTygerSucceeds(t,
 		"codespec",
 		"create", codespecName,
-		"--image", "busybox",
+		"--image", BasicImage,
 		"--command",
 		"--",
 		"echo", "hi")
@@ -751,7 +753,7 @@ func TestListCodespecsWithPrefix(t *testing.T) {
 	codespecNames := [4]string{"3d_t2_flair", "t1w-1mm-ax", "t1w-0.9mm-sag", "3d_t1_star"}
 	codespecMap := make(map[string]string)
 	for i := 0; i < 4; i++ {
-		codespecMap[codespecNames[i]] = runTygerSucceeds(t, "codespec", "create", codespecNames[i], "--image", "busybox")
+		codespecMap[codespecNames[i]] = runTygerSucceeds(t, "codespec", "create", codespecNames[i], "--image", BasicImage)
 	}
 
 	uri := "v1/codespecs?prefix=3d_"
@@ -760,9 +762,7 @@ func TestListCodespecsWithPrefix(t *testing.T) {
 	require.Nil(t, err)
 	for _, cs := range page.Items {
 		require.Equal(t, strings.HasPrefix(cs.Name, "3d_"), true)
-		if _, ok := codespecMap[cs.Name]; ok {
-			delete(codespecMap, cs.Name)
-		}
+		delete(codespecMap, cs.Name)
 	}
 	require.Equal(t, len(codespecMap), 2)
 
@@ -779,7 +779,7 @@ func TestGetLogsFromPod(t *testing.T) {
 	runTygerSucceeds(t,
 		"codespec",
 		"create", codespecName,
-		"--image", "busybox",
+		"--image", BasicImage,
 		"--command",
 		"--",
 		"sh", "-c", "for i in `seq 1 5`; do echo $i; done; sleep 30")
@@ -829,7 +829,7 @@ func TestGetArchivedLogs(t *testing.T) {
 	runTygerSucceeds(t,
 		"codespec",
 		"create", codespecName,
-		"--image", "busybox",
+		"--image", BasicImage,
 		"--command",
 		"--",
 		"sh", "-c", "echo 1; sleep 1; echo 2; sleep 1; echo 3; sleep 1; echo 4;")
@@ -884,7 +884,7 @@ func TestGetArchivedLogsWithLongLines(t *testing.T) {
 	runTygerSucceeds(t,
 		"codespec",
 		"create", codespecName,
-		"--image", "busybox",
+		"--image", BasicImage,
 		"--command",
 		"--",
 		"sh", "-c", `head -c 2000000 < /dev/zero | tr '\0' 'a'; echo ""; sleep 1; head -c 2000000 < /dev/zero | tr '\0' 'b';`)
@@ -911,7 +911,7 @@ func TestConnectivityBetweenJobAndWorkers(t *testing.T) {
 	jobCodespecName := strings.ToLower(t.Name()) + "-job"
 	workerCodespecName := strings.ToLower(t.Name()) + "-worker"
 
-	digest := runCommandSuceeds(t, "docker", "inspect", "testconnectivity", "--format", "{{ index .RepoDigests 0 }}")
+	digest := getTestConnectivityDigest(t)
 
 	runTygerSucceeds(t,
 		"codespec",
@@ -967,15 +967,18 @@ func TestCancelJob(t *testing.T) {
 	runTygerSucceeds(t,
 		"codespec",
 		"create", codespecName,
-		"--image", "busybox",
-		"--command",
+		"--image", getTestConnectivityDigest(t),
 		"--",
-		"sh", "-c", "sleep 10000")
+		"--worker")
 
 	runId := runTygerSucceeds(t, "run", "create", "--codespec", codespecName, "--timeout", "10m")
 	t.Logf("Run ID: %s", runId)
 
 	runTygerSucceeds(t, "run", "cancel", runId)
+
+	// force the sweep to run to terminate the pod
+	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPost, "v1/runs/_sweep", nil, nil)
+	require.NoError(err)
 
 	waitForRunCanceled(t, runId)
 
@@ -1184,31 +1187,6 @@ func TestBufferListWithoutTags(t *testing.T) {
 	require.Contains(buffers, buffer)
 }
 
-func TestBufferDoubleWriteFailure(t *testing.T) {
-	t.Parallel()
-
-	inputBufferId := runTygerSucceeds(t, "buffer", "create")
-	inputSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
-
-	runCommandSuceeds(t, "sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, inputSasUri))
-
-	_, _, err := runCommand("sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, inputSasUri))
-	if err == nil {
-		t.Errorf("Second call to buffer write succeeeded")
-		t.FailNow()
-	} else {
-		var exitError *exec.ExitError
-		if errors.As(err, &exitError) {
-			if exitError.ExitCode() != 1 {
-				t.Errorf("Second call to buffer write failed with unexpected error code %d", exitError.ExitCode())
-				t.FailNow()
-			}
-		}
-
-	}
-
-}
-
 func waitForRunStarted(t *testing.T, runId string) model.Run {
 	return waitForRun(t, runId, true, false)
 }
@@ -1222,6 +1200,7 @@ func waitForRunCanceled(t *testing.T, runId string) model.Run {
 }
 
 func waitForRun(t *testing.T, runId string, returnOnRunning bool, returnOnCancel bool) model.Run {
+start:
 	cmd := exec.Command("tyger", "run", "watch", runId, "--full-resource")
 
 	stdout, err := cmd.StdoutPipe()
@@ -1238,7 +1217,9 @@ func waitForRun(t *testing.T, runId string, returnOnRunning bool, returnOnCancel
 	for {
 		if !stdoutScanner.Scan() {
 			require.NoError(t, stdoutScanner.Err(), "error reading stdout from tyger run watch")
-			break
+			// The stream ended before we reached the status we were expecting.
+			// Restart the watch
+			goto start
 		}
 		line := stdoutScanner.Text()
 		require.NoError(t, json.Unmarshal([]byte(line), &snapshot))
@@ -1248,12 +1229,12 @@ func waitForRun(t *testing.T, runId string, returnOnRunning bool, returnOnCancel
 		switch *snapshot.Status {
 		case model.Pending:
 		case model.Running:
-		case model.Canceling:
 			if returnOnRunning {
 				return snapshot
 			}
 		case model.Succeeded:
 			goto done
+		case model.Canceling:
 		case model.Canceled:
 			if returnOnCancel {
 				return snapshot
@@ -1270,4 +1251,11 @@ done:
 	err = cmd.Wait()
 	require.NoError(t, err, "tyger run watch failed: %s", errb.String())
 	return snapshot
+}
+
+func getTestConnectivityDigest(t *testing.T) string {
+	t.Helper()
+
+	digest := runCommandSuceeds(t, "docker", "inspect", "testconnectivity", "--format", "{{ index .RepoDigests 0 }}")
+	return digest
 }
