@@ -1,7 +1,7 @@
 package dataplane
 
 var (
-	BufferVersion string = "0.1.0"
+	CurrentBufferVersion string = "0.1.0"
 )
 
 type BufferBlob struct {

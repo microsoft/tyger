@@ -5,7 +5,6 @@ import (
 	"crypto/md5"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -29,8 +28,7 @@ func WriteBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, b
 	for i := 0; ; i++ {
 		req, err := retryablehttp.NewRequest(http.MethodPut, blobUrl, contents)
 		if err != nil {
-			log.Err(err).Msg("Unable to create request")
-			return err
+			return fmt.Errorf("unable to create request: %w", err)
 		}
 
 		AddCommonBlobRequestHeaders(req.Header)
@@ -43,8 +41,7 @@ func WriteBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, b
 
 		resp, err := httpClient.Do(req)
 		if err != nil {
-			log.Err(RedactHttpError(err)).Msg("Unable to send request")
-			return err
+			return fmt.Errorf("unable to send request: %w", RedactHttpError(err))
 		}
 		err = handleWriteResponse(resp)
 		if err == nil {
@@ -62,14 +59,12 @@ func WriteBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, b
 			// Content-MD5 and x-ms-meta-cumulative_md5_chain match our expectations.
 			req, err := retryablehttp.NewRequest(http.MethodHead, blobUrl, nil)
 			if err != nil {
-				log.Err(err).Msg("Unable to create HEAD request")
-				return err
+				return fmt.Errorf("unable to create HEAD request: %w", err)
 			}
 
 			resp, err := httpClient.Do(req)
 			if err != nil {
-				log.Err(err).Msg("Unable to send HEAD request")
-				return err
+				return fmt.Errorf("unable to send HEAD request: %w", err)
 			}
 
 			md5Header := resp.Header.Get("Content-MD5")
@@ -80,13 +75,11 @@ func WriteBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, b
 				break
 			}
 
-			log.Err(RedactHttpError(err)).Msg("Buffer cannot be overwritten")
-			return err
+			return fmt.Errorf("buffer cannot be overwritten: %w", RedactHttpError(err))
 		}
 
 		if err != nil {
-			log.Err(RedactHttpError(err)).Msg("Buffer cannot be overwritten")
-			return err
+			return fmt.Errorf("buffer cannot be overwritten: %w", RedactHttpError(err))
 		}
 	}
 
@@ -102,17 +95,16 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 
 	httpClient, err := CreateHttpClient(proxyUri)
 	if err != nil {
-		log.Err(err).Msg("Failed to create http client")
-		return err
+		return fmt.Errorf("failed to create http client: %w", err)
 	}
 	container, err := ValidateContainer(uri, httpClient)
 	if err != nil {
-		log.Err(err).Msg("Container validation failed")
-		return err
+		return fmt.Errorf("container validation failed: %w", err)
 	}
 
 	outputChannel := make(chan BufferBlob, dop)
 	errorChannel := make(chan struct{})
+	var channelErr error = nil
 
 	hasFailed := func() bool {
 		select {
@@ -179,6 +171,7 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 				if err != nil {
 					if !hasFailed() {
 						close(errorChannel)
+						channelErr = err
 					}
 				}
 
@@ -196,7 +189,7 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 
 	previousHashChannel <- EncodedMD5HashChainInitalValue
 
-	formatBlob := BufferFormat{Version: BufferVersion}
+	formatBlob := BufferFormat{Version: CurrentBufferVersion}
 	serializedBlob, _ := json.Marshal(formatBlob)
 
 	outputChannel <- BufferBlob{
@@ -234,8 +227,7 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 		}
 
 		if err != nil {
-			log.Err(err).Msg("Error reading from input")
-			return err
+			return fmt.Errorf("error reading from input: %w", err)
 		}
 	}
 
@@ -265,12 +257,12 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 
 	err = writeFunc(ctx, httpClient, blobUrl, serializedBlob, encodedMD5Hash, "")
 
-	if err != nil || hasFailed() {
-		if err == nil {
-			err = errors.New("buffer write failed")
-		}
-		log.Err(err).Msg("Buffer write failed")
-		return err
+	if err != nil {
+		return fmt.Errorf("buffer write failed: %w", err)
+	}
+
+	if hasFailed() {
+		return fmt.Errorf("buffer write channel failed: %w", channelErr)
 	}
 
 	metrics.Stop()

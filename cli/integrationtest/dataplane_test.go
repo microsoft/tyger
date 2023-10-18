@@ -210,7 +210,7 @@ func TestInvalidHashChain(t *testing.T) {
 		blobData := dataplane.ReadBlobData{Header: make(http.Header)}
 		if strings.Contains(blobUrl, ".bufferstart") {
 
-			formatBlob := dataplane.BufferFormat{Version: dataplane.BufferVersion}
+			formatBlob := dataplane.BufferFormat{Version: dataplane.CurrentBufferVersion}
 			blobData.Data, _ = json.Marshal(formatBlob)
 		} else if strings.Contains(blobUrl, ".bufferend") {
 			finalizationBlob := dataplane.BufferFinalization{Status: "Completed", BlobCount: 42}
@@ -327,7 +327,7 @@ func TestBufferMetadata(t *testing.T) {
 	var bufferFormat dataplane.BufferFormat
 	json.Unmarshal(respData.Data, &bufferFormat)
 
-	assert.Equal(t, bufferFormat.Version, dataplane.BufferVersion)
+	assert.Equal(t, bufferFormat.Version, dataplane.CurrentBufferVersion)
 
 	blobUri = container.GetNamedBlobUri(".bufferend")
 

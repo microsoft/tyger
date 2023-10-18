@@ -61,7 +61,7 @@ func Read(uri, proxyUri string, dop int, outputWriter io.Writer, readFunc WaitFo
 	var bufferFormat BufferFormat
 	json.Unmarshal(respData.Data, &bufferFormat)
 
-	if bufferFormat.Version != BufferVersion {
+	if bufferFormat.Version != CurrentBufferVersion {
 		err = errors.New("invalid buffer format")
 		log.Ctx(ctx).Err(err).Msg("Invaild buffer format")
 		return err
