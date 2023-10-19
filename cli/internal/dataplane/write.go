@@ -79,7 +79,7 @@ func WriteBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, b
 		}
 
 		if err != nil {
-			return fmt.Errorf("buffer cannot be overwritten: %w", RedactHttpError(err))
+			return fmt.Errorf("buffer cannot be written: %w", RedactHttpError(err))
 		}
 	}
 

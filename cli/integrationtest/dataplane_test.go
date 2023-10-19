@@ -196,7 +196,7 @@ func TestMissingContainer(t *testing.T) {
 	ee := err.(*exec.ExitError)
 	errorString := string(ee.Stderr)
 
-	assert.Contains(t, errorString, "Container validation failed")
+	assert.Contains(t, errorString, "container validation failed")
 }
 
 func TestInvalidHashChain(t *testing.T) {
@@ -270,7 +270,7 @@ func TestHashChain(t *testing.T) {
 
 	ctx := log.With().Str("operation", "buffer read").Logger().WithContext(context.Background())
 	var finalBlobNumber int64 = -1
-	respData, err := dataplane.WaitForBlobAndDownload(ctx, dataplane.NewClientWithLoggingContext(ctx, httpClient), blobUri, 0, &finalBlobNumber)
+	respData, err := dataplane.BlobDownload(ctx, dataplane.NewClientWithLoggingContext(ctx, httpClient), blobUri, 0, &finalBlobNumber)
 
 	assert.Nil(t, err, "Couldn't read blob")
 
@@ -320,7 +320,7 @@ func TestBufferMetadata(t *testing.T) {
 	blobUri := container.GetNamedBlobUri(".bufferstart")
 
 	ctx := log.With().Str("operation", "buffer read").Logger().WithContext(context.Background())
-	respData, err := dataplane.WaitForBlobAndDownload(ctx, dataplane.NewClientWithLoggingContext(ctx, httpClient), blobUri, -1, nil)
+	respData, err := dataplane.BlobDownload(ctx, dataplane.NewClientWithLoggingContext(ctx, httpClient), blobUri, -1, nil)
 
 	assert.Nil(t, err, "Couldn't read .bufferstart")
 
@@ -332,7 +332,7 @@ func TestBufferMetadata(t *testing.T) {
 	blobUri = container.GetNamedBlobUri(".bufferend")
 
 	ctx = log.With().Str("operation", "buffer read").Logger().WithContext(context.Background())
-	respData, err = dataplane.WaitForBlobAndDownload(ctx, dataplane.NewClientWithLoggingContext(ctx, httpClient), blobUri, -1, nil)
+	respData, err = dataplane.BlobDownload(ctx, dataplane.NewClientWithLoggingContext(ctx, httpClient), blobUri, -1, nil)
 
 	assert.Nil(t, err, "Couldn't read .bufferend")
 
