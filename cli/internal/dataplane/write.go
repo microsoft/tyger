@@ -103,17 +103,7 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 	}
 
 	outputChannel := make(chan BufferBlob, dop)
-	errorChannel := make(chan struct{})
-	var channelErr error = nil
-
-	hasFailed := func() bool {
-		select {
-		case <-errorChannel:
-			return true
-		default:
-			return false
-		}
-	}
+	errorChannel := make(chan error)
 
 	wg := sync.WaitGroup{}
 	wg.Add(dop)
@@ -121,6 +111,22 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 	metrics := TransferMetrics{
 		Context:   ctx,
 		Container: container,
+	}
+
+	var blobNumber int64 = 0
+	previousHashChannel := make(chan string, 1)
+
+	previousHashChannel <- EncodedMD5HashChainInitalValue
+
+	formatBlob := BufferFormat{Version: CurrentBufferVersion}
+	serializedBlob, _ := json.Marshal(formatBlob)
+
+	outputChannel <- BufferBlob{
+		BlobName:               ".bufferstart",
+		BlobNumber:             -1,
+		Contents:               serializedBlob,
+		PreviousCumulativeHash: nil,
+		CurrentCumulativeHash:  nil,
 	}
 
 	for i := 0; i < dop; i++ {
@@ -169,10 +175,7 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 				err := writeFunc(ctx, httpClient, blobUrl, body, encodedMD5Hash, blobEncodedMD5HashChain)
 
 				if err != nil {
-					if !hasFailed() {
-						close(errorChannel)
-						channelErr = err
-					}
+					errorChannel <- err
 				}
 
 				metrics.Update(uint64(len(bb.Contents)))
@@ -184,71 +187,62 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 		}()
 	}
 
-	var blobNumber int64 = 0
-	previousHashChannel := make(chan string, 1)
-
-	previousHashChannel <- EncodedMD5HashChainInitalValue
-
-	formatBlob := BufferFormat{Version: CurrentBufferVersion}
-	serializedBlob, _ := json.Marshal(formatBlob)
-
-	outputChannel <- BufferBlob{
-		BlobName:               ".bufferstart",
-		BlobNumber:             -1,
-		Contents:               serializedBlob,
-		PreviousCumulativeHash: nil,
-		CurrentCumulativeHash:  nil,
-	}
-
-	for {
-
-		buffer := pool.Get(blockSize)
-		bytesRead, err := io.ReadFull(inputReader, buffer)
-		if blobNumber == 0 {
-			metrics.Start()
-		}
-
-		if bytesRead > 0 {
-			currentHashChannel := make(chan string, 1)
-
-			outputChannel <- BufferBlob{
-				BlobNumber:             blobNumber,
-				Contents:               buffer[:bytesRead],
-				PreviousCumulativeHash: previousHashChannel,
-				CurrentCumulativeHash:  currentHashChannel,
+	go func() {
+		for {
+			buffer := pool.Get(blockSize)
+			bytesRead, err := io.ReadFull(inputReader, buffer)
+			if blobNumber == 0 {
+				metrics.Start()
 			}
 
-			previousHashChannel = currentHashChannel
-			blobNumber++
+			if bytesRead > 0 {
+				currentHashChannel := make(chan string, 1)
+
+				outputChannel <- BufferBlob{
+					BlobNumber:             blobNumber,
+					Contents:               buffer[:bytesRead],
+					PreviousCumulativeHash: previousHashChannel,
+					CurrentCumulativeHash:  currentHashChannel,
+				}
+
+				previousHashChannel = currentHashChannel
+				blobNumber++
+			}
+
+			if err == io.EOF || err == io.ErrUnexpectedEOF {
+				break
+			}
+
+			if err != nil {
+				errorChannel <- fmt.Errorf("error reading from input: %w", err)
+				break
+			}
 		}
 
-		if err == io.EOF || err == io.ErrUnexpectedEOF || hasFailed() {
-			break
+		currentHashChannel := make(chan string, 1)
+
+		outputChannel <- BufferBlob{
+			BlobNumber:             blobNumber,
+			Contents:               []byte{},
+			PreviousCumulativeHash: previousHashChannel,
+			CurrentCumulativeHash:  currentHashChannel,
 		}
 
-		if err != nil {
-			return fmt.Errorf("error reading from input: %w", err)
-		}
-	}
-
-	currentHashChannel := make(chan string, 1)
-
-	outputChannel <- BufferBlob{
-		BlobNumber:             blobNumber,
-		Contents:               []byte{},
-		PreviousCumulativeHash: previousHashChannel,
-		CurrentCumulativeHash:  currentHashChannel,
-	}
-
-	close(outputChannel)
-	wg.Wait()
+		close(outputChannel)
+		wg.Wait()
+		close(errorChannel)
+	}()
 
 	finalizationBlob := BufferFinalization{Status: "Completed", BlobCount: blobNumber}
 
-	if hasFailed() {
+	var channelErr error = nil
+	for errResponse := range errorChannel {
+		channelErr = errResponse
 		finalizationBlob.Status = "Failed"
+		break
 	}
 
+	finalizationBlob.BlobCount = blobNumber
 	serializedBlob, _ = json.Marshal(finalizationBlob)
 
 	blobUrl := container.GetNamedBlobUri(".bufferend")
@@ -257,15 +251,15 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 
 	err = writeFunc(ctx, httpClient, blobUrl, serializedBlob, encodedMD5Hash, "")
 
+	metrics.Stop()
+
 	if err != nil {
-		return fmt.Errorf("buffer write failed: %w", err)
+		return fmt.Errorf("buffer finalization failed: %w", err)
 	}
 
-	if hasFailed() {
+	if channelErr != nil {
 		return fmt.Errorf("buffer write channel failed: %w", channelErr)
 	}
-
-	metrics.Stop()
 
 	return nil
 }
