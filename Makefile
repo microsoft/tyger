@@ -67,7 +67,8 @@ set-localsettings:
 			"auth": {
 				"enabled": "${SECURITY_ENABLED}",
 				"authority":"https://login.microsoftonline.com/$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.auth.tenantId')",
-				"audience":"$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.auth.apiAppUri')"
+				"audience":"$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.auth.apiAppUri')",
+				"cliAppUri": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.auth.cliAppUri')"
 			},
 			"kubernetes": {
 				"kubeconfigPath": "$${HOME}/.kube/config",

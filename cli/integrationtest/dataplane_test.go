@@ -348,3 +348,19 @@ func TestBlobURLGeneration(t *testing.T) {
 	assert.Equal(t, "11/00/00/000", container.GetBlobUri(0x10000000))
 	assert.Equal(t, "11/FF/FF/FFF", container.GetBlobUri(0x1FFFFFFF))
 }
+  
+func TestBufferDoubleWriteFailure(t *testing.T) {
+	t.Parallel()
+
+	inputBufferId := runTygerSucceeds(t, "buffer", "create")
+	inputSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
+
+	runCommandSuceeds(t, "sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, inputSasUri))
+
+	_, _, err := runCommand("sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, inputSasUri))
+	require.Error(t, err, "Second call to buffer write succeeded")
+
+	var exitError *exec.ExitError
+	require.ErrorAs(t, err, &exitError)
+	require.NotEqual(t, 0, exitError.ExitCode(), "Second call to buffer write had unexpected exit code")
+}

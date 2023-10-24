@@ -33,7 +33,7 @@ public class RunUpdater
             return null;
         }
 
-        if (final || run.Status is RunStatus.Succeeded or RunStatus.Failed)
+        if (final || run.Status is RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceling or RunStatus.Canceled)
         {
             return run;
         }

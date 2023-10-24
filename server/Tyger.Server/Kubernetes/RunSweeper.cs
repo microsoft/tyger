@@ -109,13 +109,12 @@ public sealed class RunSweeper : IHostedService, IDisposable
 
             foreach (var job in jobs.Items)
             {
-                var runId = long.Parse(job.GetLabel(JobLabel), CultureInfo.InvariantCulture);
-                var runResult = await _repository.GetRun(runId, cancellationToken);
-                bool canceling = runResult?.run.Status == RunStatus.Canceling;
-
-                if (canceling || RunReader.HasJobSucceeded(job) || RunReader.HasJobFailed(job, out _))
+                bool isCanceling = RunReader.IsJobCanceling(job);
+                if (isCanceling || RunReader.HasJobSucceeded(job) || RunReader.HasJobFailed(job, out _))
                 {
-                    switch (runResult)
+                    var runId = long.Parse(job.GetLabel(JobLabel), CultureInfo.InvariantCulture);
+
+                    switch (await _repository.GetRun(runId, cancellationToken))
                     {
                         case null:
                             await _repository.DeleteRun(runId, cancellationToken);
@@ -124,28 +123,33 @@ public sealed class RunSweeper : IHostedService, IDisposable
 
                         case (var run, _, null):
                             await ArchiveLogs(run, cancellationToken);
+                            if (isCanceling)
+                            {
+                                // now that we have collected the logs, terminate the pods.
+                                string labelSelector = $"{RunLabel}={runId}";
+                                await _client.CoreV1.DeleteCollectionNamespacedPodAsync(_k8sOptions.Namespace, labelSelector: labelSelector, cancellationToken: cancellationToken);
+                            }
+
                             break;
 
-                        case (var run, _, var time) when DateTimeOffset.UtcNow - time > s_minDurationAfterArchivingBeforeDeletingPod:
-                            if (run.Status == RunStatus.Canceling)
+                        case (var run, _, var time) when DateTimeOffset.UtcNow - time > s_minDurationAfterArchivingBeforeDeletingPod || isCanceling:
+                            var pods = await _client.EnumeratePodsInNamespace(_k8sOptions.Namespace, labelSelector: $"{RunLabel}={runId}", cancellationToken: cancellationToken)
+                                .ToListAsync(cancellationToken);
+
+                            run = RunReader.UpdateRunFromJobAndPods(run, job, pods);
+                            if (isCanceling && run.Status != RunStatus.Canceled)
                             {
-                                _logger.CanceledRun(run.Id!.Value);
+                                // the pods did not termintate in time. Override the status.
                                 run = run with
                                 {
                                     Status = RunStatus.Canceled,
                                     StatusReason = "Canceled by user",
-                                    FinishedAt = DateTimeOffset.UtcNow,
+                                    RunningCount = 0,
+                                    FinishedAt = run.FinishedAt ?? DateTimeOffset.UtcNow
                                 };
                             }
-                            else
-                            {
-                                _logger.FinalizingTerminatedRun(run.Id!.Value, run.Status!.Value);
-                                var pods = await _client.EnumeratePodsInNamespace(_k8sOptions.Namespace, labelSelector: $"{RunLabel}={runId}", cancellationToken: cancellationToken)
-                                    .ToListAsync(cancellationToken);
 
-                                run = RunReader.UpdateRunFromJobAndPods(run, job, pods);
-                            }
-
+                            _logger.FinalizingTerminatedRun(run.Id!.Value, run.Status!.Value);
                             await _repository.UpdateRun(run, final: true, cancellationToken: cancellationToken);
                             await DeleteRunResources(run.Id!.Value, cancellationToken);
                             break;

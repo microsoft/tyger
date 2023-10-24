@@ -252,6 +252,11 @@ public class RunReader
         return failureCondition != null;
     }
 
+    internal static bool IsJobCanceling(V1Job job)
+    {
+        return job.Metadata.Annotations?.TryGetValue("Status", out var status) == true && status == "Canceling";
+    }
+
     public static Run UpdateRunFromJobAndPods(Run run, V1Job job, IReadOnlyCollection<V1Pod> pods)
     {
         IReadOnlyCollection<V1Pod> jobPods;
@@ -283,24 +288,19 @@ public class RunReader
 
         static Run UpdateStatus(Run run, V1Job job, IReadOnlyCollection<V1Pod> jobPods, IReadOnlyCollection<V1Pod> workerPods)
         {
-            if (run.Status is RunStatus.Canceling or RunStatus.Canceled)
+            if (HasJobFailed(job, out var failureCondition))
             {
-                return run;
-            }
-
-            if (job.Metadata.Annotations.ContainsKey("Status"))
-            {
-                if (job.Metadata.Annotations["Status"] == "Canceling")
+                if (IsJobCanceling(job))
                 {
                     return run with
                     {
-                        Status = RunStatus.Canceling,
+                        Status = RunStatus.Canceled,
+                        StatusReason = "Canceled by user",
+                        FinishedAt = failureCondition.LastTransitionTime!,
+                        RunningCount = null
                     };
                 }
-            }
 
-            if (HasJobFailed(job, out var failureCondition))
-            {
                 return run with
                 {
                     Status = RunStatus.Failed,
@@ -324,13 +324,22 @@ public class RunReader
                 };
             }
 
+            var runningCount = jobPods.Count(p => p.Status.Phase == "Running");
+
+            if (IsJobCanceling(job))
+            {
+                return run with
+                {
+                    Status = RunStatus.Canceling,
+                    RunningCount = runningCount
+                };
+            }
+
             // Note that the job object may not yet reflect the status of the pods.
             // It could be that pods have succeeeded or failed without the job reflecting this.
             // We want to avoid returning a pending state if no pods are running because they have
             // all exited but the job hasn't been updated yet.
             var isRunning = jobPods.Any(p => p.Status.Phase is "Running" or "Succeeded" or "Failed");
-            var runningCount = jobPods.Count(p => p.Status.Phase == "Running");
-
             if (isRunning)
             {
                 return run with
