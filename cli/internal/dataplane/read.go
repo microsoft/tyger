@@ -52,14 +52,15 @@ func Read(uri, proxyUri string, dop int, outputWriter io.Writer, readFunc BlobDo
 	blobUri := container.GetNamedBlobUri(".bufferstart")
 	respData, err := readFunc(ctx, NewClientWithLoggingContext(ctx, httpClient), blobUri, 0, nil)
 	if err != nil {
-		return fmt.Errorf("buffer is invalid: %w", err)
+		return fmt.Errorf("unable to read .bufferstart: %w", err)
 	}
 
 	var bufferFormat BufferFormat
-	json.Unmarshal(respData.Data, &bufferFormat)
-
-	if bufferFormat.Version != CurrentBufferVersion {
-		return fmt.Errorf("invalid buffer format")
+	err = json.Unmarshal(respData.Data, &bufferFormat)
+	if err != nil {
+		return fmt.Errorf("unable to read .bufferstart: %w", err)
+	} else if bufferFormat.Version != CurrentBufferVersion {
+		return fmt.Errorf("unexected buffer version %s", bufferFormat.Version)
 	}
 
 	var nextBlobNumber int64 = 0
@@ -74,11 +75,10 @@ func Read(uri, proxyUri string, dop int, outputWriter io.Writer, readFunc BlobDo
 	if err == nil {
 		var bufferFinalization BufferFinalization
 		err = json.Unmarshal(respData.Data, &bufferFinalization)
-		if err != nil || bufferFinalization.Status == "Failed" {
-			if err == nil {
-				return fmt.Errorf("buffer is invalid")
-			}
-			return fmt.Errorf("buffer is invalid: %w", err)
+		if err != nil {
+			return fmt.Errorf("unable to read .bufferend: %w", err)
+		} else if bufferFinalization.Status == "Failed" {
+			return fmt.Errorf("the buffer status is set to failed")
 		}
 		atomic.StoreInt64(&finalBlobNumber, bufferFinalization.BlobCount)
 	} else if err != ErrNotFound {
@@ -97,7 +97,7 @@ func Read(uri, proxyUri string, dop int, outputWriter io.Writer, readFunc BlobDo
 
 						c := make(chan BufferBlob, 5)
 						responseChannel <- c
-						c <- BufferBlob{BlobNumber: -1, LastError: errors.New("buffer is invalid")}
+						c <- BufferBlob{BlobNumber: -1, LastError: errors.New("the buffer status is set to failed")}
 						break
 					}
 
@@ -124,6 +124,8 @@ func Read(uri, proxyUri string, dop int, outputWriter io.Writer, readFunc BlobDo
 					c <- BufferBlob{BlobNumber: -1, LastError: err}
 					break
 				}
+
+				time.Sleep(5 * time.Second)
 			}
 		}()
 	}
@@ -267,7 +269,7 @@ func BlobDownload(ctx context.Context, httpClient *retryablehttp.Client, blobUri
 				return nil, err
 			}
 
-			log.Ctx(ctx).Trace().Msg("Waiting for blob")
+			log.Ctx(ctx).Trace().Int64("blobnumber", blobNumber).Msg("Waiting for blob")
 			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
 
