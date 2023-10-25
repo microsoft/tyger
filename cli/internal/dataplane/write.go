@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"os/signal"
 	"sync"
 	"time"
 
@@ -104,7 +106,8 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 
 	outputChannel := make(chan BufferBlob, dop)
 	errorChannel := make(chan error)
-
+	signalChannel := make(chan os.Signal, 1)
+	signal.Notify(signalChannel, os.Interrupt)
 	wg := sync.WaitGroup{}
 	wg.Add(dop)
 
@@ -128,6 +131,12 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 		PreviousCumulativeHash: nil,
 		CurrentCumulativeHash:  nil,
 	}
+
+	go func() {
+		for _ = range signalChannel {
+			errorChannel <- fmt.Errorf("write aborted")
+		}
+	}()
 
 	for i := 0; i < dop; i++ {
 		go func() {
