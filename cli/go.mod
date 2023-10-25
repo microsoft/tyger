@@ -27,6 +27,7 @@ require (
 	github.com/knadh/koanf/parsers/yaml v0.1.0
 	github.com/knadh/koanf/providers/file v0.1.0
 	github.com/knadh/koanf/v2 v2.0.1
+	github.com/mattn/go-ieproxy v0.0.11
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/mittwald/go-helm-client v0.12.3
 	github.com/spf13/cobra v1.7.0

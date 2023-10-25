@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
+	"github.com/mattn/go-ieproxy"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -59,6 +60,19 @@ func CreateHttpClient(ctx context.Context, proxyUri string) (*retryablehttp.Clie
 			return nil, fmt.Errorf("invalid proxy url: %w", err)
 		}
 		transport.Proxy = http.ProxyURL(proxyUrl)
+	} else {
+		client.HTTPClient.Transport.(*http.Transport).Proxy = func(r *http.Request) (*url.URL, error) {
+			url, err := ieproxy.GetProxyFunc()(r)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to retrieve proxy settings")
+			}
+			if url == nil {
+				log.Trace().Msgf("Using proxy %s", url.String())
+			} else {
+				log.Trace().Msg("Not using any proxy")
+			}
+			return url, err
+		}
 	}
 
 	return client, nil
