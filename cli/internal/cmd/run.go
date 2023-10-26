@@ -157,16 +157,18 @@ func newRunExecCommand() *cobra.Command {
 		var httpClient *retryablehttp.Client
 		if serviceInfo, err := controlplane.GetPersistedServiceInfo(); err == nil {
 			proxyUri := serviceInfo.GetDataPlaneProxy()
-			httpClient, err = dataplane.CreateHttpClient(proxyUri)
+			httpClient, err = dataplane.CreateHttpClient(ctx, proxyUri)
 			if err != nil {
 				return fmt.Errorf("failed to create http client: %w", err)
 			}
 		}
 
-		ctx, _ = signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+		var stopFunc context.CancelFunc
+		ctx, stopFunc = signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 
 		go func() {
 			<-ctx.Done()
+			stopFunc()
 			log.Warn().Msg("Canceling...")
 		}()
 
@@ -179,6 +181,9 @@ func newRunExecCommand() *cobra.Command {
 					dataplane.WithWriteBlockSize(blockSize),
 					dataplane.WithWriteDop(writeDop))
 				if err != nil {
+					if errors.Is(err, ctx.Err()) {
+						err = ctx.Err()
+					}
 					log.Fatal().Err(err).Msg("Failed to write input")
 				}
 			}()
@@ -192,6 +197,9 @@ func newRunExecCommand() *cobra.Command {
 					dataplane.WithReadHttpClient(httpClient),
 					dataplane.WithReadDop(readDop))
 				if err != nil {
+					if errors.Is(err, ctx.Err()) {
+						err = ctx.Err()
+					}
 					log.Fatal().Err(err).Msg("Failed to read output")
 				}
 			}()

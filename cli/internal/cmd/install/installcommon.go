@@ -65,10 +65,12 @@ func commonPrerun(ctx context.Context, flags *commonFlags) context.Context {
 
 	ctx = install.SetConfigOnContext(ctx, &config)
 
-	ctx, _ = signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	var stopFunc context.CancelFunc
+	ctx, stopFunc = signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
 		<-ctx.Done()
+		stopFunc()
 		log.Warn().Msg("Canceling...")
 	}()
 

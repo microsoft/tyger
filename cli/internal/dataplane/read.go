@@ -58,7 +58,7 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 
 	if readOptions.httpClient == nil {
 		var err error
-		readOptions.httpClient, err = CreateHttpClient("")
+		readOptions.httpClient, err = CreateHttpClient(ctx, "")
 		if err != nil {
 			return fmt.Errorf("failed to create http client: %w", err)
 		}
@@ -153,6 +153,7 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 		}()
 	}
 
+	doneChan := make(chan any)
 	go func() {
 		lastTime := time.Now()
 		var expcetedBlobNumber int64 = 0
@@ -191,16 +192,16 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 			lastTime = timeNow
 		}
 
-		close(errorChannel)
+		close(doneChan)
 	}()
 
-	for err := range errorChannel {
+	select {
+	case <-doneChan:
+		metrics.Stop()
+		return nil
+	case err := <-errorChannel:
 		return err
 	}
-
-	metrics.Stop()
-
-	return nil
 }
 
 func readBufferStart(ctx context.Context, httpClient *retryablehttp.Client, container *Container) error {
@@ -270,6 +271,8 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUri
 			return nil, err
 		}
 
+		req = req.WithContext(ctx)
+
 		AddCommonBlobRequestHeaders(req.Header)
 
 		resp, err := httpClient.Do(req)
@@ -307,6 +310,10 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUri
 			}
 
 			continue
+		}
+		if errors.Is(err, ctx.Err()) {
+			// the context has been canceled
+			return nil, err
 		}
 		if err, ok := err.(*responseBodyReadError); ok {
 			if lastBodyReadError == nil {

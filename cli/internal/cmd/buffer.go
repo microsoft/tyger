@@ -235,10 +235,18 @@ func NewBufferReadCommand(openFileFunc func(name string, flag int, perm fs.FileM
 				outputFile = os.Stdout
 			}
 
+			ctx, stopFunc := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+
+			go func() {
+				<-ctx.Done()
+				stopFunc()
+				log.Warn().Msg("Canceling...")
+			}()
+
 			options := []dataplane.ReadOption{dataplane.WithReadDop(dop)}
 			if serviceInfo, err := controlplane.GetPersistedServiceInfo(); err == nil {
 				if proxyUri := serviceInfo.GetDataPlaneProxy(); proxyUri != "" {
-					httpClient, err := dataplane.CreateHttpClient(proxyUri)
+					httpClient, err := dataplane.CreateHttpClient(ctx, proxyUri)
 					if err != nil {
 						log.Fatal().Err(err).Msg("Failed to create HTTP client")
 					}
@@ -246,8 +254,10 @@ func NewBufferReadCommand(openFileFunc func(name string, flag int, perm fs.FileM
 				}
 			}
 
-			ctx := cmd.Context()
 			if err := dataplane.Read(ctx, uri, outputFile, options...); err != nil {
+				if errors.Is(err, ctx.Err()) {
+					err = ctx.Err()
+				}
 				log.Fatal().Err(err).Msg("Failed to read buffer")
 			}
 		},
@@ -306,6 +316,13 @@ func NewBufferWriteCommand(openFileFunc func(name string, flag int, perm fs.File
 				inputReader = os.Stdin
 			}
 
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			go func() {
+				<-ctx.Done()
+				stop()
+				log.Warn().Msg("Canceling...")
+			}()
+
 			writeOptions := []dataplane.WriteOption{dataplane.WithWriteDop(dop)}
 			if blockSizeString != "" {
 				if blockSizeString != "" && blockSizeString[len(blockSizeString)-1] != 'B' {
@@ -321,21 +338,13 @@ func NewBufferWriteCommand(openFileFunc func(name string, flag int, perm fs.File
 
 			if serviceInfo, err := controlplane.GetPersistedServiceInfo(); err == nil {
 				if proxyUrl := serviceInfo.GetDataPlaneProxy(); proxyUrl != "" {
-					httpClient, err := dataplane.CreateHttpClient(proxyUrl)
+					httpClient, err := dataplane.CreateHttpClient(ctx, proxyUrl)
 					if err != nil {
 						log.Fatal().Err(err).Msg("Failed to create HTTP client")
 					}
 					writeOptions = append(writeOptions, dataplane.WithWriteHttpClient(httpClient))
 				}
 			}
-
-			ctx := cmd.Context()
-			ctx, _ = signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-
-			go func() {
-				<-ctx.Done()
-				log.Warn().Msg("Canceling...")
-			}()
 
 			err = dataplane.Write(ctx, uri, inputReader, writeOptions...)
 			if err != nil {

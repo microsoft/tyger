@@ -30,13 +30,18 @@ func (e *responseBodyReadError) Error() string {
 	return fmt.Sprintf("error reading response body: %v", e.reason)
 }
 
-func CreateHttpClient(proxyUri string) (*retryablehttp.Client, error) {
+func (e *responseBodyReadError) Unwrap() error {
+	return e.reason
+}
+
+func CreateHttpClient(ctx context.Context, proxyUri string) (*retryablehttp.Client, error) {
 	client := retryablehttp.NewClient()
 	client.RetryMax = 6
 	client.HTTPClient.Timeout = 100 * time.Second
 
 	logger := &retryableClientLogger{
 		Logger: &log.Logger,
+		Ctx:    ctx,
 	}
 	client.Logger = logger
 	client.ErrorHandler = func(resp *http.Response, err error, numTries int) (*http.Response, error) {

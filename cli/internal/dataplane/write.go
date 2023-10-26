@@ -68,7 +68,7 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 	ctx = log.With().Str("operation", "buffer write").Logger().WithContext(ctx)
 	if writeOptions.httpClient == nil {
 		var err error
-		writeOptions.httpClient, err = CreateHttpClient("")
+		writeOptions.httpClient, err = CreateHttpClient(ctx, "")
 		if err != nil {
 			return fmt.Errorf("failed to create http client: %w", err)
 		}
