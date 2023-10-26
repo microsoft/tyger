@@ -173,7 +173,7 @@ func (c *serviceInfo) GetAccessToken() (string, error) {
 		customHttpClient := &clientIdReplacingHttpClient{
 			clientAppUri: c.ClientAppUri,
 			clientAppId:  c.ClientId,
-			innerClient:  http.DefaultClient,
+			innerClient:  NewRetryableClient(),
 		}
 
 		// fall back to using the refresh token from the cache
@@ -335,7 +335,7 @@ func (si *serviceInfo) performServicePrincipalLogin() (authResult confidential.A
 			return authResult, fmt.Errorf("error creating credential: %w", err)
 		}
 
-		client, err := confidential.New(si.Authority, si.Principal, cred)
+		client, err := confidential.New(si.Authority, si.Principal, cred, confidential.WithHTTPClient(NewRetryableClient()))
 		if err != nil {
 			return authResult, err
 		}
@@ -381,6 +381,7 @@ func (si *serviceInfo) performUserLogin(useDeviceCode bool) (authResult public.A
 		si.ClientAppUri,
 		public.WithAuthority(si.Authority),
 		public.WithCache(si),
+		public.WithHTTPClient(NewRetryableClient()),
 	)
 	if err != nil {
 		return
