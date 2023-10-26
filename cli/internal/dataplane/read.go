@@ -80,7 +80,9 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 	}
 
 	errorChannel := make(chan error, 1)
-	waitForBlobs := true
+
+	waitForBlobs := atomic.Bool{}
+	waitForBlobs.Store(true)
 
 	go func() {
 		err := pollForBufferEnd(ctx, httpClient, container)
@@ -88,12 +90,15 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 			errorChannel <- err
 			return
 		}
-		// All blobs should have been written by now.
-		// If a blob is missing, it probably has been deleted.
-		// We'll wait in case any reads just failed and should be restarted,
-		// but we can now disable waiting for blobs.
-		time.Sleep(2 * time.Second)
-		waitForBlobs = false
+		// All blobs should have been written successfully by now.
+		// From this point on, 404 results or reads would mean one of the following:
+		// 1. The blob was very recently uploaded and the blob server is still
+		//    returning 404s for it.
+		// 2. The blob was deleted.
+		// Our goal is to avoid waiting forever in the case of (2) (which should be a rare condition),
+		// so we will retries for a while longer, so that (1) should no longer occur.
+		time.Sleep(1 * time.Minute)
+		waitForBlobs.Store(false)
 	}()
 
 	metrics := TransferMetrics{
@@ -105,7 +110,9 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 	responseChannel := make(chan chan BufferBlob, readOptions.dop*2)
 	var lock sync.Mutex
 	var nextBlobNumber int64 = 0
-	var finalBlobNumber int64 = -1
+
+	finalBlobNumber := atomic.Int64{}
+	finalBlobNumber.Store(-1)
 
 	for i := 0; i < readOptions.dop; i++ {
 		go func() {
@@ -197,7 +204,9 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 }
 
 func readBufferStart(ctx context.Context, httpClient *retryablehttp.Client, container *Container) error {
-	wait := true
+	wait := atomic.Bool{}
+	wait.Store(true)
+
 	data, err := DownloadBlob(ctx, httpClient, container.GetStartMetadataUri(), &wait, nil, nil)
 	if err != nil {
 		return err
@@ -214,8 +223,10 @@ func readBufferStart(ctx context.Context, httpClient *retryablehttp.Client, cont
 }
 
 func pollForBufferEnd(ctx context.Context, httpClient *retryablehttp.Client, container *Container) error {
+	wait := atomic.Bool{}
+	wait.Store(false)
+
 	for ctx.Err() == nil {
-		wait := false
 		data, err := DownloadBlob(ctx, httpClient, container.GetEndMetadataUri(), &wait, nil, nil)
 		if err != nil {
 			if err == ErrNotFound {
@@ -243,7 +254,7 @@ func pollForBufferEnd(ctx context.Context, httpClient *retryablehttp.Client, con
 	return nil
 }
 
-func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUri string, waitForBlob *bool, blobNumber *int64, finalBlobNumber *int64) (*readData, error) {
+func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUri string, waitForBlob *atomic.Bool, blobNumber *int64, finalBlobNumber *atomic.Int64) (*readData, error) {
 	// The last error that occurred relating to reading the body. retryablehttp does not retry when these happen
 	// because reading the body happens after the call to HttpClient.Do()
 	var lastBodyReadError *responseBodyReadError
@@ -252,7 +263,7 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUri
 		start := time.Now()
 
 		if blobNumber != nil {
-			if num := atomic.LoadInt64(finalBlobNumber); num >= 0 && num < *blobNumber {
+			if num := finalBlobNumber.Load(); num >= 0 && num < *blobNumber {
 				log.Ctx(ctx).Trace().Msg("Abandoning download after final blob")
 				return nil, errPastEndOfBlob
 			}
@@ -280,7 +291,7 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUri
 				Msg("Downloaded blob")
 
 			if blobNumber != nil && len(respData.Data) == 0 {
-				atomic.StoreInt64(finalBlobNumber, *blobNumber)
+				finalBlobNumber.Store(*blobNumber)
 			}
 
 			return respData, nil
@@ -293,7 +304,7 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUri
 				return nil, fmt.Errorf("failed to read blob: %w", RedactHttpError(err))
 			}
 		}
-		if *waitForBlob && err == ErrNotFound {
+		if err == ErrNotFound && waitForBlob.Load() {
 			log.Ctx(ctx).Trace().Msg("Waiting for blob")
 			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
