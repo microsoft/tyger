@@ -90,7 +90,8 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 		}
 		// All blobs should have been written by now.
 		// If a blob is missing, it probably has been deleted.
-		// But we'll wait in case any reads just failed and should be restarted
+		// We'll wait in case any reads just failed and should be restarted,
+		// but we can now disable waiting for blobs.
 		time.Sleep(2 * time.Second)
 		waitForBlobs = false
 	}()
@@ -128,23 +129,14 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 				}
 				metrics.Update(uint64(len(respData.Data)))
 
-				md5Header := respData.Header.Get("Content-MD5")
+				md5Header := respData.Header.Get(ContentMD5Header)
 				if md5Header == "" {
-					errorChannel <- &responseBodyReadError{reason: errors.New("expected Content-MD5 header missing")}
-					return
+					panic("Content-MD5 header missing. This should have already been checked")
 				}
 
 				md5ChainHeader := respData.Header.Get(HashChainHeader)
 				if md5ChainHeader == "" {
 					errorChannel <- &responseBodyReadError{reason: fmt.Errorf("expected %s header missing", HashChainHeader)}
-					return
-				}
-
-				calculatedMd5 := md5.Sum(respData.Data)
-
-				md5Bytes, _ := base64.StdEncoding.DecodeString(md5Header)
-				if !bytes.Equal(calculatedMd5[:], md5Bytes) {
-					errorChannel <- &responseBodyReadError{reason: fmt.Errorf("MD5 mismatch")}
 					return
 				}
 
@@ -293,6 +285,14 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUri
 
 			return respData, nil
 		}
+		if err == errMd5Mismatch {
+			if retryCount < 5 {
+				log.Ctx(ctx).Debug().Msg("MD5 mismatch, retrying")
+				continue
+			} else {
+				return nil, fmt.Errorf("failed to read blob: %w", RedactHttpError(err))
+			}
+		}
 		if *waitForBlob && err == ErrNotFound {
 			log.Ctx(ctx).Trace().Msg("Waiting for blob")
 			io.Copy(io.Discard, resp.Body)
@@ -359,12 +359,24 @@ func handleReadResponse(ctx context.Context, resp *http.Response) (*readData, er
 		}
 
 		buf := pool.Get(int(resp.ContentLength))
-
 		_, err := io.ReadFull(resp.Body, buf)
 		if err != nil {
 			// return the buffer to the pool
 			pool.Put(buf)
 			return nil, &responseBodyReadError{reason: err}
+		}
+
+		calculatedMd5 := md5.Sum(buf)
+		md5Header := resp.Header.Get(ContentMD5Header)
+		if md5Header == "" {
+			pool.Put(buf)
+			return nil, errors.New("expected Content-MD5 header missing")
+		}
+
+		md5Bytes, _ := base64.StdEncoding.DecodeString(md5Header)
+		if !bytes.Equal(calculatedMd5[:], md5Bytes) {
+			pool.Put(buf)
+			return nil, errMd5Mismatch
 		}
 
 		response := readData{Data: buf, Header: resp.Header}

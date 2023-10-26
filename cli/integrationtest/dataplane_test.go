@@ -230,12 +230,92 @@ func TestMd5HashMismatchOnWrite(t *testing.T) {
 	httpClient := newInterceptingHttpClient(func(req *http.Request, inner http.RoundTripper) (*http.Response, error) {
 		md5Hash := md5.Sum([]byte("invalid"))
 		encodedMD5Hash := base64.StdEncoding.EncodeToString(md5Hash[:])
-		req.Header.Set("Content-MD5", encodedMD5Hash)
+		req.Header.Set(dataplane.ContentMD5Header, encodedMD5Hash)
 		return inner.RoundTrip(req)
 	})
 
 	err := dataplane.Write(context.Background(), writeSasUri, inputReader, dataplane.WithWriteHttpClient(httpClient))
 	require.ErrorContains(t, err, "MD5 mismatch")
+}
+
+func TestMd5HashMismatchOnWriteRetryAndRecover(t *testing.T) {
+	t.Parallel()
+
+	inputBufferId := runTygerSucceeds(t, "buffer", "create")
+	writeSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
+	inputReader := strings.NewReader("Hello")
+
+	failedUris := make(map[string]any)
+	httpClient := newInterceptingHttpClient(func(req *http.Request, inner http.RoundTripper) (*http.Response, error) {
+		if _, ok := failedUris[req.URL.String()]; ok {
+			return inner.RoundTrip(req)
+		}
+
+		failedUris[req.URL.String()] = nil
+		md5Hash := md5.Sum([]byte("invalid"))
+		encodedMD5Hash := base64.StdEncoding.EncodeToString(md5Hash[:])
+		req.Header.Set(dataplane.ContentMD5Header, encodedMD5Hash)
+		return inner.RoundTrip(req)
+	})
+
+	err := dataplane.Write(context.Background(), writeSasUri, inputReader, dataplane.WithWriteHttpClient(httpClient), dataplane.WithWriteDop(1))
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(failedUris), 2)
+}
+
+func TestMd5HashMismatchOnRead(t *testing.T) {
+	t.Parallel()
+
+	inputBufferId := runTygerSucceeds(t, "buffer", "create")
+	writeSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
+	inputReader := strings.NewReader("Hello")
+	require.NoError(t, dataplane.Write(context.Background(), writeSasUri, inputReader))
+
+	httpClient := newInterceptingHttpClient(func(req *http.Request, inner http.RoundTripper) (*http.Response, error) {
+		resp, err := inner.RoundTrip(req)
+		if err != nil {
+			return resp, err
+		}
+
+		md5Hash := md5.Sum([]byte("invalid"))
+		encodedMD5Hash := base64.StdEncoding.EncodeToString(md5Hash[:])
+		resp.Header.Set(dataplane.ContentMD5Header, encodedMD5Hash)
+		return resp, nil
+	})
+
+	err := dataplane.Read(context.Background(), writeSasUri, io.Discard, dataplane.WithReadHttpClient(httpClient))
+	require.ErrorContains(t, err, "MD5 mismatch")
+}
+
+func TestMd5HashMismatchOnReadRetryAndRecover(t *testing.T) {
+	t.Parallel()
+
+	inputBufferId := runTygerSucceeds(t, "buffer", "create")
+	writeSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
+	inputReader := strings.NewReader("Hello")
+	require.NoError(t, dataplane.Write(context.Background(), writeSasUri, inputReader))
+
+	failedUris := make(map[string]any)
+	httpClient := newInterceptingHttpClient(func(req *http.Request, inner http.RoundTripper) (*http.Response, error) {
+		resp, err := inner.RoundTrip(req)
+		if err != nil {
+			return resp, err
+		}
+
+		if _, ok := failedUris[req.URL.String()]; ok {
+			return resp, err
+		}
+
+		failedUris[req.URL.String()] = nil
+		md5Hash := md5.Sum([]byte("invalid"))
+		encodedMD5Hash := base64.StdEncoding.EncodeToString(md5Hash[:])
+		resp.Header.Set(dataplane.ContentMD5Header, encodedMD5Hash)
+		return resp, nil
+	})
+
+	err := dataplane.Read(context.Background(), writeSasUri, io.Discard, dataplane.WithReadHttpClient(httpClient), dataplane.WithReadDop(1))
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(failedUris), 2)
 }
 
 func TestCancellationOnWrite(t *testing.T) {
@@ -253,7 +333,7 @@ func TestCancellationOnWrite(t *testing.T) {
 	err := dataplane.Write(ctx, writeSasUri, inputReader)
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 
-	assert.ErrorContains(t, <-errorChan, "buffer in failed state")
+	assert.ErrorContains(t, <-errorChan, "the buffer is in a permanently failed state")
 }
 
 func TestRunningFromPowershellRaisesWarning(t *testing.T) {

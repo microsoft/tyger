@@ -1,7 +1,7 @@
 package dataplane
 
 import (
-	"fmt"
+	"errors"
 )
 
 const (
@@ -10,15 +10,16 @@ const (
 	BufferStatusComplete = "complete"
 	BufferStatusFailed   = "failed"
 
-	HashChainHeader = "x-ms-meta-cumulative_md5_chain"
+	HashChainHeader  = "x-ms-meta-cumulative_md5_chain"
+	ContentMD5Header = "Content-MD5"
 
 	StartMetadataBlobName = ".bufferstart"
 	EndMetadataBlobName   = ".bufferend"
 )
 
 var (
-	errMd5Mismatch        = fmt.Errorf("MD5 mismatch")
-	errBufferDoesNotExist = fmt.Errorf("the buffer does not exist")
+	errMd5Mismatch        = errors.New("MD5 mismatch")
+	errBufferDoesNotExist = errors.New("the buffer does not exist")
 )
 
 type BufferBlob struct {

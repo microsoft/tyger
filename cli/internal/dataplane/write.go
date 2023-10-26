@@ -250,7 +250,7 @@ func uploadBlobWithRery(ctx context.Context, httpClient *retryablehttp.Client, b
 		AddCommonBlobRequestHeaders(req.Header)
 		req.Header.Add("x-ms-blob-type", "BlockBlob")
 
-		req.Header.Add("Content-MD5", encodedMD5Hash)
+		req.Header.Add(ContentMD5Header, encodedMD5Hash)
 		if encodedMD5HashChain != "" {
 			req.Header.Add(HashChainHeader, encodedMD5HashChain)
 		}
@@ -289,7 +289,7 @@ func uploadBlobWithRery(ctx context.Context, httpClient *retryablehttp.Client, b
 				return fmt.Errorf("unable to send HEAD request: %w", err)
 			}
 
-			md5Header := resp.Header.Get("Content-MD5")
+			md5Header := resp.Header.Get(ContentMD5Header)
 			md5ChainHeader := resp.Header.Get(HashChainHeader)
 
 			if md5Header == encodedMD5Hash && md5ChainHeader == encodedMD5HashChain {
