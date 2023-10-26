@@ -11,9 +11,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/alecthomas/units"
@@ -161,14 +163,24 @@ func newRunExecCommand() *cobra.Command {
 			}
 		}
 
+		ctx, _ = signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+
+		go func() {
+			<-ctx.Done()
+			log.Warn().Msg("Canceling...")
+		}()
+
 		if inputSasUri != "" {
 			mainWg.Add(1)
 			go func() {
 				defer mainWg.Done()
-				dataplane.Write(inputSasUri, os.Stdin,
+				err := dataplane.Write(ctx, inputSasUri, os.Stdin,
 					dataplane.WithWriteHttpClient(httpClient),
 					dataplane.WithWriteBlockSize(blockSize),
 					dataplane.WithWriteDop(writeDop))
+				if err != nil {
+					log.Error().Err(err).Msg("Failed to write input")
+				}
 			}()
 		}
 
@@ -176,7 +188,9 @@ func newRunExecCommand() *cobra.Command {
 			mainWg.Add(1)
 			go func() {
 				defer mainWg.Done()
-				dataplane.Read(outputSasUri, os.Stdout, dataplane.WithReadHttpClient(httpClient), dataplane.WithReadDop(readDop))
+				dataplane.Read(outputSasUri, os.Stdout,
+					dataplane.WithReadHttpClient(httpClient),
+					dataplane.WithReadDop(readDop))
 			}()
 		}
 

@@ -12,7 +12,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 
 	"github.com/alecthomas/units"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
@@ -324,9 +326,20 @@ func NewBufferWriteCommand(openFileFunc func(name string, flag int, perm fs.File
 				}
 			}
 
-			err = dataplane.Write(uri, inputReader, writeOptions...)
+			ctx := cmd.Context()
+			ctx, _ = signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+
+			go func() {
+				<-ctx.Done()
+				log.Warn().Msg("Canceling...")
+			}()
+
+			err = dataplane.Write(ctx, uri, inputReader, writeOptions...)
 			if err != nil {
-				log.Fatal().Err(err).Msg("Buffer write failed")
+				if errors.Is(err, ctx.Err()) {
+					err = ctx.Err()
+				}
+				log.Fatal().Err(err).Msg("Failed to write buffer")
 			}
 		},
 	}

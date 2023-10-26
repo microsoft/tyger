@@ -24,6 +24,7 @@ const (
 
 var (
 	errPastEndOfBlob = errors.New("past end of blob")
+	ErrNotFound      = errors.New("not found")
 )
 
 type readOptions struct {
