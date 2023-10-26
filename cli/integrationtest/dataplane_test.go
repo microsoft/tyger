@@ -10,7 +10,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
-	"io/ioutil"
+	"net/http"
 	"os"
 	"os/exec"
 	"path"
@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/hashicorp/go-retryablehttp"
 	"github.com/microsoft/tyger/cli/internal/cmd"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/dataplane"
@@ -80,8 +81,8 @@ func TestAccessStringIsFile(t *testing.T) {
 	writeSasUriFile := path.Join(tempDir, "write-sas-uri.txt")
 	readSasUriFile := path.Join(tempDir, "read-sas-uri.txt")
 
-	require.Nil(t, ioutil.WriteFile(writeSasUriFile, []byte(writeSasUri), 0644))
-	require.Nil(t, ioutil.WriteFile(readSasUriFile, []byte(readSasUri), 0644))
+	require.Nil(t, os.WriteFile(writeSasUriFile, []byte(writeSasUri), 0644))
+	require.Nil(t, os.WriteFile(readSasUriFile, []byte(readSasUri), 0644))
 
 	payload := []byte("hello world")
 
@@ -196,14 +197,15 @@ func TestInvalidHashChain(t *testing.T) {
 	inputBufferId := runTygerSucceeds(t, "buffer", "create")
 	writeSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
 
-	// Calling buffer.write directly to make sure an invalid hash chain is generated.
-	var proxyUri string
-	if serviceInfo, err := controlplane.GetPersistedServiceInfo(); err == nil {
-		proxyUri = serviceInfo.GetDataPlaneProxy()
+	inputReader := strings.NewReader("Hello")
+
+	httpClient := retryablehttp.NewClient()
+	httpClient.Logger = nil
+	httpClient.HTTPClient = &http.Client{
+		Transport: &httpInterceptor{inner: http.DefaultTransport},
 	}
 
-	inputReader := strings.NewReader("Hello")
-	dataplane.Write(writeSasUri, proxyUri, dataplane.DefaultWriteDop, dataplane.DefaultBlockSize, inputReader, true)
+	dataplane.Write(writeSasUri, inputReader, dataplane.WithWriteHttpClient(httpClient))
 
 	readSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId)
 
@@ -213,6 +215,15 @@ func TestInvalidHashChain(t *testing.T) {
 	} else {
 		assert.Contains(t, stdErr, "Hash chain mismatch")
 	}
+}
+
+type httpInterceptor struct {
+	inner http.RoundTripper
+}
+
+func (i *httpInterceptor) RoundTrip(req *http.Request) (*http.Response, error) {
+	req.Header[dataplane.HashChainHeader] = []string{"invalid"}
+	return i.inner.RoundTrip(req)
 }
 
 func TestHashChain(t *testing.T) {
@@ -259,7 +270,7 @@ func TestHashChain(t *testing.T) {
 	md5HashChain := md5.Sum([]byte(dataplane.EncodedMD5HashChainInitalValue + encodedMD5Hash))
 	encodedMD5HashChain := base64.StdEncoding.EncodeToString(md5HashChain[:])
 
-	md5ChainHeader := respData.Header.Get("x-ms-meta-cumulative_md5_chain")
+	md5ChainHeader := respData.Header.Get(dataplane.HashChainHeader)
 
 	assert.Equal(t, encodedMD5HashChain, md5ChainHeader)
 }

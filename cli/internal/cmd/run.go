@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/alecthomas/units"
+	"github.com/hashicorp/go-retryablehttp"
 	"github.com/kaz-yamam0t0/go-timeparser/timeparser"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
@@ -151,16 +152,23 @@ func newRunExecCommand() *cobra.Command {
 
 		mainWg := sync.WaitGroup{}
 
-		var proxyUri string
+		var httpClient *retryablehttp.Client
 		if serviceInfo, err := controlplane.GetPersistedServiceInfo(); err == nil {
-			proxyUri = serviceInfo.GetDataPlaneProxy()
+			proxyUri := serviceInfo.GetDataPlaneProxy()
+			httpClient, err = dataplane.CreateHttpClient(proxyUri)
+			if err != nil {
+				return fmt.Errorf("failed to create http client: %w", err)
+			}
 		}
 
 		if inputSasUri != "" {
 			mainWg.Add(1)
 			go func() {
 				defer mainWg.Done()
-				dataplane.Write(inputSasUri, proxyUri, writeDop, blockSize, os.Stdin, false)
+				dataplane.Write(inputSasUri, os.Stdin,
+					dataplane.WithWriteHttpClient(httpClient),
+					dataplane.WithWriteBlockSize(blockSize),
+					dataplane.WithWriteDop(writeDop))
 			}()
 		}
 
@@ -168,7 +176,7 @@ func newRunExecCommand() *cobra.Command {
 			mainWg.Add(1)
 			go func() {
 				defer mainWg.Done()
-				dataplane.Read(outputSasUri, proxyUri, readDop, os.Stdout)
+				dataplane.Read(outputSasUri, os.Stdout, dataplane.WithReadHttpClient(httpClient), dataplane.WithReadDop(readDop))
 			}()
 		}
 

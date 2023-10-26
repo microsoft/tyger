@@ -26,12 +26,44 @@ var (
 	errPastEndOfBlob = errors.New("past end of blob")
 )
 
-func Read(uri, proxyUri string, dop int, outputWriter io.Writer) {
-	ctx := log.With().Str("operation", "buffer read").Logger().WithContext(context.Background())
-	httpClient, err := CreateHttpClient(proxyUri)
-	if err != nil {
-		log.Ctx(ctx).Fatal().Err(err).Msg("Failed to create http client")
+type readOptions struct {
+	dop        int
+	httpClient *retryablehttp.Client
+}
+
+type ReadOption func(o *readOptions)
+
+func WithReadDop(dop int) ReadOption {
+	return func(o *readOptions) {
+		o.dop = dop
 	}
+}
+
+func WithReadHttpClient(httpClient *retryablehttp.Client) ReadOption {
+	return func(o *readOptions) {
+		o.httpClient = httpClient
+	}
+}
+
+func Read(uri string, outputWriter io.Writer, options ...ReadOption) error {
+	readOptions := &readOptions{
+		dop: DefaultReadDop,
+	}
+	for _, o := range options {
+		o(readOptions)
+	}
+
+	if readOptions.httpClient == nil {
+		var err error
+		readOptions.httpClient, err = CreateHttpClient("")
+		if err != nil {
+			return fmt.Errorf("failed to create http client: %w", err)
+		}
+	}
+
+	httpClient := readOptions.httpClient
+
+	ctx := log.With().Str("operation", "buffer read").Logger().WithContext(context.Background())
 	container, err := ValidateContainer(uri, httpClient)
 	if err != nil {
 		log.Ctx(ctx).Fatal().Err(err).Msg("Container validation failed")
@@ -43,12 +75,12 @@ func Read(uri, proxyUri string, dop int, outputWriter io.Writer) {
 	}
 	metrics.Start()
 
-	responseChannel := make(chan chan BufferBlob, dop*2)
+	responseChannel := make(chan chan BufferBlob, readOptions.dop*2)
 	var lock sync.Mutex
 	var nextBlobNumber int64 = 0
 	var finalBlobNumber int64 = -1
 
-	for i := 0; i < dop; i++ {
+	for i := 0; i < readOptions.dop; i++ {
 		go func() {
 			c := make(chan BufferBlob, 5)
 			for {
@@ -70,7 +102,7 @@ func Read(uri, proxyUri string, dop int, outputWriter io.Writer) {
 				metrics.Update(uint64(len(respData.Data)))
 
 				md5Header := respData.Header.Get("Content-MD5")
-				md5ChainHeader := respData.Header.Get("x-ms-meta-cumulative_md5_chain")
+				md5ChainHeader := respData.Header.Get(HashChainHeader)
 
 				calculatedMd5 := md5.Sum(respData.Data)
 
@@ -119,6 +151,8 @@ func Read(uri, proxyUri string, dop int, outputWriter io.Writer) {
 	}
 
 	metrics.Stop()
+
+	return nil
 }
 
 func WaitForBlobAndDownload(ctx context.Context, httpClient *retryablehttp.Client, blobUri string, blobNumber int64, finalBlobNumber *int64) (*readData, error) {
@@ -233,8 +267,8 @@ func handleReadResponse(ctx context.Context, resp *http.Response) (*readData, er
 			return nil, &responseBodyReadError{reason: errors.New("expected Content-MD5 header missing")}
 		}
 
-		if resp.Header.Get("x-ms-meta-cumulative_md5_chain") == "" {
-			return nil, &responseBodyReadError{reason: errors.New("expected x-ms-meta-cumulative_md5_chain header missing")}
+		if resp.Header.Get(HashChainHeader) == "" {
+			return nil, &responseBodyReadError{reason: fmt.Errorf("expected %s header missing", HashChainHeader)}
 		}
 
 		response := readData{Data: buf, Header: resp.Header}

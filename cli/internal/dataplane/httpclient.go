@@ -25,6 +25,7 @@ const (
 
 const (
 	MetadataBlobName = ".buffer"
+	HashChainHeader  = "x-ms-meta-cumulative_md5_chain"
 )
 
 var (
@@ -74,13 +75,23 @@ func CreateHttpClient(proxyUri string) (*retryablehttp.Client, error) {
 // to capture the context.
 // The inner http.Client is reused.
 func NewClientWithLoggingContext(ctx context.Context, client *retryablehttp.Client) *retryablehttp.Client {
-	newClient := *client
+
 	logger := &retryableClientLogger{
 		Logger: log.Ctx(ctx),
 	}
-	newClient.Logger = logger
-	newClient.CheckRetry = logger.CheckRetry
-	return &newClient
+
+	return &retryablehttp.Client{
+		Logger:          logger,
+		CheckRetry:      logger.CheckRetry,
+		HTTPClient:      client.HTTPClient,
+		RetryWaitMin:    client.RetryWaitMin,
+		RetryWaitMax:    client.RetryWaitMax,
+		RetryMax:        client.RetryMax,
+		RequestLogHook:  client.RequestLogHook,
+		ResponseLogHook: client.ResponseLogHook,
+		Backoff:         client.Backoff,
+		ErrorHandler:    client.ErrorHandler,
+	}
 }
 
 type retryableClientLogger struct {
