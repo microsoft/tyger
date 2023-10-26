@@ -26,7 +26,7 @@ const (
 var (
 	errPastEndOfBlob     = errors.New("past end of blob")
 	ErrNotFound          = errors.New("not found")
-	errBufferFailedState = errors.New("buffer in failed state")
+	errBufferFailedState = errors.New("the buffer is in a permanently failed state")
 )
 
 type readOptions struct {
