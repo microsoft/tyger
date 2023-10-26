@@ -179,7 +179,7 @@ func newRunExecCommand() *cobra.Command {
 					dataplane.WithWriteBlockSize(blockSize),
 					dataplane.WithWriteDop(writeDop))
 				if err != nil {
-					log.Error().Err(err).Msg("Failed to write input")
+					log.Fatal().Err(err).Msg("Failed to write input")
 				}
 			}()
 		}
@@ -188,9 +188,12 @@ func newRunExecCommand() *cobra.Command {
 			mainWg.Add(1)
 			go func() {
 				defer mainWg.Done()
-				dataplane.Read(outputSasUri, os.Stdout,
+				err := dataplane.Read(ctx, outputSasUri, os.Stdout,
 					dataplane.WithReadHttpClient(httpClient),
 					dataplane.WithReadDop(readDop))
+				if err != nil {
+					log.Fatal().Err(err).Msg("Failed to read output")
+				}
 			}()
 		}
 

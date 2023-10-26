@@ -76,9 +76,12 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 
 	httpClient := writeOptions.httpClient
 
-	container, err := ValidateContainer(uri, httpClient)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	container, err := NewContainer(uri, httpClient)
 	if err != nil {
-		return fmt.Errorf("container validation failed: %w", err)
+		return fmt.Errorf("invalid URL: %w", err)
 	}
 
 	if err := writeStartMetadata(ctx, httpClient, container); err != nil {
@@ -190,9 +193,13 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 		if ctx.Err() != nil {
 			// this means the context was cancelled or timed out
 			// use a new context to write the end metadata
-			ctx, _ = context.WithTimeout(context.Background(), 3*time.Second)
+			newCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			ctx = newCtx
 		}
 		writeEndMetadata(ctx, httpClient, container, BufferStatusFailed)
+
+		//lint:ignore SA4004 deliberately exiting after the first error
 		return err
 	}
 

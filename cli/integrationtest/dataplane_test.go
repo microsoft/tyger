@@ -175,19 +175,29 @@ func TestNamedPipes(t *testing.T) {
 	}
 }
 
-// func TestMissingContainer(t *testing.T) {
-// 	t.Parallel()
+func TestMissingContainer(t *testing.T) {
+	t.Parallel()
 
-// 	bufferName := runTygerSucceeds(t, "buffer", "create")
-// 	readSasUri := runTygerSucceeds(t, "buffer", "access", bufferName)
+	bufferName := runTygerSucceeds(t, "buffer", "create")
+	readSasUri := runTygerSucceeds(t, "buffer", "access", bufferName)
 
-// 	_, err := exec.Command("tyger", "buffer", "read", readSasUri).Output()
-// 	assert.NotNil(t, err)
-// 	ee := err.(*exec.ExitError)
-// 	errorString := string(ee.Stderr)
+	client := newInterceptingHttpClient(func(req *http.Request, inner http.RoundTripper) (*http.Response, error) {
+		resp, err := inner.RoundTrip(req)
+		if err != nil {
+			return resp, err
+		}
 
-// 	assert.Contains(t, errorString, "Container validation failed")
-// }
+		resp.StatusCode = http.StatusNotFound
+		resp.Header.Set("x-ms-error-code", "ContainerNotFound")
+		return resp, nil
+	})
+
+	err := dataplane.Write(context.Background(), readSasUri, strings.NewReader("Hello"), dataplane.WithWriteHttpClient(client))
+	require.ErrorContains(t, err, "the buffer does not exist")
+
+	err = dataplane.Read(context.Background(), readSasUri, io.Discard, dataplane.WithReadHttpClient(client))
+	require.ErrorContains(t, err, "the buffer does not exist")
+}
 
 func TestInvalidHashChain(t *testing.T) {
 	t.Parallel()
@@ -208,11 +218,7 @@ func TestInvalidHashChain(t *testing.T) {
 	readSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId)
 
 	_, stdErr, err := runTyger("buffer", "read", readSasUri)
-	if err == nil {
-		t.Fatal("Hash chain was valid")
-	} else {
-		assert.Contains(t, stdErr, "Hash chain mismatch")
-	}
+	assert.Contains(t, stdErr, "hash chain mismatch")
 }
 
 func TestMd5HashMismatchOnWrite(t *testing.T) {
@@ -238,17 +244,16 @@ func TestCancellationOnWrite(t *testing.T) {
 	inputBufferId := runTygerSucceeds(t, "buffer", "create")
 	writeSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
 	inputReader := &infiniteReader{}
+	errorChan := make(chan error, 1)
+	go func() {
+		errorChan <- dataplane.Read(context.Background(), writeSasUri, io.Discard)
+	}()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	err := dataplane.Write(ctx, writeSasUri, inputReader)
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
-}
 
-type infiniteReader struct {
-}
-
-func (r *infiniteReader) Read(p []byte) (n int, err error) {
-	return len(p), nil
+	assert.ErrorContains(t, <-errorChan, "buffer in failed state")
 }
 
 func TestRunningFromPowershellRaisesWarning(t *testing.T) {
@@ -311,4 +316,11 @@ func (i *httpInterceptorRountripper) RoundTrip(req *http.Request) (*http.Respons
 	}
 
 	return i.inner.RoundTrip(req)
+}
+
+type infiniteReader struct {
+}
+
+func (r *infiniteReader) Read(p []byte) (n int, err error) {
+	return len(p), nil
 }

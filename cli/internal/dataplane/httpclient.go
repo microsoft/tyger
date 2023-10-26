@@ -187,7 +187,7 @@ func (c *Container) GetContainerName() string {
 	return path.Base(c.Path)
 }
 
-func ValidateContainer(sasUri string, httpClient *retryablehttp.Client) (*Container, error) {
+func NewContainer(sasUri string, httpClient *retryablehttp.Client) (*Container, error) {
 	parsedUri, err := url.Parse(sasUri)
 	if err != nil {
 		return nil, err

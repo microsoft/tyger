@@ -246,7 +246,10 @@ func NewBufferReadCommand(openFileFunc func(name string, flag int, perm fs.FileM
 				}
 			}
 
-			dataplane.Read(uri, outputFile, options...)
+			ctx := cmd.Context()
+			if err := dataplane.Read(ctx, uri, outputFile, options...); err != nil {
+				log.Fatal().Err(err).Msg("Failed to read buffer")
+			}
 		},
 	}
 
