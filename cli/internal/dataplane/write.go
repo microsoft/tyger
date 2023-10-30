@@ -4,14 +4,17 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
 	pool "github.com/libp2p/go-buffer-pool"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -21,34 +24,85 @@ const (
 	EncodedMD5HashChainInitalValue = "MDAwMDAwMDAwMDAwMDAwMA=="
 )
 
+var (
+	errBlobOverwrite = fmt.Errorf("unauthorized blob overwrite")
+)
+
+type writeOptions struct {
+	dop        int
+	blockSize  int
+	httpClient *retryablehttp.Client
+}
+
+type WriteOption func(o *writeOptions)
+
+func WithWriteDop(dop int) WriteOption {
+	return func(o *writeOptions) {
+		o.dop = dop
+	}
+}
+
+func WithWriteBlockSize(blockSize int) WriteOption {
+	return func(o *writeOptions) {
+		o.blockSize = blockSize
+	}
+}
+
+func WithWriteHttpClient(httpClient *retryablehttp.Client) WriteOption {
+	return func(o *writeOptions) {
+		o.httpClient = httpClient
+	}
+}
+
 // If invalidHashChain is set to true, the value of the hash chain attached to the blob will
 // always be the Inital Value. This should only be set for testing.
-func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, invalidHashChain bool) {
-	ctx := log.With().Str("operation", "buffer write").Logger().WithContext(context.Background())
-	httpClient, err := CreateHttpClient(proxyUri)
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to create http client")
+func Write(ctx context.Context, uri string, inputReader io.Reader, options ...WriteOption) error {
+	writeOptions := &writeOptions{
+		dop:       DefaultWriteDop,
+		blockSize: DefaultBlockSize,
 	}
-	container, err := ValidateContainer(uri, httpClient)
-	if err != nil {
-		log.Fatal().Err(err).Msg("Container validation failed")
+	for _, o := range options {
+		o(writeOptions)
 	}
 
-	outputChannel := make(chan BufferBlob, dop)
+	ctx = log.With().Str("operation", "buffer write").Logger().WithContext(ctx)
+	if writeOptions.httpClient == nil {
+		var err error
+		writeOptions.httpClient, err = CreateHttpClient(ctx, "")
+		if err != nil {
+			return fmt.Errorf("failed to create http client: %w", err)
+		}
+	}
+
+	httpClient := writeOptions.httpClient
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	container, err := NewContainer(uri, httpClient)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+
+	if err := writeStartMetadata(ctx, httpClient, container); err != nil {
+		return err
+	}
+
+	outputChannel := make(chan BufferBlob, writeOptions.dop)
+	errorChannel := make(chan error, 1)
 
 	wg := sync.WaitGroup{}
-	wg.Add(dop)
+	wg.Add(writeOptions.dop)
 
 	metrics := TransferMetrics{
 		Context:   ctx,
 		Container: container,
 	}
 
-	for i := 0; i < dop; i++ {
+	for i := 0; i < writeOptions.dop; i++ {
 		go func() {
 			defer wg.Done()
 			for bb := range outputChannel {
-				start := time.Now()
 
 				blobUrl := container.GetBlobUri(bb.BlobNumber)
 				ctx := log.Ctx(ctx).With().Int64("blobNumber", bb.BlobNumber).Logger().WithContext(ctx)
@@ -70,125 +124,197 @@ func Write(uri, proxyUri string, dop int, blockSize int, inputReader io.Reader, 
 				encodedMD5HashChain := base64.StdEncoding.EncodeToString(md5HashChain[:])
 
 				bb.CurrentCumulativeHash <- encodedMD5HashChain
-				blobEncodedMD5HashChain := EncodedMD5HashChainInitalValue
 
-				if !invalidHashChain {
-					blobEncodedMD5HashChain = encodedMD5HashChain
-				}
-
-				for i := 0; ; i++ {
-					req, err := retryablehttp.NewRequest(http.MethodPut, blobUrl, body)
-					if err != nil {
-						log.Fatal().Err(err).Msg("Unable to create request")
-					}
-
-					AddCommonBlobRequestHeaders(req.Header)
-					req.Header.Add("x-ms-blob-type", "BlockBlob")
-
-					req.Header.Add("Content-MD5", encodedMD5Hash)
-					req.Header.Add("x-ms-meta-cumulative_md5_chain", blobEncodedMD5HashChain)
-
-					resp, err := httpClient.Do(req)
-					if err != nil {
-						log.Fatal().Err(RedactHttpError(err)).Msg("Unable to send request")
-					}
-					err = handleWriteResponse(resp)
-					if err == nil {
-						break
-					}
-
-					if err == errMd5Mismatch {
-						if i < 5 {
-							log.Ctx(ctx).Debug().Msg("MD5 mismatch, retrying")
-							continue
-						}
-					} else if err == errBlobOverwrite && i != 0 {
-						// When retrying failed writes, we might encounter the UnauthorizedBlobOverwrite if the original
-						// write went through. In such cases, we should follow up with a HEAD request to verify the
-						// Content-MD5 and x-ms-meta-cumulative_md5_chain match our expectations.							req, err := retryablehttp.NewRequest(http.MethodHead, blobUrl, nil)
-						req, err := retryablehttp.NewRequest(http.MethodHead, blobUrl, nil)
-						if err != nil {
-							log.Fatal().Err(err).Msg("Unable to create HEAD request")
-						}
-
-						resp, err := httpClient.Do(req)
-						if err != nil {
-							log.Fatal().Err(err).Msg("Unable to send HEAD request")
-						}
-
-						md5Header := resp.Header.Get("Content-MD5")
-						md5ChainHeader := resp.Header.Get("x-ms-meta-cumulative_md5_chain")
-
-						if md5Header == encodedMD5Hash && md5ChainHeader == blobEncodedMD5HashChain {
-							log.Ctx(ctx).Debug().Msg("Failed blob write actually went through")
-							break
-						}
-
-						log.Fatal().Err(RedactHttpError(err)).Msg("Buffer cannot be overwritten")
-					}
-
-					if err != nil {
-						log.Fatal().Err(RedactHttpError(err)).Msg("Buffer cannot be overwritten")
-					}
+				if err := uploadBlobWithRery(ctx, httpClient, blobUrl, body, encodedMD5Hash, encodedMD5HashChain); err != nil {
+					log.Debug().Err(err).Msg("Encountered error uploading blob")
+					errorChannel <- err
+					return
 				}
 
 				metrics.Update(uint64(len(bb.Contents)))
-
-				log.Ctx(ctx).Trace().Int("contentLength", len(bb.Contents)).Dur("duration", time.Since(start)).Msg("Uploaded blob")
 
 				pool.Put(bb.Contents)
 			}
 		}()
 	}
 
-	var blobNumber int64 = 0
-	previousHashChannel := make(chan string, 1)
+	go func() {
+		var blobNumber int64 = 0
+		previousHashChannel := make(chan string, 1)
 
-	previousHashChannel <- EncodedMD5HashChainInitalValue
+		previousHashChannel <- EncodedMD5HashChainInitalValue
 
-	for {
+		for {
 
-		buffer := pool.Get(blockSize)
-		bytesRead, err := io.ReadFull(inputReader, buffer)
-		if blobNumber == 0 {
-			metrics.Start()
-		}
-
-		if bytesRead > 0 {
-			currentHashChannel := make(chan string, 1)
-
-			outputChannel <- BufferBlob{
-				BlobNumber:             blobNumber,
-				Contents:               buffer[:bytesRead],
-				PreviousCumulativeHash: previousHashChannel,
-				CurrentCumulativeHash:  currentHashChannel,
+			buffer := pool.Get(writeOptions.blockSize)
+			bytesRead, err := io.ReadFull(inputReader, buffer)
+			if blobNumber == 0 {
+				metrics.Start()
 			}
 
-			previousHashChannel = currentHashChannel
-			blobNumber++
+			if bytesRead > 0 {
+				currentHashChannel := make(chan string, 1)
+
+				outputChannel <- BufferBlob{
+					BlobNumber:             blobNumber,
+					Contents:               buffer[:bytesRead],
+					PreviousCumulativeHash: previousHashChannel,
+					CurrentCumulativeHash:  currentHashChannel,
+				}
+
+				previousHashChannel = currentHashChannel
+				blobNumber++
+			}
+
+			if err == io.EOF || err == io.ErrUnexpectedEOF {
+				break
+			}
+
+			if err != nil {
+				errorChannel <- fmt.Errorf("error reading from input: %w", err)
+			}
 		}
 
-		if err == io.EOF || err == io.ErrUnexpectedEOF {
+		currentHashChannel := make(chan string, 1)
+
+		outputChannel <- BufferBlob{
+			BlobNumber:             blobNumber,
+			Contents:               []byte{},
+			PreviousCumulativeHash: previousHashChannel,
+			CurrentCumulativeHash:  currentHashChannel,
+		}
+		close(outputChannel)
+
+		wg.Wait()
+		close(errorChannel)
+	}()
+
+	for err := range errorChannel {
+		if ctx.Err() != nil {
+			// this means the context was cancelled or timed out
+			// use a new context to write the end metadata
+			newCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			ctx = newCtx
+		}
+		writeEndMetadata(ctx, httpClient, container, BufferStatusFailed)
+
+		//lint:ignore SA4004 deliberately exiting after the first error
+		return err
+	}
+
+	writeEndMetadata(ctx, httpClient, container, BufferStatusComplete)
+	metrics.Stop()
+	return nil
+}
+
+func writeStartMetadata(ctx context.Context, httpClient *retryablehttp.Client, container *Container) error {
+	bufferStartMetadata := BufferStartMetadata{Version: CurrentBufferFormatVersion}
+	startBytes, err := json.Marshal(bufferStartMetadata)
+	if err != nil {
+		panic(fmt.Errorf("failed to marshal start metadata: %w", err))
+	}
+
+	md5Hash := md5.Sum(startBytes)
+	encodedMD5Hash := base64.StdEncoding.EncodeToString(md5Hash[:])
+
+	return uploadBlobWithRery(ctx, httpClient, container.GetStartMetadataUri(), startBytes, encodedMD5Hash, "")
+}
+
+func writeEndMetadata(ctx context.Context, httpClient *retryablehttp.Client, container *Container, status string) {
+	bufferEndMetadata := BufferEndMetadata{Status: status}
+	endBytes, err := json.Marshal(bufferEndMetadata)
+	if err != nil {
+		panic(fmt.Errorf("failed to marshal end metadata: %w", err))
+	}
+
+	md5Hash := md5.Sum(endBytes)
+	encodedMD5Hash := base64.StdEncoding.EncodeToString(md5Hash[:])
+
+	err = uploadBlobWithRery(ctx, httpClient, container.GetEndMetadataUri(), endBytes, encodedMD5Hash, "")
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to upload optional metadata at the end of the transfer")
+	}
+}
+
+func uploadBlobWithRery(ctx context.Context, httpClient *retryablehttp.Client, blobUrl string, body any, encodedMD5Hash string, encodedMD5HashChain string) error {
+	start := time.Now()
+	for i := 0; ; i++ {
+		req, err := retryablehttp.NewRequest(http.MethodPut, blobUrl, body)
+		if err != nil {
+			return fmt.Errorf("unable to create request: %w", err)
+		}
+
+		req = req.WithContext(ctx)
+
+		AddCommonBlobRequestHeaders(req.Header)
+		req.Header.Add("x-ms-blob-type", "BlockBlob")
+
+		req.Header.Add(ContentMD5Header, encodedMD5Hash)
+		if encodedMD5HashChain != "" {
+			req.Header.Add(HashChainHeader, encodedMD5HashChain)
+		}
+
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("unable to send request: %w", err)
+		}
+		err = handleWriteResponse(resp)
+		if err == nil {
 			break
 		}
 
-		if err != nil {
-			log.Fatal().Err(err).Msg("Error reading from input")
+		switch err {
+		case errMd5Mismatch:
+			if i < 5 {
+				log.Ctx(ctx).Debug().Msg("MD5 mismatch, retrying")
+				continue
+			} else {
+				return fmt.Errorf("failed to upload blob: %w", RedactHttpError(err))
+			}
+		case errBlobOverwrite:
+			if i == 0 {
+				return fmt.Errorf("buffer cannot be overwritten: %w", RedactHttpError(err))
+			}
+			// When retrying failed writes, we might encounter the UnauthorizedBlobOverwrite if the original
+			// write went through. In such cases, we should follow up with a HEAD request to verify the
+			// Content-MD5 and x-ms-meta-cumulative_md5_chain match our expectations.
+			req, err := retryablehttp.NewRequest(http.MethodHead, blobUrl, nil)
+			if err != nil {
+				return fmt.Errorf("unable to create HEAD request: %w", err)
+			}
+
+			resp, err := httpClient.Do(req)
+			if err != nil {
+				return fmt.Errorf("unable to send HEAD request: %w", err)
+			}
+
+			md5Header := resp.Header.Get(ContentMD5Header)
+			md5ChainHeader := resp.Header.Get(HashChainHeader)
+
+			if md5Header == encodedMD5Hash && md5ChainHeader == encodedMD5HashChain {
+				log.Ctx(ctx).Debug().Msg("Failed blob write actually went through")
+				return nil
+			}
+		case errBufferDoesNotExist:
+			return err
+		default:
+			return fmt.Errorf("failed to upload blob: %w", RedactHttpError(err))
 		}
 	}
 
-	currentHashChannel := make(chan string, 1)
-
-	outputChannel <- BufferBlob{
-		BlobNumber:             blobNumber,
-		Contents:               []byte{},
-		PreviousCumulativeHash: previousHashChannel,
-		CurrentCumulativeHash:  currentHashChannel,
+	if log.Ctx(ctx).GetLevel() >= zerolog.TraceLevel {
+		parsedUrl, _ := url.Parse(blobUrl)
+		e := log.Ctx(ctx).Trace().Str("blobPath", parsedUrl.Path).Dur("duration", time.Since(start))
+		if bytesBody, ok := body.([]byte); ok {
+			e = e.Int("contentLength", len(bytesBody))
+		} else if body == nil {
+			e = e.Int("contentLength", 0)
+		}
+		e.Msg("Uploaded blob")
 	}
-	close(outputChannel)
 
-	wg.Wait()
-	metrics.Stop()
+	return nil
 }
 
 func handleWriteResponse(resp *http.Response) error {
@@ -198,6 +324,11 @@ func handleWriteResponse(resp *http.Response) error {
 	case http.StatusCreated:
 		io.Copy(io.Discard, resp.Body)
 		return nil
+	case http.StatusNotFound:
+		if resp.Header.Get("x-ms-error-code") == "ContainerNotFound" {
+			return errBufferDoesNotExist
+		}
+		fallthrough
 	case http.StatusBadRequest:
 		if resp.Header.Get("x-ms-error-code") == "Md5Mismatch" {
 			io.Copy(io.Discard, resp.Body)

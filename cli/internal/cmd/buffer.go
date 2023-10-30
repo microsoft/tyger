@@ -12,7 +12,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 
 	"github.com/alecthomas/units"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
@@ -233,12 +235,31 @@ func NewBufferReadCommand(openFileFunc func(name string, flag int, perm fs.FileM
 				outputFile = os.Stdout
 			}
 
-			var proxyUri string
+			ctx, stopFunc := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+
+			go func() {
+				<-ctx.Done()
+				stopFunc()
+				log.Warn().Msg("Canceling...")
+			}()
+
+			options := []dataplane.ReadOption{dataplane.WithReadDop(dop)}
 			if serviceInfo, err := controlplane.GetPersistedServiceInfo(); err == nil {
-				proxyUri = serviceInfo.GetDataPlaneProxy()
+				if proxyUri := serviceInfo.GetDataPlaneProxy(); proxyUri != "" {
+					httpClient, err := dataplane.CreateHttpClient(ctx, proxyUri)
+					if err != nil {
+						log.Fatal().Err(err).Msg("Failed to create HTTP client")
+					}
+					options = append(options, dataplane.WithReadHttpClient(httpClient))
+				}
 			}
 
-			dataplane.Read(uri, proxyUri, dop, outputFile)
+			if err := dataplane.Read(ctx, uri, outputFile, options...); err != nil {
+				if errors.Is(err, ctx.Err()) {
+					err = ctx.Err()
+				}
+				log.Fatal().Err(err).Msg("Failed to read buffer")
+			}
 		},
 	}
 
@@ -263,20 +284,6 @@ func NewBufferWriteCommand(openFileFunc func(name string, flag int, perm fs.File
 
 			if dop < 1 {
 				log.Fatal().Msg("the degree of parallelism (dop) must be at least 1")
-			}
-
-			blockSize := dataplane.DefaultBlockSize
-
-			if blockSizeString != "" {
-				if blockSizeString != "" && blockSizeString[len(blockSizeString)-1] != 'B' {
-					blockSizeString += "B"
-				}
-				parsedBlockSize, err := units.ParseBase2Bytes(blockSizeString)
-				if err != nil {
-					log.Fatal().Err(err).Msg("Invalid block size")
-				}
-
-				blockSize = int(parsedBlockSize)
 			}
 
 			uri, err := dataplane.GetUriFromAccessString(args[0])
@@ -309,12 +316,43 @@ func NewBufferWriteCommand(openFileFunc func(name string, flag int, perm fs.File
 				inputReader = os.Stdin
 			}
 
-			var proxyUri string
-			if serviceInfo, err := controlplane.GetPersistedServiceInfo(); err == nil {
-				proxyUri = serviceInfo.GetDataPlaneProxy()
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			go func() {
+				<-ctx.Done()
+				stop()
+				log.Warn().Msg("Canceling...")
+			}()
+
+			writeOptions := []dataplane.WriteOption{dataplane.WithWriteDop(dop)}
+			if blockSizeString != "" {
+				if blockSizeString != "" && blockSizeString[len(blockSizeString)-1] != 'B' {
+					blockSizeString += "B"
+				}
+				parsedBlockSize, err := units.ParseBase2Bytes(blockSizeString)
+				if err != nil {
+					log.Fatal().Err(err).Msg("Invalid block size")
+				}
+
+				writeOptions = append(writeOptions, dataplane.WithWriteBlockSize(int(parsedBlockSize)))
 			}
 
-			dataplane.Write(uri, proxyUri, dop, blockSize, inputReader, false)
+			if serviceInfo, err := controlplane.GetPersistedServiceInfo(); err == nil {
+				if proxyUrl := serviceInfo.GetDataPlaneProxy(); proxyUrl != "" {
+					httpClient, err := dataplane.CreateHttpClient(ctx, proxyUrl)
+					if err != nil {
+						log.Fatal().Err(err).Msg("Failed to create HTTP client")
+					}
+					writeOptions = append(writeOptions, dataplane.WithWriteHttpClient(httpClient))
+				}
+			}
+
+			err = dataplane.Write(ctx, uri, inputReader, writeOptions...)
+			if err != nil {
+				if errors.Is(err, ctx.Err()) {
+					err = ctx.Err()
+				}
+				log.Fatal().Err(err).Msg("Failed to write buffer")
+			}
 		},
 	}
 
