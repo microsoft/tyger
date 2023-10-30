@@ -69,7 +69,7 @@ public static class Database
     /// Some ceremory to plumb in the JsonSerializerOptions we want to use for JSONB columns.
     /// Adapted from https://github.com/npgsql/efcore.pg/issues/1107#issuecomment-945126627
     /// </summary>
-    private class JsonOverrideTypeHandlerResolverFactory : TypeHandlerResolverFactory
+    private sealed class JsonOverrideTypeHandlerResolverFactory : TypeHandlerResolverFactory
     {
         private readonly JsonSerializerOptions _jsonSerializerOptions;
 
@@ -81,7 +81,7 @@ public static class Database
 
         public override TypeMappingInfo? GetMappingByDataTypeName(string dataTypeName) => null;
 
-        private class JsonOverrideTypeHandlerResolver : TypeHandlerResolver
+        private sealed class JsonOverrideTypeHandlerResolver : TypeHandlerResolver
         {
             private readonly JsonHandler _jsonbHandler;
 

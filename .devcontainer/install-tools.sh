@@ -16,5 +16,8 @@ wget "https://github.com/uzimaru0000/tv/releases/download/${TV_VERSION}/tv-x86_6
 && mv tv-x86_64-unknown-linux-gnu/tv /usr/bin
 
 # install kubelogin
-KUBELOGIN_VERSION=0.0.30
+KUBELOGIN_VERSION=0.0.33
 sudo az aks install-cli --kubelogin-version "${KUBELOGIN_VERSION}" --install-location "/dev/null"
+
+# install dotnet-symbol
+dotnet tool install dotnet-symbol --global

@@ -44,7 +44,7 @@ public class RunUpdater
         };
 
         await _repository.UpdateRun(newRun, cancellationToken: cancellationToken);
-        _logger.LogInformation("Canceling job {0}", id);
+        _logger.CancelingRun(id);
 
         var annotation = new Dictionary<string, string>
         {

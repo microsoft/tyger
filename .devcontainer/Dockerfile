@@ -25,31 +25,50 @@ FROM mcr.microsoft.com/vscode/devcontainers/base:0.201.8-focal AS devcontainer
 
 # Install needed packages and setup non-root user.
 ARG USERNAME="vscode"
+
+# Set devcontainer features environment variables https://containers.dev/implementors/features/#user-env-var
+ARG _REMOTE_USER=${USERNAME}
+ARG _CONTAINER_USER=${USERNAME}
+ARG _REMOTE_USER_HOME=/home/${USERNAME}
+ARG _CONTAINER_USER_HOME=/home/${USERNAME}
+
 ARG USER_UID=1000
 ARG USER_GID=$USER_UID
 ARG CONDA_GID=900
 ARG CONDA_ENVIRONMENT_NAME=tyger
-ARG VSCODE_DEV_CONTAINERS_SCRIPT_LIBRARY_VERSION=v0.229.0
 
-# Use the OSS Moby CLI instead of the licensed Docker CLI
-ARG USE_MOBY="false"
-ARG DOCKER_VERSION="20.10"
-RUN script=$(curl -fsSL "https://raw.githubusercontent.com/devcontainers/features/8d3685e09f18dd8b0a6bce50abe3e868dac27a69/src/docker-outside-of-docker/install.sh") \
-    && MOBY=${USE_MOBY} VERSION=${DOCKER_VERSION} bash -c "$script"
+RUN groupadd -r conda --gid ${CONDA_GID} \
+    && usermod -aG conda ${USERNAME}
 
-ARG AZ_CLI_VERSION=2.52.0
-RUN script=$(curl -fsSL "https://raw.githubusercontent.com/devcontainers/features/8d3685e09f18dd8b0a6bce50abe3e868dac27a69/src/azure-cli/install.sh") \
-    && VERSION=${AZ_CLI_VERSION} bash -c "$script"
+ENV GOROOT="/usr/local/go"
+ENV GOPATH="/go"
+ENV "PATH"="/usr/local/go/bin:/go/bin:/usr/share/dotnet:${PATH}"
 
-ARG POWERSHELL_VERSION=7.3.3
-RUN script=$(curl -fsSL "https://raw.githubusercontent.com/devcontainers/features/8d3685e09f18dd8b0a6bce50abe3e868dac27a69/src/powershell/install.sh") \
-    && VERSION=${POWERSHELL_VERSION} bash -c "$script"
-
-
-ARG KUBECTL_VERSION=1.26.3
-ARG HELM_VERSION=3.11.2
-RUN script=$(curl -fsSL "https://raw.githubusercontent.com/devcontainers/features/8d3685e09f18dd8b0a6bce50abe3e868dac27a69/src/kubectl-helm-minikube/install.sh") \
-    && VERSION=${KUBECTL_VERSION} HELM=${HELM_VERSION} MINIKUBE=none bash -c "$script"
+RUN umask 0002 \
+    &&  git clone https://github.com/devcontainers/features.git /opt/features \
+    && cd /opt/features \
+    && git checkout 4fca96b5e8a4bfc93679098cb19d73c65ce571eb \
+    # DOCKER
+    && cd /opt/features/src/docker-outside-of-docker \
+    && MOBY=false VERSION=24.0.6 DOCKERDASHCOMPOSEVERSION=none bash install.sh \
+    # AZURE CLI
+    && cd /opt/features/src/azure-cli \
+    && VERSION=2.53.1 bash install.sh \
+    # POWERSHELL
+    && cd /opt/features/src/powershell \
+    && VERSION=7.3.9 bash install.sh \
+    # KUBECTL
+    && cd /opt/features/src/kubectl-helm-minikube \
+    && VERSION=1.28.3 HELM=3.13.1 MINIKUBE=none bash install.sh \
+    # DOTNET
+    && cd /opt/features/src/dotnet \
+    && VERSION=7.0.403 bash install.sh \
+    # GO
+    && cd /opt/features/src/go \
+    && VERSION=1.21.3 bash install.sh \
+    && chown -R "${USERNAME}:conda" "${GOROOT}" "${GOPATH}" \
+    # cleanup
+    && rm -rf /opt/features
 
 # Setting the ENTRYPOINT to docker-init.sh will configure non-root access to
 # the Docker socket if "overrideCommand": false is set in devcontainer.json.
@@ -57,7 +76,7 @@ RUN script=$(curl -fsSL "https://raw.githubusercontent.com/devcontainers/feature
 ENTRYPOINT [ "/usr/local/share/docker-init.sh" ]
 CMD [ "sleep", "infinity" ]
 
-ARG MAMBAFORGE_VERSION=22.9.0-2
+ARG MAMBAFORGE_VERSION=23.3.1-1
 
 # Based on https://github.com/conda-forge/miniforge-images/blob/master/ubuntu/Dockerfile
 RUN wget --no-hsts --quiet https://github.com/conda-forge/miniforge/releases/download/${MAMBAFORGE_VERSION}/Mambaforge-${MAMBAFORGE_VERSION}-Linux-$(uname -m).sh -O /tmp/miniforge.sh \
@@ -67,8 +86,6 @@ RUN wget --no-hsts --quiet https://github.com/conda-forge/miniforge/releases/dow
     && find /opt/conda -follow -type f -name '*.a' -delete \
     && find /opt/conda -follow -type f -name '*.pyc' -delete \
     && /opt/conda/bin/conda clean --force-pkgs-dirs --all --yes  \
-    && groupadd -r conda --gid ${CONDA_GID} \
-    && usermod -aG conda ${USERNAME} \
     && chown -R :conda /opt/conda \
     && chmod -R g+w /opt/conda \
     && find /opt -type d | xargs -n 1 chmod g+s
@@ -80,30 +97,11 @@ RUN umask 0002 \
     && /opt/conda/bin/mamba clean -fy \
     && sudo chown -R :conda /opt/conda/envs
 
-# Install Go
-ARG GO_VERSION=1.21.0
-ENV GOROOT="/usr/local/go"
-ENV GOPATH="/go"
-ENV "PATH"="/usr/local/go/bin:/go/bin:${PATH}"
-RUN umask 0002 \
-    && script=$(curl -fsSL "https://raw.githubusercontent.com/devcontainers/features/8d3685e09f18dd8b0a6bce50abe3e868dac27a69/src/go/install.sh") \
-    && VERSION=${GO_VERSION} TARGET_GOPATH=${GOPATH} TARGET_GOROOT=${GOROOT} bash -c "$script" \
-    && chown -R "${USERNAME}:conda" "${GOROOT}" "${GOPATH}"
-
 WORKDIR /opt/temp
 COPY --from=file-normalizer /data/install-tools.sh .
 RUN umask 0002 && ./install-tools.sh
 
 USER vscode:conda
-
-# .NET Download symbols
-ARG DOTNET_RUNTIME_VERSION=7.0.0
-ENV PATH=${PATH}:/home/vscode/.dotnet/tools
-SHELL ["/bin/bash", "-e", "-c"]
-RUN umask 0002 \
-    && . /opt/conda/etc/profile.d/conda.sh \
-    && conda activate ${CONDA_ENVIRONMENT_NAME} \
-    && dotnet tool install dotnet-symbol --global
 
 USER root
 
@@ -114,6 +112,7 @@ COPY --from=file-normalizer /data/devcontainer.bashrc /opt/devcontainer/
 # We can't just write to .bashrc from here because it will be overwritten if the devcontainer user has
 # opted to use their own dotfiles repo. The dotfiles repo is cloned after the postCreateCommand
 # in the devcontainer.json file is executed.
+SHELL ["/bin/bash", "-e", "-c"]
 RUN echo -e "\n\
 if ! grep -q \"^source /opt/devcontainer/devcontainer.bashrc\" \${HOME}/.bashrc; then\n\
 	echo \"source /opt/devcontainer/devcontainer.bashrc\" >> \${HOME}/.bashrc\n\

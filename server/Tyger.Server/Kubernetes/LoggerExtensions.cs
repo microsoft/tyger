@@ -10,7 +10,10 @@ public static partial class LoggerExtensions
     [LoggerMessage(2, LogLevel.Information, "Created run {runId}")]
     public static partial void CreatedRun(this ILogger logger, long runId);
 
-    [LoggerMessage(3, LogLevel.Information, "Canceled run {runId}")]
+    [LoggerMessage(3, LogLevel.Information, "Canceling run {runId}")]
+    public static partial void CancelingRun(this ILogger logger, long runId);
+
+    [LoggerMessage(4, LogLevel.Information, "Canceled run {runId}")]
     public static partial void CanceledRun(this ILogger logger, long runId);
 
     [LoggerMessage(5, LogLevel.Error, "The job {job} for run was not found in the cluster")]
@@ -39,4 +42,5 @@ public static partial class LoggerExtensions
 
     [LoggerMessage(16, LogLevel.Information, "Restarting watch after exception")]
     public static partial void RestartingWatchAfterException(this ILogger logger, Exception exception);
+
 }

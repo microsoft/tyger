@@ -32,7 +32,7 @@ public class QuantityConverter : JsonConverter<ResourceQuantity>
     }
 }
 
-internal class CodespecConverter : JsonConverter<Codespec>
+internal sealed class CodespecConverter : JsonConverter<Codespec>
 {
     public override Codespec? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {

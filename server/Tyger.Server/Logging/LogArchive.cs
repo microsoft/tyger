@@ -89,7 +89,7 @@ public class LogArchive : ILogArchive
         return new BlobClient(_storageAccountConnectionString, "runs", runId.ToString(CultureInfo.InvariantCulture));
     }
 
-    private class LogFilter : IPipelineElement
+    private sealed class LogFilter : IPipelineElement
     {
         private readonly bool _includeTimestamps;
 
