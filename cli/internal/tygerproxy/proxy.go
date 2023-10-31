@@ -19,7 +19,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/hashicorp/go-cleanhttp"
-	"github.com/mattn/go-ieproxy"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/httpclient"
@@ -54,7 +53,7 @@ func RunProxy(serviceInfo controlplane.ServiceInfo, options *ProxyOptions, logge
 		serviceInfo:           serviceInfo,
 		targetControlPlaneUri: controlPlaneTargetUri,
 		options:               options,
-		nextProxyFunc:         ieproxy.GetProxyFunc(),
+		nextProxyFunc:         httpclient.GetProxyFunc(),
 	}
 
 	r := chi.NewRouter()
@@ -349,7 +348,6 @@ func (h *proxyHandler) handleTunnelRequest(w http.ResponseWriter, r *http.Reques
 	}
 	var destConn net.Conn
 	if nextProxyUrl != nil {
-		log.Info().Msgf("Forwarding tunnel to %s", nextProxyUrl.String())
 		destConn, err = openTunnel(nextProxyUrl.Host, r.URL)
 		if err != nil {
 			log.Ctx(r.Context()).Warn().Err(err).Msg("Failed to dial proxy")

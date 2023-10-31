@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
-	"github.com/mattn/go-ieproxy"
+	"github.com/microsoft/tyger/cli/internal/httpclient"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -61,7 +61,7 @@ func CreateHttpClient(ctx context.Context, proxyUri string) (*retryablehttp.Clie
 		}
 		transport.Proxy = http.ProxyURL(proxyUrl)
 	} else {
-		transport.Proxy = ieproxy.GetProxyFunc()
+		transport.Proxy = httpclient.GetProxyFunc()
 	}
 
 	return client, nil
