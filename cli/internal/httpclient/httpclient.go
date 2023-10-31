@@ -13,7 +13,18 @@ var (
 )
 
 func GetProxyFunc() func(*http.Request) (*url.URL, error) {
-	return ieproxy.GetProxyFunc()
+	innerFunc := ieproxy.GetProxyFunc()
+	return func(req *http.Request) (*url.URL, error) {
+		if req.URL.Scheme == "http" {
+			// We will not use an HTTP proxy when when not using TLS.
+			// The only supported scenario for using http and not https is
+			// when using using tyger to call tyger-proxy. In that case, we
+			// want to connect to tyger-proxy directly, and not through a proxy.
+			return nil, nil
+		}
+
+		return innerFunc(req)
+	}
 }
 
 func NewRetryableClient() *http.Client {
