@@ -10,7 +10,7 @@ services:
     dns: 127.0.0.1
     command: ["sleep", "infinity"]
 
-  mars:
+  client:
     build:
       dockerfile: Dockerfile
     dns: 127.0.0.1

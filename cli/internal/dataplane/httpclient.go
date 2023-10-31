@@ -61,19 +61,7 @@ func CreateHttpClient(ctx context.Context, proxyUri string) (*retryablehttp.Clie
 		}
 		transport.Proxy = http.ProxyURL(proxyUrl)
 	} else {
-		f := ieproxy.GetProxyFunc()
-		client.HTTPClient.Transport.(*http.Transport).Proxy = func(r *http.Request) (*url.URL, error) {
-			url, err := f(r)
-			if err != nil {
-				log.Error().Str("url", r.URL.String()).Err(err).Msg("Failed to retrieve proxy settings")
-			}
-			if url != nil {
-				log.Trace().Str("url", r.URL.String()).Msgf("Using proxy %s", url.String())
-			} else {
-				log.Trace().Str("url", r.URL.String()).Msg("Not using any proxy")
-			}
-			return url, err
-		}
+		transport.Proxy = ieproxy.GetProxyFunc()
 	}
 
 	return client, nil

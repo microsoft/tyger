@@ -1,5 +1,7 @@
 #! /bin/bash
 
+# This tests that requests can flow from from a tyger CLI client to a tyger proxy, through a squid proxy, and to a server.
+
 set -euo pipefail
 
 this_dir="$(readlink -f "$( dirname "$0")")"
@@ -9,6 +11,7 @@ docker compose create --build
 docker compose start squid
 
 buffer_id=$(tyger buffer create)
+echo "hi" | tyger buffer write "${buffer_id}"
 
 config=$("${this_dir}/../get-config.sh" -o json)
 tyger_uri="https://$(echo "$config" | jq -r '.api.domainName')"
@@ -25,9 +28,9 @@ cred_file=$(mktemp)
     echo "logPath: /logs"
 } >> "$cred_file"
 
-
+# Load binaries and credentials into the containers
 docker compose cp "$(which tyger)" tyger-proxy:/usr/local/bin
-docker compose cp "$(which tyger)" mars:/usr/local/bin
+docker compose cp "$(which tyger)" client:/usr/local/bin
 docker compose cp "$(which tyger-proxy)" tyger-proxy:/usr/local/bin
 docker compose cp "$cert_file_path" tyger-proxy:/client_cert.pem
 docker compose cp "$cred_file" tyger-proxy:/creds.yml
@@ -42,11 +45,14 @@ docker compose exec -T tyger-proxy bash -c "if curl -s --fail https://microsoft.
 docker compose exec -T tyger-proxy bash -c "if ! curl -s --proxy ${proxy} --fail https://microsoft.com; then echo 'expected call to succeed with a proxy configured'; exit 1; fi"
 docker compose exec -T tyger-proxy bash -c "export HTTPS_PROXY=${proxy}; tyger login -f /creds.yml && tyger buffer access ${buffer_id} > /dev/null"
 
-# now start up the tyger proxy
-# docker compose exec -T tyger-proxy bash -c "export HTTPS_PROXY=${proxy}; tyger-proxy start -f /creds.yml"
+# Now start up the tyger proxy
+docker compose exec -T tyger-proxy bash -c "export HTTPS_PROXY=${proxy}; tyger-proxy start -f /creds.yml"
 
-docker compose start mars
+# And connect to it from a client and verify that requests flow from client -> tyger-proxy -> squid -> server
+docker compose start client
+docker compose exec -T client bash -c "tyger login http://tyger-proxy:6888"
+docker compose exec -T client bash -c "tyger buffer read ${buffer_id}"
 
-# docker compose kill
-# docker compose down
-# docker compose rm
+docker compose kill
+docker compose down
+docker compose rm
