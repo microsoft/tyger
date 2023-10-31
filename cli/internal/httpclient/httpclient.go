@@ -27,3 +27,18 @@ func NewRetryableClient() *http.Client {
 
 	return client.StandardClient()
 }
+
+// Makes http.DefaultClient and http.DefaultTransport panic
+// when used. We want to avoid these because they will not have
+// been properly set up to use any required proxy.
+func DisableDefaultTransport() {
+	http.DefaultClient.Transport = &disabledTransport{}
+	http.DefaultTransport = &disabledTransport{}
+}
+
+type disabledTransport struct {
+}
+
+func (t *disabledTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	panic("Default transport has been disabled")
+}

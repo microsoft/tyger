@@ -7,13 +7,13 @@ services:
   tyger-proxy:
     build:
       dockerfile: Dockerfile
-    dns: 127.0.0.1
+    dns: 127.0.0.1 # DNS will not resove anything outside of the docker network
     command: ["sleep", "infinity"]
 
   client:
     build:
       dockerfile: Dockerfile
-    dns: 127.0.0.1
+    dns: 127.0.0.1 # DNS will not resove anything outside of the docker network
     command: ["sleep", "infinity"]
 
 networks:

@@ -2,10 +2,10 @@ package cmd
 
 import (
 	"io"
-	"net/http"
 	"os"
 	"time"
 
+	"github.com/microsoft/tyger/cli/internal/httpclient"
 	"github.com/microsoft/tyger/cli/internal/logging"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -33,9 +33,6 @@ func NewCommonRootCommand(commit string) *cobra.Command {
 		Version:      commit,
 		SilenceUsage: true,
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
-			http.DefaultClient.Transport = &disabledTransport{}
-			http.DefaultTransport = &disabledTransport{}
-
 			if logFormat == Unspecified {
 				if isStdErrTerminal() {
 					logFormat = Pretty
@@ -63,6 +60,8 @@ func NewCommonRootCommand(commit string) *cobra.Command {
 			ctx := logging.SetLogSinkOnContext(cmd.Context(), logSink)
 			ctx = log.Logger.WithContext(ctx)
 			cmd.SetContext(ctx)
+
+			httpclient.DisableDefaultTransport()
 		},
 	}
 
@@ -103,11 +102,4 @@ func NewCommonRootCommand(commit string) *cobra.Command {
 func isStdErrTerminal() bool {
 	o, _ := os.Stderr.Stat()
 	return (o.Mode() & os.ModeCharDevice) == os.ModeCharDevice
-}
-
-type disabledTransport struct {
-}
-
-func (t *disabledTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	panic("Default transport has been disabled")
 }

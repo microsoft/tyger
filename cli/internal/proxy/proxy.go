@@ -187,7 +187,7 @@ func (h *proxyHandler) handleMetadataRequest(w http.ResponseWriter, r *http.Requ
 
 func (h *proxyHandler) forwardControlPlaneRequest(w http.ResponseWriter, r *http.Request) {
 	proxyReq := r.Clone(r.Context())
-	proxyReq.RequestURI = ""
+	proxyReq.RequestURI = "" // need to clear this since the instance will be used for a new request
 	proxyReq.URL.Scheme = h.targetControlPlaneUri.Scheme
 	proxyReq.URL.Host = h.targetControlPlaneUri.Host
 	proxyReq.Host = h.targetControlPlaneUri.Host
