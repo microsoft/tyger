@@ -5,7 +5,7 @@ import (
 )
 
 const (
-	CurrentBufferFormatVersion = "0.1.0"
+	CurrentBufferFormatVersion = "0.2.0"
 
 	BufferStatusComplete = "complete"
 	BufferStatusFailed   = "failed"
