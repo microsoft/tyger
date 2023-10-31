@@ -386,6 +386,8 @@ func (h *proxyHandler) handleTunnelRequest(w http.ResponseWriter, r *http.Reques
 	}()
 }
 
+// Returns a connection that is created after successfully calling CONNECT
+// on another proxy server
 func openTunnel(proxyAddress string, destination *url.URL) (net.Conn, error) {
 	connectReq := &http.Request{
 		Method: http.MethodConnect,
