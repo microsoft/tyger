@@ -18,8 +18,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/hashicorp/go-cleanhttp"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
+	"github.com/microsoft/tyger/cli/internal/httpclient"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -139,7 +141,9 @@ func CheckProxyAlreadyRunning(options *ProxyOptions) (*ProxyServiceMetadata, err
 }
 
 func GetExistingProxyMetadata(options *ProxyOptions) *ProxyServiceMetadata {
-	resp, err := http.Get(fmt.Sprintf("http://localhost:%d/v1/metadata", options.Port))
+	// note: not using retryablehttp here because we are hitting localhost
+	// and we want to fail quickly
+	resp, err := cleanhttp.DefaultClient().Get(fmt.Sprintf("http://localhost:%d/v1/metadata", options.Port))
 	if err == nil && resp.StatusCode == http.StatusOK {
 		metadata := ProxyServiceMetadata{}
 		err = json.NewDecoder(resp.Body).Decode(&metadata)
@@ -181,6 +185,7 @@ func (h *proxyHandler) handleMetadataRequest(w http.ResponseWriter, r *http.Requ
 
 func (h *proxyHandler) forwardControlPlaneRequest(w http.ResponseWriter, r *http.Request) {
 	proxyReq := r.Clone(r.Context())
+	proxyReq.RequestURI = ""
 	proxyReq.URL.Scheme = h.targetControlPlaneUri.Scheme
 	proxyReq.URL.Host = h.targetControlPlaneUri.Host
 	proxyReq.Host = h.targetControlPlaneUri.Host
@@ -197,8 +202,7 @@ func (h *proxyHandler) forwardControlPlaneRequest(w http.ResponseWriter, r *http
 	}
 
 	proxyReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	resp, err := http.DefaultTransport.RoundTrip(proxyReq)
+	resp, err := httpclient.DefaultRetryableClient.Transport.RoundTrip(proxyReq)
 	if err != nil {
 		log.Ctx(r.Context()).Error().Err(err).Msg("Failed to forward request")
 		http.Error(w, "Bad Gateway", http.StatusBadGateway)

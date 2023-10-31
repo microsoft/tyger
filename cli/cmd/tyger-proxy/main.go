@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/microsoft/tyger/cli/internal/cmd"
-	"github.com/microsoft/tyger/cli/internal/proxy"
+	proxy "github.com/microsoft/tyger/cli/internal/tygerproxy"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"sigs.k8s.io/yaml"

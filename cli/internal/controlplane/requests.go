@@ -14,6 +14,7 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
+	"github.com/microsoft/tyger/cli/internal/httpclient"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel/propagation"
@@ -73,7 +74,7 @@ func InvokeRequestWithHeaders(ctx context.Context, method string, relativeUri st
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 	}
 
-	resp, err := NewRetryableClient().Do(req)
+	resp, err := httpclient.DefaultRetryableClient.Do(req)
 	if err != nil {
 		return resp, fmt.Errorf("unable to connect to server: %v", err)
 	}

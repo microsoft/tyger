@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  squid:
+    image: ubuntu/squid
+
+  tyger-proxy:
+    build:
+      dockerfile: Dockerfile
+    dns: 127.0.0.1
+    command: ["sleep", "infinity"]
+
+  mars:
+    build:
+      dockerfile: Dockerfile
+    dns: 127.0.0.1
+    command: ["sleep", "infinity"]
+
+networks:
+  default:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 192.168.250.0/24
