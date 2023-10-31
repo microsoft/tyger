@@ -3,7 +3,7 @@
 {
   "name": "Tyger",
 
-  "image": "compimagdevcontainers.azurecr.io/tyger@sha256:4d208439d99d0d99c50f17fcdf524e4ba9e42802f50e0572e4beb8052081a6f9",
+  "image": "compimagdevcontainers.azurecr.io/tyger@sha256:db70264c6162b7b72c3da2b532d5c640f510bff4e3d0658036b1261d8ec1369b",
 
   "runArgs": [
     "--init",

@@ -72,7 +72,7 @@ public static class OpenApi
     }
 }
 
-internal class ModelBaseSchemaFilter : ISchemaFilter
+internal sealed class ModelBaseSchemaFilter : ISchemaFilter
 {
     public void Apply(OpenApiSchema schema, SchemaFilterContext context)
     {
@@ -87,7 +87,7 @@ internal class ModelBaseSchemaFilter : ISchemaFilter
 }
 
 // Workaround for https://github.com/microsoft/OpenAPI.NET/issues/1132
-internal class ParameterStyleWorkaroundFilter : IOperationFilter
+internal sealed class ParameterStyleWorkaroundFilter : IOperationFilter
 {
     public void Apply(OpenApiOperation operation, OperationFilterContext context)
     {

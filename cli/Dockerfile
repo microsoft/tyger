@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/oss/go/microsoft/golang:1.21.0-bullseye as go-build
+FROM mcr.microsoft.com/oss/go/microsoft/golang:1.21.3-bullseye as go-build
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     upx \

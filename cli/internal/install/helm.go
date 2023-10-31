@@ -12,6 +12,7 @@ import (
 
 	"dario.cat/mergo"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
+	"github.com/microsoft/tyger/cli/internal/httpclient"
 	helmclient "github.com/mittwald/go-helm-client"
 	"github.com/rs/zerolog/log"
 	"helm.sh/helm/v3/pkg/repo"
@@ -270,7 +271,7 @@ func InstallTyger(ctx context.Context) error {
 	healthCheckEndpoint := fmt.Sprintf("%s/healthcheck", baseEndpoint)
 
 	for i := 0; ; i++ {
-		resp, err := http.Get(healthCheckEndpoint)
+		resp, err := httpclient.DefaultRetryableClient.Get(healthCheckEndpoint)
 		errorLogger := log.Debug()
 		exit := false
 		if i == 30 {

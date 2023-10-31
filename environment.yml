@@ -6,7 +6,6 @@ channels:
 dependencies:
   - autopep8=1.6.0
   - bash-completion=2.11
-  - dotnet=7.0.100
   - dvc-azure=2.21.0
   - gh=2.32.1
   - h5py=3.2.1

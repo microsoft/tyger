@@ -82,7 +82,7 @@ public class BufferManager : IHealthCheck
         }
         catch (RequestFailedException e) when (e.ErrorCode == "InvalidResourceName")
         {
-            _logger.LogWarning(e, "GetBlobContainerClient threw an InvalidResourceName Exception");
+            _logger.InvalidResourceName(id);
         }
 
         return null;

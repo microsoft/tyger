@@ -38,7 +38,7 @@ public static class Buffers
 
                 foreach (var tag in context.Request.Query)
                 {
-                    if (tag.Key.StartsWith("tag."))
+                    if (tag.Key.StartsWith("tag.", StringComparison.Ordinal))
                     {
                         tagQuery.Add(tag.Key[4..], tag.Value.FirstOrDefault() ?? "");
                     }

@@ -7,8 +7,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
+	"os"
 	"path"
 	"path/filepath"
 	"sync"
@@ -16,6 +16,7 @@ import (
 
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
+	"github.com/microsoft/tyger/cli/internal/httpclient"
 	"github.com/microsoft/tyger/cli/internal/proxy"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
@@ -45,7 +46,7 @@ timeoutSeconds: 600`
 
 	tempDir := t.TempDir()
 	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
-	require.NoError(ioutil.WriteFile(runSpecPath, []byte(runSpec), 0644))
+	require.NoError(os.WriteFile(runSpecPath, []byte(runSpec), 0644))
 
 	runId := runTygerSucceeds(t, "run", "create", "--file", runSpecPath)
 
@@ -174,7 +175,7 @@ func TestProxiedRequestsFromAllowedCIDR(t *testing.T) {
 
 	closeProxy, err := proxy.RunProxy(serviceInfo, &proxyOptions, logger)
 	defer closeProxy()
-	resp, err := http.Get(fmt.Sprintf("http://localhost:%d/v1/metadata", proxyOptions.Port))
+	resp, err := httpclient.DefaultRetryableClient.Get(fmt.Sprintf("http://localhost:%d/v1/metadata", proxyOptions.Port))
 	require.NoError(err)
 	require.Equal(http.StatusOK, resp.StatusCode)
 }
@@ -195,12 +196,12 @@ func TestProxiedRequestsFromDisallowedAllowedCIDR(t *testing.T) {
 
 	closeProxy, err := proxy.RunProxy(serviceInfo, &proxyOptions, logger)
 	defer closeProxy()
-	resp, err := http.Get(fmt.Sprintf("http://localhost:%d/v1/runs/1", proxyOptions.Port))
+	resp, err := httpclient.DefaultRetryableClient.Get(fmt.Sprintf("http://localhost:%d/v1/runs/1", proxyOptions.Port))
 	require.NoError(err)
 	require.Equal(http.StatusForbidden, resp.StatusCode)
 
 	// The metadata endpoint should still be accssible from the loopback address
-	resp, err = http.Get(fmt.Sprintf("http://localhost:%d/v1/metadata", proxyOptions.Port))
+	resp, err = httpclient.DefaultRetryableClient.Get(fmt.Sprintf("http://localhost:%d/v1/metadata", proxyOptions.Port))
 	require.NoError(err)
 	require.Equal(http.StatusOK, resp.StatusCode)
 }

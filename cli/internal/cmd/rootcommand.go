@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/microsoft/tyger/cli/internal/httpclient"
 	"github.com/microsoft/tyger/cli/internal/logging"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -59,6 +60,8 @@ func NewCommonRootCommand(commit string) *cobra.Command {
 			ctx := logging.SetLogSinkOnContext(cmd.Context(), logSink)
 			ctx = log.Logger.WithContext(ctx)
 			cmd.SetContext(ctx)
+
+			httpclient.DisableDefaultTransport()
 		},
 	}
 

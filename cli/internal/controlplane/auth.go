@@ -21,6 +21,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
+	"github.com/microsoft/tyger/cli/internal/httpclient"
 	"sigs.k8s.io/yaml"
 )
 
@@ -173,7 +174,7 @@ func (c *serviceInfo) GetAccessToken() (string, error) {
 		customHttpClient := &clientIdReplacingHttpClient{
 			clientAppUri: c.ClientAppUri,
 			clientAppId:  c.ClientId,
-			innerClient:  http.DefaultClient,
+			innerClient:  httpclient.DefaultRetryableClient,
 		}
 
 		// fall back to using the refresh token from the cache
@@ -315,7 +316,7 @@ func readCachedContents(path string) ([]byte, error) {
 }
 
 func getServiceMetadata(serverUri string) (*model.ServiceMetadata, error) {
-	resp, err := NewRetryableClient().Get(fmt.Sprintf("%s/v1/metadata", serverUri))
+	resp, err := httpclient.DefaultRetryableClient.Get(fmt.Sprintf("%s/v1/metadata", serverUri))
 	if err != nil {
 		return nil, err
 	}
@@ -335,7 +336,7 @@ func (si *serviceInfo) performServicePrincipalLogin() (authResult confidential.A
 			return authResult, fmt.Errorf("error creating credential: %w", err)
 		}
 
-		client, err := confidential.New(si.Authority, si.Principal, cred)
+		client, err := confidential.New(si.Authority, si.Principal, cred, confidential.WithHTTPClient(httpclient.DefaultRetryableClient))
 		if err != nil {
 			return authResult, err
 		}
@@ -381,6 +382,7 @@ func (si *serviceInfo) performUserLogin(useDeviceCode bool) (authResult public.A
 		si.ClientAppUri,
 		public.WithAuthority(si.Authority),
 		public.WithCache(si),
+		public.WithHTTPClient(httpclient.DefaultRetryableClient),
 	)
 	if err != nil {
 		return

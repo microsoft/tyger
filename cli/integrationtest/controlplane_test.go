@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"os/exec"
@@ -25,6 +24,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
+	"github.com/microsoft/tyger/cli/internal/httpclient"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/require"
@@ -154,7 +154,7 @@ timeoutSeconds: 600`, BasicImage)
 
 	tempDir := t.TempDir()
 	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
-	require.NoError(ioutil.WriteFile(runSpecPath, []byte(runSpec), 0644))
+	require.NoError(os.WriteFile(runSpecPath, []byte(runSpec), 0644))
 
 	// create run
 	runId := runTygerSucceeds(t, "run", "create", "--file", runSpecPath)
@@ -202,7 +202,7 @@ timeoutSeconds: 600`, BasicImage)
 
 	tempDir := t.TempDir()
 	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
-	require.NoError(ioutil.WriteFile(runSpecPath, []byte(runSpec), 0644))
+	require.NoError(os.WriteFile(runSpecPath, []byte(runSpec), 0644))
 
 	execStdOut := NewTygerCmdBuilder("run", "exec", "--file", runSpecPath, "--log-level", "trace").
 		Stdin("Hello").
@@ -233,7 +233,7 @@ timeoutSeconds: 600`, BasicImage)
 
 	tempDir := t.TempDir()
 	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
-	require.NoError(ioutil.WriteFile(runSpecPath, []byte(runSpec), 0644))
+	require.NoError(os.WriteFile(runSpecPath, []byte(runSpec), 0644))
 
 	uniqueId := uuid.New().String()
 
@@ -278,7 +278,7 @@ timeoutSeconds: 600`, codespecName, version)
 
 	tempDir := t.TempDir()
 	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
-	require.NoError(ioutil.WriteFile(runSpecPath, []byte(runSpec), 0644))
+	require.NoError(os.WriteFile(runSpecPath, []byte(runSpec), 0644))
 
 	execStdOut := NewTygerCmdBuilder("run", "exec", "--file", runSpecPath, "--tag", "testName=TestEndToEndExecWithYamlWithExistingCodespec", "--log-level", "trace").
 		Stdin("Hello").
@@ -307,7 +307,7 @@ timeoutSeconds: 600`, BasicImage)
 
 	tempDir := t.TempDir()
 	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
-	require.NoError(ioutil.WriteFile(runSpecPath, []byte(runSpec), 0644))
+	require.NoError(os.WriteFile(runSpecPath, []byte(runSpec), 0644))
 
 	execStdOut := NewTygerCmdBuilder("run", "exec", "--file", runSpecPath, "--log-level", "trace").
 		Stdin("Hello").
@@ -523,14 +523,14 @@ func TestOpenApiSpecIsAsExpected(t *testing.T) {
 	serviceInfo, err := controlplane.GetPersistedServiceInfo()
 	require.Nil(t, err)
 	swaggerUri := fmt.Sprintf("%s/swagger/v1/swagger.yaml", serviceInfo.GetServerUri())
-	resp, err := controlplane.NewRetryableClient().Get(swaggerUri)
+	resp, err := httpclient.DefaultRetryableClient.Get(swaggerUri)
 	require.Nil(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	actualBytes, err := io.ReadAll(resp.Body)
 	require.Nil(t, err)
 	expectedFilePath, err := filepath.Abs("expected_openapi_spec.yaml")
 	require.Nil(t, err)
-	expectedBytes, err := ioutil.ReadFile(expectedFilePath)
+	expectedBytes, err := os.ReadFile(expectedFilePath)
 	require.Nil(t, err)
 
 	if a, e := strings.TrimSpace(string(actualBytes)), strings.TrimSpace(string(expectedBytes)); a != e {
@@ -937,7 +937,7 @@ func TestAuthenticationRequired(t *testing.T) {
 	t.Parallel()
 	serviceInfo, err := controlplane.GetPersistedServiceInfo()
 	require.Nil(t, err)
-	resp, err := controlplane.NewRetryableClient().Get(fmt.Sprintf("%s/v1/runs/abc", serviceInfo.GetServerUri()))
+	resp, err := httpclient.DefaultRetryableClient.Get(fmt.Sprintf("%s/v1/runs/abc", serviceInfo.GetServerUri()))
 	require.Nil(t, err)
 	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }

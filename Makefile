@@ -157,6 +157,13 @@ integration-test-no-up: integration-test-no-up-prereqs cli-ready
 integration-test: up integration-test-no-up-prereqs
 	$(MAKE) integration-test-no-up-prereqs integration-test-no-up
 
+proxy-test-no-up: cli-ready
+	cd scripts/proxy-test
+	./run-proxy-test.sh
+
+proxy-test: up 
+	$(MAKE) proxy-test-no-up
+
 e2e-no-up-prereqs: e2e-data
 	
 e2e-no-up: e2e-no-up-prereqs cli-ready
@@ -174,7 +181,7 @@ gadgetron-data:
 
 e2e-data: dvc-data gadgetron-data
 
-test: up unit-test integration-test e2e
+test: up unit-test integration-test proxy-test e2e
 
 full:
 	$(MAKE) test INSTALL_CLOUD=true

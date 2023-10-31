@@ -18,8 +18,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/hashicorp/go-cleanhttp"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
+	"github.com/microsoft/tyger/cli/internal/httpclient"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -51,6 +53,7 @@ func RunProxy(serviceInfo controlplane.ServiceInfo, options *ProxyOptions, logge
 		serviceInfo:           serviceInfo,
 		targetControlPlaneUri: controlPlaneTargetUri,
 		options:               options,
+		nextProxyFunc:         httpclient.GetProxyFunc(),
 	}
 
 	r := chi.NewRouter()
@@ -139,7 +142,9 @@ func CheckProxyAlreadyRunning(options *ProxyOptions) (*ProxyServiceMetadata, err
 }
 
 func GetExistingProxyMetadata(options *ProxyOptions) *ProxyServiceMetadata {
-	resp, err := http.Get(fmt.Sprintf("http://localhost:%d/v1/metadata", options.Port))
+	// note: not using retryablehttp here because we are hitting localhost
+	// and we want to fail quickly
+	resp, err := cleanhttp.DefaultClient().Get(fmt.Sprintf("http://localhost:%d/v1/metadata", options.Port))
 	if err == nil && resp.StatusCode == http.StatusOK {
 		metadata := ProxyServiceMetadata{}
 		err = json.NewDecoder(resp.Body).Decode(&metadata)
@@ -155,6 +160,7 @@ type proxyHandler struct {
 	serviceInfo           controlplane.ServiceInfo
 	targetControlPlaneUri *url.URL
 	options               *ProxyOptions
+	nextProxyFunc         func(*http.Request) (*url.URL, error)
 }
 
 func (h *proxyHandler) handleMetadataRequest(w http.ResponseWriter, r *http.Request) {
@@ -181,6 +187,7 @@ func (h *proxyHandler) handleMetadataRequest(w http.ResponseWriter, r *http.Requ
 
 func (h *proxyHandler) forwardControlPlaneRequest(w http.ResponseWriter, r *http.Request) {
 	proxyReq := r.Clone(r.Context())
+	proxyReq.RequestURI = "" // need to clear this since the instance will be used for a new request
 	proxyReq.URL.Scheme = h.targetControlPlaneUri.Scheme
 	proxyReq.URL.Host = h.targetControlPlaneUri.Host
 	proxyReq.Host = h.targetControlPlaneUri.Host
@@ -197,8 +204,7 @@ func (h *proxyHandler) forwardControlPlaneRequest(w http.ResponseWriter, r *http
 	}
 
 	proxyReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	resp, err := http.DefaultTransport.RoundTrip(proxyReq)
+	resp, err := httpclient.DefaultRetryableClient.Transport.RoundTrip(proxyReq)
 	if err != nil {
 		log.Ctx(r.Context()).Error().Err(err).Msg("Failed to forward request")
 		http.Error(w, "Bad Gateway", http.StatusBadGateway)
@@ -329,12 +335,34 @@ func createRequestLoggerMiddleware() func(http.Handler) http.Handler {
 }
 
 func (h *proxyHandler) handleTunnelRequest(w http.ResponseWriter, r *http.Request) {
-	dest_conn, err := net.DialTimeout("tcp", r.Host, 10*time.Second)
+	// Determine if the request is to be forwarded through another proxy
+
+	// The get proxy func looks at the scheme, which will currently be empty, so we set it.
+	r.URL.Scheme = "https"
+	var err error
+	nextProxyUrl, err := h.nextProxyFunc(r)
 	if err != nil {
-		log.Ctx(r.Context()).Warn().Err(err).Msg("Failed to dial host")
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		log.Error().Err(err).Msg("Unable to resolve next proxy URL for request")
+		http.Error(w, "Unable to resolve proxy", http.StatusServiceUnavailable)
 		return
 	}
+	var destConn net.Conn
+	if nextProxyUrl != nil {
+		destConn, err = openTunnel(nextProxyUrl.Host, r.URL)
+		if err != nil {
+			log.Ctx(r.Context()).Warn().Err(err).Msg("Failed to dial proxy")
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+	} else {
+		destConn, err = net.DialTimeout("tcp", r.Host, 10*time.Second)
+		if err != nil {
+			log.Ctx(r.Context()).Warn().Err(err).Msg("Failed to dial host")
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+	}
+
 	w.WriteHeader(http.StatusOK)
 	hijacker, ok := w.(http.Hijacker)
 	if !ok {
@@ -342,19 +370,52 @@ func (h *proxyHandler) handleTunnelRequest(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "Not supported", http.StatusInternalServerError)
 		return
 	}
-	client_conn, _, err := hijacker.Hijack()
+	clientConn, _, err := hijacker.Hijack()
 	if err != nil {
+		_ = destConn.Close()
 		log.Ctx(r.Context()).Error().Err(err).Msg("Failed to hijack connection")
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 	}
 	wg := sync.WaitGroup{}
 	wg.Add(2)
-	go transfer(dest_conn, client_conn, &wg)
-	go transfer(client_conn, dest_conn, &wg)
+	go transfer(destConn, clientConn, &wg)
+	go transfer(clientConn, destConn, &wg)
 	go func() {
 		wg.Wait()
 		log.Ctx(r.Context()).Info().Msg("CONNECT completed")
 	}()
+}
+
+// Returns a connection that is created after successfully calling CONNECT
+// on another proxy server
+func openTunnel(proxyAddress string, destination *url.URL) (net.Conn, error) {
+	connectReq := &http.Request{
+		Method: http.MethodConnect,
+		URL:    destination,
+		Host:   destination.Host,
+	}
+
+	c, err := net.DialTimeout("tcp", proxyAddress, 10*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	if err := connectReq.Write(c); err != nil {
+		_ = c.Close()
+		return nil, fmt.Errorf("unable to send CONNECT request: %w", err)
+	}
+	br := bufio.NewReader(c)
+	resp, err := http.ReadResponse(br, connectReq)
+	if err != nil {
+		_ = c.Close()
+		return nil, fmt.Errorf("unable to send CONNECT request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		_ = c.Close()
+		return nil, fmt.Errorf("received unexpected status from CONNECT request: %s", resp.Status)
+	}
+
+	return c, nil
 }
 
 func transfer(destination io.WriteCloser, source io.ReadCloser, wg *sync.WaitGroup) {
