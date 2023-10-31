@@ -8,14 +8,14 @@ import (
 
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/logging"
-	tygerproxy "github.com/microsoft/tyger/cli/internal/tygerproxy"
+	"github.com/microsoft/tyger/cli/internal/proxy"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
 
 const proxyIsListeningMessage = "Proxy is listening"
 
-func newProxyRunCommand(optionsFilePath *string, options *tygerproxy.ProxyOptions) *cobra.Command {
+func newProxyRunCommand(optionsFilePath *string, options *proxy.ProxyOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "run",
 		Short: "Run the proxy",
@@ -68,9 +68,9 @@ func newProxyRunCommand(optionsFilePath *string, options *tygerproxy.ProxyOption
 				log.Fatal().Err(err).Msg("failed to get service info")
 			}
 
-			_, err = tygerproxy.RunProxy(serviceInfo, options, log.Logger)
+			_, err = proxy.RunProxy(serviceInfo, options, log.Logger)
 			if err != nil {
-				if err == tygerproxy.ErrProxyAlreadyRunning {
+				if err == proxy.ErrProxyAlreadyRunning {
 					log.Info().Int("port", options.Port).Msg("A proxy is already running at this address.")
 					return
 				}

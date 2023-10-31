@@ -9,7 +9,7 @@ import (
 	"os/exec"
 	"time"
 
-	proxy "github.com/microsoft/tyger/cli/internal/tygerproxy"
+	"github.com/microsoft/tyger/cli/internal/proxy"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
