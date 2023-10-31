@@ -11,12 +11,15 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/alecthomas/units"
+	"github.com/hashicorp/go-retryablehttp"
 	"github.com/kaz-yamam0t0/go-timeparser/timeparser"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
@@ -151,16 +154,38 @@ func newRunExecCommand() *cobra.Command {
 
 		mainWg := sync.WaitGroup{}
 
-		var proxyUri string
+		var httpClient *retryablehttp.Client
 		if serviceInfo, err := controlplane.GetPersistedServiceInfo(); err == nil {
-			proxyUri = serviceInfo.GetDataPlaneProxy()
+			proxyUri := serviceInfo.GetDataPlaneProxy()
+			httpClient, err = dataplane.CreateHttpClient(ctx, proxyUri)
+			if err != nil {
+				return fmt.Errorf("failed to create http client: %w", err)
+			}
 		}
+
+		var stopFunc context.CancelFunc
+		ctx, stopFunc = signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+
+		go func() {
+			<-ctx.Done()
+			stopFunc()
+			log.Warn().Msg("Canceling...")
+		}()
 
 		if inputSasUri != "" {
 			mainWg.Add(1)
 			go func() {
 				defer mainWg.Done()
-				dataplane.Write(inputSasUri, proxyUri, writeDop, blockSize, os.Stdin, false)
+				err := dataplane.Write(ctx, inputSasUri, os.Stdin,
+					dataplane.WithWriteHttpClient(httpClient),
+					dataplane.WithWriteBlockSize(blockSize),
+					dataplane.WithWriteDop(writeDop))
+				if err != nil {
+					if errors.Is(err, ctx.Err()) {
+						err = ctx.Err()
+					}
+					log.Fatal().Err(err).Msg("Failed to write input")
+				}
 			}()
 		}
 
@@ -168,7 +193,15 @@ func newRunExecCommand() *cobra.Command {
 			mainWg.Add(1)
 			go func() {
 				defer mainWg.Done()
-				dataplane.Read(outputSasUri, proxyUri, readDop, os.Stdout)
+				err := dataplane.Read(ctx, outputSasUri, os.Stdout,
+					dataplane.WithReadHttpClient(httpClient),
+					dataplane.WithReadDop(readDop))
+				if err != nil {
+					if errors.Is(err, ctx.Err()) {
+						err = ctx.Err()
+					}
+					log.Fatal().Err(err).Msg("Failed to read output")
+				}
 			}()
 		}
 

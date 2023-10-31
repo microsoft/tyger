@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"math/bits"
 	"net/http"
 	"net/url"
@@ -23,16 +22,6 @@ const (
 	MaxRetryDelay = 30 * time.Second
 )
 
-const (
-	MetadataBlobName = ".buffer"
-)
-
-var (
-	ErrNotFound      = errors.New("not found")
-	errMd5Mismatch   = fmt.Errorf("MD5 mismatch")
-	errBlobOverwrite = fmt.Errorf("unauthorized blob overwrite")
-)
-
 type responseBodyReadError struct {
 	reason error
 }
@@ -41,13 +30,18 @@ func (e *responseBodyReadError) Error() string {
 	return fmt.Sprintf("error reading response body: %v", e.reason)
 }
 
-func CreateHttpClient(proxyUri string) (*retryablehttp.Client, error) {
+func (e *responseBodyReadError) Unwrap() error {
+	return e.reason
+}
+
+func CreateHttpClient(ctx context.Context, proxyUri string) (*retryablehttp.Client, error) {
 	client := retryablehttp.NewClient()
 	client.RetryMax = 6
 	client.HTTPClient.Timeout = 100 * time.Second
 
 	logger := &retryableClientLogger{
 		Logger: &log.Logger,
+		Ctx:    ctx,
 	}
 	client.Logger = logger
 	client.ErrorHandler = func(resp *http.Response, err error, numTries int) (*http.Response, error) {
@@ -74,17 +68,28 @@ func CreateHttpClient(proxyUri string) (*retryablehttp.Client, error) {
 // to capture the context.
 // The inner http.Client is reused.
 func NewClientWithLoggingContext(ctx context.Context, client *retryablehttp.Client) *retryablehttp.Client {
-	newClient := *client
 	logger := &retryableClientLogger{
 		Logger: log.Ctx(ctx),
+		Ctx:    ctx,
 	}
-	newClient.Logger = logger
-	newClient.CheckRetry = logger.CheckRetry
-	return &newClient
+
+	return &retryablehttp.Client{
+		Logger:          logger,
+		CheckRetry:      logger.CheckRetry,
+		HTTPClient:      client.HTTPClient,
+		RetryWaitMin:    client.RetryWaitMin,
+		RetryWaitMax:    client.RetryWaitMax,
+		RetryMax:        client.RetryMax,
+		RequestLogHook:  client.RequestLogHook,
+		ResponseLogHook: client.ResponseLogHook,
+		Backoff:         client.Backoff,
+		ErrorHandler:    client.ErrorHandler,
+	}
 }
 
 type retryableClientLogger struct {
 	Logger *zerolog.Logger
+	Ctx    context.Context
 }
 
 func (l *retryableClientLogger) Error(msg string, keysAndValues ...interface{}) {
@@ -104,7 +109,6 @@ func (l *retryableClientLogger) Debug(msg string, keysAndValues ...interface{}) 
 
 func (l *retryableClientLogger) Warn(msg string, keysAndValues ...interface{}) {
 	event := l.Logger.Warn()
-	event.Enabled()
 	l.send(event, msg, keysAndValues...)
 }
 
@@ -122,6 +126,11 @@ func (l *retryableClientLogger) send(event *zerolog.Event, msg string, keysAndVa
 		}
 		value := keysAndValues[i+1]
 		if err, ok := value.(error); ok {
+			if errors.Is(err, l.Ctx.Err()) {
+				// If the context is canceled, don't log here.
+				// The error will logged higher up.
+				return
+			}
 			value = RedactHttpError(err).Error()
 		}
 		event = event.Interface(key, value)
@@ -213,51 +222,25 @@ func (c *Container) GetBlobUri(blobNumber int64) string {
 	return blobURL.String()
 }
 
+func (c *Container) GetStartMetadataUri() string {
+	return c.URL.JoinPath(StartMetadataBlobName).String()
+}
+
+func (c *Container) GetEndMetadataUri() string {
+	return c.URL.JoinPath(EndMetadataBlobName).String()
+}
+
 func (c *Container) GetContainerName() string {
 	return path.Base(c.Path)
 }
 
-func ValidateContainer(sasUri string, httpClient *retryablehttp.Client) (*Container, error) {
+func NewContainer(sasUri string, httpClient *retryablehttp.Client) (*Container, error) {
 	parsedUri, err := url.Parse(sasUri)
 	if err != nil {
 		return nil, err
 	}
 
-	metadataUri := parsedUri.JoinPath(MetadataBlobName)
-
-	req, err := retryablehttp.NewRequest(http.MethodGet, metadataUri.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	AddCommonBlobRequestHeaders(req.Header)
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, RedactHttpError(err)
-	}
-
-	defer resp.Body.Close()
-	switch resp.StatusCode {
-	case http.StatusOK:
-		io.Copy(io.Discard, resp.Body)
-		return &Container{parsedUri}, nil
-	case http.StatusNotFound:
-		switch resp.Header.Get("x-ms-error-code") {
-		case "BlobNotFound":
-			io.Copy(io.Discard, resp.Body)
-			return &Container{parsedUri}, nil
-		case "ContainerNotFound":
-			io.Copy(io.Discard, resp.Body)
-			return nil, fmt.Errorf("container not found")
-		}
-	}
-
-	bytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	return nil, fmt.Errorf("HTTP status code: %d. Body: %s", resp.StatusCode, string(bytes))
+	return &Container{parsedUri}, nil
 }
 
 func AddCommonBlobRequestHeaders(header http.Header) {
