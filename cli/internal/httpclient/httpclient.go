@@ -1,6 +1,7 @@
 package httpclient
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 
@@ -8,9 +9,23 @@ import (
 	"github.com/mattn/go-ieproxy"
 )
 
+type proxyFuncContextKeyType string
+
 var (
-	DefaultRetryableClient = NewRetryableClient()
+	proxyFuncContextKey    proxyFuncContextKeyType = "proxyFunc"
+	DefaultRetryableClient                         = NewRetryableClient()
 )
+
+func SetProxyFunc(ctx context.Context, proxyFunc func(*http.Request) (*url.URL, error)) context.Context {
+	return context.WithValue(ctx, proxyFuncContextKey, proxyFunc)
+}
+
+func GetProxyFuncFromContext(ctx context.Context) func(*http.Request) (*url.URL, error) {
+	if proxyFunc, ok := ctx.Value(proxyFuncContextKey).(func(*http.Request) (*url.URL, error)); ok {
+		return proxyFunc
+	}
+	return nil
+}
 
 func GetProxyFunc() func(*http.Request) (*url.URL, error) {
 	innerFunc := ieproxy.GetProxyFunc()

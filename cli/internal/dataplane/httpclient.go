@@ -2,7 +2,6 @@ package dataplane
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math/bits"
 	"net/http"
@@ -13,14 +12,11 @@ import (
 
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/microsoft/tyger/cli/internal/httpclient"
-	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
 const (
-	MaxRetries    = 6
-	RetryDelay    = 800 * time.Millisecond
-	MaxRetryDelay = 30 * time.Second
+	MaxRetries = 6
 )
 
 type responseBodyReadError struct {
@@ -40,15 +36,11 @@ func CreateHttpClient(ctx context.Context, proxyUri string) (*retryablehttp.Clie
 	client.RetryMax = 6
 	client.HTTPClient.Timeout = 100 * time.Second
 
-	logger := &retryableClientLogger{
-		Logger: &log.Logger,
-		Ctx:    ctx,
-	}
-	client.Logger = logger
+	client.Logger = nil
 	client.ErrorHandler = func(resp *http.Response, err error, numTries int) (*http.Response, error) {
 		return resp, err
 	}
-	client.CheckRetry = logger.CheckRetry
+	client.CheckRetry = CheckRetry
 
 	transport := client.HTTPClient.Transport.(*http.Transport)
 	transport.MaxIdleConnsPerHost = 1000
@@ -67,87 +59,19 @@ func CreateHttpClient(ctx context.Context, proxyUri string) (*retryablehttp.Clie
 	return client, nil
 }
 
-// Performs a shallow clone of the retryable client adjusting the logger
-// to capture the context.
-// The inner http.Client is reused.
-func NewClientWithLoggingContext(ctx context.Context, client *retryablehttp.Client) *retryablehttp.Client {
-	logger := &retryableClientLogger{
-		Logger: log.Ctx(ctx),
-		Ctx:    ctx,
+func CheckRetry(ctx context.Context, resp *http.Response, err error) (bool, error) {
+	if ctx.Err() != nil {
+		return false, ctx.Err()
 	}
-
-	return &retryablehttp.Client{
-		Logger:          logger,
-		CheckRetry:      logger.CheckRetry,
-		HTTPClient:      client.HTTPClient,
-		RetryWaitMin:    client.RetryWaitMin,
-		RetryWaitMax:    client.RetryWaitMax,
-		RetryMax:        client.RetryMax,
-		RequestLogHook:  client.RequestLogHook,
-		ResponseLogHook: client.ResponseLogHook,
-		Backoff:         client.Backoff,
-		ErrorHandler:    client.ErrorHandler,
-	}
-}
-
-type retryableClientLogger struct {
-	Logger *zerolog.Logger
-	Ctx    context.Context
-}
-
-func (l *retryableClientLogger) Error(msg string, keysAndValues ...interface{}) {
-	event := l.Logger.Warn()
-	l.send(event, msg, keysAndValues...)
-}
-
-func (l *retryableClientLogger) Info(msg string, keysAndValues ...interface{}) {
-	event := l.Logger.Info()
-	l.send(event, msg, keysAndValues...)
-}
-
-func (l *retryableClientLogger) Debug(msg string, keysAndValues ...interface{}) {
-	event := l.Logger.Debug()
-	l.send(event, msg, keysAndValues...)
-}
-
-func (l *retryableClientLogger) Warn(msg string, keysAndValues ...interface{}) {
-	event := l.Logger.Warn()
-	l.send(event, msg, keysAndValues...)
-}
-
-func (l *retryableClientLogger) send(event *zerolog.Event, msg string, keysAndValues ...interface{}) {
-	if !event.Enabled() {
-		return
-	}
-	if msg == "performing request" {
-		return
-	}
-	for i := 0; i < len(keysAndValues); i += 2 {
-		key := keysAndValues[i].(string)
-		if key == "url" || key == "request" {
-			continue
+	shouldRetry, checkErr := retryablehttp.DefaultRetryPolicy(ctx, resp, err)
+	if shouldRetry {
+		if err != nil {
+			log.Ctx(ctx).Warn().Err(RedactHttpError(err)).Msg("Received retryable error")
+		} else if resp != nil {
+			log.Ctx(ctx).Warn().Int("statusCode", resp.StatusCode).Msg("Received retryable status code")
 		}
-		value := keysAndValues[i+1]
-		if err, ok := value.(error); ok {
-			if errors.Is(err, l.Ctx.Err()) {
-				// If the context is canceled, don't log here.
-				// The error will logged higher up.
-				return
-			}
-			value = RedactHttpError(err).Error()
-		}
-		event = event.Interface(key, value)
 	}
-
-	event.Msg(msg)
-}
-
-func (l *retryableClientLogger) CheckRetry(ctx context.Context, resp *http.Response, err error) (bool, error) {
-	shouldRetry, err := retryablehttp.DefaultRetryPolicy(ctx, resp, err)
-	if shouldRetry && err == nil && resp != nil {
-		l.Logger.Warn().Int("statusCode", resp.StatusCode).Msg("Received retryable status code")
-	}
-	return shouldRetry, err
+	return shouldRetry, checkErr
 }
 
 // If the error is a *url.Error, redact the query string values

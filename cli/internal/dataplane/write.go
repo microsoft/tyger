@@ -106,7 +106,6 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 
 				blobUrl := container.GetBlobUri(bb.BlobNumber)
 				ctx := log.Ctx(ctx).With().Int64("blobNumber", bb.BlobNumber).Logger().WithContext(ctx)
-				httpClient := NewClientWithLoggingContext(ctx, httpClient)
 				var body any = bb.Contents
 				if len(bb.Contents) == 0 {
 					// This is a bit subtle, but if we send an empty or nil []byte body,

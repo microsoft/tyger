@@ -126,7 +126,7 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 
 				blobUri := container.GetBlobUri(blobNumber)
 				ctx := log.Ctx(ctx).With().Int64("blobNumber", blobNumber).Logger().WithContext(ctx)
-				respData, err := DownloadBlob(ctx, NewClientWithLoggingContext(ctx, httpClient), blobUri, &waitForBlobs, &blobNumber, &finalBlobNumber)
+				respData, err := DownloadBlob(ctx, httpClient, blobUri, &waitForBlobs, &blobNumber, &finalBlobNumber)
 				if err != nil {
 					if err == errPastEndOfBlob {
 						break
