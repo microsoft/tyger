@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"github.com/microsoft/tyger/cli/internal/cache"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/spf13/cobra"
 	"sigs.k8s.io/yaml"
@@ -138,9 +139,9 @@ func newLoginStatusCommand() *cobra.Command {
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			serviceInfo, err := controlplane.GetPersistedServiceInfo()
+			serviceInfo, err := cache.GetPersistedCache()
 
-			if err != nil || serviceInfo.GetServerUri() == "" {
+			if err != nil || serviceInfo.ServerUri == "" {
 				return errors.New("run 'tyger login' to connect to a Tyger server")
 			}
 

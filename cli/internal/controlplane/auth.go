@@ -15,52 +15,34 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/cache"
+	msalcache "github.com/AzureAD/microsoft-authentication-library-for-go/apps/cache"
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/confidential"
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/public"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
+	"github.com/microsoft/tyger/cli/internal/cache"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/httpclient"
-	"sigs.k8s.io/yaml"
 )
 
 const (
-	CacheFileEnvVarName                 = "TYGER_CACHE_FILE"
 	userScope                           = "Read.Write"
 	servicePrincipalScope               = ".default"
 	discardTokenIfExpiringWithinSeconds = 10 * 60
 )
 
-type ServiceInfo interface {
-	GetServerUri() string
-	GetPrincipal() string
-	GetAccessToken() (string, error)
-	GetDataPlaneProxy() string
-}
-
 type AuthConfig struct {
-	ServerUri             string `json:"serverUri"`
-	ServicePrincipal      string `json:"servicePrincipal,omitempty"`
-	CertificatePath       string `json:"certificatePath,omitempty"`
-	CertificateThumbprint string `json:"certificateThumbprint,omitempty"`
-	UseDeviceCode         bool
-	Persisted             bool
+	ServerUri                      string `json:"serverUri"`
+	ServicePrincipal               string `json:"servicePrincipal,omitempty"`
+	CertificatePath                string `json:"certificatePath,omitempty"`
+	CertificateThumbprint          string `json:"certificateThumbprint,omitempty"`
+	IgnoreSystemProxySettings      bool   `json:"ignoreSystemProxySettings,omitempty"`
+	SkipTlsCertificateVerification bool   `json:"insecureSkipTlsCertificateVerification,omitempty"`
+	UseDeviceCode                  bool
+	Persisted                      bool
 }
 
-type serviceInfo struct {
-	ServerUri          string `json:"serverUri"`
-	ClientAppUri       string `json:"clientAppUri,omitempty"`
-	ClientId           string `json:"clientId,omitempty"`
-	LastToken          string `json:"lastToken,omitempty"`
-	LastTokenExpiry    int64  `json:"lastTokenExpiration,omitempty"`
-	Principal          string `json:"principal,omitempty"`
-	CertPath           string `json:"certPath,omitempty"`
-	CertThumbprint     string `json:"certThumbprint,omitempty"`
-	Authority          string `json:"authority,omitempty"`
-	Audience           string `json:"audience,omitempty"`
-	FullCache          string `json:"fullCache,omitempty"`
-	DataPlaneProxy     string `json:"dataPlaneProxy,omitempty"`
+type ServiceInfo struct {
+	cache.Values
 	confidentialClient *confidential.Client
 }
 
@@ -75,8 +57,7 @@ func (c *serviceInfo) GetPrincipal() string {
 func (c *serviceInfo) GetDataPlaneProxy() string {
 	return c.DataPlaneProxy
 }
-
-func Login(options AuthConfig) (ServiceInfo, error) {
+func Login(options AuthConfig) (*cache.Values, error) {
 	normalizedServerUri, err := normalizeServerUri(options.ServerUri)
 	if err != nil {
 		return nil, err
@@ -87,15 +68,19 @@ func Login(options AuthConfig) (ServiceInfo, error) {
 		return nil, err
 	}
 
-	si := &serviceInfo{
-		ServerUri:      options.ServerUri,
-		Authority:      serviceMetadata.Authority,
-		Audience:       serviceMetadata.Audience,
-		ClientAppUri:   serviceMetadata.CliAppUri,
-		Principal:      options.ServicePrincipal,
-		CertPath:       options.CertificatePath,
-		CertThumbprint: options.CertificateThumbprint,
-		DataPlaneProxy: serviceMetadata.DataPlaneProxy,
+	si := &ServiceInfo{
+		Values: cache.Values{
+			ServerUri:                      options.ServerUri,
+			Authority:                      serviceMetadata.Authority,
+			Audience:                       serviceMetadata.Audience,
+			ClientAppUri:                   serviceMetadata.CliAppUri,
+			Principal:                      options.ServicePrincipal,
+			CertPath:                       options.CertificatePath,
+			CertThumbprint:                 options.CertificateThumbprint,
+			DataPlaneProxy:                 serviceMetadata.DataPlaneProxy,
+			IgnoreSystemProxySettings:      options.IgnoreSystemProxySettings,
+			SkipTlsCertificateVerification: options.SkipTlsCertificateVerification,
+		},
 	}
 
 	if serviceMetadata.Authority != "" {
@@ -130,10 +115,10 @@ func Login(options AuthConfig) (ServiceInfo, error) {
 	}
 
 	if options.Persisted {
-		err = si.persist()
+		err = si.Persist()
 	}
 
-	return si, err
+	return &si.Values, err
 }
 
 func normalizeServerUri(uri string) (string, error) {
@@ -147,10 +132,10 @@ func normalizeServerUri(uri string) (string, error) {
 }
 
 func Logout() error {
-	return (&serviceInfo{}).persist()
+	return (&ServiceInfo{}).Persist()
 }
 
-func (c *serviceInfo) GetAccessToken() (string, error) {
+func (c *ServiceInfo) GetAccessToken() (string, error) {
 	// Quick check to see if the last token is still valid.
 	// This token is in the full MSAL token cache, but unfortunately calling
 	// client.AcquireTokenSilent currenly always calls an AAD discovery endpoint, which
@@ -206,113 +191,7 @@ func (c *serviceInfo) GetAccessToken() (string, error) {
 	c.LastToken = authResult.AccessToken
 	c.LastTokenExpiry = authResult.ExpiresOn.Unix()
 
-	return authResult.AccessToken, c.persist()
-}
-
-func GetCachePath() (string, error) {
-	var cacheDir string
-	var fileName string
-
-	if path := os.Getenv(CacheFileEnvVarName); path != "" {
-		cacheDir = filepath.Dir(path)
-		fileName = filepath.Base(path)
-	} else {
-		var err error
-		cacheDir, err = os.UserCacheDir()
-		if err != nil {
-			return "", fmt.Errorf("unable to locate cache directory: %w; to provide a file path directly, set the $%s environment variable", err, CacheFileEnvVarName)
-		}
-		cacheDir = filepath.Join(cacheDir, "tyger")
-		fileName = ".tyger"
-	}
-
-	err := os.MkdirAll(cacheDir, 0775)
-	if err != nil {
-		return "", fmt.Errorf("unable to create %s directory", cacheDir)
-	}
-	return filepath.Join(cacheDir, fileName), nil
-}
-
-func (si *serviceInfo) persist() error {
-	path, err := GetCachePath()
-	if err == nil {
-		var bytes []byte
-		bytes, err = yaml.Marshal(si)
-		if err == nil {
-			err = persistCacheContents(path, bytes)
-		}
-	}
-
-	if err != nil {
-		return fmt.Errorf("failed to write auth cache: %w", err)
-	}
-
-	return nil
-}
-
-func persistCacheContents(path string, bytes []byte) error {
-	// Write to a temp file in the same directory first
-	tempFileName := fmt.Sprintf("%s.`%v`", path, uuid.New())
-	defer os.Remove(tempFileName)
-	if err := os.WriteFile(tempFileName, bytes, 0600); err != nil {
-		return err
-	}
-
-	// Now rename the temp file to the final name.
-	// If the file is not writable due to a permission error,
-	// it could be because another process is holding the file open.
-	// In that case, we retry over a short period of time.
-	var err error
-	for i := 0; i < 50; i++ {
-		if i > 0 {
-			time.Sleep(100 * time.Millisecond)
-		}
-
-		err = os.Rename(tempFileName, path)
-		if err == nil || !errors.Is(err, os.ErrPermission) {
-			break
-		}
-	}
-
-	return err
-}
-
-func GetPersistedServiceInfo() (*serviceInfo, error) {
-	si := &serviceInfo{}
-	path, err := GetCachePath()
-	if err != nil {
-		return si, err
-	}
-
-	bytes, err := readCachedContents(path)
-
-	if err != nil {
-		return si, err
-	}
-
-	err = yaml.Unmarshal(bytes, &si)
-	return si, err
-}
-
-func readCachedContents(path string) ([]byte, error) {
-	var bytes []byte
-	var err error
-
-	// If the file is not readable due to a permission error,
-	// it could be because another process is holding the file open.
-	// In that case, we retry over a short period of time.
-	for i := 0; i < 50; i++ {
-		if i > 0 {
-			time.Sleep(100 * time.Millisecond)
-		}
-
-		bytes, err = os.ReadFile(path)
-		if err == nil || !errors.Is(err, os.ErrPermission) {
-			break
-		}
-	}
-
-	return bytes, err
+	return authResult.AccessToken, c.Persist()
 }
 
 func getServiceMetadata(serverUri string) (*model.ServiceMetadata, error) {
@@ -328,7 +207,7 @@ func getServiceMetadata(serverUri string) (*model.ServiceMetadata, error) {
 	return serviceMetadata, nil
 }
 
-func (si *serviceInfo) performServicePrincipalLogin() (authResult confidential.AuthResult, err error) {
+func (si *ServiceInfo) performServicePrincipalLogin() (authResult confidential.AuthResult, err error) {
 	newClient := si.confidentialClient == nil
 	if newClient {
 		cred, err := si.createServicePrincipalCredential()
@@ -354,7 +233,7 @@ func (si *serviceInfo) performServicePrincipalLogin() (authResult confidential.A
 	return authResult, err
 }
 
-func (si *serviceInfo) createServicePrincipalCredential() (confidential.Credential, error) {
+func (si *ServiceInfo) createServicePrincipalCredential() (confidential.Credential, error) {
 	if si.CertThumbprint != "" {
 		return createCredentialFromSystemCertificateStore(si.CertThumbprint)
 	}
@@ -377,7 +256,7 @@ func (si *serviceInfo) createServicePrincipalCredential() (confidential.Credenti
 	return cred, nil
 }
 
-func (si *serviceInfo) performUserLogin(useDeviceCode bool) (authResult public.AuthResult, err error) {
+func (si *ServiceInfo) performUserLogin(useDeviceCode bool) (authResult public.AuthResult, err error) {
 	client, err := public.New(
 		si.ClientAppUri,
 		public.WithAuthority(si.Authority),
@@ -447,9 +326,9 @@ func (si *serviceInfo) performUserLogin(useDeviceCode bool) (authResult public.A
 	return authResult, err
 }
 
-// Implementing the cache.ExportReplace interface to read in the token cache
-func (si *serviceInfo) Replace(ctx context.Context, unmarshaler cache.Unmarshaler, hints cache.ReplaceHints) error {
-	data, err := base64.StdEncoding.DecodeString(si.FullCache)
+// Implementing the msalcache.ExportReplace interface to read in the token cache
+func (si *ServiceInfo) Replace(ctx context.Context, unmarshaler msalcache.Unmarshaler, hints msalcache.ReplaceHints) error {
+	data, err := base64.StdEncoding.DecodeString(si.FullTokenCache)
 	if err == nil {
 		unmarshaler.Unmarshal(data)
 	}
@@ -457,11 +336,11 @@ func (si *serviceInfo) Replace(ctx context.Context, unmarshaler cache.Unmarshale
 	return err
 }
 
-// Implementing the cache.ExportReplace interface to write out the token cache
-func (si *serviceInfo) Export(ctx context.Context, marshaler cache.Marshaler, hints cache.ExportHints) error {
+// Implementing the msalcache.ExportReplace interface to write out the token cache
+func (si *ServiceInfo) Export(ctx context.Context, marshaler msalcache.Marshaler, hints msalcache.ExportHints) error {
 	data, err := marshaler.Marshal()
 	if err == nil {
-		si.FullCache = base64.StdEncoding.EncodeToString(data)
+		si.FullTokenCache = base64.StdEncoding.EncodeToString(data)
 	}
 
 	return err
