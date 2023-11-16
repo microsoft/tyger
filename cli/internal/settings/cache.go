@@ -1,4 +1,4 @@
-package cache
+package settings
 
 import (
 	"errors"
@@ -13,7 +13,7 @@ import (
 
 const CacheFileEnvVarName = "TYGER_CACHE_FILE"
 
-type Values struct {
+type Settings struct {
 	ServerUri                      string `json:"serverUri"`
 	ClientAppUri                   string `json:"clientAppUri,omitempty"`
 	ClientId                       string `json:"clientId,omitempty"`
@@ -54,11 +54,11 @@ func GetCachePath() (string, error) {
 	return filepath.Join(cacheDir, fileName), nil
 }
 
-func (v *Values) Persist() error {
+func (s *Settings) Persist() error {
 	path, err := GetCachePath()
 	if err == nil {
 		var bytes []byte
-		bytes, err = yaml.Marshal(v)
+		bytes, err = yaml.Marshal(s)
 		if err == nil {
 			err = persistCacheContents(path, bytes)
 		}
@@ -98,8 +98,8 @@ func persistCacheContents(path string, bytes []byte) error {
 	return err
 }
 
-func GetPersistedCache() (*Values, error) {
-	si := &Values{}
+func GetPersistedSettings() (*Settings, error) {
+	si := &Settings{}
 	path, err := GetCachePath()
 	if err != nil {
 		return si, err
