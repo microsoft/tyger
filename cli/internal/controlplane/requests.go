@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/fatih/color"
+	"github.com/hashicorp/go-retryablehttp"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/httpclient"
 	"github.com/rs/zerolog"
@@ -45,7 +46,7 @@ func InvokeRequestWithHeaders(ctx context.Context, method string, relativeUri st
 		body = bytes.NewBuffer(serializedBody)
 	}
 
-	req, err := http.NewRequest(method, absoluteUri, body)
+	req, err := retryablehttp.NewRequest(method, absoluteUri, body)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +65,7 @@ func InvokeRequestWithHeaders(ctx context.Context, method string, relativeUri st
 		if token != "" {
 			req.Header.Add("Authorization", "Bearer --REDACTED--")
 		}
-		if debugOutput, err := httputil.DumpRequestOut(req, true); err == nil {
+		if debugOutput, err := httputil.DumpRequestOut(req.Request, true); err == nil {
 			log.Trace().Str("request", string(debugOutput)).Msg("request sent")
 		}
 	}

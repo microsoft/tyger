@@ -204,7 +204,7 @@ func (h *proxyHandler) forwardControlPlaneRequest(w http.ResponseWriter, r *http
 	}
 
 	proxyReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	resp, err := httpclient.DefaultRetryableClient.Transport.RoundTrip(proxyReq)
+	resp, err := httpclient.DefaultRetryableClient.HTTPClient.Transport.RoundTrip(proxyReq)
 	if err != nil {
 		log.Ctx(r.Context()).Error().Err(err).Msg("Failed to forward request")
 		http.Error(w, "Bad Gateway", http.StatusBadGateway)

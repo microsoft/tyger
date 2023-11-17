@@ -52,6 +52,7 @@ type AuthConfig struct {
 type serviceInfo struct {
 	settings.Settings
 	confidentialClient *confidential.Client
+	persisted          bool
 }
 
 func (c *serviceInfo) GetServerUri() string {
@@ -88,7 +89,10 @@ func Login(options AuthConfig) (ServiceInfo, error) {
 			CertThumbprint: options.CertificateThumbprint,
 			DataPlaneProxy: serviceMetadata.DataPlaneProxy,
 		},
+		persisted: options.Persisted,
 	}
+
+	si.Store(false)
 
 	if serviceMetadata.Authority != "" {
 		useServicePrincipal := options.ServicePrincipal != ""
@@ -121,10 +125,7 @@ func Login(options AuthConfig) (ServiceInfo, error) {
 		}
 	}
 
-	if options.Persisted {
-		err = si.Persist()
-	}
-
+	err = si.Store(options.Persisted)
 	return si, err
 }
 
@@ -139,41 +140,41 @@ func normalizeServerUri(uri string) (string, error) {
 }
 
 func Logout() error {
-	return (&serviceInfo{}).Persist()
+	return (&serviceInfo{}).Store(true)
 }
 
-func (c *serviceInfo) GetAccessToken() (string, error) {
+func (s *serviceInfo) GetAccessToken() (string, error) {
 	// Quick check to see if the last token is still valid.
 	// This token is in the full MSAL token cache, but unfortunately calling
 	// client.AcquireTokenSilent currenly always calls an AAD discovery endpoint, which
 	// can take > 0.5 seconds. So we store it ourselves and use it here if it is still valid.
-	if c.LastTokenExpiry-discardTokenIfExpiringWithinSeconds > time.Now().UTC().Unix() && c.LastToken != "" {
-		return c.LastToken, nil
+	if s.LastTokenExpiry-discardTokenIfExpiringWithinSeconds > time.Now().UTC().Unix() && s.LastToken != "" {
+		return s.LastToken, nil
 	}
 
-	if c.Authority == "" {
+	if s.Authority == "" {
 		return "", nil
 	}
 
 	var authResult public.AuthResult
-	if c.CertPath != "" || c.CertThumbprint != "" {
+	if s.CertPath != "" || s.CertThumbprint != "" {
 		var err error
-		authResult, err = c.performServicePrincipalLogin()
+		authResult, err = s.performServicePrincipalLogin()
 		if err != nil {
 			return "", err
 		}
 	} else {
 		customHttpClient := &clientIdReplacingHttpClient{
-			clientAppUri: c.ClientAppUri,
-			clientAppId:  c.ClientId,
-			innerClient:  httpclient.DefaultRetryableClient,
+			clientAppUri: s.ClientAppUri,
+			clientAppId:  s.ClientId,
+			innerClient:  httpclient.DefaultRetryableClient.StandardClient(),
 		}
 
 		// fall back to using the refresh token from the cache
 		client, err := public.New(
-			c.ClientAppUri,
-			public.WithAuthority(c.Authority),
-			public.WithCache(c),
+			s.ClientAppUri,
+			public.WithAuthority(s.Authority),
+			public.WithCache(s),
 			public.WithHTTPClient(customHttpClient),
 		)
 
@@ -189,46 +190,25 @@ func (c *serviceInfo) GetAccessToken() (string, error) {
 			return "", errors.New("corrupted token cache")
 		}
 
-		authResult, err = client.AcquireTokenSilent(context.Background(), []string{fmt.Sprintf("%s/%s", c.Audience, userScope)}, public.WithSilentAccount(accounts[0]))
+		authResult, err = client.AcquireTokenSilent(context.Background(), []string{fmt.Sprintf("%s/%s", s.Audience, userScope)}, public.WithSilentAccount(accounts[0]))
 		if err != nil {
 			return "", err
 		}
 	}
 
-	c.LastToken = authResult.AccessToken
-	c.LastTokenExpiry = authResult.ExpiresOn.Unix()
+	s.LastToken = authResult.AccessToken
+	s.LastTokenExpiry = authResult.ExpiresOn.Unix()
 
-	return authResult.AccessToken, c.Persist()
+	return authResult.AccessToken, s.Store(s.persisted)
 }
 
 func GetPersistedServiceInfo() (*serviceInfo, error) {
-	settings, err := settings.GetPersistedSettings()
+	settings, err := settings.LoadSettings()
 	if err != nil {
 		return nil, err
 	}
 
 	return &serviceInfo{Settings: *settings}, nil
-}
-
-func readCachedContents(path string) ([]byte, error) {
-	var bytes []byte
-	var err error
-
-	// If the file is not readable due to a permission error,
-	// it could be because another process is holding the file open.
-	// In that case, we retry over a short period of time.
-	for i := 0; i < 50; i++ {
-		if i > 0 {
-			time.Sleep(100 * time.Millisecond)
-		}
-
-		bytes, err = os.ReadFile(path)
-		if err == nil || !errors.Is(err, os.ErrPermission) {
-			break
-		}
-	}
-
-	return bytes, err
 }
 
 func getServiceMetadata(serverUri string) (*model.ServiceMetadata, error) {
@@ -252,7 +232,7 @@ func (si *serviceInfo) performServicePrincipalLogin() (authResult confidential.A
 			return authResult, fmt.Errorf("error creating credential: %w", err)
 		}
 
-		client, err := confidential.New(si.Authority, si.Principal, cred, confidential.WithHTTPClient(httpclient.DefaultRetryableClient))
+		client, err := confidential.New(si.Authority, si.Principal, cred, confidential.WithHTTPClient(httpclient.DefaultRetryableClient.StandardClient()))
 		if err != nil {
 			return authResult, err
 		}
@@ -298,7 +278,7 @@ func (si *serviceInfo) performUserLogin(useDeviceCode bool) (authResult public.A
 		si.ClientAppUri,
 		public.WithAuthority(si.Authority),
 		public.WithCache(si),
-		public.WithHTTPClient(httpclient.DefaultRetryableClient),
+		public.WithHTTPClient(httpclient.DefaultRetryableClient.StandardClient()),
 	)
 	if err != nil {
 		return

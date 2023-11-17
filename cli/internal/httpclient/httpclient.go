@@ -2,11 +2,16 @@ package httpclient
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
+	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/mattn/go-ieproxy"
+	"github.com/microsoft/tyger/cli/internal/settings"
+	"github.com/rs/zerolog/log"
 )
 
 type proxyFuncContextKeyType string
@@ -28,8 +33,31 @@ func GetProxyFuncFromContext(ctx context.Context) func(*http.Request) (*url.URL,
 }
 
 func GetProxyFunc() func(*http.Request) (*url.URL, error) {
+	var (
+		loadedSettings       *settings.Settings
+		err                  error
+		parsedDataPlaneProxy *url.URL
+		parsedServerUrl      *url.URL
+	)
+
+	loadedSettings, err = settings.LoadSettings()
+	if err != nil {
+		parsedServerUrl, err = url.Parse(loadedSettings.ServerUri)
+
+		if loadedSettings.DataPlaneProxy != "" {
+			parsedDataPlaneProxy, err = url.Parse(loadedSettings.DataPlaneProxy)
+			if err != nil {
+				err = fmt.Errorf("failed to parse data plane proxy URL: %w", err)
+			}
+		}
+	}
+
 	innerFunc := ieproxy.GetProxyFunc()
 	return func(req *http.Request) (*url.URL, error) {
+		if err != nil {
+			return nil, err
+		}
+
 		if req.URL.Scheme == "http" {
 			// We will not use an HTTP proxy when when not using TLS.
 			// The only supported scenario for using http and not https is
@@ -38,20 +66,81 @@ func GetProxyFunc() func(*http.Request) (*url.URL, error) {
 			return nil, nil
 		}
 
-		return innerFunc(req)
+		if parsedDataPlaneProxy == nil ||
+			(req.URL.Scheme == parsedServerUrl.Scheme &&
+				req.URL.Host == parsedServerUrl.Host &&
+				strings.HasPrefix(req.URL.Path, parsedServerUrl.Path)) {
+
+			if loadedSettings.IgnoreSystemProxySettings {
+				return nil, nil
+			}
+
+			return innerFunc(req)
+		}
+
+		return parsedDataPlaneProxy, nil
+
 	}
 }
 
-func NewRetryableClient() *http.Client {
+func NewRetryableClient() *retryablehttp.Client {
 	client := retryablehttp.NewClient()
-	client.Logger = nil
 	client.RetryMax = 6
+	client.HTTPClient.Timeout = 100 * time.Second
+
+	client.Logger = nil
 	client.ErrorHandler = func(resp *http.Response, err error, numTries int) (*http.Response, error) {
 		return resp, err
 	}
-	client.HTTPClient.Transport.(*http.Transport).Proxy = GetProxyFunc()
+	client.CheckRetry = checkRetry
 
-	return client.StandardClient()
+	transport := client.HTTPClient.Transport.(*http.Transport)
+	transport.MaxIdleConnsPerHost = 1000
+	transport.ResponseHeaderTimeout = 20 * time.Second
+
+	transport.Proxy = GetProxyFunc()
+
+	return client
+}
+
+func checkRetry(ctx context.Context, resp *http.Response, err error) (bool, error) {
+	if ctx.Err() != nil {
+		return false, ctx.Err()
+	}
+	shouldRetry, checkErr := retryablehttp.DefaultRetryPolicy(ctx, resp, err)
+	if shouldRetry {
+		if err != nil {
+			log.Ctx(ctx).Warn().Err(RedactHttpError(err)).Msg("Received retryable error")
+		} else if resp != nil {
+			log.Ctx(ctx).Warn().Int("statusCode", resp.StatusCode).Msg("Received retryable status code")
+		}
+	}
+	return shouldRetry, checkErr
+}
+
+// If the error is a *url.Error, redact the query string values
+func RedactHttpError(err error) error {
+	if httpErr, ok := err.(*url.Error); ok {
+		if httpErr.URL != "" {
+			if index := strings.IndexByte(httpErr.URL, '?'); index != -1 {
+				if u, err := url.Parse(httpErr.URL); err == nil {
+					q := u.Query()
+					for _, v := range q {
+						for i := range v {
+							v[i] = "REDACTED"
+						}
+
+					}
+
+					u.RawQuery = q.Encode()
+					httpErr.URL = u.String()
+				}
+			}
+		}
+
+		httpErr.Err = RedactHttpError(httpErr.Err)
+	}
+	return err
 }
 
 // Makes http.DefaultClient and http.DefaultTransport panic

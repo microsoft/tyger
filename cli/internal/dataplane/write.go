@@ -14,6 +14,7 @@ import (
 
 	"github.com/hashicorp/go-retryablehttp"
 	pool "github.com/libp2p/go-buffer-pool"
+	"github.com/microsoft/tyger/cli/internal/httpclient"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -67,11 +68,7 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 
 	ctx = log.With().Str("operation", "buffer write").Logger().WithContext(ctx)
 	if writeOptions.httpClient == nil {
-		var err error
-		writeOptions.httpClient, err = CreateHttpClient(ctx, "")
-		if err != nil {
-			return fmt.Errorf("failed to create http client: %w", err)
-		}
+		writeOptions.httpClient = httpclient.DefaultRetryableClient
 	}
 
 	httpClient := writeOptions.httpClient
@@ -269,11 +266,11 @@ func uploadBlobWithRery(ctx context.Context, httpClient *retryablehttp.Client, b
 				log.Ctx(ctx).Debug().Msg("MD5 mismatch, retrying")
 				continue
 			} else {
-				return fmt.Errorf("failed to upload blob: %w", RedactHttpError(err))
+				return fmt.Errorf("failed to upload blob: %w", httpclient.RedactHttpError(err))
 			}
 		case errBlobOverwrite:
 			if i == 0 {
-				return fmt.Errorf("buffer cannot be overwritten: %w", RedactHttpError(err))
+				return fmt.Errorf("buffer cannot be overwritten: %w", httpclient.RedactHttpError(err))
 			}
 			// When retrying failed writes, we might encounter the UnauthorizedBlobOverwrite if the original
 			// write went through. In such cases, we should follow up with a HEAD request to verify the
@@ -298,7 +295,7 @@ func uploadBlobWithRery(ctx context.Context, httpClient *retryablehttp.Client, b
 		case errBufferDoesNotExist:
 			return err
 		default:
-			return fmt.Errorf("failed to upload blob: %w", RedactHttpError(err))
+			return fmt.Errorf("failed to upload blob: %w", httpclient.RedactHttpError(err))
 		}
 	}
 

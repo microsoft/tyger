@@ -1,7 +1,6 @@
 package dataplane
 
 import (
-	"context"
 	"fmt"
 	"math/bits"
 	"net/http"
@@ -11,8 +10,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
-	"github.com/microsoft/tyger/cli/internal/httpclient"
-	"github.com/rs/zerolog/log"
 )
 
 const (
@@ -29,74 +26,6 @@ func (e *responseBodyReadError) Error() string {
 
 func (e *responseBodyReadError) Unwrap() error {
 	return e.reason
-}
-
-func CreateHttpClient(ctx context.Context, proxyUri string) (*retryablehttp.Client, error) {
-	client := retryablehttp.NewClient()
-	client.RetryMax = 6
-	client.HTTPClient.Timeout = 100 * time.Second
-
-	client.Logger = nil
-	client.ErrorHandler = func(resp *http.Response, err error, numTries int) (*http.Response, error) {
-		return resp, err
-	}
-	client.CheckRetry = CheckRetry
-
-	transport := client.HTTPClient.Transport.(*http.Transport)
-	transport.MaxIdleConnsPerHost = 1000
-	transport.ResponseHeaderTimeout = 20 * time.Second
-
-	if proxyUri != "" {
-		proxyUrl, err := url.Parse(proxyUri)
-		if err != nil {
-			return nil, fmt.Errorf("invalid proxy url: %w", err)
-		}
-		transport.Proxy = http.ProxyURL(proxyUrl)
-	} else {
-		transport.Proxy = httpclient.GetProxyFunc()
-	}
-
-	return client, nil
-}
-
-func CheckRetry(ctx context.Context, resp *http.Response, err error) (bool, error) {
-	if ctx.Err() != nil {
-		return false, ctx.Err()
-	}
-	shouldRetry, checkErr := retryablehttp.DefaultRetryPolicy(ctx, resp, err)
-	if shouldRetry {
-		if err != nil {
-			log.Ctx(ctx).Warn().Err(RedactHttpError(err)).Msg("Received retryable error")
-		} else if resp != nil {
-			log.Ctx(ctx).Warn().Int("statusCode", resp.StatusCode).Msg("Received retryable status code")
-		}
-	}
-	return shouldRetry, checkErr
-}
-
-// If the error is a *url.Error, redact the query string values
-func RedactHttpError(err error) error {
-	if httpErr, ok := err.(*url.Error); ok {
-		if httpErr.URL != "" {
-			if index := strings.IndexByte(httpErr.URL, '?'); index != -1 {
-				if u, err := url.Parse(httpErr.URL); err == nil {
-					q := u.Query()
-					for _, v := range q {
-						for i := range v {
-							v[i] = "REDACTED"
-						}
-
-					}
-
-					u.RawQuery = q.Encode()
-					httpErr.URL = u.String()
-				}
-			}
-		}
-
-		httpErr.Err = RedactHttpError(httpErr.Err)
-	}
-	return err
 }
 
 type Container struct {

@@ -16,6 +16,7 @@ import (
 
 	"github.com/hashicorp/go-retryablehttp"
 	pool "github.com/libp2p/go-buffer-pool"
+	"github.com/microsoft/tyger/cli/internal/httpclient"
 	"github.com/rs/zerolog/log"
 )
 
@@ -57,11 +58,7 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 	}
 
 	if readOptions.httpClient == nil {
-		var err error
-		readOptions.httpClient, err = CreateHttpClient(ctx, "")
-		if err != nil {
-			return fmt.Errorf("failed to create http client: %w", err)
-		}
+		readOptions.httpClient = httpclient.DefaultRetryableClient
 	}
 
 	httpClient := readOptions.httpClient
@@ -280,7 +277,7 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUri
 
 		resp, err := httpClient.Do(req)
 		if err != nil {
-			return nil, RedactHttpError(err)
+			return nil, httpclient.RedactHttpError(err)
 		}
 
 		respData, err := handleReadResponse(ctx, resp)
@@ -301,7 +298,7 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUri
 				log.Ctx(ctx).Debug().Msg("MD5 mismatch, retrying")
 				continue
 			} else {
-				return nil, fmt.Errorf("failed to read blob: %w", RedactHttpError(err))
+				return nil, fmt.Errorf("failed to read blob: %w", httpclient.RedactHttpError(err))
 			}
 		}
 		if err == ErrNotFound && waitForBlob.Load() {
@@ -350,7 +347,7 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUri
 			}
 		}
 
-		return nil, RedactHttpError(err)
+		return nil, httpclient.RedactHttpError(err)
 	}
 }
 

@@ -56,19 +56,24 @@ func GetCachedSettingsPath() (string, error) {
 	return filepath.Join(cacheDir, fileName), nil
 }
 
-func (s *Settings) Persist() error {
-	path, err := GetCachedSettingsPath()
-	if err == nil {
-		var bytes []byte
-		bytes, err = yaml.Marshal(s)
+func (s *Settings) Store(persist bool) error {
+	if persist {
+		path, err := GetCachedSettingsPath()
 		if err == nil {
-			err = persistCacheContents(path, bytes)
+			var bytes []byte
+			bytes, err = yaml.Marshal(s)
+			if err == nil {
+				err = persistCacheContents(path, bytes)
+			}
+		}
+
+		if err != nil {
+			return fmt.Errorf("failed to write auth cache: %w", err)
 		}
 	}
 
-	if err != nil {
-		return fmt.Errorf("failed to write auth cache: %w", err)
-	}
+	copy := *s
+	cachedSettings = &copy
 
 	return nil
 }
@@ -100,7 +105,7 @@ func persistCacheContents(path string, bytes []byte) error {
 	return err
 }
 
-func GetPersistedSettings() (*Settings, error) {
+func LoadSettings() (*Settings, error) {
 	if cachedSettings != nil {
 		return cachedSettings, nil
 	}

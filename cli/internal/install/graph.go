@@ -11,6 +11,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+	"github.com/hashicorp/go-retryablehttp"
 	"github.com/microsoft/tyger/cli/internal/httpclient"
 	"github.com/rs/zerolog/log"
 )
@@ -188,7 +189,7 @@ func executeGraphCall(ctx context.Context, cred azcore.TokenCredential, method, 
 		requestBodyReader = bytes.NewBuffer(requestBytes)
 	}
 
-	req, err := http.NewRequest(method, url, requestBodyReader)
+	req, err := retryablehttp.NewRequest(method, url, requestBodyReader)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}

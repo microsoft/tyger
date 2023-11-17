@@ -19,11 +19,11 @@ import (
 	"time"
 
 	"github.com/alecthomas/units"
-	"github.com/hashicorp/go-retryablehttp"
 	"github.com/kaz-yamam0t0/go-timeparser/timeparser"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/dataplane"
+	"github.com/microsoft/tyger/cli/internal/httpclient"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -154,15 +154,7 @@ func newRunExecCommand() *cobra.Command {
 
 		mainWg := sync.WaitGroup{}
 
-		var httpClient *retryablehttp.Client
-		if serviceInfo, err := controlplane.GetPersistedServiceInfo(); err == nil {
-			proxyUri := serviceInfo.GetDataPlaneProxy()
-			httpClient, err = dataplane.CreateHttpClient(ctx, proxyUri)
-			if err != nil {
-				return fmt.Errorf("failed to create http client: %w", err)
-			}
-		}
-
+		httpClient := httpclient.DefaultRetryableClient
 		var stopFunc context.CancelFunc
 		ctx, stopFunc = signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 
