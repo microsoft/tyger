@@ -8,10 +8,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"gopkg.in/yaml.v2"
+	"sigs.k8s.io/yaml"
 )
 
 const CacheFileEnvVarName = "TYGER_CACHE_FILE"
+
+var cachedSettings *Settings
 
 type Settings struct {
 	ServerUri                      string `json:"serverUri"`
@@ -30,7 +32,7 @@ type Settings struct {
 	SkipTlsCertificateVerification bool   `json:"insecureSkipTlsCertificateVerification,omitempty"`
 }
 
-func GetCachePath() (string, error) {
+func GetCachedSettingsPath() (string, error) {
 	var cacheDir string
 	var fileName string
 
@@ -55,7 +57,7 @@ func GetCachePath() (string, error) {
 }
 
 func (s *Settings) Persist() error {
-	path, err := GetCachePath()
+	path, err := GetCachedSettingsPath()
 	if err == nil {
 		var bytes []byte
 		bytes, err = yaml.Marshal(s)
@@ -99,8 +101,12 @@ func persistCacheContents(path string, bytes []byte) error {
 }
 
 func GetPersistedSettings() (*Settings, error) {
+	if cachedSettings != nil {
+		return cachedSettings, nil
+	}
+
 	si := &Settings{}
-	path, err := GetCachePath()
+	path, err := GetCachedSettingsPath()
 	if err != nil {
 		return si, err
 	}
@@ -112,6 +118,11 @@ func GetPersistedSettings() (*Settings, error) {
 	}
 
 	err = yaml.Unmarshal(bytes, &si)
+	if err != nil {
+		cachedSettings = nil
+	} else {
+		cachedSettings = si
+	}
 	return si, err
 }
 

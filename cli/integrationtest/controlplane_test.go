@@ -25,6 +25,7 @@ import (
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/httpclient"
+	"github.com/microsoft/tyger/cli/internal/settings"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/require"
@@ -950,7 +951,7 @@ func TestSpecifyingCacheFileAsEnvironmentVariable(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, stdErr, "run 'tyger login' to connect to a Tyger server")
 
-	cachePath, err := controlplane.GetCachePath()
+	cachePath, err := settings.GetCachedSettingsPath()
 	require.NoError(t, err)
 
 	NewTygerCmdBuilder("login", "status").

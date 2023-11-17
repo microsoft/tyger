@@ -19,10 +19,9 @@ import (
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/confidential"
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/public"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/httpclient"
-	"sigs.k8s.io/yaml"
+	"github.com/microsoft/tyger/cli/internal/settings"
 )
 
 const (
@@ -40,27 +39,18 @@ type ServiceInfo interface {
 }
 
 type AuthConfig struct {
-	ServerUri             string `json:"serverUri"`
-	ServicePrincipal      string `json:"servicePrincipal,omitempty"`
-	CertificatePath       string `json:"certificatePath,omitempty"`
-	CertificateThumbprint string `json:"certificateThumbprint,omitempty"`
-	UseDeviceCode         bool
-	Persisted             bool
+	ServerUri                      string `json:"serverUri"`
+	ServicePrincipal               string `json:"servicePrincipal,omitempty"`
+	CertificatePath                string `json:"certificatePath,omitempty"`
+	CertificateThumbprint          string `json:"certificateThumbprint,omitempty"`
+	IgnoreSystemProxySettings      bool   `json:"ignoreSystemProxySettings,omitempty"`
+	SkipTlsCertificateVerification bool   `json:"insecureSkipTlsCertificateVerification,omitempty"`
+	UseDeviceCode                  bool
+	Persisted                      bool
 }
 
 type serviceInfo struct {
-	ServerUri          string `json:"serverUri"`
-	ClientAppUri       string `json:"clientAppUri,omitempty"`
-	ClientId           string `json:"clientId,omitempty"`
-	LastToken          string `json:"lastToken,omitempty"`
-	LastTokenExpiry    int64  `json:"lastTokenExpiration,omitempty"`
-	Principal          string `json:"principal,omitempty"`
-	CertPath           string `json:"certPath,omitempty"`
-	CertThumbprint     string `json:"certThumbprint,omitempty"`
-	Authority          string `json:"authority,omitempty"`
-	Audience           string `json:"audience,omitempty"`
-	FullCache          string `json:"fullCache,omitempty"`
-	DataPlaneProxy     string `json:"dataPlaneProxy,omitempty"`
+	settings.Settings
 	confidentialClient *confidential.Client
 }
 
@@ -88,14 +78,16 @@ func Login(options AuthConfig) (ServiceInfo, error) {
 	}
 
 	si := &serviceInfo{
-		ServerUri:      options.ServerUri,
-		Authority:      serviceMetadata.Authority,
-		Audience:       serviceMetadata.Audience,
-		ClientAppUri:   serviceMetadata.CliAppUri,
-		Principal:      options.ServicePrincipal,
-		CertPath:       options.CertificatePath,
-		CertThumbprint: options.CertificateThumbprint,
-		DataPlaneProxy: serviceMetadata.DataPlaneProxy,
+		Settings: settings.Settings{
+			ServerUri:      options.ServerUri,
+			Authority:      serviceMetadata.Authority,
+			Audience:       serviceMetadata.Audience,
+			ClientAppUri:   serviceMetadata.CliAppUri,
+			Principal:      options.ServicePrincipal,
+			CertPath:       options.CertificatePath,
+			CertThumbprint: options.CertificateThumbprint,
+			DataPlaneProxy: serviceMetadata.DataPlaneProxy,
+		},
 	}
 
 	if serviceMetadata.Authority != "" {
@@ -130,7 +122,7 @@ func Login(options AuthConfig) (ServiceInfo, error) {
 	}
 
 	if options.Persisted {
-		err = si.persist()
+		err = si.Persist()
 	}
 
 	return si, err
@@ -147,7 +139,7 @@ func normalizeServerUri(uri string) (string, error) {
 }
 
 func Logout() error {
-	return (&serviceInfo{}).persist()
+	return (&serviceInfo{}).Persist()
 }
 
 func (c *serviceInfo) GetAccessToken() (string, error) {
@@ -206,92 +198,16 @@ func (c *serviceInfo) GetAccessToken() (string, error) {
 	c.LastToken = authResult.AccessToken
 	c.LastTokenExpiry = authResult.ExpiresOn.Unix()
 
-	return authResult.AccessToken, c.persist()
-}
-
-func GetCachePath() (string, error) {
-	var cacheDir string
-	var fileName string
-
-	if path := os.Getenv(CacheFileEnvVarName); path != "" {
-		cacheDir = filepath.Dir(path)
-		fileName = filepath.Base(path)
-	} else {
-		var err error
-		cacheDir, err = os.UserCacheDir()
-		if err != nil {
-			return "", fmt.Errorf("unable to locate cache directory: %w; to provide a file path directly, set the $%s environment variable", err, CacheFileEnvVarName)
-		}
-		cacheDir = filepath.Join(cacheDir, "tyger")
-		fileName = ".tyger"
-	}
-
-	err := os.MkdirAll(cacheDir, 0775)
-	if err != nil {
-		return "", fmt.Errorf("unable to create %s directory", cacheDir)
-	}
-	return filepath.Join(cacheDir, fileName), nil
-}
-
-func (si *serviceInfo) persist() error {
-	path, err := GetCachePath()
-	if err == nil {
-		var bytes []byte
-		bytes, err = yaml.Marshal(si)
-		if err == nil {
-			err = persistCacheContents(path, bytes)
-		}
-	}
-
-	if err != nil {
-		return fmt.Errorf("failed to write auth cache: %w", err)
-	}
-
-	return nil
-}
-
-func persistCacheContents(path string, bytes []byte) error {
-	// Write to a temp file in the same directory first
-	tempFileName := fmt.Sprintf("%s.`%v`", path, uuid.New())
-	defer os.Remove(tempFileName)
-	if err := os.WriteFile(tempFileName, bytes, 0600); err != nil {
-		return err
-	}
-
-	// Now rename the temp file to the final name.
-	// If the file is not writable due to a permission error,
-	// it could be because another process is holding the file open.
-	// In that case, we retry over a short period of time.
-	var err error
-	for i := 0; i < 50; i++ {
-		if i > 0 {
-			time.Sleep(100 * time.Millisecond)
-		}
-
-		err = os.Rename(tempFileName, path)
-		if err == nil || !errors.Is(err, os.ErrPermission) {
-			break
-		}
-	}
-
-	return err
+	return authResult.AccessToken, c.Persist()
 }
 
 func GetPersistedServiceInfo() (*serviceInfo, error) {
-	si := &serviceInfo{}
-	path, err := GetCachePath()
+	settings, err := settings.GetPersistedSettings()
 	if err != nil {
-		return si, err
+		return nil, err
 	}
 
-	bytes, err := readCachedContents(path)
-
-	if err != nil {
-		return si, err
-	}
-
-	err = yaml.Unmarshal(bytes, &si)
-	return si, err
+	return &serviceInfo{Settings: *settings}, nil
 }
 
 func readCachedContents(path string) ([]byte, error) {
@@ -449,7 +365,7 @@ func (si *serviceInfo) performUserLogin(useDeviceCode bool) (authResult public.A
 
 // Implementing the cache.ExportReplace interface to read in the token cache
 func (si *serviceInfo) Replace(ctx context.Context, unmarshaler cache.Unmarshaler, hints cache.ReplaceHints) error {
-	data, err := base64.StdEncoding.DecodeString(si.FullCache)
+	data, err := base64.StdEncoding.DecodeString(si.FullTokenCache)
 	if err == nil {
 		unmarshaler.Unmarshal(data)
 	}
@@ -461,7 +377,7 @@ func (si *serviceInfo) Replace(ctx context.Context, unmarshaler cache.Unmarshale
 func (si *serviceInfo) Export(ctx context.Context, marshaler cache.Marshaler, hints cache.ExportHints) error {
 	data, err := marshaler.Marshal()
 	if err == nil {
-		si.FullCache = base64.StdEncoding.EncodeToString(data)
+		si.FullTokenCache = base64.StdEncoding.EncodeToString(data)
 	}
 
 	return err
