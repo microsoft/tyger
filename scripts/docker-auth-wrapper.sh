@@ -40,10 +40,12 @@ if [[ "$error_output" =~ "unauthorized: authentication required" || "$error_outp
 
     registry_name=$(echo "$image_name" | cut -d'.' -f1)
     "$(dirname "${0}")"/check-login.sh
-    az acr login -n "$registry_name"
 
-    # Run the command again
-    docker "$@"
+    if ! az acr login -n "$registry_name" &> /dev/null; then
+        # If this script is called concurrently, the credential manager may fail, so we try again
+        az acr login -n "$registry_name"
+    fi
+
 else
     echo "$error_output" >&2
     exit 1
