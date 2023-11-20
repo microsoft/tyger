@@ -1,4 +1,4 @@
-//go:build integrationtest
+//golf:build integrationtest
 
 package integrationtest
 
@@ -192,10 +192,11 @@ func TestMissingContainer(t *testing.T) {
 		return resp, nil
 	})
 
-	err := dataplane.Write(context.Background(), readSasUri, strings.NewReader("Hello"), dataplane.WithWriteHttpClient(client))
+	ctx := getLoginContext(t)
+	err := dataplane.Write(ctx, readSasUri, strings.NewReader("Hello"), dataplane.WithWriteHttpClient(client))
 	require.ErrorContains(t, err, "the buffer does not exist")
 
-	err = dataplane.Read(context.Background(), readSasUri, io.Discard, dataplane.WithReadHttpClient(client))
+	err = dataplane.Read(ctx, readSasUri, io.Discard, dataplane.WithReadHttpClient(client))
 	require.ErrorContains(t, err, "the buffer does not exist")
 }
 
@@ -212,7 +213,8 @@ func TestInvalidHashChain(t *testing.T) {
 		return inner.RoundTrip(req)
 	})
 
-	err := dataplane.Write(context.Background(), writeSasUri, inputReader, dataplane.WithWriteHttpClient(httpClient))
+	ctx := getLoginContext(t)
+	err := dataplane.Write(ctx, writeSasUri, inputReader, dataplane.WithWriteHttpClient(httpClient))
 	require.NoError(t, err, "Failed to write data")
 
 	readSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId)
@@ -234,7 +236,8 @@ func TestMd5HashMismatchOnWrite(t *testing.T) {
 		return inner.RoundTrip(req)
 	})
 
-	err := dataplane.Write(context.Background(), writeSasUri, inputReader, dataplane.WithWriteHttpClient(httpClient))
+	ctx := getLoginContext(t)
+	err := dataplane.Write(ctx, writeSasUri, inputReader, dataplane.WithWriteHttpClient(httpClient))
 	require.ErrorContains(t, err, "MD5 mismatch")
 }
 
@@ -258,7 +261,8 @@ func TestMd5HashMismatchOnWriteRetryAndRecover(t *testing.T) {
 		return inner.RoundTrip(req)
 	})
 
-	err := dataplane.Write(context.Background(), writeSasUri, inputReader, dataplane.WithWriteHttpClient(httpClient), dataplane.WithWriteDop(1))
+	ctx := getLoginContext(t)
+	err := dataplane.Write(ctx, writeSasUri, inputReader, dataplane.WithWriteHttpClient(httpClient), dataplane.WithWriteDop(1))
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(failedUris), 2)
 }
@@ -269,7 +273,9 @@ func TestMd5HashMismatchOnRead(t *testing.T) {
 	inputBufferId := runTygerSucceeds(t, "buffer", "create")
 	writeSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
 	inputReader := strings.NewReader("Hello")
-	require.NoError(t, dataplane.Write(context.Background(), writeSasUri, inputReader))
+	ctx := getLoginContext(t)
+
+	require.NoError(t, dataplane.Write(ctx, writeSasUri, inputReader))
 
 	httpClient := newInterceptingHttpClient(func(req *http.Request, inner http.RoundTripper) (*http.Response, error) {
 		resp, err := inner.RoundTrip(req)
@@ -283,7 +289,7 @@ func TestMd5HashMismatchOnRead(t *testing.T) {
 		return resp, nil
 	})
 
-	err := dataplane.Read(context.Background(), writeSasUri, io.Discard, dataplane.WithReadHttpClient(httpClient))
+	err := dataplane.Read(ctx, writeSasUri, io.Discard, dataplane.WithReadHttpClient(httpClient))
 	require.ErrorContains(t, err, "MD5 mismatch")
 }
 
@@ -293,7 +299,8 @@ func TestMd5HashMismatchOnReadRetryAndRecover(t *testing.T) {
 	inputBufferId := runTygerSucceeds(t, "buffer", "create")
 	writeSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
 	inputReader := strings.NewReader("Hello")
-	require.NoError(t, dataplane.Write(context.Background(), writeSasUri, inputReader))
+	ctx := getLoginContext(t)
+	require.NoError(t, dataplane.Write(ctx, writeSasUri, inputReader))
 
 	failedUris := make(map[string]any)
 	httpClient := newInterceptingHttpClient(func(req *http.Request, inner http.RoundTripper) (*http.Response, error) {
@@ -313,7 +320,7 @@ func TestMd5HashMismatchOnReadRetryAndRecover(t *testing.T) {
 		return resp, nil
 	})
 
-	err := dataplane.Read(context.Background(), writeSasUri, io.Discard, dataplane.WithReadHttpClient(httpClient), dataplane.WithReadDop(1))
+	err := dataplane.Read(ctx, writeSasUri, io.Discard, dataplane.WithReadHttpClient(httpClient), dataplane.WithReadDop(1))
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(failedUris), 2)
 }
@@ -324,11 +331,12 @@ func TestCancellationOnWrite(t *testing.T) {
 	inputBufferId := runTygerSucceeds(t, "buffer", "create")
 	writeSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
 	inputReader := &infiniteReader{}
+	ctx := getLoginContext(t)
 	errorChan := make(chan error, 1)
 	go func() {
-		errorChan <- dataplane.Read(context.Background(), writeSasUri, io.Discard)
+		errorChan <- dataplane.Read(ctx, writeSasUri, io.Discard)
 	}()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	err := dataplane.Write(ctx, writeSasUri, inputReader)
 	assert.ErrorIs(t, err, context.DeadlineExceeded)

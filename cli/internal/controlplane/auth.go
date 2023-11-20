@@ -19,9 +19,12 @@ import (
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/confidential"
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/public"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
+	"github.com/hashicorp/go-retryablehttp"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/httpclient"
 	"github.com/microsoft/tyger/cli/internal/settings"
+	"sigs.k8s.io/yaml"
 )
 
 const (
@@ -30,13 +33,6 @@ const (
 	servicePrincipalScope               = ".default"
 	discardTokenIfExpiringWithinSeconds = 10 * 60
 )
-
-type ServiceInfo interface {
-	GetServerUri() string
-	GetPrincipal() string
-	GetAccessToken() (string, error)
-	GetDataPlaneProxy() string
-}
 
 type AuthConfig struct {
 	ServerUri                      string `json:"serverUri"`
@@ -50,58 +46,87 @@ type AuthConfig struct {
 }
 
 type serviceInfo struct {
-	settings.Settings
-	confidentialClient *confidential.Client
-	persisted          bool
+	ServerUri                      string `json:"serverUri"`
+	parsedServerUri                *url.URL
+	ClientAppUri                   string `json:"clientAppUri,omitempty"`
+	ClientId                       string `json:"clientId,omitempty"`
+	LastToken                      string `json:"lastToken,omitempty"`
+	LastTokenExpiry                int64  `json:"lastTokenExpiration,omitempty"`
+	Principal                      string `json:"principal,omitempty"`
+	CertPath                       string `json:"certPath,omitempty"`
+	CertThumbprint                 string `json:"certThumbprint,omitempty"`
+	Authority                      string `json:"authority,omitempty"`
+	Audience                       string `json:"audience,omitempty"`
+	FullCache                      string `json:"fullCache,omitempty"`
+	DataPlaneProxy                 string `json:"dataPlaneProxy,omitempty"`
+	parsedDataPlaneProxy           *url.URL
+	IgnoreSystemProxySettings      bool `json:"ignoreSystemProxySettings,omitempty"`
+	SkipTlsCertificateVerification bool `json:"insecureSkipTlsCertificateVerification,omitempty"`
+	confidentialClient             *confidential.Client
 }
 
-func (c *serviceInfo) GetServerUri() string {
-	return c.ServerUri
+func (c *serviceInfo) GetServerUri() *url.URL {
+	return c.parsedServerUri
 }
 
 func (c *serviceInfo) GetPrincipal() string {
 	return c.Principal
 }
 
-func (c *serviceInfo) GetDataPlaneProxy() string {
-	return c.DataPlaneProxy
+func (c *serviceInfo) GetDataPlaneProxy() *url.URL {
+	return c.parsedDataPlaneProxy
 }
 
-func Login(options AuthConfig) (ServiceInfo, error) {
+func (c *serviceInfo) GetIgnoreSystemProxySettings() bool {
+	return c.IgnoreSystemProxySettings
+}
+
+func (c *serviceInfo) GetSkipTlsCertificateVerification() bool {
+	return c.SkipTlsCertificateVerification
+}
+
+func Login(ctx context.Context, options AuthConfig) (context.Context, error) {
 	normalizedServerUri, err := normalizeServerUri(options.ServerUri)
 	if err != nil {
 		return nil, err
 	}
-	options.ServerUri = normalizedServerUri
-	serviceMetadata, err := getServiceMetadata(options.ServerUri)
+	options.ServerUri = normalizedServerUri.String()
+
+	si := &serviceInfo{
+		ServerUri:                      options.ServerUri,
+		parsedServerUri:                normalizedServerUri,
+		Principal:                      options.ServicePrincipal,
+		CertPath:                       options.CertificatePath,
+		CertThumbprint:                 options.CertificateThumbprint,
+		IgnoreSystemProxySettings:      options.IgnoreSystemProxySettings,
+		SkipTlsCertificateVerification: options.SkipTlsCertificateVerification,
+	}
+
+	// store in context so that the HTTP client can pick up the settings
+	ctx = settings.SetServiceInfoOnContext(ctx, si)
+
+	serviceMetadata, err := getServiceMetadata(ctx, options.ServerUri)
 	if err != nil {
 		return nil, err
 	}
 
-	si := &serviceInfo{
-		Settings: settings.Settings{
-			ServerUri:      options.ServerUri,
-			Authority:      serviceMetadata.Authority,
-			Audience:       serviceMetadata.Audience,
-			ClientAppUri:   serviceMetadata.CliAppUri,
-			Principal:      options.ServicePrincipal,
-			CertPath:       options.CertificatePath,
-			CertThumbprint: options.CertificateThumbprint,
-			DataPlaneProxy: serviceMetadata.DataPlaneProxy,
-		},
-		persisted: options.Persisted,
-	}
+	// augment with data received from the metadata endpoint
+	si.ServerUri = options.ServerUri
+	si.Authority = serviceMetadata.Authority
+	si.Audience = serviceMetadata.Audience
+	si.ClientAppUri = serviceMetadata.CliAppUri
+	si.DataPlaneProxy = serviceMetadata.DataPlaneProxy
 
-	si.Store(false)
+	ctx = settings.SetServiceInfoOnContext(ctx, si)
 
 	if serviceMetadata.Authority != "" {
 		useServicePrincipal := options.ServicePrincipal != ""
 
 		var authResult public.AuthResult
 		if useServicePrincipal {
-			authResult, err = si.performServicePrincipalLogin()
+			authResult, err = si.performServicePrincipalLogin(ctx)
 		} else {
-			authResult, err = si.performUserLogin(options.UseDeviceCode)
+			authResult, err = si.performUserLogin(ctx, options.UseDeviceCode)
 		}
 		if err != nil {
 			return nil, err
@@ -125,56 +150,59 @@ func Login(options AuthConfig) (ServiceInfo, error) {
 		}
 	}
 
-	err = si.Store(options.Persisted)
-	return si, err
+	if options.Persisted {
+		err = si.persist()
+	}
+
+	return ctx, err
 }
 
-func normalizeServerUri(uri string) (string, error) {
+func normalizeServerUri(uri string) (*url.URL, error) {
 	uri = strings.TrimRight(uri, "/")
 	parsedUrl, err := url.Parse(uri)
 	if err != nil || !parsedUrl.IsAbs() {
-		return uri, errors.New("a valid absolute uri is required")
+		return nil, errors.New("a valid absolute uri is required")
 	}
 
-	return uri, err
+	return parsedUrl, err
 }
 
 func Logout() error {
-	return (&serviceInfo{}).Store(true)
+	return (&serviceInfo{}).persist()
 }
 
-func (s *serviceInfo) GetAccessToken() (string, error) {
+func (c *serviceInfo) GetAccessToken(ctx context.Context) (string, error) {
 	// Quick check to see if the last token is still valid.
 	// This token is in the full MSAL token cache, but unfortunately calling
 	// client.AcquireTokenSilent currenly always calls an AAD discovery endpoint, which
 	// can take > 0.5 seconds. So we store it ourselves and use it here if it is still valid.
-	if s.LastTokenExpiry-discardTokenIfExpiringWithinSeconds > time.Now().UTC().Unix() && s.LastToken != "" {
-		return s.LastToken, nil
+	if c.LastTokenExpiry-discardTokenIfExpiringWithinSeconds > time.Now().UTC().Unix() && c.LastToken != "" {
+		return c.LastToken, nil
 	}
 
-	if s.Authority == "" {
+	if c.Authority == "" {
 		return "", nil
 	}
 
 	var authResult public.AuthResult
-	if s.CertPath != "" || s.CertThumbprint != "" {
+	if c.CertPath != "" || c.CertThumbprint != "" {
 		var err error
-		authResult, err = s.performServicePrincipalLogin()
+		authResult, err = c.performServicePrincipalLogin(ctx)
 		if err != nil {
 			return "", err
 		}
 	} else {
 		customHttpClient := &clientIdReplacingHttpClient{
-			clientAppUri: s.ClientAppUri,
-			clientAppId:  s.ClientId,
+			clientAppUri: c.ClientAppUri,
+			clientAppId:  c.ClientId,
 			innerClient:  httpclient.DefaultRetryableClient.StandardClient(),
 		}
 
 		// fall back to using the refresh token from the cache
 		client, err := public.New(
-			s.ClientAppUri,
-			public.WithAuthority(s.Authority),
-			public.WithCache(s),
+			c.ClientAppUri,
+			public.WithAuthority(c.Authority),
+			public.WithCache(c),
 			public.WithHTTPClient(customHttpClient),
 		)
 
@@ -182,7 +210,7 @@ func (s *serviceInfo) GetAccessToken() (string, error) {
 			return "", err
 		}
 
-		accounts, err := client.Accounts(context.Background())
+		accounts, err := client.Accounts(ctx)
 		if err != nil {
 			return "", fmt.Errorf("unable to get accounts from token cache: %w", err)
 		}
@@ -190,29 +218,147 @@ func (s *serviceInfo) GetAccessToken() (string, error) {
 			return "", errors.New("corrupted token cache")
 		}
 
-		authResult, err = client.AcquireTokenSilent(context.Background(), []string{fmt.Sprintf("%s/%s", s.Audience, userScope)}, public.WithSilentAccount(accounts[0]))
+		authResult, err = client.AcquireTokenSilent(ctx, []string{fmt.Sprintf("%s/%s", c.Audience, userScope)}, public.WithSilentAccount(accounts[0]))
 		if err != nil {
 			return "", err
 		}
 	}
 
-	s.LastToken = authResult.AccessToken
-	s.LastTokenExpiry = authResult.ExpiresOn.Unix()
+	c.LastToken = authResult.AccessToken
+	c.LastTokenExpiry = authResult.ExpiresOn.Unix()
 
-	return authResult.AccessToken, s.Store(s.persisted)
+	return authResult.AccessToken, c.persist()
 }
 
-func GetPersistedServiceInfo() (*serviceInfo, error) {
-	settings, err := settings.LoadSettings()
+func GetCachePath() (string, error) {
+	var cacheDir string
+	var fileName string
+
+	if path := os.Getenv(CacheFileEnvVarName); path != "" {
+		cacheDir = filepath.Dir(path)
+		fileName = filepath.Base(path)
+	} else {
+		var err error
+		cacheDir, err = os.UserCacheDir()
+		if err != nil {
+			return "", fmt.Errorf("unable to locate cache directory: %w; to provide a file path directly, set the $%s environment variable", err, CacheFileEnvVarName)
+		}
+		cacheDir = filepath.Join(cacheDir, "tyger")
+		fileName = ".tyger"
+	}
+
+	err := os.MkdirAll(cacheDir, 0775)
+	if err != nil {
+		return "", fmt.Errorf("unable to create %s directory", cacheDir)
+	}
+	return filepath.Join(cacheDir, fileName), nil
+}
+
+func (si *serviceInfo) persist() error {
+	path, err := GetCachePath()
+	if err == nil {
+		var bytes []byte
+		bytes, err = yaml.Marshal(si)
+		if err == nil {
+			err = persistCacheContents(path, bytes)
+		}
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to write auth cache: %w", err)
+	}
+
+	return nil
+}
+
+func persistCacheContents(path string, bytes []byte) error {
+	// Write to a temp file in the same directory first
+	tempFileName := fmt.Sprintf("%s.`%v`", path, uuid.New())
+	defer os.Remove(tempFileName)
+	if err := os.WriteFile(tempFileName, bytes, 0600); err != nil {
+		return err
+	}
+
+	// Now rename the temp file to the final name.
+	// If the file is not writable due to a permission error,
+	// it could be because another process is holding the file open.
+	// In that case, we retry over a short period of time.
+	var err error
+	for i := 0; i < 50; i++ {
+		if i > 0 {
+			time.Sleep(100 * time.Millisecond)
+		}
+
+		err = os.Rename(tempFileName, path)
+		if err == nil || !errors.Is(err, os.ErrPermission) {
+			break
+		}
+	}
+
+	return err
+}
+
+func GetPersistedServiceInfo() (settings.ServiceInfo, error) {
+	si := &serviceInfo{}
+	path, err := GetCachePath()
+	if err != nil {
+		return si, err
+	}
+
+	bytes, err := readCachedContents(path)
+
+	if err != nil {
+		return si, err
+	}
+
+	err = yaml.Unmarshal(bytes, &si)
 	if err != nil {
 		return nil, err
 	}
 
-	return &serviceInfo{Settings: *settings}, nil
+	if si.ServerUri != "" {
+		si.parsedServerUri, err = normalizeServerUri(si.ServerUri)
+		if err != nil {
+			return nil, fmt.Errorf("cached server URI is invalid")
+		}
+	}
+	if si.DataPlaneProxy != "" {
+		si.parsedDataPlaneProxy, err = url.Parse(si.DataPlaneProxy)
+		if err != nil {
+			return nil, fmt.Errorf("cached data plane proxy URI is invalid")
+		}
+	}
+	return si, err
 }
 
-func getServiceMetadata(serverUri string) (*model.ServiceMetadata, error) {
-	resp, err := httpclient.DefaultRetryableClient.Get(fmt.Sprintf("%s/v1/metadata", serverUri))
+func readCachedContents(path string) ([]byte, error) {
+	var bytes []byte
+	var err error
+
+	// If the file is not readable due to a permission error,
+	// it could be because another process is holding the file open.
+	// In that case, we retry over a short period of time.
+	for i := 0; i < 50; i++ {
+		if i > 0 {
+			time.Sleep(100 * time.Millisecond)
+		}
+
+		bytes, err = os.ReadFile(path)
+		if err == nil || !errors.Is(err, os.ErrPermission) {
+			break
+		}
+	}
+
+	return bytes, err
+}
+
+func getServiceMetadata(ctx context.Context, serverUri string) (*model.ServiceMetadata, error) {
+	req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/v1/metadata", serverUri), nil)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create request: %w", err)
+	}
+
+	resp, err := httpclient.DefaultRetryableClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -224,7 +370,7 @@ func getServiceMetadata(serverUri string) (*model.ServiceMetadata, error) {
 	return serviceMetadata, nil
 }
 
-func (si *serviceInfo) performServicePrincipalLogin() (authResult confidential.AuthResult, err error) {
+func (si *serviceInfo) performServicePrincipalLogin(ctx context.Context) (authResult confidential.AuthResult, err error) {
 	newClient := si.confidentialClient == nil
 	if newClient {
 		cred, err := si.createServicePrincipalCredential()
@@ -241,10 +387,10 @@ func (si *serviceInfo) performServicePrincipalLogin() (authResult confidential.A
 
 	scopes := []string{fmt.Sprintf("%s/%s", si.Audience, servicePrincipalScope)}
 	if !newClient {
-		authResult, err = si.confidentialClient.AcquireTokenSilent(context.Background(), scopes)
+		authResult, err = si.confidentialClient.AcquireTokenSilent(ctx, scopes)
 	}
 	if newClient || err != nil {
-		authResult, err = si.confidentialClient.AcquireTokenByCredential(context.Background(), scopes)
+		authResult, err = si.confidentialClient.AcquireTokenByCredential(ctx, scopes)
 	}
 
 	return authResult, err
@@ -273,7 +419,7 @@ func (si *serviceInfo) createServicePrincipalCredential() (confidential.Credenti
 	return cred, nil
 }
 
-func (si *serviceInfo) performUserLogin(useDeviceCode bool) (authResult public.AuthResult, err error) {
+func (si *serviceInfo) performUserLogin(ctx context.Context, useDeviceCode bool) (authResult public.AuthResult, err error) {
 	client, err := public.New(
 		si.ClientAppUri,
 		public.WithAuthority(si.Authority),
@@ -287,13 +433,13 @@ func (si *serviceInfo) performUserLogin(useDeviceCode bool) (authResult public.A
 	scopes := []string{fmt.Sprintf("%s/%s", si.Audience, userScope)}
 
 	if useDeviceCode {
-		dc, err := client.AcquireTokenByDeviceCode(context.Background(), scopes)
+		dc, err := client.AcquireTokenByDeviceCode(ctx, scopes)
 		if err != nil {
 			return authResult, err
 		}
 
 		fmt.Println(dc.Result.Message)
-		return dc.AuthenticationResult(context.Background())
+		return dc.AuthenticationResult(ctx)
 	}
 
 	// 🚨HACK ALERT🚨
@@ -328,7 +474,7 @@ func (si *serviceInfo) performUserLogin(useDeviceCode bool) (authResult public.A
 			"If no web browser is available or if the web browser fails to open, use the device code flow with `tyger login --use-device-code`.")
 	})
 
-	authResult, err = client.AcquireTokenInteractive(context.Background(), scopes, public.WithRedirectURI("http://localhost:41087"))
+	authResult, err = client.AcquireTokenInteractive(ctx, scopes, public.WithRedirectURI("http://localhost:41087"))
 	timer.Stop()
 	if err == nil {
 		return authResult, err
@@ -337,7 +483,7 @@ func (si *serviceInfo) performUserLogin(useDeviceCode bool) (authResult public.A
 	var exitError *exec.ExitError
 	if errors.Is(err, exec.ErrNotFound) || errors.As(err, &exitError) {
 		// this means that we were not able to bring up the browser. Fall back to using the device code flow.
-		return si.performUserLogin(true)
+		return si.performUserLogin(ctx, true)
 	}
 
 	return authResult, err
@@ -345,7 +491,7 @@ func (si *serviceInfo) performUserLogin(useDeviceCode bool) (authResult public.A
 
 // Implementing the cache.ExportReplace interface to read in the token cache
 func (si *serviceInfo) Replace(ctx context.Context, unmarshaler cache.Unmarshaler, hints cache.ReplaceHints) error {
-	data, err := base64.StdEncoding.DecodeString(si.FullTokenCache)
+	data, err := base64.StdEncoding.DecodeString(si.FullCache)
 	if err == nil {
 		unmarshaler.Unmarshal(data)
 	}
@@ -357,7 +503,7 @@ func (si *serviceInfo) Replace(ctx context.Context, unmarshaler cache.Unmarshale
 func (si *serviceInfo) Export(ctx context.Context, marshaler cache.Marshaler, hints cache.ExportHints) error {
 	data, err := marshaler.Marshal()
 	if err == nil {
-		si.FullTokenCache = base64.StdEncoding.EncodeToString(data)
+		si.FullCache = base64.StdEncoding.EncodeToString(data)
 	}
 
 	return err

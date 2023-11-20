@@ -1,4 +1,4 @@
-//go:build !windows
+//golf:build !windows
 
 package controlplane
 

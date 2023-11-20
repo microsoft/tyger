@@ -81,7 +81,7 @@ Subsequent commands will be performed against this server.`,
 					options.CertificatePath = filepath.Clean(filepath.Join(filepath.Dir(optionsFilePath), options.CertificatePath))
 				}
 
-				_, err = controlplane.Login(options)
+				_, err = controlplane.Login(cmd.Context(), options)
 				return err
 			case 1:
 				if options.ServicePrincipal != "" {
@@ -106,7 +106,7 @@ Subsequent commands will be performed against this server.`,
 				}
 
 				options.ServerUri = args[0]
-				_, err := controlplane.Login(options)
+				_, err := controlplane.Login(cmd.Context(), options)
 				return err
 			default:
 				return errors.New("too many arguments")
@@ -140,11 +140,11 @@ func newLoginStatusCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			serviceInfo, err := controlplane.GetPersistedServiceInfo()
 
-			if err != nil || serviceInfo.GetServerUri() == "" {
+			if err != nil || serviceInfo.GetServerUri() == nil {
 				return errors.New("run 'tyger login' to connect to a Tyger server")
 			}
 
-			_, err = serviceInfo.GetAccessToken()
+			_, err = serviceInfo.GetAccessToken(cmd.Context())
 			if err != nil {
 				return fmt.Errorf("run `tyger login` to login to a server: %v", err)
 			}

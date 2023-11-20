@@ -1,4 +1,4 @@
-//go:build integrationtest
+//golf:build integrationtest
 
 package integrationtest
 
@@ -338,7 +338,7 @@ func TestInvalidCodespecNames(t *testing.T) {
 			}
 
 			newCodespec := model.Codespec{Kind: "worker", Image: BasicImage}
-			_, err = controlplane.InvokeRequest(context.Background(), http.MethodPut, fmt.Sprintf("v1/codespecs/%s", tC.name), newCodespec, nil)
+			_, err = controlplane.InvokeRequest(getLoginContext(t), http.MethodPut, fmt.Sprintf("v1/codespecs/%s", tC.name), newCodespec, nil)
 			if tC.valid {
 				require.Nil(t, err)
 			} else {
@@ -476,38 +476,41 @@ func TestTargetCpuNodePoolWithGpuResourcesReturnsError(t *testing.T) {
 func TestUnrecognizedFieldsRejected(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
+	ctx := getLoginContext(t)
 
 	codespec := model.Codespec{}
 	requestBody := map[string]string{"kind": "job", "image": "x"}
-	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
+	_, err := controlplane.InvokeRequest(ctx, http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
 	require.Nil(err)
 
 	requestBody["unknownField"] = "y"
-	_, err = controlplane.InvokeRequest(context.Background(), http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
+	_, err = controlplane.InvokeRequest(ctx, http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
 	require.NotNil(err)
 }
 
 func TestInvalidCodespecDiscriminatorRejected(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
+	ctx := getLoginContext(t)
 
 	codespec := model.Codespec{}
 	requestBody := map[string]string{"image": "x"}
-	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
+	_, err := controlplane.InvokeRequest(ctx, http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
 	require.ErrorContains(err, "Missing discriminator property 'kind'")
 
 	requestBody["kind"] = "missing"
-	_, err = controlplane.InvokeRequest(context.Background(), http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
+	_, err = controlplane.InvokeRequest(ctx, http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
 	require.ErrorContains(err, "Invalid value for the property 'kind'. It can be either 'job' or 'worker'")
 }
 
 func TestInvalidCodespecMissingRequiredFieldsRejected(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
+	ctx := getLoginContext(t)
 
 	codespec := model.Codespec{}
 	requestBody := map[string]string{"kind": "job"}
-	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
+	_, err := controlplane.InvokeRequest(ctx, http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
 	require.ErrorContains(err, "The image field is required")
 }
 
@@ -565,6 +568,7 @@ func TestRunStatusEnumUnmarshal(t *testing.T) {
 
 func TestListRunsPaging(t *testing.T) {
 	t.Parallel()
+	ctx := getLoginContext(t)
 
 	runTygerSucceeds(t,
 		"codespec",
@@ -581,7 +585,7 @@ func TestListRunsPaging(t *testing.T) {
 
 	for uri := "v1/runs?limit=5"; uri != ""; {
 		page := model.Page[model.Run]{}
-		_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, uri, nil, &page)
+		_, err := controlplane.InvokeRequest(ctx, http.MethodGet, uri, nil, &page)
 		require.Nil(t, err)
 		for _, r := range page.Items {
 			delete(runs, fmt.Sprint(r.Id))
@@ -646,6 +650,8 @@ func TestRecreateCodespec(t *testing.T) {
 
 func TestListCodespecsPaging(t *testing.T) {
 	t.Parallel()
+	ctx := getLoginContext(t)
+
 	prefix := strings.ToLower(t.Name()+uuid.NewString()) + "_"
 	inputNames := [12]string{"klamath", "allagash", "middlefork", "johnday", "missouri", "riogrande", "chattooga", "loxahatchee", "noatak", "tuolumne", "riogrande", "allagash"}
 	expectedNames1 := [5]string{"allagash", "chattooga", "johnday", "klamath", "loxahatchee"}
@@ -671,7 +677,7 @@ func TestListCodespecsPaging(t *testing.T) {
 
 	for uri := fmt.Sprintf("v1/codespecs?limit=5&prefix=%s", prefix); uri != ""; {
 		page := model.Page[model.Codespec]{}
-		_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, uri, nil, &page)
+		_, err := controlplane.InvokeRequest(ctx, http.MethodGet, uri, nil, &page)
 		require.Nil(t, err)
 		for _, cs := range page.Items {
 			if _, ok := codespecs[cs.Name]; ok {
@@ -750,6 +756,7 @@ func TestListRunsSince(t *testing.T) {
 
 func TestListCodespecsWithPrefix(t *testing.T) {
 	t.Parallel()
+	ctx := getLoginContext(t)
 
 	codespecNames := [4]string{"3d_t2_flair", "t1w-1mm-ax", "t1w-0.9mm-sag", "3d_t1_star"}
 	codespecMap := make(map[string]string)
@@ -759,7 +766,7 @@ func TestListCodespecsWithPrefix(t *testing.T) {
 
 	uri := "v1/codespecs?prefix=3d_"
 	page := model.Page[model.Codespec]{}
-	_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, uri, nil, &page)
+	_, err := controlplane.InvokeRequest(ctx, http.MethodGet, uri, nil, &page)
 	require.Nil(t, err)
 	for _, cs := range page.Items {
 		require.Equal(t, strings.HasPrefix(cs.Name, "3d_"), true)
@@ -774,6 +781,7 @@ func TestListCodespecsWithPrefix(t *testing.T) {
 
 func TestGetLogsFromPod(t *testing.T) {
 	t.Parallel()
+	ctx := getLoginContext(t)
 
 	codespecName := strings.ToLower(t.Name())
 
@@ -791,7 +799,7 @@ func TestGetLogsFromPod(t *testing.T) {
 	waitForRunStarted(t, runId)
 
 	// block until we get the first line
-	resp, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, fmt.Sprintf("v1/runs/%s/logs?follow=true", runId), nil, nil)
+	resp, err := controlplane.InvokeRequest(ctx, http.MethodGet, fmt.Sprintf("v1/runs/%s/logs?follow=true", runId), nil, nil)
 	require.Nil(t, err)
 	reader := bufio.NewReader(resp.Body)
 	for i := 0; i < 5; i++ {
@@ -824,6 +832,7 @@ func TestGetLogsFromPod(t *testing.T) {
 
 func TestGetArchivedLogs(t *testing.T) {
 	t.Parallel()
+	ctx := getLoginContext(t)
 
 	codespecName := strings.ToLower(t.Name())
 
@@ -844,7 +853,7 @@ func TestGetArchivedLogs(t *testing.T) {
 	waitForRunSuccess(t, runId)
 
 	// force logs to be archived
-	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPost, "v1/runs/_sweep", nil, nil)
+	_, err := controlplane.InvokeRequest(ctx, http.MethodPost, "v1/runs/_sweep", nil, nil)
 	require.Nil(t, err)
 
 	logs = runTygerSucceeds(t, "run", "logs", runId)
@@ -879,6 +888,7 @@ func TestGetArchivedLogs(t *testing.T) {
 
 func TestGetArchivedLogsWithLongLines(t *testing.T) {
 	t.Parallel()
+	ctx := getLoginContext(t)
 
 	codespecName := strings.ToLower(t.Name())
 
@@ -899,7 +909,7 @@ func TestGetArchivedLogsWithLongLines(t *testing.T) {
 	require.Equal(t, expectedLogs, logs)
 
 	// force logs to be archived
-	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPost, "v1/runs/_sweep", nil, nil)
+	_, err := controlplane.InvokeRequest(ctx, http.MethodPost, "v1/runs/_sweep", nil, nil)
 	require.Nil(t, err)
 
 	logs = runTygerSucceeds(t, "run", "logs", runId)
@@ -951,7 +961,7 @@ func TestSpecifyingCacheFileAsEnvironmentVariable(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, stdErr, "run 'tyger login' to connect to a Tyger server")
 
-	cachePath, err := settings.GetCachedSettingsPath()
+	cachePath, err := controlplane.GetCachePath()
 	require.NoError(t, err)
 
 	NewTygerCmdBuilder("login", "status").
@@ -962,6 +972,7 @@ func TestSpecifyingCacheFileAsEnvironmentVariable(t *testing.T) {
 func TestCancelJob(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
+	ctx := getLoginContext(t)
 
 	codespecName := strings.ToLower(t.Name())
 
@@ -978,7 +989,7 @@ func TestCancelJob(t *testing.T) {
 	runTygerSucceeds(t, "run", "cancel", runId)
 
 	// force the sweep to run to terminate the pod
-	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPost, "v1/runs/_sweep", nil, nil)
+	_, err := controlplane.InvokeRequest(ctx, http.MethodPost, "v1/runs/_sweep", nil, nil)
 	require.NoError(err)
 
 	waitForRunCanceled(t, runId)
@@ -1259,4 +1270,10 @@ func getTestConnectivityDigest(t *testing.T) string {
 
 	digest := runCommandSuceeds(t, "docker", "inspect", "testconnectivity", "--format", "{{ index .RepoDigests 0 }}")
 	return digest
+}
+
+func getLoginContext(t *testing.T) context.Context {
+	si, err := controlplane.GetPersistedServiceInfo()
+	require.NoError(t, err)
+	return settings.SetServiceInfoOnContext(context.Background(), si)
 }

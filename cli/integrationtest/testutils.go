@@ -1,4 +1,4 @@
-//go:build integrationtest
+//golf:build integrationtest
 
 package integrationtest
 

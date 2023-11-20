@@ -16,6 +16,7 @@ import (
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/httpclient"
+	"github.com/microsoft/tyger/cli/internal/settings"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel/propagation"
@@ -26,12 +27,12 @@ func InvokeRequest(ctx context.Context, method string, relativeUri string, input
 }
 
 func InvokeRequestWithHeaders(ctx context.Context, method string, relativeUri string, input interface{}, output interface{}, headers http.Header) (*http.Response, error) {
-	serviceInfo, err := GetPersistedServiceInfo()
-	if err != nil || serviceInfo.GetServerUri() == "" {
+	serviceInfo, err := settings.GetServiceInfoFromContext(ctx)
+	if err != nil || serviceInfo.GetServerUri() == nil {
 		return nil, errors.New("run 'tyger login' to connect to a Tyger server")
 	}
 
-	token, err := serviceInfo.GetAccessToken()
+	token, err := serviceInfo.GetAccessToken(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("run `tyger login` to login to a server: %v", err)
 	}
@@ -46,7 +47,7 @@ func InvokeRequestWithHeaders(ctx context.Context, method string, relativeUri st
 		body = bytes.NewBuffer(serializedBody)
 	}
 
-	req, err := retryablehttp.NewRequest(method, absoluteUri, body)
+	req, err := retryablehttp.NewRequestWithContext(ctx, method, absoluteUri, body)
 	if err != nil {
 		return nil, err
 	}

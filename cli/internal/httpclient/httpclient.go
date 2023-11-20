@@ -2,7 +2,6 @@ package httpclient
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -33,31 +32,8 @@ func GetProxyFuncFromContext(ctx context.Context) func(*http.Request) (*url.URL,
 }
 
 func GetProxyFunc() func(*http.Request) (*url.URL, error) {
-	var (
-		loadedSettings       *settings.Settings
-		err                  error
-		parsedDataPlaneProxy *url.URL
-		parsedServerUrl      *url.URL
-	)
-
-	loadedSettings, err = settings.LoadSettings()
-	if err != nil {
-		parsedServerUrl, err = url.Parse(loadedSettings.ServerUri)
-
-		if loadedSettings.DataPlaneProxy != "" {
-			parsedDataPlaneProxy, err = url.Parse(loadedSettings.DataPlaneProxy)
-			if err != nil {
-				err = fmt.Errorf("failed to parse data plane proxy URL: %w", err)
-			}
-		}
-	}
-
 	innerFunc := ieproxy.GetProxyFunc()
 	return func(req *http.Request) (*url.URL, error) {
-		if err != nil {
-			return nil, err
-		}
-
 		if req.URL.Scheme == "http" {
 			// We will not use an HTTP proxy when when not using TLS.
 			// The only supported scenario for using http and not https is
@@ -66,19 +42,27 @@ func GetProxyFunc() func(*http.Request) (*url.URL, error) {
 			return nil, nil
 		}
 
-		if parsedDataPlaneProxy == nil ||
-			(req.URL.Scheme == parsedServerUrl.Scheme &&
-				req.URL.Host == parsedServerUrl.Host &&
-				strings.HasPrefix(req.URL.Path, parsedServerUrl.Path)) {
+		serviceInfo, err := settings.GetServiceInfoFromContext(req.Context())
+		if err != nil {
+			return nil, err
+		}
 
-			if loadedSettings.IgnoreSystemProxySettings {
+		dataPlaneProxy := serviceInfo.GetDataPlaneProxy()
+		controlPlaneUrl := serviceInfo.GetServerUri()
+
+		if dataPlaneProxy == nil ||
+			(req.URL.Scheme == controlPlaneUrl.Scheme &&
+				req.URL.Host == controlPlaneUrl.Host &&
+				strings.HasPrefix(req.URL.Path, controlPlaneUrl.Path)) {
+
+			if serviceInfo.GetIgnoreSystemProxySettings() {
 				return nil, nil
 			}
 
 			return innerFunc(req)
 		}
 
-		return parsedDataPlaneProxy, nil
+		return dataPlaneProxy, nil
 
 	}
 }

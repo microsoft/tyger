@@ -189,7 +189,7 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 		if ctx.Err() != nil {
 			// this means the context was cancelled or timed out
 			// use a new context to write the end metadata
-			newCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			newCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 			defer cancel()
 			ctx = newCtx
 		}
