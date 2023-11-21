@@ -57,6 +57,9 @@ servicePrincipal: api://my-client
 # The path to a file with the service principal certificate
 certificatePath: /a/path/to/a/file.pem
 
+# The thumbprint of a certificate in a Windows certificate store to use for service principal authentication (Windows only)
+certificateThumbprint: 92829BFAEB67C738DECE0B255C221CF9E1A46285
+
 # A list of CIDR ranges that are allowed to access the proxy.
 # If empty, there are no restrictions.
 allowedClientCIDRs:
@@ -64,6 +67,9 @@ allowedClientCIDRs:
 
 # The port to listen on. If not specified, 6888 is used. If 0, a random port is used.
 port: 6888
+
+# The HTTP proxy to use. Can be 'auto[matic]', 'none', or a URI. The default is 'auto'.
+proxy: auto
 
 # A path either to a directory or to a file to write logs. If it is a directory, a log file will be created in it.
 logPath: /tmp/tyger-proxy

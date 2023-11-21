@@ -207,7 +207,7 @@ func TestRunningProxyOnSamePort(t *testing.T) {
 	ctx, serviceInfo := getServiceInfoContext(t)
 
 	proxyOptions := proxy.ProxyOptions{
-		AuthConfig: controlplane.AuthConfig{
+		LoginConfig: controlplane.LoginConfig{
 			ServerUri: serviceInfo.GetServerUri().String(),
 		},
 	}
@@ -228,7 +228,7 @@ func TestRunningProxyOnSamePortDifferentTarget(t *testing.T) {
 	ctx, serviceInfo := getServiceInfoContext(t)
 
 	proxyOptions := proxy.ProxyOptions{
-		AuthConfig: controlplane.AuthConfig{
+		LoginConfig: controlplane.LoginConfig{
 			ServerUri: serviceInfo.GetServerUri().String(),
 		},
 	}
@@ -240,7 +240,7 @@ func TestRunningProxyOnSamePortDifferentTarget(t *testing.T) {
 	defer closeProxy()
 
 	secondProxyOptions := *&proxyOptions
-	secondProxyOptions.AuthConfig.ServerUri = "http://someotherserver"
+	secondProxyOptions.LoginConfig.ServerUri = "http://someotherserver"
 
 	_, err = proxy.RunProxy(ctx, serviceInfo, &secondProxyOptions, logger)
 	require.ErrorIs(err, proxy.ErrProxyAlreadyRunningWrongTarget)

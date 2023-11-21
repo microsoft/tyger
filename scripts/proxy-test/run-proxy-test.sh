@@ -42,9 +42,13 @@ proxy="squid:3128"
 docker compose exec -T tyger-proxy bash -c "if curl -s --fail https://microsoft.com; then echo 'expected call to fail without a proxy configured'; exit 1; fi"
 docker compose exec -T tyger-proxy bash -c "if ! curl -s --proxy ${proxy} --fail https://microsoft.com; then echo 'expected call to succeed with a proxy configured'; exit 1; fi"
 docker compose exec -T tyger-proxy bash -c "export HTTPS_PROXY=${proxy}; tyger login -f /creds.yml && tyger buffer read ${buffer_id} > /dev/null"
+# specify proxy in creds.yml
+docker compose exec -T tyger-proxy bash -c "echo 'proxy: ${proxy}' >> /creds.yml"
+docker compose exec -T tyger-proxy bash -c "tyger login -f /creds.yml && tyger buffer read ${buffer_id} > /dev/null"
+
 
 # Now start up the tyger proxy
-docker compose exec -T tyger-proxy bash -c "export HTTPS_PROXY=${proxy}; tyger-proxy start -f /creds.yml"
+docker compose exec -T tyger-proxy bash -c "tyger-proxy start -f /creds.yml"
 
 # And connect to it from a client and verify that requests flow from client -> tyger-proxy -> squid -> server
 docker compose start client
@@ -57,6 +61,8 @@ echo -e "\nRemoving TLS root certificates and disabling TLS certificate validati
 docker compose exec -T tyger-proxy bash -c "echo '' > /etc/ssl/certs/ca-certificates.crt"
 docker compose exec -T tyger-proxy bash -c "echo 'disableTlsCertificateValidation: true' >> /creds.yml"
 docker compose exec -T tyger-proxy bash -c "export HTTPS_PROXY=${proxy}; tyger login -f /creds.yml && tyger buffer read ${buffer_id} > /dev/null"
+docker compose exec -T tyger-proxy bash -c "echo 'proxy: ${proxy}' >> /creds.yml"
+docker compose exec -T tyger-proxy bash -c "tyger login -f /creds.yml && tyger buffer read ${buffer_id} > /dev/null"
 docker compose exec -T tyger-proxy bash -c "pgrep tyger-proxy | xargs kill"
 docker compose exec -T tyger-proxy bash -c "export HTTPS_PROXY=${proxy}; tyger-proxy start -f /creds.yml"
 

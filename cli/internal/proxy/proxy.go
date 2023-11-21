@@ -28,7 +28,7 @@ import (
 )
 
 type ProxyOptions struct {
-	controlplane.AuthConfig
+	controlplane.LoginConfig
 	Port               int      `json:"port"`
 	AllowedClientCIDRs []string `json:"allowedClientCIDRs"`
 	LogPath            string   `json:"logPath"`

@@ -25,6 +25,8 @@ import (
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/httpclient"
 	"github.com/microsoft/tyger/cli/internal/settings"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"sigs.k8s.io/yaml"
 )
 
@@ -35,7 +37,7 @@ const (
 	discardTokenIfExpiringWithinSeconds = 10 * 60
 )
 
-type AuthConfig struct {
+type LoginConfig struct {
 	ServerUri                       string `json:"serverUri"`
 	ServicePrincipal                string `json:"servicePrincipal,omitempty"`
 	CertificatePath                 string `json:"certificatePath,omitempty"`
@@ -107,7 +109,7 @@ func (c *serviceInfo) GetProxyFunc() func(*http.Request) (*url.URL, error) {
 		}
 	}
 
-	return func(r *http.Request) (*url.URL, error) {
+	withHttpCheck := func(r *http.Request) (*url.URL, error) {
 		if r.URL.Scheme == "http" {
 			// We will not use an HTTP proxy when when not using TLS.
 			// The only supported scenario for using http and not https is
@@ -117,13 +119,30 @@ func (c *serviceInfo) GetProxyFunc() func(*http.Request) (*url.URL, error) {
 		}
 		return withDataPlaneCheck(r)
 	}
+
+	if log.Logger.GetLevel() <= zerolog.TraceLevel {
+		return func(r *http.Request) (*url.URL, error) {
+			proxy, err := withHttpCheck(r)
+			if err == nil {
+				var proxyString string
+				if proxy != nil {
+					proxyString = proxy.String()
+				} else {
+					proxyString = ""
+				}
+				log.Ctx(r.Context()).Trace().Msgf("Issuing request to host '%s' via proxy '%s'", r.URL.Host, proxyString)
+			}
+			return proxy, err
+		}
+	}
+	return withHttpCheck
 }
 
 func (c *serviceInfo) GetDisableTlsCertificateValidation() bool {
 	return c.DisableTlsCertificateValidation
 }
 
-func Login(ctx context.Context, options AuthConfig) (context.Context, settings.ServiceInfo, error) {
+func Login(ctx context.Context, options LoginConfig) (context.Context, settings.ServiceInfo, error) {
 	normalizedServerUri, err := normalizeServerUri(options.ServerUri)
 	if err != nil {
 		return nil, nil, err
@@ -140,12 +159,16 @@ func Login(ctx context.Context, options AuthConfig) (context.Context, settings.S
 		DisableTlsCertificateValidation: options.DisableTlsCertificateValidation,
 	}
 
+	if err := validateServiceInfo(si); err != nil {
+		return ctx, nil, err
+	}
+
 	// store in context so that the HTTP client can pick up the settings
 	ctx = settings.SetServiceInfoOnContext(ctx, si)
 
 	serviceMetadata, err := getServiceMetadata(ctx, options.ServerUri)
 	if err != nil {
-		return nil, nil, err
+		return ctx, nil, err
 	}
 
 	// augment with data received from the metadata endpoint
@@ -154,6 +177,10 @@ func Login(ctx context.Context, options AuthConfig) (context.Context, settings.S
 	si.Audience = serviceMetadata.Audience
 	si.ClientAppUri = serviceMetadata.CliAppUri
 	si.DataPlaneProxy = serviceMetadata.DataPlaneProxy
+
+	if err := validateServiceInfo(si); err != nil {
+		return ctx, nil, err
+	}
 
 	if serviceMetadata.Authority != "" {
 		useServicePrincipal := options.ServicePrincipal != ""
@@ -165,7 +192,7 @@ func Login(ctx context.Context, options AuthConfig) (context.Context, settings.S
 			authResult, err = si.performUserLogin(ctx, options.UseDeviceCode)
 		}
 		if err != nil {
-			return nil, nil, err
+			return ctx, nil, err
 		}
 
 		si.LastToken = authResult.AccessToken
@@ -352,13 +379,13 @@ func GetPersistedServiceInfo() (settings.ServiceInfo, error) {
 		return nil, err
 	}
 
-	if err := ValidateServiceInfo(si); err != nil {
+	if err := validateServiceInfo(si); err != nil {
 		return nil, err
 	}
 	return si, err
 }
 
-func ValidateServiceInfo(si *serviceInfo) error {
+func validateServiceInfo(si *serviceInfo) error {
 	var err error
 	if si.ServerUri != "" {
 		si.parsedServerUri, err = normalizeServerUri(si.ServerUri)
@@ -372,12 +399,20 @@ func ValidateServiceInfo(si *serviceInfo) error {
 			return fmt.Errorf("the data plane proxy URI is invalid")
 		}
 	}
-	if si.Proxy != "" {
+
+	switch si.Proxy {
+	case "none", "auto", "automatic", "":
+	default:
 		si.parsedProxy, err = url.Parse(si.Proxy)
-		if err != nil {
-			return fmt.Errorf("the proxy URI is invalid")
+		if err != nil || si.parsedProxy.Host == "" {
+			// It may be that the URI was given in the form "host:1234", and the scheme ends up being "host"
+			si.parsedProxy, err = url.Parse("http://" + si.Proxy)
+			if err != nil {
+				return fmt.Errorf("proxy must be 'auto', 'automatic', '' (same as 'auto/automatic'), 'none', or a valid URI")
+			}
 		}
 	}
+
 	return nil
 }
 

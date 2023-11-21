@@ -63,7 +63,7 @@ func newProxyRunCommand(optionsFilePath *string, options *proxy.ProxyOptions) *c
 				log.Info().Str("path", logFile.Name()).Msg("Logging to file")
 			}
 
-			ctx, serviceInfo, err := controlplane.Login(cmd.Context(), options.AuthConfig)
+			ctx, serviceInfo, err := controlplane.Login(cmd.Context(), options.LoginConfig)
 			if err != nil {
 				log.Fatal().Err(err).Msg("login failed")
 			}

@@ -18,7 +18,7 @@ func TestServerUriNormalization(t *testing.T) {
 		t.Run(tC.input, func(t *testing.T) {
 			normalized, err := normalizeServerUri(tC.input)
 			assert.Nil(t, err)
-			assert.Equal(t, tC.expected, normalized)
+			assert.Equal(t, tC.expected, normalized.String())
 		})
 	}
 }

@@ -81,9 +81,7 @@ func RedactHttpError(err error) error {
 						for i := range v {
 							v[i] = "REDACTED"
 						}
-
 					}
-
 					u.RawQuery = q.Encode()
 					httpErr.URL = u.String()
 				}
