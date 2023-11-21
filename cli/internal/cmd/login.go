@@ -43,7 +43,7 @@ Subsequent commands will be performed against this server.`,
 					return fmt.Errorf("failed to read login options file: %v", err)
 				}
 
-				if err := yaml.Unmarshal(bytes, &options); err != nil {
+				if err := yaml.UnmarshalStrict(bytes, &options); err != nil {
 					return fmt.Errorf("failed to parse login options file: %v", err)
 				}
 
@@ -120,6 +120,8 @@ Subsequent commands will be performed against this server.`,
 	loginCmd.Flags().StringVarP(&optionsFilePath, "file", "f", "", "The path to a file containing login options")
 	loginCmd.Flags().StringVarP(&options.ServicePrincipal, "service-principal", "s", "", "The service principal app ID or identifier URI")
 	loginCmd.Flags().StringVarP(&options.CertificatePath, "cert-file", "c", "", "The path to the certificate in PEM format to use for service principal authentication")
+	loginCmd.Flags().BoolVar(&options.DisableTlsCertificateValidation, "disable-tls-certificate-validation", false, "Disable TLS certificate validation.")
+	loginCmd.Flags().MarkHidden("disable-tls-certificate-validation")
 
 	if runtime.GOOS == "windows" {
 		loginCmd.Flags().StringVarP(&options.CertificateThumbprint, "cert-thumbprint", "t", "", "The thumprint of a certificate in a Windows certificate store to use for service principal authentication")

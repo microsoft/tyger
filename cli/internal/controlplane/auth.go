@@ -35,34 +35,35 @@ const (
 )
 
 type AuthConfig struct {
-	ServerUri                      string `json:"serverUri"`
-	ServicePrincipal               string `json:"servicePrincipal,omitempty"`
-	CertificatePath                string `json:"certificatePath,omitempty"`
-	CertificateThumbprint          string `json:"certificateThumbprint,omitempty"`
-	IgnoreSystemProxySettings      bool   `json:"ignoreSystemProxySettings,omitempty"`
-	SkipTlsCertificateVerification bool   `json:"insecureSkipTlsCertificateVerification,omitempty"`
-	UseDeviceCode                  bool
-	Persisted                      bool
+	ServerUri                       string `json:"serverUri"`
+	ServicePrincipal                string `json:"servicePrincipal,omitempty"`
+	CertificatePath                 string `json:"certificatePath,omitempty"`
+	CertificateThumbprint           string `json:"certificateThumbprint,omitempty"`
+	IgnoreSystemProxySettings       bool   `json:"ignoreSystemProxySettings,omitempty"`
+	DisableTlsCertificateValidation bool   `json:"disableTlsCertificateValidation,omitempty"`
+	LogPath                         string `json:"logPath,omitempty"`
+	UseDeviceCode                   bool   `json:"-"`
+	Persisted                       bool   `json:"-"`
 }
 
 type serviceInfo struct {
-	ServerUri                      string `json:"serverUri"`
-	parsedServerUri                *url.URL
-	ClientAppUri                   string `json:"clientAppUri,omitempty"`
-	ClientId                       string `json:"clientId,omitempty"`
-	LastToken                      string `json:"lastToken,omitempty"`
-	LastTokenExpiry                int64  `json:"lastTokenExpiration,omitempty"`
-	Principal                      string `json:"principal,omitempty"`
-	CertPath                       string `json:"certPath,omitempty"`
-	CertThumbprint                 string `json:"certThumbprint,omitempty"`
-	Authority                      string `json:"authority,omitempty"`
-	Audience                       string `json:"audience,omitempty"`
-	FullCache                      string `json:"fullCache,omitempty"`
-	DataPlaneProxy                 string `json:"dataPlaneProxy,omitempty"`
-	parsedDataPlaneProxy           *url.URL
-	IgnoreSystemProxySettings      bool `json:"ignoreSystemProxySettings,omitempty"`
-	SkipTlsCertificateVerification bool `json:"insecureSkipTlsCertificateVerification,omitempty"`
-	confidentialClient             *confidential.Client
+	ServerUri                       string `json:"serverUri"`
+	parsedServerUri                 *url.URL
+	ClientAppUri                    string `json:"clientAppUri,omitempty"`
+	ClientId                        string `json:"clientId,omitempty"`
+	LastToken                       string `json:"lastToken,omitempty"`
+	LastTokenExpiry                 int64  `json:"lastTokenExpiration,omitempty"`
+	Principal                       string `json:"principal,omitempty"`
+	CertPath                        string `json:"certPath,omitempty"`
+	CertThumbprint                  string `json:"certThumbprint,omitempty"`
+	Authority                       string `json:"authority,omitempty"`
+	Audience                        string `json:"audience,omitempty"`
+	FullCache                       string `json:"fullCache,omitempty"`
+	DataPlaneProxy                  string `json:"dataPlaneProxy,omitempty"`
+	parsedDataPlaneProxy            *url.URL
+	IgnoreSystemProxySettings       bool `json:"ignoreSystemProxySettings,omitempty"`
+	DisableTlsCertificateValidation bool `json:"disableTlsCertificateValidation,omitempty"`
+	confidentialClient              *confidential.Client
 }
 
 func (c *serviceInfo) GetServerUri() *url.URL {
@@ -81,8 +82,8 @@ func (c *serviceInfo) GetIgnoreSystemProxySettings() bool {
 	return c.IgnoreSystemProxySettings
 }
 
-func (c *serviceInfo) GetSkipTlsCertificateVerification() bool {
-	return c.SkipTlsCertificateVerification
+func (c *serviceInfo) GetDisableTlsCertificateValidation() bool {
+	return c.DisableTlsCertificateValidation
 }
 
 func Login(ctx context.Context, options AuthConfig) (context.Context, settings.ServiceInfo, error) {
@@ -93,13 +94,13 @@ func Login(ctx context.Context, options AuthConfig) (context.Context, settings.S
 	options.ServerUri = normalizedServerUri.String()
 
 	si := &serviceInfo{
-		ServerUri:                      options.ServerUri,
-		parsedServerUri:                normalizedServerUri,
-		Principal:                      options.ServicePrincipal,
-		CertPath:                       options.CertificatePath,
-		CertThumbprint:                 options.CertificateThumbprint,
-		IgnoreSystemProxySettings:      options.IgnoreSystemProxySettings,
-		SkipTlsCertificateVerification: options.SkipTlsCertificateVerification,
+		ServerUri:                       options.ServerUri,
+		parsedServerUri:                 normalizedServerUri,
+		Principal:                       options.ServicePrincipal,
+		CertPath:                        options.CertificatePath,
+		CertThumbprint:                  options.CertificateThumbprint,
+		IgnoreSystemProxySettings:       options.IgnoreSystemProxySettings,
+		DisableTlsCertificateValidation: options.DisableTlsCertificateValidation,
 	}
 
 	// store in context so that the HTTP client can pick up the settings

@@ -1,0 +1,4 @@
+certificatePath: /home/vscode/tyger_test_client_cert_0fe705f5a0f94771bd38f7e997540497.pem
+serverUri: https://jostairs-tyger.westus2.cloudapp.azure.com
+servicePrincipal: api://tyger-test-client
+# disableTlsCertificateValidation: true

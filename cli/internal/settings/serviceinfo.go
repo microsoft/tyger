@@ -11,7 +11,7 @@ type ServiceInfo interface {
 	GetAccessToken(ctx context.Context) (string, error)
 	GetDataPlaneProxy() *url.URL
 	GetIgnoreSystemProxySettings() bool
-	GetSkipTlsCertificateVerification() bool
+	GetDisableTlsCertificateValidation() bool
 }
 
 type serviceinfoKeyType int

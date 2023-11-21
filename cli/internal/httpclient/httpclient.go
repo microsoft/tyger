@@ -2,9 +2,11 @@ package httpclient
 
 import (
 	"context"
+	"crypto/tls"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
@@ -33,6 +35,7 @@ func GetProxyFuncFromContext(ctx context.Context) func(*http.Request) (*url.URL,
 
 func GetProxyFunc() func(*http.Request) (*url.URL, error) {
 	innerFunc := ieproxy.GetProxyFunc()
+
 	return func(req *http.Request) (*url.URL, error) {
 		if req.URL.Scheme == "http" {
 			// We will not use an HTTP proxy when when not using TLS.
@@ -63,7 +66,6 @@ func GetProxyFunc() func(*http.Request) (*url.URL, error) {
 		}
 
 		return dataPlaneProxy, nil
-
 	}
 }
 
@@ -78,13 +80,33 @@ func NewRetryableClient() *retryablehttp.Client {
 	}
 	client.CheckRetry = checkRetry
 
-	transport := client.HTTPClient.Transport.(*http.Transport)
-	transport.MaxIdleConnsPerHost = 1000
-	transport.ResponseHeaderTimeout = 20 * time.Second
-
-	transport.Proxy = GetProxyFunc()
+	client.HTTPClient.Transport = &lazyInitTransport{
+		transport: client.HTTPClient.Transport.(*http.Transport),
+	}
 
 	return client
+}
+
+type lazyInitTransport struct {
+	transportInit sync.Once
+	transport     *http.Transport
+}
+
+func (m *lazyInitTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	m.transportInit.Do(func() {
+		m.transport.MaxConnsPerHost = 1000
+		m.transport.ResponseHeaderTimeout = 20 * time.Second
+		m.transport.Proxy = GetProxyFunc()
+
+		serviceInfo, err := settings.GetServiceInfoFromContext(req.Context())
+		if err == nil {
+			if serviceInfo.GetDisableTlsCertificateValidation() {
+				m.transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+			}
+		}
+	})
+
+	return m.transport.RoundTrip(req)
 }
 
 func checkRetry(ctx context.Context, resp *http.Response, err error) (bool, error) {
