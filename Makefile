@@ -240,21 +240,7 @@ start-proxy: install-cli download-test-client-cert
 	serverUri: ${TYGER_URI}
 	servicePrincipal: $${test_app_uri}
 	certificatePath: $${cert_path}
-	# allowedClientCIDRs: $$(hostname -i | awk '{print $$1"/32"}' | jq -c -R --slurp 'split("\n")[:-1]')
-	logPath: "/tmp/tyger-proxy"
-	EOF
-	)
-
-run-proxy: install-cli download-test-client-cert
-	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.version')
-	cert_path=$${HOME}/tyger_test_client_cert_$${cert_version}.pem
-	test_app_uri=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.testAppUri')
-
-	tyger-proxy run -f <(cat <<EOF
-	serverUri: ${TYGER_URI}
-	servicePrincipal: $${test_app_uri}
-	certificatePath: $${cert_path}
-	# allowedClientCIDRs: $$(hostname -i | awk '{print $$1"/32"}' | jq -c -R --slurp 'split("\n")[:-1]')
+	allowedClientCIDRs: ["127.0.0.1/32"]
 	logPath: "/tmp/tyger-proxy"
 	EOF
 	)

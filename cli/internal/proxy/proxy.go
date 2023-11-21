@@ -299,7 +299,7 @@ func createIpFilteringMidleware(options *ProxyOptions) func(http.Handler) http.H
 			}
 
 			if !allowed {
-				log.Ctx(r.Context()).Error().Err(err).Msg("remote IP address not allowed")
+				log.Ctx(r.Context()).Error().Err(err).IPAddr("ip", ip).Msg("remote IP address not allowed")
 				http.Error(w, "Forbidden", http.StatusForbidden)
 				return
 			}

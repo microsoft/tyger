@@ -6,6 +6,10 @@ set -euo pipefail
 
 this_dir="$(readlink -f "$( dirname "$0")")"
 
+docker compose kill
+docker compose down
+docker compose rm
+
 docker compose create --build
 
 docker compose start squid
@@ -60,8 +64,6 @@ docker compose exec -T client bash -c "tyger buffer read ${buffer_id} > /dev/nul
 echo -e "\nRemoving TLS root certificates and disabling TLS certificate validation\n"
 docker compose exec -T tyger-proxy bash -c "echo '' > /etc/ssl/certs/ca-certificates.crt"
 docker compose exec -T tyger-proxy bash -c "echo 'disableTlsCertificateValidation: true' >> /creds.yml"
-docker compose exec -T tyger-proxy bash -c "export HTTPS_PROXY=${proxy}; tyger login -f /creds.yml && tyger buffer read ${buffer_id} > /dev/null"
-docker compose exec -T tyger-proxy bash -c "echo 'proxy: ${proxy}' >> /creds.yml"
 docker compose exec -T tyger-proxy bash -c "tyger login -f /creds.yml && tyger buffer read ${buffer_id} > /dev/null"
 docker compose exec -T tyger-proxy bash -c "pgrep tyger-proxy | xargs kill"
 docker compose exec -T tyger-proxy bash -c "export HTTPS_PROXY=${proxy}; tyger-proxy start -f /creds.yml"
