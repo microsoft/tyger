@@ -22,6 +22,7 @@ import (
 
 const (
 	DefaultReadDop = 32
+	MaxRetries     = 6
 )
 
 var (
@@ -403,4 +404,16 @@ func handleReadResponse(ctx context.Context, resp *http.Response) (*readData, er
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
 	}
+}
+
+type responseBodyReadError struct {
+	reason error
+}
+
+func (e *responseBodyReadError) Error() string {
+	return fmt.Sprintf("error reading response body: %v", e.reason)
+}
+
+func (e *responseBodyReadError) Unwrap() error {
+	return e.reason
 }
