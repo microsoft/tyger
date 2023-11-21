@@ -1,4 +1,4 @@
-//golf:build integrationtest
+//go:build integrationtest
 
 package integrationtest
 
@@ -336,9 +336,9 @@ func TestCancellationOnWrite(t *testing.T) {
 	go func() {
 		errorChan <- dataplane.Read(ctx, writeSasUri, io.Discard)
 	}()
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	writeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	err := dataplane.Write(ctx, writeSasUri, inputReader)
+	err := dataplane.Write(writeCtx, writeSasUri, inputReader)
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 
 	assert.ErrorContains(t, <-errorChan, "the buffer is in a permanently failed state")

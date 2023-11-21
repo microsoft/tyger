@@ -42,9 +42,9 @@ func GetProxyFunc() func(*http.Request) (*url.URL, error) {
 			return nil, nil
 		}
 
-		serviceInfo, err := settings.GetServiceInfoFromContext(req.Context())
-		if err != nil {
-			return nil, err
+		serviceInfo, _ := settings.GetServiceInfoFromContext(req.Context())
+		if serviceInfo == nil {
+			return innerFunc(req)
 		}
 
 		dataPlaneProxy := serviceInfo.GetDataPlaneProxy()

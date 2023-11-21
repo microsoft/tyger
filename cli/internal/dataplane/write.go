@@ -189,7 +189,7 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 		if ctx.Err() != nil {
 			// this means the context was cancelled or timed out
 			// use a new context to write the end metadata
-			newCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			newCtx, cancel := context.WithTimeout(&MergedContext{Context: context.Background(), valueSource: ctx}, 3*time.Second)
 			defer cancel()
 			ctx = newCtx
 		}
@@ -341,4 +341,13 @@ func handleWriteResponse(resp *http.Response) error {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
 	}
+}
+
+type MergedContext struct {
+	context.Context                 // The context that is is used for deadlines and cancellation
+	valueSource     context.Context // The context used for values
+}
+
+func (c *MergedContext) Value(key any) any {
+	return c.valueSource.Value(key)
 }

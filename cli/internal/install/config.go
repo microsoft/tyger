@@ -7,7 +7,7 @@ import (
 	"text/template"
 )
 
-//golf:embed config.tpl
+//go:embed config.tpl
 var configTemplate string
 
 type EnvironmentConfig struct {

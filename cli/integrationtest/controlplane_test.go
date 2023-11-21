@@ -1,4 +1,4 @@
-//golf:build integrationtest
+//go:build integrationtest
 
 package integrationtest
 
@@ -22,6 +22,7 @@ import (
 	"github.com/andreyvit/diff"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/google/uuid"
+	"github.com/hashicorp/go-retryablehttp"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/httpclient"
@@ -527,7 +528,9 @@ func TestOpenApiSpecIsAsExpected(t *testing.T) {
 	serviceInfo, err := controlplane.GetPersistedServiceInfo()
 	require.Nil(t, err)
 	swaggerUri := fmt.Sprintf("%s/swagger/v1/swagger.yaml", serviceInfo.GetServerUri())
-	resp, err := httpclient.DefaultRetryableClient.Get(swaggerUri)
+	req, err := retryablehttp.NewRequestWithContext(getLoginContext(t), http.MethodGet, swaggerUri, nil)
+	require.NoError(t, err)
+	resp, err := httpclient.DefaultRetryableClient.Do(req)
 	require.Nil(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	actualBytes, err := io.ReadAll(resp.Body)
@@ -948,7 +951,9 @@ func TestAuthenticationRequired(t *testing.T) {
 	t.Parallel()
 	serviceInfo, err := controlplane.GetPersistedServiceInfo()
 	require.Nil(t, err)
-	resp, err := httpclient.DefaultRetryableClient.Get(fmt.Sprintf("%s/v1/runs/abc", serviceInfo.GetServerUri()))
+	req, err := retryablehttp.NewRequestWithContext(getLoginContext(t), http.MethodGet, fmt.Sprintf("%s/v1/runs/abc", serviceInfo.GetServerUri()), nil)
+	require.NoError(t, err)
+	resp, err := httpclient.DefaultRetryableClient.Do(req)
 	require.Nil(t, err)
 	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
