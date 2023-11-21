@@ -2,6 +2,7 @@ package settings
 
 import (
 	"context"
+	"net/http"
 	"net/url"
 )
 
@@ -9,8 +10,7 @@ type ServiceInfo interface {
 	GetServerUri() *url.URL
 	GetPrincipal() string
 	GetAccessToken(ctx context.Context) (string, error)
-	GetDataPlaneProxy() *url.URL
-	GetIgnoreSystemProxySettings() bool
+	GetProxyFunc() func(*http.Request) (*url.URL, error)
 	GetDisableTlsCertificateValidation() bool
 }
 

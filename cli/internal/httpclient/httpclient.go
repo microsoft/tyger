@@ -10,64 +10,11 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
-	"github.com/mattn/go-ieproxy"
 	"github.com/microsoft/tyger/cli/internal/settings"
 	"github.com/rs/zerolog/log"
 )
 
-type proxyFuncContextKeyType string
-
-var (
-	proxyFuncContextKey    proxyFuncContextKeyType = "proxyFunc"
-	DefaultRetryableClient                         = NewRetryableClient()
-)
-
-func SetProxyFunc(ctx context.Context, proxyFunc func(*http.Request) (*url.URL, error)) context.Context {
-	return context.WithValue(ctx, proxyFuncContextKey, proxyFunc)
-}
-
-func GetProxyFuncFromContext(ctx context.Context) func(*http.Request) (*url.URL, error) {
-	if proxyFunc, ok := ctx.Value(proxyFuncContextKey).(func(*http.Request) (*url.URL, error)); ok {
-		return proxyFunc
-	}
-	return nil
-}
-
-func GetProxyFunc() func(*http.Request) (*url.URL, error) {
-	innerFunc := ieproxy.GetProxyFunc()
-
-	return func(req *http.Request) (*url.URL, error) {
-		if req.URL.Scheme == "http" {
-			// We will not use an HTTP proxy when when not using TLS.
-			// The only supported scenario for using http and not https is
-			// when using using tyger to call tyger-proxy. In that case, we
-			// want to connect to tyger-proxy directly, and not through a proxy.
-			return nil, nil
-		}
-
-		serviceInfo, _ := settings.GetServiceInfoFromContext(req.Context())
-		if serviceInfo == nil {
-			return innerFunc(req)
-		}
-
-		dataPlaneProxy := serviceInfo.GetDataPlaneProxy()
-		controlPlaneUrl := serviceInfo.GetServerUri()
-
-		if dataPlaneProxy == nil ||
-			(req.URL.Scheme == controlPlaneUrl.Scheme &&
-				req.URL.Host == controlPlaneUrl.Host &&
-				strings.HasPrefix(req.URL.Path, controlPlaneUrl.Path)) {
-
-			if serviceInfo.GetIgnoreSystemProxySettings() {
-				return nil, nil
-			}
-
-			return innerFunc(req)
-		}
-
-		return dataPlaneProxy, nil
-	}
-}
+var DefaultRetryableClient = NewRetryableClient()
 
 func NewRetryableClient() *retryablehttp.Client {
 	client := retryablehttp.NewClient()
@@ -96,10 +43,9 @@ func (m *lazyInitTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	m.transportInit.Do(func() {
 		m.transport.MaxConnsPerHost = 1000
 		m.transport.ResponseHeaderTimeout = 20 * time.Second
-		m.transport.Proxy = GetProxyFunc()
 
-		serviceInfo, err := settings.GetServiceInfoFromContext(req.Context())
-		if err == nil {
+		if serviceInfo, err := settings.GetServiceInfoFromContext(req.Context()); err == nil {
+			m.transport.Proxy = serviceInfo.GetProxyFunc()
 			if serviceInfo.GetDisableTlsCertificateValidation() {
 				m.transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 			}

@@ -64,7 +64,6 @@ docker compose exec -T client bash -c "echo '' > /etc/ssl/certs/ca-certificates.
 docker compose exec -T client bash -c "tyger login http://tyger-proxy:6888 --disable-tls-certificate-validation"
 docker compose exec -T client bash -c "tyger buffer read ${buffer_id} > /dev/null"
 
-
 docker compose kill
 docker compose down
 docker compose rm

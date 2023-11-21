@@ -54,7 +54,7 @@ func RunProxy(ctx context.Context, serviceInfo settings.ServiceInfo, options *Pr
 		serviceInfo:           serviceInfo,
 		targetControlPlaneUri: controlPlaneTargetUri,
 		options:               options,
-		nextProxyFunc:         httpclient.GetProxyFunc(),
+		nextProxyFunc:         serviceInfo.GetProxyFunc(),
 	}
 
 	r := chi.NewRouter()

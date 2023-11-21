@@ -21,6 +21,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-retryablehttp"
+	"github.com/mattn/go-ieproxy"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/httpclient"
 	"github.com/microsoft/tyger/cli/internal/settings"
@@ -39,7 +40,7 @@ type AuthConfig struct {
 	ServicePrincipal                string `json:"servicePrincipal,omitempty"`
 	CertificatePath                 string `json:"certificatePath,omitempty"`
 	CertificateThumbprint           string `json:"certificateThumbprint,omitempty"`
-	IgnoreSystemProxySettings       bool   `json:"ignoreSystemProxySettings,omitempty"`
+	Proxy                           string `json:"proxy,omitempty"`
 	DisableTlsCertificateValidation bool   `json:"disableTlsCertificateValidation,omitempty"`
 	LogPath                         string `json:"logPath,omitempty"`
 	UseDeviceCode                   bool   `json:"-"`
@@ -61,7 +62,8 @@ type serviceInfo struct {
 	FullCache                       string `json:"fullCache,omitempty"`
 	DataPlaneProxy                  string `json:"dataPlaneProxy,omitempty"`
 	parsedDataPlaneProxy            *url.URL
-	IgnoreSystemProxySettings       bool `json:"ignoreSystemProxySettings,omitempty"`
+	Proxy                           string `json:"proxy,omitempty"`
+	parsedProxy                     *url.URL
 	DisableTlsCertificateValidation bool `json:"disableTlsCertificateValidation,omitempty"`
 	confidentialClient              *confidential.Client
 }
@@ -74,12 +76,47 @@ func (c *serviceInfo) GetPrincipal() string {
 	return c.Principal
 }
 
-func (c *serviceInfo) GetDataPlaneProxy() *url.URL {
-	return c.parsedDataPlaneProxy
-}
+func (c *serviceInfo) GetProxyFunc() func(*http.Request) (*url.URL, error) {
+	var base func(*http.Request) (*url.URL, error)
+	switch c.Proxy {
+	case "none":
+		base = func(r *http.Request) (*url.URL, error) {
+			return nil, nil
+		}
+	case "", "auto", "automatic":
+		base = ieproxy.GetProxyFunc()
+	default:
+		base = func(r *http.Request) (*url.URL, error) {
+			return c.parsedProxy, nil
+		}
+	}
 
-func (c *serviceInfo) GetIgnoreSystemProxySettings() bool {
-	return c.IgnoreSystemProxySettings
+	var withDataPlaneCheck func(*http.Request) (*url.URL, error)
+	if c.parsedDataPlaneProxy == nil {
+		withDataPlaneCheck = base
+	} else {
+		controlPlaneUrl := c.parsedServerUri
+		withDataPlaneCheck = func(r *http.Request) (*url.URL, error) {
+			if r.URL.Scheme == controlPlaneUrl.Scheme &&
+				r.URL.Host == controlPlaneUrl.Host &&
+				strings.HasPrefix(r.URL.Path, controlPlaneUrl.Path) {
+				// This is a request to the control plane
+				return base(r)
+			}
+			return c.parsedDataPlaneProxy, nil
+		}
+	}
+
+	return func(r *http.Request) (*url.URL, error) {
+		if r.URL.Scheme == "http" {
+			// We will not use an HTTP proxy when when not using TLS.
+			// The only supported scenario for using http and not https is
+			// when using using tyger to call tyger-proxy. In that case, we
+			// want to connect to tyger-proxy directly, and not through a proxy.
+			return nil, nil
+		}
+		return withDataPlaneCheck(r)
+	}
 }
 
 func (c *serviceInfo) GetDisableTlsCertificateValidation() bool {
@@ -99,7 +136,7 @@ func Login(ctx context.Context, options AuthConfig) (context.Context, settings.S
 		Principal:                       options.ServicePrincipal,
 		CertPath:                        options.CertificatePath,
 		CertThumbprint:                  options.CertificateThumbprint,
-		IgnoreSystemProxySettings:       options.IgnoreSystemProxySettings,
+		Proxy:                           options.Proxy,
 		DisableTlsCertificateValidation: options.DisableTlsCertificateValidation,
 	}
 
@@ -117,8 +154,6 @@ func Login(ctx context.Context, options AuthConfig) (context.Context, settings.S
 	si.Audience = serviceMetadata.Audience
 	si.ClientAppUri = serviceMetadata.CliAppUri
 	si.DataPlaneProxy = serviceMetadata.DataPlaneProxy
-
-	ctx = settings.SetServiceInfoOnContext(ctx, si)
 
 	if serviceMetadata.Authority != "" {
 		useServicePrincipal := options.ServicePrincipal != ""
@@ -317,19 +352,33 @@ func GetPersistedServiceInfo() (settings.ServiceInfo, error) {
 		return nil, err
 	}
 
+	if err := ValidateServiceInfo(si); err != nil {
+		return nil, err
+	}
+	return si, err
+}
+
+func ValidateServiceInfo(si *serviceInfo) error {
+	var err error
 	if si.ServerUri != "" {
 		si.parsedServerUri, err = normalizeServerUri(si.ServerUri)
 		if err != nil {
-			return nil, fmt.Errorf("cached server URI is invalid")
+			return fmt.Errorf("the server URI is invalid")
 		}
 	}
 	if si.DataPlaneProxy != "" {
 		si.parsedDataPlaneProxy, err = url.Parse(si.DataPlaneProxy)
 		if err != nil {
-			return nil, fmt.Errorf("cached data plane proxy URI is invalid")
+			return fmt.Errorf("the data plane proxy URI is invalid")
 		}
 	}
-	return si, err
+	if si.Proxy != "" {
+		si.parsedProxy, err = url.Parse(si.Proxy)
+		if err != nil {
+			return fmt.Errorf("the proxy URI is invalid")
+		}
+	}
+	return nil
 }
 
 func readCachedContents(path string) ([]byte, error) {
