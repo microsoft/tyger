@@ -8,6 +8,7 @@ import (
 	"runtime"
 
 	"github.com/microsoft/tyger/cli/internal/controlplane"
+	"github.com/microsoft/tyger/cli/internal/settings"
 	"github.com/spf13/cobra"
 	"sigs.k8s.io/yaml"
 )
@@ -81,7 +82,7 @@ Subsequent commands will be performed against this server.`,
 					options.CertificatePath = filepath.Clean(filepath.Join(filepath.Dir(optionsFilePath), options.CertificatePath))
 				}
 
-				_, err = controlplane.Login(cmd.Context(), options)
+				_, _, err = controlplane.Login(cmd.Context(), options)
 				return err
 			case 1:
 				if options.ServicePrincipal != "" {
@@ -106,7 +107,7 @@ Subsequent commands will be performed against this server.`,
 				}
 
 				options.ServerUri = args[0]
-				_, err := controlplane.Login(cmd.Context(), options)
+				_, _, err := controlplane.Login(cmd.Context(), options)
 				return err
 			default:
 				return errors.New("too many arguments")
@@ -138,7 +139,7 @@ func newLoginStatusCommand() *cobra.Command {
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			serviceInfo, err := controlplane.GetPersistedServiceInfo()
+			serviceInfo, err := settings.GetServiceInfoFromContext(cmd.Context())
 
 			if err != nil || serviceInfo.GetServerUri() == nil {
 				return errors.New("run 'tyger login' to connect to a Tyger server")

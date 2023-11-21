@@ -9,7 +9,6 @@ import (
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/logging"
 	"github.com/microsoft/tyger/cli/internal/proxy"
-	"github.com/microsoft/tyger/cli/internal/settings"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -64,14 +63,9 @@ func newProxyRunCommand(optionsFilePath *string, options *proxy.ProxyOptions) *c
 				log.Info().Str("path", logFile.Name()).Msg("Logging to file")
 			}
 
-			ctx, err := controlplane.Login(cmd.Context(), options.AuthConfig)
+			ctx, serviceInfo, err := controlplane.Login(cmd.Context(), options.AuthConfig)
 			if err != nil {
 				log.Fatal().Err(err).Msg("login failed")
-			}
-
-			serviceInfo, err := settings.GetServiceInfoFromContext(ctx)
-			if err != nil {
-				log.Fatal().Err(err).Msg("failed to get service info")
 			}
 
 			_, err = proxy.RunProxy(ctx, serviceInfo, options, log.Logger)

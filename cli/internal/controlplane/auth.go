@@ -85,10 +85,10 @@ func (c *serviceInfo) GetSkipTlsCertificateVerification() bool {
 	return c.SkipTlsCertificateVerification
 }
 
-func Login(ctx context.Context, options AuthConfig) (context.Context, error) {
+func Login(ctx context.Context, options AuthConfig) (context.Context, settings.ServiceInfo, error) {
 	normalizedServerUri, err := normalizeServerUri(options.ServerUri)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	options.ServerUri = normalizedServerUri.String()
 
@@ -107,7 +107,7 @@ func Login(ctx context.Context, options AuthConfig) (context.Context, error) {
 
 	serviceMetadata, err := getServiceMetadata(ctx, options.ServerUri)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// augment with data received from the metadata endpoint
@@ -129,7 +129,7 @@ func Login(ctx context.Context, options AuthConfig) (context.Context, error) {
 			authResult, err = si.performUserLogin(ctx, options.UseDeviceCode)
 		}
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		si.LastToken = authResult.AccessToken
@@ -143,7 +143,7 @@ func Login(ctx context.Context, options AuthConfig) (context.Context, error) {
 			// So we need to extract the client ID from the access token and use that next time.
 			claims := jwt.MapClaims{}
 			if _, _, err := jwt.NewParser().ParseUnverified(authResult.AccessToken, claims); err != nil {
-				return nil, fmt.Errorf("unable to parse access token: %w", err)
+				return nil, nil, fmt.Errorf("unable to parse access token: %w", err)
 			} else {
 				si.ClientId = claims["appid"].(string)
 			}
@@ -154,7 +154,7 @@ func Login(ctx context.Context, options AuthConfig) (context.Context, error) {
 		err = si.persist()
 	}
 
-	return ctx, err
+	return ctx, si, err
 }
 
 func normalizeServerUri(uri string) (*url.URL, error) {

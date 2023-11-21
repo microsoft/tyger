@@ -5,7 +5,6 @@ package integrationtest
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -19,7 +18,6 @@ import (
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/httpclient"
 	"github.com/microsoft/tyger/cli/internal/proxy"
-	"github.com/microsoft/tyger/cli/internal/settings"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 )
@@ -52,9 +50,7 @@ timeoutSeconds: 600`
 
 	runId := runTygerSucceeds(t, "run", "create", "--file", runSpecPath)
 
-	serviceInfo, err := controlplane.GetPersistedServiceInfo()
-	ctx := settings.SetServiceInfoOnContext(context.Background(), serviceInfo)
-	require.NoError(err)
+	ctx, serviceInfo := getServiceInfoContext(t)
 
 	proxyOptions := proxy.ProxyOptions{}
 
@@ -170,13 +166,10 @@ func TestProxiedRequestsFromAllowedCIDR(t *testing.T) {
 		AllowedClientCIDRs: []string{"127.0.0.1/32"},
 	}
 
-	serviceInfo, err := controlplane.GetPersistedServiceInfo()
-	ctx := settings.SetServiceInfoOnContext(context.Background(), serviceInfo)
-	require.NoError(err)
-
 	proxyLogBuffer := SyncBuffer{}
 	logger := zerolog.New(&proxyLogBuffer)
 
+	ctx, serviceInfo := getServiceInfoContext(t)
 	closeProxy, err := proxy.RunProxy(ctx, serviceInfo, &proxyOptions, logger)
 	defer closeProxy()
 	resp, err := httpclient.DefaultRetryableClient.Get(fmt.Sprintf("http://localhost:%d/v1/metadata", proxyOptions.Port))
@@ -192,10 +185,7 @@ func TestProxiedRequestsFromDisallowedAllowedCIDR(t *testing.T) {
 		AllowedClientCIDRs: []string{"8.0.0.1/32"},
 	}
 
-	serviceInfo, err := controlplane.GetPersistedServiceInfo()
-	require.NoError(err)
-	ctx := settings.SetServiceInfoOnContext(context.Background(), serviceInfo)
-
+	ctx, serviceInfo := getServiceInfoContext(t)
 	proxyLogBuffer := SyncBuffer{}
 	logger := zerolog.New(&proxyLogBuffer)
 
@@ -214,9 +204,7 @@ func TestProxiedRequestsFromDisallowedAllowedCIDR(t *testing.T) {
 func TestRunningProxyOnSamePort(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	serviceInfo, err := controlplane.GetPersistedServiceInfo()
-	require.NoError(err)
-	ctx := settings.SetServiceInfoOnContext(context.Background(), serviceInfo)
+	ctx, serviceInfo := getServiceInfoContext(t)
 
 	proxyOptions := proxy.ProxyOptions{
 		AuthConfig: controlplane.AuthConfig{
@@ -237,9 +225,7 @@ func TestRunningProxyOnSamePort(t *testing.T) {
 func TestRunningProxyOnSamePortDifferentTarget(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	serviceInfo, err := controlplane.GetPersistedServiceInfo()
-	require.NoError(err)
-	ctx := settings.SetServiceInfoOnContext(context.Background(), serviceInfo)
+	ctx, serviceInfo := getServiceInfoContext(t)
 
 	proxyOptions := proxy.ProxyOptions{
 		AuthConfig: controlplane.AuthConfig{

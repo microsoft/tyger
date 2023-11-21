@@ -192,7 +192,7 @@ func TestMissingContainer(t *testing.T) {
 		return resp, nil
 	})
 
-	ctx := getLoginContext(t)
+	ctx, _ := getServiceInfoContext(t)
 	err := dataplane.Write(ctx, readSasUri, strings.NewReader("Hello"), dataplane.WithWriteHttpClient(client))
 	require.ErrorContains(t, err, "the buffer does not exist")
 
@@ -213,7 +213,7 @@ func TestInvalidHashChain(t *testing.T) {
 		return inner.RoundTrip(req)
 	})
 
-	ctx := getLoginContext(t)
+	ctx, _ := getServiceInfoContext(t)
 	err := dataplane.Write(ctx, writeSasUri, inputReader, dataplane.WithWriteHttpClient(httpClient))
 	require.NoError(t, err, "Failed to write data")
 
@@ -236,7 +236,7 @@ func TestMd5HashMismatchOnWrite(t *testing.T) {
 		return inner.RoundTrip(req)
 	})
 
-	ctx := getLoginContext(t)
+	ctx, _ := getServiceInfoContext(t)
 	err := dataplane.Write(ctx, writeSasUri, inputReader, dataplane.WithWriteHttpClient(httpClient))
 	require.ErrorContains(t, err, "MD5 mismatch")
 }
@@ -261,7 +261,7 @@ func TestMd5HashMismatchOnWriteRetryAndRecover(t *testing.T) {
 		return inner.RoundTrip(req)
 	})
 
-	ctx := getLoginContext(t)
+	ctx, _ := getServiceInfoContext(t)
 	err := dataplane.Write(ctx, writeSasUri, inputReader, dataplane.WithWriteHttpClient(httpClient), dataplane.WithWriteDop(1))
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(failedUris), 2)
@@ -273,7 +273,7 @@ func TestMd5HashMismatchOnRead(t *testing.T) {
 	inputBufferId := runTygerSucceeds(t, "buffer", "create")
 	writeSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
 	inputReader := strings.NewReader("Hello")
-	ctx := getLoginContext(t)
+	ctx, _ := getServiceInfoContext(t)
 
 	require.NoError(t, dataplane.Write(ctx, writeSasUri, inputReader))
 
@@ -299,7 +299,7 @@ func TestMd5HashMismatchOnReadRetryAndRecover(t *testing.T) {
 	inputBufferId := runTygerSucceeds(t, "buffer", "create")
 	writeSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
 	inputReader := strings.NewReader("Hello")
-	ctx := getLoginContext(t)
+	ctx, _ := getServiceInfoContext(t)
 	require.NoError(t, dataplane.Write(ctx, writeSasUri, inputReader))
 
 	failedUris := make(map[string]any)
@@ -331,7 +331,7 @@ func TestCancellationOnWrite(t *testing.T) {
 	inputBufferId := runTygerSucceeds(t, "buffer", "create")
 	writeSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
 	inputReader := &infiniteReader{}
-	ctx := getLoginContext(t)
+	ctx, _ := getServiceInfoContext(t)
 	errorChan := make(chan error, 1)
 	go func() {
 		errorChan <- dataplane.Read(ctx, writeSasUri, io.Discard)

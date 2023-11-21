@@ -339,7 +339,8 @@ func TestInvalidCodespecNames(t *testing.T) {
 			}
 
 			newCodespec := model.Codespec{Kind: "worker", Image: BasicImage}
-			_, err = controlplane.InvokeRequest(getLoginContext(t), http.MethodPut, fmt.Sprintf("v1/codespecs/%s", tC.name), newCodespec, nil)
+			ctx, _ := getServiceInfoContext(t)
+			_, err = controlplane.InvokeRequest(ctx, http.MethodPut, fmt.Sprintf("v1/codespecs/%s", tC.name), newCodespec, nil)
 			if tC.valid {
 				require.Nil(t, err)
 			} else {
@@ -477,7 +478,7 @@ func TestTargetCpuNodePoolWithGpuResourcesReturnsError(t *testing.T) {
 func TestUnrecognizedFieldsRejected(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	ctx := getLoginContext(t)
+	ctx, _ := getServiceInfoContext(t)
 
 	codespec := model.Codespec{}
 	requestBody := map[string]string{"kind": "job", "image": "x"}
@@ -492,7 +493,7 @@ func TestUnrecognizedFieldsRejected(t *testing.T) {
 func TestInvalidCodespecDiscriminatorRejected(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	ctx := getLoginContext(t)
+	ctx, _ := getServiceInfoContext(t)
 
 	codespec := model.Codespec{}
 	requestBody := map[string]string{"image": "x"}
@@ -507,7 +508,7 @@ func TestInvalidCodespecDiscriminatorRejected(t *testing.T) {
 func TestInvalidCodespecMissingRequiredFieldsRejected(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	ctx := getLoginContext(t)
+	ctx, _ := getServiceInfoContext(t)
 
 	codespec := model.Codespec{}
 	requestBody := map[string]string{"kind": "job"}
@@ -525,10 +526,10 @@ func TestResponseContainsRequestIdHeader(t *testing.T) {
 
 func TestOpenApiSpecIsAsExpected(t *testing.T) {
 	t.Parallel()
-	serviceInfo, err := controlplane.GetPersistedServiceInfo()
-	require.Nil(t, err)
+	ctx, serviceInfo := getServiceInfoContext(t)
+
 	swaggerUri := fmt.Sprintf("%s/swagger/v1/swagger.yaml", serviceInfo.GetServerUri())
-	req, err := retryablehttp.NewRequestWithContext(getLoginContext(t), http.MethodGet, swaggerUri, nil)
+	req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, swaggerUri, nil)
 	require.NoError(t, err)
 	resp, err := httpclient.DefaultRetryableClient.Do(req)
 	require.Nil(t, err)
@@ -571,7 +572,7 @@ func TestRunStatusEnumUnmarshal(t *testing.T) {
 
 func TestListRunsPaging(t *testing.T) {
 	t.Parallel()
-	ctx := getLoginContext(t)
+	ctx, _ := getServiceInfoContext(t)
 
 	runTygerSucceeds(t,
 		"codespec",
@@ -653,7 +654,7 @@ func TestRecreateCodespec(t *testing.T) {
 
 func TestListCodespecsPaging(t *testing.T) {
 	t.Parallel()
-	ctx := getLoginContext(t)
+	ctx, _ := getServiceInfoContext(t)
 
 	prefix := strings.ToLower(t.Name()+uuid.NewString()) + "_"
 	inputNames := [12]string{"klamath", "allagash", "middlefork", "johnday", "missouri", "riogrande", "chattooga", "loxahatchee", "noatak", "tuolumne", "riogrande", "allagash"}
@@ -759,7 +760,7 @@ func TestListRunsSince(t *testing.T) {
 
 func TestListCodespecsWithPrefix(t *testing.T) {
 	t.Parallel()
-	ctx := getLoginContext(t)
+	ctx, _ := getServiceInfoContext(t)
 
 	codespecNames := [4]string{"3d_t2_flair", "t1w-1mm-ax", "t1w-0.9mm-sag", "3d_t1_star"}
 	codespecMap := make(map[string]string)
@@ -784,7 +785,7 @@ func TestListCodespecsWithPrefix(t *testing.T) {
 
 func TestGetLogsFromPod(t *testing.T) {
 	t.Parallel()
-	ctx := getLoginContext(t)
+	ctx, _ := getServiceInfoContext(t)
 
 	codespecName := strings.ToLower(t.Name())
 
@@ -835,7 +836,7 @@ func TestGetLogsFromPod(t *testing.T) {
 
 func TestGetArchivedLogs(t *testing.T) {
 	t.Parallel()
-	ctx := getLoginContext(t)
+	ctx, _ := getServiceInfoContext(t)
 
 	codespecName := strings.ToLower(t.Name())
 
@@ -891,7 +892,7 @@ func TestGetArchivedLogs(t *testing.T) {
 
 func TestGetArchivedLogsWithLongLines(t *testing.T) {
 	t.Parallel()
-	ctx := getLoginContext(t)
+	ctx, _ := getServiceInfoContext(t)
 
 	codespecName := strings.ToLower(t.Name())
 
@@ -949,9 +950,8 @@ func TestConnectivityBetweenJobAndWorkers(t *testing.T) {
 
 func TestAuthenticationRequired(t *testing.T) {
 	t.Parallel()
-	serviceInfo, err := controlplane.GetPersistedServiceInfo()
-	require.Nil(t, err)
-	req, err := retryablehttp.NewRequestWithContext(getLoginContext(t), http.MethodGet, fmt.Sprintf("%s/v1/runs/abc", serviceInfo.GetServerUri()), nil)
+	ctx, serviceInfo := getServiceInfoContext(t)
+	req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/v1/runs/abc", serviceInfo.GetServerUri()), nil)
 	require.NoError(t, err)
 	resp, err := httpclient.DefaultRetryableClient.Do(req)
 	require.Nil(t, err)
@@ -977,7 +977,7 @@ func TestSpecifyingCacheFileAsEnvironmentVariable(t *testing.T) {
 func TestCancelJob(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	ctx := getLoginContext(t)
+	ctx, _ := getServiceInfoContext(t)
 
 	codespecName := strings.ToLower(t.Name())
 
@@ -1277,8 +1277,8 @@ func getTestConnectivityDigest(t *testing.T) string {
 	return digest
 }
 
-func getLoginContext(t *testing.T) context.Context {
+func getServiceInfoContext(t *testing.T) (context.Context, settings.ServiceInfo) {
 	si, err := controlplane.GetPersistedServiceInfo()
 	require.NoError(t, err)
-	return settings.SetServiceInfoOnContext(context.Background(), si)
+	return settings.SetServiceInfoOnContext(context.Background(), si), si
 }
