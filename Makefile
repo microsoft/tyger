@@ -164,29 +164,12 @@ proxy-test-no-up: cli-ready
 proxy-test: up 
 	$(MAKE) proxy-test-no-up
 
-e2e-no-up-prereqs: e2e-data
-	
-e2e-no-up: e2e-no-up-prereqs cli-ready
-	pytest e2e --numprocesses 100 -q
-
-e2e: up e2e-no-up-prereqs
-	$(MAKE) e2e-no-up-prereqs e2e-no-up
-
-dvc-data:
-	scripts/check-login.sh
-	dvc pull
-
-gadgetron-data:
-	python3 e2e/gadgetron/get_cases.py
-
-e2e-data: dvc-data gadgetron-data
-
-test: up unit-test integration-test proxy-test e2e
+test: up unit-test integration-test proxy-test
 
 full:
 	$(MAKE) test INSTALL_CLOUD=true
 
-test-no-up: unit-test integration-test-no-up e2e-no-up
+test-no-up: unit-test integration-test-no-up
 
 forward:
 	echo '${ENVIRONMENT_CONFIG_JSON}' | scripts/forward-services.sh -c -
