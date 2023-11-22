@@ -56,8 +56,8 @@ jobs:
 
       - name: Generate tag
         id: tag
-        run: echo "::set-output name=tag::"
-            echo "IMAGE_TAG=$(date +'%Y%m%d%H%M%S')-$(echo $GITHUB_SHA | head -c 8)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "IMAGE_TAG=$(date +'%Y%m%d%H%M%S')-$GITHUB_SHA" >> "$GITHUB_OUTPUT"
 
   build-images:
     runs-on: ubuntu-latest
