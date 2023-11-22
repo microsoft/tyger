@@ -176,7 +176,7 @@ jobs:
           export TYGER_ENVIRONMENT_CONFIG_DIR="${GITHUB_WORKSPACE}/deploy/config/microsoft/ci"
 
           set -euo pipefail
-          make -s up
+          make -s up INSTALL_CLOUD=true
 
   integration-tests:
     runs-on: ubuntu-latest
