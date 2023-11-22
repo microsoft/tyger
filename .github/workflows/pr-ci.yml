@@ -140,7 +140,6 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - generate-tag
-      - build-images
       - get-config
     defaults:
       run:
