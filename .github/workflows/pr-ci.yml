@@ -62,12 +62,12 @@ jobs:
   build-images:
     runs-on: ubuntu-latest
     needs:
-      - generate-tags
+      - generate-tag
     defaults:
       run:
         shell: bash
     env:
-      EXPLICIT_IMAGE_TAG: ${{ needs.generate-tags.outputs.IMAGE_TAG }}
+      EXPLICIT_IMAGE_TAG: ${{ needs.generate-tag.outputs.IMAGE_TAG }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -139,7 +139,7 @@ jobs:
   tyger-build-deploy:
     runs-on: ubuntu-latest
     needs:
-      - generate-tags
+      - generate-tag
       - build-images
       - get-config
     defaults:
@@ -148,7 +148,7 @@ jobs:
     env:
       TYGER_MIN_NODE_COUNT: "1"
       DO_NOT_BUILD_IMAGES: "true"
-      EXPLICIT_IMAGE_TAG: ${{ needs.generate-tags.outputs.IMAGE_TAG }}
+      EXPLICIT_IMAGE_TAG: ${{ needs.generate-tag.outputs.IMAGE_TAG }}
       TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
     steps:
       - name: Login into Azure
