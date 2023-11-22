@@ -5,7 +5,6 @@ import (
 	"net/url"
 
 	"github.com/hashicorp/go-retryablehttp"
-	"github.com/mattn/go-ieproxy"
 )
 
 var (
@@ -13,7 +12,7 @@ var (
 )
 
 func GetProxyFunc() func(*http.Request) (*url.URL, error) {
-	innerFunc := ieproxy.GetProxyFunc()
+	// innerFunc := ieproxy.GetProxyFunc()
 	return func(req *http.Request) (*url.URL, error) {
 		if req.URL.Scheme == "http" {
 			// We will not use an HTTP proxy when when not using TLS.
@@ -23,7 +22,7 @@ func GetProxyFunc() func(*http.Request) (*url.URL, error) {
 			return nil, nil
 		}
 
-		return innerFunc(req)
+		return nil, nil
 	}
 }
 
