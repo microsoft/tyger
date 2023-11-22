@@ -83,7 +83,7 @@ jobs:
           export TYGER_ENVIRONMENT_CONFIG_DIR="${GITHUB_WORKSPACE}/deploy/config/microsoft/ci"
 
           set -euo pipefail
-          make -s 8
+          make -s
 
       - name: Publish official images
         run: |
