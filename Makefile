@@ -1,6 +1,6 @@
 .ONESHELL:
 SHELL = /bin/bash
-.SHELLFLAGS = -ecuox pipefail
+.SHELLFLAGS = -ecuo pipefail
 
 .DEFAULT_GOAL := full
 

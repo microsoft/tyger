@@ -46,6 +46,8 @@ if [[ "$error_output" =~ "unauthorized: authentication required" || "$error_outp
         az acr login -n "$registry_name"
     fi
 
+    # Run the command again
+    docker "$@"
 else
     echo "$error_output" >&2
     exit 1
