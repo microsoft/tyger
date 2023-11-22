@@ -366,7 +366,7 @@ jobs:
   release:
     if: startsWith(github.ref, 'refs/tags/')
     needs:
-      - tyger-build-deploy
+      - integration-tests
       - get-config
       - windows-smoke-tests
     env:
