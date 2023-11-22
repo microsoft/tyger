@@ -36,7 +36,8 @@ jobs:
 
       - uses: actions/setup-go@v4
         with:
-          go-version-file: "cli/go.mod"
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
 
       - uses: actions/setup-dotnet@v3
         with:
@@ -82,7 +83,7 @@ jobs:
           export TYGER_ENVIRONMENT_CONFIG_DIR="${GITHUB_WORKSPACE}/deploy/config/microsoft/ci"
 
           set -euo pipefail
-          make -s -j 8
+          make -s 8
 
       - name: Publish official images
         run: |
@@ -186,7 +187,9 @@ jobs:
 
       - uses: actions/setup-go@v4
         with:
-          go-version-file: "cli/go.mod"
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+
 
       - uses: actions/setup-dotnet@v3
         with:
@@ -223,7 +226,8 @@ jobs:
 
       - uses: actions/setup-go@v4
         with:
-          go-version-file: "cli/go.mod"
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
 
       - name: get container registry
         run: |
