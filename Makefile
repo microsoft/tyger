@@ -4,7 +4,6 @@ SHELL = /bin/bash
 
 .DEFAULT_GOAL := full
 
-# trick to lazily evaluate this at most once: https://make.mad-scientist.net/deferred-simple-variable-expansion/
 ENVIRONMENT_CONFIG_JSON = $(shell scripts/get-config.sh -o json | jq -c)
 DEVELOPER_CONFIG_JSON = $(shell scripts/get-config.sh --dev -o json | jq -c)
 
@@ -202,7 +201,6 @@ check-forwarding:
 		echo "run 'make forward' in another terminal before running this target"
 		exit 1
 	fi
-
 
 download-test-client-cert:
 	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.version')

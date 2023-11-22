@@ -182,31 +182,6 @@ jobs:
           set -euo pipefail
           make -s
 
-      - name: Publish official images
-        run: |
-          set -euo pipefail
-          make publish-official-images
-
-      - name: Build Windows Binaries
-        run: |
-          set -eo pipefail
-
-          export CGO_ENABLED=1
-          export GOOS=windows
-          export GOARCH=amd64
-
-          make install-cli
-
-          destination="${GITHUB_WORKSPACE}/windows-cli-tools"
-          mkdir -p "$destination"
-          cp -a "$(go env GOPATH)/bin/$(go env GOOS)_$(go env GOARCH)/." "$destination"
-
-      - name: Archive windows-cli-tools
-        uses: actions/upload-artifact@v3
-        with:
-          name: windows-cli-tools
-          path: windows-cli-tools
-
       - name: Cleanup
         if: ${{ always() }}
         run: |
@@ -215,7 +190,6 @@ jobs:
           echo "scaling cluster back down"
           export TYGER_MIN_NODE_COUNT=0
           make ensure-environment
-
 
   publish:
     runs-on: ubuntu-latest
