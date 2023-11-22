@@ -147,11 +147,11 @@ up: ensure-environment-conditionally docker-build
 		tyger_server_image="$${repo_fqdn}/tyger-server:$${EXPLICIT_IMAGE_TAG}"
 		buffer_sidecar_image="$${repo_fqdn}/buffer-sidecar:$${EXPLICIT_IMAGE_TAG}"
 		worker_waiter_image="$${repo_fqdn}/worker-waiter:$${EXPLICIT_IMAGE_TAG}"
+	else
+		tyger_server_image="$$(docker inspect "$${repo_fqdn}/tyger-server:dev" | jq -r --arg repo "$${repo_fqdn}/tyger-server" '.[0].RepoDigests[] | select (startswith($$repo))')"
+		buffer_sidecar_image="$$(docker inspect "$${repo_fqdn}/buffer-sidecar:dev" | jq -r --arg repo "$${repo_fqdn}/buffer-sidecar" '.[0].RepoDigests[] | select (startswith($$repo))')"
+		worker_waiter_image="$$(docker inspect "$${repo_fqdn}/worker-waiter:dev" | jq -r --arg repo "$${repo_fqdn}/worker-waiter" '.[0].RepoDigests[] | select (startswith($$repo))')"
 	fi
-
-	tyger_server_image="$$(docker inspect "$${repo_fqdn}/tyger-server:dev" | jq -r --arg repo "$${repo_fqdn}/tyger-server" '.[0].RepoDigests[] | select (startswith($$repo))')"
-	buffer_sidecar_image="$$(docker inspect "$${repo_fqdn}/buffer-sidecar:dev" | jq -r --arg repo "$${repo_fqdn}/buffer-sidecar" '.[0].RepoDigests[] | select (startswith($$repo))')"
-	worker_waiter_image="$$(docker inspect "$${repo_fqdn}/worker-waiter:dev" | jq -r --arg repo "$${repo_fqdn}/worker-waiter" '.[0].RepoDigests[] | select (startswith($$repo))')"
 
 	chart_dir=$$(readlink -f deploy/helm/tyger)
 	
