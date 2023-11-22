@@ -141,252 +141,252 @@ jobs:
           echo "DEVELOPER_CONFIG_BASE64=$developer_config_base64" >> "$GITHUB_OUTPUT"
           echo "DEVELOPER_CONFIG_BASE64=$developer_config_base64" >> "$GITHUB_ENV"
 
-  # tyger-build-deploy:
-  #   runs-on: ubuntu-latest
-  #   needs:
-  #     - generate-tag
-  #     - get-config
-  #   defaults:
-  #     run:
-  #       shell: bash
-  #   env:
-  #     TYGER_MIN_NODE_COUNT: "1"
-  #     DO_NOT_BUILD_IMAGES: "true"
-  #     EXPLICIT_IMAGE_TAG: ${{ needs.generate-tag.outputs.IMAGE_TAG }}
-  #     TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
-  #   steps:
-  #     - name: Login into Azure
-  #       uses: azure/login@v1
-  #       with:
-  #         creds: ${{ secrets.AZURE_CREDENTIALS }}
+  tyger-build-deploy:
+    runs-on: ubuntu-latest
+    needs:
+      - generate-tag
+      - get-config
+    defaults:
+      run:
+        shell: bash
+    env:
+      TYGER_MIN_NODE_COUNT: "1"
+      DO_NOT_BUILD_IMAGES: "true"
+      EXPLICIT_IMAGE_TAG: ${{ needs.generate-tag.outputs.IMAGE_TAG }}
+      TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
+    steps:
+      - name: Login into Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-  #     - name: Checkout
-  #       uses: actions/checkout@v3
-  #       with:
-  #         fetch-depth: 0
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
-  #     - uses: actions/setup-go@v4
-  #       with:
-  #         go-version-file: cli/go.mod
-  #         cache-dependency-path: cli/go.sum
+      - uses: actions/setup-go@v4
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
 
-  #     - uses: actions/setup-dotnet@v3
-  #       with:
-  #         global-json-file: server/global.json
+      - uses: actions/setup-dotnet@v3
+        with:
+          global-json-file: server/global.json
 
-  #     - name: Deploy and test
-  #       run: |
-  #         set -eo pipefail
-  #         export TYGER_ENVIRONMENT_CONFIG_DIR="${GITHUB_WORKSPACE}/deploy/config/microsoft/ci"
+      - name: Deploy and test
+        run: |
+          set -eo pipefail
+          export TYGER_ENVIRONMENT_CONFIG_DIR="${GITHUB_WORKSPACE}/deploy/config/microsoft/ci"
 
-  #         set -euo pipefail
-  #         make -s
+          set -euo pipefail
+          make -s
 
-  #     - name: Publish official images
-  #       run: |
-  #         set -euo pipefail
-  #         make publish-official-images
+      - name: Publish official images
+        run: |
+          set -euo pipefail
+          make publish-official-images
 
-  #     - name: Build Windows Binaries
-  #       run: |
-  #         set -eo pipefail
+      - name: Build Windows Binaries
+        run: |
+          set -eo pipefail
 
-  #         export CGO_ENABLED=1
-  #         export GOOS=windows
-  #         export GOARCH=amd64
+          export CGO_ENABLED=1
+          export GOOS=windows
+          export GOARCH=amd64
 
-  #         make install-cli
+          make install-cli
 
-  #         destination="${GITHUB_WORKSPACE}/windows-cli-tools"
-  #         mkdir -p "$destination"
-  #         cp -a "$(go env GOPATH)/bin/$(go env GOOS)_$(go env GOARCH)/." "$destination"
+          destination="${GITHUB_WORKSPACE}/windows-cli-tools"
+          mkdir -p "$destination"
+          cp -a "$(go env GOPATH)/bin/$(go env GOOS)_$(go env GOARCH)/." "$destination"
 
-  #     - name: Archive windows-cli-tools
-  #       uses: actions/upload-artifact@v3
-  #       with:
-  #         name: windows-cli-tools
-  #         path: windows-cli-tools
+      - name: Archive windows-cli-tools
+        uses: actions/upload-artifact@v3
+        with:
+          name: windows-cli-tools
+          path: windows-cli-tools
 
-  #     - name: Cleanup
-  #       if: ${{ always() }}
-  #       run: |
-  #         set -eo pipefail
+      - name: Cleanup
+        if: ${{ always() }}
+        run: |
+          set -eo pipefail
 
-  #         echo "scaling cluster back down"
-  #         export TYGER_MIN_NODE_COUNT=0
-  #         make ensure-environment
-
-
-  # publish:
-  #   runs-on: ubuntu-latest
-  #   defaults:
-  #     run:
-  #       shell: bash
-  #   steps:
-  #     - name: Login into Azure
-  #       uses: azure/login@v1
-  #       with:
-  #         creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-  #     - name: Checkout
-  #       uses: actions/checkout@v3
-  #       with:
-  #         fetch-depth: 0
-
-  #     - uses: actions/setup-go@v4
-  #       with:
-  #         go-version-file: cli/go.mod
-  #         cache-dependency-path: cli/go.sum
-
-  #     - name: Publish official images
-  #       run: |
-  #         set -euo pipefail
-  #         make publish-official-images
-
-  #     - name: Build Windows Binaries
-  #       run: |
-  #         set -eo pipefail
-
-  #         export CGO_ENABLED=1
-  #         export GOOS=windows
-  #         export GOARCH=amd64
-
-  #         make install-cli
-
-  #         destination="${GITHUB_WORKSPACE}/windows-cli-tools"
-  #         mkdir -p "$destination"
-  #         cp -a "$(go env GOPATH)/bin/$(go env GOOS)_$(go env GOARCH)/." "$destination"
-
-  #     - name: Archive windows-cli-tools
-  #       uses: actions/upload-artifact@v3
-  #       with:
-  #         name: windows-cli-tools
-  #         path: windows-cli-tools
+          echo "scaling cluster back down"
+          export TYGER_MIN_NODE_COUNT=0
+          make ensure-environment
 
 
-  # windows-smoke-tests:
-  #   runs-on: windows-latest
-  #   needs:
-  #     - get-config
-  #     - publish
-  #   steps:
-  #     - name: Checkout
-  #       uses: actions/checkout@v3
-  #       with:
-  #         fetch-depth: 0
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Login into Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-  #     - name: Download artifacts
-  #       uses: actions/download-artifact@v3
-  #       with:
-  #         name: windows-cli-tools
-  #         path: windows-cli-tools
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
-  #     - name: Login into Azure
-  #       uses: azure/login@v1
-  #       with:
-  #         creds: ${{ secrets.AZURE_CREDENTIALS }}
-  #         enable-AzPSSession: true
+      - uses: actions/setup-go@v4
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
 
-  #     - name: Run smoke tests
-  #       env:
-  #         DEVELOPER_CONFIG_BASE64: ${{ needs.get-config.outputs.DEVELOPER_CONFIG_BASE64 }}
-  #         TYGER_URI: ${{ needs.get-config.outputs.TYGER_URI }}
-  #       shell: pwsh
-  #       run: |
-  #         $ErrorActionPreference = "Stop"
-  #         Set-StrictMode -Version Latest
+      - name: Publish official images
+        run: |
+          set -euo pipefail
+          make publish-official-images
 
-  #         $env:PATH = "$env:GITHUB_WORKSPACE\windows-cli-tools;" + $env:PATH
+      - name: Build Windows Binaries
+        run: |
+          set -eo pipefail
 
-  #         $developerConfig = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($env:DEVELOPER_CONFIG_BASE64)) | ConvertFrom-Json
+          export CGO_ENABLED=1
+          export GOOS=windows
+          export GOARCH=amd64
 
-  #         $servicePrincipal = $developerConfig.testAppUri
-  #         $keyVaultName = $developerConfig.keyVault
-  #         $certificateName = $developerConfig.pkcs12CertSecret.name
-  #         $certificateVersion = $developerConfig.pkcs12CertSecret.version
+          make install-cli
 
-  #         # Run tests
-  #         .\scripts\Test-CertificateLoginOnWindows.ps1 `
-  #           -ServerUri $env:TYGER_URI `
-  #           -ServicePrincipal $servicePrincipal `
-  #           -KeyVaultName $keyVaultName `
-  #           -CertificateName $certificateName `
-  #           -CertificateVersion $certificateVersion
+          destination="${GITHUB_WORKSPACE}/windows-cli-tools"
+          mkdir -p "$destination"
+          cp -a "$(go env GOPATH)/bin/$(go env GOOS)_$(go env GOARCH)/." "$destination"
 
-  # codeQL:
-  #   name: CodeQL
-  #   runs-on: ubuntu-latest
-  #   if: github.repository == 'microsoft/tyger'
-  #   defaults:
-  #     run:
-  #       shell: bash
-  #   permissions:
-  #     actions: read
-  #     contents: read
-  #     security-events: write
-
-  #   steps:
-  #     - name: Checkout
-  #       uses: actions/checkout@v3
-  #       with:
-  #         fetch-depth: 0
-
-  #     - uses: actions/setup-go@v4
-  #       with:
-  #         go-version-file: cli/go.mod
-  #         cache-dependency-path: cli/go.sum
+      - name: Archive windows-cli-tools
+        uses: actions/upload-artifact@v3
+        with:
+          name: windows-cli-tools
+          path: windows-cli-tools
 
 
-  #     - uses: actions/setup-dotnet@v3
-  #       with:
-  #         global-json-file: server/global.json
+  windows-smoke-tests:
+    runs-on: windows-latest
+    needs:
+      - get-config
+      - publish
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
-  #     - name: Initialize CodeQL
-  #       uses: github/codeql-action/init@v2
-  #       with:
-  #         languages: csharp, go
+      - name: Download artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: windows-cli-tools
+          path: windows-cli-tools
 
-  #     - name: "Build"
-  #       run: |
-  #         set -eo pipefail
+      - name: Login into Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          enable-AzPSSession: true
 
-  #         TYGER_ENVIRONMENT_NAME="noenv" make -s build
+      - name: Run smoke tests
+        env:
+          DEVELOPER_CONFIG_BASE64: ${{ needs.get-config.outputs.DEVELOPER_CONFIG_BASE64 }}
+          TYGER_URI: ${{ needs.get-config.outputs.TYGER_URI }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          Set-StrictMode -Version Latest
 
-  #     - name: Perform CodeQL Analysis
-  #       uses: github/codeql-action/analyze@v2
+          $env:PATH = "$env:GITHUB_WORKSPACE\windows-cli-tools;" + $env:PATH
 
-  # release:
-  #   if: startsWith(github.ref, 'refs/tags/')
-  #   needs:
-  #     - tyger-build-deploy
-  #     - get-config
-  #     - windows-smoke-tests
-  #   env:
-  #     DEVELOPER_CONFIG_BASE64: ${{ needs.get-config.outputs.DEVELOPER_CONFIG_BASE64 }}
-  #   permissions:
-  #     contents: write
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v3
-  #       with:
-  #         fetch-depth: 0
+          $developerConfig = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($env:DEVELOPER_CONFIG_BASE64)) | ConvertFrom-Json
 
-  #     - uses: actions/setup-go@v4
-  #       with:
-  #         go-version-file: cli/go.mod
-  #         cache-dependency-path: cli/go.sum
+          $servicePrincipal = $developerConfig.testAppUri
+          $keyVaultName = $developerConfig.keyVault
+          $certificateName = $developerConfig.pkcs12CertSecret.name
+          $certificateVersion = $developerConfig.pkcs12CertSecret.version
 
-  #     - name: get container registry
-  #       run: |
-  #         set -euo pipefail
-  #         official_container_registry=$(echo "$DEVELOPER_CONFIG_BASE64" | base64 -d | jq -r '.officialContainerRegistry.fqdn')
-  #         echo "OFFICIAL_CONTAINER_REGISTRY=$(echo $official_container_registry)" >> $GITHUB_ENV
+          # Run tests
+          .\scripts\Test-CertificateLoginOnWindows.ps1 `
+            -ServerUri $env:TYGER_URI `
+            -ServicePrincipal $servicePrincipal `
+            -KeyVaultName $keyVaultName `
+            -CertificateName $certificateName `
+            -CertificateVersion $certificateVersion
 
-  #     - name: Run GoReleaser
-  #       uses: goreleaser/goreleaser-action@v5
-  #       env:
-  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  #       with:
-  #         version: v1.21.2
-  #         workdir: cli
-  #         args: release --clean
+  codeQL:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    if: github.repository == 'microsoft/tyger'
+    defaults:
+      run:
+        shell: bash
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v4
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+
+
+      - uses: actions/setup-dotnet@v3
+        with:
+          global-json-file: server/global.json
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v2
+        with:
+          languages: csharp, go
+
+      - name: "Build"
+        run: |
+          set -eo pipefail
+
+          TYGER_ENVIRONMENT_NAME="noenv" make -s build
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs:
+      - tyger-build-deploy
+      - get-config
+      - windows-smoke-tests
+    env:
+      DEVELOPER_CONFIG_BASE64: ${{ needs.get-config.outputs.DEVELOPER_CONFIG_BASE64 }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v4
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+
+      - name: get container registry
+        run: |
+          set -euo pipefail
+          official_container_registry=$(echo "$DEVELOPER_CONFIG_BASE64" | base64 -d | jq -r '.officialContainerRegistry.fqdn')
+          echo "OFFICIAL_CONTAINER_REGISTRY=$(echo $official_container_registry)" >> $GITHUB_ENV
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          version: v1.21.2
+          workdir: cli
+          args: release --clean
