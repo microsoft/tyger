@@ -89,13 +89,6 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 			return
 		}
 		// All blobs should have been written successfully by now.
-		// From this point on, 404 results or reads would mean one of the following:
-		// 1. The blob was very recently uploaded and the blob server is still
-		//    returning 404s for it.
-		// 2. The blob was deleted.
-		// Our goal is to avoid waiting forever in the case of (2) (which should be a rare condition),
-		// so we will retries for a while longer, so that (1) should no longer occur.
-		time.Sleep(1 * time.Minute)
 		waitForBlobs.Store(false)
 	}()
 
@@ -129,6 +122,12 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 					if err == errPastEndOfBlob {
 						break
 					}
+					if err == ErrNotFound {
+						// This error will most likely not be surfaced. We are adding it to the channel in case this buffer is not
+						// past the final blob.
+						c <- BufferBlob{BlobNumber: blobNumber, Error: fmt.Errorf("blob number %d was expected to exist but does not", blobNumber)}
+						break
+					}
 					errorChannel <- fmt.Errorf("error downloading blob: %w", err)
 					return
 				}
@@ -153,17 +152,22 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 	doneChan := make(chan any)
 	go func() {
 		lastTime := time.Now()
-		var expcetedBlobNumber int64 = 0
+		var expectedBlobNumber int64 = 0
 		var encodedMD5HashChain string = EncodedMD5HashChainInitalValue
 		for c := range responseChannel {
 			blobResponse := <-c
 
-			if blobResponse.BlobNumber != expcetedBlobNumber {
-				errorChannel <- fmt.Errorf("blob number returned out of sequence. Expected %d, got %d", expcetedBlobNumber, blobResponse.BlobNumber)
+			if blobResponse.BlobNumber != expectedBlobNumber {
+				errorChannel <- fmt.Errorf("blob number returned out of sequence. Expected %d, got %d", expectedBlobNumber, blobResponse.BlobNumber)
 				return
 			}
 
-			expcetedBlobNumber++
+			if blobResponse.Error != nil {
+				errorChannel <- blobResponse.Error
+				return
+			}
+
+			expectedBlobNumber++
 
 			if len(blobResponse.Contents) == 0 {
 				break
@@ -260,6 +264,11 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUri
 	for retryCount := 0; ; retryCount++ {
 		start := time.Now()
 
+		// Read this value before issuing the request. It will be set to false when the buffer end blob is written, which could happen
+		// after the request is issued but before the response is read. By taking a snapshot now, we can avoid
+		// that situation and we'll end up doing an extra retry.
+		waitForBlobSnapshot := waitForBlob.Load()
+
 		if blobNumber != nil {
 			if num := finalBlobNumber.Load(); num >= 0 && num < *blobNumber {
 				log.Ctx(ctx).Trace().Msg("Abandoning download after final blob")
@@ -302,24 +311,44 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUri
 				return nil, fmt.Errorf("failed to read blob: %w", httpclient.RedactHttpError(err))
 			}
 		}
-		if err == ErrNotFound && waitForBlob.Load() {
-			log.Ctx(ctx).Trace().Msg("Waiting for blob")
-			io.Copy(io.Discard, resp.Body)
-			resp.Body.Close()
+		if err == ErrNotFound {
+			if waitForBlobSnapshot {
+				log.Ctx(ctx).Trace().Msg("Waiting for blob")
+				io.Copy(io.Discard, resp.Body)
+				resp.Body.Close()
 
-			switch {
-			case retryCount < 10:
-				time.Sleep(100 * time.Millisecond)
-			case retryCount < 100:
-				time.Sleep(500 * time.Millisecond)
-			case retryCount < 1000:
-				time.Sleep(1 * time.Second)
-			default:
-				time.Sleep(5 * time.Second)
+				switch {
+				case retryCount < 10:
+					time.Sleep(100 * time.Millisecond)
+				case retryCount < 100:
+					time.Sleep(500 * time.Millisecond)
+				case retryCount < 1000:
+					time.Sleep(1 * time.Second)
+				default:
+					time.Sleep(5 * time.Second)
+				}
+
+				continue
 			}
 
-			continue
+			if blobNumber != nil {
+				// If we get here then the the .bufferend blob has been read and we attempted to read a blob that doesn't exist.
+				// This blob has either been deleted or is past the last final blob of size 0.
+				if finalNum := finalBlobNumber.Load(); finalNum >= 0 {
+					if finalNum < *blobNumber {
+						// The blob we were attempting to download is after the final blob
+						log.Ctx(ctx).Trace().Msg("Abandoning download after final blob")
+						return nil, errPastEndOfBlob
+					}
+					return nil, fmt.Errorf("blob number %d was expected to exist but does not", *blobNumber)
+				}
+
+				// We don't yet know what the final blob number is, we we will just report back that the blob does not exist.
+				// This will only become an error if this blob is before the final blob.
+			}
+			return nil, err
 		}
+
 		if errors.Is(err, ctx.Err()) {
 			// the context has been canceled
 			return nil, err

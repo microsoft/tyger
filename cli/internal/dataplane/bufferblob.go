@@ -34,6 +34,7 @@ var (
 type BufferBlob struct {
 	BlobNumber int64
 	Contents   []byte
+	Error      error
 
 	// For Writing
 	PreviousCumulativeHash chan string
