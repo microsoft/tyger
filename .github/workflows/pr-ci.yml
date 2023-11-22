@@ -81,19 +81,12 @@ jobs:
           set -eo pipefail
           export TYGER_ENVIRONMENT_CONFIG_DIR="${GITHUB_WORKSPACE}/deploy/config/microsoft/ci"
 
-          # We have mounted this location in the container, it is identical to the checkout location
-          # We need to run the testdata generation from this path to make sure the testdata is generated in the right place.
-          # Otherwise, checksums will change and dirty the path and that will cause publishing to fail.
-          cd /workspaces/tyger
-
           set -euo pipefail
           make -s -j 8
 
       - name: Publish official images
         run: |
           set -euo pipefail
-          cd /workspaces/tyger
-
           make publish-official-images
 
       - name: Build Windows Binaries
@@ -208,7 +201,6 @@ jobs:
         run: |
           set -eo pipefail
 
-          cd /workspaces/tyger
           TYGER_ENVIRONMENT_NAME="noenv" make -s build
 
       - name: Perform CodeQL Analysis
