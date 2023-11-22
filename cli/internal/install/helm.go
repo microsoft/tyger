@@ -12,6 +12,7 @@ import (
 
 	"dario.cat/mergo"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
+	"github.com/hashicorp/go-retryablehttp"
 	"github.com/microsoft/tyger/cli/internal/httpclient"
 	helmclient "github.com/mittwald/go-helm-client"
 	"github.com/rs/zerolog/log"
@@ -271,7 +272,11 @@ func InstallTyger(ctx context.Context) error {
 	healthCheckEndpoint := fmt.Sprintf("%s/healthcheck", baseEndpoint)
 
 	for i := 0; ; i++ {
-		resp, err := httpclient.DefaultRetryableClient.Get(healthCheckEndpoint)
+		req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, healthCheckEndpoint, nil)
+		if err != nil {
+			return fmt.Errorf("failed to create health check request: %w", err)
+		}
+		resp, err := httpclient.DefaultRetryableClient.Do(req)
 		errorLogger := log.Debug()
 		exit := false
 		if i == 30 {

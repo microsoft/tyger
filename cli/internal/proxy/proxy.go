@@ -22,15 +22,13 @@ import (
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/httpclient"
+	"github.com/microsoft/tyger/cli/internal/settings"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
 type ProxyOptions struct {
-	controlplane.AuthConfig
-	Port               int      `json:"port"`
-	AllowedClientCIDRs []string `json:"allowedClientCIDRs"`
-	LogPath            string   `json:"logPath"`
+	controlplane.LoginConfig
 }
 
 type ProxyServiceMetadata struct {
@@ -47,13 +45,13 @@ var (
 
 type CloseProxyFunc func() error
 
-func RunProxy(serviceInfo controlplane.ServiceInfo, options *ProxyOptions, logger zerolog.Logger) (CloseProxyFunc, error) {
-	controlPlaneTargetUri, _ := url.Parse(serviceInfo.GetServerUri())
+func RunProxy(ctx context.Context, serviceInfo settings.ServiceInfo, options *ProxyOptions, logger zerolog.Logger) (CloseProxyFunc, error) {
+	controlPlaneTargetUri := serviceInfo.GetServerUri()
 	handler := proxyHandler{
 		serviceInfo:           serviceInfo,
 		targetControlPlaneUri: controlPlaneTargetUri,
 		options:               options,
-		nextProxyFunc:         httpclient.GetProxyFunc(),
+		nextProxyFunc:         serviceInfo.GetProxyFunc(),
 	}
 
 	r := chi.NewRouter()
@@ -87,7 +85,7 @@ func RunProxy(serviceInfo controlplane.ServiceInfo, options *ProxyOptions, logge
 	server := &http.Server{
 		Handler: r,
 		BaseContext: func(l net.Listener) context.Context {
-			return logger.WithContext(context.Background())
+			return logger.WithContext(ctx)
 		},
 		// Disable HTTP/2.
 		TLSNextProto: make(map[string]func(*http.Server, *tls.Conn, http.Handler)),
@@ -157,7 +155,7 @@ func GetExistingProxyMetadata(options *ProxyOptions) *ProxyServiceMetadata {
 }
 
 type proxyHandler struct {
-	serviceInfo           controlplane.ServiceInfo
+	serviceInfo           settings.ServiceInfo
 	targetControlPlaneUri *url.URL
 	options               *ProxyOptions
 	nextProxyFunc         func(*http.Request) (*url.URL, error)
@@ -195,7 +193,7 @@ func (h *proxyHandler) forwardControlPlaneRequest(w http.ResponseWriter, r *http
 		proxyReq.URL = proxyReq.URL.JoinPath(h.targetControlPlaneUri.Path, proxyReq.URL.Path)
 	}
 
-	token, err := h.serviceInfo.GetAccessToken()
+	token, err := h.serviceInfo.GetAccessToken(r.Context())
 
 	if err != nil {
 		log.Ctx(r.Context()).Error().Err(err).Send()
@@ -204,7 +202,7 @@ func (h *proxyHandler) forwardControlPlaneRequest(w http.ResponseWriter, r *http
 	}
 
 	proxyReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	resp, err := httpclient.DefaultRetryableClient.Transport.RoundTrip(proxyReq)
+	resp, err := httpclient.DefaultRetryableClient.HTTPClient.Transport.RoundTrip(proxyReq)
 	if err != nil {
 		log.Ctx(r.Context()).Error().Err(err).Msg("Failed to forward request")
 		http.Error(w, "Bad Gateway", http.StatusBadGateway)
@@ -298,7 +296,7 @@ func createIpFilteringMidleware(options *ProxyOptions) func(http.Handler) http.H
 			}
 
 			if !allowed {
-				log.Ctx(r.Context()).Error().Err(err).Msg("remote IP address not allowed")
+				log.Ctx(r.Context()).Error().Err(err).IPAddr("ip", ip).Msg("remote IP address not allowed")
 				http.Error(w, "Forbidden", http.StatusForbidden)
 				return
 			}

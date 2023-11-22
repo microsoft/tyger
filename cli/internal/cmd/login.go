@@ -8,13 +8,14 @@ import (
 	"runtime"
 
 	"github.com/microsoft/tyger/cli/internal/controlplane"
+	"github.com/microsoft/tyger/cli/internal/settings"
 	"github.com/spf13/cobra"
 	"sigs.k8s.io/yaml"
 )
 
 func NewLoginCommand() *cobra.Command {
 	optionsFilePath := ""
-	options := controlplane.AuthConfig{
+	options := controlplane.LoginConfig{
 		Persisted: true,
 	}
 
@@ -42,7 +43,7 @@ Subsequent commands will be performed against this server.`,
 					return fmt.Errorf("failed to read login options file: %v", err)
 				}
 
-				if err := yaml.Unmarshal(bytes, &options); err != nil {
+				if err := yaml.UnmarshalStrict(bytes, &options); err != nil {
 					return fmt.Errorf("failed to parse login options file: %v", err)
 				}
 
@@ -81,7 +82,7 @@ Subsequent commands will be performed against this server.`,
 					options.CertificatePath = filepath.Clean(filepath.Join(filepath.Dir(optionsFilePath), options.CertificatePath))
 				}
 
-				_, err = controlplane.Login(options)
+				_, _, err = controlplane.Login(cmd.Context(), options)
 				return err
 			case 1:
 				if options.ServicePrincipal != "" {
@@ -106,7 +107,7 @@ Subsequent commands will be performed against this server.`,
 				}
 
 				options.ServerUri = args[0]
-				_, err := controlplane.Login(options)
+				_, _, err := controlplane.Login(cmd.Context(), options)
 				return err
 			default:
 				return errors.New("too many arguments")
@@ -116,7 +117,24 @@ Subsequent commands will be performed against this server.`,
 
 	loginCmd.AddCommand(newLoginStatusCommand())
 
-	loginCmd.Flags().StringVarP(&optionsFilePath, "file", "f", "", "The path to a file containing login options")
+	loginCmd.Flags().StringVarP(&optionsFilePath, "file", "f", "", `The path to a file containing login options. It should be a YAML file with the following structure:
+
+# The Tyger server URI
+serverUri: https://example.com
+
+# The serive principal ID
+servicePrincipal: api://my-client
+
+# The path to a file with the service principal certificate
+certificatePath: /a/path/to/a/file.pem
+
+# The thumbprint of a certificate in a Windows certificate store to use for service principal authentication (Windows only)
+certificateThumbprint: 92829BFAEB67C738DECE0B255C221CF9E1A46285
+
+# The HTTP proxy to use. Can be 'auto[matic]', 'none', or a URI. The default is 'auto'.
+proxy: auto
+	`)
+
 	loginCmd.Flags().StringVarP(&options.ServicePrincipal, "service-principal", "s", "", "The service principal app ID or identifier URI")
 	loginCmd.Flags().StringVarP(&options.CertificatePath, "cert-file", "c", "", "The path to the certificate in PEM format to use for service principal authentication")
 
@@ -126,6 +144,11 @@ Subsequent commands will be performed against this server.`,
 	}
 
 	loginCmd.Flags().BoolVarP(&options.UseDeviceCode, "use-device-code", "d", false, "Whether to use the device code flow for user logins. Use this mode when the app can't launch a browser on your behalf.")
+
+	loginCmd.Flags().StringVar(&options.Proxy, "proxy", "auto", "The HTTP proxy to use. Can be 'auto[matic]', 'none', or a URI.")
+
+	loginCmd.Flags().BoolVar(&options.DisableTlsCertificateValidation, "disable-tls-certificate-validation", false, "Disable TLS certificate validation.")
+	loginCmd.Flags().MarkHidden("disable-tls-certificate-validation")
 
 	return loginCmd
 }
@@ -138,13 +161,13 @@ func newLoginStatusCommand() *cobra.Command {
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			serviceInfo, err := controlplane.GetPersistedServiceInfo()
+			serviceInfo, err := settings.GetServiceInfoFromContext(cmd.Context())
 
-			if err != nil || serviceInfo.GetServerUri() == "" {
+			if err != nil || serviceInfo.GetServerUri() == nil {
 				return errors.New("run 'tyger login' to connect to a Tyger server")
 			}
 
-			_, err = serviceInfo.GetAccessToken()
+			_, err = serviceInfo.GetAccessToken(cmd.Context())
 			if err != nil {
 				return fmt.Errorf("run `tyger login` to login to a server: %v", err)
 			}

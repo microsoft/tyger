@@ -240,7 +240,7 @@ start-proxy: install-cli download-test-client-cert
 	serverUri: ${TYGER_URI}
 	servicePrincipal: $${test_app_uri}
 	certificatePath: $${cert_path}
-	allowedClientCIDRs: $$(hostname -i | awk '{print $$1"/32"}' | jq -c -R --slurp 'split("\n")[:-1]')
+	allowedClientCIDRs: ["127.0.0.1/32"]
 	logPath: "/tmp/tyger-proxy"
 	EOF
 	)

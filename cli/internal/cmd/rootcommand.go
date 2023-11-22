@@ -5,8 +5,10 @@ import (
 	"os"
 	"time"
 
+	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/httpclient"
 	"github.com/microsoft/tyger/cli/internal/logging"
+	"github.com/microsoft/tyger/cli/internal/settings"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -59,6 +61,9 @@ func NewCommonRootCommand(commit string) *cobra.Command {
 			zerolog.DefaultContextLogger = &log.Logger
 			ctx := logging.SetLogSinkOnContext(cmd.Context(), logSink)
 			ctx = log.Logger.WithContext(ctx)
+
+			ctx = settings.SetServiceInfoFuncOnContext(ctx, controlplane.GetPersistedServiceInfo)
+
 			cmd.SetContext(ctx)
 
 			httpclient.DisableDefaultTransport()

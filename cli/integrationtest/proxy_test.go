@@ -50,15 +50,14 @@ timeoutSeconds: 600`
 
 	runId := runTygerSucceeds(t, "run", "create", "--file", runSpecPath)
 
-	serviceInfo, err := controlplane.GetPersistedServiceInfo()
-	require.NoError(err)
+	ctx, serviceInfo := getServiceInfoContext(t)
 
 	proxyOptions := proxy.ProxyOptions{}
 
 	proxyLogBuffer := SyncBuffer{}
 	logger := zerolog.New(&proxyLogBuffer)
 
-	closeProxy, err := proxy.RunProxy(serviceInfo, &proxyOptions, logger)
+	closeProxy, err := proxy.RunProxy(ctx, serviceInfo, &proxyOptions, logger)
 	require.NoError(err)
 	defer closeProxy()
 
@@ -164,16 +163,16 @@ func TestProxiedRequestsFromAllowedCIDR(t *testing.T) {
 	require := require.New(t)
 
 	proxyOptions := proxy.ProxyOptions{
-		AllowedClientCIDRs: []string{"127.0.0.1/32"},
+		LoginConfig: controlplane.LoginConfig{
+			AllowedClientCIDRs: []string{"127.0.0.1/32"},
+		},
 	}
-
-	serviceInfo, err := controlplane.GetPersistedServiceInfo()
-	require.NoError(err)
 
 	proxyLogBuffer := SyncBuffer{}
 	logger := zerolog.New(&proxyLogBuffer)
 
-	closeProxy, err := proxy.RunProxy(serviceInfo, &proxyOptions, logger)
+	ctx, serviceInfo := getServiceInfoContext(t)
+	closeProxy, err := proxy.RunProxy(ctx, serviceInfo, &proxyOptions, logger)
 	defer closeProxy()
 	resp, err := httpclient.DefaultRetryableClient.Get(fmt.Sprintf("http://localhost:%d/v1/metadata", proxyOptions.Port))
 	require.NoError(err)
@@ -185,16 +184,16 @@ func TestProxiedRequestsFromDisallowedAllowedCIDR(t *testing.T) {
 	require := require.New(t)
 
 	proxyOptions := proxy.ProxyOptions{
-		AllowedClientCIDRs: []string{"8.0.0.1/32"},
+		LoginConfig: controlplane.LoginConfig{
+			AllowedClientCIDRs: []string{"8.0.0.1/32"},
+		},
 	}
 
-	serviceInfo, err := controlplane.GetPersistedServiceInfo()
-	require.NoError(err)
-
+	ctx, serviceInfo := getServiceInfoContext(t)
 	proxyLogBuffer := SyncBuffer{}
 	logger := zerolog.New(&proxyLogBuffer)
 
-	closeProxy, err := proxy.RunProxy(serviceInfo, &proxyOptions, logger)
+	closeProxy, err := proxy.RunProxy(ctx, serviceInfo, &proxyOptions, logger)
 	defer closeProxy()
 	resp, err := httpclient.DefaultRetryableClient.Get(fmt.Sprintf("http://localhost:%d/v1/runs/1", proxyOptions.Port))
 	require.NoError(err)
@@ -209,47 +208,45 @@ func TestProxiedRequestsFromDisallowedAllowedCIDR(t *testing.T) {
 func TestRunningProxyOnSamePort(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	serviceInfo, err := controlplane.GetPersistedServiceInfo()
-	require.NoError(err)
+	ctx, serviceInfo := getServiceInfoContext(t)
 
 	proxyOptions := proxy.ProxyOptions{
-		AuthConfig: controlplane.AuthConfig{
-			ServerUri: serviceInfo.GetServerUri(),
+		LoginConfig: controlplane.LoginConfig{
+			ServerUri: serviceInfo.GetServerUri().String(),
 		},
 	}
 	proxyLogBuffer := SyncBuffer{}
 	logger := zerolog.New(&proxyLogBuffer)
 
-	closeProxy, err := proxy.RunProxy(serviceInfo, &proxyOptions, logger)
+	closeProxy, err := proxy.RunProxy(ctx, serviceInfo, &proxyOptions, logger)
 	require.NoError(err)
 	defer closeProxy()
 
-	_, err = proxy.RunProxy(serviceInfo, &proxyOptions, logger)
+	_, err = proxy.RunProxy(ctx, serviceInfo, &proxyOptions, logger)
 	require.ErrorIs(err, proxy.ErrProxyAlreadyRunning)
 }
 
 func TestRunningProxyOnSamePortDifferentTarget(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	serviceInfo, err := controlplane.GetPersistedServiceInfo()
-	require.NoError(err)
+	ctx, serviceInfo := getServiceInfoContext(t)
 
 	proxyOptions := proxy.ProxyOptions{
-		AuthConfig: controlplane.AuthConfig{
-			ServerUri: serviceInfo.GetServerUri(),
+		LoginConfig: controlplane.LoginConfig{
+			ServerUri: serviceInfo.GetServerUri().String(),
 		},
 	}
 	proxyLogBuffer := SyncBuffer{}
 	logger := zerolog.New(&proxyLogBuffer)
 
-	closeProxy, err := proxy.RunProxy(serviceInfo, &proxyOptions, logger)
+	closeProxy, err := proxy.RunProxy(ctx, serviceInfo, &proxyOptions, logger)
 	require.NoError(err)
 	defer closeProxy()
 
 	secondProxyOptions := *&proxyOptions
-	secondProxyOptions.AuthConfig.ServerUri = "http://someotherserver"
+	secondProxyOptions.LoginConfig.ServerUri = "http://someotherserver"
 
-	_, err = proxy.RunProxy(serviceInfo, &secondProxyOptions, logger)
+	_, err = proxy.RunProxy(ctx, serviceInfo, &secondProxyOptions, logger)
 	require.ErrorIs(err, proxy.ErrProxyAlreadyRunningWrongTarget)
 }
 

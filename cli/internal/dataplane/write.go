@@ -14,6 +14,7 @@ import (
 
 	"github.com/hashicorp/go-retryablehttp"
 	pool "github.com/libp2p/go-buffer-pool"
+	"github.com/microsoft/tyger/cli/internal/httpclient"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -67,11 +68,7 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 
 	ctx = log.With().Str("operation", "buffer write").Logger().WithContext(ctx)
 	if writeOptions.httpClient == nil {
-		var err error
-		writeOptions.httpClient, err = CreateHttpClient(ctx, "")
-		if err != nil {
-			return fmt.Errorf("failed to create http client: %w", err)
-		}
+		writeOptions.httpClient = httpclient.DefaultRetryableClient
 	}
 
 	httpClient := writeOptions.httpClient
@@ -106,7 +103,6 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 
 				blobUrl := container.GetBlobUri(bb.BlobNumber)
 				ctx := log.Ctx(ctx).With().Int64("blobNumber", bb.BlobNumber).Logger().WithContext(ctx)
-				httpClient := NewClientWithLoggingContext(ctx, httpClient)
 				var body any = bb.Contents
 				if len(bb.Contents) == 0 {
 					// This is a bit subtle, but if we send an empty or nil []byte body,
@@ -193,7 +189,7 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 		if ctx.Err() != nil {
 			// this means the context was cancelled or timed out
 			// use a new context to write the end metadata
-			newCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			newCtx, cancel := context.WithTimeout(&MergedContext{Context: context.Background(), valueSource: ctx}, 3*time.Second)
 			defer cancel()
 			ctx = newCtx
 		}
@@ -240,12 +236,10 @@ func writeEndMetadata(ctx context.Context, httpClient *retryablehttp.Client, con
 func uploadBlobWithRery(ctx context.Context, httpClient *retryablehttp.Client, blobUrl string, body any, encodedMD5Hash string, encodedMD5HashChain string) error {
 	start := time.Now()
 	for i := 0; ; i++ {
-		req, err := retryablehttp.NewRequest(http.MethodPut, blobUrl, body)
+		req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodPut, blobUrl, body)
 		if err != nil {
 			return fmt.Errorf("unable to create request: %w", err)
 		}
-
-		req = req.WithContext(ctx)
 
 		AddCommonBlobRequestHeaders(req.Header)
 		req.Header.Add("x-ms-blob-type", "BlockBlob")
@@ -270,11 +264,11 @@ func uploadBlobWithRery(ctx context.Context, httpClient *retryablehttp.Client, b
 				log.Ctx(ctx).Debug().Msg("MD5 mismatch, retrying")
 				continue
 			} else {
-				return fmt.Errorf("failed to upload blob: %w", RedactHttpError(err))
+				return fmt.Errorf("failed to upload blob: %w", httpclient.RedactHttpError(err))
 			}
 		case errBlobOverwrite:
 			if i == 0 {
-				return fmt.Errorf("buffer cannot be overwritten: %w", RedactHttpError(err))
+				return fmt.Errorf("buffer cannot be overwritten: %w", httpclient.RedactHttpError(err))
 			}
 			// When retrying failed writes, we might encounter the UnauthorizedBlobOverwrite if the original
 			// write went through. In such cases, we should follow up with a HEAD request to verify the
@@ -299,7 +293,7 @@ func uploadBlobWithRery(ctx context.Context, httpClient *retryablehttp.Client, b
 		case errBufferDoesNotExist:
 			return err
 		default:
-			return fmt.Errorf("failed to upload blob: %w", RedactHttpError(err))
+			return fmt.Errorf("failed to upload blob: %w", httpclient.RedactHttpError(err))
 		}
 	}
 
@@ -345,4 +339,13 @@ func handleWriteResponse(resp *http.Response) error {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
 	}
+}
+
+type MergedContext struct {
+	context.Context                 // The context that is is used for deadlines and cancellation
+	valueSource     context.Context // The context used for values
+}
+
+func (c *MergedContext) Value(key any) any {
+	return c.valueSource.Value(key)
 }

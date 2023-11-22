@@ -243,18 +243,7 @@ func NewBufferReadCommand(openFileFunc func(name string, flag int, perm fs.FileM
 				log.Warn().Msg("Canceling...")
 			}()
 
-			options := []dataplane.ReadOption{dataplane.WithReadDop(dop)}
-			if serviceInfo, err := controlplane.GetPersistedServiceInfo(); err == nil {
-				if proxyUri := serviceInfo.GetDataPlaneProxy(); proxyUri != "" {
-					httpClient, err := dataplane.CreateHttpClient(ctx, proxyUri)
-					if err != nil {
-						log.Fatal().Err(err).Msg("Failed to create HTTP client")
-					}
-					options = append(options, dataplane.WithReadHttpClient(httpClient))
-				}
-			}
-
-			if err := dataplane.Read(ctx, uri, outputFile, options...); err != nil {
+			if err := dataplane.Read(ctx, uri, outputFile, dataplane.WithReadDop(dop)); err != nil {
 				if errors.Is(err, ctx.Err()) {
 					err = ctx.Err()
 				}
@@ -334,16 +323,6 @@ func NewBufferWriteCommand(openFileFunc func(name string, flag int, perm fs.File
 				}
 
 				writeOptions = append(writeOptions, dataplane.WithWriteBlockSize(int(parsedBlockSize)))
-			}
-
-			if serviceInfo, err := controlplane.GetPersistedServiceInfo(); err == nil {
-				if proxyUrl := serviceInfo.GetDataPlaneProxy(); proxyUrl != "" {
-					httpClient, err := dataplane.CreateHttpClient(ctx, proxyUrl)
-					if err != nil {
-						log.Fatal().Err(err).Msg("Failed to create HTTP client")
-					}
-					writeOptions = append(writeOptions, dataplane.WithWriteHttpClient(httpClient))
-				}
 			}
 
 			err = dataplane.Write(ctx, uri, inputReader, writeOptions...)

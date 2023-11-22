@@ -13,8 +13,10 @@ import (
 	"strings"
 
 	"github.com/fatih/color"
+	"github.com/hashicorp/go-retryablehttp"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/httpclient"
+	"github.com/microsoft/tyger/cli/internal/settings"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel/propagation"
@@ -25,12 +27,12 @@ func InvokeRequest(ctx context.Context, method string, relativeUri string, input
 }
 
 func InvokeRequestWithHeaders(ctx context.Context, method string, relativeUri string, input interface{}, output interface{}, headers http.Header) (*http.Response, error) {
-	serviceInfo, err := GetPersistedServiceInfo()
-	if err != nil || serviceInfo.GetServerUri() == "" {
+	serviceInfo, err := settings.GetServiceInfoFromContext(ctx)
+	if err != nil || serviceInfo.GetServerUri() == nil {
 		return nil, errors.New("run 'tyger login' to connect to a Tyger server")
 	}
 
-	token, err := serviceInfo.GetAccessToken()
+	token, err := serviceInfo.GetAccessToken(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("run `tyger login` to login to a server: %v", err)
 	}
@@ -45,7 +47,7 @@ func InvokeRequestWithHeaders(ctx context.Context, method string, relativeUri st
 		body = bytes.NewBuffer(serializedBody)
 	}
 
-	req, err := http.NewRequest(method, absoluteUri, body)
+	req, err := retryablehttp.NewRequestWithContext(ctx, method, absoluteUri, body)
 	if err != nil {
 		return nil, err
 	}
@@ -64,8 +66,8 @@ func InvokeRequestWithHeaders(ctx context.Context, method string, relativeUri st
 		if token != "" {
 			req.Header.Add("Authorization", "Bearer --REDACTED--")
 		}
-		if debugOutput, err := httputil.DumpRequestOut(req, true); err == nil {
-			log.Trace().Str("request", string(debugOutput)).Msg("request sent")
+		if debugOutput, err := httputil.DumpRequestOut(req.Request, true); err == nil {
+			log.Trace().Str("request", string(debugOutput)).Msg("Outgoing request")
 		}
 	}
 
@@ -81,7 +83,7 @@ func InvokeRequestWithHeaders(ctx context.Context, method string, relativeUri st
 
 	if log.Logger.GetLevel() <= zerolog.TraceLevel {
 		if debugOutput, err := httputil.DumpResponse(resp, true); err == nil {
-			log.Trace().Str("response", string(debugOutput)).Msg("response received")
+			log.Trace().Str("response", string(debugOutput)).Msg("Incoming response")
 		}
 	}
 
