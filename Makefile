@@ -95,7 +95,7 @@ build:
 	find . -name *csproj | xargs -L 1 dotnet build
 	
 	cd cli
-	go build ./...
+	go build -v ./...
 
 build-server:
 	cd ${SERVER_PATH}

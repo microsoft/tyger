@@ -12,13 +12,48 @@ permissions:
   contents: read
 
 jobs:
+
+  unit-tests-and-format:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      TYGER_MIN_NODE_COUNT: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v4
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+
+      - uses: actions/setup-dotnet@v3
+        with:
+          global-json-file: server/global.json
+
+      - name: Build and verify format
+        run: |
+          set -eo pipefail
+          make restore
+          make verify-format
+
+      - name: Run unit tests
+        run: |
+          set -euo pipefail
+          make build
+
+
   tyger-build-deploy:
     runs-on: ubuntu-latest
     defaults:
       run:
         shell: bash
     env:
-      TYGER_MIN_NODE_COUNT: "5"
+      TYGER_MIN_NODE_COUNT: "1"
     outputs:
       TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
       TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
@@ -70,12 +105,6 @@ jobs:
           developer_config_base64=$(scripts/get-config.sh --dev -o json | jq -c | base64 -w 0)
           echo "DEVELOPER_CONFIG_BASE64=$developer_config_base64" >> "$GITHUB_OUTPUT"
           echo "DEVELOPER_CONFIG_BASE64=$developer_config_base64" >> "$GITHUB_ENV"
-
-      - name: Build and verify format
-        run: |
-          set -eo pipefail
-          make restore
-          make verify-format
 
       - name: Deploy and test
         run: |
