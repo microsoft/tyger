@@ -171,7 +171,7 @@ integration-test-no-up-prereqs: docker-build-test
 integration-test-no-up: integration-test-no-up-prereqs cli-ready
 	if [[ -n "$${EXPLICIT_IMAGE_TAG:-}" ]]; then
 		repo_fqdn=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
-		export TEST_CONNECTIVITY_IMAGE="$${repo_fqdn}/tyger-server:$${EXPLICIT_IMAGE_TAG}"
+		export TEST_CONNECTIVITY_IMAGE="$${repo_fqdn}/testconnectivity:$${EXPLICIT_IMAGE_TAG}"
 	fi
 
 	pushd cli/integrationtest
