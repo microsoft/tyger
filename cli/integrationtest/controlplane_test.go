@@ -926,7 +926,7 @@ func TestConnectivityBetweenJobAndWorkers(t *testing.T) {
 	jobCodespecName := strings.ToLower(t.Name()) + "-job"
 	workerCodespecName := strings.ToLower(t.Name()) + "-worker"
 
-	digest := getTestConnectivityDigest(t)
+	digest := getTestConnectivityImage(t)
 
 	runTygerSucceeds(t,
 		"codespec",
@@ -984,7 +984,7 @@ func TestCancelJob(t *testing.T) {
 	runTygerSucceeds(t,
 		"codespec",
 		"create", codespecName,
-		"--image", getTestConnectivityDigest(t),
+		"--image", getTestConnectivityImage(t),
 		"--",
 		"--worker")
 
@@ -1270,11 +1270,14 @@ done:
 	return snapshot
 }
 
-func getTestConnectivityDigest(t *testing.T) string {
+func getTestConnectivityImage(t *testing.T) string {
 	t.Helper()
 
-	digest := runCommandSuceeds(t, "docker", "inspect", "testconnectivity", "--format", "{{ index .RepoDigests 0 }}")
-	return digest
+	if imgVar := os.Getenv("TEST_CONNECTIVITY_IMAGE"); imgVar != "" {
+		return imgVar
+	}
+
+	return runCommandSuceeds(t, "docker", "inspect", "testconnectivity", "--format", "{{ index .RepoDigests 0 }}")
 }
 
 func getServiceInfoContext(t *testing.T) (context.Context, settings.ServiceInfo) {

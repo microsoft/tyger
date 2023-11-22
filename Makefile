@@ -116,12 +116,24 @@ unit-test:
 	go test ./... | { grep -v "\\[[no test files\\]" || true; }
 
 docker-build:
+	if [[ "$${DO_NOT_BUILD_IMAGES:-}" == "true" ]]; then
+		exit
+	fi
+
+	tag=$${EXPLICIT_IMAGE_TAG:-dev}
+
 	registry=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
-	scripts/build-images.sh --push --push-force --tag dev --quiet --registry "$${registry}"
+	scripts/build-images.sh --push --push-force --tag "$$tag" --quiet --registry "$${registry}"
 
 docker-build-test:
+	if [[ "$${DO_NOT_BUILD_IMAGES:-}" == "true" ]]; then
+		exit
+	fi
+
+	tag=$${EXPLICIT_IMAGE_TAG:-test}
+	
 	registry=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
-	scripts/build-images.sh --test --push --push-force --tag test --quiet --registry "$${registry}"
+	scripts/build-images.sh --test --push --push-force --tag "$$tag" --quiet --registry "$${registry}"
 
 publish-official-images:
 	registry=$$(scripts/get-config.sh --dev -e .officialContainerRegistry.fqdn)
@@ -130,6 +142,12 @@ publish-official-images:
 
 up: ensure-environment-conditionally docker-build
 	repo_fqdn=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
+
+	if [[ -n "$${EXPLICIT_IMAGE_TAG:-}" ]]; then
+		tyger_server_image="$${repo_fqdn}/tyger-server:$${EXPLICIT_IMAGE_TAG}"
+		buffer_sidecar_image="$${repo_fqdn}/buffer-sidecar:$${EXPLICIT_IMAGE_TAG}"
+		worker_waiter_image="$${repo_fqdn}/worker-waiter:$${EXPLICIT_IMAGE_TAG}"
+	fi
 
 	tyger_server_image="$$(docker inspect "$${repo_fqdn}/tyger-server:dev" | jq -r --arg repo "$${repo_fqdn}/tyger-server" '.[0].RepoDigests[] | select (startswith($$repo))')"
 	buffer_sidecar_image="$$(docker inspect "$${repo_fqdn}/buffer-sidecar:dev" | jq -r --arg repo "$${repo_fqdn}/buffer-sidecar" '.[0].RepoDigests[] | select (startswith($$repo))')"
@@ -151,6 +169,11 @@ down: install-cli
 integration-test-no-up-prereqs: docker-build-test
 
 integration-test-no-up: integration-test-no-up-prereqs cli-ready
+	if [[ -n "$${EXPLICIT_IMAGE_TAG:-}" ]]; then
+		repo_fqdn=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
+		export TEST_CONNECTIVITY_IMAGE="$${repo_fqdn}/tyger-server:$${EXPLICIT_IMAGE_TAG}"
+	fi
+
 	pushd cli/integrationtest
 	go test -tags=integrationtest
 
