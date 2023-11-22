@@ -67,7 +67,7 @@ func InvokeRequestWithHeaders(ctx context.Context, method string, relativeUri st
 			req.Header.Add("Authorization", "Bearer --REDACTED--")
 		}
 		if debugOutput, err := httputil.DumpRequestOut(req.Request, true); err == nil {
-			log.Trace().Str("request", string(debugOutput)).Msg("request sent")
+			log.Trace().Str("request", string(debugOutput)).Msg("Outgoing request")
 		}
 	}
 
@@ -83,7 +83,7 @@ func InvokeRequestWithHeaders(ctx context.Context, method string, relativeUri st
 
 	if log.Logger.GetLevel() <= zerolog.TraceLevel {
 		if debugOutput, err := httputil.DumpResponse(resp, true); err == nil {
-			log.Trace().Str("response", string(debugOutput)).Msg("response received")
+			log.Trace().Str("response", string(debugOutput)).Msg("Incoming response")
 		}
 	}
 

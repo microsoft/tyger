@@ -163,7 +163,9 @@ func TestProxiedRequestsFromAllowedCIDR(t *testing.T) {
 	require := require.New(t)
 
 	proxyOptions := proxy.ProxyOptions{
-		AllowedClientCIDRs: []string{"127.0.0.1/32"},
+		LoginConfig: controlplane.LoginConfig{
+			AllowedClientCIDRs: []string{"127.0.0.1/32"},
+		},
 	}
 
 	proxyLogBuffer := SyncBuffer{}
@@ -182,7 +184,9 @@ func TestProxiedRequestsFromDisallowedAllowedCIDR(t *testing.T) {
 	require := require.New(t)
 
 	proxyOptions := proxy.ProxyOptions{
-		AllowedClientCIDRs: []string{"8.0.0.1/32"},
+		LoginConfig: controlplane.LoginConfig{
+			AllowedClientCIDRs: []string{"8.0.0.1/32"},
+		},
 	}
 
 	ctx, serviceInfo := getServiceInfoContext(t)

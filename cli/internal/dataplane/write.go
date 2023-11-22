@@ -236,12 +236,10 @@ func writeEndMetadata(ctx context.Context, httpClient *retryablehttp.Client, con
 func uploadBlobWithRery(ctx context.Context, httpClient *retryablehttp.Client, blobUrl string, body any, encodedMD5Hash string, encodedMD5HashChain string) error {
 	start := time.Now()
 	for i := 0; ; i++ {
-		req, err := retryablehttp.NewRequest(http.MethodPut, blobUrl, body)
+		req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodPut, blobUrl, body)
 		if err != nil {
 			return fmt.Errorf("unable to create request: %w", err)
 		}
-
-		req = req.WithContext(ctx)
 
 		AddCommonBlobRequestHeaders(req.Header)
 		req.Header.Add("x-ms-blob-type", "BlockBlob")

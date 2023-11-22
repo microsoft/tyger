@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/microsoft/tyger/cli/internal/cmd"
+	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/proxy"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -26,7 +27,9 @@ var (
 func main() {
 	optionsFilePath := ""
 	options := proxy.ProxyOptions{
-		Port: 6888,
+		LoginConfig: controlplane.LoginConfig{
+			Port: 6888,
+		},
 	}
 
 	rootCommand := cmd.NewCommonRootCommand(version)

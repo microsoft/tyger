@@ -25,8 +25,6 @@ import (
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/httpclient"
 	"github.com/microsoft/tyger/cli/internal/settings"
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	"sigs.k8s.io/yaml"
 )
 
@@ -44,9 +42,14 @@ type LoginConfig struct {
 	CertificateThumbprint           string `json:"certificateThumbprint,omitempty"`
 	Proxy                           string `json:"proxy,omitempty"`
 	DisableTlsCertificateValidation bool   `json:"disableTlsCertificateValidation,omitempty"`
-	LogPath                         string `json:"logPath,omitempty"`
-	UseDeviceCode                   bool   `json:"-"`
-	Persisted                       bool   `json:"-"`
+
+	// These are options for tyger-proxy that are ignored here but we don't want unmarshal to fail if present
+	Port               int      `json:"port,omitempty"`
+	AllowedClientCIDRs []string `json:"allowedClientCIDRs,omitempty"`
+	LogPath            string   `json:"logPath,omitempty"`
+
+	UseDeviceCode bool `json:"-"`
+	Persisted     bool `json:"-"`
 }
 
 type serviceInfo struct {
@@ -109,7 +112,7 @@ func (c *serviceInfo) GetProxyFunc() func(*http.Request) (*url.URL, error) {
 		}
 	}
 
-	withHttpCheck := func(r *http.Request) (*url.URL, error) {
+	return func(r *http.Request) (*url.URL, error) {
 		if r.URL.Scheme == "http" {
 			// We will not use an HTTP proxy when when not using TLS.
 			// The only supported scenario for using http and not https is
@@ -119,23 +122,6 @@ func (c *serviceInfo) GetProxyFunc() func(*http.Request) (*url.URL, error) {
 		}
 		return withDataPlaneCheck(r)
 	}
-
-	if log.Logger.GetLevel() <= zerolog.TraceLevel {
-		return func(r *http.Request) (*url.URL, error) {
-			proxy, err := withHttpCheck(r)
-			if err == nil {
-				var proxyString string
-				if proxy != nil {
-					proxyString = proxy.String()
-				} else {
-					proxyString = ""
-				}
-				log.Ctx(r.Context()).Trace().Msgf("Issuing request to host '%s' via proxy '%s'", r.URL.Host, proxyString)
-			}
-			return proxy, err
-		}
-	}
-	return withHttpCheck
 }
 
 func (c *serviceInfo) GetDisableTlsCertificateValidation() bool {

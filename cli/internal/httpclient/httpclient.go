@@ -3,6 +3,7 @@ package httpclient
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/microsoft/tyger/cli/internal/settings"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -52,7 +54,39 @@ func (m *lazyInitTransport) RoundTrip(req *http.Request) (*http.Response, error)
 		}
 	})
 
-	return m.transport.RoundTrip(req)
+	if log.Logger.GetLevel() > zerolog.TraceLevel {
+		return m.transport.RoundTrip(req)
+	}
+
+	// Trace logging
+	proxy, err := m.transport.Proxy(req)
+	if err != nil {
+		return nil, fmt.Errorf("error getting proxy: %w", err)
+	}
+
+	var proxyString string
+	if proxy != nil {
+		proxyString = proxy.String()
+	}
+
+	logger := log.Ctx(req.Context()).With().
+		Str("proxy", proxyString).
+		Str("method", req.Method).
+		Str("url", RedactUrl(req.URL).String()).
+		Logger()
+
+	logger.Trace().Msg("Sending request")
+
+	resp, err := m.transport.RoundTrip(req)
+
+	if err != nil {
+		logger.Trace().Err(err).Msg("Error sending request")
+		return nil, err
+	}
+
+	logger.Trace().Int("status", resp.StatusCode).Msg("Received response")
+
+	return resp, err
 }
 
 func checkRetry(ctx context.Context, resp *http.Response, err error) (bool, error) {
@@ -70,20 +104,16 @@ func checkRetry(ctx context.Context, resp *http.Response, err error) (bool, erro
 	return shouldRetry, checkErr
 }
 
-// If the error is a *url.Error, redact the query string values
+// If the error is a *url.Error, redact the query string values in the error
 func RedactHttpError(err error) error {
 	if httpErr, ok := err.(*url.Error); ok {
 		if httpErr.URL != "" {
 			if index := strings.IndexByte(httpErr.URL, '?'); index != -1 {
 				if u, err := url.Parse(httpErr.URL); err == nil {
-					q := u.Query()
-					for _, v := range q {
-						for i := range v {
-							v[i] = "REDACTED"
-						}
+					redacted := RedactUrl(u)
+					if redacted != u {
+						httpErr.URL = redacted.String()
 					}
-					u.RawQuery = q.Encode()
-					httpErr.URL = u.String()
 				}
 			}
 		}
@@ -91,6 +121,24 @@ func RedactHttpError(err error) error {
 		httpErr.Err = RedactHttpError(httpErr.Err)
 	}
 	return err
+}
+
+// redact query string values
+func RedactUrl(u *url.URL) *url.URL {
+	q := u.Query()
+	if len(q) == 0 {
+		return u
+	}
+
+	for _, v := range q {
+		for i := range v {
+			v[i] = "REDACTED"
+		}
+	}
+
+	clone := *u
+	clone.RawQuery = q.Encode()
+	return &clone
 }
 
 // Makes http.DefaultClient and http.DefaultTransport panic
