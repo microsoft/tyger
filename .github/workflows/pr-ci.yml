@@ -241,7 +241,7 @@ jobs:
           set -euo pipefail
           make -s integration-test-no-up
 
-  publish-official-iamges:
+  publish-official-images:
     runs-on: ubuntu-latest
     defaults:
       run:
