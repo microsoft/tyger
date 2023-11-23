@@ -90,11 +90,14 @@ set-localsettings:
 		}
 	EOF
 
-build: 
+build-charp:
 	find . -name *csproj | xargs -L 1 dotnet build
-	
+
+build-go:
 	cd cli
 	go build -v ./...
+
+build: build-charp build-go
 
 build-server:
 	cd ${SERVER_PATH}
