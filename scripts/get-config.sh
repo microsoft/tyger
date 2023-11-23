@@ -57,7 +57,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 this_dir=$(dirname "${0}")
-config_dir="${TYGER_ENVIRONMENT_CONFIG_PATH:-${this_dir}/../deploy/config/microsoft}"
+config_dir="${TYGER_ENVIRONMENT_CONFIG_DIR:-${this_dir}/../deploy/config/microsoft}"
 
 if [[ "$dev" == true ]]; then
   config_path="${config_dir}/devconfig.yml"
