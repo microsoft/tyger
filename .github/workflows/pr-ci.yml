@@ -241,7 +241,28 @@ jobs:
           set -euo pipefail
           make -s integration-test-no-up
 
-  publish:
+  publish-official-iamges:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Login into Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Publish official images
+        run: |
+          set -euo pipefail
+          make publish-official-images
+
+  build-windows-binaries:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -261,11 +282,6 @@ jobs:
         with:
           go-version-file: cli/go.mod
           cache-dependency-path: cli/go.sum
-
-      - name: Publish official images
-        run: |
-          set -euo pipefail
-          make publish-official-images
 
       - name: Build Windows Binaries
         run: |
@@ -292,7 +308,7 @@ jobs:
     runs-on: windows-latest
     needs:
       - get-config
-      - publish
+      - build-windows-binaries
       - up
     steps:
       - name: Checkout
