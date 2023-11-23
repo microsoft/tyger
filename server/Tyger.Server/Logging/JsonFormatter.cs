@@ -18,16 +18,16 @@ internal sealed class JsonFormatter : ConsoleFormatter
 {
     public static readonly string FormatterName = typeof(JsonFormatter).FullName!;
     private readonly ConsoleFormatterOptions _formatterOptions;
-    private static readonly HashSet<string> s_scopeFieldsToIgnore = new()
-    {
+    private static readonly HashSet<string> s_scopeFieldsToIgnore =
+    [
         "ConnectionId",
         "RequestPath",
         "{OriginalFormat}"
-    };
-    private static readonly HashSet<string> s_stateFieldsToIgnore = new()
-    {
+    ];
+    private static readonly HashSet<string> s_stateFieldsToIgnore =
+    [
         "{OriginalFormat}"
-    };
+    ];
 
     public JsonFormatter(IOptions<ConsoleFormatterOptions> options)
         : base(FormatterName)

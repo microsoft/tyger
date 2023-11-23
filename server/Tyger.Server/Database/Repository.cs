@@ -510,7 +510,7 @@ public class Repository : IRepository
                 }
 
                 currentBuffer = currentBuffer with { Id = id, CreatedAt = createdAt, ETag = etag };
-                currentTags = new Dictionary<string, string>();
+                currentTags = [];
             }
 
             if (!reader.IsDBNull(2) && !reader.IsDBNull(3))

@@ -58,7 +58,7 @@ RUN umask 0002 \
     && VERSION=1.28.3 HELM=3.13.1 MINIKUBE=none bash install.sh \
     # DOTNET
     && cd /opt/features/src/dotnet \
-    && VERSION=7.0.403 bash install.sh \
+    && VERSION=8.0.100 bash install.sh \
     # GO
     && cd /opt/features/src/go \
     && VERSION=1.21.3 bash install.sh \
@@ -72,7 +72,7 @@ RUN umask 0002 \
 ENTRYPOINT [ "/usr/local/share/docker-init.sh" ]
 CMD [ "sleep", "infinity" ]
 
-ARG MAMBAFORGE_VERSION=23.3.1-1
+RUN dotnet workload update
 
 WORKDIR /opt/temp
 COPY --from=file-normalizer /data/install-tools.sh .

@@ -14,14 +14,14 @@ public partial class NormalizerTests
         Normalizer.NormalizeEmptyToNull(new RecWithStrings { RequiredStr = "", NullableStr = "" }).ShouldBe(new RecWithStrings { RequiredStr = "" });
         Normalizer.NormalizeEmptyToNull(new RecWithStrings { RequiredStr = "", NullableStr = "" }).ShouldBe(new RecWithStrings { RequiredStr = "" });
 
-        Normalizer.NormalizeEmptyToNull(new RecordWithCollections { List = new() { "A" }, Dictionary = new() { { "A", "B" } } }).ShouldBe(new RecordWithCollections { List = new() { "A" }, Dictionary = new() { { "A", "B" } } });
-        Normalizer.NormalizeEmptyToNull(new RecordWithCollections { List = new() { "A" }, Dictionary = new() }).ShouldBe(new RecordWithCollections { List = new() { "A" }, Dictionary = null });
-        Normalizer.NormalizeEmptyToNull(new RecordWithCollections { List = new(), Dictionary = new() { { "A", "B" } } }).ShouldBe(new RecordWithCollections { List = null, Dictionary = new() { { "A", "B" } } });
-        Normalizer.NormalizeEmptyToNull(new RecordWithCollections { List = new(), Dictionary = new() }).ShouldBe(null);
+        Normalizer.NormalizeEmptyToNull(new RecordWithCollections { List = ["A"], Dictionary = new() { { "A", "B" } } }).ShouldBe(new RecordWithCollections { List = ["A"], Dictionary = new() { { "A", "B" } } });
+        Normalizer.NormalizeEmptyToNull(new RecordWithCollections { List = ["A"], Dictionary = [] }).ShouldBe(new RecordWithCollections { List = ["A"], Dictionary = null });
+        Normalizer.NormalizeEmptyToNull(new RecordWithCollections { List = [], Dictionary = new() { { "A", "B" } } }).ShouldBe(new RecordWithCollections { List = null, Dictionary = new() { { "A", "B" } } });
+        Normalizer.NormalizeEmptyToNull(new RecordWithCollections { List = [], Dictionary = [] }).ShouldBe(null);
 
-        Normalizer.NormalizeEmptyToNull(new RecordWithRecords { InnerRecord1 = new() { List = new() { "A" }, Dictionary = new() { { "A", "B" } } } }).ShouldBe(new RecordWithRecords { InnerRecord1 = new() { List = new() { "A" }, Dictionary = new() { { "A", "B" } } } });
-        Normalizer.NormalizeEmptyToNull(new RecordWithRecords { InnerRecord1 = new() { List = new(), Dictionary = new() } }).ShouldBe(null);
-        Normalizer.NormalizeEmptyToNull(new RecordWithRecords { InnerRecord1 = new() { List = new(), Dictionary = new() }, InnerRecord2 = new() { List = new() { "a" }, Dictionary = new() } }).ShouldBe(new RecordWithRecords { InnerRecord1 = null, InnerRecord2 = new() { List = new() { "a" } } });
+        Normalizer.NormalizeEmptyToNull(new RecordWithRecords { InnerRecord1 = new() { List = ["A"], Dictionary = new() { { "A", "B" } } } }).ShouldBe(new RecordWithRecords { InnerRecord1 = new() { List = ["A"], Dictionary = new() { { "A", "B" } } } });
+        Normalizer.NormalizeEmptyToNull(new RecordWithRecords { InnerRecord1 = new() { List = [], Dictionary = [] } }).ShouldBe(null);
+        Normalizer.NormalizeEmptyToNull(new RecordWithRecords { InnerRecord1 = new() { List = [], Dictionary = [] }, InnerRecord2 = new() { List = ["a"], Dictionary = [] } }).ShouldBe(new RecordWithRecords { InnerRecord1 = null, InnerRecord2 = new() { List = ["a"] } });
     }
 
     private record RecWithStrings

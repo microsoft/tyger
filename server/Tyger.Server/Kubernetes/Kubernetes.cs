@@ -53,7 +53,7 @@ public static class Kubernetes
         .Produces<ErrorBody>(StatusCodes.Status400BadRequest);
     }
 
-    private static IReadOnlyList<Cluster> GetClustersResponse(KubernetesOptions options)
+    private static List<Cluster> GetClustersResponse(KubernetesOptions options)
     {
         return options.Clusters
             .Where(c => c.ApiHost) // For now we don't support multiple clusters
@@ -84,7 +84,7 @@ public class KubernetesOptions
     public required string WorkerWaiterImage { get; init; }
 
     [MinLength(1)]
-    public List<ClusterOptions> Clusters { get; } = new();
+    public List<ClusterOptions> Clusters { get; } = [];
 }
 
 public class ClusterOptions
@@ -99,7 +99,7 @@ public class ClusterOptions
     public required bool ApiHost { get; init; }
 
     [Required]
-    public List<NodePoolOptions> UserNodePools { get; } = new();
+    public List<NodePoolOptions> UserNodePools { get; } = [];
 }
 
 public class NodePoolOptions
