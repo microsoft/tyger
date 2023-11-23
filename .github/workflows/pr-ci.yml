@@ -214,7 +214,7 @@ jobs:
           export TYGER_ENVIRONMENT_CONFIG_DIR="${GITHUB_WORKSPACE}/deploy/config/microsoft/ci"
 
           set -euo pipefail
-          make -s integration-test-no-up proxy-test-no-up
+          make -s integration-test-no-up
 
       - name: Cleanup
         if: ${{ always() }}

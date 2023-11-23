@@ -179,14 +179,7 @@ integration-test-no-up: integration-test-no-up-prereqs cli-ready
 integration-test: up integration-test-no-up-prereqs
 	$(MAKE) integration-test-no-up-prereqs integration-test-no-up
 
-proxy-test-no-up: cli-ready
-	cd scripts/proxy-test
-	./run-proxy-test.sh
-
-proxy-test: up 
-	$(MAKE) proxy-test-no-up
-
-test: up unit-test integration-test proxy-test
+test: up unit-test integration-test
 
 full:
 	$(MAKE) test INSTALL_CLOUD=true

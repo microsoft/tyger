@@ -76,7 +76,7 @@ func TestEndToEnd(t *testing.T) {
 	outputBufferId := runTygerSucceeds(t, "buffer", "create")
 	outputSasUri := runTygerSucceeds(t, "buffer", "access", outputBufferId)
 
-	runCommandSuceeds(t, "sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, inputSasUri))
+	runCommandSucceeds(t, "sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, inputSasUri))
 
 	// create run
 	runId := runTygerSucceeds(t, "run", "create", "--codespec", codespecName, "--timeout", "10m",
@@ -85,7 +85,7 @@ func TestEndToEnd(t *testing.T) {
 
 	waitForRunSuccess(t, runId)
 
-	output := runCommandSuceeds(t, "sh", "-c", fmt.Sprintf(`tyger buffer read "%s"`, outputSasUri))
+	output := runCommandSucceeds(t, "sh", "-c", fmt.Sprintf(`tyger buffer read "%s"`, outputSasUri))
 
 	require.Equal("Hello: Bonjour", output)
 }
@@ -123,11 +123,11 @@ func TestEndToEndWithAutomaticallyCreatedBuffers(t *testing.T) {
 	inputBufferId := run.Job.Buffers["input"]
 	outputBufferId := run.Job.Buffers["output"]
 
-	runCommandSuceeds(t, "sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, inputBufferId))
+	runCommandSucceeds(t, "sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, inputBufferId))
 
 	waitForRunSuccess(t, runId)
 
-	output := runCommandSuceeds(t, "sh", "-c", fmt.Sprintf(`tyger buffer read "%s"`, outputBufferId))
+	output := runCommandSucceeds(t, "sh", "-c", fmt.Sprintf(`tyger buffer read "%s"`, outputBufferId))
 
 	require.Equal("Hello: Bonjour", output)
 }
@@ -171,11 +171,11 @@ timeoutSeconds: 600`, BasicImage)
 	outputBufferId := run.Job.Buffers["output"]
 	outputSasUri := runTygerSucceeds(t, "buffer", "access", outputBufferId)
 
-	runCommandSuceeds(t, "sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, inputSasUri))
+	runCommandSucceeds(t, "sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, inputSasUri))
 
 	waitForRunSuccess(t, runId)
 
-	output := runCommandSuceeds(t, "sh", "-c", fmt.Sprintf(`tyger buffer read "%s"`, outputSasUri))
+	output := runCommandSucceeds(t, "sh", "-c", fmt.Sprintf(`tyger buffer read "%s"`, outputSasUri))
 
 	require.Equal("Hello: Bonjour", output)
 }
@@ -1205,18 +1205,23 @@ func TestBufferListWithoutTags(t *testing.T) {
 }
 
 func waitForRunStarted(t *testing.T, runId string) model.Run {
+	t.Helper()
 	return waitForRun(t, runId, true, false)
 }
 
 func waitForRunSuccess(t *testing.T, runId string) model.Run {
+	t.Helper()
 	return waitForRun(t, runId, false, false)
 }
 
 func waitForRunCanceled(t *testing.T, runId string) model.Run {
+	t.Helper()
 	return waitForRun(t, runId, false, true)
 }
 
 func waitForRun(t *testing.T, runId string, returnOnRunning bool, returnOnCancel bool) model.Run {
+	t.Helper()
+
 start:
 	cmd := exec.Command("tyger", "run", "watch", runId, "--full-resource")
 
@@ -1277,10 +1282,11 @@ func getTestConnectivityImage(t *testing.T) string {
 		return imgVar
 	}
 
-	return runCommandSuceeds(t, "docker", "inspect", "testconnectivity", "--format", "{{ index .RepoDigests 0 }}")
+	return runCommandSucceeds(t, "docker", "inspect", "testconnectivity", "--format", "{{ index .RepoDigests 0 }}")
 }
 
 func getServiceInfoContext(t *testing.T) (context.Context, settings.ServiceInfo) {
+	t.Helper()
 	si, err := controlplane.GetPersistedServiceInfo()
 	require.NoError(t, err)
 	return settings.SetServiceInfoOnContext(context.Background(), si), si

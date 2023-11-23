@@ -10,6 +10,10 @@ import (
 	"os/exec"
 	"testing"
 	"time"
+
+	"github.com/microsoft/tyger/cli/internal/install"
+	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/yaml"
 )
 
 type CmdBuilder struct {
@@ -24,6 +28,11 @@ func NewCmdBuilder(command string, args ...string) *CmdBuilder {
 
 func NewTygerCmdBuilder(args ...string) *CmdBuilder {
 	return NewCmdBuilder("tyger", args...)
+}
+
+func (b *CmdBuilder) Dir(dir string) *CmdBuilder {
+	b.cmd.Dir = dir
+	return b
 }
 
 func (b *CmdBuilder) Env(key string, value string) *CmdBuilder {
@@ -43,6 +52,8 @@ func (b *CmdBuilder) Run() (stdout string, stderr string, err error) {
 }
 
 func (b *CmdBuilder) RunSucceeds(t *testing.T) string {
+	t.Helper()
+
 	stdout, stderr, err := b.Run()
 	if err != nil {
 		var exitError *exec.ExitError
@@ -68,7 +79,8 @@ func runCommand(command string, args ...string) (stdout string, stderr string, e
 	return runCommandCore(cmd)
 }
 
-func runCommandSuceeds(t *testing.T, command string, args ...string) string {
+func runCommandSucceeds(t *testing.T, command string, args ...string) string {
+	t.Helper()
 	stdout, stderr, err := runCommand(command, args...)
 	if err != nil {
 		var exitError *exec.ExitError
@@ -104,6 +116,19 @@ func runTyger(args ...string) (stdout string, stderr string, err error) {
 }
 
 func runTygerSucceeds(t *testing.T, args ...string) string {
+	t.Helper()
 	args = append([]string{"--log-level", "trace"}, args...)
-	return runCommandSuceeds(t, "tyger", args...)
+	return runCommandSucceeds(t, "tyger", args...)
+}
+
+func getConfig(t *testing.T) install.EnvironmentConfig {
+	config := install.EnvironmentConfig{}
+	require.NoError(t, yaml.UnmarshalStrict([]byte(runCommandSucceeds(t, "../../scripts/get-config.sh")), &config))
+	return config
+}
+
+func getDevConfig(t *testing.T) map[string]any {
+	config := make(map[string]any)
+	require.NoError(t, yaml.UnmarshalStrict([]byte(runCommandSucceeds(t, "../../scripts/get-config.sh", "--dev")), &config))
+	return config
 }
