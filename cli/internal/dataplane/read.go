@@ -21,8 +21,9 @@ import (
 )
 
 const (
-	DefaultReadDop = 32
-	MaxRetries     = 6
+	DefaultReadDop  = 32
+	MaxRetries      = 6
+	ResponseTimeout = 100 * time.Second
 )
 
 var (
@@ -59,7 +60,8 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 	}
 
 	if readOptions.httpClient == nil {
-		readOptions.httpClient = httpclient.DefaultRetryableClient
+		readOptions.httpClient = httpclient.NewRetryableClient()
+		readOptions.httpClient.HTTPClient.Timeout = ResponseTimeout
 	}
 
 	httpClient := readOptions.httpClient

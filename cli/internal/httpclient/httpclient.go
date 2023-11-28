@@ -21,7 +21,6 @@ var DefaultRetryableClient = NewRetryableClient()
 func NewRetryableClient() *retryablehttp.Client {
 	client := retryablehttp.NewClient()
 	client.RetryMax = 6
-	client.HTTPClient.Timeout = 100 * time.Second
 
 	client.Logger = nil
 	client.ErrorHandler = func(resp *http.Response, err error, numTries int) (*http.Response, error) {
