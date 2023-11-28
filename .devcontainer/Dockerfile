@@ -1,3 +1,5 @@
+ARG DEVCONTAINER_BASE=mcr.microsoft.com/devcontainers/base:1.0.9-ubuntu-22.04
+
 #########################################################
 # file-normalizer stage
 # In order to use BuildKit remote caching, input files must have
@@ -7,10 +9,9 @@
 # subsequent stage and normalize the permissions.
 #########################################################
 
-FROM mcr.microsoft.com/oss/busybox/busybox:1.33.1 as file-normalizer
+FROM ${DEVCONTAINER_BASE} as file-normalizer
 
-COPY environment.yml \
-     .devcontainer/devcontainer.bashrc  \
+COPY .devcontainer/devcontainer.bashrc  \
      .devcontainer/install-tools.sh \
      /data/
 
@@ -21,7 +22,7 @@ RUN chmod -R 555 /data/
 # Installs all dependencies and tooling for development.
 #########################################################
 
-FROM mcr.microsoft.com/vscode/devcontainers/base:0.201.8-focal AS devcontainer
+FROM ${DEVCONTAINER_BASE} AS devcontainer
 
 # Install needed packages and setup non-root user.
 ARG USERNAME="vscode"
@@ -34,11 +35,6 @@ ARG _CONTAINER_USER_HOME=/home/${USERNAME}
 
 ARG USER_UID=1000
 ARG USER_GID=$USER_UID
-ARG CONDA_GID=900
-ARG CONDA_ENVIRONMENT_NAME=tyger
-
-RUN groupadd -r conda --gid ${CONDA_GID} \
-    && usermod -aG conda ${USERNAME}
 
 ENV GOROOT="/usr/local/go"
 ENV GOPATH="/go"
@@ -66,7 +62,7 @@ RUN umask 0002 \
     # GO
     && cd /opt/features/src/go \
     && VERSION=1.21.3 bash install.sh \
-    && chown -R "${USERNAME}:conda" "${GOROOT}" "${GOPATH}" \
+    && chown -R "${USERNAME}" "${GOROOT}" "${GOPATH}" \
     # cleanup
     && rm -rf /opt/features
 
@@ -78,30 +74,11 @@ CMD [ "sleep", "infinity" ]
 
 ARG MAMBAFORGE_VERSION=23.3.1-1
 
-# Based on https://github.com/conda-forge/miniforge-images/blob/master/ubuntu/Dockerfile
-RUN wget --no-hsts --quiet https://github.com/conda-forge/miniforge/releases/download/${MAMBAFORGE_VERSION}/Mambaforge-${MAMBAFORGE_VERSION}-Linux-$(uname -m).sh -O /tmp/miniforge.sh \
-    && /bin/bash /tmp/miniforge.sh -b -p /opt/conda \
-    && rm /tmp/miniforge.sh \
-    && /opt/conda/bin/conda clean --tarballs --index-cache --packages --yes \
-    && find /opt/conda -follow -type f -name '*.a' -delete \
-    && find /opt/conda -follow -type f -name '*.pyc' -delete \
-    && /opt/conda/bin/conda clean --force-pkgs-dirs --all --yes  \
-    && chown -R :conda /opt/conda \
-    && chmod -R g+w /opt/conda \
-    && find /opt -type d | xargs -n 1 chmod g+s
-
-# Create a conda environment from the environment file in the repo root.
-COPY --from=file-normalizer --chown=$USER_UID:conda /data/environment.yml /tmp/build/
-RUN umask 0002 \
-    && /opt/conda/bin/mamba env create -f /tmp/build/environment.yml \
-    && /opt/conda/bin/mamba clean -fy \
-    && sudo chown -R :conda /opt/conda/envs
-
 WORKDIR /opt/temp
 COPY --from=file-normalizer /data/install-tools.sh .
-RUN umask 0002 && ./install-tools.sh
+RUN ./install-tools.sh
 
-USER vscode:conda
+USER vscode
 
 USER root
 

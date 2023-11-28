@@ -373,7 +373,7 @@ func TestBufferDoubleWriteFailure(t *testing.T) {
 	inputBufferId := runTygerSucceeds(t, "buffer", "create")
 	inputSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
 
-	runCommandSuceeds(t, "sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, inputSasUri))
+	runCommandSucceeds(t, "sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, inputSasUri))
 
 	_, _, err := runCommand("sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, inputSasUri))
 	require.Error(t, err, "Second call to buffer write succeeded")

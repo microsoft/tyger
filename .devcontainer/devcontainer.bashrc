@@ -1,9 +1,6 @@
 #! /bin/bash
 # shellcheck source=/dev/null
 
-source /opt/conda/etc/profile.d/conda.sh
-conda activate tyger
-
 PATH=${PATH}:${HOME}/go/bin
 
 source <(kubectl completion bash)

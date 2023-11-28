@@ -4,4 +4,4 @@
 
 set -euo pipefail
 
-find "${CONDA_PREFIX}/lib/dotnet/shared/" -name "*.dll" -exec dotnet symbol --symbols {} \;
+find "$(dirname "$(which dotnet)")" -name "*.dll" -exec dotnet symbol --symbols {} \;

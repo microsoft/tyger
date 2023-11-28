@@ -3,7 +3,7 @@
 {
   "name": "Tyger",
 
-  "image": "compimagdevcontainers.azurecr.io/tyger@sha256:db70264c6162b7b72c3da2b532d5c640f510bff4e3d0658036b1261d8ec1369b",
+  "image": "compimagdevcontainers.azurecr.io/tyger@sha256:5d3078b427329419af3c84f121dfb66b1209e9de0074b2fabb4a83dcb1a8ce78",
 
   "runArgs": [
     "--init",
@@ -41,11 +41,6 @@
           "editor.tabSize": 2
         },
 
-        "[python]": {
-          "editor.formatOnSave": true,
-          "editor.tabSize": 4
-        },
-
         "go.toolsManagement.checkForUpdates": "local",
         "go.useLanguageServer": true,
         "gopls": {
@@ -57,18 +52,8 @@
 
         "files.exclude": {
           "**/bin/": true,
-          "**/obj/": true,
-          "**/__pycache__": true,
-          "**/.pytest_cache": true
-        },
-
-        // Python linting.
-        "python.analysis.typeCheckingMode": "basic",
-        "python.linting.ignorePatterns": ["**/conftest.py", "**/test_*.py"],
-        "python.testing.pytestEnabled": true,
-        "python.defaultInterpreterPath": "/opt/conda/envs/tyger/bin/python",
-        "python.formatting.autopep8Path": "/opt/conda/envs/tyger/bin/autopep8",
-        "python.terminal.activateEnvironment": false // Disable the extension calling activate when the integrated terminal launches. We take care of this in ~/.bashrc.
+          "**/obj/": true
+        }
       },
 
       // Add the IDs of extensions you want installed when the container is created.
@@ -83,7 +68,6 @@
         "ms-azuretools.vscode-docker",
         "ms-dotnettools.csharp",
         "ms-kubernetes-tools.vscode-kubernetes-tools",
-        "ms-python.python",
         "timonwong.shellcheck"
       ]
     }

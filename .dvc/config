@@ -1,6 +1,0 @@
-[core]
-    remote = azure
-['remote "azure"']
-    url = azure://wabakimi/data
-    account_name = imagingtestdata
-    exclude_managed_identity_credential = true

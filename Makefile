@@ -4,7 +4,6 @@ SHELL = /bin/bash
 
 .DEFAULT_GOAL := full
 
-# trick to lazily evaluate this at most once: https://make.mad-scientist.net/deferred-simple-variable-expansion/
 ENVIRONMENT_CONFIG_JSON = $(shell scripts/get-config.sh -o json | jq -c)
 DEVELOPER_CONFIG_JSON = $(shell scripts/get-config.sh --dev -o json | jq -c)
 
@@ -91,11 +90,14 @@ set-localsettings:
 		}
 	EOF
 
-build: 
+build-csharp:
 	find . -name *csproj | xargs -L 1 dotnet build
-	
+
+build-go:
 	cd cli
-	go build ./...
+	go build -v ./...
+
+build: build-csharp build-go
 
 build-server:
 	cd ${SERVER_PATH}
@@ -116,12 +118,24 @@ unit-test:
 	go test ./... | { grep -v "\\[[no test files\\]" || true; }
 
 docker-build:
+	if [[ "$${DO_NOT_BUILD_IMAGES:-}" == "true" ]]; then
+		exit
+	fi
+
+	tag=$${EXPLICIT_IMAGE_TAG:-dev}
+
 	registry=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
-	scripts/build-images.sh --push --push-force --tag dev --quiet --registry "$${registry}"
+	scripts/build-images.sh --push --push-force --tag "$$tag" --quiet --registry "$${registry}"
 
 docker-build-test:
+	if [[ "$${DO_NOT_BUILD_IMAGES:-}" == "true" ]]; then
+		exit
+	fi
+
+	tag=$${EXPLICIT_IMAGE_TAG:-test}
+	
 	registry=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
-	scripts/build-images.sh --test --push --push-force --tag test --quiet --registry "$${registry}"
+	scripts/build-images.sh --test --push --push-force --tag "$$tag" --quiet --registry "$${registry}"
 
 publish-official-images:
 	registry=$$(scripts/get-config.sh --dev -e .officialContainerRegistry.fqdn)
@@ -131,9 +145,15 @@ publish-official-images:
 up: ensure-environment-conditionally docker-build
 	repo_fqdn=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
 
-	tyger_server_image="$$(docker inspect "$${repo_fqdn}/tyger-server:dev" | jq -r --arg repo "$${repo_fqdn}/tyger-server" '.[0].RepoDigests[] | select (startswith($$repo))')"
-	buffer_sidecar_image="$$(docker inspect "$${repo_fqdn}/buffer-sidecar:dev" | jq -r --arg repo "$${repo_fqdn}/buffer-sidecar" '.[0].RepoDigests[] | select (startswith($$repo))')"
-	worker_waiter_image="$$(docker inspect "$${repo_fqdn}/worker-waiter:dev" | jq -r --arg repo "$${repo_fqdn}/worker-waiter" '.[0].RepoDigests[] | select (startswith($$repo))')"
+	if [[ -n "$${EXPLICIT_IMAGE_TAG:-}" ]]; then
+		tyger_server_image="$${repo_fqdn}/tyger-server:$${EXPLICIT_IMAGE_TAG}"
+		buffer_sidecar_image="$${repo_fqdn}/buffer-sidecar:$${EXPLICIT_IMAGE_TAG}"
+		worker_waiter_image="$${repo_fqdn}/worker-waiter:$${EXPLICIT_IMAGE_TAG}"
+	else
+		tyger_server_image="$$(docker inspect "$${repo_fqdn}/tyger-server:dev" | jq -r --arg repo "$${repo_fqdn}/tyger-server" '.[0].RepoDigests[] | select (startswith($$repo))')"
+		buffer_sidecar_image="$$(docker inspect "$${repo_fqdn}/buffer-sidecar:dev" | jq -r --arg repo "$${repo_fqdn}/buffer-sidecar" '.[0].RepoDigests[] | select (startswith($$repo))')"
+		worker_waiter_image="$$(docker inspect "$${repo_fqdn}/worker-waiter:dev" | jq -r --arg repo "$${repo_fqdn}/worker-waiter" '.[0].RepoDigests[] | select (startswith($$repo))')"
+	fi
 
 	chart_dir=$$(readlink -f deploy/helm/tyger)
 	
@@ -151,42 +171,23 @@ down: install-cli
 integration-test-no-up-prereqs: docker-build-test
 
 integration-test-no-up: integration-test-no-up-prereqs cli-ready
+	if [[ -n "$${EXPLICIT_IMAGE_TAG:-}" ]]; then
+		repo_fqdn=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
+		export TEST_CONNECTIVITY_IMAGE="$${repo_fqdn}/testconnectivity:$${EXPLICIT_IMAGE_TAG}"
+	fi
+
 	pushd cli/integrationtest
 	go test -tags=integrationtest
 
 integration-test: up integration-test-no-up-prereqs
 	$(MAKE) integration-test-no-up-prereqs integration-test-no-up
 
-proxy-test-no-up: cli-ready
-	cd scripts/proxy-test
-	./run-proxy-test.sh
-
-proxy-test: up 
-	$(MAKE) proxy-test-no-up
-
-e2e-no-up-prereqs: e2e-data
-	
-e2e-no-up: e2e-no-up-prereqs cli-ready
-	pytest e2e --numprocesses 100 -q
-
-e2e: up e2e-no-up-prereqs
-	$(MAKE) e2e-no-up-prereqs e2e-no-up
-
-dvc-data:
-	scripts/check-login.sh
-	dvc pull
-
-gadgetron-data:
-	python3 e2e/gadgetron/get_cases.py
-
-e2e-data: dvc-data gadgetron-data
-
-test: up unit-test integration-test proxy-test e2e
+test: up unit-test integration-test
 
 full:
 	$(MAKE) test INSTALL_CLOUD=true
 
-test-no-up: unit-test integration-test-no-up e2e-no-up
+test-no-up: unit-test integration-test-no-up
 
 forward:
 	echo '${ENVIRONMENT_CONFIG_JSON}' | scripts/forward-services.sh -c -
@@ -196,7 +197,6 @@ check-forwarding:
 		echo "run 'make forward' in another terminal before running this target"
 		exit 1
 	fi
-
 
 download-test-client-cert:
 	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.version')

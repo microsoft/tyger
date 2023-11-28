@@ -5,36 +5,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /go/src/app
-COPY ./go.mod .
+COPY ./go.mod ./go.sum ./
 ARG TYGER_VERSION="a"
-RUN --mount=type=cache,target=/go/pkg/mod/cache go mod download
+RUN --mount=type=cache,target=/root/.cache/go-build go mod download
 COPY . .
 RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.version=${TYGER_VERSION}" -v -o /go/bin/dist/linux/amd64/buffer-sidecar ./cmd/buffer-sidecar \
     && upx /go/bin/dist/linux/amd64/buffer-sidecar
 
-FROM mcr.microsoft.com/cbl-mariner/base/core:2.0 as runtime-builder
-# Create a non-root user and group
-RUN mkdir -p /staging/etc \
-    && tdnf install -y shadow-utils \
-    && tdnf clean all \
-    && groupadd \
-        --system \
-        --gid=101 \
-        app \
-    && adduser \
-        --uid 101 \
-        --gid app \
-        --shell /bin/false \
-        --no-create-home \
-        --system \
-        app \
-    # Copy user/group info to staging
-    && cp /etc/passwd /staging/etc/passwd \
-    && cp /etc/group /staging/etc/group
-
-FROM mcr.microsoft.com/cbl-mariner/distroless/minimal:2.0 as buffer-sidecar
-COPY --from=runtime-builder /staging/ /
+FROM mcr.microsoft.com/cbl-mariner/distroless/minimal:2.0-nonroot as buffer-sidecar
 COPY --from=go-build /go/bin/dist/linux/amd64/buffer-sidecar /
-USER app:app
 ENTRYPOINT ["/buffer-sidecar"]
