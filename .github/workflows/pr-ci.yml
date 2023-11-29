@@ -361,10 +361,10 @@ jobs:
           fetch-depth: 0
 
       - uses: actions/setup-go@v4
+        if: matrix.language == 'go'
         with:
           go-version-file: cli/go.mod
           cache-dependency-path: cli/go.sum
-
 
       - uses: actions/setup-dotnet@v3
         with:
