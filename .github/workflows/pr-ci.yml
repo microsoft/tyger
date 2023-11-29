@@ -40,6 +40,7 @@ jobs:
           set -euo pipefail
           make restore
           make verify-format
+          make install-cli
 
       - name: Run unit tests
         run: |
@@ -94,24 +95,10 @@ jobs:
       TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
       DEVELOPER_CONFIG_BASE64: ${{ steps.set-variables.outputs.DEVELOPER_CONFIG_BASE64 }}
     steps:
-      - name: Login into Azure
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
       - name: Checkout
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
-
-      - uses: actions/setup-go@v4
-        with:
-          go-version-file: cli/go.mod
-          cache-dependency-path: cli/go.sum
-
-      - uses: actions/setup-dotnet@v3
-        with:
-          global-json-file: server/global.json
 
       - name: Set variables
         id: set-variables
@@ -268,11 +255,6 @@ jobs:
       run:
         shell: bash
     steps:
-      - name: Login into Azure
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
       - name: Checkout
         uses: actions/checkout@v3
         with:
@@ -281,7 +263,10 @@ jobs:
       - uses: actions/setup-go@v4
         with:
           go-version-file: cli/go.mod
-          cache-dependency-path: cli/go.sum
+          # use a different cache key for windows builds
+          cache-dependency-path: |
+            cli/go.sum
+            cli/go.mod
 
       - name: Build Windows Binaries
         run: |
@@ -302,7 +287,6 @@ jobs:
         with:
           name: windows-cli-tools
           path: windows-cli-tools
-
 
   windows-smoke-tests:
     runs-on: windows-latest
