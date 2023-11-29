@@ -68,7 +68,8 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 
 	ctx = log.With().Str("operation", "buffer write").Logger().WithContext(ctx)
 	if writeOptions.httpClient == nil {
-		writeOptions.httpClient = httpclient.DefaultRetryableClient
+		writeOptions.httpClient = httpclient.NewRetryableClient()
+		writeOptions.httpClient.HTTPClient.Timeout = ResponseTimeout
 	}
 
 	httpClient := writeOptions.httpClient
