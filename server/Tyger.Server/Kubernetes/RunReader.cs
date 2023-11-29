@@ -274,8 +274,8 @@ public class RunReader
         else
         {
             List<V1Pod> localJobPods, localWorkerPods;
-            jobPods = localJobPods = new List<V1Pod>();
-            workerPods = localWorkerPods = new List<V1Pod>();
+            jobPods = localJobPods = [];
+            workerPods = localWorkerPods = [];
 
             foreach (var pod in pods)
             {

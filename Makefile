@@ -44,7 +44,7 @@ set-context:
 	done
 
 set-localsettings:
-	if [[ $$(helm list -n "${HELM_NAMESPACE}" -l name=${HELM_RELEASE} -o json | jq length) == 0 ]]; then
+	if [[ "$$(helm list -n tyger -o json | jq --arg name ${HELM_NAMESPACE} 'any(.[]; .name == $$name)')" != "true" ]]; then
 		echo "Run 'make up' before this target"; exit 1
 	fi
 

@@ -21,6 +21,7 @@ public class RunCreator
     private readonly BufferOptions _bufferOptions;
     private readonly KubernetesOptions _k8sOptions;
     private readonly ILogger<RunCreator> _logger;
+    private static readonly string[] s_waitForWorkerCommand = { "/no-op/no-op" };
 
     public RunCreator(
         IKubernetes client,
@@ -82,12 +83,12 @@ public class RunCreator
 
         if (newRun.Job.Buffers == null)
         {
-            newRun = newRun with { Job = newRun.Job with { Buffers = new() } };
+            newRun = newRun with { Job = newRun.Job with { Buffers = [] } };
         }
 
         if (newRun.Job.Tags == null)
         {
-            newRun = newRun with { Job = newRun.Job with { Tags = new() } };
+            newRun = newRun with { Job = newRun.Job with { Tags = [] } };
         }
 
         var bufferMap = await GetBufferMap(jobCodespec.Buffers, newRun.Job.Buffers, newRun.Job.Tags, cancellationToken);
@@ -190,7 +191,7 @@ public class RunCreator
             {
                 Name = "imagepull",
                 Image = GetMainContainer(job.Spec.Template.Spec).Image,
-                Command = new[] { "/no-op/no-op" },
+                Command = s_waitForWorkerCommand,
                 VolumeMounts = new V1VolumeMount[] { new("/no-op/", "no-op") }
             });
 

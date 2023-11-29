@@ -513,7 +513,7 @@ func TestInvalidCodespecMissingRequiredFieldsRejected(t *testing.T) {
 	codespec := model.Codespec{}
 	requestBody := map[string]string{"kind": "job"}
 	_, err := controlplane.InvokeRequest(ctx, http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
-	require.ErrorContains(err, "The image field is required")
+	require.ErrorContains(err, "missing required properties, including the following: image")
 }
 
 func TestResponseContainsRequestIdHeader(t *testing.T) {

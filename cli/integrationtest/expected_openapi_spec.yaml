@@ -317,6 +317,7 @@ paths:
           in: query
           schema:
             type: string
+            format: date-time
         - name: _ct
           in: query
           schema:
@@ -378,6 +379,7 @@ paths:
           in: query
           schema:
             type: string
+            format: date-time
         - name: follow
           in: query
           schema:

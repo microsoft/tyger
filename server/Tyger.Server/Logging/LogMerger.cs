@@ -187,7 +187,7 @@ public abstract class LogMerger : IPipelineSource
 
     protected LogMerger()
     {
-        InputReaders = new();
+        InputReaders = [];
     }
 
     public async Task Process(PipeWriter writer, CancellationToken cancellationToken)
