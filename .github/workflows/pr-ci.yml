@@ -40,34 +40,22 @@ jobs:
           set -euo pipefail
           make restore
           make verify-format
+          make install-cli
 
       - name: Run unit tests
         run: |
           set -euo pipefail
           make unit-test
 
-  generate-tag:
-    runs-on: ubuntu-latest
-    outputs:
-      IMAGE_TAG: ${{ steps.tag.outputs.IMAGE_TAG }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Generate tag
-        id: tag
-        run: |
-          echo "IMAGE_TAG=$(date +'%Y%m%d%H%M%S')-$GITHUB_SHA" >> "$GITHUB_OUTPUT"
-
   build-images:
     runs-on: ubuntu-latest
     needs:
-      - generate-tag
+      - get-config
     defaults:
       run:
         shell: bash
     env:
-      EXPLICIT_IMAGE_TAG: ${{ needs.generate-tag.outputs.IMAGE_TAG }}
+      EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}
     steps:
       - name: Login into Azure
         uses: azure/login@v1
@@ -90,28 +78,20 @@ jobs:
       run:
         shell: bash
     outputs:
+      IMAGE_TAG: ${{ steps.tag.outputs.IMAGE_TAG }}
       TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
       TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
       DEVELOPER_CONFIG_BASE64: ${{ steps.set-variables.outputs.DEVELOPER_CONFIG_BASE64 }}
     steps:
-      - name: Login into Azure
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
       - name: Checkout
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-go@v4
-        with:
-          go-version-file: cli/go.mod
-          cache-dependency-path: cli/go.sum
-
-      - uses: actions/setup-dotnet@v3
-        with:
-          global-json-file: server/global.json
+      - name: Generate tag
+        id: tag
+        run: |
+          echo "IMAGE_TAG=$(date +'%Y%m%d%H%M%S')-$GITHUB_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Set variables
         id: set-variables
@@ -144,7 +124,6 @@ jobs:
   up:
     runs-on: ubuntu-latest
     needs:
-      - generate-tag
       - get-config
     defaults:
       run:
@@ -152,7 +131,7 @@ jobs:
     env:
       TYGER_MIN_NODE_COUNT: "1"
       DO_NOT_BUILD_IMAGES: "true"
-      EXPLICIT_IMAGE_TAG: ${{ needs.generate-tag.outputs.IMAGE_TAG }}
+      EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}
       TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
     steps:
       - name: Login into Azure
@@ -201,7 +180,7 @@ jobs:
           go-version-file: cli/go.mod
           cache-dependency-path: cli/go.sum
 
-      - name: up
+      - name: restore-scale-to-zero
         run: |
           set -euo pipefail
           make -s ensure-environment
@@ -209,7 +188,6 @@ jobs:
   integration-tests:
     runs-on: ubuntu-latest
     needs:
-      - generate-tag
       - get-config
       - up
     defaults:
@@ -218,7 +196,7 @@ jobs:
     env:
       TYGER_MIN_NODE_COUNT: "1"
       DO_NOT_BUILD_IMAGES: "true"
-      EXPLICIT_IMAGE_TAG: ${{ needs.generate-tag.outputs.IMAGE_TAG }}
+      EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}
       TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
     steps:
       - name: Login into Azure
@@ -268,11 +246,6 @@ jobs:
       run:
         shell: bash
     steps:
-      - name: Login into Azure
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
       - name: Checkout
         uses: actions/checkout@v3
         with:
@@ -281,7 +254,10 @@ jobs:
       - uses: actions/setup-go@v4
         with:
           go-version-file: cli/go.mod
-          cache-dependency-path: cli/go.sum
+          # use a different cache key for windows builds
+          cache-dependency-path: |
+            cli/go.sum
+            cli/go.mod
 
       - name: Build Windows Binaries
         run: |
@@ -302,7 +278,6 @@ jobs:
         with:
           name: windows-cli-tools
           path: windows-cli-tools
-
 
   windows-smoke-tests:
     runs-on: windows-latest
@@ -377,10 +352,10 @@ jobs:
           fetch-depth: 0
 
       - uses: actions/setup-go@v4
+        if: matrix.language == 'go'
         with:
           go-version-file: cli/go.mod
           cache-dependency-path: cli/go.sum
-
 
       - uses: actions/setup-dotnet@v3
         with:
