@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Npgsql;
 using Polly;
 using Tyger.Server.Model;
 using Buffer = Tyger.Server.Model.Buffer;
@@ -13,10 +14,11 @@ public class RepositoryWithRetry : IRepository
     public RepositoryWithRetry(
         ResiliencePipeline resiliencePipeline,
         TygerDbContext context,
+        NpgsqlDataSource dataSource,
         JsonSerializerOptions serializerOptions,
         ILoggerFactory loggerFactory)
     {
-        _repository = new(context, serializerOptions, loggerFactory.CreateLogger<Repository>());
+        _repository = new(context, dataSource, serializerOptions, loggerFactory.CreateLogger<Repository>());
         _resiliencePipeline = resiliencePipeline;
     }
 

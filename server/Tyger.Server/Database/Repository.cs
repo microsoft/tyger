@@ -13,33 +13,66 @@ namespace Tyger.Server.Database;
 public class Repository : IRepository
 {
     private readonly TygerDbContext _context;
+    private readonly NpgsqlDataSource _dataSource;
     private readonly JsonSerializerOptions _serializerOptions;
     private readonly ILogger<Repository> _logger;
 
-    public Repository(TygerDbContext context, JsonSerializerOptions serializerOptions, ILogger<Repository> logger)
+    public Repository(TygerDbContext context, NpgsqlDataSource dataSource, JsonSerializerOptions serializerOptions, ILogger<Repository> logger)
     {
         _context = context;
+        _dataSource = dataSource;
         _serializerOptions = serializerOptions;
         _logger = logger;
     }
 
     public async Task<Codespec?> GetCodespecAtVersion(string name, int version, CancellationToken cancellationToken)
     {
-        var codespecEntity = await _context.Codespecs.AsNoTracking()
-             .Where(c => c.Name == name && c.Version == version)
-             .FirstOrDefaultAsync(cancellationToken);
+        await using var cmd = _dataSource.CreateCommand($"""
+            SELECT spec, created_at
+            FROM codespecs
+            WHERE name = $1 AND version = $2
+            """);
 
-        return codespecEntity?.Spec.WithSystemProperties(name, version, codespecEntity.CreatedAt);
+        cmd.Parameters.AddWithValue(name);
+        cmd.Parameters.AddWithValue(version);
+
+        await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        var specJson = reader.GetString(0);
+        var createdAt = reader.GetDateTime(1);
+
+        return JsonSerializer.Deserialize<Codespec>(specJson, _serializerOptions)
+            !.WithSystemProperties(name, version, createdAt);
     }
 
     public async Task<Codespec?> GetLatestCodespec(string name, CancellationToken cancellationToken)
     {
-        var codespecEntity = await _context.Codespecs.AsNoTracking()
-             .Where(c => c.Name == name)
-             .OrderByDescending(c => c.Version)
-             .FirstOrDefaultAsync(cancellationToken);
+        await using var cmd = _dataSource.CreateCommand($"""
+            SELECT spec, version, created_at
+            FROM codespecs
+            WHERE name = $1
+            ORDER BY version DESC
+            LIMIT 1
+            """);
 
-        return codespecEntity?.Spec.WithSystemProperties(name, codespecEntity.Version, codespecEntity.CreatedAt);
+        cmd.Parameters.AddWithValue(name);
+
+        await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        var specJson = reader.GetString(0);
+        var version = reader.GetInt32(1);
+        var createdAt = reader.GetDateTime(2);
+
+        return JsonSerializer.Deserialize<Codespec>(specJson, _serializerOptions)
+            !.WithSystemProperties(name, version, createdAt);
     }
 
     public async Task<(IList<Codespec>, string? nextContinuationToken)> GetCodespecs(int limit, string? prefix, string? continuationToken, CancellationToken cancellationToken)
@@ -67,26 +100,20 @@ public class Repository : IRepository
             }
         }
 
-        var connection = await GetOpenedConnection(cancellationToken);
+        await using var cmd = _dataSource.CreateCommand($"""
+            SELECT DISTINCT ON (name) name, version, created_at, spec
+            FROM codespecs
+            WHERE name > $3 AND name LIKE $2
+            ORDER BY name, version DESC
+            LIMIT $1
+            """);
 
-        using var command = new NpgsqlCommand
-        {
-            Connection = connection,
-            CommandText = @"
-                SELECT DISTINCT ON (name) name, version, created_at, spec
-                FROM codespecs
-                WHERE name > $3 AND name LIKE $2
-                ORDER BY name, version DESC LIMIT $1",
-            Parameters =
-            {
-                new() { Value = limit + 1 },
-                new() { Value = prefix + "%" },
-                new() { Value = pagingName}
-            },
-        };
+        cmd.Parameters.AddWithValue(limit + 1);
+        cmd.Parameters.AddWithValue(prefix + "%");
+        cmd.Parameters.AddWithValue(pagingName);
 
         var results = new List<Codespec>();
-        using var reader = (await command.ExecuteReaderAsync(cancellationToken))!;
+        await using var reader = (await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken))!;
         while (await reader.ReadAsync(cancellationToken))
         {
             var name = reader.GetString(0);
@@ -95,9 +122,6 @@ public class Repository : IRepository
             Codespec spec = JsonSerializer.Deserialize<Codespec>(reader.GetString(3), _serializerOptions)!;
             results.Add(spec.WithSystemProperties(name, version, createdAt));
         }
-
-        await reader.ReadAsync(cancellationToken);
-        await reader.DisposeAsync();
 
         if (results.Count == limit + 1)
         {
@@ -120,32 +144,27 @@ public class Repository : IRepository
             return latestCodespec;
         }
 
-        var connection = await GetOpenedConnection(cancellationToken);
-        using var command = new NpgsqlCommand
-        {
-            Connection = connection,
-            CommandText = @"
-                INSERT INTO codespecs
-                SELECT
-                    $1,
-                    CASE WHEN MAX(version) IS NULL THEN 1 ELSE MAX(version) + 1 END,
-                    now() AT TIME ZONE 'utc',
-                    $2
-                FROM codespecs where name = $1
-                RETURNING version, created_at",
-            Parameters =
-            {
-                new() { Value = name },
-                new() { Value = JsonSerializer.Serialize(newcodespec, _serializerOptions), NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Jsonb },
-            },
-        };
+        await using var cmd = _dataSource.CreateCommand("""
+            INSERT INTO codespecs
+            SELECT
+                $1,
+                CASE WHEN MAX(version) IS NULL THEN 1 ELSE MAX(version) + 1 END,
+                now() AT TIME ZONE 'utc',
+                $2
+            FROM codespecs
+            WHERE name = $1
+            RETURNING version, created_at
+            """);
+
+        cmd.Parameters.AddWithValue(name);
+        cmd.Parameters.Add(new() { Value = JsonSerializer.Serialize(newcodespec, _serializerOptions), NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Jsonb });
 
         for (int i = 0; ; i++)
         {
             try
             {
                 _logger.UpsertingCodespec(name);
-                using var reader = (await command.ExecuteReaderAsync(cancellationToken))!;
+                using var reader = (await cmd.ExecuteReaderAsync(cancellationToken))!;
                 await reader.ReadAsync(cancellationToken);
                 var version = reader.GetInt32(0);
                 var createdAt = reader.GetDateTime(1);
@@ -168,37 +187,39 @@ public class Repository : IRepository
     {
         newRun = newRun.WithoutSystemProperties();
 
-        var connection = await GetOpenedConnection(cancellationToken);
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
         await using var tx = await connection.BeginTransactionAsync(cancellationToken);
         using var insertCommand = new NpgsqlCommand
         {
             Connection = connection,
             Transaction = tx,
-            CommandText = @"
+            CommandText = """
                 INSERT INTO runs (created_at, run)
                 VALUES (now() AT TIME ZONE 'utc', $1)
-                RETURNING id, created_at",
+                RETURNING id, created_at
+                """,
             Parameters =
             {
                 new() { Value = JsonSerializer.Serialize(newRun, _serializerOptions), NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Jsonb },
             }
         };
 
-        using var reader = await insertCommand.ExecuteReaderAsync(cancellationToken);
-        await reader.ReadAsync(cancellationToken);
-        var run = newRun with { Id = reader.GetInt64(0), CreatedAt = reader.GetDateTime(1), Status = RunStatus.Pending };
-
-        await reader.ReadAsync(cancellationToken);
-        await reader.DisposeAsync();
+        Run run;
+        await using (var reader = await insertCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken))
+        {
+            await reader.ReadAsync(cancellationToken);
+            run = newRun with { Id = reader.GetInt64(0), CreatedAt = reader.GetDateTime(1), Status = RunStatus.Pending };
+        }
 
         using var updateCommand = new NpgsqlCommand
         {
             Connection = connection,
             Transaction = tx,
-            CommandText = $@"
+            CommandText = """
                 UPDATE runs
                 SET run = $1
-                WHERE id = $2",
+                WHERE id = $2
+                """,
             Parameters =
             {
                 new() { Value = JsonSerializer.Serialize(run, _serializerOptions), NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Jsonb },
@@ -213,50 +234,67 @@ public class Repository : IRepository
 
     public async Task UpdateRun(Run run, bool? resourcesCreated = null, bool? final = null, DateTimeOffset? logsArchivedAt = null, CancellationToken cancellationToken = default)
     {
-        var connection = await GetOpenedConnection(cancellationToken);
-        using var command = new NpgsqlCommand
-        {
-            Connection = connection,
-            CommandText = $@"
-                UPDATE runs
-                SET run = $2 {(resourcesCreated.HasValue ? ", resources_created = $3" : null)} {(final.HasValue ? ", final = $4" : null)} {(logsArchivedAt.HasValue ? ", logs_archived_at = $5" : null)}
-                WHERE id = $1",
-            Parameters =
-            {
-                new() { Value = run.Id },
-                new() { Value = JsonSerializer.Serialize(run, _serializerOptions), NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Jsonb },
-                new() { Value = resourcesCreated.GetValueOrDefault() },
-                new() { Value = final.GetValueOrDefault() },
-                new() { Value = logsArchivedAt.GetValueOrDefault() },
-            },
-        };
+        await using var command = _dataSource.CreateCommand($@"
+            UPDATE runs
+            SET run = $2 {(resourcesCreated.HasValue ? ", resources_created = $3" : null)} {(final.HasValue ? ", final = $4" : null)} {(logsArchivedAt.HasValue ? ", logs_archived_at = $5" : null)}
+            WHERE id = $1");
+
+        command.Parameters.AddWithValue(run.Id!);
+        command.Parameters.Add(new() { Value = JsonSerializer.Serialize(run, _serializerOptions), NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Jsonb });
+        command.Parameters.AddWithValue(resourcesCreated.GetValueOrDefault());
+        command.Parameters.AddWithValue(final.GetValueOrDefault());
+        command.Parameters.AddWithValue(logsArchivedAt.GetValueOrDefault());
 
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     public async Task DeleteRun(long id, CancellationToken cancellationToken)
     {
-        var connection = await GetOpenedConnection(cancellationToken);
-        using var command = new NpgsqlCommand
-        {
-            Connection = connection,
-            CommandText = @"
-                DELETE FROM runs
-                WHERE id = $1",
-            Parameters = { new() { Value = id } },
-        };
+        await using var command = _dataSource.CreateCommand($@"
+            DELETE FROM runs
+            WHERE id = $1");
+
+        command.Parameters.AddWithValue(id);
 
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     public async Task<(Run run, bool final, DateTimeOffset? logsArchivedAt)?> GetRun(long id, CancellationToken cancellationToken)
     {
-        var entity = await _context.Runs.AsNoTracking().FirstOrDefaultAsync(r => r.Id == id, cancellationToken);
-        return entity == null ? null : (entity.Run, entity.Final, entity.LogsArchivedAt);
+        await using var cmd = _dataSource.CreateCommand($@"
+            SELECT created_at, run, final, logs_archived_at
+            FROM runs
+            WHERE id = $1");
+
+        cmd.Parameters.AddWithValue(id);
+
+        await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        var createdAt = reader.GetDateTime(0);
+        var runJson = reader.GetString(1);
+        var final = reader.GetBoolean(2);
+        var logsArchivedAt = reader.IsDBNull(3) ? (DateTime?)null : reader.GetDateTime(3);
+
+        return (JsonSerializer.Deserialize<Run>(runJson, _serializerOptions)!, final, logsArchivedAt);
     }
 
     public async Task<(IList<(Run run, bool final)>, string? nextContinuationToken)> GetRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken)
     {
+        var sb = new StringBuilder();
+        sb.Append("""
+            SELECT run, final
+            FROM runs
+            WHERE resources_created = true
+
+            """);
+
+        var parameters = new List<NpgsqlParameter>();
+        int paramNumber = 0;
+
         IQueryable<RunEntity> runsQueryable = _context.Runs.Where(r => r.ResourcesCreated);
         if (continuationToken != null)
         {
@@ -268,7 +306,9 @@ public class Repository : IRepository
                 {
                     var createdAt = new DateTimeOffset(fields[0], TimeSpan.Zero);
                     var id = fields[1];
-                    runsQueryable = runsQueryable.Where(r => r.CreatedAt < createdAt || (r.CreatedAt == createdAt && r.Id < id));
+                    sb.AppendLine($"AND (created_at, id) < (${++paramNumber}, ${++paramNumber})");
+                    parameters.Add(new() { Value = createdAt });
+                    parameters.Add(new() { Value = id });
                     valid = true;
                 }
             }
@@ -284,15 +324,29 @@ public class Repository : IRepository
 
         if (since.HasValue)
         {
-            runsQueryable = runsQueryable.Where(r => r.CreatedAt > since.Value);
+            sb.AppendLine($"AND created_at > ${++paramNumber}");
+            parameters.Add(new() { Value = since.Value });
         }
 
-        var results = (await runsQueryable
-                .OrderByDescending(e => e.CreatedAt).ThenByDescending(e => e.Id)
-                .Take(limit + 1)
-                .ToListAsync(cancellationToken))
-            .Select(e => (e.Run, e.Final))
-            .ToList();
+        sb.AppendLine("ORDER BY created_at DESC, id DESC");
+        sb.AppendLine($"LIMIT ${++paramNumber}");
+        parameters.Add(new() { Value = limit + 1 });
+
+        await using var cmd = _dataSource.CreateCommand(sb.ToString());
+        foreach (var parameter in parameters)
+        {
+            cmd.Parameters.Add(parameter);
+        }
+
+        List<(Run Run, bool Final)> results = [];
+        await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var runJson = reader.GetString(0);
+            var final = reader.GetBoolean(1);
+
+            results.Add((JsonSerializer.Deserialize<Run>(runJson, _serializerOptions)!, final));
+        }
 
         if (results.Count == limit + 1)
         {
