@@ -56,13 +56,29 @@ public static class Database
 
             },
             contextLifetime: ServiceLifetime.Scoped, optionsLifetime: ServiceLifetime.Singleton);
+
+        services.AddSingleton(sp =>
+        {
+            var databaseOptions = sp.GetRequiredService<IOptions<DatabaseOptions>>().Value;
+            var connectionString = databaseOptions.ConnectionString;
+            if (!string.IsNullOrEmpty(databaseOptions.Password))
+            {
+                connectionString = $"{connectionString}; Password={databaseOptions.Password}";
+            }
+
+            var dataSourceBuilder = new NpgsqlDataSourceBuilder(connectionString);
+            dataSourceBuilder.AddTypeResolverFactory(new JsonOverrideTypeHandlerResolverFactory(sp.GetRequiredService<JsonSerializerOptions>()));
+            return dataSourceBuilder.Build();
+        });
+
+        services.AddSingleton<Migrations.MigrationRunner>();
     }
 
     public static async Task EnsureCreated(IServiceProvider serviceProvider)
     {
-        using var scope = serviceProvider.CreateScope();
-        using var context = scope.ServiceProvider.GetRequiredService<TygerDbContext>();
-        await context.Database.EnsureCreatedAsync();
+        // using var scope = serviceProvider.CreateScope();
+        // using var context = scope.ServiceProvider.GetRequiredService<TygerDbContext>();
+        // await context.Database.EnsureCreatedAsync();
     }
 
     /// <summary>

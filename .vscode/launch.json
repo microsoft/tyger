@@ -9,7 +9,7 @@
       "type": "coreclr",
       "request": "launch",
       "preLaunchTask": "build",
-      "program": "${workspaceFolder}/server/Tyger.Server/bin/Debug/net7.0/tyger.server",
+      "program": "${workspaceFolder}/server/Tyger.Server/bin/Debug/net8.0/tyger.server",
       "args": [],
       "cwd": "${workspaceFolder}/server/Tyger.Server",
       "stopAtEntry": false,
