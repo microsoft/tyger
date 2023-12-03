@@ -13,18 +13,24 @@ permissions:
 jobs:
   delete-pr-envs:
     runs-on: ubuntu-latest
-    container:
-      image: compimagdevcontainers.azurecr.io/tyger@sha256:ffc663f196303808903d155f80fa219b2a833e29207534162c147a563fb7fb4d
     defaults:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v2
-
-      - name: "Login into Azure"
+      - name: Login into Azure
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v4
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
 
       - name: "Delete PR Envs"
         run: |
