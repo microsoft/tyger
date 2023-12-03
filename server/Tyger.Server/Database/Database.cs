@@ -32,7 +32,7 @@ public static class Database
             }).Build();
         });
 
-        services.AddScoped<IRepository, RepositoryWithRetry>();
+        services.AddSingleton<IRepository, RepositoryWithRetry>();
 
         services.AddSingleton(sp =>
         {

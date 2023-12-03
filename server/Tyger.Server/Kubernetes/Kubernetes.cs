@@ -24,12 +24,12 @@ public static class Kubernetes
         });
         services.AddSingleton<IKubernetes>(sp => sp.GetRequiredService<k8s.Kubernetes>());
 
-        services.AddScoped<RunCreator>();
-        services.AddScoped<RunReader>();
-        services.AddScoped<RunUpdater>();
-        services.AddScoped<ILogSource, RunLogReader>();
-        services.AddScoped<RunSweeper>();
-        services.AddScoped<IHostedService, RunSweeper>(sp => sp.GetRequiredService<RunSweeper>());
+        services.AddSingleton<RunCreator>();
+        services.AddSingleton<RunReader>();
+        services.AddSingleton<RunUpdater>();
+        services.AddSingleton<ILogSource, RunLogReader>();
+        services.AddSingleton<RunSweeper>();
+        services.AddSingleton<IHostedService, RunSweeper>(sp => sp.GetRequiredService<RunSweeper>());
     }
 
     public static void MapClusters(this WebApplication app)
