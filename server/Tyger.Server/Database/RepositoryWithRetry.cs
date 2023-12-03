@@ -13,12 +13,11 @@ public class RepositoryWithRetry : IRepository
 
     public RepositoryWithRetry(
         ResiliencePipeline resiliencePipeline,
-        TygerDbContext context,
         NpgsqlDataSource dataSource,
         JsonSerializerOptions serializerOptions,
         ILoggerFactory loggerFactory)
     {
-        _repository = new(context, dataSource, serializerOptions, loggerFactory.CreateLogger<Repository>());
+        _repository = new(dataSource, serializerOptions, loggerFactory.CreateLogger<Repository>());
         _resiliencePipeline = resiliencePipeline;
     }
 

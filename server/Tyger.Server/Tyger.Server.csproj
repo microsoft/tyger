@@ -19,7 +19,7 @@
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.0" />
     <PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="7.0.3" />
     <PackageReference Include="Microsoft.OpenApi" Version="1.6.11" />
-    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="7.0.11" />
+    <PackageReference Include="Npgsql" Version="8.0.0" />
     <PackageReference Include="Polly.Core" Version="8.2.0" />
     <PackageReference Include="SimpleBase" Version="4.0.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />

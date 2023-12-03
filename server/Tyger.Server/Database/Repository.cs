@@ -2,7 +2,6 @@ using System.ComponentModel.DataAnnotations;
 using System.Data;
 using System.Text;
 using System.Text.Json;
-using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using SimpleBase;
 using Tyger.Server.Model;
@@ -12,14 +11,12 @@ namespace Tyger.Server.Database;
 
 public class Repository : IRepository
 {
-    private readonly TygerDbContext _context;
     private readonly NpgsqlDataSource _dataSource;
     private readonly JsonSerializerOptions _serializerOptions;
     private readonly ILogger<Repository> _logger;
 
-    public Repository(TygerDbContext context, NpgsqlDataSource dataSource, JsonSerializerOptions serializerOptions, ILogger<Repository> logger)
+    public Repository(NpgsqlDataSource dataSource, JsonSerializerOptions serializerOptions, ILogger<Repository> logger)
     {
-        _context = context;
         _dataSource = dataSource;
         _serializerOptions = serializerOptions;
         _logger = logger;
@@ -295,7 +292,6 @@ public class Repository : IRepository
         var parameters = new List<NpgsqlParameter>();
         int paramNumber = 0;
 
-        IQueryable<RunEntity> runsQueryable = _context.Runs.Where(r => r.ResourcesCreated);
         if (continuationToken != null)
         {
             bool valid = false;
@@ -362,42 +358,40 @@ public class Repository : IRepository
     public async Task<IList<Run>> GetPageOfRunsThatNeverGotResources(CancellationToken cancellationToken)
     {
         var oldestAllowable = DateTimeOffset.UtcNow.AddMinutes(-5);
-        return (await _context.Runs.AsNoTracking().Where(r => r.CreatedAt < oldestAllowable && !r.ResourcesCreated).OrderByDescending(r => r.CreatedAt).Take(100).ToListAsync(cancellationToken))
-            .Select(r => r.Run).ToList();
-    }
 
-    private async ValueTask<NpgsqlConnection> GetOpenedConnection(CancellationToken cancellationToken)
-    {
-        var connection = (NpgsqlConnection)_context.Database.GetDbConnection();
-        if (connection.State != ConnectionState.Open)
+        await using var cmd = _dataSource.CreateCommand("""
+            SELECT run
+            FROM runs
+            WHERE created_at < $1 AND NOT resources_created
+            """);
+
+        cmd.Parameters.AddWithValue(oldestAllowable);
+
+        await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+        var results = new List<Run>();
+        while (await reader.ReadAsync(cancellationToken))
         {
-            await connection.OpenAsync(cancellationToken);
+            var runJson = reader.GetString(0);
+            results.Add(JsonSerializer.Deserialize<Run>(runJson, _serializerOptions)!);
         }
 
-        return connection;
+        return results;
     }
 
     public async Task<Buffer?> GetBuffer(string id, string eTag, CancellationToken cancellationToken)
     {
-        var connection = await GetOpenedConnection(cancellationToken);
+        await using var command = _dataSource.CreateCommand("""
+            SELECT buffers.created_at, buffers.etag, tag_keys.name, tags.value
+            FROM buffers
+            LEFT JOIN tags
+                on buffers.id = tags.id
+                and tags.created_at = buffers.created_at
+            LEFT JOIN tag_keys
+                on tag_keys.id = tags.key
+            WHERE buffers.id = $1
+            """);
 
-        using var command = new NpgsqlCommand
-        {
-            Connection = connection,
-            CommandText = @"
-                SELECT buffers.created_at, buffers.etag, tag_keys.name, tags.value
-                FROM buffers
-                LEFT JOIN tags
-                    on buffers.id = tags.id
-                    and tags.created_at = buffers.created_at
-                LEFT JOIN tag_keys
-                    on tag_keys.id = tags.key
-                WHERE buffers.id = $1",
-            Parameters =
-            {
-                new() { Value = id },
-            },
-        };
+        command.Parameters.AddWithValue(id);
 
         if (eTag != "")
         {
@@ -430,8 +424,6 @@ public class Repository : IRepository
             }
         }
 
-        await reader.ReadAsync(cancellationToken);
-
         if (currentETag == "" && createdAt == DateTimeOffset.MinValue)
         {
             return null;
@@ -442,21 +434,27 @@ public class Repository : IRepository
 
     private async Task<long?> GetTagId(string name, CancellationToken cancellationToken)
     {
-        var entity = await _context.TagKeys.AsNoTracking().FirstOrDefaultAsync(r => r.Name == name, cancellationToken);
-        return entity?.Id;
+        await using var cmd = _dataSource.CreateCommand("""
+            SELECT id
+            FROM tag_keys
+            WHERE name = $1
+            """);
+
+        cmd.Parameters.AddWithValue(name);
+
+        await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return reader.GetInt64(0);
     }
 
     public async Task<(IList<Buffer>, string? nextContinuationToken)> GetBuffers(IDictionary<string, string>? tags, int limit, string? continuationToken, CancellationToken cancellationToken)
     {
-        var connection = await GetOpenedConnection(cancellationToken);
-        using var command = new NpgsqlCommand
-        {
-            Connection = connection,
-            Parameters =
-            {
-                new() { Value = limit + 1},
-            },
-        };
+        await using var command = _dataSource.CreateCommand();
+        command.Parameters.AddWithValue(limit + 1);
 
         var commandText = new StringBuilder();
         string table = tags?.Count > 0 ? "tags" : "buffers";
@@ -581,9 +579,6 @@ public class Repository : IRepository
             results.Add(currentBuffer with { Tags = currentTags });
         }
 
-        await reader.ReadAsync(cancellationToken);
-        await reader.DisposeAsync();
-
         if (results.Count == limit + 1)
         {
             results.RemoveAt(limit);
@@ -597,7 +592,7 @@ public class Repository : IRepository
 
     public async Task<Buffer?> UpdateBufferById(string id, string eTag, IDictionary<string, string>? tags, CancellationToken cancellationToken)
     {
-        var connection = await GetOpenedConnection(cancellationToken);
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
         await using var tx = await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
         string newETag = DateTime.UtcNow.Ticks.ToString();
 
@@ -672,12 +667,11 @@ public class Repository : IRepository
         return new Buffer() { Id = id, ETag = newETag, CreatedAt = createdAt, Tags = tags };
     }
 
-    private async Task InsertTag(NpgsqlTransaction? tx, string id, DateTimeOffset createdAt, KeyValuePair<string, string> tag, CancellationToken cancellationToken)
+    private static async Task InsertTag(NpgsqlTransaction tx, string id, DateTimeOffset createdAt, KeyValuePair<string, string> tag, CancellationToken cancellationToken)
     {
-        var connection = await GetOpenedConnection(cancellationToken);
         using var insertTagCommand = new NpgsqlCommand
         {
-            Connection = connection,
+            Connection = tx.Connection,
             Transaction = tx,
             CommandText = @"
                         WITH INS AS (INSERT INTO tag_keys (name) VALUES ($4) ON CONFLICT DO NOTHING RETURNING id)
@@ -702,7 +696,7 @@ public class Repository : IRepository
 
     public async Task<Buffer> CreateBuffer(Buffer newBuffer, CancellationToken cancellationToken)
     {
-        var connection = await GetOpenedConnection(cancellationToken);
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
         await using var tx = await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
         string eTag = DateTime.UtcNow.Ticks.ToString();
 
