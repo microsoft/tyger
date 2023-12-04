@@ -161,14 +161,16 @@ public class MigrationRunner
 
     public async Task<int?> GetCurrentDatabaseVersion(CancellationToken cancellationToken)
     {
-        await using var cmd = _dataSource.CreateCommand($"""
+        await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var cmd = new NpgsqlCommand($"""
             SELECT version
             FROM {MigrationsTableName}
             WHERE state = 'complete'
             ORDER BY version DESC
             LIMIT 1
-            """);
+            """, conn);
 
+        await cmd.PrepareAsync(cancellationToken);
         return await cmd.ExecuteScalarAsync(cancellationToken) switch
         {
             null => null,

@@ -3,6 +3,7 @@ using System.Data;
 using System.Text;
 using System.Text.Json;
 using Npgsql;
+using NpgsqlTypes;
 using SimpleBase;
 using Tyger.Server.Model;
 using Buffer = Tyger.Server.Model.Buffer;
@@ -24,14 +25,21 @@ public class Repository : IRepository
 
     public async Task<Codespec?> GetCodespecAtVersion(string name, int version, CancellationToken cancellationToken)
     {
-        await using var cmd = _dataSource.CreateCommand($"""
+        await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var cmd = new NpgsqlCommand("""
             SELECT spec, created_at
             FROM codespecs
             WHERE name = $1 AND version = $2
-            """);
+            """, conn)
+        {
+            Parameters =
+            {
+                new() { NpgsqlDbType = NpgsqlDbType.Text, Value = name },
+                new() {  NpgsqlDbType = NpgsqlDbType.Integer, Value = version },
+            }
+        };
 
-        cmd.Parameters.AddWithValue(name);
-        cmd.Parameters.AddWithValue(version);
+        await cmd.PrepareAsync(cancellationToken);
 
         await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
@@ -48,15 +56,27 @@ public class Repository : IRepository
 
     public async Task<Codespec?> GetLatestCodespec(string name, CancellationToken cancellationToken)
     {
-        await using var cmd = _dataSource.CreateCommand($"""
+        await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+        return await GetLatestCodespec(conn, name, cancellationToken);
+    }
+
+    public async Task<Codespec?> GetLatestCodespec(NpgsqlConnection conn, string name, CancellationToken cancellationToken)
+    {
+        await using var cmd = new NpgsqlCommand("""
             SELECT spec, version, created_at
             FROM codespecs
             WHERE name = $1
             ORDER BY version DESC
             LIMIT 1
-            """);
+            """, conn)
+        {
+            Parameters =
+            {
+                new() { NpgsqlDbType = NpgsqlDbType.Text, Value = name },
+            }
+        };
 
-        cmd.Parameters.AddWithValue(name);
+        await cmd.PrepareAsync(cancellationToken);
 
         await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
@@ -97,17 +117,24 @@ public class Repository : IRepository
             }
         }
 
-        await using var cmd = _dataSource.CreateCommand($"""
+        await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var cmd = new NpgsqlCommand($"""
             SELECT DISTINCT ON (name) name, version, created_at, spec
             FROM codespecs
             WHERE name > $3 AND name LIKE $2
             ORDER BY name, version DESC
             LIMIT $1
-            """);
+            """, conn)
+        {
+            Parameters =
+            {
+                new() { NpgsqlDbType = NpgsqlDbType.Integer, Value = limit + 1 },
+                new() { NpgsqlDbType = NpgsqlDbType.Text, Value = prefix + "%" },
+                new() { NpgsqlDbType = NpgsqlDbType.Text, Value = pagingName },
+            }
+        };
 
-        cmd.Parameters.AddWithValue(limit + 1);
-        cmd.Parameters.AddWithValue(prefix + "%");
-        cmd.Parameters.AddWithValue(pagingName);
+        await cmd.PrepareAsync(cancellationToken);
 
         var results = new List<Codespec>();
         await using var reader = (await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken))!;
@@ -134,14 +161,15 @@ public class Repository : IRepository
     public async Task<Codespec> UpsertCodespec(string name, Codespec newcodespec, CancellationToken cancellationToken)
     {
         newcodespec = newcodespec.WithoutSystemProperties();
+        await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
 
-        Codespec? latestCodespec = await GetLatestCodespec(name, cancellationToken);
+        Codespec? latestCodespec = await GetLatestCodespec(conn, name, cancellationToken);
         if (latestCodespec != null && newcodespec.Equals(latestCodespec.WithoutSystemProperties()))
         {
             return latestCodespec;
         }
 
-        await using var cmd = _dataSource.CreateCommand("""
+        await using var cmd = new NpgsqlCommand("""
             INSERT INTO codespecs
             SELECT
                 $1,
@@ -151,22 +179,26 @@ public class Repository : IRepository
             FROM codespecs
             WHERE name = $1
             RETURNING version, created_at
-            """);
+            """, conn)
+        {
+            Parameters =
+            {
+                new() { NpgsqlDbType = NpgsqlDbType.Text, Value = name },
+                new() { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = JsonSerializer.Serialize(newcodespec, _serializerOptions) },
+            }
+        };
 
-        cmd.Parameters.AddWithValue(name);
-        cmd.Parameters.Add(new() { Value = JsonSerializer.Serialize(newcodespec, _serializerOptions), NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Jsonb });
+        await cmd.PrepareAsync(cancellationToken);
 
         for (int i = 0; ; i++)
         {
             try
             {
                 _logger.UpsertingCodespec(name);
-                using var reader = (await cmd.ExecuteReaderAsync(cancellationToken))!;
+                await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
                 await reader.ReadAsync(cancellationToken);
                 var version = reader.GetInt32(0);
                 var createdAt = reader.GetDateTime(1);
-                await reader.ReadAsync(cancellationToken);
-                await reader.DisposeAsync();
                 return newcodespec.WithSystemProperties(name, version, createdAt);
             }
             catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.UniqueViolation)
@@ -191,15 +223,17 @@ public class Repository : IRepository
             Connection = connection,
             Transaction = tx,
             CommandText = """
-                INSERT INTO runs (created_at, run)
-                VALUES (now() AT TIME ZONE 'utc', $1)
+                INSERT INTO runs (run)
+                VALUES ($1)
                 RETURNING id, created_at
                 """,
             Parameters =
             {
-                new() { Value = JsonSerializer.Serialize(newRun, _serializerOptions), NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Jsonb },
+                new() { Value = JsonSerializer.Serialize(newRun, _serializerOptions), NpgsqlDbType = NpgsqlDbType.Jsonb },
             }
         };
+
+        await insertCommand.PrepareAsync(cancellationToken);
 
         Run run;
         await using (var reader = await insertCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken))
@@ -219,10 +253,12 @@ public class Repository : IRepository
                 """,
             Parameters =
             {
-                new() { Value = JsonSerializer.Serialize(run, _serializerOptions), NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Jsonb },
-                new() { Value = run.Id },
+                new() { Value = JsonSerializer.Serialize(run, _serializerOptions), NpgsqlDbType = NpgsqlDbType.Jsonb },
+                new() { Value = run.Id, NpgsqlDbType = NpgsqlDbType.Bigint },
             },
         };
+
+        await updateCommand.PrepareAsync(cancellationToken);
 
         await updateCommand.ExecuteNonQueryAsync(cancellationToken);
         await tx.CommitAsync(cancellationToken);
@@ -231,40 +267,74 @@ public class Repository : IRepository
 
     public async Task UpdateRun(Run run, bool? resourcesCreated = null, bool? final = null, DateTimeOffset? logsArchivedAt = null, CancellationToken cancellationToken = default)
     {
-        await using var command = _dataSource.CreateCommand($@"
+        await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+        var paramNumber = 2;
+        await using var command = new NpgsqlCommand($"""
             UPDATE runs
-            SET run = $2 {(resourcesCreated.HasValue ? ", resources_created = $3" : null)} {(final.HasValue ? ", final = $4" : null)} {(logsArchivedAt.HasValue ? ", logs_archived_at = $5" : null)}
-            WHERE id = $1");
+            SET run = $2 {(resourcesCreated.HasValue ? $", resources_created = ${++paramNumber}" : null)} {(final.HasValue ? $", final = ${++paramNumber}" : null)} {(logsArchivedAt.HasValue ? $", logs_archived_at = ${++paramNumber}" : null)}
+            WHERE id = $1
+            """, conn)
+        {
+            Parameters =
+                {
+                    new() { Value = run.Id, NpgsqlDbType = NpgsqlDbType.Bigint },
+                    new() { Value = JsonSerializer.Serialize(run, _serializerOptions), NpgsqlDbType = NpgsqlDbType.Jsonb },
+                }
+        };
 
-        command.Parameters.AddWithValue(run.Id!);
-        command.Parameters.Add(new() { Value = JsonSerializer.Serialize(run, _serializerOptions), NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Jsonb });
-        command.Parameters.AddWithValue(resourcesCreated.GetValueOrDefault());
-        command.Parameters.AddWithValue(final.GetValueOrDefault());
-        command.Parameters.AddWithValue(logsArchivedAt.GetValueOrDefault());
+        if (resourcesCreated.HasValue)
+        {
+            command.Parameters.AddWithValue(NpgsqlDbType.Boolean, resourcesCreated.Value);
+        }
 
+        if (final.HasValue)
+        {
+            command.Parameters.AddWithValue(NpgsqlDbType.Boolean, final.Value);
+        }
+
+        if (logsArchivedAt.HasValue)
+        {
+            command.Parameters.AddWithValue(NpgsqlDbType.TimestampTz, logsArchivedAt.Value);
+        }
+
+        await command.PrepareAsync(cancellationToken);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     public async Task DeleteRun(long id, CancellationToken cancellationToken)
     {
-        await using var command = _dataSource.CreateCommand($@"
+        await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand("""
             DELETE FROM runs
-            WHERE id = $1");
+            WHERE id = $1
+            """, conn)
+        {
+            Parameters =
+            {
+                new() { Value = id, NpgsqlDbType = NpgsqlDbType.Bigint },
+            }
+        };
 
-        command.Parameters.AddWithValue(id);
-
+        await command.PrepareAsync(cancellationToken);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     public async Task<(Run run, bool final, DateTimeOffset? logsArchivedAt)?> GetRun(long id, CancellationToken cancellationToken)
     {
-        await using var cmd = _dataSource.CreateCommand($@"
+        await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var cmd = new NpgsqlCommand("""
             SELECT created_at, run, final, logs_archived_at
             FROM runs
-            WHERE id = $1");
+            WHERE id = $1
+            """, conn)
+        {
+            Parameters =
+            {
+                new() { Value = id, NpgsqlDbType = NpgsqlDbType.Bigint },
+            }
+        };
 
-        cmd.Parameters.AddWithValue(id);
-
+        await cmd.PrepareAsync(cancellationToken);
         await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
         {
@@ -303,8 +373,8 @@ public class Repository : IRepository
                     var createdAt = new DateTimeOffset(fields[0], TimeSpan.Zero);
                     var id = fields[1];
                     sb.AppendLine($"AND (created_at, id) < (${++paramNumber}, ${++paramNumber})");
-                    parameters.Add(new() { Value = createdAt });
-                    parameters.Add(new() { Value = id });
+                    parameters.Add(new() { Value = createdAt, NpgsqlDbType = NpgsqlDbType.TimestampTz });
+                    parameters.Add(new() { Value = id, NpgsqlDbType = NpgsqlDbType.Bigint });
                     valid = true;
                 }
             }
@@ -321,21 +391,24 @@ public class Repository : IRepository
         if (since.HasValue)
         {
             sb.AppendLine($"AND created_at > ${++paramNumber}");
-            parameters.Add(new() { Value = since.Value });
+            parameters.Add(new() { Value = since.Value, NpgsqlDbType = NpgsqlDbType.TimestampTz });
         }
 
         sb.AppendLine("ORDER BY created_at DESC, id DESC");
         sb.AppendLine($"LIMIT ${++paramNumber}");
-        parameters.Add(new() { Value = limit + 1 });
+        parameters.Add(new() { Value = limit + 1, NpgsqlDbType = NpgsqlDbType.Integer });
 
-        await using var cmd = _dataSource.CreateCommand(sb.ToString());
+        await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var cmd = new NpgsqlCommand(sb.ToString(), conn);
         foreach (var parameter in parameters)
         {
             cmd.Parameters.Add(parameter);
         }
 
-        List<(Run Run, bool Final)> results = [];
+        await cmd.PrepareAsync(cancellationToken);
         await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+
+        List<(Run Run, bool Final)> results = [];
         while (await reader.ReadAsync(cancellationToken))
         {
             var runJson = reader.GetString(0);
@@ -359,14 +432,20 @@ public class Repository : IRepository
     {
         var oldestAllowable = DateTimeOffset.UtcNow.AddMinutes(-5);
 
-        await using var cmd = _dataSource.CreateCommand("""
+        await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var cmd = new NpgsqlCommand("""
             SELECT run
             FROM runs
             WHERE created_at < $1 AND NOT resources_created
-            """);
+            """, conn)
+        {
+            Parameters =
+            {
+                new() { Value = oldestAllowable, NpgsqlDbType = NpgsqlDbType.TimestampTz },
+            }
+        };
 
-        cmd.Parameters.AddWithValue(oldestAllowable);
-
+        await cmd.PrepareAsync(cancellationToken);
         await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
         var results = new List<Run>();
         while (await reader.ReadAsync(cancellationToken))
@@ -380,7 +459,8 @@ public class Repository : IRepository
 
     public async Task<Buffer?> GetBuffer(string id, string eTag, CancellationToken cancellationToken)
     {
-        await using var command = _dataSource.CreateCommand("""
+        await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand("""
             SELECT buffers.created_at, buffers.etag, tag_keys.name, tags.value
             FROM buffers
             LEFT JOIN tags
@@ -389,20 +469,25 @@ public class Repository : IRepository
             LEFT JOIN tag_keys
                 on tag_keys.id = tags.key
             WHERE buffers.id = $1
-            """);
-
-        command.Parameters.AddWithValue(id);
+            """, conn)
+        {
+            Parameters =
+            {
+                new() { Value = id, NpgsqlDbType = NpgsqlDbType.Text },
+            }
+        };
 
         if (eTag != "")
         {
             command.CommandText += " and buffers.etag = $2";
-            command.Parameters.Add(new() { Value = eTag });
+            command.Parameters.Add(new() { Value = eTag, NpgsqlDbType = NpgsqlDbType.Text });
         }
 
         var tags = new Dictionary<string, string>();
         string currentETag = "";
         DateTimeOffset createdAt = DateTimeOffset.MinValue;
 
+        await command.PrepareAsync(cancellationToken);
         await using var reader = (await command.ExecuteReaderAsync(cancellationToken))!;
         while (await reader.ReadAsync(cancellationToken))
         {
@@ -432,16 +517,21 @@ public class Repository : IRepository
         return new Buffer { Id = id, ETag = currentETag, CreatedAt = createdAt, Tags = tags };
     }
 
-    private async Task<long?> GetTagId(string name, CancellationToken cancellationToken)
+    private static async Task<long?> GetTagId(NpgsqlConnection conn, string name, CancellationToken cancellationToken)
     {
-        await using var cmd = _dataSource.CreateCommand("""
+        await using var cmd = new NpgsqlCommand("""
             SELECT id
             FROM tag_keys
             WHERE name = $1
-            """);
+            """, conn)
+        {
+            Parameters =
+            {
+                new() { Value = name, NpgsqlDbType = NpgsqlDbType.Text },
+            }
+        };
 
-        cmd.Parameters.AddWithValue(name);
-
+        await cmd.PrepareAsync(cancellationToken);
         await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
         {
@@ -453,15 +543,23 @@ public class Repository : IRepository
 
     public async Task<(IList<Buffer>, string? nextContinuationToken)> GetBuffers(IDictionary<string, string>? tags, int limit, string? continuationToken, CancellationToken cancellationToken)
     {
-        await using var command = _dataSource.CreateCommand();
-        command.Parameters.AddWithValue(limit + 1);
+        await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand
+        {
+            Connection = conn,
+            Parameters =
+            {
+                new() { Value = limit + 1, NpgsqlDbType = NpgsqlDbType.Integer },
+            }
+        };
 
         var commandText = new StringBuilder();
         string table = tags?.Count > 0 ? "tags" : "buffers";
-        commandText.Append(@$"WITH matches AS (
+        commandText.AppendLine($"""
+            WITH matches AS (
             SELECT t1.id, t1.created_at
             FROM {table} AS t1
-            ");
+            """);
 
         int param = 2;
 
@@ -469,10 +567,10 @@ public class Repository : IRepository
         {
             for (int x = 0; x < tags.Count - 1; x++)
             {
-                commandText.Append($"INNER JOIN tags AS t{x + 2} ON t1.created_at = t{x + 2}.created_at and t1.id = t{x + 2}.id\n");
+                commandText.AppendLine($"INNER JOIN tags AS t{x + 2} ON t1.created_at = t{x + 2}.created_at and t1.id = t{x + 2}.id");
             }
 
-            commandText.Append("WHERE\n");
+            commandText.AppendLine("WHERE");
 
             int index = 1;
             foreach (var tag in tags)
@@ -482,15 +580,15 @@ public class Repository : IRepository
                     commandText.Append(" AND ");
                 }
 
-                var id = await GetTagId(tag.Key, cancellationToken);
+                var id = await GetTagId(conn, tag.Key, cancellationToken);
                 if (id == null)
                 {
                     return (new List<Buffer>(), null);
                 }
 
-                commandText.Append($" t{index}.key = ${param} and t{index}.value = ${param + 1}\n");
-                command.Parameters.Add(new() { Value = id.Value });
-                command.Parameters.Add(new() { Value = tag.Value });
+                commandText.AppendLine($" t{index}.key = ${param} and t{index}.value = ${param + 1}");
+                command.Parameters.Add(new() { Value = id.Value, NpgsqlDbType = NpgsqlDbType.Bigint });
+                command.Parameters.Add(new() { Value = tag.Value, NpgsqlDbType = NpgsqlDbType.Text });
                 index++;
                 param += 2;
             }
@@ -514,8 +612,8 @@ public class Repository : IRepository
                     }
 
                     commandText.Append($"(t1.created_at, t1.id) < (${param}, ${param + 1})\n");
-                    command.Parameters.Add(new() { Value = DateTimeOffset.Parse(fields[0]) });
-                    command.Parameters.Add(new() { Value = fields[1] });
+                    command.Parameters.Add(new() { Value = DateTimeOffset.Parse(fields[0]), NpgsqlDbType = NpgsqlDbType.TimestampTz });
+                    command.Parameters.Add(new() { Value = fields[1], NpgsqlDbType = NpgsqlDbType.Text });
                     param += 2;
                     valid = true;
                 }
@@ -530,7 +628,8 @@ public class Repository : IRepository
             }
         }
 
-        commandText.Append(@" ORDER BY t1.created_at DESC, t1.id DESC
+        commandText.AppendLine("""
+            ORDER BY t1.created_at DESC, t1.id DESC
                 LIMIT $1
             )
             SELECT matches.id, matches.created_at, tag_keys.name, tags.value, buffers.etag
@@ -539,9 +638,11 @@ public class Repository : IRepository
                 ON matches.id = tags.id AND matches.created_at = tags.created_at
             LEFT JOIN tag_keys ON tags.key = tag_keys.id
             LEFT JOIN buffers ON matches.id = buffers.id AND matches.created_at = buffers.created_at
-            ORDER BY matches.created_at DESC, matches.id DESC");
+            ORDER BY matches.created_at DESC, matches.id DESC
+            """);
 
         command.CommandText = commandText.ToString();
+        await command.PrepareAsync(cancellationToken);
 
         var results = new List<Buffer>();
         var currentTags = new Dictionary<string, string>();
@@ -601,27 +702,30 @@ public class Repository : IRepository
         {
             Connection = connection,
             Transaction = tx,
-            CommandText = @"
+            CommandText = """
                 UPDATE buffers
                 SET etag = $1
-                WHERE id = $2",
+                WHERE id = $2
+
+                """,
             Parameters =
                 {
-                    new() { Value = newETag },
-                    new() { Value = id },
+                    new() { Value = newETag, NpgsqlDbType = NpgsqlDbType.Text },
+                    new() { Value = id, NpgsqlDbType = NpgsqlDbType.Text },
                 }
         };
 
         if (eTag != "")
         {
             bufferCommand.CommandText += " AND etag = $3";
-            bufferCommand.Parameters.Add(new() { Value = eTag });
+            bufferCommand.Parameters.Add(new() { Value = eTag, NpgsqlDbType = NpgsqlDbType.Text });
         }
 
         bufferCommand.CommandText += " RETURNING created_at";
 
-        DateTimeOffset createdAt = DateTimeOffset.MinValue;
+        await bufferCommand.PrepareAsync(cancellationToken);
 
+        DateTimeOffset createdAt = DateTimeOffset.MinValue;
         await using (var reader = await bufferCommand.ExecuteReaderAsync(cancellationToken))
         {
             // If the query didn't do anything, return null
@@ -642,16 +746,18 @@ public class Repository : IRepository
         {
             Connection = connection,
             Transaction = tx,
-            CommandText = @"
+            CommandText = """
                     DELETE FROM tags WHERE
-                    id = $1 AND created_at = $2",
+                    id = $1 AND created_at = $2
+                    """,
             Parameters =
                 {
-                    new() { Value = id },
-                    new() { Value = createdAt },
+                    new() { Value = id, NpgsqlDbType = NpgsqlDbType.Text },
+                    new() { Value = createdAt, NpgsqlDbType = NpgsqlDbType.TimestampTz },
                 }
         };
 
+        await deleteCommand.PrepareAsync(cancellationToken);
         await deleteCommand.ExecuteNonQueryAsync(cancellationToken);
 
         if (tags != null)
@@ -673,21 +779,23 @@ public class Repository : IRepository
         {
             Connection = tx.Connection,
             Transaction = tx,
-            CommandText = @"
+            CommandText = """
                         WITH INS AS (INSERT INTO tag_keys (name) VALUES ($4) ON CONFLICT DO NOTHING RETURNING id)
                         INSERT INTO tags (id, created_at, key, value)
                         (SELECT $1, $2, id, $3 FROM INS UNION
-                        SELECT $1, $2, tag_keys.id, $3 FROM tag_keys WHERE name = $4)",
+                        SELECT $1, $2, tag_keys.id, $3 FROM tag_keys WHERE name = $4)
+                        """,
 
             Parameters =
             {
-                new() { Value = id },
-                new() { Value = createdAt },
-                new() { Value = tag.Value },
-                new() { Value = tag.Key },
+                new() { Value = id, NpgsqlDbType = NpgsqlDbType.Text },
+                new() { Value = createdAt, NpgsqlDbType = NpgsqlDbType.TimestampTz },
+                new() { Value = tag.Value, NpgsqlDbType = NpgsqlDbType.Text },
+                new() { Value = tag.Key, NpgsqlDbType = NpgsqlDbType.Text },
             }
         };
 
+        await insertTagCommand.PrepareAsync(cancellationToken);
         if (await insertTagCommand.ExecuteNonQueryAsync(cancellationToken) != 1)
         {
             throw new InvalidOperationException("Failed to insert tag: incorrect number of rows inserted");
@@ -705,19 +813,21 @@ public class Repository : IRepository
         {
             Connection = connection,
             Transaction = tx,
-            CommandText = @"
+            CommandText = """
                     INSERT INTO buffers (id, created_at, etag)
                     VALUES ($1, now() AT TIME ZONE 'utc', $2)
-                    RETURNING created_at",
+                    RETURNING created_at
+                    """,
             Parameters =
                 {
-                    new() { Value = newBuffer.Id },
-                    new() { Value = eTag },
+                    new() { Value = newBuffer.Id, NpgsqlDbType = NpgsqlDbType.Text },
+                    new() { Value = eTag, NpgsqlDbType = NpgsqlDbType.Text },
                 }
         };
 
-        var buffer = newBuffer with { ETag = eTag };
+        await insertCommand.PrepareAsync(cancellationToken);
 
+        var buffer = newBuffer with { ETag = eTag };
         await using (var reader = await insertCommand.ExecuteReaderAsync(cancellationToken))
         {
             await reader.ReadAsync(cancellationToken);
