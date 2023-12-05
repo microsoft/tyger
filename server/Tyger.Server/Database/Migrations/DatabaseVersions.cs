@@ -1,4 +1,3 @@
-using System.Linq.Expressions;
 using System.Reflection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Npgsql;
@@ -21,7 +20,6 @@ public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable
     private readonly ILogger<DatabaseVersions> _logger;
     private readonly CancellationTokenSource _backgroundCancellationTokenSource = new();
     private Task? _backgroundTask;
-
 
     public DatabaseVersions(NpgsqlDataSource dataSource, ILogger<DatabaseVersions> logger)
     {
