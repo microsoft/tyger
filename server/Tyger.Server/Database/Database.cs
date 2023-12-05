@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using Npgsql;
 using Polly;
 using Polly.Retry;
+using Tyger.Server.Database.Migrations;
 
 namespace Tyger.Server.Database;
 
@@ -47,11 +48,12 @@ public static class Database
             return dataSourceBuilder.Build();
         });
 
-        services.AddSingleton<Migrations.MigrationRunner>();
-    }
+        services.AddSingleton<MigrationRunner>();
+        services.AddSingleton<IHostedService, MigrationRunner>(sp => sp.GetRequiredService<MigrationRunner>());
 
-    public static async Task EnsureCreated(IServiceProvider serviceProvider)
-    {
+        services.AddSingleton<DatabaseVersions>();
+        services.AddSingleton<IHostedService, DatabaseVersions>(sp => sp.GetRequiredService<DatabaseVersions>());
+        services.AddHealthChecks().AddCheck<DatabaseVersions>("database");
     }
 }
 
@@ -61,4 +63,16 @@ public class DatabaseOptions
     public string ConnectionString { get; set; } = null!;
 
     public string? Password { get; set; }
+
+    public bool AutoMigrate { get; set; }
+}
+
+public static class Constants
+{
+    public const string MigrationsTableName = "migrations";
+    public const string DatabaseNamespace = "public"; // technically the database schema
+
+    public const string MigrationStateStarted = "started";
+    public const string MigrationStateComplete = "complete";
+    public const string MigrationStateFailed = "failed";
 }

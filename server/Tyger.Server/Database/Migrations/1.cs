@@ -1,10 +1,9 @@
+using static Tyger.Server.Database.Constants;
+
 namespace Tyger.Server.Database.Migrations;
 
-[Migration(Id, "Initial")]
-public class Migration1 : Migration
+public class Migrator1 : Migrator
 {
-    public const int Id = 1;
-
     public override async Task Apply(Npgsql.NpgsqlDataSource dataSource, ILogger logger, CancellationToken cancellationToken)
     {
         await using var batch = dataSource.CreateBatch();
@@ -15,7 +14,7 @@ public class Migration1 : Migration
             CREATE TABLE IF NOT EXISTS migrations (
                 timestamp timestamp with time zone NOT NULL DEFAULT (now() AT TIME ZONE 'UTC'),
                 version int NOT NULL,
-                state varchar(64) NOT NULL CHECK (state IN ('{MigrationRunner.MigrationStateStarted}', '{MigrationRunner.MigrationStateComplete}', '{MigrationRunner.MigrationStateFailed}'))
+                state varchar(64) NOT NULL CHECK (state IN ('{MigrationStateStarted}', '{MigrationStateComplete}', '{MigrationStateFailed}'))
             )
             """));
 
@@ -24,7 +23,7 @@ public class Migration1 : Migration
                 "idx_migrations_version_complete",
                 $"""
                 CREATE INDEX idx_migrations_version_complete ON migrations (version)
-                WHERE state = '{MigrationRunner.MigrationStateComplete}'
+                WHERE state = '{MigrationStateComplete}'
                 """)));
 
         // codespecs table

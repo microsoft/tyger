@@ -8,7 +8,6 @@ using Tyger.Server.Auth;
 using Tyger.Server.Buffers;
 using Tyger.Server.Codespecs;
 using Tyger.Server.Database;
-using Tyger.Server.Database.Migrations;
 using Tyger.Server.Kubernetes;
 using Tyger.Server.Logging;
 using Tyger.Server.Middleware;
@@ -72,10 +71,6 @@ app.MapGet("/v1/metadata", (IOptions<AuthOptions> auth) => auth.Value.Enabled ? 
     .AllowAnonymous();
 
 app.MapFallback(() => Responses.BadRequest("InvalidRoute", "The request path was not recognized."));
-
-await Database.EnsureCreated(app.Services);
-
-await app.Services.GetRequiredService<MigrationRunner>().RunMigrations(null, CancellationToken.None);
 
 // Run
 app.Run();
