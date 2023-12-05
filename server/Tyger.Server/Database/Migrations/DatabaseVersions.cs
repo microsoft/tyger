@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using System.Reflection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Npgsql;
@@ -18,16 +19,20 @@ public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable
 {
     private readonly NpgsqlDataSource _dataSource;
     private readonly ILogger<DatabaseVersions> _logger;
-    private CancellationTokenSource? _backgroundCancellationTokenSource;
+    private readonly CancellationTokenSource _backgroundCancellationTokenSource = new();
     private Task? _backgroundTask;
 
-    public DatabaseVersion CachedCurrentVersion { get; private set; }
 
     public DatabaseVersions(NpgsqlDataSource dataSource, ILogger<DatabaseVersions> logger)
     {
         _dataSource = dataSource;
         _logger = logger;
     }
+
+    /// <summary>
+    /// Use this property to get the current database version.
+    /// </summary>
+    public DatabaseVersion CachedCurrentVersion { get; private set; }
 
     public List<(DatabaseVersion version, Type migrator)> GetKnownVersions() =>
         (from version in Enum.GetValues<DatabaseVersion>()
@@ -60,45 +65,35 @@ public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable
 
     async Task IHostedService.StartAsync(CancellationToken cancellationToken)
     {
+        async Task BackgroundLoop(CancellationToken cancellationToken)
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
+                    await ReadAndUpdateCachedDatabaseVersion(cancellationToken);
+                }
+                catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
+                catch (Exception e)
+                {
+                    _logger.FailedToReadDatabaseVersion(e);
+                }
+            }
+        }
+
         await ReadAndUpdateCachedDatabaseVersion(cancellationToken);
 
-        _backgroundCancellationTokenSource = new();
         _backgroundTask = BackgroundLoop(_backgroundCancellationTokenSource.Token);
     }
 
-    async Task IHostedService.StopAsync(CancellationToken cancellationToken)
+    Task IHostedService.StopAsync(CancellationToken cancellationToken)
     {
-        if (_backgroundCancellationTokenSource == null || _backgroundTask == null)
-        {
-            return;
-        }
-
         _backgroundCancellationTokenSource.Cancel();
-
-        // wait for the background task to complete, but give up once the cancellation token is canceled.
-        var tcs = new TaskCompletionSource();
-        cancellationToken.Register(s => ((TaskCompletionSource)s!).SetResult(), tcs);
-        await Task.WhenAny(_backgroundTask, tcs.Task);
-    }
-
-    private async Task BackgroundLoop(CancellationToken cancellationToken)
-    {
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            try
-            {
-                await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
-                await ReadAndUpdateCachedDatabaseVersion(cancellationToken);
-            }
-            catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                return;
-            }
-            catch (Exception e)
-            {
-                _logger.FailedToReadDatabaseVersion(e);
-            }
-        }
+        return Task.CompletedTask;
     }
 
     private async Task ReadAndUpdateCachedDatabaseVersion(CancellationToken cancellationToken)
@@ -121,13 +116,13 @@ public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable
         var res = await ReadCurrentDatabaseVersion(cancellationToken);
         if (!res.HasValue)
         {
-            return HealthCheckResult.Unhealthy("Database is empty");
+            return HealthCheckResult.Unhealthy("Database version is not available");
         }
 
         return HealthCheckResult.Healthy();
     }
 
-    public void Dispose() => _backgroundCancellationTokenSource?.Dispose();
+    public void Dispose() => _backgroundCancellationTokenSource.Dispose();
 }
 
 [AttributeUsage(AttributeTargets.Field, Inherited = false, AllowMultiple = false)]

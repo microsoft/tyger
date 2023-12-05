@@ -1,29 +1,28 @@
+using Microsoft.Extensions.Options;
 using Npgsql;
 using static Tyger.Server.Database.Constants;
 
 namespace Tyger.Server.Database.Migrations;
 
+/// <summary>
+/// Applies database migrations sequentially.
+/// </summary>
 public class MigrationRunner : IHostedService
 {
     private readonly NpgsqlDataSource _dataSource;
     private readonly DatabaseVersions _databaseVersions;
+    private readonly DatabaseOptions _options;
     private readonly ILogger<MigrationRunner> _logger;
     private readonly ILoggerFactory _loggerFactory;
 
-    public MigrationRunner(NpgsqlDataSource dataSource, DatabaseVersions databaseVersions, ILogger<MigrationRunner> logger, ILoggerFactory loggerFactory)
+    public MigrationRunner(NpgsqlDataSource dataSource, DatabaseVersions databaseVersions, IOptions<DatabaseOptions> options, ILogger<MigrationRunner> logger, ILoggerFactory loggerFactory)
     {
         _dataSource = dataSource;
         _databaseVersions = databaseVersions;
+        _options = options.Value;
         _logger = logger;
         _loggerFactory = loggerFactory;
     }
-
-    async Task IHostedService.StartAsync(CancellationToken cancellationToken)
-    {
-        await RunMigrations(null, cancellationToken);
-    }
-
-    Task IHostedService.StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     public async Task RunMigrations(int? target, CancellationToken cancellationToken)
     {
@@ -117,4 +116,14 @@ public class MigrationRunner : IHostedService
 
         return (bool)(await cmd.ExecuteScalarAsync(cancellationToken))!;
     }
+
+    async Task IHostedService.StartAsync(CancellationToken cancellationToken)
+    {
+        if (_options.AutoMigrate)
+        {
+            await RunMigrations(null, cancellationToken);
+        }
+    }
+
+    Task IHostedService.StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }
