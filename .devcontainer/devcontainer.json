@@ -53,7 +53,9 @@
         "files.exclude": {
           "**/bin/": true,
           "**/obj/": true
-        }
+        },
+
+        "dotnet.automaticallyCreateSolutionInWorkspace": false
       },
 
       // Add the IDs of extensions you want installed when the container is created.
