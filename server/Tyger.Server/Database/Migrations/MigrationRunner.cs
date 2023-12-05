@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using Npgsql;
+using Polly;
 using static Tyger.Server.Database.Constants;
 
 namespace Tyger.Server.Database.Migrations;
@@ -11,14 +12,16 @@ public class MigrationRunner : IHostedService
 {
     private readonly NpgsqlDataSource _dataSource;
     private readonly DatabaseVersions _databaseVersions;
+    private readonly ResiliencePipeline _resiliencePipeline;
     private readonly DatabaseOptions _options;
     private readonly ILogger<MigrationRunner> _logger;
     private readonly ILoggerFactory _loggerFactory;
 
-    public MigrationRunner(NpgsqlDataSource dataSource, DatabaseVersions databaseVersions, IOptions<DatabaseOptions> options, ILogger<MigrationRunner> logger, ILoggerFactory loggerFactory)
+    public MigrationRunner(NpgsqlDataSource dataSource, DatabaseVersions databaseVersions, IOptions<DatabaseOptions> options, ResiliencePipeline resiliencePipeline, ILogger<MigrationRunner> logger, ILoggerFactory loggerFactory)
     {
         _dataSource = dataSource;
         _databaseVersions = databaseVersions;
+        _resiliencePipeline = resiliencePipeline;
         _options = options.Value;
         _logger = logger;
         _loggerFactory = loggerFactory;
@@ -57,7 +60,10 @@ public class MigrationRunner : IHostedService
 
             try
             {
-                await migrator.Apply(_dataSource, migrationLogger, cancellationToken);
+                await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
+                    await migrator.Apply(_dataSource, migrationLogger, cancellationToken),
+                    cancellationToken);
+
                 migrationState = MigrationStateComplete;
                 databaseIsEmpty = false;
                 _logger.MigrationComplete((int)version);
@@ -87,34 +93,40 @@ public class MigrationRunner : IHostedService
 
     private async Task AddToMigrationTable(DatabaseVersion version, string migrationState, CancellationToken cancellationToken)
     {
-        await using var cmd = _dataSource.CreateCommand($"""
+        await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
+        {
+            await using var cmd = _dataSource.CreateCommand($"""
             INSERT INTO {MigrationsTableName} (version, state)
             VALUES ($1, $2)
             """);
 
-        cmd.Parameters.AddWithValue((int)version);
-        cmd.Parameters.AddWithValue(migrationState);
+            cmd.Parameters.AddWithValue((int)version);
+            cmd.Parameters.AddWithValue(migrationState);
 
-        await cmd.ExecuteNonQueryAsync(cancellationToken);
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> DoesMigrationsTableExist(CancellationToken cancellationToken)
     {
-        await using var cmd = _dataSource.CreateCommand($"""
+        return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
+        {
+            await using var cmd = _dataSource.CreateCommand($"""
             SELECT EXISTS (
                 SELECT
                 FROM pg_catalog.pg_class c
                 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
                 WHERE n.nspname = $1
                     AND c.relname = $2
-                    AND c.relkind = 'r' -- 'r' denotes a table
+                    AND c.relkind = 'r'
             )
             """);
 
-        cmd.Parameters.AddWithValue(DatabaseNamespace);
-        cmd.Parameters.AddWithValue(MigrationsTableName);
+            cmd.Parameters.AddWithValue(DatabaseNamespace);
+            cmd.Parameters.AddWithValue(MigrationsTableName);
 
-        return (bool)(await cmd.ExecuteScalarAsync(cancellationToken))!;
+            return (bool)(await cmd.ExecuteScalarAsync(cancellationToken))!;
+        }, cancellationToken);
     }
 
     async Task IHostedService.StartAsync(CancellationToken cancellationToken)

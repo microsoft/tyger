@@ -14,7 +14,7 @@ public static class Database
         services.AddOptions<DatabaseOptions>().BindConfiguration("database").ValidateDataAnnotations().ValidateOnStart();
         services.AddSingleton(sp =>
         {
-            var logger = sp.GetService<ILogger<RepositoryWithRetry>>();
+            var logger = sp.GetService<ILogger<ResiliencePipeline>>();
             return new ResiliencePipelineBuilder().AddRetry(new RetryStrategyOptions
             {
                 ShouldHandle = new PredicateBuilder().Handle<NpgsqlException>(e => e.IsTransient),
