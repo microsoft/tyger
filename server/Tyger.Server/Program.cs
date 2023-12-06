@@ -72,7 +72,5 @@ app.MapGet("/v1/metadata", (IOptions<AuthOptions> auth) => auth.Value.Enabled ? 
 
 app.MapFallback(() => Responses.BadRequest("InvalidRoute", "The request path was not recognized."));
 
-await Database.EnsureCreated(app.Services);
-
 // Run
 app.Run();

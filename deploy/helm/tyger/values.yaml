@@ -22,6 +22,9 @@ server:
 
   tlsEnabled: true
 
+  database:
+    autoMigrate: false
+
   storageAccountConnectionStringSecretName:
   storageAccountConnectionStringSecretDataKey: connectionString
 

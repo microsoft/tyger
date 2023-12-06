@@ -1,13 +1,9 @@
 using System.ComponentModel.DataAnnotations;
-using System.Text.Json;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Npgsql;
-using Npgsql.Internal;
-using Npgsql.Internal.TypeHandlers;
-using Npgsql.Internal.TypeHandling;
 using Polly;
 using Polly.Retry;
+using Tyger.Server.Database.Migrations;
 
 namespace Tyger.Server.Database;
 
@@ -18,7 +14,7 @@ public static class Database
         services.AddOptions<DatabaseOptions>().BindConfiguration("database").ValidateDataAnnotations().ValidateOnStart();
         services.AddSingleton(sp =>
         {
-            var logger = sp.GetService<ILogger<RepositoryWithRetry>>();
+            var logger = sp.GetService<ILogger<ResiliencePipeline>>();
             return new ResiliencePipelineBuilder().AddRetry(new RetryStrategyOptions
             {
                 ShouldHandle = new PredicateBuilder().Handle<NpgsqlException>(e => e.IsTransient),
@@ -37,72 +33,27 @@ public static class Database
             }).Build();
         });
 
-        services.AddScoped<IRepository, RepositoryWithRetry>();
-        services.AddDbContext<TygerDbContext>((sp, options) =>
-            {
-                var databaseOptions = sp.GetRequiredService<IOptions<DatabaseOptions>>().Value;
-                var connectionString = databaseOptions.ConnectionString;
-                if (!string.IsNullOrEmpty(databaseOptions.Password))
-                {
-                    connectionString = $"{connectionString}; Password={databaseOptions.Password}";
-                }
+        services.AddSingleton<IRepository, RepositoryWithRetry>();
 
-                var dataSourceBuilder = new NpgsqlDataSourceBuilder(connectionString);
-                dataSourceBuilder.AddTypeResolverFactory(new JsonOverrideTypeHandlerResolverFactory(sp.GetRequiredService<JsonSerializerOptions>()));
-                var dataSource = dataSourceBuilder.Build();
-
-                options.UseNpgsql(dataSource)
-                    .UseSnakeCaseNamingConvention();
-
-            },
-            contextLifetime: ServiceLifetime.Scoped, optionsLifetime: ServiceLifetime.Singleton);
-    }
-
-    public static async Task EnsureCreated(IServiceProvider serviceProvider)
-    {
-        using var scope = serviceProvider.CreateScope();
-        using var context = scope.ServiceProvider.GetRequiredService<TygerDbContext>();
-        await context.Database.EnsureCreatedAsync();
-    }
-
-    /// <summary>
-    /// Some ceremory to plumb in the JsonSerializerOptions we want to use for JSONB columns.
-    /// Adapted from https://github.com/npgsql/efcore.pg/issues/1107#issuecomment-945126627
-    /// </summary>
-    private sealed class JsonOverrideTypeHandlerResolverFactory : TypeHandlerResolverFactory
-    {
-        private readonly JsonSerializerOptions _jsonSerializerOptions;
-
-        public JsonOverrideTypeHandlerResolverFactory(JsonSerializerOptions jsonSerializerOptions) => _jsonSerializerOptions = jsonSerializerOptions;
-
-        public override TypeHandlerResolver Create(NpgsqlConnector connector) => new JsonOverrideTypeHandlerResolver(connector, _jsonSerializerOptions);
-
-        public override string? GetDataTypeNameByClrType(Type clrType) => null;
-
-        public override TypeMappingInfo? GetMappingByDataTypeName(string dataTypeName) => null;
-
-        private sealed class JsonOverrideTypeHandlerResolver : TypeHandlerResolver
+        services.AddSingleton(sp =>
         {
-            private readonly JsonHandler _jsonbHandler;
-
-            internal JsonOverrideTypeHandlerResolver(NpgsqlConnector connector, JsonSerializerOptions options)
+            var databaseOptions = sp.GetRequiredService<IOptions<DatabaseOptions>>().Value;
+            var connectionString = databaseOptions.ConnectionString;
+            if (!string.IsNullOrEmpty(databaseOptions.Password))
             {
-                _jsonbHandler = new JsonHandler(
-                 connector.DatabaseInfo.GetPostgresTypeByName("jsonb"),
-                 connector.TextEncoding,
-                 isJsonb: true,
-                 options);
+                connectionString = $"{connectionString}; Password={databaseOptions.Password}";
             }
 
-            public override NpgsqlTypeHandler? ResolveByDataTypeName(string typeName)
-            {
-                return typeName == "jsonb" ? _jsonbHandler : null;
-            }
+            var dataSourceBuilder = new NpgsqlDataSourceBuilder(connectionString);
+            return dataSourceBuilder.Build();
+        });
 
-            public override NpgsqlTypeHandler? ResolveByClrType(Type type) => null;
+        services.AddSingleton<MigrationRunner>();
+        services.AddSingleton<IHostedService, MigrationRunner>(sp => sp.GetRequiredService<MigrationRunner>());
 
-            public override TypeMappingInfo? GetMappingByDataTypeName(string dataTypeName) => null;
-        }
+        services.AddSingleton<DatabaseVersions>();
+        services.AddSingleton<IHostedService, DatabaseVersions>(sp => sp.GetRequiredService<DatabaseVersions>());
+        services.AddHealthChecks().AddCheck<DatabaseVersions>("database");
     }
 }
 
@@ -112,4 +63,16 @@ public class DatabaseOptions
     public string ConnectionString { get; set; } = null!;
 
     public string? Password { get; set; }
+
+    public bool AutoMigrate { get; set; }
+}
+
+public static class Constants
+{
+    public const string MigrationsTableName = "migrations";
+    public const string DatabaseNamespace = "public"; // technically the database schema
+
+    public const string MigrationStateStarted = "started";
+    public const string MigrationStateComplete = "complete";
+    public const string MigrationStateFailed = "failed";
 }

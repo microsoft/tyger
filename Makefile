@@ -13,6 +13,7 @@ HELM_NAMESPACE=tyger
 HELM_RELEASE=tyger
 TYGER_URI = https://$(shell echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.domainName')
 INSTALL_CLOUD=false
+AUTO_MIGRATE=true
 
 get-environment-config:
 	echo '${ENVIRONMENT_CONFIG_JSON}' | yq -P
@@ -85,7 +86,8 @@ set-localsettings:
 				"bufferSidecarImage": "$${buffer_sidecar_image}"
 			},
 			"database": {
-				"connectionString": "Host=tyger-db; Database=tyger; Port=5432; Username=postgres; Password=$${postgres_password}"
+				"connectionString": "Host=tyger-db; Database=tyger; Port=5432; Username=postgres; Password=$${postgres_password}",
+				"autoMigrate": ${AUTO_MIGRATE} 
 			}
 		}
 	EOF
@@ -161,7 +163,8 @@ up: ensure-environment-conditionally docker-build
 		--set api.helm.tyger.chartRef="$${chart_dir}" \
 		--set api.helm.tyger.values.server.image="$${tyger_server_image}" \
 		--set api.helm.tyger.values.server.bufferSidecarImage="$${buffer_sidecar_image}" \
-		--set api.helm.tyger.values.server.workerWaiterImage="$${worker_waiter_image}"
+		--set api.helm.tyger.values.server.workerWaiterImage="$${worker_waiter_image}" \
+		--set api.helm.tyger.values.server.database.autoMigrate=${AUTO_MIGRATE}
 
 	$(MAKE) cli-ready
 

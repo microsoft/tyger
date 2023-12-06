@@ -136,6 +136,8 @@ spec:
               value: {{ required "A value for server.workerWaiterImage is required" $serverValues.workerWaiterImage }}
             - name: Database__ConnectionString
               value: Host={{ template "common.names.fullname" .Subcharts.db }}; Database={{ .Values.db.postgresqlDatabase }}; Port=5432; Username={{ template "postgresql.username" .Subcharts.db }}
+            - name: Database__AutoMigrate
+              value: "{{ $serverValues.database.autoMigrate }}"
             - name: Buffers__BufferSidecarImage
               value: {{ required "A value for server.bufferSidecarImage is required" $serverValues.bufferSidecarImage }}
           readinessProbe:

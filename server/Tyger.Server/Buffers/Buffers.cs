@@ -13,7 +13,7 @@ public static class Buffers
     public static void AddBuffers(this IServiceCollection services)
     {
         services.AddOptions<BufferOptions>().BindConfiguration("buffers").ValidateDataAnnotations().ValidateOnStart();
-        services.AddScoped<BufferManager>();
+        services.AddSingleton<BufferManager>();
 
         services.AddHealthChecks().AddCheck<BufferManager>("buffers");
     }
