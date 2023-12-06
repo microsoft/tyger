@@ -68,7 +68,7 @@ func NewCommonRootCommand(commit string) *cobra.Command {
 
 			if cmd.CommandPath() != "tyger api install" {
 				// Disable the default transport so that we don't forget
-				// to apply proy settings.
+				// to apply proxy settings.
 				// The `tyger api install` however relies on containerd
 				// libraries to download an OCI image and those libraries
 				// do not let you specify an HTTP client.
