@@ -189,7 +189,7 @@ func executeGraphCall(ctx context.Context, cred azcore.TokenCredential, method, 
 		requestBodyReader = bytes.NewBuffer(requestBytes)
 	}
 
-	req, err := retryablehttp.NewRequest(method, url, requestBodyReader)
+	req, err := retryablehttp.NewRequestWithContext(ctx, method, url, requestBodyReader)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
