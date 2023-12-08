@@ -7,6 +7,9 @@ server:
   image:
   imagePullPolicy: IfNotPresent
 
+  identity:
+    clientId:
+
   security:
     enabled: true
     authority:
@@ -25,14 +28,14 @@ server:
   database:
     autoMigrate: false
 
-  storageAccountConnectionStringSecretName:
-  storageAccountConnectionStringSecretDataKey: connectionString
+  buffers:
+    storageAccounts: [] # {name: myaccount, location: westus2, endpoint: https://... }, ...
+
+  logArchive:
+    storageAccountEndpoint:
 
   bufferSidecarImage:
   workerWaiterImage:
-
-  logsStorageAccountConnectionStringSecretName:
-  logsStorageAccountConnectionStringSecretDataKey: connectionString
 
   clusterConfigurationJson: "{}"
 

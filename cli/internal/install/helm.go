@@ -12,6 +12,8 @@ import (
 
 	"dario.cat/mergo"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage"
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/microsoft/tyger/cli/internal/httpclient"
 	helmclient "github.com/mittwald/go-helm-client"
@@ -202,6 +204,7 @@ func InstallTyger(ctx context.Context) error {
 	}
 
 	config := GetConfigFromContext(ctx)
+	cred := GetAzureCredentialFromContext(ctx)
 
 	restConfig, err := getUserRESTConfig(ctx)
 	if err != nil {
@@ -211,6 +214,42 @@ func InstallTyger(ctx context.Context) error {
 	clustersConfigJson, err := json.Marshal(config.Cloud.Compute.Clusters)
 	if err != nil {
 		return fmt.Errorf("failed to marshal cluster configuration: %w", err)
+	}
+
+	identitiesClient, err := armmsi.NewUserAssignedIdentitiesClient(config.Cloud.SubscriptionID, cred, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create managed identities client: %w", err)
+	}
+
+	identity, err := identitiesClient.Get(ctx, config.Cloud.ResourceGroup, tygerManagedIdentityName, nil)
+	if err != nil {
+		return fmt.Errorf("failed to get managed identity: %w", err)
+	}
+
+	storageClient, err := armstorage.NewAccountsClient(config.Cloud.SubscriptionID, cred, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create storage client: %w", err)
+	}
+
+	buffersStorageAccountValues := make([]map[string]any, 0)
+	for _, accountConfig := range config.Cloud.Storage.Buffers {
+		acc, err := storageClient.GetProperties(ctx, config.Cloud.ResourceGroup, accountConfig.Name, nil)
+		if err != nil {
+			return fmt.Errorf("failed to get buffer storage account properties: %w", err)
+		}
+
+		accountValues := map[string]any{
+			"name":     accountConfig.Name,
+			"location": accountConfig.Location,
+			"endpoint": *acc.Properties.PrimaryEndpoints.Blob,
+		}
+
+		buffersStorageAccountValues = append(buffersStorageAccountValues, accountValues)
+	}
+
+	logArchiveAccount, err := storageClient.GetProperties(ctx, config.Cloud.ResourceGroup, config.Cloud.Storage.Logs.Name, nil)
+	if err != nil {
+		return fmt.Errorf("failed to get logs storage account properties: %w", err)
 	}
 
 	helmConfig := HelmChartConfig{
@@ -223,6 +262,9 @@ func InstallTyger(ctx context.Context) error {
 				"bufferSidecarImage": fmt.Sprintf("%s/buffer-sidecar:%s", containerRegistry, containerImageTag),
 				"workerWaiterImage":  fmt.Sprintf("%s/worker-waiter:%s", containerRegistry, containerImageTag),
 				"hostname":           config.Api.DomainName,
+				"identity": map[string]any{
+					"clientId": identity.Properties.ClientID,
+				},
 				"security": map[string]any{
 					"enabled":   true,
 					"authority": cloud.AzurePublic.ActiveDirectoryAuthorityHost + config.Api.Auth.TenantID,
@@ -233,6 +275,12 @@ func InstallTyger(ctx context.Context) error {
 					"letsEncrypt": map[string]any{
 						"enabled": true,
 					},
+				},
+				"buffers": map[string]any{
+					"storageAccounts": buffersStorageAccountValues,
+				},
+				"logArchive": map[string]any{
+					"storageAccountEndpoint": *logArchiveAccount.Properties.PrimaryEndpoints.Blob,
 				},
 				"storageAccountConnectionStringSecretName":     config.Cloud.Storage.Buffers[0].Name, // TODO: multiple buffers
 				"logsStorageAccountConnectionStringSecretName": config.Cloud.Storage.Logs.Name,

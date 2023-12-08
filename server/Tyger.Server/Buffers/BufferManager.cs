@@ -1,7 +1,9 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.RegularExpressions;
 using Azure;
+using Azure.Core;
 using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
 using Azure.Storage.Sas;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
@@ -11,19 +13,23 @@ using Buffer = Tyger.Server.Model.Buffer;
 
 namespace Tyger.Server.Buffers;
 
-public class BufferManager : IHealthCheck
+public sealed class BufferManager : IHealthCheck, IHostedService, IDisposable
 {
+    private static readonly TimeSpan s_userDeledationKeyDuration = TimeSpan.FromDays(1);
     private readonly IRepository _repository;
-    private readonly BufferOptions _config;
     private readonly ILogger<BufferManager> _logger;
     private readonly BlobServiceClient _serviceClient;
 
-    public BufferManager(IRepository repository, IOptions<BufferOptions> config, ILogger<BufferManager> logger)
+    private UserDelegationKey? _userDelegationKey;
+
+    private readonly CancellationTokenSource _backgroundCancellationTokenSource = new();
+
+    public BufferManager(IRepository repository, TokenCredential credential, IOptions<BufferOptions> config, ILogger<BufferManager> logger)
     {
         _repository = repository;
-        _config = config.Value;
         _logger = logger;
-        _serviceClient = new BlobServiceClient(_config.ConnectionString);
+        var bufferStorageAccountOptions = config.Value.StorageAccounts[0];
+        _serviceClient = new BlobServiceClient(new Uri(bufferStorageAccountOptions.Endpoint), credential);
     }
 
     public async Task<Buffer> CreateBuffer(Buffer newBuffer, CancellationToken cancellationToken)
@@ -114,21 +120,89 @@ public class BufferManager : IHealthCheck
         var containerClient = _serviceClient.GetBlobContainerClient(id);
 
         // Create a SAS token that's valid for one hour.
+        var start = DateTimeOffset.UtcNow;
         BlobSasBuilder sasBuilder = new()
         {
             BlobContainerName = containerClient.Name,
             Resource = "c",
-            ExpiresOn = DateTimeOffset.UtcNow.AddHours(1)
+            StartsOn = start,
+            ExpiresOn = start.AddHours(1),
+            Protocol = SasProtocol.Https
         };
         sasBuilder.SetPermissions(permissions);
 
-        Uri uri = containerClient.GenerateSasUri(sasBuilder);
-        return new BufferAccess(uri);
+        var uriBuilder = new BlobUriBuilder(containerClient.Uri)
+        {
+            Sas = sasBuilder.ToSasQueryParameters(_userDelegationKey, containerClient.AccountName)
+        };
+
+        return new BufferAccess(uriBuilder.ToUri());
     }
 
     public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken)
     {
-        await _serviceClient.GetPropertiesAsync(cancellationToken);
+        await _serviceClient.GetBlobContainerClient("healthcheck").ExistsAsync(cancellationToken);
+        if (_userDelegationKey is null || _userDelegationKey.SignedExpiresOn < DateTimeOffset.UtcNow)
+        {
+            return HealthCheckResult.Unhealthy("User delegation key is not valid");
+        }
+
         return HealthCheckResult.Healthy();
+    }
+
+    async Task IHostedService.StartAsync(CancellationToken cancellationToken)
+    {
+        async Task BackgroundLoop(CancellationToken cancellationToken)
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(s_userDeledationKeyDuration * 0.75, cancellationToken);
+                while (true)
+                {
+                    try
+                    {
+                        await RefreshUserDelegationKey(cancellationToken);
+                        break;
+                    }
+                    catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        return;
+                    }
+                    catch (Exception e)
+                    {
+                        if (_userDelegationKey is not null && _userDelegationKey.SignedExpiresOn > DateTimeOffset.UtcNow)
+                        {
+                            _logger.FailedToRefreshExpiredUserDelegationKey(e);
+                        }
+                        else
+                        {
+                            _logger.FailedToRefreshUserDelegationKey(e);
+                        }
+
+                        await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
+                    }
+                }
+            }
+        }
+
+        await RefreshUserDelegationKey(cancellationToken);
+        _ = BackgroundLoop(_backgroundCancellationTokenSource.Token);
+    }
+
+    Task IHostedService.StopAsync(CancellationToken cancellationToken)
+    {
+        _backgroundCancellationTokenSource.Cancel();
+        return Task.CompletedTask;
+    }
+
+    private async Task RefreshUserDelegationKey(CancellationToken cancellationToken)
+    {
+        var start = DateTimeOffset.UtcNow.AddMinutes(-5);
+        _userDelegationKey = await _serviceClient.GetUserDelegationKeyAsync(start, start.Add(s_userDeledationKeyDuration), cancellationToken);
+    }
+
+    public void Dispose()
+    {
+        _backgroundCancellationTokenSource.Dispose();
     }
 }
