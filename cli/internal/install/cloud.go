@@ -16,8 +16,7 @@ import (
 )
 
 const (
-	LogsStorageContainerName = "runs"
-	TagKey                   = "tyger-environment"
+	TagKey = "tyger-environment"
 )
 
 var (
@@ -273,7 +272,7 @@ func createPromises(ctx context.Context, config *EnvironmentConfig) PromiseGroup
 	})
 
 	NewPromise(ctx, group, func(ctx context.Context) (any, error) {
-		return CreateStorageAccount(ctx, config.Cloud.Storage.Logs, getAdminCredsPromise, managedIdentityPromise, LogsStorageContainerName)
+		return CreateStorageAccount(ctx, config.Cloud.Storage.Logs, getAdminCredsPromise, managedIdentityPromise)
 	})
 
 	for _, buf := range config.Cloud.Storage.Buffers {

@@ -14,7 +14,6 @@ func CreateStorageAccount(ctx context.Context,
 	storageAccountConfig *StorageAccountConfig,
 	restConfigPromise *Promise[*rest.Config],
 	managedIdentityPromise *Promise[*armmsi.Identity],
-	containers ...string,
 ) (any, error) {
 	config := GetConfigFromContext(ctx)
 	cred := GetAzureCredentialFromContext(ctx)
@@ -67,6 +66,12 @@ func CreateStorageAccount(ctx context.Context,
 
 	if err := assignRbacRole(ctx, *managedIdentity.Properties.PrincipalID, *res.ID, "Storage Blob Data Contributor", config.Cloud.SubscriptionID, cred); err != nil {
 		return nil, fmt.Errorf("failed to assign storage RBAC role: %w", err)
+	}
+
+	if localId := config.Cloud.Compute.GetApiHostCluster().LocalDevelopmentIdentityId; localId != "" {
+		if err := assignRbacRole(ctx, localId, *res.ID, "Storage Blob Data Contributor", config.Cloud.SubscriptionID, cred); err != nil {
+			return nil, fmt.Errorf("failed to assign storage RBAC role: %w", err)
+		}
 	}
 
 	return nil, nil

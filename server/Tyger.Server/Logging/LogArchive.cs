@@ -14,7 +14,9 @@ public static class LogArchiveRegistration
     public static void AddLogArchive(this IServiceCollection services)
     {
         services.AddOptions<LogArchiveOptions>().BindConfiguration("logArchive").ValidateDataAnnotations().ValidateOnStart();
-        services.AddSingleton<ILogArchive, LogArchive>();
+        services.AddSingleton<LogArchive>();
+        services.AddSingleton<ILogArchive>(sp => sp.GetRequiredService<LogArchive>());
+        services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<LogArchive>());
         services.AddHealthChecks().AddCheck<LogArchive>("logArchive");
     }
 }
@@ -25,7 +27,7 @@ public class LogArchiveOptions
     public string StorageAccountEndpoint { get; set; } = null!;
 }
 
-public class LogArchive : ILogArchive, IHealthCheck
+public class LogArchive : ILogArchive, IHostedService, IHealthCheck
 {
     private const string LineCountMetadataKey = "lineCount";
     private readonly BlobContainerClient _containerClient;
@@ -97,6 +99,13 @@ public class LogArchive : ILogArchive, IHealthCheck
         await GetLogsBlobClient(-1).ExistsAsync(cancellationToken);
         return HealthCheckResult.Healthy();
     }
+
+    async Task IHostedService.StartAsync(CancellationToken cancellationToken)
+    {
+        await _containerClient.CreateIfNotExistsAsync(cancellationToken: cancellationToken);
+    }
+
+    Task IHostedService.StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     private sealed class LogFilter : IPipelineElement
     {

@@ -7,6 +7,7 @@ public static class Identity
 {
     public static void AddManagedIdentity(this IServiceCollection services)
     {
-        services.AddSingleton<TokenCredential, WorkloadIdentityCredential>();
+        // AzureCliCredential is for when we are running on a local dev machine
+        services.AddSingleton<TokenCredential>(new ChainedTokenCredential(new WorkloadIdentityCredential(), new AzureCliCredential()));
     }
 }

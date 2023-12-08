@@ -9,6 +9,7 @@ cloud:
       - name: ${TYGER_ENVIRONMENT_NAME}
         apiHost: true
         kubernetesVersion: 1.27
+        localDevelopmentIdentityId: c0e60aba-35f0-4778-bc9b-fc5d2af14687
         userNodePools:
           - name: cpunp
             vmSize: Standard_DS12_v2
