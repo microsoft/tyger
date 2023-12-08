@@ -19,10 +19,8 @@ public sealed class BufferManager : IHealthCheck, IHostedService, IDisposable
     private readonly IRepository _repository;
     private readonly ILogger<BufferManager> _logger;
     private readonly BlobServiceClient _serviceClient;
-
-    private UserDelegationKey? _userDelegationKey;
-
     private readonly CancellationTokenSource _backgroundCancellationTokenSource = new();
+    private UserDelegationKey? _userDelegationKey;
 
     public BufferManager(IRepository repository, TokenCredential credential, IOptions<BufferOptions> config, ILogger<BufferManager> logger)
     {
