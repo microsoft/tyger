@@ -53,11 +53,12 @@ func (c *ComputeConfig) GetApiHostCluster() *ClusterConfig {
 }
 
 type ClusterConfig struct {
-	Name              string            `json:"name"`
-	ApiHost           bool              `json:"apiHost"`
-	Location          string            `json:"location"`
-	KubernetesVersion string            `json:"kubernetesVersion,omitempty"`
-	UserNodePools     []*NodePoolConfig `json:"userNodePools"`
+	Name                       string            `json:"name"`
+	ApiHost                    bool              `json:"apiHost"`
+	Location                   string            `json:"location"`
+	KubernetesVersion          string            `json:"kubernetesVersion,omitempty"`
+	UserNodePools              []*NodePoolConfig `json:"userNodePools"`
+	LocalDevelopmentIdentityId string            `json:"localDevelopmentIdentityId"` // undocumented - for local development only
 }
 
 type NodePoolConfig struct {

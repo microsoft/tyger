@@ -49,25 +49,26 @@ set-localsettings:
 		echo "Run 'make up' before this target"; exit 1
 	fi
 
-	buffer_secret_name=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.cloud.storage.buffers[0].name')
-	buffer_secret_value="$$(kubectl get secrets -n ${HELM_NAMESPACE} $${buffer_secret_name} -o jsonpath="{.data.connectionString}" | base64 -d)"
-
-	logs_secret_name=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.cloud.storage.logs.name')
-	logs_secret_value="$$(kubectl get secrets -n ${HELM_NAMESPACE} $${logs_secret_name} -o jsonpath="{.data.connectionString}" | base64 -d)"
-
 	postgres_password="$$(kubectl get secrets -n ${HELM_NAMESPACE} ${HELM_RELEASE}-db -o jsonpath="{.data.postgresql-password}" | base64 -d)"
 
 	registry=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
 	buffer_sidecar_image="$$(docker inspect $${registry}/buffer-sidecar:dev | jq -r --arg repo $${registry}/buffer-sidecar '.[0].RepoDigests[] | select (startswith($$repo))')"
 	worker_waiter_image="$$(docker inspect $${registry}/worker-waiter:dev | jq -r --arg repo $${registry}/worker-waiter '.[0].RepoDigests[] | select (startswith($$repo))')"
 
+	subscription=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.cloud.subscriptionId')
+	buffer_storage_account_name=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.cloud.storage.buffers[0].name')
+	buffer_endpoint=$$(az storage account show -n "$${buffer_storage_account_name}" --subscription "$${subscription}" --query "primaryEndpoints.blob" -o tsv)
+
+	log_archive_storage_account_name=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.cloud.storage.logs.name')
+	log_archive_endpoint=$$(az storage account show -n "$${log_archive_storage_account_name}" --subscription "$${subscription}" --query "primaryEndpoints.blob" -o tsv)
+
 	jq <<- EOF > ${SERVER_PATH}/appsettings.local.json
 		{
 			"logging": { "Console": {"FormatterName": "simple" } },
 			"auth": {
 				"enabled": "${SECURITY_ENABLED}",
-				"authority":"https://login.microsoftonline.com/$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.auth.tenantId')",
-				"audience":"$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.auth.apiAppUri')",
+				"authority": "https://login.microsoftonline.com/$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.auth.tenantId')",
+				"audience": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.auth.apiAppUri')",
 				"cliAppUri": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.auth.cliAppUri')"
 			},
 			"kubernetes": {
@@ -79,10 +80,16 @@ set-localsettings:
 				"clusters": $$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -c '.cloud.compute.clusters')
 			},
 			"logArchive": {
-				"storageAccountConnectionString": "$${logs_secret_value}"
+				"storageAccountEndpoint": "$${log_archive_endpoint}"
 			},
 			"buffers": {
-				"connectionString": "$${buffer_secret_value}",
+				"storageAccounts": [
+					{
+						"name": "$${buffer_storage_account_name}",
+						"location": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.cloud.defaultLocation')",
+						"endpoint": "$${buffer_endpoint}"
+					}
+				],
 				"bufferSidecarImage": "$${buffer_sidecar_image}"
 			},
 			"database": {

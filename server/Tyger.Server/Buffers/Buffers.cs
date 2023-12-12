@@ -14,6 +14,7 @@ public static class Buffers
     {
         services.AddOptions<BufferOptions>().BindConfiguration("buffers").ValidateDataAnnotations().ValidateOnStart();
         services.AddSingleton<BufferManager>();
+        services.AddSingleton<IHostedService, BufferManager>(sp => sp.GetRequiredService<BufferManager>());
 
         services.AddHealthChecks().AddCheck<BufferManager>("buffers");
     }
@@ -140,9 +141,21 @@ public static class Buffers
 
 public class BufferOptions
 {
-    [Required]
-    public required string ConnectionString { get; init; }
+    [Required, MinLength(1)]
+    public required BufferStorageAccountOptions[] StorageAccounts { get; init; }
 
     [Required]
     public required string BufferSidecarImage { get; init; }
+}
+
+public class BufferStorageAccountOptions
+{
+    [Required]
+    public required string Name { get; init; }
+
+    [Required]
+    public required string Location { get; init; }
+
+    [Required]
+    public required string Endpoint { get; init; }
 }

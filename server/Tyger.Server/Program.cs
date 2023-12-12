@@ -8,6 +8,7 @@ using Tyger.Server.Auth;
 using Tyger.Server.Buffers;
 using Tyger.Server.Codespecs;
 using Tyger.Server.Database;
+using Tyger.Server.Identity;
 using Tyger.Server.Kubernetes;
 using Tyger.Server.Logging;
 using Tyger.Server.Middleware;
@@ -34,6 +35,7 @@ builder.Logging.AddConsoleFormatter<JsonFormatter, ConsoleFormatterOptions>();
 builder.Logging.Configure(l => l.ActivityTrackingOptions = ActivityTrackingOptions.None);
 
 // Services
+builder.Services.AddManagedIdentity();
 builder.Services.AddDatabase();
 builder.Services.AddKubernetes();
 builder.Services.AddLogArchive();

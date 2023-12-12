@@ -2,7 +2,9 @@ using System.Buffers;
 using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 using System.IO.Pipelines;
+using Azure.Core;
 using Azure.Storage.Blobs;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 
 namespace Tyger.Server.Logging;
@@ -12,25 +14,28 @@ public static class LogArchiveRegistration
     public static void AddLogArchive(this IServiceCollection services)
     {
         services.AddOptions<LogArchiveOptions>().BindConfiguration("logArchive").ValidateDataAnnotations().ValidateOnStart();
-        services.AddSingleton<ILogArchive, LogArchive>();
+        services.AddSingleton<LogArchive>();
+        services.AddSingleton<ILogArchive>(sp => sp.GetRequiredService<LogArchive>());
+        services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<LogArchive>());
+        services.AddHealthChecks().AddCheck<LogArchive>("logArchive");
     }
 }
 
 public class LogArchiveOptions
 {
     [Required]
-    public string StorageAccountConnectionString { get; set; } = null!;
+    public string StorageAccountEndpoint { get; set; } = null!;
 }
 
-public class LogArchive : ILogArchive
+public class LogArchive : ILogArchive, IHostedService, IHealthCheck
 {
     private const string LineCountMetadataKey = "lineCount";
-    private readonly string _storageAccountConnectionString;
+    private readonly BlobContainerClient _containerClient;
     private readonly ILogger<LogArchive> _logger;
 
-    public LogArchive(IOptions<LogArchiveOptions> options, ILogger<LogArchive> logger)
+    public LogArchive(IOptions<LogArchiveOptions> options, TokenCredential tokenCredential, ILogger<LogArchive> logger)
     {
-        _storageAccountConnectionString = options.Value.StorageAccountConnectionString;
+        _containerClient = new BlobServiceClient(new Uri(options.Value.StorageAccountEndpoint), tokenCredential).GetBlobContainerClient("runs");
         _logger = logger;
     }
 
@@ -86,8 +91,21 @@ public class LogArchive : ILogArchive
 
     private BlobClient GetLogsBlobClient(long runId)
     {
-        return new BlobClient(_storageAccountConnectionString, "runs", runId.ToString(CultureInfo.InvariantCulture));
+        return _containerClient.GetBlobClient(runId.ToString(CultureInfo.InvariantCulture));
     }
+
+    public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
+    {
+        await GetLogsBlobClient(-1).ExistsAsync(cancellationToken);
+        return HealthCheckResult.Healthy();
+    }
+
+    async Task IHostedService.StartAsync(CancellationToken cancellationToken)
+    {
+        await _containerClient.CreateIfNotExistsAsync(cancellationToken: cancellationToken);
+    }
+
+    Task IHostedService.StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     private sealed class LogFilter : IPipelineElement
     {

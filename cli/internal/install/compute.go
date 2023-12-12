@@ -12,11 +12,9 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
-	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/authorization/armauthorization/v2"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v4"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/operationalinsights/armoperationalinsights"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
-	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -24,7 +22,7 @@ import (
 
 const DefaultKubernetesVersion = "1.27" // LTS
 
-func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (any, error) {
+func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (*armcontainerservice.ManagedCluster, error) {
 	config := GetConfigFromContext(ctx)
 	cred := GetAzureCredentialFromContext(ctx)
 
@@ -73,6 +71,14 @@ func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (any, erro
 			AADProfile: &armcontainerservice.ManagedClusterAADProfile{
 				Managed:         Ptr(true),
 				EnableAzureRBAC: Ptr(false),
+			},
+			OidcIssuerProfile: &armcontainerservice.ManagedClusterOIDCIssuerProfile{
+				Enabled: Ptr(true),
+			},
+			SecurityProfile: &armcontainerservice.ManagedClusterSecurityProfile{
+				WorkloadIdentity: &armcontainerservice.ManagedClusterSecurityProfileWorkloadIdentity{
+					Enabled: Ptr(true),
+				},
 			},
 		},
 	}
@@ -209,14 +215,16 @@ func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (any, erro
 		if !poller.Done() {
 			log.Info().Msgf("Waiting for cluster '%s' to be ready", clusterConfig.Name)
 		}
-		_, err := poller.PollUntilDone(ctx, nil)
+		r, err := poller.PollUntilDone(ctx, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create cluster '%s': %w", clusterConfig.Name, err)
 		}
 		log.Info().Msgf("Cluster '%s' ready", clusterConfig.Name)
+
+		return &r.ManagedCluster, nil
 	}
 
-	return nil, nil
+	return &existingCluster.ManagedCluster, nil
 }
 
 func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCluster) (hasChanges bool, onlyScaleDown bool) {
@@ -301,6 +309,14 @@ func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCl
 		}
 	}
 
+	if existingCluster.Properties.OidcIssuerProfile == nil || existingCluster.Properties.OidcIssuerProfile.Enabled == nil || !*existingCluster.Properties.OidcIssuerProfile.Enabled {
+		return true, false
+	}
+
+	if existingCluster.Properties.SecurityProfile == nil || existingCluster.Properties.SecurityProfile.WorkloadIdentity == nil || !*existingCluster.Properties.SecurityProfile.WorkloadIdentity.Enabled {
+		return true, false
+	}
+
 	return hasChanges, onlyScaleDown
 }
 
@@ -309,101 +325,11 @@ func getClusterDnsPrefix(environmentName, clusterName, subId string) string {
 }
 
 func attachAcr(ctx context.Context, kubeletObjectId, containerRegistryId, subscriptionId string, credential azcore.TokenCredential) error {
-	acrPullRoleId, err := getAcrPullRole(ctx, credential, containerRegistryId)
-	if err != nil {
-		return fmt.Errorf("failed to get AcrPull role: %w", err)
-	}
-
-	roleAssignmentClient, err := armauthorization.NewRoleAssignmentsClient(subscriptionId, credential, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create role assignments client: %w", err)
-	}
-
-	for i := 0; ; i++ {
-		_, err = roleAssignmentClient.Create(
-			ctx,
-			containerRegistryId,
-			uuid.New().String(),
-			armauthorization.RoleAssignmentCreateParameters{
-				Properties: &armauthorization.RoleAssignmentProperties{
-					RoleDefinitionID: Ptr(acrPullRoleId),
-					PrincipalID:      Ptr(kubeletObjectId),
-				},
-			}, nil)
-		if err != nil {
-			var respErr *azcore.ResponseError
-			if errors.As(err, &respErr) {
-				switch respErr.ErrorCode {
-				case "RoleAssignmentExists":
-					return nil
-				case "PrincipalNotFound":
-					if i > 60 {
-						break
-					}
-					time.Sleep(10 * time.Second)
-					continue
-				}
-			}
-		}
-
-		return err
-	}
+	return assignRbacRole(ctx, kubeletObjectId, containerRegistryId, "AcrPull", subscriptionId, credential)
 }
 
 func detachAcr(ctx context.Context, kubeletObjectId, containerRegistryId, subscriptionId string, credential azcore.TokenCredential) error {
-	roleAssignmentClient, err := armauthorization.NewRoleAssignmentsClient(subscriptionId, credential, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create role assignments client: %w", err)
-	}
-
-	pager := roleAssignmentClient.NewListForScopePager(containerRegistryId, nil)
-	for pager.More() {
-		page, err := pager.NextPage(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to list role assignments: %w", err)
-		}
-
-		for _, ra := range page.RoleAssignmentListResult.Value {
-			if *ra.Properties.PrincipalID == kubeletObjectId {
-				_, err = roleAssignmentClient.DeleteByID(ctx, *ra.ID, nil)
-				if err != nil {
-					return fmt.Errorf("failed to delete role assignment: %w", err)
-				}
-			}
-		}
-	}
-
-	return nil
-}
-
-func getAcrPullRole(ctx context.Context, credential azcore.TokenCredential, containerRegistryId string) (string, error) {
-	roleDefClient, err := armauthorization.NewRoleDefinitionsClient(credential, nil)
-	if err != nil {
-		return "", err
-	}
-
-	pager := roleDefClient.NewListPager(containerRegistryId, &armauthorization.RoleDefinitionsClientListOptions{Filter: Ptr("rolename eq 'acrpull'")})
-
-	var acrPullRoleId string
-	for pager.More() && acrPullRoleId == "" {
-		page, err := pager.NextPage(ctx)
-		if err != nil {
-			return "", err
-		}
-
-		for _, rd := range page.Value {
-			if *rd.Properties.RoleName != "AcrPull" {
-				panic(fmt.Sprintf("unexpected role name '%s'", *rd.Name))
-			}
-			acrPullRoleId = *rd.ID
-			break
-		}
-	}
-
-	if acrPullRoleId == "" {
-		return "", fmt.Errorf("unable to find 'AcrPull' role")
-	}
-	return acrPullRoleId, nil
+	return removeRbacRoleAssignments(ctx, kubeletObjectId, containerRegistryId, subscriptionId, credential)
 }
 
 func getContainerRegistryId(ctx context.Context, name string, subscriptionId string, credential azcore.TokenCredential) (string, error) {
