@@ -21,6 +21,8 @@ github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi v1.2.0 h1:z4Yei
 github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi v1.2.0/go.mod h1:rko9SzMxcMk0NJsNAxALEGaTYyy79bNRwxgJfrH0Spw=
 github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/operationalinsights/armoperationalinsights v1.1.1 h1:2fNJSfRbULkn3BzwWcA5WO1wHDr6E14LkCiWHdkpfR4=
 github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/operationalinsights/armoperationalinsights v1.1.1/go.mod h1:A5GfDiLHjdNwpQ2DLX6QNKt/wJJfOoLz4cB7JyUapxw=
+github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/postgresql/armpostgresqlflexibleservers/v4 v4.0.0-beta.3 h1:KKn2GKl8vXExUW+ZqWi60uqHeNittr0p/LU5j+m1Ce8=
+github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/postgresql/armpostgresqlflexibleservers/v4 v4.0.0-beta.3/go.mod h1:5GF/Oqy96gLhDaKlQ8nSiQFZn0k5TqOrLEjHXIckRPs=
 github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources v1.1.1 h1:7CBQ+Ei8SP2c6ydQTGCCrS35bDxgTMfoP2miAwK++OU=
 github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources v1.1.1/go.mod h1:c/wcGeGx5FUPbM/JltUYHZcKmigwyVLJlDq+4HdtXaw=
 github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armsubscriptions v1.2.0 h1:Pmy0+3ox1IC3sp6musv87BFPIdQbqyPFjn7I8I0o2Js=

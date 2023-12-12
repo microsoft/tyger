@@ -92,18 +92,6 @@ spec:
         component: {{ include "tyger.fullname" . }}-server
         azure.workload.identity/use: "true"
     spec:
-      initContainers:
-        - name: check-db-ready
-          image: jbergknoff/postgresql-client
-          command:
-            - 'sh'
-            - '-c'
-            - |
-              until pg_isready -U {{ template "postgresql.username" .Subcharts.db }} -d {{ .Values.db.postgresqlDatabase }} -h {{ template "common.names.fullname" .Subcharts.db }} -p 5432; do
-                echo waiting for database
-                sleep 2
-              done
-
       containers:
         - name: tyger
           image: "{{ $serverValues.image | default (printf "eminence.azurecr.io/tyger-server:%s" .Chart.AppVersion) }}"
@@ -140,7 +128,7 @@ spec:
             - name: Kubernetes__WorkerWaiterImage
               value: {{ required "A value for server.workerWaiterImage is required" $serverValues.workerWaiterImage }}
             - name: Database__ConnectionString
-              value: Host={{ template "common.names.fullname" .Subcharts.db }}; Database={{ .Values.db.postgresqlDatabase }}; Port=5432; Username={{ template "postgresql.username" .Subcharts.db }}
+              value: "Host={{ $serverValues.database.host }}; Database={{ $serverValues.database.databaseName }}; Port={{ $serverValues.database.port }}; Username={{ $serverValues.database.username }}"
             - name: Database__AutoMigrate
               value: "{{ $serverValues.database.autoMigrate }}"
             {{- range $index, $element := $serverValues.buffers.storageAccounts }}
@@ -164,9 +152,6 @@ spec:
               path: /healthcheck
               port: 5000
           volumeMounts:
-          - name: secrets
-            mountPath: /etc/secrets
-            readOnly: true
           - name: config
             mountPath: /etc/config
             readOnly: true
@@ -186,14 +171,6 @@ spec:
       {{- end }}
 
       volumes:
-      - name: secrets
-        projected:
-          sources:
-          - secret:
-              name: {{ template "common.names.fullname" .Subcharts.db  }}
-              items:
-              - key: postgresql-password
-                path: database__password
       - name: config
         configMap:
           name: {{ include "tyger.fullname" . }}-server

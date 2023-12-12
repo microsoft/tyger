@@ -13,6 +13,7 @@ import (
 	"dario.cat/mergo"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/postgresql/armpostgresqlflexibleservers/v4"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage"
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/microsoft/tyger/cli/internal/httpclient"
@@ -252,6 +253,16 @@ func InstallTyger(ctx context.Context) error {
 		return fmt.Errorf("failed to get logs storage account properties: %w", err)
 	}
 
+	dbServersClient, err := armpostgresqlflexibleservers.NewServersClient(config.Cloud.SubscriptionID, cred, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create PostgreSQL server client: %w", err)
+	}
+
+	dbServer, err := dbServersClient.Get(ctx, config.Cloud.ResourceGroup, config.Cloud.DatabaseConfig.ServerName, nil)
+	if err != nil {
+		return fmt.Errorf("failed to get PostgreSQL server: %w", err)
+	}
+
 	helmConfig := HelmChartConfig{
 		Namespace: TygerNamespace,
 		ChartRef:  fmt.Sprintf("oci://%s/helm/tyger", containerRegistry),
@@ -276,6 +287,12 @@ func InstallTyger(ctx context.Context) error {
 						"enabled": true,
 					},
 				},
+				"database": map[string]any{
+					"host":         *dbServer.Properties.FullyQualifiedDomainName,
+					"databaseName": databaseName,
+					"port":         databasePort,
+					"username":     tygerManagedIdentityName,
+				},
 				"buffers": map[string]any{
 					"storageAccounts": buffersStorageAccountValues,
 				},
@@ -296,18 +313,6 @@ func InstallTyger(ctx context.Context) error {
 
 	ajustSpec := func(cs *helmclient.ChartSpec, c helmclient.Client) error {
 		cs.CreateNamespace = false
-		cs.Atomic = true
-		_, err = c.GetRelease(helmConfig.Namespace)
-		if err != nil {
-			if err == driver.ErrReleaseNotFound {
-				// This is the the initial release. In case of failure, we do not want to roll back, since the database PVCs
-				// are not deleted and the subsequent installation will create new new secrets that will not be the same
-				// as the passwords stored in the PVCs.
-				cs.Atomic = false
-			} else {
-				return err
-			}
-		}
 		return nil
 	}
 
@@ -459,14 +464,6 @@ func UninstallTyger(ctx context.Context) error {
 	clientset, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create Kubernetes client: %w", err)
-	}
-
-	err = clientset.CoreV1().PersistentVolumeClaims(TygerNamespace).DeleteCollection(
-		ctx, metav1.DeleteOptions{}, metav1.ListOptions{
-			LabelSelector: fmt.Sprintf("app.kubernetes.io/instance=%s", TygerNamespace),
-		})
-	if err != nil {
-		return fmt.Errorf("failed to delete PVCs: %w", err)
 	}
 
 	// 2. Remove the finalizer we put on run pods so that they can be deleted

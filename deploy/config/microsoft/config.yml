@@ -38,6 +38,11 @@ cloud:
       - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}tygerbuf
     logs:
       name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}tygerlog
+
+  database:
+      serverName: ${TYGER_ENVIRONMENT_NAME}tyger3
+      location: westus3
+
 api:
   domainName: ${TYGER_ENVIRONMENT_NAME}-tyger.westus2.cloudapp.azure.com
   auth:

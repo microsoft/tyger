@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Azure.Core;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using Polly;
@@ -9,6 +10,8 @@ namespace Tyger.Server.Database;
 
 public static class Database
 {
+    private static readonly string[] s_scopes = ["https://ossrdbms-aad.database.windows.net/.default"];
+
     public static void AddDatabase(this IServiceCollection services)
     {
         services.AddOptions<DatabaseOptions>().BindConfiguration("database").ValidateDataAnnotations().ValidateOnStart();
@@ -38,13 +41,18 @@ public static class Database
         services.AddSingleton(sp =>
         {
             var databaseOptions = sp.GetRequiredService<IOptions<DatabaseOptions>>().Value;
-            var connectionString = databaseOptions.ConnectionString;
-            if (!string.IsNullOrEmpty(databaseOptions.Password))
-            {
-                connectionString = $"{connectionString}; Password={databaseOptions.Password}";
-            }
+            var dataSourceBuilder = new NpgsqlDataSourceBuilder(databaseOptions.ConnectionString);
 
-            var dataSourceBuilder = new NpgsqlDataSourceBuilder(connectionString);
+            var tokenCredential = sp.GetRequiredService<TokenCredential>();
+            dataSourceBuilder.UsePeriodicPasswordProvider(
+                async (b, ct) =>
+                {
+                    var resp = await tokenCredential.GetTokenAsync(new TokenRequestContext(scopes: s_scopes), ct);
+                    return resp.Token;
+                },
+                TimeSpan.FromMinutes(30),
+                TimeSpan.FromMinutes(1));
+
             return dataSourceBuilder.Build();
         });
 
@@ -62,13 +70,15 @@ public class DatabaseOptions
     [Required]
     public string ConnectionString { get; set; } = null!;
 
-    public string? Password { get; set; }
-
     public bool AutoMigrate { get; set; }
 }
 
 public static class Constants
 {
+    public const string ServerRole = "tyger-server";
+
+    public const string OwnersRole = "tyger-owners";
+
     public const string MigrationsTableName = "migrations";
     public const string DatabaseNamespace = "public"; // technically the database schema
 

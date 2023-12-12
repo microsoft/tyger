@@ -17,12 +17,13 @@ type EnvironmentConfig struct {
 }
 
 type CloudConfig struct {
-	TenantID        string         `json:"tenantId"`
-	SubscriptionID  string         `json:"subscriptionId"`
-	DefaultLocation string         `json:"defaultLocation"`
-	ResourceGroup   string         `json:"resourceGroup"`
-	Compute         *ComputeConfig `json:"compute"`
-	Storage         *StorageConfig `json:"storage"`
+	TenantID        string          `json:"tenantId"`
+	SubscriptionID  string          `json:"subscriptionId"`
+	DefaultLocation string          `json:"defaultLocation"`
+	ResourceGroup   string          `json:"resourceGroup"`
+	Compute         *ComputeConfig  `json:"compute"`
+	Storage         *StorageConfig  `json:"storage"`
+	DatabaseConfig  *DatabaseConfig `json:"database"`
 }
 
 type ComputeConfig struct {
@@ -77,6 +78,17 @@ type StorageAccountConfig struct {
 	Name     string `json:"name"`
 	Location string `json:"location"`
 	Sku      string `json:"sku"`
+}
+
+type DatabaseConfig struct {
+	ServerName            string `json:"serverName"`
+	Location              string `json:"location"`
+	ComputeTier           string `json:"computeTier"`
+	VMSize                string `json:"vmSize"`
+	PostgresMajorVersion  int    `json:"postgresMajorVersion"`
+	InitialDatabaseSizeGb int    `json:"initialDatabaseSizeGb"`
+	BackupRetentionDays   int    `json:"backupRetentionDays"`
+	BackupGeoRedundancy   bool   `json:"backupGeoRedundancy"`
 }
 
 type ApiConfig struct {
