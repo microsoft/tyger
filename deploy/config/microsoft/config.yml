@@ -40,7 +40,7 @@ cloud:
       name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}tygerlog
 
   database:
-      serverName: ${TYGER_ENVIRONMENT_NAME}tyger3
+      serverName: ${TYGER_ENVIRONMENT_NAME}tyger
       location: westus3
 
 api:

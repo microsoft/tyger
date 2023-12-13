@@ -11,6 +11,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/postgresql/armpostgresqlflexibleservers/v4"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
@@ -91,7 +92,7 @@ func createDatabase(ctx context.Context, managedIdentityPromise *Promise[*armmsi
 			HighAvailability: &armpostgresqlflexibleservers.HighAvailability{
 				Mode: Ptr(armpostgresqlflexibleservers.HighAvailabilityModeDisabled),
 			},
-			CreateMode: Ptr(armpostgresqlflexibleservers.CreateModeCreate),
+			CreateMode: Ptr(armpostgresqlflexibleservers.CreateModeReviveDropped),
 		},
 	}
 
@@ -118,41 +119,19 @@ func createDatabase(ctx context.Context, managedIdentityPromise *Promise[*armmsi
 		log.Info().Msgf("PostgreSQL server '%s' appears to be up to date", *existingServer.Name)
 	}
 
+	if value, ok := tags[dbConfiguredTagKey]; ok && value != nil && *value == config.EnvironmentName {
+		log.Info().Msg("PostgreSQL server is already configured")
+		return nil, nil
+	}
+
 	mi, err := managedIdentityPromise.Await()
 	if err != nil {
 		return nil, errDependencyFailed
 	}
 
-	adminClient, err := armpostgresqlflexibleservers.NewAdministratorsClient(config.Cloud.SubscriptionID, cred, nil)
+	currentPrincipalDisplayName, err := createDatabaseAdmins(ctx, config, cred, databaseConfig, mi)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create PostgreSQL server admin client: %w", err)
-	}
-
-	log.Info().Msg("Creating PostgreSQL server admins")
-
-	if _, err = adminClient.BeginCreate(ctx, config.Cloud.ResourceGroup, databaseConfig.ServerName, *mi.Properties.PrincipalID, armpostgresqlflexibleservers.ActiveDirectoryAdministratorAdd{
-		Properties: &armpostgresqlflexibleservers.AdministratorPropertiesForAdd{
-			PrincipalName: mi.Name,
-			PrincipalType: Ptr(armpostgresqlflexibleservers.PrincipalTypeServicePrincipal),
-			TenantID:      Ptr(config.Cloud.TenantID),
-		},
-	}, nil); err != nil {
-		return nil, fmt.Errorf("failed to create PostgreSQL server admin: %w", err)
-	}
-
-	currentPrincipalDisplayName, currentPrincipalObjectId, currentPrincipalType, err := getCurrentPrincipalForDatabase(ctx, cred)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get current principal information: %w", err)
-	}
-
-	if _, err = adminClient.BeginCreate(ctx, config.Cloud.ResourceGroup, databaseConfig.ServerName, currentPrincipalObjectId, armpostgresqlflexibleservers.ActiveDirectoryAdministratorAdd{
-		Properties: &armpostgresqlflexibleservers.AdministratorPropertiesForAdd{
-			PrincipalName: &currentPrincipalDisplayName,
-			PrincipalType: &currentPrincipalType,
-			TenantID:      Ptr(config.Cloud.TenantID),
-		},
-	}, nil); err != nil {
-		return nil, fmt.Errorf("failed to create PostgreSQL server admin: %w", err)
+		return nil, err
 	}
 
 	firewallClient, err := armpostgresqlflexibleservers.NewFirewallRulesClient(config.Cloud.SubscriptionID, cred, nil)
@@ -160,56 +139,67 @@ func createDatabase(ctx context.Context, managedIdentityPromise *Promise[*armmsi
 		return nil, fmt.Errorf("failed to create PostgreSQL server firewall client: %w", err)
 	}
 
-	log.Info().Msg("Initializing database: creating PostgreSQL server temporary firewall rule")
+	promiseGroup := &PromiseGroup{}
+	NewPromise(ctx, promiseGroup, func(ctx context.Context) (any, error) {
+		log.Info().Msg("Creating temporary PostgreSQL server firewall rule")
 
-	temporaryAllowAllFirewallRule := "TemporaryAllowAllRule"
-	temporaryAllowAllRule := armpostgresqlflexibleservers.FirewallRule{
-		Properties: &armpostgresqlflexibleservers.FirewallRuleProperties{
-			StartIPAddress: Ptr("0.0.0.0"),
-			EndIPAddress:   Ptr("255.255.255.255"),
-		},
-	}
-	allowAllPoller, err := firewallClient.BeginCreateOrUpdate(ctx, config.Cloud.ResourceGroup, databaseConfig.ServerName, temporaryAllowAllFirewallRule, temporaryAllowAllRule, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create PostgreSQL server firewall rule: %w", err)
-	}
+		temporaryAllowAllFirewallRule := "TemporaryAllowAllRule"
+		temporaryAllowAllRule := armpostgresqlflexibleservers.FirewallRule{
+			Properties: &armpostgresqlflexibleservers.FirewallRuleProperties{
+				StartIPAddress: Ptr("0.0.0.0"),
+				EndIPAddress:   Ptr("255.255.255.255"),
+			},
+		}
 
-	if _, err := allowAllPoller.PollUntilDone(ctx, nil); err != nil {
-		return nil, fmt.Errorf("failed to create PostgreSQL server firewall rule: %w", err)
-	}
+		_, err = retryableAsyncOperation(ctx, func(ctx context.Context) (*runtime.Poller[armpostgresqlflexibleservers.FirewallRulesClientCreateOrUpdateResponse], error) {
+			return firewallClient.BeginCreateOrUpdate(ctx, config.Cloud.ResourceGroup, databaseConfig.ServerName, temporaryAllowAllFirewallRule, temporaryAllowAllRule, nil)
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create temporary PostgreSQL server firewall rule: %w", err)
+		}
 
-	if err := createRoles(ctx, cred, config, existingServer, currentPrincipalDisplayName); err != nil {
+		if err := createRoles(ctx, cred, config, existingServer, currentPrincipalDisplayName); err != nil {
+			return nil, err
+		}
+
+		log.Info().Msg("Deleting temporary PostgreSQL server firewall rules")
+
+		deletePoller, err := firewallClient.BeginDelete(ctx, config.Cloud.ResourceGroup, databaseConfig.ServerName, temporaryAllowAllFirewallRule, nil)
+		if err == nil {
+			_, err = deletePoller.PollUntilDone(ctx, nil)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to delete temporary PostgreSQL server firewall rule: %w", err)
+		}
 		return nil, err
+	})
+
+	NewPromise(ctx, promiseGroup, func(ctx context.Context) (any, error) {
+		log.Info().Msg("Adding permanent firewall rule")
+		allowAllAzureRule := armpostgresqlflexibleservers.FirewallRule{
+			Properties: &armpostgresqlflexibleservers.FirewallRuleProperties{
+				StartIPAddress: Ptr("0.0.0.0"),
+				EndIPAddress:   Ptr("0.0.0.0"),
+			},
+		}
+
+		_, err := retryableAsyncOperation(ctx, func(ctx context.Context) (*runtime.Poller[armpostgresqlflexibleservers.FirewallRulesClientCreateOrUpdateResponse], error) {
+			return firewallClient.BeginCreateOrUpdate(ctx, config.Cloud.ResourceGroup, databaseConfig.ServerName, "AllowAllAzureServicesAndResources", allowAllAzureRule, nil)
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create PostgreSQL server firewall rule: %w", err)
+		}
+
+		return nil, nil
+	})
+
+	for _, p := range *promiseGroup {
+		if err := p.AwaitErr(); err != nil {
+			return nil, err
+		}
 	}
 
-	log.Info().Msg("Initializing database: deleting temporary PostgreSQL server firewall rules")
-
-	deletePoller, err := firewallClient.BeginDelete(ctx, config.Cloud.ResourceGroup, databaseConfig.ServerName, temporaryAllowAllFirewallRule, nil)
-	if err == nil {
-		_, err = deletePoller.PollUntilDone(ctx, nil)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to delete PostgreSQL server firewall rule: %w", err)
-	}
-
-	allowAllAzureRule := armpostgresqlflexibleservers.FirewallRule{
-		Properties: &armpostgresqlflexibleservers.FirewallRuleProperties{
-			StartIPAddress: Ptr("0.0.0.0"),
-			EndIPAddress:   Ptr("0.0.0.0"),
-		},
-	}
-
-	log.Info().Msg("Initializing database: adding permanent firewall rule")
-
-	allowAzurePoller, err := firewallClient.BeginCreateOrUpdate(ctx, config.Cloud.ResourceGroup, databaseConfig.ServerName, "AllowAllAzureServicesAndResourcesWithinAzureIps", allowAllAzureRule, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create PostgreSQL server firewall rule: %w", err)
-	}
-
-	if _, err := allowAzurePoller.PollUntilDone(ctx, nil); err != nil {
-		return nil, fmt.Errorf("failed to create PostgreSQL server firewall rule: %w", err)
-	}
-
+	// add a tag on the server to indicate that it is configured, so we can skip the slow firewall configuration next time
 	tagsClient, err := armresources.NewTagsClient(config.Cloud.SubscriptionID, cred, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tags client: %w", err)
@@ -225,8 +215,44 @@ func createDatabase(ctx context.Context, managedIdentityPromise *Promise[*armmsi
 	return nil, nil
 }
 
+// Add the given managed identity and the current user as admins
+func createDatabaseAdmins(ctx context.Context, config *EnvironmentConfig, cred azcore.TokenCredential, databaseConfig DatabaseConfig, mi *armmsi.Identity) (currentPrincipalDisplayname string, err error) {
+	adminClient, err := armpostgresqlflexibleservers.NewAdministratorsClient(config.Cloud.SubscriptionID, cred, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create PostgreSQL server admin client: %w", err)
+	}
+
+	log.Info().Msg("Creating PostgreSQL server admins")
+
+	if _, err = adminClient.BeginCreate(ctx, config.Cloud.ResourceGroup, databaseConfig.ServerName, *mi.Properties.PrincipalID, armpostgresqlflexibleservers.ActiveDirectoryAdministratorAdd{
+		Properties: &armpostgresqlflexibleservers.AdministratorPropertiesForAdd{
+			PrincipalName: mi.Name,
+			PrincipalType: Ptr(armpostgresqlflexibleservers.PrincipalTypeServicePrincipal),
+			TenantID:      Ptr(config.Cloud.TenantID),
+		},
+	}, nil); err != nil {
+		return "", fmt.Errorf("failed to create PostgreSQL server admin: %w", err)
+	}
+
+	currentPrincipalDisplayName, currentPrincipalObjectId, currentPrincipalType, err := getCurrentPrincipalForDatabase(ctx, cred)
+	if err != nil {
+		return "", fmt.Errorf("failed to get current principal information: %w", err)
+	}
+
+	if _, err = adminClient.BeginCreate(ctx, config.Cloud.ResourceGroup, databaseConfig.ServerName, currentPrincipalObjectId, armpostgresqlflexibleservers.ActiveDirectoryAdministratorAdd{
+		Properties: &armpostgresqlflexibleservers.AdministratorPropertiesForAdd{
+			PrincipalName: &currentPrincipalDisplayName,
+			PrincipalType: &currentPrincipalType,
+			TenantID:      Ptr(config.Cloud.TenantID),
+		},
+	}, nil); err != nil {
+		return "", fmt.Errorf("failed to create PostgreSQL server admin: %w", err)
+	}
+	return currentPrincipalDisplayName, nil
+}
+
 func createRoles(ctx context.Context, cred azcore.TokenCredential, config *EnvironmentConfig, server *armpostgresqlflexibleservers.Server, currentPrincipalDisplayName string) error {
-	log.Info().Msg("Initializing database: creating PostgreSQL roles")
+	log.Info().Msg("Creating PostgreSQL roles")
 
 	token, err := cred.GetToken(ctx, policy.TokenRequestOptions{
 		TenantID: config.Cloud.TenantID,
@@ -263,7 +289,7 @@ $$`, ownersRole, ownersRole))
 		return fmt.Errorf("failed to grant database role: %w", err)
 	}
 
-	_, err = db.Exec(fmt.Sprintf(`GRANT "%s" TO "%s" WITH ADMIN TRUE`, ownersRole, currentPrincipalDisplayName))
+	_, err = db.Exec(fmt.Sprintf(`GRANT "%s" TO "%s"`, ownersRole, currentPrincipalDisplayName))
 	if err != nil {
 		return fmt.Errorf("failed to grant database role: %w", err)
 	}
@@ -340,4 +366,25 @@ func databaseServerNeedsUpdate(newServer, existingServer armpostgresqlflexiblese
 	}
 
 	return merged, needsUpdate
+}
+
+// creating a firewall rule seems to fail with an internal server error right after the server was created. This
+// helper retries the operation a few times before giving up.
+func retryableAsyncOperation[T any](ctx context.Context, begin func(context.Context) (*runtime.Poller[T], error)) (T, error) {
+	for i := 0; ; i++ {
+		poller, err := begin(ctx)
+		var res T
+		if err == nil {
+			res, err = poller.PollUntilDone(ctx, nil)
+		}
+
+		if err != nil || i < 5 {
+			var respErr *azcore.ResponseError
+			if errors.As(err, &respErr) && respErr.ErrorCode == "InternalServerError" {
+				log.Info().Str("errorCode", respErr.ErrorCode).Msg("retrying after error")
+				continue
+			}
+		}
+		return res, nil
+	}
 }
