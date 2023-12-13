@@ -258,7 +258,12 @@ func InstallTyger(ctx context.Context) error {
 		return fmt.Errorf("failed to create PostgreSQL server client: %w", err)
 	}
 
-	dbServer, err := dbServersClient.Get(ctx, config.Cloud.ResourceGroup, config.Cloud.DatabaseConfig.ServerName, nil)
+	dbServerName, err := getDatabaseServerName(ctx, config, cred, false)
+	if err != nil {
+		return fmt.Errorf("failed to get database server name: %w", err)
+	}
+
+	dbServer, err := dbServersClient.Get(ctx, config.Cloud.ResourceGroup, dbServerName, nil)
 	if err != nil {
 		return fmt.Errorf("failed to get PostgreSQL server: %w", err)
 	}

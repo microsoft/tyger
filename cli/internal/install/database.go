@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
@@ -15,6 +16,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/postgresql/armpostgresqlflexibleservers/v4"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
+	"github.com/docker/docker/pkg/namesgenerator"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/rs/zerolog/log"
 )
@@ -26,10 +28,62 @@ const (
 	dbConfiguredTagKey = "tyger-db-configured"
 )
 
+func getUniqueSuffixTagKey(config *EnvironmentConfig) string {
+	return fmt.Sprintf("tyger-unique-suffix-%s", config.EnvironmentName)
+}
+
+func getDatabaseServerName(ctx context.Context, config *EnvironmentConfig, cred azcore.TokenCredential, generateIfNecessary bool) (string, error) {
+	if config.Cloud.DatabaseConfig.ServerName != "" {
+		return config.Cloud.DatabaseConfig.ServerName, nil
+	}
+
+	// Use a generated name for the database.
+	// Use or create a unique suffix and stored as a tag.
+
+	tagsClient, err := armresources.NewTagsClient(config.Cloud.SubscriptionID, cred, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create tags client: %w", err)
+	}
+
+	suffixTagKey := getUniqueSuffixTagKey(config)
+	scope := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s", config.Cloud.SubscriptionID, config.Cloud.ResourceGroup)
+	getTagsResponse, err := tagsClient.GetAtScope(ctx, scope, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to get tags: %w", err)
+	}
+
+	var suffix string
+	if suffixTagValue, ok := getTagsResponse.TagsResource.Properties.Tags[suffixTagKey]; ok && suffixTagValue != nil {
+		suffix = *suffixTagValue
+	} else {
+		if !generateIfNecessary {
+			return "", errors.New("database server name is not set and no existing suffix is found")
+		}
+
+		suffix = getRandomName()
+		getTagsResponse.TagsResource.Properties.Tags[suffixTagKey] = &suffix
+		if _, err := tagsClient.CreateOrUpdateAtScope(ctx, scope, getTagsResponse.TagsResource, nil); err != nil {
+			return "", fmt.Errorf("failed to set tags: %w", err)
+		}
+	}
+
+	return fmt.Sprintf("%s-tyger-%s", config.EnvironmentName, suffix), nil
+}
+
 func createDatabase(ctx context.Context, managedIdentityPromise *Promise[*armmsi.Identity]) (any, error) {
 	config := GetConfigFromContext(ctx)
 	databaseConfig := *config.Cloud.DatabaseConfig
 	cred := GetAzureCredentialFromContext(ctx)
+
+	tagsClient, err := armresources.NewTagsClient(config.Cloud.SubscriptionID, cred, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create tags client: %w", err)
+	}
+
+	serverName, err := getDatabaseServerName(ctx, config, cred, true)
+	if err != nil {
+		return nil, err
+	}
 
 	client, err := armpostgresqlflexibleservers.NewServersClient(config.Cloud.SubscriptionID, cred, nil)
 	if err != nil {
@@ -39,7 +93,7 @@ func createDatabase(ctx context.Context, managedIdentityPromise *Promise[*armmsi
 	var tags map[string]*string
 	var existingServer *armpostgresqlflexibleservers.Server
 
-	if existingServerResponse, err := client.Get(ctx, config.Cloud.ResourceGroup, databaseConfig.ServerName, nil); err == nil {
+	if existingServerResponse, err := client.Get(ctx, config.Cloud.ResourceGroup, serverName, nil); err == nil {
 		existingServer = &existingServerResponse.Server
 		if existingTag, ok := existingServerResponse.Tags[TagKey]; ok {
 			if *existingTag != config.EnvironmentName {
@@ -92,7 +146,7 @@ func createDatabase(ctx context.Context, managedIdentityPromise *Promise[*armmsi
 			HighAvailability: &armpostgresqlflexibleservers.HighAvailability{
 				Mode: Ptr(armpostgresqlflexibleservers.HighAvailabilityModeDisabled),
 			},
-			CreateMode: Ptr(armpostgresqlflexibleservers.CreateModeReviveDropped),
+			CreateMode: Ptr(armpostgresqlflexibleservers.CreateModeCreate),
 		},
 	}
 
@@ -103,7 +157,7 @@ func createDatabase(ctx context.Context, managedIdentityPromise *Promise[*armmsi
 
 	if serverNeedsUpdate {
 		log.Info().Msg("Creating or updating PostgreSQL server")
-		poller, err := client.BeginCreate(ctx, config.Cloud.ResourceGroup, databaseConfig.ServerName, serverParameters, nil)
+		poller, err := client.BeginCreate(ctx, config.Cloud.ResourceGroup, serverName, serverParameters, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create PostgreSQL server: %w", err)
 		}
@@ -129,7 +183,7 @@ func createDatabase(ctx context.Context, managedIdentityPromise *Promise[*armmsi
 		return nil, errDependencyFailed
 	}
 
-	currentPrincipalDisplayName, err := createDatabaseAdmins(ctx, config, cred, databaseConfig, mi)
+	currentPrincipalDisplayName, err := createDatabaseAdmins(ctx, config, serverName, cred, databaseConfig, mi)
 	if err != nil {
 		return nil, err
 	}
@@ -152,7 +206,7 @@ func createDatabase(ctx context.Context, managedIdentityPromise *Promise[*armmsi
 		}
 
 		_, err = retryableAsyncOperation(ctx, func(ctx context.Context) (*runtime.Poller[armpostgresqlflexibleservers.FirewallRulesClientCreateOrUpdateResponse], error) {
-			return firewallClient.BeginCreateOrUpdate(ctx, config.Cloud.ResourceGroup, databaseConfig.ServerName, temporaryAllowAllFirewallRule, temporaryAllowAllRule, nil)
+			return firewallClient.BeginCreateOrUpdate(ctx, config.Cloud.ResourceGroup, serverName, temporaryAllowAllFirewallRule, temporaryAllowAllRule, nil)
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create temporary PostgreSQL server firewall rule: %w", err)
@@ -164,7 +218,7 @@ func createDatabase(ctx context.Context, managedIdentityPromise *Promise[*armmsi
 
 		log.Info().Msg("Deleting temporary PostgreSQL server firewall rules")
 
-		deletePoller, err := firewallClient.BeginDelete(ctx, config.Cloud.ResourceGroup, databaseConfig.ServerName, temporaryAllowAllFirewallRule, nil)
+		deletePoller, err := firewallClient.BeginDelete(ctx, config.Cloud.ResourceGroup, serverName, temporaryAllowAllFirewallRule, nil)
 		if err == nil {
 			_, err = deletePoller.PollUntilDone(ctx, nil)
 		}
@@ -184,7 +238,7 @@ func createDatabase(ctx context.Context, managedIdentityPromise *Promise[*armmsi
 		}
 
 		_, err := retryableAsyncOperation(ctx, func(ctx context.Context) (*runtime.Poller[armpostgresqlflexibleservers.FirewallRulesClientCreateOrUpdateResponse], error) {
-			return firewallClient.BeginCreateOrUpdate(ctx, config.Cloud.ResourceGroup, databaseConfig.ServerName, "AllowAllAzureServicesAndResources", allowAllAzureRule, nil)
+			return firewallClient.BeginCreateOrUpdate(ctx, config.Cloud.ResourceGroup, serverName, "AllowAllAzureServicesAndResources", allowAllAzureRule, nil)
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create PostgreSQL server firewall rule: %w", err)
@@ -200,11 +254,6 @@ func createDatabase(ctx context.Context, managedIdentityPromise *Promise[*armmsi
 	}
 
 	// add a tag on the server to indicate that it is configured, so we can skip the slow firewall configuration next time
-	tagsClient, err := armresources.NewTagsClient(config.Cloud.SubscriptionID, cred, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create tags client: %w", err)
-	}
-
 	existingServer.Tags[dbConfiguredTagKey] = &config.EnvironmentName
 
 	_, err = tagsClient.CreateOrUpdateAtScope(ctx, *existingServer.ID, armresources.TagsResource{Properties: &armresources.Tags{Tags: existingServer.Tags}}, nil)
@@ -216,7 +265,7 @@ func createDatabase(ctx context.Context, managedIdentityPromise *Promise[*armmsi
 }
 
 // Add the given managed identity and the current user as admins
-func createDatabaseAdmins(ctx context.Context, config *EnvironmentConfig, cred azcore.TokenCredential, databaseConfig DatabaseConfig, mi *armmsi.Identity) (currentPrincipalDisplayname string, err error) {
+func createDatabaseAdmins(ctx context.Context, config *EnvironmentConfig, serverName string, cred azcore.TokenCredential, databaseConfig DatabaseConfig, mi *armmsi.Identity) (currentPrincipalDisplayname string, err error) {
 	adminClient, err := armpostgresqlflexibleservers.NewAdministratorsClient(config.Cloud.SubscriptionID, cred, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create PostgreSQL server admin client: %w", err)
@@ -224,7 +273,7 @@ func createDatabaseAdmins(ctx context.Context, config *EnvironmentConfig, cred a
 
 	log.Info().Msg("Creating PostgreSQL server admins")
 
-	if _, err = adminClient.BeginCreate(ctx, config.Cloud.ResourceGroup, databaseConfig.ServerName, *mi.Properties.PrincipalID, armpostgresqlflexibleservers.ActiveDirectoryAdministratorAdd{
+	if _, err = adminClient.BeginCreate(ctx, config.Cloud.ResourceGroup, serverName, *mi.Properties.PrincipalID, armpostgresqlflexibleservers.ActiveDirectoryAdministratorAdd{
 		Properties: &armpostgresqlflexibleservers.AdministratorPropertiesForAdd{
 			PrincipalName: mi.Name,
 			PrincipalType: Ptr(armpostgresqlflexibleservers.PrincipalTypeServicePrincipal),
@@ -239,7 +288,7 @@ func createDatabaseAdmins(ctx context.Context, config *EnvironmentConfig, cred a
 		return "", fmt.Errorf("failed to get current principal information: %w", err)
 	}
 
-	if _, err = adminClient.BeginCreate(ctx, config.Cloud.ResourceGroup, databaseConfig.ServerName, currentPrincipalObjectId, armpostgresqlflexibleservers.ActiveDirectoryAdministratorAdd{
+	if _, err = adminClient.BeginCreate(ctx, config.Cloud.ResourceGroup, serverName, currentPrincipalObjectId, armpostgresqlflexibleservers.ActiveDirectoryAdministratorAdd{
 		Properties: &armpostgresqlflexibleservers.AdministratorPropertiesForAdd{
 			PrincipalName: &currentPrincipalDisplayName,
 			PrincipalType: &currentPrincipalType,
@@ -387,4 +436,8 @@ func retryableAsyncOperation[T any](ctx context.Context, begin func(context.Cont
 		}
 		return res, nil
 	}
+}
+
+func getRandomName() string {
+	return strings.ReplaceAll(namesgenerator.GetRandomName(0), "_", "-")
 }
