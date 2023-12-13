@@ -304,9 +304,7 @@ func InstallTyger(ctx context.Context) error {
 				"logArchive": map[string]any{
 					"storageAccountEndpoint": *logArchiveAccount.Properties.PrimaryEndpoints.Blob,
 				},
-				"storageAccountConnectionStringSecretName":     config.Cloud.Storage.Buffers[0].Name, // TODO: multiple buffers
-				"logsStorageAccountConnectionStringSecretName": config.Cloud.Storage.Logs.Name,
-				"clusterConfigurationJson":                     string(clustersConfigJson),
+				"clusterConfigurationJson": string(clustersConfigJson),
 			},
 		},
 	}
