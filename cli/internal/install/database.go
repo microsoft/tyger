@@ -36,57 +36,10 @@ const (
 	dbConfiguredTagKey = "tyger-db-configured"
 )
 
-func getUniqueSuffixTagKey(config *EnvironmentConfig) string {
-	return fmt.Sprintf("tyger-unique-suffix-%s", config.EnvironmentName)
-}
-
-func getDatabaseServerName(ctx context.Context, config *EnvironmentConfig, cred azcore.TokenCredential, generateIfNecessary bool) (string, error) {
-	if config.Cloud.DatabaseConfig.ServerName != "" {
-		return config.Cloud.DatabaseConfig.ServerName, nil
-	}
-
-	// Use a generated name for the database.
-	// Use or create a unique suffix and stored as a tag.
-
-	tagsClient, err := armresources.NewTagsClient(config.Cloud.SubscriptionID, cred, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create tags client: %w", err)
-	}
-
-	suffixTagKey := getUniqueSuffixTagKey(config)
-	scope := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s", config.Cloud.SubscriptionID, config.Cloud.ResourceGroup)
-	getTagsResponse, err := tagsClient.GetAtScope(ctx, scope, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to get tags: %w", err)
-	}
-
-	var suffix string
-	if suffixTagValue, ok := getTagsResponse.TagsResource.Properties.Tags[suffixTagKey]; ok && suffixTagValue != nil {
-		suffix = *suffixTagValue
-	} else {
-		if !generateIfNecessary {
-			return "", errors.New("database server name is not set and no existing suffix is found")
-		}
-
-		suffix = getRandomName()
-		getTagsResponse.TagsResource.Properties.Tags[suffixTagKey] = &suffix
-		if _, err := tagsClient.CreateOrUpdateAtScope(ctx, scope, getTagsResponse.TagsResource, nil); err != nil {
-			return "", fmt.Errorf("failed to set tags: %w", err)
-		}
-	}
-
-	return fmt.Sprintf("%s-tyger-%s", config.EnvironmentName, suffix), nil
-}
-
 func createDatabase(ctx context.Context, managedIdentityPromise *Promise[*armmsi.Identity]) (any, error) {
 	config := GetConfigFromContext(ctx)
 	databaseConfig := *config.Cloud.DatabaseConfig
 	cred := GetAzureCredentialFromContext(ctx)
-
-	tagsClient, err := armresources.NewTagsClient(config.Cloud.SubscriptionID, cred, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create tags client: %w", err)
-	}
 
 	serverName, err := getDatabaseServerName(ctx, config, cred, true)
 	if err != nil {
@@ -170,8 +123,6 @@ func createDatabase(ctx context.Context, managedIdentityPromise *Promise[*armmsi
 			return nil, fmt.Errorf("failed to create PostgreSQL server: %w", err)
 		}
 
-		log.Info().Msg("Waiting for PostgreSQL server to be created")
-
 		createdDatabaseServer, err := poller.PollUntilDone(ctx, nil)
 		existingServer = &createdDatabaseServer.Server
 		if err != nil {
@@ -181,6 +132,7 @@ func createDatabase(ctx context.Context, managedIdentityPromise *Promise[*armmsi
 		log.Info().Msgf("PostgreSQL server '%s' appears to be up to date", *existingServer.Name)
 	}
 
+	// check if the database has already been configured and we can skip the steps that follow
 	if value, ok := tags[dbConfiguredTagKey]; ok && value != nil && *value == config.EnvironmentName {
 		log.Info().Msg("PostgreSQL server is already configured")
 		return nil, nil
@@ -201,7 +153,13 @@ func createDatabase(ctx context.Context, managedIdentityPromise *Promise[*armmsi
 		return nil, fmt.Errorf("failed to create PostgreSQL server firewall client: %w", err)
 	}
 
+	// Run two tasks in parallel:
 	promiseGroup := &PromiseGroup{}
+
+	// Task one:
+	// 1. create a temporary firewall rule that allows connections from anywhere (so that we can connect from this machine)
+	// 2. create the necessary database roles
+	// 3. delete the temporary firewall rule
 	NewPromise(ctx, promiseGroup, func(ctx context.Context) (any, error) {
 		log.Info().Msg("Creating temporary PostgreSQL server firewall rule")
 
@@ -236,6 +194,8 @@ func createDatabase(ctx context.Context, managedIdentityPromise *Promise[*armmsi
 		return nil, err
 	})
 
+	// Task two: create a permanent firewall rule that allows connections from Azure services and resources
+	// (we should support private networking in the future)
 	NewPromise(ctx, promiseGroup, func(ctx context.Context) (any, error) {
 		log.Info().Msg("Adding permanent firewall rule")
 		allowAllAzureRule := armpostgresqlflexibleservers.FirewallRule{
@@ -255,6 +215,7 @@ func createDatabase(ctx context.Context, managedIdentityPromise *Promise[*armmsi
 		return nil, nil
 	})
 
+	// wait for the two tasks to complete
 	for _, p := range *promiseGroup {
 		if err := p.AwaitErr(); err != nil {
 			return nil, err
@@ -264,6 +225,11 @@ func createDatabase(ctx context.Context, managedIdentityPromise *Promise[*armmsi
 	// add a tag on the server to indicate that it is configured, so we can skip the slow firewall configuration next time
 	existingServer.Tags[dbConfiguredTagKey] = &config.EnvironmentName
 
+	tagsClient, err := armresources.NewTagsClient(config.Cloud.SubscriptionID, cred, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create tags client: %w", err)
+	}
+
 	_, err = tagsClient.CreateOrUpdateAtScope(ctx, *existingServer.ID, armresources.TagsResource{Properties: &armresources.Tags{Tags: existingServer.Tags}}, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to tag PostgreSQL server: %w", err)
@@ -272,7 +238,8 @@ func createDatabase(ctx context.Context, managedIdentityPromise *Promise[*armmsi
 	return nil, nil
 }
 
-// Add the given managed identity and the current user as admins
+// Add the given managed identity and the current user as admins on the database server.
+// These are not superusers.
 func createDatabaseAdmins(ctx context.Context, config *EnvironmentConfig, serverName string, cred azcore.TokenCredential, databaseConfig DatabaseConfig, mi *armmsi.Identity) (currentPrincipalDisplayname string, err error) {
 	adminClient, err := armpostgresqlflexibleservers.NewAdministratorsClient(config.Cloud.SubscriptionID, cred, nil)
 	if err != nil {
@@ -308,6 +275,8 @@ func createDatabaseAdmins(ctx context.Context, config *EnvironmentConfig, server
 	return currentPrincipalDisplayName, nil
 }
 
+// Create a tyger-owners role and grant it to the current principal and the migration runner's managed identity.
+// The migration runner will grant full access to the tables it creates to this role.
 func createRoles(ctx context.Context, cred azcore.TokenCredential, config *EnvironmentConfig, server *armpostgresqlflexibleservers.Server, currentPrincipalDisplayName string) error {
 	log.Info().Msg("Creating PostgreSQL roles")
 
@@ -353,6 +322,8 @@ $$`, ownersRole, ownersRole))
 	return nil
 }
 
+// Extract the current principal's display name, object ID and type from an ARM OAuth token.
+// Note that we don't want to call the Graph API because that would permissions that are not always available in CI pipelines.
 func getCurrentPrincipalForDatabase(ctx context.Context, cred azcore.TokenCredential) (displayName string, objectId string, principalType armpostgresqlflexibleservers.PrincipalType, err error) {
 	tokenResponse, err := cred.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{cloud.AzurePublic.Services[cloud.ResourceManager].Audience}})
 	if err != nil {
@@ -390,6 +361,7 @@ func getCurrentPrincipalForDatabase(ctx context.Context, cred azcore.TokenCreden
 	return displayName, objectId, principalType, nil
 }
 
+// determine whether we need to update the database server by comparing the existing state and the desired state
 func databaseServerNeedsUpdate(newServer, existingServer armpostgresqlflexibleservers.Server) (merged armpostgresqlflexibleservers.Server, needsUpdate bool) {
 	needsUpdate = false
 	merged = existingServer
@@ -425,8 +397,8 @@ func databaseServerNeedsUpdate(newServer, existingServer armpostgresqlflexiblese
 	return merged, needsUpdate
 }
 
-// creating a firewall rule seems to fail with an internal server error right after the server was created. This
-// helper retries the operation a few times before giving up.
+// Creating a firewall rule seems to fail with an internal server error right after the server was created. This
+// helper retries an operation a few times before giving up.
 func retryableAsyncOperation[T any](ctx context.Context, begin func(context.Context) (*runtime.Poller[T], error)) (T, error) {
 	for i := 0; ; i++ {
 		poller, err := begin(ctx)
@@ -448,4 +420,49 @@ func retryableAsyncOperation[T any](ctx context.Context, begin func(context.Cont
 
 func getRandomName() string {
 	return strings.ReplaceAll(namesgenerator.GetRandomName(0), "_", "-")
+}
+
+func getUniqueSuffixTagKey(config *EnvironmentConfig) string {
+	return fmt.Sprintf("tyger-unique-suffix-%s", config.EnvironmentName)
+}
+
+// If you try to create a database server less than five days after one with the same name was deleted, you might get an error.
+// For this reason, we allow the database server name to be left empty in the config, and we will give it a random name.
+// The suffix of this name is stored in a tag on the resource group.
+func getDatabaseServerName(ctx context.Context, config *EnvironmentConfig, cred azcore.TokenCredential, generateIfNecessary bool) (string, error) {
+	if config.Cloud.DatabaseConfig.ServerName != "" {
+		return config.Cloud.DatabaseConfig.ServerName, nil
+	}
+
+	// Use a generated name for the database.
+	// Use or create a unique suffix and stored as a tag.
+
+	tagsClient, err := armresources.NewTagsClient(config.Cloud.SubscriptionID, cred, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create tags client: %w", err)
+	}
+
+	suffixTagKey := getUniqueSuffixTagKey(config)
+	scope := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s", config.Cloud.SubscriptionID, config.Cloud.ResourceGroup)
+	getTagsResponse, err := tagsClient.GetAtScope(ctx, scope, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to get tags: %w", err)
+	}
+
+	var suffix string
+	if suffixTagValue, ok := getTagsResponse.TagsResource.Properties.Tags[suffixTagKey]; ok && suffixTagValue != nil {
+		suffix = *suffixTagValue
+	} else {
+		if !generateIfNecessary {
+			return "", errors.New("database server name is not set and no existing suffix is found")
+		}
+
+		suffix = getRandomName()
+		getTagsResponse.TagsResource.Properties.Tags[suffixTagKey] = &suffix
+		if _, err := tagsClient.CreateOrUpdateAtScope(ctx, scope, getTagsResponse.TagsResource, nil); err != nil {
+			return "", fmt.Errorf("failed to set tags: %w", err)
+		}
+	}
+
+	return fmt.Sprintf("%s-tyger-%s", config.EnvironmentName, suffix), nil
 }
