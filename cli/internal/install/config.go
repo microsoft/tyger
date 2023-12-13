@@ -129,6 +129,8 @@ type ConfigTemplateValues struct {
 	PrincipalId              string
 	PrincipalDisplay         string
 	PrincipalKind            PrincipalKind
+	DatabaseServerName       string
+	PostgresMajorVersion     int
 	BufferStorageAccountName string
 	LogsStorageAccountName   string
 	DomainName               string

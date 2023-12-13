@@ -10,14 +10,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-const (
-	DefaultDatabaseComputeTier   = armpostgresqlflexibleservers.SKUTierBurstable
-	DefaultDatabaseVMSize        = "Standard_B1ms"
-	DefaultPostgresMajorVersion  = 16
-	DefaultInitialDatabaseSizeGb = 32
-	DefaultBackupRetentionDays   = 7
-)
-
 var (
 	ResourceNameRegex       = regexp.MustCompile(`^[a-z][a-z\-0-9]{1,23}$`)
 	StorageAccountNameRegex = regexp.MustCompile(`^[a-z0-9]{3,24}$`)

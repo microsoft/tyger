@@ -22,6 +22,14 @@ import (
 )
 
 const (
+	DefaultDatabaseComputeTier   = armpostgresqlflexibleservers.SKUTierBurstable
+	DefaultDatabaseVMSize        = "Standard_B1ms"
+	DefaultPostgresMajorVersion  = 16
+	DefaultInitialDatabaseSizeGb = 32
+	DefaultBackupRetentionDays   = 7
+)
+
+const (
 	ownersRole         = "tyger-owners"
 	databasePort       = 5432
 	databaseName       = "postgres"

@@ -99,7 +99,8 @@ func newConfigCreateCommand() *cobra.Command {
 
 			cred, _ := azidentity.NewAzureCLICredential(nil)
 			templateValues := install.ConfigTemplateValues{
-				KubernetesVersion: install.DefaultKubernetesVersion,
+				KubernetesVersion:    install.DefaultKubernetesVersion,
+				PostgresMajorVersion: install.DefaultPostgresMajorVersion,
 			}
 			var err error
 			ctx := cmd.Context()
@@ -196,6 +197,11 @@ func newConfigCreateCommand() *cobra.Command {
 			}
 
 			templateValues.DefaultLocation, err = chooseLocation(tenantCred, templateValues.SubscriptionId)
+			if err != nil {
+				return err
+			}
+
+			templateValues.DatabaseServerName, err = prompt("Give the database server a name:", fmt.Sprintf("%s-tyger", templateValues.EnvironmentName), "", install.DatabaseServerNameRegex)
 			if err != nil {
 				return err
 			}
