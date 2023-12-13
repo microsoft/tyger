@@ -48,7 +48,7 @@ set-localsettings:
 	helm_values=$$(helm get values -n ${HELM_NAMESPACE} ${HELM_RELEASE} -o json || true)
 
 	if [[ -z "$${helm_values}" ]]; then
-		echo "Run 'make up' before this target"; exit 1
+		echo "Run 'make up' and 'make set-context' before this target"; exit 1
 	fi
 
 	registry=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
@@ -80,7 +80,7 @@ set-localsettings:
 				"bufferSidecarImage": "$${buffer_sidecar_image}"
 			},
 			"database": {
-				"connectionString": "Host=$$(echo $${helm_values} | jq -r '.server.database.host'); Database=$$(echo $${helm_values} | jq -r '.server.database.databaseName'); Port=$$(echo $${helm_values} | jq -r '.server.database.port'); Username=$$(az account show | jq -r '.user.name');",
+				"connectionString": "Host=$$(echo $${helm_values} | jq -r '.server.database.host'); Database=$$(echo $${helm_values} | jq -r '.server.database.databaseName'); Port=$$(echo $${helm_values} | jq -r '.server.database.port'); Username=$$(az account show | jq -r '.user.name'); SslMode=VerifyFull",
 				"autoMigrate": ${AUTO_MIGRATE} 
 			}
 		}
@@ -255,9 +255,19 @@ cli-ready: install-cli
 	fi
 
 connect-db: set-context
-	postgres_password=$(shell kubectl get secrets ${HELM_RELEASE}-db -o jsonpath="{.data.postgresql-password}" | base64 -d)
-	cmd="PGPASSWORD=$${postgres_password} psql -d tyger -U postgres"
-	kubectl exec ${HELM_RELEASE}-db-0 -it -- bash -c "$${cmd}"
+	helm_values=$$(helm get values -n ${HELM_NAMESPACE} ${HELM_RELEASE} -o json || true)
+
+	if [[ -z "$${helm_values}" ]]; then
+		echo "Run 'make up' before this target"; exit 1
+	fi
+
+	export PGPASSWORD=$$(az account get-access-token --resource-type oss-rdbms | jq -r .accessToken)
+	
+	psql \
+		--host="$$(echo $${helm_values} | jq -r '.server.database.host')" \
+		--port="$$(echo $${helm_values} | jq -r '.server.database.port')" \
+		--username="$$(az account show | jq -r '.user.name')" \
+		--dbname="$$(echo $${helm_values} | jq -r '.server.database.databaseName')"
 
 restore:
 	cd cli

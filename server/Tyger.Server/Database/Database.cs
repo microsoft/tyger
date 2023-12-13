@@ -44,11 +44,21 @@ public static class Database
             var dataSourceBuilder = new NpgsqlDataSourceBuilder(databaseOptions.ConnectionString);
 
             var tokenCredential = sp.GetRequiredService<TokenCredential>();
+            var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(Database).FullName!);
             dataSourceBuilder.UsePeriodicPasswordProvider(
                 async (b, ct) =>
                 {
-                    var resp = await tokenCredential.GetTokenAsync(new TokenRequestContext(scopes: s_scopes), ct);
-                    return resp.Token;
+                    try
+                    {
+                        var resp = await tokenCredential.GetTokenAsync(new TokenRequestContext(scopes: s_scopes), ct);
+                        logger?.RefreshedDatabaseCredentials();
+                        return resp.Token;
+                    }
+                    catch (Exception ex)
+                    {
+                        logger?.FailedToRefreshDatabaseCredentials(ex);
+                        throw new NpgsqlException("Failed to get token", ex);
+                    }
                 },
                 TimeSpan.FromMinutes(30),
                 TimeSpan.FromMinutes(1));

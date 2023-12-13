@@ -21,3 +21,7 @@ sudo az aks install-cli --kubelogin-version "${KUBELOGIN_VERSION}" --install-loc
 
 # install dotnet-symbol
 dotnet tool install dotnet-symbol --global
+
+apt-get update
+DEBIAN_FRONTEND=noninteractive apt-get -y install --no-install-recommends \
+  postgresql-client

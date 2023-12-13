@@ -128,7 +128,7 @@ spec:
             - name: Kubernetes__WorkerWaiterImage
               value: {{ required "A value for server.workerWaiterImage is required" $serverValues.workerWaiterImage }}
             - name: Database__ConnectionString
-              value: "Host={{ $serverValues.database.host }}; Database={{ $serverValues.database.databaseName }}; Port={{ $serverValues.database.port }}; Username={{ $serverValues.database.username }}"
+              value: "Host={{ $serverValues.database.host }}; Database={{ $serverValues.database.databaseName }}; Port={{ $serverValues.database.port }}; Username={{ $serverValues.database.username }}; SslMode=VerifyFull;"
             - name: Database__AutoMigrate
               value: "{{ $serverValues.database.autoMigrate }}"
             {{- range $index, $element := $serverValues.buffers.storageAccounts }}
