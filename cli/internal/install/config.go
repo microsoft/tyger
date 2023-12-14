@@ -17,19 +17,20 @@ type EnvironmentConfig struct {
 }
 
 type CloudConfig struct {
-	TenantID        string         `json:"tenantId"`
-	SubscriptionID  string         `json:"subscriptionId"`
-	DefaultLocation string         `json:"defaultLocation"`
-	ResourceGroup   string         `json:"resourceGroup"`
-	Compute         *ComputeConfig `json:"compute"`
-	Storage         *StorageConfig `json:"storage"`
+	TenantID              string              `json:"tenantId"`
+	SubscriptionID        string              `json:"subscriptionId"`
+	DefaultLocation       string              `json:"defaultLocation"`
+	ResourceGroup         string              `json:"resourceGroup"`
+	Compute               *ComputeConfig      `json:"compute"`
+	Storage               *StorageConfig      `json:"storage"`
+	DatabaseConfig        *DatabaseConfig     `json:"database"`
+	LogAnalyticsWorkspace *NamedAzureResource `json:"logAnalyticsWorkspace"`
 }
 
 type ComputeConfig struct {
-	Clusters                   []*ClusterConfig    `json:"clusters"`
-	LogAnalyticsWorkspace      *NamedAzureResource `json:"logAnalyticsWorkspace"`
-	ManagementPrincipals       []AksPrincipal      `apjson:"managementPrincipals"`
-	PrivateContainerRegistries []string            `json:"privateContainerRegistries"`
+	Clusters                   []*ClusterConfig `json:"clusters"`
+	ManagementPrincipals       []AksPrincipal   `apjson:"managementPrincipals"`
+	PrivateContainerRegistries []string         `json:"privateContainerRegistries"`
 }
 
 type NamedAzureResource struct {
@@ -79,6 +80,17 @@ type StorageAccountConfig struct {
 	Sku      string `json:"sku"`
 }
 
+type DatabaseConfig struct {
+	ServerName           string `json:"serverName"`
+	Location             string `json:"location"`
+	ComputeTier          string `json:"computeTier"`
+	VMSize               string `json:"vmSize"`
+	PostgresMajorVersion int    `json:"postgresMajorVersion"`
+	StorageSizeGB        int    `json:"storageSizeGB"`
+	BackupRetentionDays  int    `json:"backupRetentionDays"`
+	BackupGeoRedundancy  bool   `json:"backupGeoRedundancy"`
+}
+
 type ApiConfig struct {
 	DomainName string      `json:"domainName"`
 	Auth       *AuthConfig `json:"auth"`
@@ -117,6 +129,8 @@ type ConfigTemplateValues struct {
 	PrincipalId              string
 	PrincipalDisplay         string
 	PrincipalKind            PrincipalKind
+	DatabaseServerName       string
+	PostgresMajorVersion     int
 	BufferStorageAccountName string
 	LogsStorageAccountName   string
 	DomainName               string

@@ -246,6 +246,10 @@ func createPromises(ctx context.Context, config *EnvironmentConfig) PromiseGroup
 
 	managedIdentityPromise := NewPromise(ctx, group, createTygerManagedIdentity)
 
+	NewPromise(ctx, group, func(ctx context.Context) (any, error) {
+		return createDatabase(ctx, managedIdentityPromise)
+	})
+
 	for _, clusterConfig := range config.Cloud.Compute.Clusters {
 		createClusterPromise := NewPromise(
 			ctx,

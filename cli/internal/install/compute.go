@@ -83,7 +83,7 @@ func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (*armconta
 		},
 	}
 
-	if workspace := config.Cloud.Compute.LogAnalyticsWorkspace; workspace != nil {
+	if workspace := config.Cloud.LogAnalyticsWorkspace; workspace != nil {
 		oic, err := armoperationalinsights.NewWorkspacesClient(config.Cloud.SubscriptionID, cred, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create operational insights client: %w", err)

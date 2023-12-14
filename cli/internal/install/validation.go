@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"regexp"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/postgresql/armpostgresqlflexibleservers/v4"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage"
 	"github.com/rs/zerolog/log"
 )
@@ -13,6 +14,7 @@ var (
 	ResourceNameRegex       = regexp.MustCompile(`^[a-z][a-z\-0-9]{1,23}$`)
 	StorageAccountNameRegex = regexp.MustCompile(`^[a-z0-9]{3,24}$`)
 	SubdomainRegex          = regexp.MustCompile(`^[a-zA-Z]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?$`)
+	DatabaseServerNameRegex = regexp.MustCompile(`^([a-z0-9](?:[a-z0-9\-]{1,61}[a-z0-9])?)?$`)
 )
 
 func QuickValidateEnvironmentConfig(config *EnvironmentConfig) bool {
@@ -53,6 +55,7 @@ func quickValidateCloudConfig(success *bool, environmentConfig *EnvironmentConfi
 
 	quickValidateComputeConfig(success, cloudConfig)
 	quickValidateStorageConfig(success, cloudConfig)
+	quickValidateDatabaseConfig(success, cloudConfig)
 }
 
 func quickValidateComputeConfig(success *bool, cloudConfig *CloudConfig) {
@@ -160,6 +163,57 @@ func quickValidateStorageConfig(success *bool, cloudConfig *CloudConfig) {
 	}
 	for i, buf := range storageConfig.Buffers {
 		quickValidateStorageAccountConfig(success, cloudConfig, fmt.Sprintf("cloud.storage.buffers[%d]", i), buf)
+	}
+}
+
+func quickValidateDatabaseConfig(success *bool, cloudConfig *CloudConfig) {
+	databaseConfig := cloudConfig.DatabaseConfig
+	if databaseConfig == nil {
+		validationError(success, "The `cloud.database` field is required")
+		return
+	}
+
+	if !DatabaseServerNameRegex.MatchString(databaseConfig.ServerName) {
+		validationError(success, "The `cloud.database.serverName` field must match the pattern "+DatabaseServerNameRegex.String())
+	}
+
+	if databaseConfig.Location == "" {
+		databaseConfig.Location = cloudConfig.DefaultLocation
+	}
+
+	if databaseConfig.ComputeTier == "" {
+		databaseConfig.ComputeTier = string(DefaultDatabaseComputeTier)
+	} else {
+		match := false
+		for _, at := range armpostgresqlflexibleservers.PossibleSKUTierValues() {
+			if databaseConfig.ComputeTier == string(at) {
+				match = true
+				break
+			}
+		}
+		if !match {
+			validationError(success, "The `cloud.database.computeTier` field must be one of %v", armpostgresqlflexibleservers.PossibleSKUTierValues())
+		}
+	}
+
+	if databaseConfig.VMSize == "" {
+		databaseConfig.VMSize = DefaultDatabaseVMSize
+	}
+
+	if databaseConfig.PostgresMajorVersion == 0 {
+		databaseConfig.PostgresMajorVersion = DefaultPostgresMajorVersion
+	}
+
+	if databaseConfig.StorageSizeGB == 0 {
+		databaseConfig.StorageSizeGB = DefaultInitialDatabaseSizeGb
+	} else if databaseConfig.StorageSizeGB < 0 {
+		validationError(success, "The `cloud.database.initialDatabaseSizeGb` field must be greater than or equal to zero")
+	}
+
+	if databaseConfig.BackupRetentionDays == 0 {
+		databaseConfig.BackupRetentionDays = DefaultBackupRetentionDays
+	} else if databaseConfig.BackupRetentionDays < 0 {
+		validationError(success, "The `cloud.database.backupRetentionDays` field must be greater than or equal to zero")
 	}
 }
 

@@ -45,22 +45,15 @@ set-context:
 	done
 
 set-localsettings:
-	if [[ "$$(helm list -n tyger -o json | jq --arg name ${HELM_NAMESPACE} 'any(.[]; .name == $$name)')" != "true" ]]; then
-		echo "Run 'make up' before this target"; exit 1
-	fi
+	helm_values=$$(helm get values -n ${HELM_NAMESPACE} ${HELM_RELEASE} -o json || true)
 
-	postgres_password="$$(kubectl get secrets -n ${HELM_NAMESPACE} ${HELM_RELEASE}-db -o jsonpath="{.data.postgresql-password}" | base64 -d)"
+	if [[ -z "$${helm_values}" ]]; then
+		echo "Run 'make up' and 'make set-context' before this target"; exit 1
+	fi
 
 	registry=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
 	buffer_sidecar_image="$$(docker inspect $${registry}/buffer-sidecar:dev | jq -r --arg repo $${registry}/buffer-sidecar '.[0].RepoDigests[] | select (startswith($$repo))')"
 	worker_waiter_image="$$(docker inspect $${registry}/worker-waiter:dev | jq -r --arg repo $${registry}/worker-waiter '.[0].RepoDigests[] | select (startswith($$repo))')"
-
-	subscription=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.cloud.subscriptionId')
-	buffer_storage_account_name=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.cloud.storage.buffers[0].name')
-	buffer_endpoint=$$(az storage account show -n "$${buffer_storage_account_name}" --subscription "$${subscription}" --query "primaryEndpoints.blob" -o tsv)
-
-	log_archive_storage_account_name=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.cloud.storage.logs.name')
-	log_archive_endpoint=$$(az storage account show -n "$${log_archive_storage_account_name}" --subscription "$${subscription}" --query "primaryEndpoints.blob" -o tsv)
 
 	jq <<- EOF > ${SERVER_PATH}/appsettings.local.json
 		{
@@ -80,20 +73,14 @@ set-localsettings:
 				"clusters": $$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -c '.cloud.compute.clusters')
 			},
 			"logArchive": {
-				"storageAccountEndpoint": "$${log_archive_endpoint}"
+				"storageAccountEndpoint": $$(echo $${helm_values} | jq -c '.server.logArchive.storageAccountEndpoint')
 			},
 			"buffers": {
-				"storageAccounts": [
-					{
-						"name": "$${buffer_storage_account_name}",
-						"location": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.cloud.defaultLocation')",
-						"endpoint": "$${buffer_endpoint}"
-					}
-				],
+				"storageAccounts": $$(echo $${helm_values} | jq -c '.server.buffers.storageAccounts'),
 				"bufferSidecarImage": "$${buffer_sidecar_image}"
 			},
 			"database": {
-				"connectionString": "Host=tyger-db; Database=tyger; Port=5432; Username=postgres; Password=$${postgres_password}",
+				"connectionString": "Host=$$(echo $${helm_values} | jq -r '.server.database.host'); Database=$$(echo $${helm_values} | jq -r '.server.database.databaseName'); Port=$$(echo $${helm_values} | jq -r '.server.database.port'); Username=$$(az account show | jq -r '.user.name'); SslMode=VerifyFull",
 				"autoMigrate": ${AUTO_MIGRATE} 
 			}
 		}
@@ -112,11 +99,11 @@ build-server:
 	cd ${SERVER_PATH}
 	dotnet build --no-restore
 
-run: check-forwarding set-localsettings
+run: set-localsettings
 	cd ${SERVER_PATH}
 	dotnet run -v m --no-restore
 
-watch: check-forwarding set-localsettings
+watch: set-localsettings
 	cd ${SERVER_PATH}
 	dotnet watch
 
@@ -199,15 +186,6 @@ full:
 
 test-no-up: unit-test integration-test-no-up
 
-forward:
-	echo '${ENVIRONMENT_CONFIG_JSON}' | scripts/forward-services.sh -c -
-
-check-forwarding:
-	if ! curl "http://${HELM_RELEASE}-server:8080/healthcheck" &> /dev/null ; then
-		echo "run 'make forward' in another terminal before running this target"
-		exit 1
-	fi
-
 download-test-client-cert:
 	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.version')
 	cert_path=$${HOME}/tyger_test_client_cert_$${cert_version}.pem
@@ -277,9 +255,19 @@ cli-ready: install-cli
 	fi
 
 connect-db: set-context
-	postgres_password=$(shell kubectl get secrets ${HELM_RELEASE}-db -o jsonpath="{.data.postgresql-password}" | base64 -d)
-	cmd="PGPASSWORD=$${postgres_password} psql -d tyger -U postgres"
-	kubectl exec ${HELM_RELEASE}-db-0 -it -- bash -c "$${cmd}"
+	helm_values=$$(helm get values -n ${HELM_NAMESPACE} ${HELM_RELEASE} -o json || true)
+
+	if [[ -z "$${helm_values}" ]]; then
+		echo "Run 'make up' before this target"; exit 1
+	fi
+
+	export PGPASSWORD=$$(az account get-access-token --resource-type oss-rdbms | jq -r .accessToken)
+	
+	psql \
+		--host="$$(echo $${helm_values} | jq -r '.server.database.host')" \
+		--port="$$(echo $${helm_values} | jq -r '.server.database.port')" \
+		--username="$$(az account show | jq -r '.user.name')" \
+		--dbname="$$(echo $${helm_values} | jq -r '.server.database.databaseName')"
 
 restore:
 	cd cli

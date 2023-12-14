@@ -6,6 +6,11 @@ cloud:
   resourceGroup: {{ .ResourceGroup }}
   defaultLocation: {{ .DefaultLocation}}
 
+  # Optionally point an existing Log Analytics workspace to send logs to.
+  # logAnalyticsWorkspace:
+  #   resourceGroup:
+  #   name:
+
   compute:
     clusters:
       - name: {{ .EnvironmentName }}
@@ -34,14 +39,19 @@ cloud:
       - kind: {{ .PrincipalKind }}
         id: {{ .PrincipalId }} {{- if not (contains .PrincipalId "@") }} # {{ .PrincipalDisplay }} {{- end }}
 
-    # Optionally point an existing Log Analytics workspace to send logs to.
-    # logAnalyticsWorkspace:
-    #   resourceGroup:
-    #   name:
-
     # The names of private container registries that the clusters must be able to pull from
     # privateContainerRegistries:
     #   - myprivateregistry
+
+  database:
+    serverName: {{ .DatabaseServerName }}
+    postgresMajorVersion: {{ .PostgresMajorVersion }}
+    # location: Defaults to defaultLocation
+    # computeTier: Defaults to Burstable
+    # vmSize: Defaults to Standard_B1ms
+    # storageSizeGB: Defaults to 32GB (the minimum supported)
+    # backupRetentionDays: Defaults to 7
+    # backupGeoRedundancy: Defaults to false
 
   storage:
     # Storage accounts for buffers.

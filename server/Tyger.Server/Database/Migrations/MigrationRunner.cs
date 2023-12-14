@@ -64,6 +64,8 @@ public class MigrationRunner : IHostedService
                     await migrator.Apply(_dataSource, migrationLogger, cancellationToken),
                     cancellationToken);
 
+                await GrantAccess(cancellationToken);
+
                 migrationState = MigrationStateComplete;
                 databaseIsEmpty = false;
                 _logger.MigrationComplete((int)version);
@@ -89,6 +91,19 @@ public class MigrationRunner : IHostedService
                 }
             }
         }
+    }
+
+    private async Task GrantAccess(CancellationToken cancellationToken)
+    {
+        await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
+        {
+            await using var batch = _dataSource.CreateBatch();
+
+            batch.BatchCommands.Add(new($"GRANT ALL ON ALL TABLES IN SCHEMA {DatabaseNamespace} TO \"{OwnersRole}\""));
+            batch.BatchCommands.Add(new($"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"{ServerRole}\""));
+
+            await batch.ExecuteNonQueryAsync(cancellationToken);
+        }, cancellationToken);
     }
 
     private async Task AddToMigrationTable(DatabaseVersion version, string migrationState, CancellationToken cancellationToken)

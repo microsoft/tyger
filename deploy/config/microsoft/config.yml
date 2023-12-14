@@ -4,6 +4,9 @@ cloud:
   subscriptionId: 87d8acb3-5176-4651-b457-6ab9cefd8e3d
   defaultLocation: ${TYGER_LOCATION}
   resourceGroup: ${TYGER_ENVIRONMENT_NAME}
+  logAnalyticsWorkspace:
+    resourceGroup: eminence
+    name: eminence
   compute:
     clusters:
       - name: ${TYGER_ENVIRONMENT_NAME}
@@ -26,10 +29,6 @@ cloud:
       - id: c0e60aba-35f0-4778-bc9b-fc5d2af14687
         kind: Group
 
-    logAnalyticsWorkspace:
-      resourceGroup: eminence
-      name: eminence
-
     privateContainerRegistries:
       - eminence
 
@@ -38,6 +37,10 @@ cloud:
       - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}tygerbuf
     logs:
       name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}tygerlog
+
+  database:
+      location: westus3
+
 api:
   domainName: ${TYGER_ENVIRONMENT_NAME}-tyger.westus2.cloudapp.azure.com
   auth:

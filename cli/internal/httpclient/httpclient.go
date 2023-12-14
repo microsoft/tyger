@@ -26,7 +26,7 @@ func NewRetryableClient() *retryablehttp.Client {
 	client.ErrorHandler = func(resp *http.Response, err error, numTries int) (*http.Response, error) {
 		return resp, err
 	}
-	client.CheckRetry = checkRetry
+	client.CheckRetry = createCheckRetryFunc(client)
 
 	client.HTTPClient.Transport = &lazyInitTransport{
 		transport: client.HTTPClient.Transport.(*http.Transport),
@@ -88,19 +88,25 @@ func (m *lazyInitTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	return resp, err
 }
 
-func checkRetry(ctx context.Context, resp *http.Response, err error) (bool, error) {
-	if ctx.Err() != nil {
-		return false, ctx.Err()
-	}
-	shouldRetry, checkErr := retryablehttp.DefaultRetryPolicy(ctx, resp, err)
-	if shouldRetry {
-		if err != nil {
-			log.Ctx(ctx).Warn().Err(RedactHttpError(err)).Msg("Received retryable error")
-		} else if resp != nil {
-			log.Ctx(ctx).Warn().Int("statusCode", resp.StatusCode).Msg("Received retryable status code")
+func createCheckRetryFunc(client *retryablehttp.Client) func(ctx context.Context, resp *http.Response, err error) (bool, error) {
+	return func(ctx context.Context, resp *http.Response, err error) (bool, error) {
+		if client.RetryMax == 0 {
+			return false, err
 		}
+
+		if ctx.Err() != nil {
+			return false, ctx.Err()
+		}
+		shouldRetry, checkErr := retryablehttp.DefaultRetryPolicy(ctx, resp, err)
+		if shouldRetry {
+			if err != nil {
+				log.Ctx(ctx).Warn().Err(RedactHttpError(err)).Msg("Received retryable error")
+			} else if resp != nil {
+				log.Ctx(ctx).Warn().Int("statusCode", resp.StatusCode).Msg("Received retryable status code")
+			}
+		}
+		return shouldRetry, checkErr
 	}
-	return shouldRetry, checkErr
 }
 
 // If the error is a *url.Error, redact the query string values in the error
