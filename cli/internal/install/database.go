@@ -95,7 +95,7 @@ func createDatabase(ctx context.Context, managedIdentityPromise *Promise[*armmsi
 			Version: Ptr(armpostgresqlflexibleservers.ServerVersion(strconv.Itoa(databaseConfig.PostgresMajorVersion))),
 			Storage: &armpostgresqlflexibleservers.Storage{
 				AutoGrow:      Ptr(armpostgresqlflexibleservers.StorageAutoGrowEnabled),
-				StorageSizeGB: Ptr(int32(databaseConfig.InitialDatabaseSizeGb)),
+				StorageSizeGB: Ptr(int32(databaseConfig.StorageSizeGB)),
 			},
 			Network: &armpostgresqlflexibleservers.Network{
 				PublicNetworkAccess: Ptr(armpostgresqlflexibleservers.ServerPublicNetworkAccessStateEnabled),
@@ -182,7 +182,7 @@ func createDatabase(ctx context.Context, managedIdentityPromise *Promise[*armmsi
 			return nil, err
 		}
 
-		log.Info().Msg("Deleting temporary PostgreSQL server firewall rules")
+		log.Info().Msg("Deleting temporary PostgreSQL server firewall rule")
 
 		deletePoller, err := firewallClient.BeginDelete(ctx, config.Cloud.ResourceGroup, serverName, temporaryAllowAllFirewallRule, nil)
 		if err == nil {
@@ -366,9 +366,11 @@ func databaseServerNeedsUpdate(newServer, existingServer armpostgresqlflexiblese
 	needsUpdate = false
 	merged = existingServer
 
-	// trying to update with these fields will result in an error
-	merged.Properties.Storage.Iops = nil
-	merged.Properties.Storage.Iops = nil
+	if *existingServer.Properties.Storage.Type == armpostgresqlflexibleservers.StorageTypePremiumLRS {
+		// trying to update with these fields set will result in an error
+		merged.Properties.Storage.Iops = nil
+		merged.Properties.Storage.Iops = nil
+	}
 
 	if *newServer.SKU.Tier != *existingServer.SKU.Tier {
 		merged.SKU.Tier = newServer.SKU.Tier

@@ -204,9 +204,9 @@ func quickValidateDatabaseConfig(success *bool, cloudConfig *CloudConfig) {
 		databaseConfig.PostgresMajorVersion = DefaultPostgresMajorVersion
 	}
 
-	if databaseConfig.InitialDatabaseSizeGb == 0 {
-		databaseConfig.InitialDatabaseSizeGb = DefaultInitialDatabaseSizeGb
-	} else if databaseConfig.InitialDatabaseSizeGb < 0 {
+	if databaseConfig.StorageSizeGB == 0 {
+		databaseConfig.StorageSizeGB = DefaultInitialDatabaseSizeGb
+	} else if databaseConfig.StorageSizeGB < 0 {
 		validationError(success, "The `cloud.database.initialDatabaseSizeGb` field must be greater than or equal to zero")
 	}
 

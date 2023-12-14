@@ -81,14 +81,14 @@ type StorageAccountConfig struct {
 }
 
 type DatabaseConfig struct {
-	ServerName            string `json:"serverName"`
-	Location              string `json:"location"`
-	ComputeTier           string `json:"computeTier"`
-	VMSize                string `json:"vmSize"`
-	PostgresMajorVersion  int    `json:"postgresMajorVersion"`
-	InitialDatabaseSizeGb int    `json:"initialDatabaseSizeGb"`
-	BackupRetentionDays   int    `json:"backupRetentionDays"`
-	BackupGeoRedundancy   bool   `json:"backupGeoRedundancy"`
+	ServerName           string `json:"serverName"`
+	Location             string `json:"location"`
+	ComputeTier          string `json:"computeTier"`
+	VMSize               string `json:"vmSize"`
+	PostgresMajorVersion int    `json:"postgresMajorVersion"`
+	StorageSizeGB        int    `json:"storageSizeGB"`
+	BackupRetentionDays  int    `json:"backupRetentionDays"`
+	BackupGeoRedundancy  bool   `json:"backupGeoRedundancy"`
 }
 
 type ApiConfig struct {

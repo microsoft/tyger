@@ -327,19 +327,26 @@ func InstallTyger(ctx context.Context) error {
 
 	healthCheckEndpoint := fmt.Sprintf("%s/healthcheck", baseEndpoint)
 
+	client := httpclient.NewRetryableClient()
+	client.RetryMax = 0 // we do own own retrying here
+
 	for i := 0; ; i++ {
 		req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, healthCheckEndpoint, nil)
 		if err != nil {
 			return fmt.Errorf("failed to create health check request: %w", err)
 		}
-		resp, err := httpclient.DefaultRetryableClient.Do(req)
+
+		resp, err := client.Do(req)
 		errorLogger := log.Debug()
 		exit := false
-		if i == 30 {
+		if i == 60 {
 			exit = true
 			errorLogger = log.Error()
 		}
 		if err != nil {
+			if errors.Is(err, ctx.Err()) {
+				return err
+			}
 			errorLogger.Err(err).Msg("Tyger health check failed")
 		} else if resp.StatusCode != http.StatusOK {
 			errorLogger.Msgf("Tyger health check failed with status code %d", resp.StatusCode)

@@ -49,7 +49,7 @@ cloud:
     # location: Defaults to defaultLocation
     # computeTier: Defaults to Burstable
     # vmSize: Defaults to Standard_B1ms
-    # initialDatabaseSize: Defaults to 32GB (the minimum supported)
+    # storageSizeGB: Defaults to 32GB (the minimum supported)
     # backupRetentionDays: Defaults to 7
     # backupGeoRedundancy: Defaults to false
 
