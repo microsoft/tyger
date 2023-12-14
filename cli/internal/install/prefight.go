@@ -41,7 +41,7 @@ func checkRPsRegistered(ctx context.Context, config *EnvironmentConfig, cred azc
 		"Microsoft.ContainerService",
 	}
 
-	if config.Cloud.Compute.LogAnalyticsWorkspace != nil {
+	if config.Cloud.LogAnalyticsWorkspace != nil {
 		requiredProviders = append(requiredProviders, "Microsoft.OperationsManagement", "Microsoft.OperationalInsights")
 	}
 
@@ -180,8 +180,8 @@ func checkRbac(ctx context.Context, config *EnvironmentConfig, cred azcore.Token
 	}
 
 	// Log Analytics
-	if config.Cloud.Compute.LogAnalyticsWorkspace != nil {
-		scope := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.OperationalInsights/workspaces/%s", config.Cloud.SubscriptionID, config.Cloud.Compute.LogAnalyticsWorkspace.ResourceGroup, config.Cloud.Compute.LogAnalyticsWorkspace.Name)
+	if config.Cloud.LogAnalyticsWorkspace != nil {
+		scope := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.OperationalInsights/workspaces/%s", config.Cloud.SubscriptionID, config.Cloud.LogAnalyticsWorkspace.ResourceGroup, config.Cloud.LogAnalyticsWorkspace.Name)
 		laRequiredActions := []string{
 			"Microsoft.ManagedIdentity/userAssignedIdentities/assign/action",
 			"Microsoft.OperationalInsights/workspaces/read",

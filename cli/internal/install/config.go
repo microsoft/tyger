@@ -17,20 +17,20 @@ type EnvironmentConfig struct {
 }
 
 type CloudConfig struct {
-	TenantID        string          `json:"tenantId"`
-	SubscriptionID  string          `json:"subscriptionId"`
-	DefaultLocation string          `json:"defaultLocation"`
-	ResourceGroup   string          `json:"resourceGroup"`
-	Compute         *ComputeConfig  `json:"compute"`
-	Storage         *StorageConfig  `json:"storage"`
-	DatabaseConfig  *DatabaseConfig `json:"database"`
+	TenantID              string              `json:"tenantId"`
+	SubscriptionID        string              `json:"subscriptionId"`
+	DefaultLocation       string              `json:"defaultLocation"`
+	ResourceGroup         string              `json:"resourceGroup"`
+	Compute               *ComputeConfig      `json:"compute"`
+	Storage               *StorageConfig      `json:"storage"`
+	DatabaseConfig        *DatabaseConfig     `json:"database"`
+	LogAnalyticsWorkspace *NamedAzureResource `json:"logAnalyticsWorkspace"`
 }
 
 type ComputeConfig struct {
-	Clusters                   []*ClusterConfig    `json:"clusters"`
-	LogAnalyticsWorkspace      *NamedAzureResource `json:"logAnalyticsWorkspace"`
-	ManagementPrincipals       []AksPrincipal      `apjson:"managementPrincipals"`
-	PrivateContainerRegistries []string            `json:"privateContainerRegistries"`
+	Clusters                   []*ClusterConfig `json:"clusters"`
+	ManagementPrincipals       []AksPrincipal   `apjson:"managementPrincipals"`
+	PrivateContainerRegistries []string         `json:"privateContainerRegistries"`
 }
 
 type NamedAzureResource struct {

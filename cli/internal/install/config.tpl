@@ -6,6 +6,11 @@ cloud:
   resourceGroup: {{ .ResourceGroup }}
   defaultLocation: {{ .DefaultLocation}}
 
+  # Optionally point an existing Log Analytics workspace to send logs to.
+  # logAnalyticsWorkspace:
+  #   resourceGroup:
+  #   name:
+
   compute:
     clusters:
       - name: {{ .EnvironmentName }}
@@ -33,11 +38,6 @@ cloud:
     managementPrincipals:
       - kind: {{ .PrincipalKind }}
         id: {{ .PrincipalId }} {{- if not (contains .PrincipalId "@") }} # {{ .PrincipalDisplay }} {{- end }}
-
-    # Optionally point an existing Log Analytics workspace to send logs to.
-    # logAnalyticsWorkspace:
-    #   resourceGroup:
-    #   name:
 
     # The names of private container registries that the clusters must be able to pull from
     # privateContainerRegistries:

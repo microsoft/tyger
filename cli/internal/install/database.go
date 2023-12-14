@@ -13,7 +13,9 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/monitor/armmonitor"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/operationalinsights/armoperationalinsights"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/postgresql/armpostgresqlflexibleservers/v4"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
 	"github.com/docker/docker/pkg/namesgenerator"
@@ -130,6 +132,12 @@ func createDatabase(ctx context.Context, managedIdentityPromise *Promise[*armmsi
 		}
 	} else {
 		log.Info().Msgf("PostgreSQL server '%s' appears to be up to date", *existingServer.Name)
+	}
+
+	if config.Cloud.LogAnalyticsWorkspace != nil {
+		if err := enableDiagnosticSettings(ctx, cred, config, existingServer); err != nil {
+			return nil, err
+		}
 	}
 
 	// check if the database has already been configured and we can skip the steps that follow
@@ -467,4 +475,52 @@ func getDatabaseServerName(ctx context.Context, config *EnvironmentConfig, cred 
 	}
 
 	return fmt.Sprintf("%s-tyger-%s", config.EnvironmentName, suffix), nil
+}
+
+// Export logs to Log Analytics.
+func enableDiagnosticSettings(ctx context.Context, cred azcore.TokenCredential, config *EnvironmentConfig, server *armpostgresqlflexibleservers.Server) error {
+	log.Info().Msg("Enabling diagnostics on PostgreSQL server")
+
+	diagnosticsSettingsClient, err := armmonitor.NewDiagnosticSettingsClient(cred, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create diagnostics settings client: %w", err)
+	}
+
+	oic, err := armoperationalinsights.NewWorkspacesClient(config.Cloud.SubscriptionID, cred, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create operational insights client: %w", err)
+	}
+
+	workspace, err := oic.Get(ctx, config.Cloud.LogAnalyticsWorkspace.ResourceGroup, config.Cloud.LogAnalyticsWorkspace.Name, nil)
+	if err != nil {
+		return fmt.Errorf("failed to get Log Analytics workspace: %w", err)
+	}
+
+	settings := armmonitor.DiagnosticSettingsResource{
+		Properties: &armmonitor.DiagnosticSettings{
+			Logs: []*armmonitor.LogSettings{
+				{
+					CategoryGroup: Ptr("audit"),
+					Enabled:       Ptr(true),
+				},
+				{
+					CategoryGroup: Ptr("allLogs"),
+					Enabled:       Ptr(true),
+				},
+			},
+			Metrics: []*armmonitor.MetricSettings{
+				{
+					Category: Ptr("AllMetrics"),
+					Enabled:  Ptr(true),
+				},
+			},
+			WorkspaceID: workspace.ID,
+		},
+	}
+	if _, err := diagnosticsSettingsClient.CreateOrUpdate(ctx, *server.ID, "allLogs", settings, nil); err != nil {
+		return fmt.Errorf("failed to enable diagnostics on PostgreSQL server: %w", err)
+	}
+
+	log.Info().Msg("Diagnostics on PostgreSQL server enabled")
+	return nil
 }
