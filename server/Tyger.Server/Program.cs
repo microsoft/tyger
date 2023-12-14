@@ -1,9 +1,11 @@
+using System.CommandLine;
 using Tyger.Server;
 using Tyger.Server.Auth;
 using Tyger.Server.Buffers;
 using Tyger.Server.Codespecs;
 using Tyger.Server.Configuration;
 using Tyger.Server.Database;
+using Tyger.Server.Database.Migrations;
 using Tyger.Server.Identity;
 using Tyger.Server.Json;
 using Tyger.Server.Kubernetes;
@@ -13,44 +15,70 @@ using Tyger.Server.OpenApi;
 using Tyger.Server.Runs;
 using Tyger.Server.ServiceMetadata;
 
-var builder = WebApplication.CreateBuilder(args);
+// Parse command-line arguments to see if we should run migrations or start the server.
+var rootCommand = new RootCommand("Tyger Server");
+rootCommand.SetHandler(RunServer);
 
-// Configuration
+var initCommand = new Command("init", "Initialize the database");
+initCommand.SetHandler(async () => await RunMigrations(true));
+rootCommand.AddCommand(initCommand);
 
-builder.Configuration.AddConfigurationSources();
+var res = rootCommand.Parse(args);
 
-// Logging
-builder.Logging.ConfigureLogging();
+return await rootCommand.InvokeAsync(args);
 
-// Services
-builder.Services.AddManagedIdentity();
-builder.Services.AddDatabase();
-builder.Services.AddKubernetes();
-builder.Services.AddLogArchive();
-builder.Services.AddAuth();
-builder.Services.AddBuffers();
-builder.Services.AddOpenApi();
-builder.Services.AddHealthChecks();
-builder.Services.AddJsonFormatting();
+async Task RunMigrations(bool initOnly)
+{
+    var host = ConfigureHostBuilder(Host.CreateApplicationBuilder(args)).Build();
 
-var app = builder.Build();
+    var migrationRunner = host.Services.GetRequiredService<MigrationRunner>();
 
-// Middleware and routes
-app.UseRequestLogging();
-app.UseRequestId();
-app.UseBaggage();
-app.UseExceptionHandling();
+    await migrationRunner.RunMigrations(initOnly, null, CancellationToken.None);
+}
 
-app.UseOpenApi();
-app.UseAuth();
+T ConfigureHostBuilder<T>(T builder) where T : IHostApplicationBuilder
+{
+    // Configuration
+    builder.Configuration.AddConfigurationSources();
 
-app.MapClusters();
-app.MapBuffers();
-app.MapCodespecs();
-app.MapRuns();
-app.MapServiceMetadata();
-app.MapHealthChecks("/healthcheck").AllowAnonymous();
-app.MapFallback(() => Responses.BadRequest("InvalidRoute", "The request path was not recognized."));
+    // Logging
+    builder.Logging.ConfigureLogging();
 
-// Run
-app.Run();
+    // Services
+    builder.Services.AddManagedIdentity();
+    builder.Services.AddDatabase();
+    builder.Services.AddKubernetes();
+    builder.Services.AddLogArchive();
+    builder.Services.AddAuth();
+    builder.Services.AddBuffers();
+    builder.Services.AddOpenApi();
+    builder.Services.AddHealthChecks();
+    builder.Services.AddJsonFormatting();
+
+    return builder;
+}
+
+void RunServer()
+{
+    var app = ConfigureHostBuilder(WebApplication.CreateBuilder(args)).Build();
+
+    // Middleware and routes
+    app.UseRequestLogging();
+    app.UseRequestId();
+    app.UseBaggage();
+    app.UseExceptionHandling();
+
+    app.UseOpenApi();
+    app.UseAuth();
+
+    app.MapClusters();
+    app.MapBuffers();
+    app.MapCodespecs();
+    app.MapRuns();
+    app.MapServiceMetadata();
+    app.MapHealthChecks("/healthcheck").AllowAnonymous();
+    app.MapFallback(() => Responses.BadRequest("InvalidRoute", "The request path was not recognized."));
+
+    // Run
+    app.Run();
+}

@@ -13,7 +13,7 @@ HELM_NAMESPACE=tyger
 HELM_RELEASE=tyger
 TYGER_URI = https://$(shell echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.domainName')
 INSTALL_CLOUD=false
-AUTO_MIGRATE=true
+AUTO_MIGRATE=false
 
 get-environment-config:
 	echo '${ENVIRONMENT_CONFIG_JSON}' | yq -P

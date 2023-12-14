@@ -67,8 +67,44 @@ public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable
         }, cancellationToken);
     }
 
+    public async Task<bool> DoesMigrationsTableExist(CancellationToken cancellationToken)
+    {
+        return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
+        {
+            await using var cmd = _dataSource.CreateCommand($"""
+            SELECT EXISTS (
+                SELECT
+                FROM pg_catalog.pg_class c
+                JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                WHERE n.nspname = $1
+                    AND c.relname = $2
+                    AND c.relkind = 'r'
+            )
+            """);
+
+            cmd.Parameters.AddWithValue(DatabaseNamespace);
+            cmd.Parameters.AddWithValue(MigrationsTableName);
+
+            return (bool)(await cmd.ExecuteScalarAsync(cancellationToken))!;
+        }, cancellationToken);
+    }
+
     async Task IHostedService.StartAsync(CancellationToken cancellationToken)
     {
+        while (true)
+        {
+            if (await DoesMigrationsTableExist(cancellationToken))
+            {
+                if (await ReadAndUpdateCachedDatabaseVersion(cancellationToken))
+                {
+                    break;
+                }
+            }
+
+            _logger.WaitingForDatabaseTablesToBeCreated();
+            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+        }
+
         async Task BackgroundLoop(CancellationToken cancellationToken)
         {
             while (!cancellationToken.IsCancellationRequested)
@@ -76,7 +112,10 @@ public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable
                 try
                 {
                     await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
-                    await ReadAndUpdateCachedDatabaseVersion(cancellationToken);
+                    if (!await ReadAndUpdateCachedDatabaseVersion(cancellationToken))
+                    {
+                        throw new InvalidOperationException("Current database version information is not available");
+                    }
                 }
                 catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -89,8 +128,6 @@ public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable
             }
         }
 
-        await ReadAndUpdateCachedDatabaseVersion(cancellationToken);
-
         _backgroundTask = BackgroundLoop(_backgroundCancellationTokenSource.Token);
     }
 
@@ -100,12 +137,12 @@ public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable
         return Task.CompletedTask;
     }
 
-    private async Task ReadAndUpdateCachedDatabaseVersion(CancellationToken cancellationToken)
+    private async Task<bool> ReadAndUpdateCachedDatabaseVersion(CancellationToken cancellationToken)
     {
         var readVersion = await ReadCurrentDatabaseVersion(cancellationToken);
         if (!readVersion.HasValue)
         {
-            throw new InvalidOperationException("The database appears to be empty");
+            return false;
         }
 
         if (CachedCurrentVersion != readVersion.Value)
@@ -113,6 +150,8 @@ public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable
             CachedCurrentVersion = readVersion.Value;
             _logger.UsingDatabaseVersion((int)readVersion.Value);
         }
+
+        return true;
     }
 
     public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken)
