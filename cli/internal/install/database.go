@@ -275,7 +275,8 @@ func createDatabaseAdmins(
 			TenantID:      Ptr(config.Cloud.TenantID),
 		},
 	}
-	if _, err = adminClient.BeginCreate(ctx, config.Cloud.ResourceGroup, serverName, *migrationRunnerManagedIdentity.Properties.PrincipalID, migrationRunnerAdmin, nil); err != nil {
+	migrationRunnerPoller, err := adminClient.BeginCreate(ctx, config.Cloud.ResourceGroup, serverName, *migrationRunnerManagedIdentity.Properties.PrincipalID, migrationRunnerAdmin, nil)
+	if err != nil {
 		return "", fmt.Errorf("failed to create PostgreSQL server admin: %w", err)
 	}
 
@@ -293,9 +294,18 @@ func createDatabaseAdmins(
 			TenantID:      Ptr(config.Cloud.TenantID),
 		},
 	}
-	if _, err = adminClient.BeginCreate(ctx, config.Cloud.ResourceGroup, serverName, currentPrincipalObjectId, currentUserAdmin, nil); err != nil {
+	currentUserPoller, err := adminClient.BeginCreate(ctx, config.Cloud.ResourceGroup, serverName, currentPrincipalObjectId, currentUserAdmin, nil)
+	if err != nil {
 		return "", fmt.Errorf("failed to create PostgreSQL server admin: %w", err)
 	}
+
+	if _, err := migrationRunnerPoller.PollUntilDone(ctx, nil); err != nil {
+		return "", fmt.Errorf("failed to create PostgreSQL server admin: %w", err)
+	}
+	if _, err := currentUserPoller.PollUntilDone(ctx, nil); err != nil {
+		return "", fmt.Errorf("failed to create PostgreSQL server admin: %w", err)
+	}
+
 	return currentPrincipalDisplayName, nil
 }
 
