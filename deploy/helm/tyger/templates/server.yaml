@@ -1,10 +1,9 @@
-{{ $serverValues := index .Values "server" }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: {{ include "tyger.fullname" . }}-server
+  name: {{ required "A value for identity.tygerServer.name is required" .Values.identity.tygerServer.name }}
   annotations:
-    azure.workload.identity/client-id: {{ $serverValues.identity.clientId }}
+    azure.workload.identity/client-id: {{ required "A value for identity.tygerServer.clientId is required" .Values.identity.tygerServer.clientId }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -34,7 +33,7 @@ roleRef:
   name: {{ include "tyger.fullname" . }}-server
 subjects:
 - kind: ServiceAccount
-  name: {{ include "tyger.fullname" . }}-server
+  name: {{ .Values.identity.tygerServer.name }}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -71,52 +70,9 @@ data:
     {
       "kubernetes": {
         "clusters":
-          {{ $serverValues.clusterConfigurationJson }}
+          {{ .Values.clusterConfigurationJson }}
       }
     }
----
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: {{ .Release.Name }}-database-init
-  annotations:
-spec:
-  ttlSecondsAfterFinished: 60
-  template:
-    metadata:
-      name: {{ .Release.Name }}-database-init
-      labels:
-        azure.workload.identity/use: "true"
-    spec:
-      restartPolicy: Never
-      containers:
-        - name: database-init
-          image: "{{ $serverValues.image | default (printf "eminence.azurecr.io/tyger-server:%s" .Chart.AppVersion) }}"
-          imagePullPolicy: {{ $serverValues.pullPolicy }}
-          args: ["init"]
-          env:
-            - name: Logging__Console__FormatterName
-              value: Tyger.Server.Logging.JsonFormatter
-            - name: AZURE_CLIENT_ID
-              value: {{ $serverValues.identity.clientId }}
-            - name: Kubernetes__Namespace
-              value: {{ .Release.Namespace }}
-            - name: Database__ConnectionString
-              value: "Host={{ $serverValues.database.host }}; Database={{ $serverValues.database.databaseName }}; Port={{ $serverValues.database.port }}; Username={{ $serverValues.database.username }}; SslMode=VerifyFull;"
-
-      serviceAccount: {{ include "tyger.fullname" . }}-server
-      {{- with $serverValues.nodeSelector }}
-      nodeSelector:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with $serverValues.affinity }}
-      affinity:fo
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with $serverValues.tolerations }}
-      tolerations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -126,7 +82,7 @@ spec:
   selector:
     matchLabels:
       component: {{ include "tyger.fullname" . }}-server
-  replicas: {{ $serverValues.replicas }}
+  replicas: {{ .Values.replicas }}
   strategy:
     type: Recreate # For inner-loop local development. TODO: parameterize
   template:
@@ -137,8 +93,8 @@ spec:
     spec:
       containers:
         - name: tyger
-          image: "{{ $serverValues.image | default (printf "eminence.azurecr.io/tyger-server:%s" .Chart.AppVersion) }}"
-          imagePullPolicy: {{ $serverValues.pullPolicy }}
+          image: {{ required "A value for image is required" .Values.image }}
+          imagePullPolicy: {{ .Values.pullPolicy }}
           ports:
             - containerPort: 5000
           env:
@@ -151,16 +107,16 @@ spec:
             - name: Logging__Console__FormatterName
               value: Tyger.Server.Logging.JsonFormatter
             - name: AZURE_CLIENT_ID
-              value: {{ $serverValues.identity.clientId }}
+              value: {{ .Values.identity.tygerServer.clientId }}
             - name: Auth__Enabled
-              value: "{{ .Values.server.security.enabled }}"
-          {{- if $serverValues.security.enabled }}
+              value: "{{ .Values.security.enabled }}"
+          {{- if .Values.security.enabled }}
             - name: Auth__Authority
-              value: {{ required "When server.security.enabled is true, a value for server.security.authority is required" $serverValues.security.authority }}
+              value: {{ required "When security.enabled is true, a value for security.authority is required" .Values.security.authority }}
             - name: Auth__Audience
-              value: {{ required "When server.security.enabled is true, a value for server.security.audience is required" $serverValues.security.audience }}
+              value: {{ required "When security.enabled is true, a value for security.audience is required" .Values.security.audience }}
             - name: Auth__CliAppUri
-              value: {{ required "When server.security.enabled is true, a value for server.security.cliAppUri is required" $serverValues.security.cliAppUri }}
+              value: {{ required "When security.enabled is true, a value for security.cliAppUri is required" .Values.security.cliAppUri }}
           {{- end }}
             - name: Kubernetes__Namespace
               value: {{ .Release.Namespace }}
@@ -169,12 +125,14 @@ spec:
             - name: Kubernetes__NoOpConfigMap
               value: {{ include "tyger.fullname" . }}-no-op
             - name: Kubernetes__WorkerWaiterImage
-              value: {{ required "A value for server.workerWaiterImage is required" $serverValues.workerWaiterImage }}
+              value: {{ required "A value for workerWaiterImage is required" .Values.workerWaiterImage }}
             - name: Database__ConnectionString
-              value: "Host={{ $serverValues.database.host }}; Database={{ $serverValues.database.databaseName }}; Port={{ $serverValues.database.port }}; Username={{ $serverValues.database.username }}; SslMode=VerifyFull;"
+              value: "Host={{ .Values.database.host }}; Database={{ .Values.database.databaseName }}; Port={{ .Values.database.port }}; Username={{ .Values.identity.tygerServer.name }}; SslMode=VerifyFull;"
+            - name: Database__TygerServerRoleName
+              value: {{ .Values.identity.tygerServer.name }}
             - name: Database__AutoMigrate
-              value: "{{ $serverValues.database.autoMigrate }}"
-            {{- range $index, $element := $serverValues.buffers.storageAccounts }}
+              value: "{{ .Values.database.autoMigrate }}"
+            {{- range $index, $element := .Values.buffers.storageAccounts }}
             - name: Buffers__StorageAccounts__{{ $index }}__name
               value: "{{ $element.name }}"
             - name: Buffers__StorageAccounts__{{ $index }}__location
@@ -183,9 +141,9 @@ spec:
               value: "{{ $element.endpoint }}"
             {{- end }}
             - name: Buffers__BufferSidecarImage
-              value: {{ required "A value for server.bufferSidecarImage is required" $serverValues.bufferSidecarImage }}
+              value: {{ required "A value for bufferSidecarImage is required" .Values.bufferSidecarImage }}
             - name: LogArchive__StorageAccountEndpoint
-              value: {{ required "A value for server.logArchive.storageAccountEndpoint is required" $serverValues.logArchive.storageAccountEndpoint }}
+              value: {{ required "A value for logArchive.storageAccountEndpoint is required" .Values.logArchive.storageAccountEndpoint }}
           readinessProbe:
             httpGet:
               path: /healthcheck
@@ -199,16 +157,16 @@ spec:
             mountPath: /etc/config
             readOnly: true
 
-      serviceAccount: {{ include "tyger.fullname" . }}-server
-      {{- with $serverValues.nodeSelector }}
+      serviceAccount: {{ .Values.identity.tygerServer.name }}
+      {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with $serverValues.affinity }}
+      {{- with .Values.affinity }}
       affinity:fo
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with $serverValues.tolerations }}
+      {{- with .Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -231,7 +189,7 @@ spec:
       port: 8080
       targetPort: 5000
 ---
-{{- if $serverValues.tls.letsEncrypt.enabled }}
+{{- if .Values.tls.letsEncrypt.enabled }}
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
@@ -239,7 +197,7 @@ metadata:
 spec:
   acme:
     server: https://acme-v02.api.letsencrypt.org/directory
-    email: {{ $serverValues.tls.letsEncrypt.email }}
+    email: {{ .Values.tls.letsEncrypt.email }}
     privateKeySecretRef:
       name: {{ include "tyger.fullname" . }}-cert
     solvers:
@@ -250,14 +208,14 @@ spec:
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: {{ $serverValues.hostname }}
+  name: {{ .Values.hostname }}
 spec:
-  secretName: {{ $serverValues.hostname }}-tls
+  secretName: {{ .Values.hostname }}-tls
   issuerRef:
     name: {{ include "tyger.fullname" . }}-cert
     kind: Issuer
   dnsNames:
-    - {{ $serverValues.hostname }}
+    - {{ .Values.hostname }}
 
 ---
 {{- end }}
@@ -265,20 +223,20 @@ apiVersion: traefik.containo.us/v1alpha1
 kind: IngressRoute
 metadata:
   name: {{ include "tyger.fullname" . }}-server
-  {{- if $serverValues.tls.letsEncrypt.enabled }}
+  {{- if .Values.tls.letsEncrypt.enabled }}
   annotations:
     kubernetes.io/ingress.class: traefik
     cert-manager.io/issuer: {{ include "tyger.fullname" . }}-cert
   {{- end }}
 spec:
-  {{- if $serverValues.tls.enabled }}
+  {{- if .Values.tls.enabled }}
   entryPoints:
     - websecure
-  {{- if $serverValues.tls.letsEncrypt.enabled }}
+  {{- if .Values.tls.letsEncrypt.enabled }}
   tls:
-    secretName: {{ $serverValues.hostname }}-tls
+    secretName: {{ .Values.hostname }}-tls
     domains:
-      - main: {{ $serverValues.hostname }}
+      - main: {{ .Values.hostname }}
   {{- else }}
   tls: {}
   {{- end }}
@@ -288,7 +246,7 @@ spec:
   {{- end }}
   routes:
   - kind: Rule
-    match: Host(`{{ required "A value for server.hostname is required." $serverValues.hostname }}`)
+    match: Host(`{{ required "A value for hostname is required." .Values.hostname }}`)
     services:
     - name: {{ include "tyger.fullname" . }}-server
       port: 8080

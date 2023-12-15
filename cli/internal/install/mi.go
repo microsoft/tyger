@@ -10,23 +10,30 @@ import (
 )
 
 const (
-	tygerManagedIdentityName             = "tyger-server"
-	tygerFederatedIdentityCredentialName = "tyger-server"
-	tygerServiceAccountName              = "tyger-server"
+	tygerServerManagedIdentityName     = "tyger-server"
+	migrationRunnerManagedIdentityName = "tyger-migration-runner"
 )
 
-func createTygerManagedIdentity(ctx context.Context) (*armmsi.Identity, error) {
+func createTygerServerManagedIdentity(ctx context.Context) (*armmsi.Identity, error) {
+	return createManagedIdentity(ctx, tygerServerManagedIdentityName)
+}
+
+func createMigrationRunnerManagedIdentity(ctx context.Context) (*armmsi.Identity, error) {
+	return createManagedIdentity(ctx, migrationRunnerManagedIdentityName)
+}
+
+func createManagedIdentity(ctx context.Context, name string) (*armmsi.Identity, error) {
 	config := GetConfigFromContext(ctx)
 	cred := GetAzureCredentialFromContext(ctx)
 
-	log.Info().Msg("Creating or updating managed identity")
+	log.Info().Msgf("Creating or updating managed identity '%s'", name)
 
 	identitiesClient, err := armmsi.NewUserAssignedIdentitiesClient(config.Cloud.SubscriptionID, cred, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create managed identities client: %w", err)
 	}
 
-	resp, err := identitiesClient.CreateOrUpdate(ctx, config.Cloud.ResourceGroup, tygerManagedIdentityName, armmsi.Identity{
+	resp, err := identitiesClient.CreateOrUpdate(ctx, config.Cloud.ResourceGroup, name, armmsi.Identity{
 		Location: &config.Cloud.DefaultLocation,
 		Tags: map[string]*string{
 			TagKey: &config.EnvironmentName,
@@ -40,16 +47,20 @@ func createTygerManagedIdentity(ctx context.Context) (*armmsi.Identity, error) {
 	return &resp.Identity, nil
 }
 
-func createFederatedIdentityCredential(ctx context.Context, createManagedIdentityPromise *Promise[*armmsi.Identity], createClusterPromise *Promise[*armcontainerservice.ManagedCluster]) (any, error) {
+func createFederatedIdentityCredential(
+	ctx context.Context,
+	managedIdentityPromise *Promise[*armmsi.Identity],
+	clusterPromise *Promise[*armcontainerservice.ManagedCluster],
+) (any, error) {
 	config := GetConfigFromContext(ctx)
 	cred := GetAzureCredentialFromContext(ctx)
 
-	cluster, err := createClusterPromise.Await()
+	cluster, err := clusterPromise.Await()
 	if err != nil {
 		return nil, errDependencyFailed
 	}
 
-	mi, err := createManagedIdentityPromise.Await()
+	mi, err := managedIdentityPromise.Await()
 	if err != nil {
 		return nil, errDependencyFailed
 	}
@@ -63,10 +74,10 @@ func createFederatedIdentityCredential(ctx context.Context, createManagedIdentit
 		return nil, fmt.Errorf("failed to create federated identity credentials client: %w", err)
 	}
 
-	_, err = client.CreateOrUpdate(ctx, config.Cloud.ResourceGroup, *mi.Name, tygerFederatedIdentityCredentialName, armmsi.FederatedIdentityCredential{
+	_, err = client.CreateOrUpdate(ctx, config.Cloud.ResourceGroup, *mi.Name, *mi.Name, armmsi.FederatedIdentityCredential{
 		Properties: &armmsi.FederatedIdentityCredentialProperties{
 			Issuer:  &issuerUrl,
-			Subject: Ptr(fmt.Sprintf("system:serviceaccount:%s:%s", TygerNamespace, tygerServiceAccountName)),
+			Subject: Ptr(fmt.Sprintf("system:serviceaccount:%s:%s", TygerNamespace, *mi.Name)),
 			Audiences: []*string{
 				Ptr("api://AzureADTokenExchange"),
 			},

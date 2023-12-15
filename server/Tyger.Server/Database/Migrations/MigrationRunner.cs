@@ -106,7 +106,7 @@ public class MigrationRunner : IHostedService
             await using var batch = _dataSource.CreateBatch();
 
             batch.BatchCommands.Add(new($"GRANT ALL ON ALL TABLES IN SCHEMA {DatabaseNamespace} TO \"{OwnersRole}\""));
-            batch.BatchCommands.Add(new($"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"{ServerRole}\""));
+            batch.BatchCommands.Add(new($"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"{_options.TygerServerRoleName}\""));
 
             await batch.ExecuteNonQueryAsync(cancellationToken);
         }, cancellationToken);

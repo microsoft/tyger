@@ -222,7 +222,12 @@ func InstallTyger(ctx context.Context) error {
 		return fmt.Errorf("failed to create managed identities client: %w", err)
 	}
 
-	identity, err := identitiesClient.Get(ctx, config.Cloud.ResourceGroup, tygerManagedIdentityName, nil)
+	tygerServerIdentity, err := identitiesClient.Get(ctx, config.Cloud.ResourceGroup, tygerServerManagedIdentityName, nil)
+	if err != nil {
+		return fmt.Errorf("failed to get managed identity: %w", err)
+	}
+
+	migrationRunnerIdentity, err := identitiesClient.Get(ctx, config.Cloud.ResourceGroup, migrationRunnerManagedIdentityName, nil)
 	if err != nil {
 		return fmt.Errorf("failed to get managed identity: %w", err)
 	}
@@ -273,39 +278,44 @@ func InstallTyger(ctx context.Context) error {
 		ChartRef:  fmt.Sprintf("oci://%s/helm/tyger", containerRegistry),
 		Version:   containerImageTag,
 		Values: map[string]any{
-			"server": map[string]any{
-				"image":              fmt.Sprintf("%s/tyger-server:%s", containerRegistry, containerImageTag),
-				"bufferSidecarImage": fmt.Sprintf("%s/buffer-sidecar:%s", containerRegistry, containerImageTag),
-				"workerWaiterImage":  fmt.Sprintf("%s/worker-waiter:%s", containerRegistry, containerImageTag),
-				"hostname":           config.Api.DomainName,
-				"identity": map[string]any{
-					"clientId": identity.Properties.ClientID,
+			"image":              fmt.Sprintf("%s/tyger-server:%s", containerRegistry, containerImageTag),
+			"bufferSidecarImage": fmt.Sprintf("%s/buffer-sidecar:%s", containerRegistry, containerImageTag),
+			"workerWaiterImage":  fmt.Sprintf("%s/worker-waiter:%s", containerRegistry, containerImageTag),
+			"hostname":           config.Api.DomainName,
+			"identity": map[string]any{
+				"tygerServer": map[string]any{
+					"name":     tygerServerIdentity.Name,
+					"clientId": tygerServerIdentity.Properties.ClientID,
 				},
-				"security": map[string]any{
-					"enabled":   true,
-					"authority": cloud.AzurePublic.ActiveDirectoryAuthorityHost + config.Api.Auth.TenantID,
-					"audience":  config.Api.Auth.ApiAppUri,
-					"cliAppUri": config.Api.Auth.CliAppUri,
+				"migrationRunner": map[string]any{
+					"name":     migrationRunnerIdentity.Name,
+					"clientId": migrationRunnerIdentity.Properties.ClientID,
 				},
-				"tls": map[string]any{
-					"letsEncrypt": map[string]any{
-						"enabled": true,
-					},
-				},
-				"database": map[string]any{
-					"host":         *dbServer.Properties.FullyQualifiedDomainName,
-					"databaseName": databaseName,
-					"port":         databasePort,
-					"username":     tygerManagedIdentityName,
-				},
-				"buffers": map[string]any{
-					"storageAccounts": buffersStorageAccountValues,
-				},
-				"logArchive": map[string]any{
-					"storageAccountEndpoint": *logArchiveAccount.Properties.PrimaryEndpoints.Blob,
-				},
-				"clusterConfigurationJson": string(clustersConfigJson),
 			},
+			"security": map[string]any{
+				"enabled":   true,
+				"authority": cloud.AzurePublic.ActiveDirectoryAuthorityHost + config.Api.Auth.TenantID,
+				"audience":  config.Api.Auth.ApiAppUri,
+				"cliAppUri": config.Api.Auth.CliAppUri,
+			},
+			"tls": map[string]any{
+				"letsEncrypt": map[string]any{
+					"enabled": true,
+				},
+			},
+			"database": map[string]any{
+				"host":         *dbServer.Properties.FullyQualifiedDomainName,
+				"databaseName": databaseName,
+				"port":         databasePort,
+				"username":     tygerServerManagedIdentityName,
+			},
+			"buffers": map[string]any{
+				"storageAccounts": buffersStorageAccountValues,
+			},
+			"logArchive": map[string]any{
+				"storageAccountEndpoint": *logArchiveAccount.Properties.PrimaryEndpoints.Blob,
+			},
+			"clusterConfigurationJson": string(clustersConfigJson),
 		},
 	}
 

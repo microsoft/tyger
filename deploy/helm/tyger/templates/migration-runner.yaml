@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ required "A value for identity.migrationRunner.name is required" .Values.identity.migrationRunner.name }}
+  annotations:
+    azure.workload.identity/client-id: {{ required "A value for identity.migrationRunner.clientId is required" .Values.identity.migrationRunner.clientId }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-database-init
+  annotations:
+spec:
+  ttlSecondsAfterFinished: 60
+  template:
+    metadata:
+      name: {{ .Release.Name }}-database-init
+      labels:
+        azure.workload.identity/use: "true"
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: database-init
+          image: "{{ .Values.image | default (printf "eminence.azurecr.io/tyger-server:%s" .Chart.AppVersion) }}"
+          imagePullPolicy: {{ .Values.pullPolicy }}
+          args: ["init"]
+          env:
+            - name: Logging__Console__FormatterName
+              value: Tyger.Server.Logging.JsonFormatter
+            - name: AZURE_CLIENT_ID
+              value: {{ .Values.identity.migrationRunner.clientId }}
+            - name: Kubernetes__Namespace
+              value: {{ .Release.Namespace }}
+            - name: Database__ConnectionString
+              value: "Host={{ .Values.database.host }}; Database={{ .Values.database.databaseName }}; Port={{ .Values.database.port }}; Username={{ .Values.identity.migrationRunner.name }}; SslMode=VerifyFull;"
+            - name: Database__TygerServerRoleName
+              value: {{ .Values.identity.tygerServer.name }}
+
+      serviceAccount: {{ .Values.identity.migrationRunner.name }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:fo
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

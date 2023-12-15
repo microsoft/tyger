@@ -32,13 +32,13 @@ const (
 )
 
 const (
-	ownersRole         = "tyger-owners"
-	databasePort       = 5432
-	databaseName       = "postgres"
-	dbConfiguredTagKey = "tyger-db-configured"
+	ownersRole           = "tyger-owners"
+	databasePort         = 5432
+	databaseName         = "postgres"
+	dbConfiguredTagValue = "1" // bump this when we change the database configuration logic
 )
 
-func createDatabase(ctx context.Context, managedIdentityPromise *Promise[*armmsi.Identity]) (any, error) {
+func createDatabase(ctx context.Context, tygerServerManagedIdentityPromise, migrationRunnerManagedIdentityPromise *Promise[*armmsi.Identity]) (any, error) {
 	config := GetConfigFromContext(ctx)
 	databaseConfig := *config.Cloud.DatabaseConfig
 	cred := GetAzureCredentialFromContext(ctx)
@@ -141,17 +141,17 @@ func createDatabase(ctx context.Context, managedIdentityPromise *Promise[*armmsi
 	}
 
 	// check if the database has already been configured and we can skip the steps that follow
-	if value, ok := tags[dbConfiguredTagKey]; ok && value != nil && *value == config.EnvironmentName {
+	if value, ok := tags[getDatabaseConfiguredTagKey(config)]; ok && value != nil && *value == dbConfiguredTagValue {
 		log.Info().Msg("PostgreSQL server is already configured")
 		return nil, nil
 	}
 
-	mi, err := managedIdentityPromise.Await()
+	migrationRunnerManagedIdentity, err := migrationRunnerManagedIdentityPromise.Await()
 	if err != nil {
 		return nil, errDependencyFailed
 	}
 
-	currentPrincipalDisplayName, err := createDatabaseAdmins(ctx, config, serverName, cred, databaseConfig, mi)
+	currentPrincipalDisplayName, err := createDatabaseAdmins(ctx, config, serverName, cred, databaseConfig, migrationRunnerManagedIdentity)
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +186,12 @@ func createDatabase(ctx context.Context, managedIdentityPromise *Promise[*armmsi
 			return nil, fmt.Errorf("failed to create temporary PostgreSQL server firewall rule: %w", err)
 		}
 
-		if err := createRoles(ctx, cred, config, existingServer, currentPrincipalDisplayName); err != nil {
+		tygerServerManagedIdentity, err := tygerServerManagedIdentityPromise.Await()
+		if err != nil {
+			return nil, errDependencyFailed
+		}
+
+		if err := createRoles(ctx, cred, config, existingServer, currentPrincipalDisplayName, tygerServerManagedIdentity, migrationRunnerManagedIdentity); err != nil {
 			return nil, err
 		}
 
@@ -231,7 +236,7 @@ func createDatabase(ctx context.Context, managedIdentityPromise *Promise[*armmsi
 	}
 
 	// add a tag on the server to indicate that it is configured, so we can skip the slow firewall configuration next time
-	existingServer.Tags[dbConfiguredTagKey] = &config.EnvironmentName
+	existingServer.Tags[getDatabaseConfiguredTagKey(config)] = Ptr(dbConfiguredTagValue)
 
 	tagsClient, err := armresources.NewTagsClient(config.Cloud.SubscriptionID, cred, nil)
 	if err != nil {
@@ -248,21 +253,29 @@ func createDatabase(ctx context.Context, managedIdentityPromise *Promise[*armmsi
 
 // Add the given managed identity and the current user as admins on the database server.
 // These are not superusers.
-func createDatabaseAdmins(ctx context.Context, config *EnvironmentConfig, serverName string, cred azcore.TokenCredential, databaseConfig DatabaseConfig, mi *armmsi.Identity) (currentPrincipalDisplayname string, err error) {
+func createDatabaseAdmins(
+	ctx context.Context,
+	config *EnvironmentConfig,
+	serverName string,
+	cred azcore.TokenCredential,
+	databaseConfig DatabaseConfig,
+	migrationRunnerManagedIdentity *armmsi.Identity,
+) (currentPrincipalDisplayname string, err error) {
 	adminClient, err := armpostgresqlflexibleservers.NewAdministratorsClient(config.Cloud.SubscriptionID, cred, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create PostgreSQL server admin client: %w", err)
 	}
 
-	log.Info().Msg("Creating PostgreSQL server admins")
+	log.Info().Msgf("Creating PostgreSQL server admin '%s'", *migrationRunnerManagedIdentity.Name)
 
-	if _, err = adminClient.BeginCreate(ctx, config.Cloud.ResourceGroup, serverName, *mi.Properties.PrincipalID, armpostgresqlflexibleservers.ActiveDirectoryAdministratorAdd{
+	migrationRunnerAdmin := armpostgresqlflexibleservers.ActiveDirectoryAdministratorAdd{
 		Properties: &armpostgresqlflexibleservers.AdministratorPropertiesForAdd{
-			PrincipalName: mi.Name,
+			PrincipalName: migrationRunnerManagedIdentity.Name,
 			PrincipalType: Ptr(armpostgresqlflexibleservers.PrincipalTypeServicePrincipal),
 			TenantID:      Ptr(config.Cloud.TenantID),
 		},
-	}, nil); err != nil {
+	}
+	if _, err = adminClient.BeginCreate(ctx, config.Cloud.ResourceGroup, serverName, *migrationRunnerManagedIdentity.Properties.PrincipalID, migrationRunnerAdmin, nil); err != nil {
 		return "", fmt.Errorf("failed to create PostgreSQL server admin: %w", err)
 	}
 
@@ -271,13 +284,16 @@ func createDatabaseAdmins(ctx context.Context, config *EnvironmentConfig, server
 		return "", fmt.Errorf("failed to get current principal information: %w", err)
 	}
 
-	if _, err = adminClient.BeginCreate(ctx, config.Cloud.ResourceGroup, serverName, currentPrincipalObjectId, armpostgresqlflexibleservers.ActiveDirectoryAdministratorAdd{
+	log.Info().Msgf("Creating PostgreSQL server admin '%s'", currentPrincipalDisplayName)
+
+	currentUserAdmin := armpostgresqlflexibleservers.ActiveDirectoryAdministratorAdd{
 		Properties: &armpostgresqlflexibleservers.AdministratorPropertiesForAdd{
 			PrincipalName: &currentPrincipalDisplayName,
 			PrincipalType: &currentPrincipalType,
 			TenantID:      Ptr(config.Cloud.TenantID),
 		},
-	}, nil); err != nil {
+	}
+	if _, err = adminClient.BeginCreate(ctx, config.Cloud.ResourceGroup, serverName, currentPrincipalObjectId, currentUserAdmin, nil); err != nil {
 		return "", fmt.Errorf("failed to create PostgreSQL server admin: %w", err)
 	}
 	return currentPrincipalDisplayName, nil
@@ -285,7 +301,15 @@ func createDatabaseAdmins(ctx context.Context, config *EnvironmentConfig, server
 
 // Create a tyger-owners role and grant it to the current principal and the migration runner's managed identity.
 // The migration runner will grant full access to the tables it creates to this role.
-func createRoles(ctx context.Context, cred azcore.TokenCredential, config *EnvironmentConfig, server *armpostgresqlflexibleservers.Server, currentPrincipalDisplayName string) error {
+func createRoles(
+	ctx context.Context,
+	cred azcore.TokenCredential,
+	config *EnvironmentConfig,
+	server *armpostgresqlflexibleservers.Server,
+	currentPrincipalDisplayName string,
+	tygerServerIdentity *armmsi.Identity,
+	migrationRunnerIdentity *armmsi.Identity,
+) error {
 	log.Info().Msg("Creating PostgreSQL roles")
 
 	token, err := cred.GetToken(ctx, policy.TokenRequestOptions{
@@ -315,10 +339,10 @@ BEGIN
 END
 $$`, ownersRole, ownersRole))
 	if err != nil {
-		return fmt.Errorf("failed to create database role: %w", err)
+		return fmt.Errorf("failed to create %s database role: %w", ownersRole, err)
 	}
 
-	_, err = db.Exec(fmt.Sprintf(`GRANT "%s" TO "%s" WITH ADMIN TRUE`, ownersRole, tygerManagedIdentityName))
+	_, err = db.Exec(fmt.Sprintf(`GRANT "%s" TO "%s" WITH ADMIN TRUE`, ownersRole, *migrationRunnerIdentity.Name))
 	if err != nil {
 		return fmt.Errorf("failed to grant database role: %w", err)
 	}
@@ -327,6 +351,20 @@ $$`, ownersRole, ownersRole))
 	if err != nil {
 		return fmt.Errorf("failed to grant database role: %w", err)
 	}
+
+	_, err = db.Exec(fmt.Sprintf(`
+DO $$
+BEGIN
+	IF NOT EXISTS (SELECT FROM pgaadauth_list_principals(false) WHERE objectId = '%s') THEN
+		PERFORM pgaadauth_create_principal_with_oid('%s', '%s', 'service', false, false);
+	END IF;
+END
+$$`, *tygerServerIdentity.Properties.PrincipalID, *tygerServerIdentity.Name, *tygerServerIdentity.Properties.PrincipalID))
+
+	if err != nil {
+		return fmt.Errorf("failed to create tyger server database principal: %w", err)
+	}
+
 	return nil
 }
 
@@ -420,7 +458,7 @@ func retryableAsyncOperation[T any](ctx context.Context, begin func(context.Cont
 		if err != nil || i < 5 {
 			var respErr *azcore.ResponseError
 			if errors.As(err, &respErr) && respErr.ErrorCode == "InternalServerError" {
-				log.Info().Str("errorCode", respErr.ErrorCode).Msg("retrying after error")
+				log.Debug().Str("errorCode", respErr.ErrorCode).Msg("Retrying after error")
 				continue
 			}
 		}
@@ -434,6 +472,10 @@ func getRandomName() string {
 
 func getUniqueSuffixTagKey(config *EnvironmentConfig) string {
 	return fmt.Sprintf("tyger-unique-suffix-%s", config.EnvironmentName)
+}
+
+func getDatabaseConfiguredTagKey(config *EnvironmentConfig) string {
+	return fmt.Sprintf("tyger-database-configured-%s", config.EnvironmentName)
 }
 
 // If you try to create a database server less than five days after one with the same name was deleted, you might get an error.

@@ -1,51 +1,54 @@
 nameOverride: ""
 fullnameOverride: ""
 
-server:
-  replicaCount: 1
+replicaCount: 1
 
-  image:
-  imagePullPolicy: IfNotPresent
+image:
+imagePullPolicy: IfNotPresent
 
-  identity:
+identity:
+  tygerServer:
+    name:
+    clientId:
+  migrationRunner:
+    name:
     clientId:
 
-  security:
+security:
+  enabled: true
+  authority:
+  audience:
+  cliAppUri:
+
+hostname:
+tls:
+  enabled: true
+  letsEncypt:
     enabled: true
-    authority:
-    audience:
-    cliAppUri:
+    email:
 
-  hostname:
-  tls:
-    enabled: true
-    letsEncypt:
-      enabled: true
-      email:
+database:
+  host:
+  databaseName: postgres
+  port: 5432
+  autoMigrate: false
 
-  database:
-    host:
-    databaseName: postgres
-    port: 5432
-    username:
-    autoMigrate: false
+buffers:
+  storageAccounts: [] # {name: myaccount, location: westus2, endpoint: https://... }, ...
 
-  buffers:
-    storageAccounts: [] # {name: myaccount, location: westus2, endpoint: https://... }, ...
+logArchive:
+  storageAccountEndpoint:
 
-  logArchive:
-    storageAccountEndpoint:
+bufferSidecarImage:
+workerWaiterImage:
 
-  bufferSidecarImage:
-  workerWaiterImage:
+clusterConfigurationJson: "{}"
 
-  clusterConfigurationJson: "{}"
-
-  imagePullSecrets: []
-  podAnnotations: {}
-  nodeSelector: {}
-  tolerations: []
-  affinity: {}
-  podSecurityContext: {}
-  securityContext: {}
-  resources: {}
+imagePullSecrets: []
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podSecurityContext: {}
+securityContext: {}
+resources: {}
