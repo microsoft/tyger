@@ -307,7 +307,6 @@ func InstallTyger(ctx context.Context) error {
 				"host":         *dbServer.Properties.FullyQualifiedDomainName,
 				"databaseName": databaseName,
 				"port":         databasePort,
-				"username":     tygerServerManagedIdentityName,
 			},
 			"buffers": map[string]any{
 				"storageAccounts": buffersStorageAccountValues,
