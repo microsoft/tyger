@@ -27,13 +27,19 @@ public class MigrationRunner : IHostedService
         _loggerFactory = loggerFactory;
     }
 
-    public async Task RunMigrations(int? target, CancellationToken cancellationToken)
+    public async Task RunMigrations(bool initOnly, int? target, CancellationToken cancellationToken)
     {
         DatabaseVersion? current = null;
-        bool databaseIsEmpty = !await DoesMigrationsTableExist(cancellationToken);
+        bool databaseIsEmpty = !await _databaseVersions.DoesMigrationsTableExist(cancellationToken);
         if (!databaseIsEmpty)
         {
             current = await _databaseVersions.ReadCurrentDatabaseVersion(cancellationToken);
+        }
+
+        if (current != null && initOnly)
+        {
+            _logger.DatabaseAlreadyInitialized();
+            return;
         }
 
         var migrations = _databaseVersions.GetKnownVersions()
@@ -100,7 +106,7 @@ public class MigrationRunner : IHostedService
             await using var batch = _dataSource.CreateBatch();
 
             batch.BatchCommands.Add(new($"GRANT ALL ON ALL TABLES IN SCHEMA {DatabaseNamespace} TO \"{OwnersRole}\""));
-            batch.BatchCommands.Add(new($"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"{ServerRole}\""));
+            batch.BatchCommands.Add(new($"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"{_options.TygerServerRoleName}\""));
 
             await batch.ExecuteNonQueryAsync(cancellationToken);
         }, cancellationToken);
@@ -122,33 +128,11 @@ public class MigrationRunner : IHostedService
         }, cancellationToken);
     }
 
-    public async Task<bool> DoesMigrationsTableExist(CancellationToken cancellationToken)
-    {
-        return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
-        {
-            await using var cmd = _dataSource.CreateCommand($"""
-            SELECT EXISTS (
-                SELECT
-                FROM pg_catalog.pg_class c
-                JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-                WHERE n.nspname = $1
-                    AND c.relname = $2
-                    AND c.relkind = 'r'
-            )
-            """);
-
-            cmd.Parameters.AddWithValue(DatabaseNamespace);
-            cmd.Parameters.AddWithValue(MigrationsTableName);
-
-            return (bool)(await cmd.ExecuteScalarAsync(cancellationToken))!;
-        }, cancellationToken);
-    }
-
     async Task IHostedService.StartAsync(CancellationToken cancellationToken)
     {
         if (_options.AutoMigrate)
         {
-            await RunMigrations(null, cancellationToken);
+            await RunMigrations(false, null, cancellationToken);
         }
     }
 

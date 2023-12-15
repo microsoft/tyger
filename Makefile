@@ -13,7 +13,7 @@ HELM_NAMESPACE=tyger
 HELM_RELEASE=tyger
 TYGER_URI = https://$(shell echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.domainName')
 INSTALL_CLOUD=false
-AUTO_MIGRATE=true
+AUTO_MIGRATE=false
 
 get-environment-config:
 	echo '${ENVIRONMENT_CONFIG_JSON}' | yq -P
@@ -155,10 +155,10 @@ up: ensure-environment-conditionally docker-build
 	
 	tyger api install -f <(scripts/get-config.sh) \
 		--set api.helm.tyger.chartRef="$${chart_dir}" \
-		--set api.helm.tyger.values.server.image="$${tyger_server_image}" \
-		--set api.helm.tyger.values.server.bufferSidecarImage="$${buffer_sidecar_image}" \
-		--set api.helm.tyger.values.server.workerWaiterImage="$${worker_waiter_image}" \
-		--set api.helm.tyger.values.server.database.autoMigrate=${AUTO_MIGRATE}
+		--set api.helm.tyger.values.image="$${tyger_server_image}" \
+		--set api.helm.tyger.values.bufferSidecarImage="$${buffer_sidecar_image}" \
+		--set api.helm.tyger.values.workerWaiterImage="$${worker_waiter_image}" \
+		--set api.helm.tyger.values.database.autoMigrate=${AUTO_MIGRATE}
 
 	$(MAKE) cli-ready
 

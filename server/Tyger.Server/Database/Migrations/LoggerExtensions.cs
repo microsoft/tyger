@@ -22,4 +22,10 @@ public static partial class LoggerExtensions
 
     [LoggerMessage(6, LogLevel.Information, "Failed to update migrations table")]
     public static partial void FailedToUpdateMigrationsTable(this ILogger logger, Exception exception);
+
+    [LoggerMessage(7, LogLevel.Information, "Database already initialized")]
+    public static partial void DatabaseAlreadyInitialized(this ILogger logger);
+
+    [LoggerMessage(8, LogLevel.Information, "Waiting for database tables to be created...")]
+    public static partial void WaitingForDatabaseTablesToBeCreated(this ILogger logger);
 }

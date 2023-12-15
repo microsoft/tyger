@@ -49,14 +49,3 @@ Selector labels
 app.kubernetes.io/name: {{ include "tyger.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
-
-{{/*
-Create the name of the service account to use
-*/}}
-{{- define "tyger.serviceAccountName" -}}
-{{- if .Values.server.serviceAccount.create }}
-{{- default (include "tyger.fullname" .) .Values.server.serviceAccount.name }}
-{{- else }}
-{{- default "default" .Values.server.serviceAccount.name }}
-{{- end }}
-{{- end }}

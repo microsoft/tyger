@@ -1,78 +1,84 @@
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using Microsoft.AspNetCore.Http.Json;
-using Microsoft.Extensions.Logging.Console;
-using Microsoft.Extensions.Options;
+using System.CommandLine;
 using Tyger.Server;
 using Tyger.Server.Auth;
 using Tyger.Server.Buffers;
 using Tyger.Server.Codespecs;
+using Tyger.Server.Configuration;
 using Tyger.Server.Database;
+using Tyger.Server.Database.Migrations;
 using Tyger.Server.Identity;
+using Tyger.Server.Json;
 using Tyger.Server.Kubernetes;
 using Tyger.Server.Logging;
 using Tyger.Server.Middleware;
-using Tyger.Server.Model;
 using Tyger.Server.OpenApi;
 using Tyger.Server.Runs;
+using Tyger.Server.ServiceMetadata;
 
-var builder = WebApplication.CreateBuilder(args);
+// Parse command-line arguments to see if we should run migrations or start the server.
+var rootCommand = new RootCommand("Tyger Server");
+rootCommand.SetHandler(RunServer);
 
-// Configuration
-builder.Configuration.AddJsonFile("appsettings.local.json", optional: true);
-if (builder.Configuration.GetValue<string>("KeyPerFileDirectory") is string keyPerFileDir)
+var initCommand = new Command("init", "Initialize the database");
+initCommand.SetHandler(async () => await RunMigrations(true));
+rootCommand.AddCommand(initCommand);
+
+var res = rootCommand.Parse(args);
+
+return await rootCommand.InvokeAsync(args);
+
+async Task RunMigrations(bool initOnly)
 {
-    builder.Configuration.AddKeyPerFile(keyPerFileDir, optional: true);
+    var host = ConfigureHostBuilder(Host.CreateApplicationBuilder(args)).Build();
+
+    var migrationRunner = host.Services.GetRequiredService<MigrationRunner>();
+
+    await migrationRunner.RunMigrations(initOnly, null, CancellationToken.None);
 }
 
-if (builder.Configuration.GetValue<string>("AppSettingsDirectory") is string settingsDir)
+T ConfigureHostBuilder<T>(T builder) where T : IHostApplicationBuilder
 {
-    builder.Configuration.AddJsonFile(Path.Combine(settingsDir, "appsettings.json"), optional: false);
+    // Configuration
+    builder.Configuration.AddConfigurationSources();
+
+    // Logging
+    builder.Logging.ConfigureLogging();
+
+    // Services
+    builder.Services.AddManagedIdentity();
+    builder.Services.AddDatabase();
+    builder.Services.AddKubernetes();
+    builder.Services.AddLogArchive();
+    builder.Services.AddAuth();
+    builder.Services.AddBuffers();
+    builder.Services.AddOpenApi();
+    builder.Services.AddHealthChecks();
+    builder.Services.AddJsonFormatting();
+
+    return builder;
 }
 
-// Logging
-builder.Logging.AddConsoleFormatter<JsonFormatter, ConsoleFormatterOptions>();
-builder.Logging.Configure(l => l.ActivityTrackingOptions = ActivityTrackingOptions.None);
-
-// Services
-builder.Services.AddManagedIdentity();
-builder.Services.AddDatabase();
-builder.Services.AddKubernetes();
-builder.Services.AddLogArchive();
-builder.Services.AddAuth();
-builder.Services.AddBuffers();
-builder.Services.AddOpenApi();
-builder.Services.AddHealthChecks();
-
-builder.Services.Configure<JsonOptions>(options =>
+void RunServer()
 {
-    options.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault;
-    options.SerializerOptions.AllowTrailingCommas = true;
-    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
-});
-builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<JsonOptions>>().Value.SerializerOptions);
+    var app = ConfigureHostBuilder(WebApplication.CreateBuilder(args)).Build();
 
-var app = builder.Build();
+    // Middleware and routes
+    app.UseRequestLogging();
+    app.UseRequestId();
+    app.UseBaggage();
+    app.UseExceptionHandling();
 
-// Middleware and routes
-app.UseRequestLogging();
-app.UseRequestId();
-app.UseBaggage();
-app.UseExceptionHandling();
+    app.UseOpenApi();
+    app.UseAuth();
 
-app.UseOpenApi();
-app.UseAuth();
+    app.MapClusters();
+    app.MapBuffers();
+    app.MapCodespecs();
+    app.MapRuns();
+    app.MapServiceMetadata();
+    app.MapHealthChecks("/healthcheck").AllowAnonymous();
+    app.MapFallback(() => Responses.BadRequest("InvalidRoute", "The request path was not recognized."));
 
-app.MapClusters();
-app.MapBuffers();
-app.MapCodespecs();
-app.MapRuns();
-
-app.MapHealthChecks("/healthcheck").AllowAnonymous();
-app.MapGet("/v1/metadata", (IOptions<AuthOptions> auth) => auth.Value.Enabled ? new Metadata(auth.Value.Authority, auth.Value.Audience, auth.Value.CliAppUri) : new Metadata())
-    .AllowAnonymous();
-
-app.MapFallback(() => Responses.BadRequest("InvalidRoute", "The request path was not recognized."));
-
-// Run
-app.Run();
+    // Run
+    app.Run();
+}

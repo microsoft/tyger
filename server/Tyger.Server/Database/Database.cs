@@ -80,13 +80,14 @@ public class DatabaseOptions
     [Required]
     public string ConnectionString { get; set; } = null!;
 
+    [Required]
+    public required string TygerServerRoleName { get; set; }
+
     public bool AutoMigrate { get; set; }
 }
 
 public static class Constants
 {
-    public const string ServerRole = "tyger-server";
-
     public const string OwnersRole = "tyger-owners";
 
     public const string MigrationsTableName = "migrations";

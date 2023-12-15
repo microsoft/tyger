@@ -244,10 +244,11 @@ func createPromises(ctx context.Context, config *EnvironmentConfig) PromiseGroup
 
 	var createApiHostClusterPromise *Promise[*armcontainerservice.ManagedCluster]
 
-	managedIdentityPromise := NewPromise(ctx, group, createTygerManagedIdentity)
+	tygerServerManagedIdentityPromise := NewPromise(ctx, group, createTygerServerManagedIdentity)
+	migrationRunnerManagedIdentityPromise := NewPromise(ctx, group, createMigrationRunnerManagedIdentity)
 
 	NewPromise(ctx, group, func(ctx context.Context) (any, error) {
-		return createDatabase(ctx, managedIdentityPromise)
+		return createDatabase(ctx, tygerServerManagedIdentityPromise, migrationRunnerManagedIdentityPromise)
 	})
 
 	for _, clusterConfig := range config.Cloud.Compute.Clusters {
@@ -260,7 +261,10 @@ func createPromises(ctx context.Context, config *EnvironmentConfig) PromiseGroup
 		if clusterConfig.ApiHost {
 			createApiHostClusterPromise = createClusterPromise
 			NewPromise(ctx, group, func(ctx context.Context) (any, error) {
-				return createFederatedIdentityCredential(ctx, managedIdentityPromise, createClusterPromise)
+				return createFederatedIdentityCredential(ctx, tygerServerManagedIdentityPromise, createClusterPromise)
+			})
+			NewPromise(ctx, group, func(ctx context.Context) (any, error) {
+				return createFederatedIdentityCredential(ctx, migrationRunnerManagedIdentityPromise, createClusterPromise)
 			})
 		}
 	}
@@ -276,12 +280,12 @@ func createPromises(ctx context.Context, config *EnvironmentConfig) PromiseGroup
 	})
 
 	NewPromise(ctx, group, func(ctx context.Context) (any, error) {
-		return CreateStorageAccount(ctx, config.Cloud.Storage.Logs, getAdminCredsPromise, managedIdentityPromise)
+		return CreateStorageAccount(ctx, config.Cloud.Storage.Logs, getAdminCredsPromise, tygerServerManagedIdentityPromise)
 	})
 
 	for _, buf := range config.Cloud.Storage.Buffers {
 		NewPromise(ctx, group, func(ctx context.Context) (any, error) {
-			return CreateStorageAccount(ctx, buf, getAdminCredsPromise, managedIdentityPromise)
+			return CreateStorageAccount(ctx, buf, getAdminCredsPromise, tygerServerManagedIdentityPromise)
 		})
 	}
 
