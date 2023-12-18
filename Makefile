@@ -73,15 +73,16 @@ set-localsettings:
 				"clusters": $$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -c '.cloud.compute.clusters')
 			},
 			"logArchive": {
-				"storageAccountEndpoint": $$(echo $${helm_values} | jq -c '.server.logArchive.storageAccountEndpoint')
+				"storageAccountEndpoint": $$(echo $${helm_values} | jq -c '.logArchive.storageAccountEndpoint')
 			},
 			"buffers": {
-				"storageAccounts": $$(echo $${helm_values} | jq -c '.server.buffers.storageAccounts'),
+				"storageAccounts": $$(echo $${helm_values} | jq -c '.buffers.storageAccounts'),
 				"bufferSidecarImage": "$${buffer_sidecar_image}"
 			},
 			"database": {
-				"connectionString": "Host=$$(echo $${helm_values} | jq -r '.server.database.host'); Database=$$(echo $${helm_values} | jq -r '.server.database.databaseName'); Port=$$(echo $${helm_values} | jq -r '.server.database.port'); Username=$$(az account show | jq -r '.user.name'); SslMode=VerifyFull",
-				"autoMigrate": ${AUTO_MIGRATE} 
+				"connectionString": "Host=$$(echo $${helm_values} | jq -r '.database.host'); Database=$$(echo $${helm_values} | jq -r '.database.databaseName'); Port=$$(echo $${helm_values} | jq -r '.database.port'); Username=$$(az account show | jq -r '.user.name'); SslMode=VerifyFull",
+				"autoMigrate": ${AUTO_MIGRATE},
+				"tygerServerRoleName": "$$(echo $${helm_values} | jq -r '.identity.tygerServer.name')"
 			}
 		}
 	EOF
@@ -264,10 +265,10 @@ connect-db: set-context
 	export PGPASSWORD=$$(az account get-access-token --resource-type oss-rdbms | jq -r .accessToken)
 	
 	psql \
-		--host="$$(echo $${helm_values} | jq -r '.server.database.host')" \
-		--port="$$(echo $${helm_values} | jq -r '.server.database.port')" \
+		--host="$$(echo $${helm_values} | jq -r '.database.host')" \
+		--port="$$(echo $${helm_values} | jq -r '.database.port')" \
 		--username="$$(az account show | jq -r '.user.name')" \
-		--dbname="$$(echo $${helm_values} | jq -r '.server.database.databaseName')"
+		--dbname="$$(echo $${helm_values} | jq -r '.database.databaseName')"
 
 restore:
 	cd cli
