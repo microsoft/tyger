@@ -1,4 +1,3 @@
-{{- if not .Values.targetMigrationVersion -}}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -26,15 +25,9 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: {{ .Values.identity.migrationRunner.name }}
-{{- end }}
 ---
 {{- $suffix := randAlphaNum 4 | lower -}}
 {{- $jobName := printf "%s-database-init-%s" .Release.Name $suffix -}}
-{{- $args := list "init" -}}
-{{- if .Values.targetMigrationVersion -}}
-{{- $jobName = printf "%s-runner-%s" .Release.Name $suffix -}}
-{{- $args = list "migrate" "--target-version" (.Values.targetMigrationVersion | toString) -}}
-{{- end -}}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -48,16 +41,13 @@ spec:
       name: {{ $jobName }}
       labels:
         azure.workload.identity/use: "true"
-        {{ if .Values.targetMigrationVersion }}
-        tyger-migration: "{{ .Values.targetMigrationVersion }}"
-        {{- end }}
     spec:
       restartPolicy: Never
       containers:
         - name: database-init
           image: "{{ .Values.image | default (printf "eminence.azurecr.io/tyger-server:%s" .Chart.AppVersion) }}"
           imagePullPolicy: {{ .Values.pullPolicy }}
-          args: {{ $args | toYaml | nindent 12 }}
+          args: ["init"]
           env:
             - name: Logging__Console__FormatterName
               value: Tyger.Server.Logging.JsonFormatter

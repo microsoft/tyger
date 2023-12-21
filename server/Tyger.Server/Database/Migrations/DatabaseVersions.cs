@@ -98,47 +98,52 @@ public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable
 
     public async Task<IList<Model.DatabaseVersion>> GetCurrentAndAvailableDatabaseVersions(CancellationToken cancellationToken)
     {
+        DatabaseVersion? currentDatabaseVersion = null;
+        var migrationsTableExists = await DoesMigrationsTableExist(cancellationToken);
+        var stateFromDatabase = new Dictionary<int, DatabaseVersionState>();
+
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
-            var currentUsingVersion = CachedCurrentVersion;
-
-            await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
-            await using var cmd = new NpgsqlCommand($"""
-            SELECT DISTINCT ON (version) version, state
-            FROM migrations
-            WHERE version >= $1
-            ORDER BY version, timestamp desc
-            """, conn)
+            if (migrationsTableExists)
             {
-                Parameters = { new() { NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Integer, Value = (int)currentUsingVersion } },
-            };
+                await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+                await using var cmd = new NpgsqlCommand($"""
+                    SELECT DISTINCT ON (version) version, state
+                    FROM migrations
+                    ORDER BY version ASC, timestamp DESC
+                    """, conn);
 
-            await cmd.PrepareAsync(cancellationToken);
+                await cmd.PrepareAsync(cancellationToken);
 
-            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
-            var stateFromDatabase = new Dictionary<int, DatabaseVersionState>();
-            while (await reader.ReadAsync(cancellationToken))
-            {
-                var version = (DatabaseVersion)reader.GetInt32(0);
-                var state = reader.GetString(1) switch
+                await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+
+                while (await reader.ReadAsync(cancellationToken))
                 {
-                    MigrationStateStarted => DatabaseVersionState.Started,
-                    MigrationStateComplete => DatabaseVersionState.Complete,
-                    MigrationStateFailed => DatabaseVersionState.Failed,
-                    var s => throw new InvalidOperationException($"Unexpected state '{s}' returned from database")
-                };
+                    var version = (DatabaseVersion)reader.GetInt32(0);
+                    var state = reader.GetString(1) switch
+                    {
+                        MigrationStateStarted => DatabaseVersionState.Started,
+                        MigrationStateComplete => DatabaseVersionState.Complete,
+                        MigrationStateFailed => DatabaseVersionState.Failed,
+                        var s => throw new InvalidOperationException($"Unexpected state '{s}' returned from database")
+                    };
 
-                stateFromDatabase.Add((int)version, state);
+                    if (state == DatabaseVersionState.Complete)
+                    {
+                        currentDatabaseVersion = version;
+                    }
+
+                    stateFromDatabase.Add((int)version, state);
+                }
             }
 
             return GetKnownVersions()
                 .OrderBy(v => (int)v.version)
-                .Where(v => (int)v.version >= (int)currentUsingVersion)
+                .Where(v => currentDatabaseVersion == null || (int)v.version >= (int)currentDatabaseVersion)
                 .Select(v => new Model.DatabaseVersion(
                     (int)v.version,
                     v.version.GetType().GetField(v.version.ToString())?.GetCustomAttribute<DescriptionAttribute>()?.Description ?? v.version.ToString(),
-                    v.version == currentUsingVersion,
-                    State: stateFromDatabase.TryGetValue((int)v.version, out var state) ? state : null))
+                    State: stateFromDatabase.TryGetValue((int)v.version, out var state) ? state : DatabaseVersionState.Available))
                 .ToList();
         }, cancellationToken);
     }

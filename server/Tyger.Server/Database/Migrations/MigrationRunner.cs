@@ -119,14 +119,13 @@ public class MigrationRunner : IHostedService
 
                                 foreach (var address in ep.Addresses)
                                 {
-                                    var uri = new Uri($"http://{address}:{port.Port}/v1/database-versions");
+                                    var uri = new Uri($"http://{address}:{port.Port}/v1/database-version-in-use");
                                     var resp = await httpClient.GetAsync(uri, cancellationToken);
                                     resp.EnsureSuccessStatusCode();
-                                    var versionsPage = (await resp.Content.ReadFromJsonAsync<Model.DatabaseVersionPage>(_jsonSerializerOptions, cancellationToken))!;
-                                    var usingVersion = versionsPage.Items.Single(v => v.Using);
-                                    if (versionsPage.Items.Single(v => v.Using).Id != (int)version - 1)
+                                    var versionInUse = (await resp.Content.ReadFromJsonAsync<Model.DatabaseVersion>(_jsonSerializerOptions, cancellationToken))!;
+                                    if (versionInUse.Id != (int)version - 1)
                                     {
-                                        _logger.WaitingForPodToUseRequiredVersion(address, (int)version - 1, usingVersion.Id);
+                                        _logger.WaitingForPodToUseRequiredVersion(address, (int)version - 1, versionInUse.Id);
                                         continue;
                                     }
                                 }

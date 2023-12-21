@@ -20,7 +20,7 @@ public static class Kubernetes
         services.AddSingleton<LoggingHandler>();
         services.AddSingleton(sp =>
         {
-            var kubernetesOptions = sp.GetRequiredService<IOptions<KubernetesApiOptions>>().Value;
+            var kubernetesOptions = sp.GetRequiredService<IOptions<KubernetesCoreOptions>>().Value;
             var config = string.IsNullOrEmpty(kubernetesOptions.KubeconfigPath)
                 ? KubernetesClientConfiguration.InClusterConfig()
                 : KubernetesClientConfiguration.BuildConfigFromConfigFile(kubernetesOptions.KubeconfigPath);

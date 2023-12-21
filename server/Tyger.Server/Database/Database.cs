@@ -1,4 +1,6 @@
+using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
+using System.Reflection;
 using Azure.Core;
 using Microsoft.Extensions.Options;
 using Npgsql;
@@ -74,15 +76,19 @@ public static class Database
         services.AddSingleton<IHostedService, DatabaseVersions>(sp => sp.GetRequiredService<DatabaseVersions>());
         services.AddHealthChecks().AddCheck<DatabaseVersions>("database");
     }
-    public static void MapDatabaseVersions(this WebApplication app)
+    public static void MapDatabaseVersionInUse(this WebApplication app)
     {
-        app.MapGet("/v1/database-versions", async (DatabaseVersions versions, HttpContext context) =>
+        app.MapGet("/v1/database-version-in-use", (DatabaseVersions versions, HttpContext context) =>
         {
-            var versionsList = await versions.GetCurrentAndAvailableDatabaseVersions(context.RequestAborted);
-            return Results.Ok(new DatabaseVersionPage(Items: versionsList, NextLink: null));
+            var version = versions.CachedCurrentVersion;
+
+            return Results.Ok(new Model.DatabaseVersion(
+                (int)version,
+                version.GetType().GetField(version.ToString())?.GetCustomAttribute<DescriptionAttribute>()?.Description ?? version.ToString(),
+                DatabaseVersionState.Complete));
         })
         .AllowAnonymous()
-        .Produces<DatabaseVersionPage>();
+        .Produces<Model.DatabaseVersion>();
     }
 }
 

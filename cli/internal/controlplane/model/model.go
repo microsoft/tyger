@@ -216,9 +216,3 @@ type Cluster struct {
 	Location  string     `json:"location"`
 	NodePools []NodePool `json:"nodePools"`
 }
-
-type DatabaseVersion struct {
-	Id          int    `json:"id"`
-	Description string `json:"description"`
-	State       string `json:"state"`
-}

@@ -360,9 +360,10 @@ public enum DatabaseVersionState
     Started,
     Complete,
     Failed,
+    Available,
 }
 
-public record DatabaseVersion(int Id, string Description, bool Using, DatabaseVersionState? State) : ModelBase;
+public record DatabaseVersion(int Id, string Description, DatabaseVersionState State) : ModelBase;
 
 public record RunPage(IReadOnlyList<Run> Items, Uri? NextLink);
 

@@ -21,8 +21,11 @@ import (
 	"github.com/rs/zerolog/log"
 	"helm.sh/helm/v3/pkg/repo"
 	"helm.sh/helm/v3/pkg/storage/driver"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -245,31 +248,6 @@ func InstallTyger(ctx context.Context) error {
 	return nil
 }
 
-func InstallMigrationRunner(ctx context.Context, targetVersion int) error {
-	helmValueOverides := map[string]any{
-		"targetMigrationVersion": targetVersion,
-	}
-
-	config := GetConfigFromContext(ctx)
-	if config.Api.Helm == nil {
-		config.Api.Helm = &HelmConfig{}
-	}
-	if config.Api.Helm.Tyger == nil {
-		config.Api.Helm.Tyger = &HelmChartConfig{}
-	}
-	config.Api.Helm.Tyger.ReleaseName = fmt.Sprintf("%s-migration-%d", TygerNamespace, targetVersion)
-
-	if config.Api.Helm.Tyger.Values == nil {
-		config.Api.Helm.Tyger.Values = helmValueOverides
-	} else {
-		if err := mergo.Merge(&config.Api.Helm.Tyger.Values, helmValueOverides, mergo.WithOverride); err != nil {
-			return fmt.Errorf("failed to merge helm config: %w", err)
-		}
-	}
-
-	return installTygerHelmChart(ctx)
-}
-
 func installTygerHelmChart(ctx context.Context) error {
 	if containerRegistry == "" {
 		panic("officialContainerRegistry not set during build")
@@ -411,6 +389,51 @@ func installTygerHelmChart(ctx context.Context) error {
 	return nil
 }
 
+func getMigrationWorkerJobTemplate(ctx context.Context, restConfig *rest.Config) (*batchv1.Job, error) {
+	helmOptions := helmclient.RestConfClientOptions{
+		RestConfig: restConfig,
+		Options: &helmclient.Options{
+			DebugLog: func(format string, v ...interface{}) {
+				log.Debug().Msgf(format, v...)
+			},
+			Namespace: TygerNamespace,
+		},
+	}
+
+	helmClient, err := helmclient.NewClientFromRestConf(&helmOptions)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create helm client: %w", err)
+	}
+
+	release, err := helmClient.GetRelease(TygerNamespace)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get Tyger Helm release not found. Run `tyger api install` before this command: %w", err)
+	}
+
+	scheme := runtime.NewScheme()
+	if err := batchv1.AddToScheme(scheme); err != nil {
+		return nil, fmt.Errorf("failed to add batchv1 to scheme: %w", err)
+	}
+
+	factory := serializer.NewCodecFactory(scheme)
+	decoder := factory.UniversalDeserializer()
+	for _, input := range strings.Split(string(release.Manifest), "---") {
+		obj, _, err := decoder.Decode([]byte(input), nil, nil)
+		if err != nil {
+			if runtime.IsNotRegisteredError(err) || runtime.IsMissingKind(err) {
+				continue
+			}
+			return nil, fmt.Errorf("failed to decode helm manifest: %w", err)
+		}
+
+		if job, ok := obj.(*batchv1.Job); ok {
+			return job, nil
+		}
+	}
+
+	return nil, errors.New("failed to find migration worker job in Tyger Helm release")
+}
+
 func installHelmChart(
 	ctx context.Context,
 	restConfig *rest.Config,
@@ -428,17 +451,6 @@ func installHelmChart(
 		},
 	}
 
-	if overrideHelmChartConfig != nil {
-		if err := mergo.Merge(helmChartConfig, overrideHelmChartConfig, mergo.WithOverride); err != nil {
-			return fmt.Errorf("failed to merge helm config: %w", err)
-		}
-	}
-
-	values, err := yaml.Marshal(helmChartConfig.Values)
-	if err != nil {
-		return fmt.Errorf("failed to marshal helm values: %w", err)
-	}
-
 	helmClient, err := helmclient.NewClientFromRestConf(&helmOptions)
 	if err != nil {
 		return fmt.Errorf("failed to create helm client: %w", err)
@@ -449,6 +461,17 @@ func installHelmChart(
 		if err != nil {
 			return fmt.Errorf("failed to add helm repo: %w", err)
 		}
+	}
+
+	if overrideHelmChartConfig != nil {
+		if err := mergo.Merge(helmChartConfig, overrideHelmChartConfig, mergo.WithOverride); err != nil {
+			return fmt.Errorf("failed to merge helm config: %w", err)
+		}
+	}
+
+	values, err := yaml.Marshal(helmChartConfig.Values)
+	if err != nil {
+		return fmt.Errorf("failed to marshal helm values: %w", err)
 	}
 
 	chartSpec := helmclient.ChartSpec{
@@ -471,11 +494,6 @@ func installHelmChart(
 			return err
 		}
 	}
-
-	if err != nil {
-		return fmt.Errorf("failed to render helm chart: %w", err)
-	}
-	fmt.Println(string(rendered))
 
 	for i := 0; ; i++ {
 		_, err = helmClient.InstallOrUpgradeChart(ctx, &chartSpec, nil)

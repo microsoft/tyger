@@ -119,27 +119,36 @@ docker-build:
 		exit
 	fi
 
+	if [[ -z "${DOCKER_BUILD_TARGET}" ]]; then
+		echo "DOCKER_BUILD_TARGET not set"
+		exit 1
+	fi
+
+	target_arg="--${DOCKER_BUILD_TARGET}"
+
 	tag=$${EXPLICIT_IMAGE_TAG:-dev}
 
 	registry=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
-	scripts/build-images.sh --push --push-force --tag "$$tag" --quiet --registry "$${registry}"
+	scripts/build-images.sh $$target_arg --push --push-force --tag "$$tag" --quiet --registry "$${registry}"
 
 docker-build-test:
-	if [[ "$${DO_NOT_BUILD_IMAGES:-}" == "true" ]]; then
-		exit
-	fi
+	$(MAKE) docker-build DOCKER_BUILD_TARGET=test-connectivity
 
-	tag=$${EXPLICIT_IMAGE_TAG:-test}
-	
-	registry=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
-	scripts/build-images.sh --test --push --push-force --tag "$$tag" --quiet --registry "$${registry}"
+docker-build-tyger-server:
+	$(MAKE) docker-build DOCKER_BUILD_TARGET=tyger-server
+
+docker-build-buffer-sidecar:
+	$(MAKE) docker-build DOCKER_BUILD_TARGET=buffer-sidecar
+
+docker-build-worker-waiter:
+	$(MAKE) docker-build DOCKER_BUILD_TARGET=worker-waiter
 
 publish-official-images:
 	registry=$$(scripts/get-config.sh --dev -e .officialContainerRegistry.fqdn)
 	tag=$$(git describe --tags)
 	scripts/build-images.sh --push --push-force --helm --tag "$${tag}" --quiet --registry "$${registry}"
 
-up: ensure-environment-conditionally docker-build
+up: ensure-environment-conditionally docker-build-tyger-server docker-build-buffer-sidecar docker-build-worker-waiter
 	repo_fqdn=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
 
 	if [[ -n "$${EXPLICIT_IMAGE_TAG:-}" ]]; then
@@ -163,7 +172,7 @@ up: ensure-environment-conditionally docker-build
 
 	$(MAKE) cli-ready
 
-migrate: ensure-environment-conditionally docker-build
+migrate: ensure-environment-conditionally docker-build-tyger-server
 	repo_fqdn=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
 	chart_dir=$$(readlink -f deploy/helm/tyger)
 
@@ -173,7 +182,7 @@ migrate: ensure-environment-conditionally docker-build
 		tyger_server_image="$$(docker inspect "$${repo_fqdn}/tyger-server:dev" | jq -r --arg repo "$${repo_fqdn}/tyger-server" '.[0].RepoDigests[] | select (startswith($$repo))')"
 	fi
 	
-	tyger api migrations apply --target-version 2 --log-level trace -f <(scripts/get-config.sh) \
+	tyger api migrations apply --latest --wait --log-level trace -f <(scripts/get-config.sh) \
 		--set api.helm.tyger.chartRef="$${chart_dir}" \
 		--set api.helm.tyger.values.image="$${tyger_server_image}" 
 

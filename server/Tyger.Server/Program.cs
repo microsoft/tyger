@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json;
 using Tyger.Server;
 using Tyger.Server.Auth;
 using Tyger.Server.Buffers;
@@ -28,6 +29,10 @@ initCommand.SetHandler(context => RunMigrations(
     context.GetCancellationToken()));
 rootCommand.AddCommand(initCommand);
 
+var listVersionsCommand = new Command("list-versions", "List the current and available database versions");
+listVersionsCommand.SetHandler(context => ListDatabaseVersions(context.GetCancellationToken()));
+rootCommand.AddCommand(listVersionsCommand);
+
 var migrateCommand = new Command("migrate", "Run database migrations");
 var targetVersionOption = new Option<int>("--target-version", "The target database version") { IsRequired = true };
 var offlineOption = new Option<bool>("--offline", "Run migrations assuming there are no server instances connected to the database");
@@ -39,7 +44,24 @@ migrateCommand.SetHandler(context => RunMigrations(
     context.GetCancellationToken()));
 rootCommand.AddCommand(migrateCommand);
 
+var sleepCommand = new Command("sleep", "Do nothing until signaled to exit");
+sleepCommand.SetHandler(async context => await Task.Delay(-1, context.GetCancellationToken()));
+rootCommand.AddCommand(sleepCommand);
+
 return await rootCommand.InvokeAsync(args);
+
+async Task ListDatabaseVersions(CancellationToken cancellationToken)
+{
+    using var host = ConfigureHostBuilder(Host.CreateApplicationBuilder(args)).Build();
+
+    var databaseVersions = host.Services.GetRequiredService<DatabaseVersions>();
+    var serializerOptions = host.Services.GetRequiredService<JsonSerializerOptions>();
+
+    var versions = await databaseVersions.GetCurrentAndAvailableDatabaseVersions(cancellationToken);
+
+    await using var stdout = Console.OpenStandardOutput();
+    JsonSerializer.Serialize(stdout, versions, serializerOptions);
+}
 
 async Task<int> RunMigrations(bool initOnly, int? targetVersion, bool offline, CancellationToken cancellationToken)
 {
@@ -112,7 +134,7 @@ void RunServer()
     app.MapRuns();
 
     app.MapServiceMetadata();
-    app.MapDatabaseVersions();
+    app.MapDatabaseVersionInUse();
     app.MapHealthChecks("/healthcheck").AllowAnonymous();
 
     app.MapFallback(() => Responses.BadRequest("InvalidRoute", "The request path was not recognized."));

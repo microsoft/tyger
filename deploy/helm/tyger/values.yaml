@@ -1,8 +1,6 @@
 nameOverride: ""
 fullnameOverride: ""
 
-targetMigrationVersion:
-
 replicaCount: 1
 
 image:

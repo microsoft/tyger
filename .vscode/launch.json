@@ -10,11 +10,11 @@
       "request": "launch",
       "preLaunchTask": "build",
       "program": "${workspaceFolder}/server/Tyger.Server/bin/Debug/net8.0/tyger.server",
-      "args": [],
+      "args": ["init"],
       "cwd": "${workspaceFolder}/server/Tyger.Server",
       "stopAtEntry": false,
       "console": "internalConsole",
-      "justMyCode": true
+      "justMyCode": false
     },
     {
       "name": ".NET Core Attach",

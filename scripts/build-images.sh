@@ -11,7 +11,10 @@ Usage: $0 [options]
 
 Options:
   -r, --registry                   The FQDN of container registry to push to.
-  --test                           Build (and optionally push) test images, otherwise runtime images
+  --test-connectivity              Build (and optionally push) the testconnectivity image
+  --tyger-server                   Build (and optionally push) the tyger-server image
+  --worker-waiter                  Build (and optionally push) the worker-waiter image
+  --buffer-sidecar                 Build (and optionally push) the buffer-sidecar image
   --helm                           Package and push the Tyger Helm chart
   --push                           Push runtime images (requires --tag or --use-git-hash-as-tag)
   --push-force                     Force runtime images, will overwrite images with same tag (requires --tag or --use-git-hash-as-tag)
@@ -32,8 +35,20 @@ while [[ $# -gt 0 ]]; do
     container_registry_fqdn="$2"
     shift 2
     ;;
-  --test)
-    test=1
+  --test-connectivity)
+    test_connectivity=1
+    shift
+    ;;
+  --tyger-server)
+    tyger_server=1
+    shift
+    ;;
+  --worker-waiter)
+    worker_waiter=1
+    shift
+    ;;
+  --buffer-sidecar)
+    buffer_sidecar=1
     shift
     ;;
   --helm)
@@ -103,7 +118,7 @@ function build_and_push() {
   "$(dirname "${0}")/docker-auth-wrapper.sh" push $quiet "$full_image" >/dev/null
 }
 
-if [[ -n "${test:-}" ]]; then
+if [[ -n "${test_connectivity:-}" ]]; then
   build_context="${repo_root_dir}/cli"
   dockerfile_path="${repo_root_dir}/cli/integrationtest/testconnectivity/Dockerfile"
   target="testconnectivity"
@@ -111,7 +126,9 @@ if [[ -n "${test:-}" ]]; then
   remote_repo="testconnectivity"
 
   build_and_push
-else
+fi
+
+if [[ -n "${tyger_server:-}" ]]; then
   build_context="${repo_root_dir}/"
   dockerfile_path="${repo_root_dir}/server/Dockerfile"
   target="runtime"
@@ -119,7 +136,9 @@ else
   remote_repo="tyger-server"
 
   build_and_push
+fi
 
+if [[ -n "${worker_waiter:-}" ]]; then
   build_context="${repo_root_dir}/deploy/images/worker-waiter"
   dockerfile_path="${repo_root_dir}/deploy/images/worker-waiter/Dockerfile"
   target="worker-waiter"
@@ -127,7 +146,9 @@ else
   remote_repo="worker-waiter"
 
   build_and_push
+fi
 
+if [[ -n "${buffer_sidecar:-}" ]]; then
   build_context="${repo_root_dir}/cli"
   dockerfile_path="${repo_root_dir}/cli/Dockerfile"
   target="buffer-sidecar"

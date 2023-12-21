@@ -1,6 +1,7 @@
 package install
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 
@@ -10,7 +11,9 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/remotecommand"
 )
 
 const (
@@ -162,4 +165,41 @@ func createTygerClusterRBAC(ctx context.Context, restConfigPromise *Promise[*res
 	}
 
 	return nil, nil
+}
+
+func PodExec(ctx context.Context, podName string, command ...string) (stdout *bytes.Buffer, stderr *bytes.Buffer, err error) {
+	restConfig, err := getUserRESTConfig(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	clientset, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
+
+	req := clientset.CoreV1().RESTClient().Post().Resource("pods").Name(podName).Namespace(TygerNamespace).SubResource("exec")
+	options := &corev1.PodExecOptions{
+		Command: command,
+		Stdout:  true,
+		Stderr:  true,
+	}
+	req.VersionedParams(options, scheme.ParameterCodec)
+	exec, err := remotecommand.NewSPDYExecutor(restConfig, "POST", req.URL())
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create executor: %w", err)
+	}
+
+	stdout = &bytes.Buffer{}
+	stderr = &bytes.Buffer{}
+
+	err = exec.StreamWithContext(ctx, remotecommand.StreamOptions{
+		Stdout: stdout,
+		Stderr: stderr,
+	})
+	if err != nil {
+		return stdout, stderr, fmt.Errorf("failed to stream remote command: %w", err)
+	}
+
+	return stdout, stderr, nil
 }
