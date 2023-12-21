@@ -55,9 +55,11 @@ filesize      equ     $ - $$
 
 
 */}}
+{{- if not .Values.targetMigrationVersion  }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: {{ include "tyger.fullname" . }}-no-op
 binaryData:
   no-op: f0VMRgEBAQAAAAAAAAAAAAIAAwABAAAAVIAECDQAAAAAAAAAAAAAADQAIAABAAAAAAAAAAEAAAAAAAAAAIAECACABAhgAAAAYAAAAAUAAAAAEAAAuAEAAAC7AAAAAM2A
+{{- end}}

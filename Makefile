@@ -163,6 +163,20 @@ up: ensure-environment-conditionally docker-build
 
 	$(MAKE) cli-ready
 
+migrate: ensure-environment-conditionally docker-build
+	repo_fqdn=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
+	chart_dir=$$(readlink -f deploy/helm/tyger)
+
+	if [[ -n "$${EXPLICIT_IMAGE_TAG:-}" ]]; then
+		tyger_server_image="$${repo_fqdn}/tyger-server:$${EXPLICIT_IMAGE_TAG}"
+	else
+		tyger_server_image="$$(docker inspect "$${repo_fqdn}/tyger-server:dev" | jq -r --arg repo "$${repo_fqdn}/tyger-server" '.[0].RepoDigests[] | select (startswith($$repo))')"
+	fi
+	
+	tyger api migrations apply --target-version 2 --log-level trace -f <(scripts/get-config.sh) \
+		--set api.helm.tyger.chartRef="$${chart_dir}" \
+		--set api.helm.tyger.values.image="$${tyger_server_image}" 
+
 down: install-cli
 	tyger api uninstall -f <(scripts/get-config.sh)
 

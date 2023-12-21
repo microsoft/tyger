@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.ComponentModel.DataAnnotations;
 using Tyger.Server;
 using Tyger.Server.Auth;
 using Tyger.Server.Buffers;
@@ -20,24 +21,54 @@ var rootCommand = new RootCommand("Tyger Server");
 rootCommand.SetHandler(RunServer);
 
 var initCommand = new Command("init", "Initialize the database");
-initCommand.SetHandler(async () => await RunMigrations(true));
+initCommand.SetHandler(context => RunMigrations(
+    initOnly: true,
+    targetVersion: null,
+    offline: true,
+    context.GetCancellationToken()));
 rootCommand.AddCommand(initCommand);
 
-var res = rootCommand.Parse(args);
+var migrateCommand = new Command("migrate", "Run database migrations");
+var targetVersionOption = new Option<int>("--target-version", "The target database version") { IsRequired = true };
+var offlineOption = new Option<bool>("--offline", "Run migrations assuming there are no server instances connected to the database");
+migrateCommand.AddOption(targetVersionOption);
+migrateCommand.SetHandler(context => RunMigrations(
+    initOnly: false,
+    context.ParseResult.GetValueForOption(targetVersionOption),
+    context.ParseResult.GetValueForOption(offlineOption),
+    context.GetCancellationToken()));
+rootCommand.AddCommand(migrateCommand);
 
 return await rootCommand.InvokeAsync(args);
 
-async Task RunMigrations(bool initOnly)
+async Task<int> RunMigrations(bool initOnly, int? targetVersion, bool offline, CancellationToken cancellationToken)
 {
-    var host = ConfigureHostBuilder(Host.CreateApplicationBuilder(args)).Build();
+    using var host = ConfigureHostBuilder(Host.CreateApplicationBuilder(args)).Build();
 
     var migrationRunner = host.Services.GetRequiredService<MigrationRunner>();
+    var logger = host.Services.GetRequiredService<ILogger<Program>>();
 
-    await migrationRunner.RunMigrations(initOnly, null, CancellationToken.None);
+    try
+    {
+        await migrationRunner.RunMigrations(initOnly, targetVersion, offline, CancellationToken.None);
+        return 0;
+    }
+    catch (ValidationException ex)
+    {
+        logger.MigrationValidationError(ex.Message);
+        return 1;
+    }
+    catch (Exception ex)
+    {
+        logger.UnhandledMigrationException(ex);
+        return 1;
+    }
 }
 
 T ConfigureHostBuilder<T>(T builder) where T : IHostApplicationBuilder
 {
+    bool isApi = builder is WebApplicationBuilder;
+
     // Configuration
     builder.Configuration.AddConfigurationSources();
 
@@ -47,13 +78,17 @@ T ConfigureHostBuilder<T>(T builder) where T : IHostApplicationBuilder
     // Services
     builder.Services.AddManagedIdentity();
     builder.Services.AddDatabase();
-    builder.Services.AddKubernetes();
-    builder.Services.AddLogArchive();
-    builder.Services.AddAuth();
-    builder.Services.AddBuffers();
-    builder.Services.AddOpenApi();
-    builder.Services.AddHealthChecks();
+    builder.Services.AddKubernetes(isApi);
     builder.Services.AddJsonFormatting();
+
+    if (isApi)
+    {
+        builder.Services.AddLogArchive();
+        builder.Services.AddAuth();
+        builder.Services.AddBuffers();
+        builder.Services.AddOpenApi();
+        builder.Services.AddHealthChecks();
+    }
 
     return builder;
 }
@@ -75,8 +110,11 @@ void RunServer()
     app.MapBuffers();
     app.MapCodespecs();
     app.MapRuns();
+
     app.MapServiceMetadata();
+    app.MapDatabaseVersions();
     app.MapHealthChecks("/healthcheck").AllowAnonymous();
+
     app.MapFallback(() => Responses.BadRequest("InvalidRoute", "The request path was not recognized."));
 
     // Run

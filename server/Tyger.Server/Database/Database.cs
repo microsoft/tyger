@@ -5,6 +5,7 @@ using Npgsql;
 using Polly;
 using Polly.Retry;
 using Tyger.Server.Database.Migrations;
+using Tyger.Server.Model;
 
 namespace Tyger.Server.Database;
 
@@ -72,6 +73,16 @@ public static class Database
         services.AddSingleton<DatabaseVersions>();
         services.AddSingleton<IHostedService, DatabaseVersions>(sp => sp.GetRequiredService<DatabaseVersions>());
         services.AddHealthChecks().AddCheck<DatabaseVersions>("database");
+    }
+    public static void MapDatabaseVersions(this WebApplication app)
+    {
+        app.MapGet("/v1/database-versions", async (DatabaseVersions versions, HttpContext context) =>
+        {
+            var versionsList = await versions.GetCurrentAndAvailableDatabaseVersions(context.RequestAborted);
+            return Results.Ok(new DatabaseVersionPage(Items: versionsList, NextLink: null));
+        })
+        .AllowAnonymous()
+        .Produces<DatabaseVersionPage>();
     }
 }
 

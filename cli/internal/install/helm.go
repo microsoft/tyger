@@ -48,11 +48,12 @@ func installTraefik(ctx context.Context, restConfigPromise *Promise[*rest.Config
 	log.Info().Msg("Installing Traefik")
 
 	traefikConfig := HelmChartConfig{
-		RepoName:  "traefik",
-		Namespace: "traefik",
-		RepoUrl:   "https://helm.traefik.io/traefik",
-		ChartRef:  "traefik/traefik",
-		Version:   "24.0.0",
+		RepoName:    "traefik",
+		Namespace:   "traefik",
+		ReleaseName: "traefik",
+		RepoUrl:     "https://helm.traefik.io/traefik",
+		ChartRef:    "traefik/traefik",
+		Version:     "24.0.0",
 		Values: map[string]any{
 			"logs": map[string]any{
 				"general": map[string]any{
@@ -113,11 +114,12 @@ func installCertManager(ctx context.Context, restConfigPromise *Promise[*rest.Co
 	log.Info().Msg("Installing cert-manager")
 
 	certManagerConfig := HelmChartConfig{
-		Namespace: "cert-manager",
-		RepoName:  "jetstack",
-		RepoUrl:   "https://charts.jetstack.io",
-		ChartRef:  "jetstack/cert-manager",
-		Version:   "v1.13.0",
+		Namespace:   "cert-manager",
+		ReleaseName: "cert-manager",
+		RepoName:    "jetstack",
+		RepoUrl:     "https://charts.jetstack.io",
+		ChartRef:    "jetstack/cert-manager",
+		Version:     "v1.13.0",
 		Values: map[string]any{
 			"installCRDs": true,
 		},
@@ -146,11 +148,12 @@ func installNvidiaDevicePlugin(ctx context.Context, restConfigPromise *Promise[*
 	log.Info().Msg("Installing nvidia-device-plugin")
 
 	nvdpConfig := HelmChartConfig{
-		Namespace: "nvidia-device-plugin",
-		RepoName:  "nvdp",
-		RepoUrl:   "https://nvidia.github.io/k8s-device-plugin",
-		ChartRef:  "nvdp/nvidia-device-plugin",
-		Version:   "0.14.1",
+		Namespace:   "nvidia-device-plugin",
+		ReleaseName: "nvidia-device-plugin",
+		RepoName:    "nvdp",
+		RepoUrl:     "https://nvidia.github.io/k8s-device-plugin",
+		ChartRef:    "nvdp/nvidia-device-plugin",
+		Version:     "0.14.1",
 		Values: map[string]any{
 			"nodeSelector": map[string]any{
 				"kubernetes.azure.com/accelerator": "nvidia",
@@ -196,6 +199,78 @@ func installNvidiaDevicePlugin(ctx context.Context, restConfigPromise *Promise[*
 }
 
 func InstallTyger(ctx context.Context) error {
+	if err := installTygerHelmChart(ctx); err != nil {
+		return err
+	}
+
+	config := GetConfigFromContext(ctx)
+	baseEndpoint := fmt.Sprintf("https://%s", config.Api.DomainName)
+	healthCheckEndpoint := fmt.Sprintf("%s/healthcheck", baseEndpoint)
+
+	client := httpclient.NewRetryableClient()
+	client.RetryMax = 0 // we do own own retrying here
+
+	for i := 0; ; i++ {
+		req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, healthCheckEndpoint, nil)
+		if err != nil {
+			return fmt.Errorf("failed to create health check request: %w", err)
+		}
+
+		resp, err := client.Do(req)
+		errorLogger := log.Debug()
+		exit := false
+		if i == 60 {
+			exit = true
+			errorLogger = log.Error()
+		}
+		if err != nil {
+			if errors.Is(err, ctx.Err()) {
+				return err
+			}
+			errorLogger.Err(err).Msg("Tyger health check failed")
+		} else if resp.StatusCode != http.StatusOK {
+			errorLogger.Msgf("Tyger health check failed with status code %d", resp.StatusCode)
+		} else {
+			log.Info().Msgf("Tyger API up at %s", baseEndpoint)
+			break
+		}
+
+		if exit {
+			return ErrAlreadyLoggedError
+		}
+
+		time.Sleep(time.Second)
+	}
+
+	return nil
+}
+
+func InstallMigrationRunner(ctx context.Context, targetVersion int) error {
+	helmValueOverides := map[string]any{
+		"targetMigrationVersion": targetVersion,
+	}
+
+	config := GetConfigFromContext(ctx)
+	if config.Api.Helm == nil {
+		config.Api.Helm = &HelmConfig{}
+	}
+	if config.Api.Helm.Tyger == nil {
+		config.Api.Helm.Tyger = &HelmChartConfig{}
+	}
+	config.Api.Helm.Tyger.ReleaseName = fmt.Sprintf("%s-migration-%d", TygerNamespace, targetVersion)
+
+	if config.Api.Helm.Tyger.Values == nil {
+		config.Api.Helm.Tyger.Values = helmValueOverides
+	} else {
+		if err := mergo.Merge(&config.Api.Helm.Tyger.Values, helmValueOverides, mergo.WithOverride); err != nil {
+			return fmt.Errorf("failed to merge helm config: %w", err)
+		}
+	}
+
+	return installTygerHelmChart(ctx)
+}
+
+func installTygerHelmChart(ctx context.Context) error {
 	if containerRegistry == "" {
 		panic("officialContainerRegistry not set during build")
 	}
@@ -274,9 +349,10 @@ func InstallTyger(ctx context.Context) error {
 	}
 
 	helmConfig := HelmChartConfig{
-		Namespace: TygerNamespace,
-		ChartRef:  fmt.Sprintf("oci://%s/helm/tyger", containerRegistry),
-		Version:   containerImageTag,
+		Namespace:   TygerNamespace,
+		ReleaseName: TygerNamespace,
+		ChartRef:    fmt.Sprintf("oci://%s/helm/tyger", containerRegistry),
+		Version:     containerImageTag,
 		Values: map[string]any{
 			"image":              fmt.Sprintf("%s/tyger-server:%s", containerRegistry, containerImageTag),
 			"bufferSidecarImage": fmt.Sprintf("%s/buffer-sidecar:%s", containerRegistry, containerImageTag),
@@ -332,45 +408,6 @@ func InstallTyger(ctx context.Context) error {
 		return fmt.Errorf("failed to install Tyger Helm chart: %w", err)
 	}
 
-	baseEndpoint := fmt.Sprintf("https://%s", config.Api.DomainName)
-
-	healthCheckEndpoint := fmt.Sprintf("%s/healthcheck", baseEndpoint)
-
-	client := httpclient.NewRetryableClient()
-	client.RetryMax = 0 // we do own own retrying here
-
-	for i := 0; ; i++ {
-		req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, healthCheckEndpoint, nil)
-		if err != nil {
-			return fmt.Errorf("failed to create health check request: %w", err)
-		}
-
-		resp, err := client.Do(req)
-		errorLogger := log.Debug()
-		exit := false
-		if i == 60 {
-			exit = true
-			errorLogger = log.Error()
-		}
-		if err != nil {
-			if errors.Is(err, ctx.Err()) {
-				return err
-			}
-			errorLogger.Err(err).Msg("Tyger health check failed")
-		} else if resp.StatusCode != http.StatusOK {
-			errorLogger.Msgf("Tyger health check failed with status code %d", resp.StatusCode)
-		} else {
-			log.Info().Msgf("Tyger API up at %s", baseEndpoint)
-			break
-		}
-
-		if exit {
-			return ErrAlreadyLoggedError
-		}
-
-		time.Sleep(time.Second)
-	}
-
 	return nil
 }
 
@@ -415,17 +452,18 @@ func installHelmChart(
 	}
 
 	chartSpec := helmclient.ChartSpec{
-		ReleaseName:     helmChartConfig.Namespace,
+		Namespace:       helmChartConfig.Namespace,
+		ReleaseName:     helmChartConfig.ReleaseName,
 		ChartName:       helmChartConfig.ChartRef,
 		Version:         helmChartConfig.Version,
-		Namespace:       helmChartConfig.Namespace,
 		CreateNamespace: true,
 		Wait:            true,
 		WaitForJobs:     true,
-		Atomic:          true,
-		UpgradeCRDs:     true,
-		Timeout:         2 * time.Minute,
-		ValuesYaml:      string(values),
+		Force:           false,
+		// Atomic:          true,
+		UpgradeCRDs: true,
+		Timeout:     2 * time.Minute,
+		ValuesYaml:  string(values),
 	}
 
 	for _, f := range customizeSpec {
@@ -433,6 +471,11 @@ func installHelmChart(
 			return err
 		}
 	}
+
+	if err != nil {
+		return fmt.Errorf("failed to render helm chart: %w", err)
+	}
+	fmt.Println(string(rendered))
 
 	for i := 0; ; i++ {
 		_, err = helmClient.InstallOrUpgradeChart(ctx, &chartSpec, nil)

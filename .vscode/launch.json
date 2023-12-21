@@ -28,7 +28,17 @@
       "mode": "auto",
       "program": "cli/cmd/tyger",
       "cwd": "${workspaceFolder}",
-      "args": ["login", "status"]
+      "args": [
+        "api",
+        "migrations",
+        "apply",
+        "--target-version",
+        "2",
+        "--set",
+        "api.helm.tyger.chartRef=/workspaces/tyger/deploy/helm/tyger",
+        "--set",
+        "api.helm.tyger.values.image=eminence.azurecr.io/tyger-server@sha256:8f02b04819b46b7c57a80d841c988e8a8b363ac6539029a25dba023eb8c2cd11"
+      ]
     }
   ]
 }

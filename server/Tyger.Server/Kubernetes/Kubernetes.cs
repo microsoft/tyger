@@ -8,15 +8,19 @@ namespace Tyger.Server.Kubernetes;
 
 public static class Kubernetes
 {
-    public static void AddKubernetes(this IServiceCollection services)
+    public static void AddKubernetes(this IServiceCollection services, bool isApi)
     {
-        services.AddOptions<KubernetesOptions>().BindConfiguration("kubernetes").ValidateDataAnnotations().ValidateOnStart()
-;
+        if (isApi)
+        {
+            services.AddOptions<KubernetesApiOptions>().BindConfiguration("kubernetes").ValidateDataAnnotations().ValidateOnStart();
+        }
+
+        services.AddOptions<KubernetesCoreOptions>().BindConfiguration("kubernetes").ValidateDataAnnotations().ValidateOnStart();
 
         services.AddSingleton<LoggingHandler>();
         services.AddSingleton(sp =>
         {
-            var kubernetesOptions = sp.GetRequiredService<IOptions<KubernetesOptions>>().Value;
+            var kubernetesOptions = sp.GetRequiredService<IOptions<KubernetesApiOptions>>().Value;
             var config = string.IsNullOrEmpty(kubernetesOptions.KubeconfigPath)
                 ? KubernetesClientConfiguration.InClusterConfig()
                 : KubernetesClientConfiguration.BuildConfigFromConfigFile(kubernetesOptions.KubeconfigPath);
@@ -24,22 +28,25 @@ public static class Kubernetes
         });
         services.AddSingleton<IKubernetes>(sp => sp.GetRequiredService<k8s.Kubernetes>());
 
-        services.AddSingleton<RunCreator>();
-        services.AddSingleton<RunReader>();
-        services.AddSingleton<RunUpdater>();
-        services.AddSingleton<ILogSource, RunLogReader>();
-        services.AddSingleton<RunSweeper>();
-        services.AddSingleton<IHostedService, RunSweeper>(sp => sp.GetRequiredService<RunSweeper>());
+        if (isApi)
+        {
+            services.AddSingleton<RunCreator>();
+            services.AddSingleton<RunReader>();
+            services.AddSingleton<RunUpdater>();
+            services.AddSingleton<ILogSource, RunLogReader>();
+            services.AddSingleton<RunSweeper>();
+            services.AddSingleton<IHostedService, RunSweeper>(sp => sp.GetRequiredService<RunSweeper>());
+        }
     }
 
     public static void MapClusters(this WebApplication app)
     {
-        app.MapGet("/v1/clusters/", (IOptions<KubernetesOptions> config) =>
+        app.MapGet("/v1/clusters/", (IOptions<KubernetesApiOptions> config) =>
         {
             return GetClustersResponse(config.Value);
         });
 
-        app.MapGet("/v1/clusters/{name}", (string name, IOptions<KubernetesOptions> config) =>
+        app.MapGet("/v1/clusters/{name}", (string name, IOptions<KubernetesApiOptions> config) =>
         {
             var cluster = GetClustersResponse(config.Value).FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
             if (cluster == null)
@@ -53,7 +60,7 @@ public static class Kubernetes
         .Produces<ErrorBody>(StatusCodes.Status400BadRequest);
     }
 
-    private static List<Cluster> GetClustersResponse(KubernetesOptions options)
+    private static List<Cluster> GetClustersResponse(KubernetesApiOptions options)
     {
         return options.Clusters
             .Where(c => c.ApiHost) // For now we don't support multiple clusters
@@ -67,13 +74,16 @@ public static class Kubernetes
     }
 }
 
-public class KubernetesOptions
+public class KubernetesCoreOptions
 {
     public string? KubeconfigPath { get; set; }
 
     [Required]
     public string Namespace { get; set; } = null!;
+}
 
+public class KubernetesApiOptions : KubernetesCoreOptions
+{
     [Required]
     public string JobServiceAccount { get; set; } = null!;
 

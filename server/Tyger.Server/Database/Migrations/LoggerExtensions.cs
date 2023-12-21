@@ -28,4 +28,14 @@ public static partial class LoggerExtensions
 
     [LoggerMessage(8, LogLevel.Information, "Waiting for database tables to be created...")]
     public static partial void WaitingForDatabaseTablesToBeCreated(this ILogger logger);
+
+    [LoggerMessage(9, LogLevel.Warning, "The database has been migrated to an unrecognized version {version}. The maximum known version is {maxVersion}")]
+    public static partial void UnrecognizedDatabaseVersion(this ILogger logger, int version, int maxVersion);
+
+    [LoggerMessage(10, LogLevel.Warning, "Error validating current database versions on replicas")]
+    public static partial void ErrorValidatingCurrentDatabaseVersionsOnReplicas(this ILogger logger, Exception exception);
+
+    [LoggerMessage(11, LogLevel.Information, "Waiting for pod at {address} to use required version {version} instead of {usingVersion}")]
+    public static partial void WaitingForPodToUseRequiredVersion(this ILogger logger, string address, int version, int usingVersion);
+
 }

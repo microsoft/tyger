@@ -1,7 +1,9 @@
+using System.ComponentModel;
 using System.Reflection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Npgsql;
 using Polly;
+using Tyger.Server.Model;
 using static Tyger.Server.Database.Constants;
 
 namespace Tyger.Server.Database.Migrations;
@@ -12,7 +14,12 @@ namespace Tyger.Server.Database.Migrations;
 public enum DatabaseVersion
 {
     [Migrator(typeof(Migrator1))]
+    [Description("Initial version")]
     Initial = 1,
+
+    [Migrator(typeof(Migrator2))]
+    [Description("Adding an index to the codespecs table")]
+    AddCodespecsIndex = 2,
 }
 
 public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable
@@ -89,6 +96,53 @@ public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable
         }, cancellationToken);
     }
 
+    public async Task<IList<Model.DatabaseVersion>> GetCurrentAndAvailableDatabaseVersions(CancellationToken cancellationToken)
+    {
+        return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
+        {
+            var currentUsingVersion = CachedCurrentVersion;
+
+            await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+            await using var cmd = new NpgsqlCommand($"""
+            SELECT DISTINCT ON (version) version, state
+            FROM migrations
+            WHERE version >= $1
+            ORDER BY version, timestamp desc
+            """, conn)
+            {
+                Parameters = { new() { NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Integer, Value = (int)currentUsingVersion } },
+            };
+
+            await cmd.PrepareAsync(cancellationToken);
+
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+            var stateFromDatabase = new Dictionary<int, DatabaseVersionState>();
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var version = (DatabaseVersion)reader.GetInt32(0);
+                var state = reader.GetString(1) switch
+                {
+                    MigrationStateStarted => DatabaseVersionState.Started,
+                    MigrationStateComplete => DatabaseVersionState.Complete,
+                    MigrationStateFailed => DatabaseVersionState.Failed,
+                    var s => throw new InvalidOperationException($"Unexpected state '{s}' returned from database")
+                };
+
+                stateFromDatabase.Add((int)version, state);
+            }
+
+            return GetKnownVersions()
+                .OrderBy(v => (int)v.version)
+                .Where(v => (int)v.version >= (int)currentUsingVersion)
+                .Select(v => new Model.DatabaseVersion(
+                    (int)v.version,
+                    v.version.GetType().GetField(v.version.ToString())?.GetCustomAttribute<DescriptionAttribute>()?.Description ?? v.version.ToString(),
+                    v.version == currentUsingVersion,
+                    State: stateFromDatabase.TryGetValue((int)v.version, out var state) ? state : null))
+                .ToList();
+        }, cancellationToken);
+    }
+
     async Task IHostedService.StartAsync(CancellationToken cancellationToken)
     {
         while (true)
@@ -147,7 +201,15 @@ public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable
 
         if (CachedCurrentVersion != readVersion.Value)
         {
-            CachedCurrentVersion = readVersion.Value;
+            var currentVersionInDatabase = readVersion.Value;
+            var mostRecentKnownVersion = GetKnownVersions().Last().version;
+            if ((int)currentVersionInDatabase > (int)mostRecentKnownVersion)
+            {
+                _logger.UnrecognizedDatabaseVersion((int)currentVersionInDatabase, (int)mostRecentKnownVersion);
+                currentVersionInDatabase = mostRecentKnownVersion;
+            }
+
+            CachedCurrentVersion = currentVersionInDatabase;
             _logger.UsingDatabaseVersion((int)readVersion.Value);
         }
 
