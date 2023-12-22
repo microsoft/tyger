@@ -47,7 +47,7 @@ spec:
         - name: database-init
           image: "{{ .Values.image | default (printf "eminence.azurecr.io/tyger-server:%s" .Chart.AppVersion) }}"
           imagePullPolicy: {{ .Values.pullPolicy }}
-          args: ["init"]
+          args: ["database", "init"]
           env:
             - name: Logging__Console__FormatterName
               value: Tyger.Server.Logging.JsonFormatter

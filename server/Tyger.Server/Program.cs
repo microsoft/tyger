@@ -21,17 +21,20 @@ using Tyger.Server.ServiceMetadata;
 var rootCommand = new RootCommand("Tyger Server");
 rootCommand.SetHandler(RunServer);
 
+var databaseCommand = new Command("database", "Manage the database");
+rootCommand.AddCommand(databaseCommand);
+
 var initCommand = new Command("init", "Initialize the database");
 initCommand.SetHandler(context => RunMigrations(
     initOnly: true,
     targetVersion: null,
     offline: true,
     context.GetCancellationToken()));
-rootCommand.AddCommand(initCommand);
+databaseCommand.AddCommand(initCommand);
 
 var listVersionsCommand = new Command("list-versions", "List the current and available database versions");
 listVersionsCommand.SetHandler(context => ListDatabaseVersions(context.GetCancellationToken()));
-rootCommand.AddCommand(listVersionsCommand);
+databaseCommand.AddCommand(listVersionsCommand);
 
 var migrateCommand = new Command("migrate", "Run database migrations");
 var targetVersionOption = new Option<int>("--target-version", "The target database version") { IsRequired = true };
@@ -42,11 +45,7 @@ migrateCommand.SetHandler(context => RunMigrations(
     context.ParseResult.GetValueForOption(targetVersionOption),
     context.ParseResult.GetValueForOption(offlineOption),
     context.GetCancellationToken()));
-rootCommand.AddCommand(migrateCommand);
-
-var sleepCommand = new Command("sleep", "Do nothing until signaled to exit");
-sleepCommand.SetHandler(async context => await Task.Delay(-1, context.GetCancellationToken()));
-rootCommand.AddCommand(sleepCommand);
+databaseCommand.AddCommand(migrateCommand);
 
 return await rootCommand.InvokeAsync(args);
 

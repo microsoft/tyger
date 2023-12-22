@@ -39,7 +39,8 @@ func ListDatabaseVersions(ctx context.Context) ([]DatabaseVersion, error) {
 	}
 
 	pod.Name = fmt.Sprintf("tyger-command-host-%s", randAlphanum(4))
-	pod.Spec.Containers[0].Args = []string{"sleep"}
+	pod.Spec.Containers[0].Command = []string{"/app/sleep", "5m"}
+	pod.Spec.Containers[0].Args = []string{}
 
 	clientset, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
@@ -83,7 +84,7 @@ func ListDatabaseVersions(ctx context.Context) ([]DatabaseVersion, error) {
 
 	log.Debug().Msg("Invoking command in pod")
 
-	stdout, stderr, err := PodExec(ctx, createdPod.Name, "/app/tyger.server", "list-versions")
+	stdout, stderr, err := PodExec(ctx, createdPod.Name, "/app/tyger.server", "database", "list-versions")
 	if err != nil {
 		errorLog := ""
 		if stderr != nil {
@@ -159,7 +160,7 @@ func ApplyMigrations(ctx context.Context, targetVersion int, latest, waitForComp
 
 	for i, v := range migrations {
 		container := job.Spec.Template.Spec.Containers[0]
-		container.Args = []string{"migrate", "--target-version", strconv.Itoa(v)}
+		container.Args = []string{"database", "migrate", "--target-version", strconv.Itoa(v)}
 		container.Name = fmt.Sprintf("migration-%d", v)
 		containers[i] = container
 	}

@@ -12,6 +12,7 @@ RUN dotnet publish --no-restore -c release -o /app
 # final stage/image
 FROM mcr.microsoft.com/dotnet/aspnet:8.0.0-cbl-mariner2.0-distroless-amd64 as runtime
 WORKDIR /app
+COPY --from=build /usr/bin/sleep .
 COPY --from=build /app .
 USER app:app
 ENTRYPOINT ["/app/tyger.server"]
