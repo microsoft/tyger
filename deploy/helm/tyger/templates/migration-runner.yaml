@@ -32,7 +32,6 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: {{ $jobName }}
-  annotations:
 spec:
   backoffLimit: 0
   ttlSecondsAfterFinished: 86400

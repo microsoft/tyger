@@ -22,6 +22,11 @@ type DatabaseVersion struct {
 	State       string `json:"state"`
 }
 
+const (
+	migrationRunnerLabelKey = "tyger-migration"
+	commandHostLabelKey     = "tyger-command-host"
+)
+
 func ListDatabaseVersions(ctx context.Context) ([]DatabaseVersion, error) {
 	restConfig, err := getUserRESTConfig(ctx)
 	if err != nil {
@@ -38,9 +43,14 @@ func ListDatabaseVersions(ctx context.Context) ([]DatabaseVersion, error) {
 		Spec:       job.Spec.Template.Spec,
 	}
 
-	pod.Name = fmt.Sprintf("tyger-command-host-%s", randAlphanum(4))
+	pod.Name = fmt.Sprintf("tyger-command-host-%s", randomAlphanumString(4))
 	pod.Spec.Containers[0].Command = []string{"/app/sleep", "5m"}
 	pod.Spec.Containers[0].Args = []string{}
+
+	if pod.Labels == nil {
+		pod.Labels = map[string]string{}
+	}
+	pod.Labels[commandHostLabelKey] = "true"
 
 	clientset, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
@@ -91,7 +101,7 @@ func ListDatabaseVersions(ctx context.Context) ([]DatabaseVersion, error) {
 			errorLog = stderr.String()
 		}
 
-		return nil, fmt.Errorf("failed to exec into pod: %w. logs: %s", err, errorLog)
+		return nil, fmt.Errorf("failed to exec into pod: %w. stderr: %s", err, errorLog)
 	}
 
 	versions := []DatabaseVersion{}
@@ -152,9 +162,15 @@ func ApplyMigrations(ctx context.Context, targetVersion int, latest, waitForComp
 		return err
 	}
 
-	jobName := fmt.Sprintf("tyger-migration-runner-%s", randAlphanum(4))
+	jobName := fmt.Sprintf("tyger-migration-runner-%s", randomAlphanumString(4))
 	job.Name = jobName
 	job.Spec.Template.Name = jobName
+
+	if job.Labels == nil {
+		job.Labels = map[string]string{}
+	}
+	job.Labels[migrationRunnerLabelKey] = "true"
+	job.Spec.Template.Labels[migrationRunnerLabelKey] = "true"
 
 	containers := make([]corev1.Container, len(migrations))
 
@@ -209,7 +225,7 @@ func ApplyMigrations(ctx context.Context, targetVersion int, latest, waitForComp
 	return nil
 }
 
-func randAlphanum(n int) string {
+func randomAlphanumString(n int) string {
 	letters := []rune("abcdefghijklmnopqrstuvwxyz0123456789")
 	b := make([]rune, n)
 	for i := range b {

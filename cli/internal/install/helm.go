@@ -573,7 +573,7 @@ func UninstallTyger(ctx context.Context) error {
 		}(),
 	}
 
-	// Pods
+	// Run pods
 	err = clientset.CoreV1().Pods(TygerNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
 		LabelSelector: tygerRunLabelSelector,
 	})
@@ -581,21 +581,21 @@ func UninstallTyger(ctx context.Context) error {
 		return fmt.Errorf("failed to delete pods: %w", err)
 	}
 
-	// Jobs
+	// Run jobs
 	err = clientset.BatchV1().Jobs(TygerNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
 		LabelSelector: tygerRunLabelSelector,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to delete jobs: %w", err)
 	}
-	// StatefulSets
+	// Run statefulsets
 	err = clientset.AppsV1().StatefulSets(TygerNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
 		LabelSelector: tygerRunLabelSelector,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to delete statefulsets: %w", err)
 	}
-	// Secrets
+	// Run secrets
 	err = clientset.CoreV1().Secrets(TygerNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
 		LabelSelector: tygerRunLabelSelector,
 	})
@@ -603,7 +603,7 @@ func UninstallTyger(ctx context.Context) error {
 		return fmt.Errorf("failed to delete secrets: %w", err)
 	}
 
-	// Services. For some reason, there is no DeleteCollection method for services.
+	// Run services. For some reason, there is no DeleteCollection method for services.
 	services, err := clientset.CoreV1().Services(TygerNamespace).List(ctx, metav1.ListOptions{
 		LabelSelector: tygerRunLabelSelector,
 	})
@@ -615,6 +615,22 @@ func UninstallTyger(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to delete service '%s': %w", s.Name, err)
 		}
+	}
+
+	// Migration jobs
+	err = clientset.BatchV1().Jobs(TygerNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
+		LabelSelector: migrationRunnerLabelKey,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete jobs: %w", err)
+	}
+
+	// Command host pods
+	err = clientset.CoreV1().Pods(TygerNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
+		LabelSelector: commandHostLabelKey,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete pods: %w", err)
 	}
 
 	return nil

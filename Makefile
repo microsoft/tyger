@@ -182,7 +182,7 @@ migrate: ensure-environment-conditionally docker-build-tyger-server
 		tyger_server_image="$$(docker inspect "$${repo_fqdn}/tyger-server:dev" | jq -r --arg repo "$${repo_fqdn}/tyger-server" '.[0].RepoDigests[] | select (startswith($$repo))')"
 	fi
 	
-	tyger api migrations apply --latest --wait --log-level trace -f <(scripts/get-config.sh) \
+	tyger api migrations apply --latest --wait -f <(scripts/get-config.sh) \
 		--set api.helm.tyger.chartRef="$${chart_dir}" \
 		--set api.helm.tyger.values.image="$${tyger_server_image}" 
 
