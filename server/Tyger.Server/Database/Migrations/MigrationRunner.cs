@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using Npgsql;
 using Polly;
 using Tyger.Server.Kubernetes;
+using Tyger.Server.Model;
 using static Tyger.Server.Database.Constants;
 
 namespace Tyger.Server.Database.Migrations;
@@ -122,7 +123,7 @@ public class MigrationRunner : IHostedService
                                     var uri = new Uri($"http://{address}:{port.Port}/v1/database-version-in-use");
                                     var resp = await httpClient.GetAsync(uri, cancellationToken);
                                     resp.EnsureSuccessStatusCode();
-                                    var versionInUse = (await resp.Content.ReadFromJsonAsync<Model.DatabaseVersion>(_jsonSerializerOptions, cancellationToken))!;
+                                    var versionInUse = (await resp.Content.ReadFromJsonAsync<DatabaseVersionInUse>(_jsonSerializerOptions, cancellationToken))!;
                                     if (versionInUse.Id != (int)version - 1)
                                     {
                                         _logger.WaitingForPodToUseRequiredVersion(address, (int)version - 1, versionInUse.Id);

@@ -129,7 +129,7 @@ docker-build:
 	tag=$${EXPLICIT_IMAGE_TAG:-dev}
 
 	registry=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
-	scripts/build-images.sh $$target_arg --push --push-force --tag "$$tag" --quiet --registry "$${registry}"
+	scripts/build-images.sh $$target_arg --push --push-force --tag "$$tag" --registry "$${registry}"
 
 docker-build-test:
 	$(MAKE) docker-build DOCKER_BUILD_TARGET=test-connectivity
@@ -146,7 +146,7 @@ docker-build-worker-waiter:
 publish-official-images:
 	registry=$$(scripts/get-config.sh --dev -e .officialContainerRegistry.fqdn)
 	tag=$$(git describe --tags)
-	scripts/build-images.sh --push --push-force --helm --tag "$${tag}" --quiet --registry "$${registry}"
+	scripts/build-images.sh --push --push-force --helm --tag "$${tag}" --registry "$${registry}"
 
 up: ensure-environment-conditionally docker-build-tyger-server docker-build-buffer-sidecar docker-build-worker-waiter
 	repo_fqdn=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)

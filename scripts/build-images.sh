@@ -20,12 +20,9 @@ Options:
   --push-force                     Force runtime images, will overwrite images with same tag (requires --tag or --use-git-hash-as-tag)
   --tag <tag>                      Tag for runtime images
   --use-git-hash-as-tag            Use the current git hash as tag
-  -q, --quiet                      Suppress verbose output
   -h, --help                       Brings up this menu
 EOF
 }
-
-quiet=""
 
 while [[ $# -gt 0 ]]; do
   key="$1"
@@ -72,10 +69,6 @@ while [[ $# -gt 0 ]]; do
     image_tag="$(git rev-parse HEAD)"
     shift
     ;;
-  -q | --quiet)
-    quiet="-q"
-    shift
-    ;;
   -h | --help)
     usage
     exit
@@ -94,7 +87,16 @@ repo_root_dir="$(dirname "$0")/.."
 
 function build_and_push() {
   echo "Building image ${local_tag}..."
-  docker build -f "${dockerfile_path}" -t "${local_tag}" --target "${target}" --build-arg TYGER_VERSION="${image_tag}" $quiet "${build_context}" >/dev/null
+
+  set +e
+  output=$(docker build -f "${dockerfile_path}" -t "${local_tag}" --target "${target}" --build-arg TYGER_VERSION="${image_tag}" "${build_context}" --progress plain 2>&1)
+  ret=$?
+  set -e
+  if [[ $ret -ne 0 ]]; then
+    echo "$output"
+    exit 1
+  fi
+
 
   if [[ -z "${push:-}" ]]; then
     return 0
@@ -115,7 +117,7 @@ function build_and_push() {
 
   docker tag "${local_tag}" "$full_image"
   echo "Pushing image ${full_image}..."
-  "$(dirname "${0}")/docker-auth-wrapper.sh" push $quiet "$full_image" >/dev/null
+  "$(dirname "${0}")/docker-auth-wrapper.sh" push --quiet "$full_image" >/dev/null
 }
 
 if [[ -n "${test_connectivity:-}" ]]; then

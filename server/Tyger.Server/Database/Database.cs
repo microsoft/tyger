@@ -1,6 +1,4 @@
-using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
-using System.Reflection;
 using Azure.Core;
 using Microsoft.Extensions.Options;
 using Npgsql;
@@ -79,16 +77,9 @@ public static class Database
     public static void MapDatabaseVersionInUse(this WebApplication app)
     {
         app.MapGet("/v1/database-version-in-use", (DatabaseVersions versions, HttpContext context) =>
-        {
-            var version = versions.CachedCurrentVersion;
-
-            return Results.Ok(new Model.DatabaseVersion(
-                (int)version,
-                version.GetType().GetField(version.ToString())?.GetCustomAttribute<DescriptionAttribute>()?.Description ?? version.ToString(),
-                DatabaseVersionState.Complete));
-        })
+            Results.Ok(new DatabaseVersionInUse((int)versions.CachedCurrentVersion)))
         .AllowAnonymous()
-        .Produces<Model.DatabaseVersion>();
+        .Produces<DatabaseVersionInUse>();
     }
 }
 

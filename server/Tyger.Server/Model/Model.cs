@@ -355,23 +355,13 @@ public record Run : ModelBase
     }
 }
 
-public enum DatabaseVersionState
-{
-    Started,
-    Complete,
-    Failed,
-    Available,
-}
-
-public record DatabaseVersion(int Id, string Description, DatabaseVersionState State) : ModelBase;
+public record DatabaseVersionInUse(int Id) : ModelBase;
 
 public record RunPage(IReadOnlyList<Run> Items, Uri? NextLink);
 
 public record CodespecPage(IList<Codespec> Items, Uri? NextLink);
 
 public record BufferPage(IList<Buffer> Items, Uri? NextLink);
-
-public record DatabaseVersionPage(IList<DatabaseVersion> Items, Uri? NextLink);
 
 public record Cluster(string Name, string Location, IReadOnlyList<NodePool> NodePools);
 

@@ -3,7 +3,6 @@ using System.Reflection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Npgsql;
 using Polly;
-using Tyger.Server.Model;
 using static Tyger.Server.Database.Constants;
 
 namespace Tyger.Server.Database.Migrations;
@@ -96,7 +95,7 @@ public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable
         }, cancellationToken);
     }
 
-    public async Task<IList<Model.DatabaseVersion>> GetCurrentAndAvailableDatabaseVersions(CancellationToken cancellationToken)
+    public async Task<IList<DatabaseVersionInfo>> GetCurrentAndAvailableDatabaseVersions(CancellationToken cancellationToken)
     {
         DatabaseVersion? currentDatabaseVersion = null;
         var migrationsTableExists = await DoesMigrationsTableExist(cancellationToken);
@@ -140,7 +139,7 @@ public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable
             return GetKnownVersions()
                 .OrderBy(v => (int)v.version)
                 .Where(v => currentDatabaseVersion == null || (int)v.version >= (int)currentDatabaseVersion)
-                .Select(v => new Model.DatabaseVersion(
+                .Select(v => new DatabaseVersionInfo(
                     (int)v.version,
                     v.version.GetType().GetField(v.version.ToString())?.GetCustomAttribute<DescriptionAttribute>()?.Description ?? v.version.ToString(),
                     State: stateFromDatabase.TryGetValue((int)v.version, out var state) ? state : DatabaseVersionState.Available))
@@ -240,3 +239,13 @@ public sealed class MigratorAttribute(Type migratorType) : Attribute
 {
     public Type MigratorType { get; } = migratorType;
 }
+
+public enum DatabaseVersionState
+{
+    Started,
+    Complete,
+    Failed,
+    Available,
+}
+
+public record DatabaseVersionInfo(int Version, string Description, DatabaseVersionState State);
