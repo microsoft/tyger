@@ -17,7 +17,8 @@ import (
 )
 
 const (
-	TygerNamespace = "tyger"
+	TygerNamespace          = "tyger"
+	DefaultTygerReleaseName = TygerNamespace
 )
 
 func createTygerNamespace(ctx context.Context, restConfigPromise *Promise[*rest.Config]) (any, error) {

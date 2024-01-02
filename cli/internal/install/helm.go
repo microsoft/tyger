@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -201,8 +202,13 @@ func installNvidiaDevicePlugin(ctx context.Context, restConfigPromise *Promise[*
 	return nil, nil
 }
 
-func InstallTyger(ctx context.Context) error {
-	if err := installTygerHelmChart(ctx); err != nil {
+func InstallTyger(ctx context.Context, skipDatabaseVersionCheck bool) error {
+	restConfig, err := getUserRESTConfig(ctx)
+	if err != nil {
+		return err
+	}
+
+	if err := installTygerHelmChart(ctx, restConfig); err != nil {
 		return err
 	}
 
@@ -245,10 +251,64 @@ func InstallTyger(ctx context.Context) error {
 		time.Sleep(time.Second)
 	}
 
+	if skipDatabaseVersionCheck {
+		return nil
+	}
+
+	pods, err := getTygerServerPods(ctx, restConfig)
+	if err != nil || len(pods) == 0 {
+		return fmt.Errorf("failed to get Tyger server pods: %w", err)
+	}
+
+	pod := pods[0]
+	versions, err := getDatabaseVersionsFromPod(ctx, pod.Name)
+	if err != nil {
+		return fmt.Errorf("failed to get database versions: %w", err)
+	}
+
+	var currentVersion int
+
+	availableVersions := make([]string, 0, len(versions))
+	for _, v := range versions {
+		fmt.Println(v)
+		if v.State == "complete" {
+			currentVersion = v.Id
+		} else {
+			availableVersions = append(availableVersions, strconv.Itoa(v.Id))
+		}
+	}
+
+	if len(availableVersions) == 0 {
+		log.Warn().Msgf("The database version should be migrated. Current version: %d. Available version(s): %s", currentVersion, strings.Join(availableVersions, ", "))
+	}
+
 	return nil
 }
 
-func installTygerHelmChart(ctx context.Context) error {
+func getTygerServerPods(ctx context.Context, restConfig *rest.Config) ([]corev1.Pod, error) {
+	config := GetConfigFromContext(ctx)
+
+	releaseName := DefaultTygerReleaseName
+	if config.Api.Helm != nil && config.Api.Helm.Tyger != nil && config.Api.Helm.Tyger.ReleaseName != "" {
+		releaseName = config.Api.Helm.Tyger.ReleaseName
+	}
+
+	clientset, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Kubernetes client: %w", err)
+	}
+
+	pods, err := clientset.CoreV1().Pods(TygerNamespace).List(ctx, metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("component=%s-server", releaseName),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list pods: %w", err)
+	}
+
+	return pods.Items, nil
+}
+
+func installTygerHelmChart(ctx context.Context, restConfig *rest.Config) error {
 	if containerRegistry == "" {
 		panic("officialContainerRegistry not set during build")
 	}
@@ -259,11 +319,6 @@ func installTygerHelmChart(ctx context.Context) error {
 
 	config := GetConfigFromContext(ctx)
 	cred := GetAzureCredentialFromContext(ctx)
-
-	restConfig, err := getUserRESTConfig(ctx)
-	if err != nil {
-		return err
-	}
 
 	clustersConfigJson, err := json.Marshal(config.Cloud.Compute.Clusters)
 	if err != nil {
@@ -328,7 +383,7 @@ func installTygerHelmChart(ctx context.Context) error {
 
 	helmConfig := HelmChartConfig{
 		Namespace:   TygerNamespace,
-		ReleaseName: TygerNamespace,
+		ReleaseName: DefaultTygerReleaseName,
 		ChartRef:    fmt.Sprintf("oci://%s/helm/tyger", containerRegistry),
 		Version:     containerImageTag,
 		Values: map[string]any{

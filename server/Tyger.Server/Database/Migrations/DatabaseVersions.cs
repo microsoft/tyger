@@ -248,4 +248,4 @@ public enum DatabaseVersionState
     Available,
 }
 
-public record DatabaseVersionInfo(int Version, string Description, DatabaseVersionState State);
+public record DatabaseVersionInfo(int Id, string Description, DatabaseVersionState State);

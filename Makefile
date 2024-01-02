@@ -168,7 +168,8 @@ up: ensure-environment-conditionally docker-build-tyger-server docker-build-buff
 		--set api.helm.tyger.values.image="$${tyger_server_image}" \
 		--set api.helm.tyger.values.bufferSidecarImage="$${buffer_sidecar_image}" \
 		--set api.helm.tyger.values.workerWaiterImage="$${worker_waiter_image}" \
-		--set api.helm.tyger.values.database.autoMigrate=${AUTO_MIGRATE}
+		--set api.helm.tyger.values.database.autoMigrate=${AUTO_MIGRATE} \
+		--skip-database-version-check
 
 	$(MAKE) cli-ready
 

@@ -32,6 +32,7 @@ func NewApiCommand(parentCommand *cobra.Command) *cobra.Command {
 
 func newApiInstallCommand(parentCommand *cobra.Command) *cobra.Command {
 	flags := commonFlags{}
+	skipDatabaseVersionCheck := false
 	cmd := cobra.Command{
 		Use:                   "install",
 		Short:                 "Install the Typer API",
@@ -48,7 +49,7 @@ func newApiInstallCommand(parentCommand *cobra.Command) *cobra.Command {
 				log.Fatal().Err(err).Send()
 			}
 
-			if err := install.InstallTyger(ctx); err != nil {
+			if err := install.InstallTyger(ctx, skipDatabaseVersionCheck); err != nil {
 				if err != install.ErrAlreadyLoggedError {
 					log.Fatal().Err(err).Send()
 				}
@@ -57,6 +58,8 @@ func newApiInstallCommand(parentCommand *cobra.Command) *cobra.Command {
 			log.Info().Msg("Install complete")
 		},
 	}
+
+	cmd.Flags().BoolVar(&skipDatabaseVersionCheck, "skip-database-version-check", skipDatabaseVersionCheck, "Skip checking for new database versions after installing")
 
 	addCommonFlags(&cmd, &flags)
 	return &cmd
