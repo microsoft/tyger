@@ -56,9 +56,12 @@ public class MigrationRunner : IHostedService
             current = await _databaseVersions.ReadCurrentDatabaseVersion(cancellationToken);
         }
 
+        var knownVersions = _databaseVersions.GetKnownVersions();
+
         if (current != null && initOnly)
         {
             _logger.DatabaseAlreadyInitialized();
+            await LogCurrentOrAvailableDatabaseVersions(knownVersions, cancellationToken);
             return;
         }
 
@@ -67,7 +70,6 @@ public class MigrationRunner : IHostedService
             offline = true;
         }
 
-        var knownVersions = _databaseVersions.GetKnownVersions();
         if (targetVersion != null)
         {
             if (targetVersion > (int)knownVersions[^1].version)
@@ -85,12 +87,6 @@ public class MigrationRunner : IHostedService
             .Where(pair => (current == null || (int)pair.version > (int)current) && (targetVersion == null || (int)pair.version <= targetVersion))
             .Select(pair => (pair.version, (Migrator)Activator.CreateInstance(pair.migrator)!))
             .ToList();
-
-        if (migrations.Count == 0)
-        {
-            _logger.NoMigrationsToApply();
-            return;
-        }
 
         using var httpClient = new HttpClient();
 
@@ -183,6 +179,23 @@ public class MigrationRunner : IHostedService
                     }
                 }
             }
+        }
+
+        await LogCurrentOrAvailableDatabaseVersions(knownVersions, cancellationToken);
+    }
+
+    private async Task LogCurrentOrAvailableDatabaseVersions(List<(DatabaseVersion version, Type migrator)> knownVersions, CancellationToken cancellationToken)
+    {
+        var currentVersion = await _databaseVersions.ReadCurrentDatabaseVersion(cancellationToken)
+            ?? throw new InvalidOperationException("Current database version information should be available but isn't");
+
+        if (knownVersions.Any(kv => (int)kv.version > (int)currentVersion))
+        {
+            _logger.NewerDatabaseVersionsExist();
+        }
+        else
+        {
+            _logger.UsingMostRecentDatabaseVersion();
         }
     }
 

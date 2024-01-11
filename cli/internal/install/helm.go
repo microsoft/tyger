@@ -1,13 +1,14 @@
 package install
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/microsoft/tyger/cli/internal/httpclient"
 	helmclient "github.com/mittwald/go-helm-client"
 	"github.com/rs/zerolog/log"
+	"helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/repo"
 	"helm.sh/helm/v3/pkg/storage/driver"
 	batchv1 "k8s.io/api/batch/v1"
@@ -81,7 +83,7 @@ func installTraefik(ctx context.Context, restConfigPromise *Promise[*rest.Config
 	}
 
 	startTime := time.Now().Add(-10 * time.Second)
-	if err := installHelmChart(ctx, restConfig, &traefikConfig, overrides); err != nil {
+	if _, err := installHelmChart(ctx, restConfig, &traefikConfig, overrides, false); err != nil {
 		installErr := err
 
 		// List warning events in the namespace
@@ -134,7 +136,7 @@ func installCertManager(ctx context.Context, restConfigPromise *Promise[*rest.Co
 		overrides = config.Api.Helm.CertManager
 	}
 
-	if err := installHelmChart(ctx, restConfig, &certManagerConfig, overrides); err != nil {
+	if _, err := installHelmChart(ctx, restConfig, &certManagerConfig, overrides, false); err != nil {
 		return nil, fmt.Errorf("failed to install cert-manager: %w", err)
 	}
 
@@ -195,20 +197,21 @@ func installNvidiaDevicePlugin(ctx context.Context, restConfigPromise *Promise[*
 		overrides = config.Api.Helm.NvidiaDevicePlugin
 	}
 
-	if err := installHelmChart(ctx, restConfig, &nvdpConfig, overrides); err != nil {
+	if _, err := installHelmChart(ctx, restConfig, &nvdpConfig, overrides, false); err != nil {
 		return nil, fmt.Errorf("failed to install NVIDIA device plugin: %w", err)
 	}
 
 	return nil, nil
 }
 
-func InstallTyger(ctx context.Context, skipDatabaseVersionCheck bool) error {
+func InstallTyger(ctx context.Context) error {
 	restConfig, err := getUserRESTConfig(ctx)
 	if err != nil {
 		return err
 	}
 
-	if err := installTygerHelmChart(ctx, restConfig); err != nil {
+	manifest, err := installTygerHelmChart(ctx, restConfig, false)
+	if err != nil {
 		return err
 	}
 
@@ -251,64 +254,79 @@ func InstallTyger(ctx context.Context, skipDatabaseVersionCheck bool) error {
 		time.Sleep(time.Second)
 	}
 
-	if skipDatabaseVersionCheck {
-		return nil
-	}
-
-	pods, err := getTygerServerPods(ctx, restConfig)
-	if err != nil || len(pods) == 0 {
-		return fmt.Errorf("failed to get Tyger server pods: %w", err)
-	}
-
-	pod := pods[0]
-	versions, err := getDatabaseVersionsFromPod(ctx, pod.Name)
+	migrationRunnerJob, err := getMigrationRunnerJobFromManifest(manifest)
 	if err != nil {
-		return fmt.Errorf("failed to get database versions: %w", err)
+		return fmt.Errorf("failed to get migration worker job from manifest: %w", err)
 	}
 
-	var currentVersion int
+	clientset, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
 
-	availableVersions := make([]string, 0, len(versions))
-	for _, v := range versions {
-		fmt.Println(v)
-		if v.State == "complete" {
-			currentVersion = v.Id
-		} else {
-			availableVersions = append(availableVersions, strconv.Itoa(v.Id))
+	migrationRunnerJob, err = clientset.BatchV1().Jobs(TygerNamespace).Get(ctx, migrationRunnerJob.Name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get migration worker job: %w", err)
+	}
+
+	podList, err := clientset.CoreV1().Pods(migrationRunnerJob.Namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: metav1.FormatLabelSelector(migrationRunnerJob.Spec.Selector),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list migration runner pods: %w", err)
+	}
+
+	if len(podList.Items) == 0 {
+		return errors.New("no migration runner pods found")
+	}
+
+	sort.Slice(podList.Items, func(i, j int) bool {
+		return podList.Items[i].CreationTimestamp.Before(&podList.Items[j].CreationTimestamp)
+	})
+
+	pod := podList.Items[len(podList.Items)-1]
+	logsRequest := clientset.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{})
+	logsResult, err := logsRequest.Do(ctx).Raw()
+	if err != nil {
+		return fmt.Errorf("failed to get migration runner logs: %w", err)
+	}
+
+	found := false
+	scanner := bufio.NewScanner(bytes.NewReader(logsResult))
+	for scanner.Scan() {
+		line := scanner.Text()
+		var parsedLine map[string]any
+
+		if err := json.Unmarshal([]byte(line), &parsedLine); err != nil {
+			return fmt.Errorf("failed to parse migration runner log line: %w", err)
+		}
+
+		if category, ok := parsedLine["category"].(string); ok {
+			if category == "Tyger.Server.Database.Migrations.MigrationRunner[NewerDatabaseVersionsExist]" {
+				log.Warn().Msgf("The database schema should be upgraded. Run `tyger api migrations list` to see the available migrations and `tyger api migrations apply` to apply them.")
+				found = true
+				break
+			}
+
+			if category == "Tyger.Server.Database.Migrations.MigrationRunner[UsingMostRecentDatabaseVersion]" {
+				log.Debug().Msg("Database schema is up to date")
+				found = true
+				break
+			}
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("failed to split logsResult into lines: %w", err)
+	}
 
-	if len(availableVersions) == 0 {
-		log.Warn().Msgf("The database version should be migrated. Current version: %d. Available version(s): %s", currentVersion, strings.Join(availableVersions, ", "))
+	if !found {
+		return errors.New("failed to find expected migration log message")
 	}
 
 	return nil
 }
 
-func getTygerServerPods(ctx context.Context, restConfig *rest.Config) ([]corev1.Pod, error) {
-	config := GetConfigFromContext(ctx)
-
-	releaseName := DefaultTygerReleaseName
-	if config.Api.Helm != nil && config.Api.Helm.Tyger != nil && config.Api.Helm.Tyger.ReleaseName != "" {
-		releaseName = config.Api.Helm.Tyger.ReleaseName
-	}
-
-	clientset, err := kubernetes.NewForConfig(restConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Kubernetes client: %w", err)
-	}
-
-	pods, err := clientset.CoreV1().Pods(TygerNamespace).List(ctx, metav1.ListOptions{
-		LabelSelector: fmt.Sprintf("component=%s-server", releaseName),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list pods: %w", err)
-	}
-
-	return pods.Items, nil
-}
-
-func installTygerHelmChart(ctx context.Context, restConfig *rest.Config) error {
+func installTygerHelmChart(ctx context.Context, restConfig *rest.Config, dryRun bool) (manifest string, err error) {
 	if containerRegistry == "" {
 		panic("officialContainerRegistry not set during build")
 	}
@@ -322,34 +340,34 @@ func installTygerHelmChart(ctx context.Context, restConfig *rest.Config) error {
 
 	clustersConfigJson, err := json.Marshal(config.Cloud.Compute.Clusters)
 	if err != nil {
-		return fmt.Errorf("failed to marshal cluster configuration: %w", err)
+		return "", fmt.Errorf("failed to marshal cluster configuration: %w", err)
 	}
 
 	identitiesClient, err := armmsi.NewUserAssignedIdentitiesClient(config.Cloud.SubscriptionID, cred, nil)
 	if err != nil {
-		return fmt.Errorf("failed to create managed identities client: %w", err)
+		return "", fmt.Errorf("failed to create managed identities client: %w", err)
 	}
 
 	tygerServerIdentity, err := identitiesClient.Get(ctx, config.Cloud.ResourceGroup, tygerServerManagedIdentityName, nil)
 	if err != nil {
-		return fmt.Errorf("failed to get managed identity: %w", err)
+		return "", fmt.Errorf("failed to get managed identity: %w", err)
 	}
 
 	migrationRunnerIdentity, err := identitiesClient.Get(ctx, config.Cloud.ResourceGroup, migrationRunnerManagedIdentityName, nil)
 	if err != nil {
-		return fmt.Errorf("failed to get managed identity: %w", err)
+		return "", fmt.Errorf("failed to get managed identity: %w", err)
 	}
 
 	storageClient, err := armstorage.NewAccountsClient(config.Cloud.SubscriptionID, cred, nil)
 	if err != nil {
-		return fmt.Errorf("failed to create storage client: %w", err)
+		return "", fmt.Errorf("failed to create storage client: %w", err)
 	}
 
 	buffersStorageAccountValues := make([]map[string]any, 0)
 	for _, accountConfig := range config.Cloud.Storage.Buffers {
 		acc, err := storageClient.GetProperties(ctx, config.Cloud.ResourceGroup, accountConfig.Name, nil)
 		if err != nil {
-			return fmt.Errorf("failed to get buffer storage account properties: %w", err)
+			return "", fmt.Errorf("failed to get buffer storage account properties: %w", err)
 		}
 
 		accountValues := map[string]any{
@@ -363,22 +381,22 @@ func installTygerHelmChart(ctx context.Context, restConfig *rest.Config) error {
 
 	logArchiveAccount, err := storageClient.GetProperties(ctx, config.Cloud.ResourceGroup, config.Cloud.Storage.Logs.Name, nil)
 	if err != nil {
-		return fmt.Errorf("failed to get logs storage account properties: %w", err)
+		return "", fmt.Errorf("failed to get logs storage account properties: %w", err)
 	}
 
 	dbServersClient, err := armpostgresqlflexibleservers.NewServersClient(config.Cloud.SubscriptionID, cred, nil)
 	if err != nil {
-		return fmt.Errorf("failed to create PostgreSQL server client: %w", err)
+		return "", fmt.Errorf("failed to create PostgreSQL server client: %w", err)
 	}
 
 	dbServerName, err := getDatabaseServerName(ctx, config, cred, false)
 	if err != nil {
-		return fmt.Errorf("failed to get database server name: %w", err)
+		return "", fmt.Errorf("failed to get database server name: %w", err)
 	}
 
 	dbServer, err := dbServersClient.Get(ctx, config.Cloud.ResourceGroup, dbServerName, nil)
 	if err != nil {
-		return fmt.Errorf("failed to get PostgreSQL server: %w", err)
+		return "", fmt.Errorf("failed to get PostgreSQL server: %w", err)
 	}
 
 	helmConfig := HelmChartConfig{
@@ -437,34 +455,23 @@ func installTygerHelmChart(ctx context.Context, restConfig *rest.Config) error {
 		return nil
 	}
 
-	if err := installHelmChart(ctx, restConfig, &helmConfig, overrides, ajustSpec); err != nil {
-		return fmt.Errorf("failed to install Tyger Helm chart: %w", err)
+	if manifest, err = installHelmChart(ctx, restConfig, &helmConfig, overrides, dryRun, ajustSpec); err != nil {
+		return "", fmt.Errorf("failed to install Tyger Helm chart: %w", err)
 	}
 
-	return nil
+	return manifest, nil
 }
 
 func getMigrationWorkerJobTemplate(ctx context.Context, restConfig *rest.Config) (*batchv1.Job, error) {
-	helmOptions := helmclient.RestConfClientOptions{
-		RestConfig: restConfig,
-		Options: &helmclient.Options{
-			DebugLog: func(format string, v ...interface{}) {
-				log.Debug().Msgf(format, v...)
-			},
-			Namespace: TygerNamespace,
-		},
-	}
-
-	helmClient, err := helmclient.NewClientFromRestConf(&helmOptions)
+	manifest, err := installTygerHelmChart(ctx, restConfig, true /* dryRun */)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create helm client: %w", err)
+		return nil, err
 	}
 
-	release, err := helmClient.GetRelease(TygerNamespace)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get Tyger Helm release not found. Run `tyger api install` before this command: %w", err)
-	}
+	return getMigrationRunnerJobFromManifest(manifest)
+}
 
+func getMigrationRunnerJobFromManifest(manifest string) (*batchv1.Job, error) {
 	scheme := runtime.NewScheme()
 	if err := batchv1.AddToScheme(scheme); err != nil {
 		return nil, fmt.Errorf("failed to add batchv1 to scheme: %w", err)
@@ -472,7 +479,7 @@ func getMigrationWorkerJobTemplate(ctx context.Context, restConfig *rest.Config)
 
 	factory := serializer.NewCodecFactory(scheme)
 	decoder := factory.UniversalDeserializer()
-	for _, input := range strings.Split(string(release.Manifest), "---") {
+	for _, input := range strings.Split(manifest, "---") {
 		obj, _, err := decoder.Decode([]byte(input), nil, nil)
 		if err != nil {
 			if runtime.IsNotRegisteredError(err) || runtime.IsMissingKind(err) {
@@ -494,8 +501,9 @@ func installHelmChart(
 	restConfig *rest.Config,
 	helmChartConfig,
 	overrideHelmChartConfig *HelmChartConfig,
+	dryRun bool,
 	customizeSpec ...func(*helmclient.ChartSpec, helmclient.Client) error,
-) error {
+) (manifest string, err error) {
 	helmOptions := helmclient.RestConfClientOptions{
 		RestConfig: restConfig,
 		Options: &helmclient.Options{
@@ -508,25 +516,75 @@ func installHelmChart(
 
 	helmClient, err := helmclient.NewClientFromRestConf(&helmOptions)
 	if err != nil {
-		return fmt.Errorf("failed to create helm client: %w", err)
+		return "", fmt.Errorf("failed to create helm client: %w", err)
 	}
 
-	if helmChartConfig.RepoUrl != "" {
-		err = helmClient.AddOrUpdateChartRepo(repo.Entry{Name: helmChartConfig.RepoName, URL: helmChartConfig.RepoUrl})
+	chartSpec, err := GetChartSpec(helmChartConfig, helmClient, overrideHelmChartConfig, customizeSpec...)
+	if err != nil {
+		return "", err
+	}
+
+	if dryRun {
+		manifest, err := helmClient.TemplateChart(&chartSpec, nil)
 		if err != nil {
-			return fmt.Errorf("failed to add helm repo: %w", err)
+			return "", fmt.Errorf("failed to template chart: %w", err)
+		}
+		return string(manifest), nil
+	}
+
+	for i := 0; ; i++ {
+		var release *release.Release
+		release, err = helmClient.InstallOrUpgradeChart(ctx, &chartSpec, nil)
+		if err == nil || i == 30 {
+			if release != nil {
+				manifest = release.Manifest
+			}
+			break
+		}
+
+		if strings.Contains(err.Error(), "the server could not find the requested resource") {
+			// we get this transient error from time to time, related to the installation of CRDs
+			log.Info().Err(err).Msg("Possible transient error. Will retry...")
+			time.Sleep(10 * time.Second)
+		} else {
+			return "", err
+		}
+	}
+	return manifest, err
+}
+
+func GetChartSpec(
+	helmChartConfig *HelmChartConfig,
+	helmClient helmclient.Client,
+	overrideHelmChartConfig *HelmChartConfig,
+	customizeSpec ...func(*helmclient.ChartSpec, helmclient.Client) error,
+) (helmclient.ChartSpec, error) {
+	if helmChartConfig.RepoUrl != "" {
+		err := helmClient.AddOrUpdateChartRepo(repo.Entry{Name: helmChartConfig.RepoName, URL: helmChartConfig.RepoUrl})
+		if err != nil {
+			return helmclient.ChartSpec{}, fmt.Errorf("failed to add helm repo: %w", err)
 		}
 	}
 
 	if overrideHelmChartConfig != nil {
 		if err := mergo.Merge(helmChartConfig, overrideHelmChartConfig, mergo.WithOverride); err != nil {
-			return fmt.Errorf("failed to merge helm config: %w", err)
+			return helmclient.ChartSpec{}, fmt.Errorf("failed to merge helm config: %w", err)
 		}
 	}
 
 	values, err := yaml.Marshal(helmChartConfig.Values)
 	if err != nil {
-		return fmt.Errorf("failed to marshal helm values: %w", err)
+		return helmclient.ChartSpec{}, fmt.Errorf("failed to marshal helm values: %w", err)
+	}
+
+	_, err = helmClient.GetRelease(helmChartConfig.ReleaseName)
+	atomic := true
+	if err != nil {
+		if err == driver.ErrReleaseNotFound {
+			atomic = false
+		} else {
+			return helmclient.ChartSpec{}, err
+		}
 	}
 
 	chartSpec := helmclient.ChartSpec{
@@ -537,34 +595,19 @@ func installHelmChart(
 		CreateNamespace: true,
 		Wait:            true,
 		WaitForJobs:     true,
+		Atomic:          atomic,
 		Force:           false,
-		// Atomic:          true,
-		UpgradeCRDs: true,
-		Timeout:     2 * time.Minute,
-		ValuesYaml:  string(values),
+		UpgradeCRDs:     true,
+		Timeout:         2 * time.Minute,
+		ValuesYaml:      string(values),
 	}
 
 	for _, f := range customizeSpec {
 		if err := f(&chartSpec, helmClient); err != nil {
-			return err
+			return helmclient.ChartSpec{}, err
 		}
 	}
-
-	for i := 0; ; i++ {
-		_, err = helmClient.InstallOrUpgradeChart(ctx, &chartSpec, nil)
-		if err == nil || i == 30 {
-			break
-		}
-
-		if strings.Contains(err.Error(), "the server could not find the requested resource") {
-			// we get this transient error from time to time, related to the installation of CRDs
-			log.Info().Err(err).Msg("Possible transient error. Will retry...")
-			time.Sleep(10 * time.Second)
-		} else {
-			return err
-		}
-	}
-	return err
+	return chartSpec, nil
 }
 
 func UninstallTyger(ctx context.Context) error {

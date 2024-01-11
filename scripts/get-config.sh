@@ -59,8 +59,10 @@ done
 this_dir=$(dirname "${0}")
 config_dir="${TYGER_ENVIRONMENT_CONFIG_DIR:-${this_dir}/../deploy/config/microsoft}"
 
+devconfig_path="${config_dir}/devconfig.yml"
+
 if [[ "$dev" == true ]]; then
-  config_path="${config_dir}/devconfig.yml"
+  config_path="$devconfig_path"
 else
   config_path="${config_dir}/config.yml"
 
@@ -75,11 +77,29 @@ else
   export TYGER_ENVIRONMENT_NAME="${environment_name}"
   export TYGER_ENVIRONMENT_NAME_NO_DASHES="${environment_name//-/}"
 
-  TYGER_HELM_CHART_DIR=$(readlink -f "${this_dir}/../deploy/helm")
+  TYGER_HELM_CHART_DIR=$(readlink -f "${this_dir}/../deploy/helm/tyger")
   export TYGER_HELM_CHART_DIR
 
   export TYGER_MIN_NODE_COUNT="${TYGER_MIN_NODE_COUNT:-0}"
   export TYGER_LOCATION="${TYGER_LOCATION:-westus2}"
+
+  repo_fqdn=$(envsubst <"${devconfig_path}" | yq ".wipContainerRegistry.fqdn")
+
+  if [[ -n "${EXPLICIT_IMAGE_TAG:-}" ]]; then
+		TYGER_SERVER_IMAGE="${repo_fqdn}/tyger-server:${EXPLICIT_IMAGE_TAG}"
+		BUFFER_SIDECAR_IMAGE="${repo_fqdn}/buffer-sidecar:${EXPLICIT_IMAGE_TAG}"
+		WORKER_WAITER_IMAGE="${repo_fqdn}/worker-waiter:${EXPLICIT_IMAGE_TAG}"
+	else
+    set +e # ignore errors if dev image is not present
+		TYGER_SERVER_IMAGE="$(docker inspect "${repo_fqdn}/tyger-server:dev" | jq -r --arg repo "${repo_fqdn}/tyger-server" '.[0].RepoDigests[] | select (startswith($repo))')"
+		BUFFER_SIDECAR_IMAGE="$(docker inspect "${repo_fqdn}/buffer-sidecar:dev" | jq -r --arg repo "${repo_fqdn}/buffer-sidecar" '.[0].RepoDigests[] | select (startswith($repo))')"
+		WORKER_WAITER_IMAGE="$(docker inspect "${repo_fqdn}/worker-waiter:dev" | jq -r --arg repo "${repo_fqdn}/worker-waiter" '.[0].RepoDigests[] | select (startswith($repo))')"
+    set -e
+	fi
+
+  export TYGER_SERVER_IMAGE
+  export BUFFER_SIDECAR_IMAGE
+  export WORKER_WAITER_IMAGE
 fi
 
 envsubst <"${config_path}" | yq eval -e "${expression}" -o "${format}" -

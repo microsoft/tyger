@@ -95,7 +95,7 @@ public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable
         }, cancellationToken);
     }
 
-    public async Task<IList<DatabaseVersionInfo>> GetCurrentAndAvailableDatabaseVersions(CancellationToken cancellationToken)
+    public async Task<IList<DatabaseVersionInfo>> GetDatabaseVersions(CancellationToken cancellationToken)
     {
         DatabaseVersion? currentDatabaseVersion = null;
         var migrationsTableExists = await DoesMigrationsTableExist(cancellationToken);
@@ -138,7 +138,6 @@ public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable
 
             return GetKnownVersions()
                 .OrderBy(v => (int)v.version)
-                .Where(v => currentDatabaseVersion == null || (int)v.version >= (int)currentDatabaseVersion)
                 .Select(v => new DatabaseVersionInfo(
                     (int)v.version,
                     v.version.GetType().GetField(v.version.ToString())?.GetCustomAttribute<DescriptionAttribute>()?.Description ?? v.version.ToString(),

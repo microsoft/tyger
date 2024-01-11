@@ -25,9 +25,11 @@ var databaseCommand = new Command("database", "Manage the database");
 rootCommand.AddCommand(databaseCommand);
 
 var initCommand = new Command("init", "Initialize the database");
+var initTargetVersionOption = new Option<int>("--target-version", "The target database version");
+initCommand.AddOption(initTargetVersionOption);
 initCommand.SetHandler(context => RunMigrations(
     initOnly: true,
-    targetVersion: null,
+    targetVersion: context.ParseResult.GetValueForOption(initTargetVersionOption),
     offline: true,
     context.GetCancellationToken()));
 databaseCommand.AddCommand(initCommand);
@@ -37,12 +39,12 @@ listVersionsCommand.SetHandler(context => ListDatabaseVersions(context.GetCancel
 databaseCommand.AddCommand(listVersionsCommand);
 
 var migrateCommand = new Command("migrate", "Run database migrations");
-var targetVersionOption = new Option<int>("--target-version", "The target database version") { IsRequired = true };
+var migrateTargetVersionOption = new Option<int>("--target-version", "The target database version") { IsRequired = true };
 var offlineOption = new Option<bool>("--offline", "Run migrations assuming there are no server instances connected to the database");
-migrateCommand.AddOption(targetVersionOption);
+migrateCommand.AddOption(migrateTargetVersionOption);
 migrateCommand.SetHandler(context => RunMigrations(
     initOnly: false,
-    context.ParseResult.GetValueForOption(targetVersionOption),
+    context.ParseResult.GetValueForOption(migrateTargetVersionOption),
     context.ParseResult.GetValueForOption(offlineOption),
     context.GetCancellationToken()));
 databaseCommand.AddCommand(migrateCommand);
@@ -56,7 +58,7 @@ async Task ListDatabaseVersions(CancellationToken cancellationToken)
     var databaseVersions = host.Services.GetRequiredService<DatabaseVersions>();
     var serializerOptions = host.Services.GetRequiredService<JsonSerializerOptions>();
 
-    var versions = await databaseVersions.GetCurrentAndAvailableDatabaseVersions(cancellationToken);
+    var versions = await databaseVersions.GetDatabaseVersions(cancellationToken);
 
     await using var stdout = Console.OpenStandardOutput();
     JsonSerializer.Serialize(stdout, versions, serializerOptions);

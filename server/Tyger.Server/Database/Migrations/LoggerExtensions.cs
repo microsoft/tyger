@@ -8,9 +8,6 @@ public static partial class LoggerExtensions
     [LoggerMessage(1, LogLevel.Error, "Failed to read database version")]
     public static partial void FailedToReadDatabaseVersion(this ILogger logger, Exception exception);
 
-    [LoggerMessage(2, LogLevel.Information, "No migrations to apply")]
-    public static partial void NoMigrationsToApply(this ILogger logger);
-
     [LoggerMessage(3, LogLevel.Information, "Applying migration {Id}")]
     public static partial void ApplyingMigration(this ILogger logger, int Id);
 
@@ -37,5 +34,11 @@ public static partial class LoggerExtensions
 
     [LoggerMessage(11, LogLevel.Information, "Waiting for pod at {address} to use required version {version} instead of {usingVersion}")]
     public static partial void WaitingForPodToUseRequiredVersion(this ILogger logger, string address, int version, int usingVersion);
+
+    [LoggerMessage(12, LogLevel.Warning, "Newer database versions exist")]
+    public static partial void NewerDatabaseVersionsExist(this ILogger logger);
+
+    [LoggerMessage(12, LogLevel.Information, "Using most recent database version")]
+    public static partial void UsingMostRecentDatabaseVersion(this ILogger logger);
 
 }

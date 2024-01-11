@@ -27,7 +27,7 @@ const (
 	commandHostLabelKey     = "tyger-command-host"
 )
 
-func ListDatabaseVersions(ctx context.Context) ([]DatabaseVersion, error) {
+func ListDatabaseVersions(ctx context.Context, allVersions bool) ([]DatabaseVersion, error) {
 	restConfig, err := getUserRESTConfig(ctx)
 	if err != nil {
 		return nil, err
@@ -43,7 +43,7 @@ func ListDatabaseVersions(ctx context.Context) ([]DatabaseVersion, error) {
 		Spec:       job.Spec.Template.Spec,
 	}
 
-	pod.Name = fmt.Sprintf("tyger-command-host-%s", randomAlphanumString(4))
+	pod.Name = fmt.Sprintf("tyger-command-host-%s", RandomAlphanumString(4))
 	pod.Spec.Containers[0].Command = []string{"/app/sleep", "5m"}
 	pod.Spec.Containers[0].Args = []string{}
 
@@ -65,7 +65,7 @@ func ListDatabaseVersions(ctx context.Context) ([]DatabaseVersion, error) {
 	}
 
 	defer func() {
-		clientset.CoreV1().Pods(TygerNamespace).Delete(ctx, createdPod.Name, v1.DeleteOptions{})
+		clientset.CoreV1().Pods(TygerNamespace).Delete(context.Background(), createdPod.Name, v1.DeleteOptions{})
 	}()
 
 	err = wait.PollUntilContextCancel(ctx, 2*time.Second, true, func(ctx context.Context) (bool, error) {
@@ -94,10 +94,10 @@ func ListDatabaseVersions(ctx context.Context) ([]DatabaseVersion, error) {
 
 	log.Debug().Msg("Invoking command in pod")
 
-	return getDatabaseVersionsFromPod(ctx, createdPod.Name)
+	return getDatabaseVersionsFromPod(ctx, createdPod.Name, allVersions)
 }
 
-func getDatabaseVersionsFromPod(ctx context.Context, podName string) ([]DatabaseVersion, error) {
+func getDatabaseVersionsFromPod(ctx context.Context, podName string, allVersions bool) ([]DatabaseVersion, error) {
 	stdout, stderr, err := PodExec(ctx, podName, "/app/tyger.server", "database", "list-versions")
 	if err != nil {
 		errorLog := ""
@@ -114,35 +114,47 @@ func getDatabaseVersionsFromPod(ctx context.Context, podName string) ([]Database
 		return nil, fmt.Errorf("failed to unmarshal versions: %w", err)
 	}
 
+	if !allVersions {
+		// filter out the "complete" versions
+		for i := len(versions) - 1; i >= 0; i-- {
+			if versions[i].State == "complete" {
+				versions = versions[i+1:]
+				break
+			}
+		}
+	}
+
 	return versions, nil
 }
 
 func ApplyMigrations(ctx context.Context, targetVersion int, latest, waitForCompletion bool) error {
-	versions, err := ListDatabaseVersions(ctx)
+	versions, err := ListDatabaseVersions(ctx, true)
 	if err != nil {
 		return err
 	}
 
-	first := versions[0]
-	if first.Id == targetVersion && first.State == "complete" {
-		log.Info().Msgf("The database is already at version %d", first.Id)
+	current := -1
+	for i := len(versions) - 1; i >= 0; i-- {
+		if versions[i].State == "complete" {
+			current = versions[i].Id
+			break
+		}
 	}
 
-	if first.State == "complete" {
-		versions = versions[1:]
-	}
-
-	if targetVersion != 0 {
-		found := false
-		for i, v := range versions {
-			if v.Id == targetVersion {
-				found = false
-				versions = versions[:i]
-			}
+	if latest {
+		targetVersion = versions[len(versions)-1].Id
+		if current == targetVersion {
+			log.Info().Msg("The database is already at the latest version")
+			return nil
+		}
+	} else {
+		if targetVersion <= current {
+			log.Info().Msgf("The database is already at version %d", targetVersion)
+			return nil
 		}
 
-		if !found {
-			return fmt.Errorf("target version %d not found", targetVersion)
+		if targetVersion > versions[len(versions)-1].Id {
+			return fmt.Errorf("target version %d is greater than the latest version %d", targetVersion, versions[len(versions)-1].Id)
 		}
 	}
 
@@ -151,9 +163,11 @@ func ApplyMigrations(ctx context.Context, targetVersion int, latest, waitForComp
 		return nil
 	}
 
-	migrations := make([]int, len(versions))
+	migrations := make([]int, 0)
 	for i, v := range versions {
-		migrations[i] = v.Id
+		if versions[i].Id > current && versions[i].Id <= targetVersion {
+			migrations = append(migrations, v.Id)
+		}
 	}
 
 	restConfig, err := getUserRESTConfig(ctx)
@@ -166,7 +180,7 @@ func ApplyMigrations(ctx context.Context, targetVersion int, latest, waitForComp
 		return err
 	}
 
-	jobName := fmt.Sprintf("tyger-migration-runner-%s", randomAlphanumString(4))
+	jobName := fmt.Sprintf("tyger-migration-runner-%s", RandomAlphanumString(4))
 	job.Name = jobName
 	job.Spec.Template.Name = jobName
 
@@ -188,7 +202,7 @@ func ApplyMigrations(ctx context.Context, targetVersion int, latest, waitForComp
 	job.Spec.Template.Spec.InitContainers = containers[:len(containers)-1]
 	job.Spec.Template.Spec.Containers = containers[len(containers)-1:]
 
-	log.Info().Msgf("Starting migrations...")
+	log.Info().Msgf("Starting %d migrations...", len(migrations))
 
 	clientset, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
@@ -223,13 +237,12 @@ func ApplyMigrations(ctx context.Context, targetVersion int, latest, waitForComp
 		if err != nil {
 			return fmt.Errorf("failed to wait for migrations to complete: %w", err)
 		}
-
 	}
 
 	return nil
 }
 
-func randomAlphanumString(n int) string {
+func RandomAlphanumString(n int) string {
 	letters := []rune("abcdefghijklmnopqrstuvwxyz0123456789")
 	b := make([]rune, n)
 	for i := range b {

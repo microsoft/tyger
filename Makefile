@@ -15,7 +15,7 @@ TYGER_URI = https://$(shell echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.doma
 INSTALL_CLOUD=false
 AUTO_MIGRATE=false
 
-get-environment-config:
+get-config:
 	echo '${ENVIRONMENT_CONFIG_JSON}' | yq -P
 
 ensure-environment: install-cli
@@ -51,10 +51,6 @@ set-localsettings:
 		echo "Run 'make up' and 'make set-context' before this target"; exit 1
 	fi
 
-	registry=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
-	buffer_sidecar_image="$$(docker inspect $${registry}/buffer-sidecar:dev | jq -r --arg repo $${registry}/buffer-sidecar '.[0].RepoDigests[] | select (startswith($$repo))')"
-	worker_waiter_image="$$(docker inspect $${registry}/worker-waiter:dev | jq -r --arg repo $${registry}/worker-waiter '.[0].RepoDigests[] | select (startswith($$repo))')"
-
 	jq <<- EOF > ${SERVER_PATH}/appsettings.local.json
 		{
 			"logging": { "Console": {"FormatterName": "simple" } },
@@ -69,7 +65,7 @@ set-localsettings:
 				"namespace": "${HELM_NAMESPACE}",
 				"jobServiceAccount": "${HELM_RELEASE}-job",
 				"noOpConfigMap": "${HELM_RELEASE}-no-op",
-				"workerWaiterImage": "$${worker_waiter_image}",
+				"workerWaiterImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.workerWaiterImage')",
 				"clusters": $$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -c '.cloud.compute.clusters')
 			},
 			"logArchive": {
@@ -77,7 +73,7 @@ set-localsettings:
 			},
 			"buffers": {
 				"storageAccounts": $$(echo $${helm_values} | jq -c '.buffers.storageAccounts'),
-				"bufferSidecarImage": "$${buffer_sidecar_image}"
+				"bufferSidecarImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.bufferSidecarImage')"
 			},
 			"database": {
 				"connectionString": "Host=$$(echo $${helm_values} | jq -r '.database.host'); Database=$$(echo $${helm_values} | jq -r '.database.databaseName'); Port=$$(echo $${helm_values} | jq -r '.database.port'); Username=$$(az account show | jq -r '.user.name'); SslMode=VerifyFull",
@@ -149,43 +145,11 @@ publish-official-images:
 	scripts/build-images.sh --push --push-force --helm --tag "$${tag}" --registry "$${registry}"
 
 up: ensure-environment-conditionally docker-build-tyger-server docker-build-buffer-sidecar docker-build-worker-waiter
-	repo_fqdn=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
-
-	if [[ -n "$${EXPLICIT_IMAGE_TAG:-}" ]]; then
-		tyger_server_image="$${repo_fqdn}/tyger-server:$${EXPLICIT_IMAGE_TAG}"
-		buffer_sidecar_image="$${repo_fqdn}/buffer-sidecar:$${EXPLICIT_IMAGE_TAG}"
-		worker_waiter_image="$${repo_fqdn}/worker-waiter:$${EXPLICIT_IMAGE_TAG}"
-	else
-		tyger_server_image="$$(docker inspect "$${repo_fqdn}/tyger-server:dev" | jq -r --arg repo "$${repo_fqdn}/tyger-server" '.[0].RepoDigests[] | select (startswith($$repo))')"
-		buffer_sidecar_image="$$(docker inspect "$${repo_fqdn}/buffer-sidecar:dev" | jq -r --arg repo "$${repo_fqdn}/buffer-sidecar" '.[0].RepoDigests[] | select (startswith($$repo))')"
-		worker_waiter_image="$$(docker inspect "$${repo_fqdn}/worker-waiter:dev" | jq -r --arg repo "$${repo_fqdn}/worker-waiter" '.[0].RepoDigests[] | select (startswith($$repo))')"
-	fi
-
-	chart_dir=$$(readlink -f deploy/helm/tyger)
-	
-	tyger api install -f <(scripts/get-config.sh) \
-		--set api.helm.tyger.chartRef="$${chart_dir}" \
-		--set api.helm.tyger.values.image="$${tyger_server_image}" \
-		--set api.helm.tyger.values.bufferSidecarImage="$${buffer_sidecar_image}" \
-		--set api.helm.tyger.values.workerWaiterImage="$${worker_waiter_image}" \
-		--set api.helm.tyger.values.database.autoMigrate=${AUTO_MIGRATE} \
-		--skip-database-version-check
-
+	tyger api install -f <(scripts/get-config.sh)
 	$(MAKE) cli-ready
 
 migrate: ensure-environment-conditionally docker-build-tyger-server
-	repo_fqdn=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
-	chart_dir=$$(readlink -f deploy/helm/tyger)
-
-	if [[ -n "$${EXPLICIT_IMAGE_TAG:-}" ]]; then
-		tyger_server_image="$${repo_fqdn}/tyger-server:$${EXPLICIT_IMAGE_TAG}"
-	else
-		tyger_server_image="$$(docker inspect "$${repo_fqdn}/tyger-server:dev" | jq -r --arg repo "$${repo_fqdn}/tyger-server" '.[0].RepoDigests[] | select (startswith($$repo))')"
-	fi
-	
-	tyger api migrations apply --latest --wait -f <(scripts/get-config.sh) \
-		--set api.helm.tyger.chartRef="$${chart_dir}" \
-		--set api.helm.tyger.values.image="$${tyger_server_image}" 
+	tyger api migrations apply --latest --wait -f <(scripts/get-config.sh)
 
 down: install-cli
 	tyger api uninstall -f <(scripts/get-config.sh)

@@ -32,7 +32,6 @@ func NewApiCommand(parentCommand *cobra.Command) *cobra.Command {
 
 func newApiInstallCommand(parentCommand *cobra.Command) *cobra.Command {
 	flags := commonFlags{}
-	skipDatabaseVersionCheck := false
 	cmd := cobra.Command{
 		Use:                   "install",
 		Short:                 "Install the Typer API",
@@ -49,7 +48,7 @@ func newApiInstallCommand(parentCommand *cobra.Command) *cobra.Command {
 				log.Fatal().Err(err).Send()
 			}
 
-			if err := install.InstallTyger(ctx, skipDatabaseVersionCheck); err != nil {
+			if err := install.InstallTyger(ctx); err != nil {
 				if err != install.ErrAlreadyLoggedError {
 					log.Fatal().Err(err).Send()
 				}
@@ -58,8 +57,6 @@ func newApiInstallCommand(parentCommand *cobra.Command) *cobra.Command {
 			log.Info().Msg("Install complete")
 		},
 	}
-
-	cmd.Flags().BoolVar(&skipDatabaseVersionCheck, "skip-database-version-check", skipDatabaseVersionCheck, "Skip checking for new database versions after installing")
 
 	addCommonFlags(&cmd, &flags)
 	return &cmd
@@ -158,6 +155,7 @@ func NewMigrationApplyCommand() *cobra.Command {
 
 func NewMigrationsListCommand() *cobra.Command {
 	flags := commonFlags{}
+	all := false
 	cmd := &cobra.Command{
 		Use:                   "list",
 		Short:                 "List the tyger API database migrations",
@@ -172,7 +170,7 @@ func NewMigrationsListCommand() *cobra.Command {
 				log.Fatal().Err(err).Send()
 			}
 
-			versions, err := install.ListDatabaseVersions(ctx)
+			versions, err := install.ListDatabaseVersions(ctx, all)
 			if err != nil {
 				log.Fatal().Err(err).Msg("Failed to exec into pod")
 			}
@@ -186,5 +184,6 @@ func NewMigrationsListCommand() *cobra.Command {
 	}
 
 	addCommonFlags(cmd, &flags)
+	cmd.Flags().BoolVar(&all, "all", all, "Show all versions, including those that have been applied")
 	return cmd
 }
