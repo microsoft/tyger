@@ -2,7 +2,6 @@ package install
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -254,7 +253,7 @@ func InstallTyger(ctx context.Context) error {
 		time.Sleep(time.Second)
 	}
 
-	migrationRunnerJob, err := getMigrationRunnerJobFromManifest(manifest)
+	migrationRunnerJob, err := getMigrationRunnerJobDefinitionFromManifest(manifest)
 	if err != nil {
 		return fmt.Errorf("failed to get migration worker job from manifest: %w", err)
 	}
@@ -286,13 +285,14 @@ func InstallTyger(ctx context.Context) error {
 
 	pod := podList.Items[len(podList.Items)-1]
 	logsRequest := clientset.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{})
-	logsResult, err := logsRequest.Do(ctx).Raw()
+	logsReader, err := logsRequest.Stream(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get migration runner logs: %w", err)
 	}
+	defer logsReader.Close()
 
 	found := false
-	scanner := bufio.NewScanner(bytes.NewReader(logsResult))
+	scanner := bufio.NewScanner(logsReader)
 	for scanner.Scan() {
 		line := scanner.Text()
 		var parsedLine map[string]any
@@ -462,16 +462,17 @@ func installTygerHelmChart(ctx context.Context, restConfig *rest.Config, dryRun 
 	return manifest, nil
 }
 
-func getMigrationWorkerJobTemplate(ctx context.Context, restConfig *rest.Config) (*batchv1.Job, error) {
-	manifest, err := installTygerHelmChart(ctx, restConfig, true /* dryRun */)
+func getMigrationRunnerJobDefinition(ctx context.Context, restConfig *rest.Config) (*batchv1.Job, error) {
+	dryRun := true
+	manifest, err := installTygerHelmChart(ctx, restConfig, dryRun)
 	if err != nil {
 		return nil, err
 	}
 
-	return getMigrationRunnerJobFromManifest(manifest)
+	return getMigrationRunnerJobDefinitionFromManifest(manifest)
 }
 
-func getMigrationRunnerJobFromManifest(manifest string) (*batchv1.Job, error) {
+func getMigrationRunnerJobDefinitionFromManifest(manifest string) (*batchv1.Job, error) {
 	scheme := runtime.NewScheme()
 	if err := batchv1.AddToScheme(scheme); err != nil {
 		return nil, fmt.Errorf("failed to add batchv1 to scheme: %w", err)

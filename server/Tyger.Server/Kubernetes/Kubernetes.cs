@@ -95,6 +95,9 @@ public class KubernetesApiOptions : KubernetesCoreOptions
 
     [MinLength(1)]
     public List<ClusterOptions> Clusters { get; } = [];
+
+    [Required]
+    public required string CurrentPodUid { get; init; }
 }
 
 public class ClusterOptions

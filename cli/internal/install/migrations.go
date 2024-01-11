@@ -5,7 +5,9 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/big"
+	"sort"
 	"strconv"
 	"time"
 
@@ -33,7 +35,7 @@ func ListDatabaseVersions(ctx context.Context, allVersions bool) ([]DatabaseVers
 		return nil, err
 	}
 
-	job, err := getMigrationWorkerJobTemplate(ctx, restConfig)
+	job, err := getMigrationRunnerJobDefinition(ctx, restConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -175,7 +177,7 @@ func ApplyMigrations(ctx context.Context, targetVersion int, latest, waitForComp
 		return err
 	}
 
-	job, err := getMigrationWorkerJobTemplate(ctx, restConfig)
+	job, err := getMigrationRunnerJobDefinition(ctx, restConfig)
 	if err != nil {
 		return err
 	}
@@ -215,7 +217,7 @@ func ApplyMigrations(ctx context.Context, targetVersion int, latest, waitForComp
 	}
 
 	if waitForCompletion {
-		log.Info().Msg("Waiting for migrations to complete")
+		log.Info().Msg("Waiting for migrations to complete...")
 
 		err = wait.PollUntilContextCancel(ctx, 2*time.Second, true, func(ctx context.Context) (bool, error) {
 			j, err := clientset.BatchV1().Jobs(TygerNamespace).Get(ctx, jobName, v1.GetOptions{})
@@ -237,9 +239,63 @@ func ApplyMigrations(ctx context.Context, targetVersion int, latest, waitForComp
 		if err != nil {
 			return fmt.Errorf("failed to wait for migrations to complete: %w", err)
 		}
+
+		log.Info().Msg("Migrations applied successfully")
+	} else {
+		log.Info().Msg("Migrations started successfully. Not waiting for them to complete.")
 	}
 
 	return nil
+}
+
+func GetMigrationLogs(ctx context.Context, id int, destination io.Writer) error {
+	restConfig, err := getUserRESTConfig(ctx)
+	if err != nil {
+		return err
+	}
+
+	clientset, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
+
+	coreV1 := clientset.CoreV1()
+	pods, err := coreV1.Pods(TygerNamespace).List(ctx, v1.ListOptions{
+		LabelSelector: fmt.Sprintf("%s=%s", migrationRunnerLabelKey, "true"),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list pods: %w", err)
+	}
+
+	sort.Slice(pods.Items, func(i, j int) bool {
+		return !pods.Items[i].CreationTimestamp.Before(&pods.Items[j].CreationTimestamp)
+	})
+
+	for _, pod := range pods.Items {
+		allContainers := make([]corev1.Container, 0, len(pod.Spec.InitContainers)+len(pod.Spec.Containers))
+		allContainers = append(allContainers, pod.Spec.InitContainers...)
+		allContainers = append(allContainers, pod.Spec.Containers...)
+
+		for _, container := range allContainers {
+			if container.Name == fmt.Sprintf("migration-%d", id) {
+				logsRequest := coreV1.Pods(TygerNamespace).GetLogs(pod.Name, &corev1.PodLogOptions{
+					Container: container.Name,
+				})
+
+				readCloser, err := logsRequest.Stream(ctx)
+				if err != nil {
+					log.Debug().Err(err).Msg("Failed to get logs stream")
+					continue
+				}
+
+				defer readCloser.Close()
+				io.Copy(destination, readCloser)
+				return nil
+			}
+		}
+	}
+
+	return fmt.Errorf("logs for migration %d are not available", id)
 }
 
 func RandomAlphanumString(n int) string {

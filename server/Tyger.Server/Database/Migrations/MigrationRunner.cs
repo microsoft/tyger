@@ -104,6 +104,7 @@ public class MigrationRunner : IHostedService
                     try
                     {
                         var endpointSlices = await _kubernetesClient.DiscoveryV1.ListNamespacedEndpointSliceAsync(_kubernetesOptions.Namespace, labelSelector: "kubernetes.io/service-name=tyger-server", cancellationToken: cancellationToken);
+                        Console.WriteLine($"Endpoint Slices: {endpointSlices.Items.Count}");
                         foreach (var slice in endpointSlices.Items)
                         {
                             var port = slice.Ports.Single(p => p.Protocol == "TCP");
@@ -117,7 +118,19 @@ public class MigrationRunner : IHostedService
                                 foreach (var address in ep.Addresses)
                                 {
                                     var uri = new Uri($"http://{address}:{port.Port}/v1/database-version-in-use");
-                                    var resp = await httpClient.GetAsync(uri, cancellationToken);
+
+                                    var message = new HttpRequestMessage(HttpMethod.Get, uri)
+                                    {
+                                        Headers =
+                                        {
+                                            // Adding custom bearer token to secure this endpoint. The token is the pod UID.
+                                            // See comment on enpoint.
+                                            Authorization = new ("Bearer", ep.TargetRef.Uid)
+                                        },
+                                    };
+
+
+                                    var resp = await httpClient.SendAsync(message, cancellationToken);
                                     resp.EnsureSuccessStatusCode();
                                     var versionInUse = (await resp.Content.ReadFromJsonAsync<DatabaseVersionInUse>(_jsonSerializerOptions, cancellationToken))!;
                                     if (versionInUse.Id != (int)version - 1)

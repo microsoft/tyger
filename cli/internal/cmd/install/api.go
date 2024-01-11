@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strconv"
 
 	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/rs/zerolog/log"
@@ -108,6 +109,7 @@ func NewMigrationsCommand(parentCommand *cobra.Command) *cobra.Command {
 
 	cmd.AddCommand(NewMigrationsListCommand())
 	cmd.AddCommand(NewMigrationApplyCommand())
+	cmd.AddCommand(NewMigrationLogsCommand())
 
 	return cmd
 }
@@ -140,6 +142,44 @@ func NewMigrationApplyCommand() *cobra.Command {
 			}
 
 			if err := install.ApplyMigrations(ctx, targetVersion, latest, wait); err != nil {
+				log.Fatal().Err(err).Send()
+			}
+		},
+	}
+
+	cmd.Flags().IntVar(&targetVersion, "target-version", targetVersion, "The target version to migrate to")
+	cmd.Flags().BoolVar(&latest, "latest", latest, "Migrate to the latest version")
+	cmd.Flags().BoolVar(&wait, "wait", wait, "Wait for the migration to complete")
+
+	addCommonFlags(cmd, &flags)
+	return cmd
+}
+
+func NewMigrationLogsCommand() *cobra.Command {
+	flags := commonFlags{}
+	targetVersion := 0
+	latest := false
+	wait := false
+	cmd := &cobra.Command{
+		Use:                   "logs ID",
+		Short:                 "Get the logs of a database migration",
+		Long:                  "Get the logs of a database migration",
+		DisableFlagsInUseLine: true,
+		Args:                  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			ctx := commonPrerun(cmd.Context(), &flags)
+
+			ctx, err := loginAndValidateSubscription(ctx)
+			if err != nil {
+				log.Fatal().Err(err).Send()
+			}
+
+			id, err := strconv.Atoi(args[0])
+			if err != nil {
+				log.Fatal().Msg("The ID argument must be an integer")
+			}
+
+			if err := install.GetMigrationLogs(ctx, id, os.Stdout); err != nil {
 				log.Fatal().Err(err).Send()
 			}
 		},

@@ -1,10 +1,12 @@
 using System.ComponentModel.DataAnnotations;
 using Azure.Core;
+using k8s;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using Polly;
 using Polly.Retry;
 using Tyger.Server.Database.Migrations;
+using Tyger.Server.Kubernetes;
 using Tyger.Server.Model;
 
 namespace Tyger.Server.Database;
@@ -76,8 +78,31 @@ public static class Database
     }
     public static void MapDatabaseVersionInUse(this WebApplication app)
     {
-        app.MapGet("/v1/database-version-in-use", (DatabaseVersions versions, HttpContext context) =>
-            Results.Ok(new DatabaseVersionInUse((int)versions.CachedCurrentVersion)))
+        app.MapGet("/v1/database-version-in-use", (DatabaseVersions versions, IOptions<KubernetesApiOptions> kubernetesOptions, HttpContext context) =>
+        {
+            // We use a custom bearer token to secure this endpoint. The token is the pod UID. This is obviously not very secure,
+            // but the response isn't really sensitive.
+            // Using the pod UID ensures that only callers with access to this information can call this endpoint.
+            // This endpoint is meant to be called by the migration runner.
+
+            // Using a Kubernetes token is another possiblity, but verifying the token requires cluster permission to the
+            // TokenReview resource, which means that the principal installing the API needs to be able to create ClusterRoleBindings.
+
+            const string BearerPrefix = "Bearer ";
+
+            var authHeader = context.Request.Headers.Authorization.ToString();
+
+            if (authHeader.Length > BearerPrefix.Length && authHeader.StartsWith(BearerPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                var token = authHeader[BearerPrefix.Length..];
+                if (kubernetesOptions.Value.CurrentPodUid.Equals(token, StringComparison.OrdinalIgnoreCase))
+                {
+                    return Results.Ok(new DatabaseVersionInUse((int)versions.CachedCurrentVersion));
+                }
+            }
+
+            return Results.Unauthorized();
+        })
         .AllowAnonymous()
         .Produces<DatabaseVersionInUse>();
     }

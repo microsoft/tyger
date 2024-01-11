@@ -126,6 +126,10 @@ spec:
               value: {{ include "tyger.fullname" . }}-no-op
             - name: Kubernetes__WorkerWaiterImage
               value: {{ required "A value for workerWaiterImage is required" .Values.workerWaiterImage }}
+            - name: Kubernetes__CurrentPodUid
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
             - name: Database__ConnectionString
               value: "Host={{ .Values.database.host }}; Database={{ .Values.database.databaseName }}; Port={{ .Values.database.port }}; Username={{ .Values.identity.tygerServer.name }}; SslMode=VerifyFull;"
             - name: Database__TygerServerRoleName
