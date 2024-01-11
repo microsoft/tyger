@@ -273,6 +273,10 @@ func ApplyMigrations(ctx context.Context, targetVersion int, latest, waitForComp
 		log.Info().Msg("Migrations started successfully. Not waiting for them to complete.")
 	}
 
+	if targetVersion != versions[len(versions)-1].Id {
+		log.Warn().Msg("There are more migrations available.")
+	}
+
 	return nil
 }
 
