@@ -177,6 +177,24 @@ func ApplyMigrations(ctx context.Context, targetVersion int, latest, waitForComp
 		return err
 	}
 
+	clientset, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
+
+	existingMigrationJobs, err := clientset.BatchV1().Jobs(TygerNamespace).List(ctx, v1.ListOptions{
+		LabelSelector: fmt.Sprintf("%s=%s", migrationRunnerLabelKey, "true"),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list jobs: %w", err)
+	}
+
+	for _, existingJob := range existingMigrationJobs.Items {
+		if existingJob.Status.Succeeded == 0 && existingJob.Status.Failed == 0 {
+			return fmt.Errorf("an existing migration is already in progress")
+		}
+	}
+
 	job, err := getMigrationRunnerJobDefinition(ctx, restConfig)
 	if err != nil {
 		return err
@@ -205,11 +223,6 @@ func ApplyMigrations(ctx context.Context, targetVersion int, latest, waitForComp
 	job.Spec.Template.Spec.Containers = containers[len(containers)-1:]
 
 	log.Info().Msgf("Starting %d migrations...", len(migrations))
-
-	clientset, err := kubernetes.NewForConfig(restConfig)
-	if err != nil {
-		return fmt.Errorf("failed to create kubernetes client: %w", err)
-	}
 
 	_, err = clientset.BatchV1().Jobs(TygerNamespace).Create(ctx, job, v1.CreateOptions{})
 	if err != nil {
