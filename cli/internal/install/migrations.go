@@ -30,7 +30,7 @@ const (
 )
 
 func ListDatabaseVersions(ctx context.Context, allVersions bool) ([]DatabaseVersion, error) {
-	restConfig, err := getUserRESTConfig(ctx)
+	restConfig, err := GetUserRESTConfig(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +187,7 @@ func ApplyMigrations(ctx context.Context, targetVersion int, latest, waitForComp
 		}
 	}
 
-	restConfig, err := getUserRESTConfig(ctx)
+	restConfig, err := GetUserRESTConfig(ctx)
 	if err != nil {
 		return err
 	}
@@ -277,7 +277,7 @@ func ApplyMigrations(ctx context.Context, targetVersion int, latest, waitForComp
 }
 
 func GetMigrationLogs(ctx context.Context, id int, destination io.Writer) error {
-	restConfig, err := getUserRESTConfig(ctx)
+	restConfig, err := GetUserRESTConfig(ctx)
 	if err != nil {
 		return err
 	}

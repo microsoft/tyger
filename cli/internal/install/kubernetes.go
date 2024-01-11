@@ -169,7 +169,7 @@ func createTygerClusterRBAC(ctx context.Context, restConfigPromise *Promise[*res
 }
 
 func PodExec(ctx context.Context, podName string, command ...string) (stdout *bytes.Buffer, stderr *bytes.Buffer, err error) {
-	restConfig, err := getUserRESTConfig(ctx)
+	restConfig, err := GetUserRESTConfig(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
