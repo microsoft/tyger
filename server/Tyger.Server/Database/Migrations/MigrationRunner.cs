@@ -198,8 +198,16 @@ public class MigrationRunner : IHostedService
 
     private async Task LogCurrentOrAvailableDatabaseVersions(List<(DatabaseVersion version, Type migrator)> knownVersions, CancellationToken cancellationToken)
     {
-        var currentVersion = await _databaseVersions.ReadCurrentDatabaseVersion(cancellationToken)
-            ?? throw new InvalidOperationException("Current database version information should be available but isn't");
+        if (!await _databaseVersions.DoesMigrationsTableExist(cancellationToken))
+        {
+            return;
+        }
+
+        var currentVersion = await _databaseVersions.ReadCurrentDatabaseVersion(cancellationToken);
+        if (currentVersion == null)
+        {
+            return;
+        }
 
         if (knownVersions.Any(kv => (int)kv.version > (int)currentVersion))
         {

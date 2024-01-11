@@ -25,7 +25,7 @@ var databaseCommand = new Command("database", "Manage the database");
 rootCommand.AddCommand(databaseCommand);
 
 var initCommand = new Command("init", "Initialize the database");
-var initTargetVersionOption = new Option<int>("--target-version", "The target database version");
+var initTargetVersionOption = new Option<int?>("--target-version", "The target database version");
 initCommand.AddOption(initTargetVersionOption);
 initCommand.SetHandler(context => RunMigrations(
     initOnly: true,

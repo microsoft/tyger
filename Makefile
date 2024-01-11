@@ -168,7 +168,7 @@ integration-test-no-up: integration-test-no-up-prereqs cli-ready
 	pushd cli/integrationtest
 	go test -tags=integrationtest
 
-integration-test: up integration-test-no-up-prereqs
+integration-test: up integration-test-no-up-prereqs set-context
 	$(MAKE) integration-test-no-up-prereqs integration-test-no-up
 
 test: up unit-test integration-test
