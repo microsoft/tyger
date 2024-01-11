@@ -111,7 +111,7 @@ unit-test:
 	cd cli
 	go test ./... | { grep -v "\\[[no test files\\]" || true; }
 
-docker-build:
+_docker-build:
 	if [[ "$${DO_NOT_BUILD_IMAGES:-}" == "true" ]]; then
 		exit
 	fi
@@ -129,16 +129,18 @@ docker-build:
 	scripts/build-images.sh $$target_arg --push --push-force --tag "$$tag" --registry "$${registry}"
 
 docker-build-test:
-	$(MAKE) docker-build DOCKER_BUILD_TARGET=test-connectivity
+	$(MAKE) _docker-build DOCKER_BUILD_TARGET=test-connectivity
 
 docker-build-tyger-server:
-	$(MAKE) docker-build DOCKER_BUILD_TARGET=tyger-server
+	$(MAKE) _docker-build DOCKER_BUILD_TARGET=tyger-server
 
 docker-build-buffer-sidecar:
-	$(MAKE) docker-build DOCKER_BUILD_TARGET=buffer-sidecar
+	$(MAKE) _docker-build DOCKER_BUILD_TARGET=buffer-sidecar
 
 docker-build-worker-waiter:
-	$(MAKE) docker-build DOCKER_BUILD_TARGET=worker-waiter
+	$(MAKE) _docker-build DOCKER_BUILD_TARGET=worker-waiter
+
+docker-build: docker-build-test docker-build-tyger-server docker-build-buffer-sidecar docker-build-worker-waiter
 
 publish-official-images:
 	registry=$$(scripts/get-config.sh --dev -e .officialContainerRegistry.fqdn)

@@ -70,7 +70,7 @@ jobs:
       - name: build images
         run: |
           set -eo pipefail
-          make docker-build docker-build-test
+          make -j 4 docker-build
 
   get-config:
     runs-on: ubuntu-latest
