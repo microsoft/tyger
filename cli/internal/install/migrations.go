@@ -40,19 +40,17 @@ func ListDatabaseVersions(ctx context.Context, allVersions bool) ([]DatabaseVers
 		return nil, err
 	}
 
-	pod := &corev1.Pod{
-		ObjectMeta: job.Spec.Template.ObjectMeta,
-		Spec:       job.Spec.Template.Spec,
-	}
+	job.Name = fmt.Sprintf("tyger-command-host-%s", RandomAlphanumString(4))
 
-	pod.Name = fmt.Sprintf("tyger-command-host-%s", RandomAlphanumString(4))
-	pod.Spec.Containers[0].Command = []string{"/app/sleep", "5m"}
-	pod.Spec.Containers[0].Args = []string{}
+	job.Spec.TTLSecondsAfterFinished = Ptr(int32(0))
 
-	if pod.Labels == nil {
-		pod.Labels = map[string]string{}
+	job.Spec.Template.Spec.Containers[0].Command = []string{"/app/sleep", "5m"}
+	job.Spec.Template.Spec.Containers[0].Args = []string{}
+
+	if job.Spec.Template.Labels == nil {
+		job.Spec.Template.Labels = map[string]string{}
 	}
-	pod.Labels[commandHostLabelKey] = "true"
+	job.Spec.Template.Labels[commandHostLabelKey] = "true"
 
 	clientset, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
@@ -61,17 +59,33 @@ func ListDatabaseVersions(ctx context.Context, allVersions bool) ([]DatabaseVers
 
 	log.Debug().Msg("Creating pod to list database versions")
 
-	createdPod, err := clientset.CoreV1().Pods(TygerNamespace).Create(ctx, pod, v1.CreateOptions{})
+	createdJob, err := clientset.BatchV1().Jobs(TygerNamespace).Create(ctx, job, v1.CreateOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create pod: %w", err)
 	}
 
 	defer func() {
-		clientset.CoreV1().Pods(TygerNamespace).Delete(context.Background(), createdPod.Name, v1.DeleteOptions{})
+		clientset.BatchV1().Jobs(TygerNamespace).Delete(context.Background(), createdJob.Name, v1.DeleteOptions{
+			PropagationPolicy: Ptr(v1.DeletePropagationBackground),
+		})
 	}()
 
+	var pod *corev1.Pod
+
 	err = wait.PollUntilContextCancel(ctx, 2*time.Second, true, func(ctx context.Context) (bool, error) {
-		p, err := clientset.CoreV1().Pods(TygerNamespace).Get(ctx, createdPod.Name, v1.GetOptions{})
+		podList, err := clientset.CoreV1().Pods(createdJob.Namespace).List(ctx, v1.ListOptions{
+			LabelSelector: v1.FormatLabelSelector(createdJob.Spec.Selector),
+		})
+
+		if err != nil {
+			return false, fmt.Errorf("failed to list migration runner pods: %w", err)
+		}
+
+		if len(podList.Items) == 0 {
+			return false, nil
+		}
+
+		p, err := clientset.CoreV1().Pods(TygerNamespace).Get(ctx, podList.Items[0].Name, v1.GetOptions{})
 		if err != nil {
 			return false, err
 		}
@@ -82,6 +96,7 @@ func ListDatabaseVersions(ctx context.Context, allVersions bool) ([]DatabaseVers
 		case corev1.PodSucceeded:
 			return false, fmt.Errorf("pod exited: %s", p.Status.Message)
 		case corev1.PodRunning:
+			pod = p
 			return true, nil
 		}
 
@@ -96,7 +111,7 @@ func ListDatabaseVersions(ctx context.Context, allVersions bool) ([]DatabaseVers
 
 	log.Debug().Msg("Invoking command in pod")
 
-	return getDatabaseVersionsFromPod(ctx, createdPod.Name, allVersions)
+	return getDatabaseVersionsFromPod(ctx, pod.Name, allVersions)
 }
 
 func getDatabaseVersionsFromPod(ctx context.Context, podName string, allVersions bool) ([]DatabaseVersion, error) {
