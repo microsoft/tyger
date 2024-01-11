@@ -1,6 +1,5 @@
 using System.ComponentModel.DataAnnotations;
 using Azure.Core;
-using k8s;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using Polly;

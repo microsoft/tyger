@@ -8,11 +8,14 @@ import (
 	"testing"
 
 	"github.com/microsoft/tyger/cli/internal/install"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
 )
 
 func TestMigrations(t *testing.T) {
+	t.Parallel()
+
 	stdout, stderr, err := runCommand("helm", "get", "values", "tyger", "-n", "tyger", "-o", "yaml")
 	if err != nil {
 		t.Log("Unable to get Helm values. Ensure that `make up` and `make set-context` have been run.")
@@ -49,17 +52,25 @@ func TestMigrations(t *testing.T) {
 	configPath := fmt.Sprintf("%s/environment-config.yaml", tempDir)
 	require.NoError(t, os.WriteFile(configPath, []byte(environmentConfig), 0644))
 
-	tygerArgs := []string{
-		"api",
-		"migrations",
-		"apply",
-		"--latest",
-		"--wait",
+	tygerMigrationApplyArgs := []string{
+		"api", "migrations", "apply", "--latest", "--wait",
 		"-f", configPath,
 		"--set", fmt.Sprintf("api.helm.tyger.values.database.databaseName=%s", temporaryDatabaseName),
 	}
 
-	runTygerSucceeds(t, tygerArgs...)
+	runTygerSucceeds(t, tygerMigrationApplyArgs...)
+
+	logs := runTygerSucceeds(t, "api", "migrations", "logs", "1",
+		"-f", configPath,
+		"--set", fmt.Sprintf("api.helm.tyger.values.database.databaseName=%s", temporaryDatabaseName))
+
+	assert.Contains(t, logs, "Migration 1 complete")
+
+	logs = runTygerSucceeds(t, "api", "migrations", "logs", "2",
+		"-f", configPath,
+		"--set", fmt.Sprintf("api.helm.tyger.values.database.databaseName=%s", temporaryDatabaseName))
+
+	assert.Contains(t, logs, "Migration 2 complete")
 
 	defer func() {
 		createPsqlCommandBuilder().

@@ -25,7 +25,6 @@ func NewApiCommand(parentCommand *cobra.Command) *cobra.Command {
 
 	cmd.AddCommand(newApiInstallCommand(cmd))
 	cmd.AddCommand(newApiUninstallCommand(cmd))
-
 	cmd.AddCommand(NewMigrationsCommand(cmd))
 
 	return cmd

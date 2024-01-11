@@ -66,7 +66,8 @@ set-localsettings:
 				"jobServiceAccount": "${HELM_RELEASE}-job",
 				"noOpConfigMap": "${HELM_RELEASE}-no-op",
 				"workerWaiterImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.workerWaiterImage')",
-				"clusters": $$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -c '.cloud.compute.clusters')
+				"clusters": $$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -c '.cloud.compute.clusters'),
+				"currentPodUid": "00000000-0000-0000-0000-000000000000"
 			},
 			"logArchive": {
 				"storageAccountEndpoint": $$(echo $${helm_values} | jq -c '.logArchive.storageAccountEndpoint')

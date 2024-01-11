@@ -129,7 +129,6 @@ public class MigrationRunner : IHostedService
                                         },
                                     };
 
-
                                     var resp = await httpClient.SendAsync(message, cancellationToken);
                                     resp.EnsureSuccessStatusCode();
                                     var versionInUse = (await resp.Content.ReadFromJsonAsync<DatabaseVersionInUse>(_jsonSerializerOptions, cancellationToken))!;
