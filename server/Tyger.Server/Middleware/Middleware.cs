@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using k8s.Autorest;
 using Microsoft.Net.Http.Headers;
+using Tyger.Server.Model;
 using ValidationException = System.ComponentModel.DataAnnotations.ValidationException;
 
 namespace Tyger.Server.Middleware;

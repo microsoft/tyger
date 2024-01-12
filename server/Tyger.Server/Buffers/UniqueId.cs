@@ -1,6 +1,6 @@
 using SimpleBase;
 
-namespace Tyger.Server;
+namespace Tyger.Server.Buffers;
 
 public static class UniqueId
 {
