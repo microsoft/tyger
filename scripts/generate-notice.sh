@@ -55,14 +55,14 @@ for lib_name in $lib_names; do
 
         notice_pattern="NOTICE*"
 
-        license=$(find "$save_dir/$lib_name" -type f ! -iname "$notice_pattern" -exec cat {} \;)
+        license=$(find "$save_dir/$lib_name" -type f ! -iname "$notice_pattern" -print0 | sort -z | xargs -0 cat)
 
         if [ -n "$license" ]; then
             echo "$license"
             echo ""
         fi
 
-        notice=$(find "$save_dir/$lib_name" -type f -iname "$notice_pattern" -exec cat {} \;)
+        notice=$(find "$save_dir/$lib_name" -type f -iname "$notice_pattern" -print0 | sort -z | xargs -0 cat)
         if [ -n "$notice" ]; then
             echo "$notice"
             echo ""

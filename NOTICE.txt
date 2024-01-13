@@ -5573,95 +5573,6 @@ THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR I
 
 github.com/hashicorp/errwrap
 
-# errwrap
-
-`errwrap` is a package for Go that formalizes the pattern of wrapping errors
-and checking if an error contains another error.
-
-There is a common pattern in Go of taking a returned `error` value and
-then wrapping it (such as with `fmt.Errorf`) before returning it. The problem
-with this pattern is that you completely lose the original `error` structure.
-
-Arguably the _correct_ approach is that you should make a custom structure
-implementing the `error` interface, and have the original error as a field
-on that structure, such [as this example](http://golang.org/pkg/os/#PathError).
-This is a good approach, but you have to know the entire chain of possible
-rewrapping that happens, when you might just care about one.
-
-`errwrap` formalizes this pattern (it doesn't matter what approach you use
-above) by giving a single interface for wrapping errors, checking if a specific
-error is wrapped, and extracting that error.
-
-## Installation and Docs
-
-Install using `go get github.com/hashicorp/errwrap`.
-
-Full documentation is available at
-http://godoc.org/github.com/hashicorp/errwrap
-
-## Usage
-
-#### Basic Usage
-
-Below is a very basic example of its usage:
-
-```go
-// A function that always returns an error, but wraps it, like a real
-// function might.
-func tryOpen() error {
-	_, err := os.Open("/i/dont/exist")
-	if err != nil {
-		return errwrap.Wrapf("Doesn't exist: {{err}}", err)
-	}
-
-	return nil
-}
-
-func main() {
-	err := tryOpen()
-
-	// We can use the Contains helpers to check if an error contains
-	// another error. It is safe to do this with a nil error, or with
-	// an error that doesn't even use the errwrap package.
-	if errwrap.Contains(err, "does not exist") {
-		// Do something
-	}
-	if errwrap.ContainsType(err, new(os.PathError)) {
-		// Do something
-	}
-
-	// Or we can use the associated `Get` functions to just extract
-	// a specific error. This would return nil if that specific error doesn't
-	// exist.
-	perr := errwrap.GetType(err, new(os.PathError))
-}
-```
-
-#### Custom Types
-
-If you're already making custom types that properly wrap errors, then
-you can get all the functionality of `errwraps.Contains` and such by
-implementing the `Wrapper` interface with just one function. Example:
-
-```go
-type AppError {
-  Code ErrorCode
-  Err  error
-}
-
-func (e *AppError) WrappedErrors() []error {
-  return []error{e.Err}
-}
-```
-
-Now this works:
-
-```go
-err := &AppError{Err: fmt.Errorf("an error")}
-if errwrap.ContainsType(err, fmt.Errorf("")) {
-	// This will work!
-}
-```
 Mozilla Public License, version 2.0
 
 1. Definitions
@@ -6016,125 +5927,95 @@ Exhibit B - “Incompatible With Secondary Licenses” Notice
       With Secondary Licenses”, as defined by
       the Mozilla Public License, v. 2.0.
 
-package errwrap
+# errwrap
 
-import (
-	"errors"
-	"fmt"
-	"testing"
-)
+`errwrap` is a package for Go that formalizes the pattern of wrapping errors
+and checking if an error contains another error.
 
-func TestWrappedError_impl(t *testing.T) {
-	var _ error = new(wrappedError)
+There is a common pattern in Go of taking a returned `error` value and
+then wrapping it (such as with `fmt.Errorf`) before returning it. The problem
+with this pattern is that you completely lose the original `error` structure.
+
+Arguably the _correct_ approach is that you should make a custom structure
+implementing the `error` interface, and have the original error as a field
+on that structure, such [as this example](http://golang.org/pkg/os/#PathError).
+This is a good approach, but you have to know the entire chain of possible
+rewrapping that happens, when you might just care about one.
+
+`errwrap` formalizes this pattern (it doesn't matter what approach you use
+above) by giving a single interface for wrapping errors, checking if a specific
+error is wrapped, and extracting that error.
+
+## Installation and Docs
+
+Install using `go get github.com/hashicorp/errwrap`.
+
+Full documentation is available at
+http://godoc.org/github.com/hashicorp/errwrap
+
+## Usage
+
+#### Basic Usage
+
+Below is a very basic example of its usage:
+
+```go
+// A function that always returns an error, but wraps it, like a real
+// function might.
+func tryOpen() error {
+	_, err := os.Open("/i/dont/exist")
+	if err != nil {
+		return errwrap.Wrapf("Doesn't exist: {{err}}", err)
+	}
+
+	return nil
 }
 
-func TestGetAll(t *testing.T) {
-	cases := []struct {
-		Err error
-		Msg string
-		Len int
-	}{
-		{},
-		{
-			fmt.Errorf("foo"),
-			"foo",
-			1,
-		},
-		{
-			fmt.Errorf("bar"),
-			"foo",
-			0,
-		},
-		{
-			Wrapf("bar", fmt.Errorf("foo")),
-			"foo",
-			1,
-		},
-		{
-			Wrapf("{{err}}", fmt.Errorf("foo")),
-			"foo",
-			2,
-		},
-		{
-			Wrapf("bar", Wrapf("baz", fmt.Errorf("foo"))),
-			"foo",
-			1,
-		},
-		{
-			fmt.Errorf("foo: %w", fmt.Errorf("bar")),
-			"foo: bar",
-			1,
-		},
-		{
-			fmt.Errorf("foo: %w", fmt.Errorf("bar")),
-			"bar",
-			1,
-		},
+func main() {
+	err := tryOpen()
+
+	// We can use the Contains helpers to check if an error contains
+	// another error. It is safe to do this with a nil error, or with
+	// an error that doesn't even use the errwrap package.
+	if errwrap.Contains(err, "does not exist") {
+		// Do something
+	}
+	if errwrap.ContainsType(err, new(os.PathError)) {
+		// Do something
 	}
 
-	for i, tc := range cases {
-		actual := GetAll(tc.Err, tc.Msg)
-		if len(actual) != tc.Len {
-			t.Fatalf("%d: bad: %#v", i, actual)
-		}
-		for _, v := range actual {
-			if v.Error() != tc.Msg {
-				t.Fatalf("%d: bad: %#v", i, actual)
-			}
-		}
-	}
+	// Or we can use the associated `Get` functions to just extract
+	// a specific error. This would return nil if that specific error doesn't
+	// exist.
+	perr := errwrap.GetType(err, new(os.PathError))
+}
+```
+
+#### Custom Types
+
+If you're already making custom types that properly wrap errors, then
+you can get all the functionality of `errwraps.Contains` and such by
+implementing the `Wrapper` interface with just one function. Example:
+
+```go
+type AppError {
+  Code ErrorCode
+  Err  error
 }
 
-func TestGetAllType(t *testing.T) {
-	cases := []struct {
-		Err  error
-		Type interface{}
-		Len  int
-	}{
-		{},
-		{
-			fmt.Errorf("foo"),
-			"foo",
-			0,
-		},
-		{
-			fmt.Errorf("bar"),
-			fmt.Errorf("foo"),
-			1,
-		},
-		{
-			Wrapf("bar", fmt.Errorf("foo")),
-			fmt.Errorf("baz"),
-			2,
-		},
-		{
-			Wrapf("bar", Wrapf("baz", fmt.Errorf("foo"))),
-			Wrapf("", nil),
-			0,
-		},
-		{
-			fmt.Errorf("one: %w", fmt.Errorf("two: %w", fmt.Errorf("three"))),
-			fmt.Errorf("%w", errors.New("")),
-			2,
-		},
-	}
-
-	for i, tc := range cases {
-		actual := GetAllType(tc.Err, tc.Type)
-		if len(actual) != tc.Len {
-			t.Fatalf("%d: bad: %#v", i, actual)
-		}
-	}
+func (e *AppError) WrappedErrors() []error {
+  return []error{e.Err}
 }
+```
 
-func TestWrappedError_IsCompatibleWithErrorsUnwrap(t *testing.T) {
-	inner := errors.New("inner error")
-	err := Wrap(errors.New("outer"), inner)
-	actual := errors.Unwrap(err)
-	if actual != inner {
-		t.Fatal("wrappedError did not unwrap to inner")
-	}
+Now this works:
+
+```go
+err := &AppError{Err: fmt.Errorf("an error")}
+if errwrap.ContainsType(err, fmt.Errorf("")) {
+	// This will work!
 }
+```
 // Package errwrap implements methods to formalize error wrapping in Go.
 //
 // All of the top-level functions that take an `error` are built to be able
@@ -6313,90 +6194,131 @@ func (w *wrappedError) WrappedErrors() []error {
 func (w *wrappedError) Unwrap() error {
 	return w.Inner
 }
+package errwrap
+
+import (
+	"errors"
+	"fmt"
+	"testing"
+)
+
+func TestWrappedError_impl(t *testing.T) {
+	var _ error = new(wrappedError)
+}
+
+func TestGetAll(t *testing.T) {
+	cases := []struct {
+		Err error
+		Msg string
+		Len int
+	}{
+		{},
+		{
+			fmt.Errorf("foo"),
+			"foo",
+			1,
+		},
+		{
+			fmt.Errorf("bar"),
+			"foo",
+			0,
+		},
+		{
+			Wrapf("bar", fmt.Errorf("foo")),
+			"foo",
+			1,
+		},
+		{
+			Wrapf("{{err}}", fmt.Errorf("foo")),
+			"foo",
+			2,
+		},
+		{
+			Wrapf("bar", Wrapf("baz", fmt.Errorf("foo"))),
+			"foo",
+			1,
+		},
+		{
+			fmt.Errorf("foo: %w", fmt.Errorf("bar")),
+			"foo: bar",
+			1,
+		},
+		{
+			fmt.Errorf("foo: %w", fmt.Errorf("bar")),
+			"bar",
+			1,
+		},
+	}
+
+	for i, tc := range cases {
+		actual := GetAll(tc.Err, tc.Msg)
+		if len(actual) != tc.Len {
+			t.Fatalf("%d: bad: %#v", i, actual)
+		}
+		for _, v := range actual {
+			if v.Error() != tc.Msg {
+				t.Fatalf("%d: bad: %#v", i, actual)
+			}
+		}
+	}
+}
+
+func TestGetAllType(t *testing.T) {
+	cases := []struct {
+		Err  error
+		Type interface{}
+		Len  int
+	}{
+		{},
+		{
+			fmt.Errorf("foo"),
+			"foo",
+			0,
+		},
+		{
+			fmt.Errorf("bar"),
+			fmt.Errorf("foo"),
+			1,
+		},
+		{
+			Wrapf("bar", fmt.Errorf("foo")),
+			fmt.Errorf("baz"),
+			2,
+		},
+		{
+			Wrapf("bar", Wrapf("baz", fmt.Errorf("foo"))),
+			Wrapf("", nil),
+			0,
+		},
+		{
+			fmt.Errorf("one: %w", fmt.Errorf("two: %w", fmt.Errorf("three"))),
+			fmt.Errorf("%w", errors.New("")),
+			2,
+		},
+	}
+
+	for i, tc := range cases {
+		actual := GetAllType(tc.Err, tc.Type)
+		if len(actual) != tc.Len {
+			t.Fatalf("%d: bad: %#v", i, actual)
+		}
+	}
+}
+
+func TestWrappedError_IsCompatibleWithErrorsUnwrap(t *testing.T) {
+	inner := errors.New("inner error")
+	err := Wrap(errors.New("outer"), inner)
+	actual := errors.Unwrap(err)
+	if actual != inner {
+		t.Fatal("wrappedError did not unwrap to inner")
+	}
+}
 module github.com/hashicorp/errwrap
 
 ================================================================================
 
 github.com/hashicorp/go-cleanhttp
 
-package cleanhttp
-
-import (
-	"net/http"
-	"strings"
-	"unicode"
-)
-
-// HandlerInput provides input options to cleanhttp's handlers
-type HandlerInput struct {
-	ErrStatus int
-}
-
-// PrintablePathCheckHandler is a middleware that ensures the request path
-// contains only printable runes.
-func PrintablePathCheckHandler(next http.Handler, input *HandlerInput) http.Handler {
-	// Nil-check on input to make it optional
-	if input == nil {
-		input = &HandlerInput{
-			ErrStatus: http.StatusBadRequest,
-		}
-	}
-
-	// Default to http.StatusBadRequest on error
-	if input.ErrStatus == 0 {
-		input.ErrStatus = http.StatusBadRequest
-	}
-
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r != nil {
-			// Check URL path for non-printable characters
-			idx := strings.IndexFunc(r.URL.Path, func(c rune) bool {
-				return !unicode.IsPrint(c)
-			})
-
-			if idx != -1 {
-				w.WriteHeader(input.ErrStatus)
-				return
-			}
-
-			if next != nil {
-				next.ServeHTTP(w, r)
-			}
-		}
-
-		return
-	})
-}
-# cleanhttp
-
-Functions for accessing "clean" Go http.Client values
-
--------------
-
-The Go standard library contains a default `http.Client` called
-`http.DefaultClient`. It is a common idiom in Go code to start with
-`http.DefaultClient` and tweak it as necessary, and in fact, this is
-encouraged; from the `http` package documentation:
-
-> The Client's Transport typically has internal state (cached TCP connections),
-so Clients should be reused instead of created as needed. Clients are safe for
-concurrent use by multiple goroutines.
-
-Unfortunately, this is a shared value, and it is not uncommon for libraries to
-assume that they are free to modify it at will. With enough dependencies, it
-can be very easy to encounter strange problems and race conditions due to
-manipulation of this shared value across libraries and goroutines (clients are
-safe for concurrent use, but writing values to the client struct itself is not
-protected).
-
-Making things worse is the fact that a bare `http.Client` will use a default
-`http.Transport` called `http.DefaultTransport`, which is another global value
-that behaves the same way. So it is not simply enough to replace
-`http.DefaultClient` with `&http.Client{}`.
-
-This repository provides some simple functions to get a "clean" `http.Client`
--- one that uses the same default values as the Go standard library, but
-returns a client that does not share any state with other clients.
 Mozilla Public License, version 2.0
 
 1. Definitions
@@ -6760,6 +6682,36 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
       With Secondary Licenses", as defined by
       the Mozilla Public License, v. 2.0.
 
+# cleanhttp
+
+Functions for accessing "clean" Go http.Client values
+
+-------------
+
+The Go standard library contains a default `http.Client` called
+`http.DefaultClient`. It is a common idiom in Go code to start with
+`http.DefaultClient` and tweak it as necessary, and in fact, this is
+encouraged; from the `http` package documentation:
+
+> The Client's Transport typically has internal state (cached TCP connections),
+so Clients should be reused instead of created as needed. Clients are safe for
+concurrent use by multiple goroutines.
+
+Unfortunately, this is a shared value, and it is not uncommon for libraries to
+assume that they are free to modify it at will. With enough dependencies, it
+can be very easy to encounter strange problems and race conditions due to
+manipulation of this shared value across libraries and goroutines (clients are
+safe for concurrent use, but writing values to the client struct itself is not
+protected).
+
+Making things worse is the fact that a bare `http.Client` will use a default
+`http.Transport` called `http.DefaultTransport`, which is another global value
+that behaves the same way. So it is not simply enough to replace
+`http.DefaultClient` with `&http.Client{}`.
+
+This repository provides some simple functions to get a "clean" `http.Client`
+-- one that uses the same default values as the Go standard library, but
+returns a client that does not share any state with other clients.
 package cleanhttp
 
 import (
@@ -6817,6 +6769,77 @@ func DefaultPooledClient() *http.Client {
 	return &http.Client{
 		Transport: DefaultPooledTransport(),
 	}
+}
+// Package cleanhttp offers convenience utilities for acquiring "clean"
+// http.Transport and http.Client structs.
+//
+// Values set on http.DefaultClient and http.DefaultTransport affect all
+// callers. This can have detrimental effects, esepcially in TLS contexts,
+// where client or root certificates set to talk to multiple endpoints can end
+// up displacing each other, leading to hard-to-debug issues. This package
+// provides non-shared http.Client and http.Transport structs to ensure that
+// the configuration will not be overwritten by other parts of the application
+// or dependencies.
+//
+// The DefaultClient and DefaultTransport functions disable idle connections
+// and keepalives. Without ensuring that idle connections are closed before
+// garbage collection, short-term clients/transports can leak file descriptors,
+// eventually leading to "too many open files" errors. If you will be
+// connecting to the same hosts repeatedly from the same client, you can use
+// DefaultPooledClient to receive a client that has connection pooling
+// semantics similar to http.DefaultClient.
+//
+package cleanhttp
+module github.com/hashicorp/go-cleanhttp
+
+go 1.13
+package cleanhttp
+
+import (
+	"net/http"
+	"strings"
+	"unicode"
+)
+
+// HandlerInput provides input options to cleanhttp's handlers
+type HandlerInput struct {
+	ErrStatus int
+}
+
+// PrintablePathCheckHandler is a middleware that ensures the request path
+// contains only printable runes.
+func PrintablePathCheckHandler(next http.Handler, input *HandlerInput) http.Handler {
+	// Nil-check on input to make it optional
+	if input == nil {
+		input = &HandlerInput{
+			ErrStatus: http.StatusBadRequest,
+		}
+	}
+
+	// Default to http.StatusBadRequest on error
+	if input.ErrStatus == 0 {
+		input.ErrStatus = http.StatusBadRequest
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r != nil {
+			// Check URL path for non-printable characters
+			idx := strings.IndexFunc(r.URL.Path, func(c rune) bool {
+				return !unicode.IsPrint(c)
+			})
+
+			if idx != -1 {
+				w.WriteHeader(input.ErrStatus)
+				return
+			}
+
+			if next != nil {
+				next.ServeHTTP(w, r)
+			}
+		}
+
+		return
+	})
 }
 package cleanhttp
 
@@ -6890,551 +6913,175 @@ func TestPrintablePathCheckHandler(t *testing.T) {
 		})
 	}
 }
-module github.com/hashicorp/go-cleanhttp
-
-go 1.13
-// Package cleanhttp offers convenience utilities for acquiring "clean"
-// http.Transport and http.Client structs.
-//
-// Values set on http.DefaultClient and http.DefaultTransport affect all
-// callers. This can have detrimental effects, esepcially in TLS contexts,
-// where client or root certificates set to talk to multiple endpoints can end
-// up displacing each other, leading to hard-to-debug issues. This package
-// provides non-shared http.Client and http.Transport structs to ensure that
-// the configuration will not be overwritten by other parts of the application
-// or dependencies.
-//
-// The DefaultClient and DefaultTransport functions disable idle connections
-// and keepalives. Without ensuring that idle connections are closed before
-// garbage collection, short-term clients/transports can leak file descriptors,
-// eventually leading to "too many open files" errors. If you will be
-// connecting to the same hosts repeatedly from the same client, you can use
-// DefaultPooledClient to receive a client that has connection pooling
-// semantics similar to http.DefaultClient.
-//
-package cleanhttp
 
 ================================================================================
 
 github.com/hashicorp/go-multierror
 
-package multierror
-
-import (
-	"errors"
-	"fmt"
-	"reflect"
-	"testing"
-)
-
-func TestError_Impl(t *testing.T) {
-	var _ error = new(Error)
-}
-
-func TestErrorError_custom(t *testing.T) {
-	errors := []error{
-		errors.New("foo"),
-		errors.New("bar"),
-	}
-
-	fn := func(es []error) string {
-		return "foo"
-	}
-
-	multi := &Error{Errors: errors, ErrorFormat: fn}
-	if multi.Error() != "foo" {
-		t.Fatalf("bad: %s", multi.Error())
-	}
-}
-
-func TestErrorError_default(t *testing.T) {
-	expected := `2 errors occurred:
-	* foo
-	* bar
-
-`
-
-	errors := []error{
-		errors.New("foo"),
-		errors.New("bar"),
-	}
-
-	multi := &Error{Errors: errors}
-	if multi.Error() != expected {
-		t.Fatalf("bad: %s", multi.Error())
-	}
-}
-
-func TestErrorErrorOrNil(t *testing.T) {
-	err := new(Error)
-	if err.ErrorOrNil() != nil {
-		t.Fatalf("bad: %#v", err.ErrorOrNil())
-	}
-
-	err.Errors = []error{errors.New("foo")}
-	if v := err.ErrorOrNil(); v == nil {
-		t.Fatal("should not be nil")
-	} else if !reflect.DeepEqual(v, err) {
-		t.Fatalf("bad: %#v", v)
-	}
-}
-
-func TestErrorWrappedErrors(t *testing.T) {
-	errors := []error{
-		errors.New("foo"),
-		errors.New("bar"),
-	}
-
-	multi := &Error{Errors: errors}
-	if !reflect.DeepEqual(multi.Errors, multi.WrappedErrors()) {
-		t.Fatalf("bad: %s", multi.WrappedErrors())
-	}
-
-	multi = nil
-	if err := multi.WrappedErrors(); err != nil {
-		t.Fatalf("bad: %#v", multi)
-	}
-}
-
-func TestErrorUnwrap(t *testing.T) {
-	t.Run("with errors", func(t *testing.T) {
-		err := &Error{Errors: []error{
-			errors.New("foo"),
-			errors.New("bar"),
-			errors.New("baz"),
-		}}
-
-		var current error = err
-		for i := 0; i < len(err.Errors); i++ {
-			current = errors.Unwrap(current)
-			if !errors.Is(current, err.Errors[i]) {
-				t.Fatal("should be next value")
-			}
-		}
-
-		if errors.Unwrap(current) != nil {
-			t.Fatal("should be nil at the end")
-		}
-	})
-
-	t.Run("with no errors", func(t *testing.T) {
-		err := &Error{Errors: nil}
-		if errors.Unwrap(err) != nil {
-			t.Fatal("should be nil")
-		}
-	})
-
-	t.Run("with nil multierror", func(t *testing.T) {
-		var err *Error
-		if errors.Unwrap(err) != nil {
-			t.Fatal("should be nil")
-		}
-	})
-}
-
-func TestErrorIs(t *testing.T) {
-	errBar := errors.New("bar")
-
-	t.Run("with errBar", func(t *testing.T) {
-		err := &Error{Errors: []error{
-			errors.New("foo"),
-			errBar,
-			errors.New("baz"),
-		}}
-
-		if !errors.Is(err, errBar) {
-			t.Fatal("should be true")
-		}
-	})
-
-	t.Run("with errBar wrapped by fmt.Errorf", func(t *testing.T) {
-		err := &Error{Errors: []error{
-			errors.New("foo"),
-			fmt.Errorf("errorf: %w", errBar),
-			errors.New("baz"),
-		}}
-
-		if !errors.Is(err, errBar) {
-			t.Fatal("should be true")
-		}
-	})
-
-	t.Run("without errBar", func(t *testing.T) {
-		err := &Error{Errors: []error{
-			errors.New("foo"),
-			errors.New("baz"),
-		}}
-
-		if errors.Is(err, errBar) {
-			t.Fatal("should be false")
-		}
-	})
-}
-
-func TestErrorAs(t *testing.T) {
-	match := &nestedError{}
-
-	t.Run("with the value", func(t *testing.T) {
-		err := &Error{Errors: []error{
-			errors.New("foo"),
-			match,
-			errors.New("baz"),
-		}}
-
-		var target *nestedError
-		if !errors.As(err, &target) {
-			t.Fatal("should be true")
-		}
-		if target == nil {
-			t.Fatal("target should not be nil")
-		}
-	})
-
-	t.Run("with the value wrapped by fmt.Errorf", func(t *testing.T) {
-		err := &Error{Errors: []error{
-			errors.New("foo"),
-			fmt.Errorf("errorf: %w", match),
-			errors.New("baz"),
-		}}
-
-		var target *nestedError
-		if !errors.As(err, &target) {
-			t.Fatal("should be true")
-		}
-		if target == nil {
-			t.Fatal("target should not be nil")
-		}
-	})
-
-	t.Run("without the value", func(t *testing.T) {
-		err := &Error{Errors: []error{
-			errors.New("foo"),
-			errors.New("baz"),
-		}}
-
-		var target *nestedError
-		if errors.As(err, &target) {
-			t.Fatal("should be false")
-		}
-		if target != nil {
-			t.Fatal("target should be nil")
-		}
-	})
-}
-
-// nestedError implements error and is used for tests.
-type nestedError struct{}
-
-func (*nestedError) Error() string { return "" }
-package multierror
-
-import (
-	"errors"
-	"fmt"
-)
-
-// Error is an error type to track multiple errors. This is used to
-// accumulate errors in cases and return them as a single "error".
-type Error struct {
-	Errors      []error
-	ErrorFormat ErrorFormatFunc
-}
-
-func (e *Error) Error() string {
-	fn := e.ErrorFormat
-	if fn == nil {
-		fn = ListFormatFunc
-	}
-
-	return fn(e.Errors)
-}
-
-// ErrorOrNil returns an error interface if this Error represents
-// a list of errors, or returns nil if the list of errors is empty. This
-// function is useful at the end of accumulation to make sure that the value
-// returned represents the existence of errors.
-func (e *Error) ErrorOrNil() error {
-	if e == nil {
-		return nil
-	}
-	if len(e.Errors) == 0 {
-		return nil
-	}
-
-	return e
-}
-
-func (e *Error) GoString() string {
-	return fmt.Sprintf("*%#v", *e)
-}
-
-// WrappedErrors returns the list of errors that this Error is wrapping. It is
-// an implementation of the errwrap.Wrapper interface so that multierror.Error
-// can be used with that library.
-//
-// This method is not safe to be called concurrently. Unlike accessing the
-// Errors field directly, this function also checks if the multierror is nil to
-// prevent a null-pointer panic. It satisfies the errwrap.Wrapper interface.
-func (e *Error) WrappedErrors() []error {
-	if e == nil {
-		return nil
-	}
-	return e.Errors
-}
-
-// Unwrap returns an error from Error (or nil if there are no errors).
-// This error returned will further support Unwrap to get the next error,
-// etc. The order will match the order of Errors in the multierror.Error
-// at the time of calling.
-//
-// The resulting error supports errors.As/Is/Unwrap so you can continue
-// to use the stdlib errors package to introspect further.
-//
-// This will perform a shallow copy of the errors slice. Any errors appended
-// to this error after calling Unwrap will not be available until a new
-// Unwrap is called on the multierror.Error.
-func (e *Error) Unwrap() error {
-	// If we have no errors then we do nothing
-	if e == nil || len(e.Errors) == 0 {
-		return nil
-	}
-
-	// If we have exactly one error, we can just return that directly.
-	if len(e.Errors) == 1 {
-		return e.Errors[0]
-	}
-
-	// Shallow copy the slice
-	errs := make([]error, len(e.Errors))
-	copy(errs, e.Errors)
-	return chain(errs)
-}
-
-// chain implements the interfaces necessary for errors.Is/As/Unwrap to
-// work in a deterministic way with multierror. A chain tracks a list of
-// errors while accounting for the current represented error. This lets
-// Is/As be meaningful.
-//
-// Unwrap returns the next error. In the cleanest form, Unwrap would return
-// the wrapped error here but we can't do that if we want to properly
-// get access to all the errors. Instead, users are recommended to use
-// Is/As to get the correct error type out.
-//
-// Precondition: []error is non-empty (len > 0)
-type chain []error
-
-// Error implements the error interface
-func (e chain) Error() string {
-	return e[0].Error()
-}
-
-// Unwrap implements errors.Unwrap by returning the next error in the
-// chain or nil if there are no more errors.
-func (e chain) Unwrap() error {
-	if len(e) == 1 {
-		return nil
-	}
-
-	return e[1:]
-}
-
-// As implements errors.As by attempting to map to the current value.
-func (e chain) As(target interface{}) bool {
-	return errors.As(e[0], target)
-}
-
-// Is implements errors.Is by comparing the current value directly.
-func (e chain) Is(target error) bool {
-	return errors.Is(e[0], target)
-}
-package multierror
-
-import (
-	"errors"
-	"testing"
-)
-
-func TestPrefix_Error(t *testing.T) {
-	original := &Error{
-		Errors: []error{errors.New("foo")},
-	}
-
-	result := Prefix(original, "bar")
-	if result.(*Error).Errors[0].Error() != "bar foo" {
-		t.Fatalf("bad: %s", result)
-	}
-}
-
-func TestPrefix_NilError(t *testing.T) {
-	var err error
-	result := Prefix(err, "bar")
-	if result != nil {
-		t.Fatalf("bad: %#v", result)
-	}
-}
-
-func TestPrefix_NonError(t *testing.T) {
-	original := errors.New("foo")
-	result := Prefix(original, "bar")
-	if result == nil {
-		t.Fatal("error result was nil")
-	}
-	if result.Error() != "bar foo" {
-		t.Fatalf("bad: %s", result)
-	}
-}
-github.com/hashicorp/errwrap v1.0.0 h1:hLrqtEDnRye3+sgx6z4qVLNuviH3MR5aQ0ykNJa/UYA=
-github.com/hashicorp/errwrap v1.0.0/go.mod h1:YH+1FKiLXxHSkmPseP+kNlulaMuP3n2brvKWEqk/Jc4=
-# go-multierror
-
-[![CircleCI](https://img.shields.io/circleci/build/github/hashicorp/go-multierror/master)](https://circleci.com/gh/hashicorp/go-multierror)
-[![Go Reference](https://pkg.go.dev/badge/github.com/hashicorp/go-multierror.svg)](https://pkg.go.dev/github.com/hashicorp/go-multierror)
-![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/hashicorp/go-multierror)
-
-[circleci]: https://app.circleci.com/pipelines/github/hashicorp/go-multierror
-[godocs]: https://pkg.go.dev/github.com/hashicorp/go-multierror
-
-`go-multierror` is a package for Go that provides a mechanism for
-representing a list of `error` values as a single `error`.
-
-This allows a function in Go to return an `error` that might actually
-be a list of errors. If the caller knows this, they can unwrap the
-list and access the errors. If the caller doesn't know, the error
-formats to a nice human-readable format.
-
-`go-multierror` is fully compatible with the Go standard library
-[errors](https://golang.org/pkg/errors/) package, including the
-functions `As`, `Is`, and `Unwrap`. This provides a standardized approach
-for introspecting on error values.
-
-## Installation and Docs
-
-Install using `go get github.com/hashicorp/go-multierror`.
-
-Full documentation is available at
-https://pkg.go.dev/github.com/hashicorp/go-multierror
-
-### Requires go version 1.13 or newer
-
-`go-multierror` requires go version 1.13 or newer. Go 1.13 introduced
-[error wrapping](https://golang.org/doc/go1.13#error_wrapping), which
-this library takes advantage of.
-
-If you need to use an earlier version of go, you can use the
-[v1.0.0](https://github.com/hashicorp/go-multierror/tree/v1.0.0)
-tag, which doesn't rely on features in go 1.13.
-
-If you see compile errors that look like the below, it's likely that
-you're on an older version of go:
-
-```
-/go/src/github.com/hashicorp/go-multierror/multierror.go:112:9: undefined: errors.As
-/go/src/github.com/hashicorp/go-multierror/multierror.go:117:9: undefined: errors.Is
-```
-
-## Usage
-
-go-multierror is easy to use and purposely built to be unobtrusive in
-existing Go applications/libraries that may not be aware of it.
-
-**Building a list of errors**
-
-The `Append` function is used to create a list of errors. This function
-behaves a lot like the Go built-in `append` function: it doesn't matter
-if the first argument is nil, a `multierror.Error`, or any other `error`,
-the function behaves as you would expect.
-
-```go
-var result error
-
-if err := step1(); err != nil {
-	result = multierror.Append(result, err)
-}
-if err := step2(); err != nil {
-	result = multierror.Append(result, err)
-}
-
-return result
-```
-
-**Customizing the formatting of the errors**
-
-By specifying a custom `ErrorFormat`, you can customize the format
-of the `Error() string` function:
-
-```go
-var result *multierror.Error
-
-// ... accumulate errors here, maybe using Append
-
-if result != nil {
-	result.ErrorFormat = func([]error) string {
-		return "errors!"
-	}
-}
-```
-
-**Accessing the list of errors**
-
-`multierror.Error` implements `error` so if the caller doesn't know about
-multierror, it will work just fine. But if you're aware a multierror might
-be returned, you can use type switches to access the list of errors:
-
-```go
-if err := something(); err != nil {
-	if merr, ok := err.(*multierror.Error); ok {
-		// Use merr.Errors
-	}
-}
-```
-
-You can also use the standard [`errors.Unwrap`](https://golang.org/pkg/errors/#Unwrap)
-function. This will continue to unwrap into subsequent errors until none exist.
-
-**Extracting an error**
-
-The standard library [`errors.As`](https://golang.org/pkg/errors/#As)
-function can be used directly with a multierror to extract a specific error:
-
-```go
-// Assume err is a multierror value
-err := somefunc()
-
-// We want to know if "err" has a "RichErrorType" in it and extract it.
-var errRich RichErrorType
-if errors.As(err, &errRich) {
-	// It has it, and now errRich is populated.
-}
-```
-
-**Checking for an exact error value**
-
-Some errors are returned as exact errors such as the [`ErrNotExist`](https://golang.org/pkg/os/#pkg-variables)
-error in the `os` package. You can check if this error is present by using
-the standard [`errors.Is`](https://golang.org/pkg/errors/#Is) function.
-
-```go
-// Assume err is a multierror value
-err := somefunc()
-if errors.Is(err, os.ErrNotExist) {
-	// err contains os.ErrNotExist
-}
-```
-
-**Returning a multierror only if there are errors**
-
-If you build a `multierror.Error`, you can use the `ErrorOrNil` function
-to return an `error` implementation only if there are errors to return:
-
-```go
-var result *multierror.Error
-
-// ... accumulate errors here
-
-// Return the `error` only if errors were added to the multierror, otherwise
-// return nil since there are no errors.
-return result.ErrorOrNil()
-```
+version: 2.1
+
+orbs:
+  win: circleci/windows@2.2.0
+
+references:
+  environment: &ENVIRONMENT
+    TEST_RESULTS_PATH: &TEST_RESULTS_PATH /tmp/test-results
+    WIN_TEST_RESULTS: &WIN_TEST_RESULTS c:\Users\circleci\AppData\Local\Temp\test-results
+
+commands:
+  run-gotests:
+    parameters:
+      cmd:
+        type: string
+      platform:
+        type: string
+    steps:
+      - run:
+          name: "Run go tests"
+          command: |
+            PACKAGE_NAMES=$(go list ./... | circleci tests split --split-by=timings --timings-type=classname)
+            echo "Running $(echo $PACKAGE_NAMES | wc -w) packages"
+            echo $PACKAGE_NAMES
+            << parameters.cmd >> --format=short-verbose --junitfile $TEST_RESULTS_PATH/go-multierror/gotestsum-report.xml -- -p 2 -cover -coverprofile=<< parameters.platform >>_cov_$CIRCLE_NODE_INDEX.part $PACKAGE_NAMES
+        
+jobs:
+  linux-tests:
+    docker:
+      - image: docker.mirror.hashicorp.services/circleci/golang:<< parameters.go-version >>
+    parameters:
+      go-version:
+        type: string
+    environment: 
+      <<: *ENVIRONMENT
+    parallelism: 4
+    steps:
+      - run: go version
+      - checkout
+      - attach_workspace:
+          at: .
+      - run: mkdir -p $TEST_RESULTS_PATH/go-multierror
+
+      # Restore go module cache if there is one
+      - restore_cache:
+          keys:
+            - linux-gomod-cache-v1-{{ checksum "go.mod" }}
+
+      - run: go mod download
+
+      # Save go module cache if the go.mod file has changed
+      - save_cache:
+          key: linux-gomod-cache-v1-{{ checksum "go.mod" }}
+          paths:
+            - "/go/pkg/mod"
+
+      # Check go fmt output because it does not report non-zero when there are fmt changes
+      - run:
+          name: check go fmt
+          command: |
+            files=$(go fmt ./...)
+            if [ -n "$files" ]; then
+              echo "The following file(s) do not conform to go fmt:"
+              echo "$files"
+              exit 1
+            fi
+      # Run go tests with gotestsum
+      - run-gotests:
+          cmd: "gotestsum"
+          platform: "linux"
+
+      # Save coverage report parts
+      - persist_to_workspace:
+          root: .
+          paths:
+            - linux_cov_*.part
+
+      - store_test_results:
+          path: *TEST_RESULTS_PATH
+      - store_artifacts:
+          path: *TEST_RESULTS_PATH
+
+  windows-tests:
+    executor: 
+      name: win/default
+      shell: bash --login -eo pipefail
+    environment:
+      <<: *ENVIRONMENT
+    working_directory: c:\gopath\src\github.com\hashicorp\go-multierror
+    parameters:
+      go-version:
+        type: string
+      gotestsum-version:
+        type: string
+    steps: 
+      - run: git config --global core.autocrlf false
+      - checkout
+      - attach_workspace:
+          at: .
+      - run: 
+          name: Setup (remove pre-installed go)
+          command: |
+            rm -rf "c:\Go"
+            mkdir -p $TEST_RESULTS_PATH/go-multierror
+      - restore_cache:
+          keys:
+            - win-golang-<< parameters.go-version >>-cache-v1
+            - win-gomod-cache-{{ checksum "go.mod" }}-v1
+
+      - run: 
+          name: Install go version << parameters.go-version >>
+          command: | 
+            if [ ! -d "c:\go" ]; then
+              echo "Cache not found, installing new version of go"
+              curl --fail --location https://dl.google.com/go/go<< parameters.go-version >>.windows-amd64.zip --output go.zip
+              unzip go.zip -d "/c"
+            fi
+      - run: 
+          command: go mod download
+
+      - save_cache:
+          key: win-golang-<< parameters.go-version >>-cache-v1
+          paths:
+            - /go
+
+      - save_cache:
+          key: win-gomod-cache-{{ checksum "go.mod" }}-v1
+          paths:
+            - c:\Windows\system32\config\systemprofile\go\pkg\mod
+
+      - run:
+          name: Install gotestsum
+          command: |
+            curl --fail --location https://github.com/gotestyourself/gotestsum/releases/download/v<< parameters.gotestsum-version >>/gotestsum_<< parameters.gotestsum-version >>_windows_amd64.tar.gz --output gotestsum.tar.gz
+            tar -xvzf gotestsum.tar.gz
+      - run-gotests:
+          cmd: "./gotestsum.exe"
+          platform: "win"
+
+      # Save coverage report parts
+      - persist_to_workspace:
+          root: .
+          paths:
+            - win_cov_*.part
+
+      - store_test_results:
+          path: *WIN_TEST_RESULTS
+      - store_artifacts:
+          path: *WIN_TEST_RESULTS
+
+workflows:
+  go-multierror:
+    jobs:
+      - linux-tests:
+          matrix:
+            parameters:
+              go-version: ["1.13", "1.14", "1.15"]
+          name: linux-test-go-<< matrix.go-version >>
+      - windows-tests:
+          matrix:
+            parameters:
+              go-version: ["1.13", "1.14", "1.15"]
+              gotestsum-version: ["1.6.2"]
+          name: win-test-go-<< matrix.go-version >>
 Mozilla Public License, version 2.0
 
 1. Definitions
@@ -7788,6 +7435,230 @@ Exhibit B - “Incompatible With Secondary Licenses” Notice
       This Source Code Form is “Incompatible
       With Secondary Licenses”, as defined by
       the Mozilla Public License, v. 2.0.
+TEST?=./...
+
+default: test
+
+# test runs the test suite and vets the code.
+test: generate
+	@echo "==> Running tests..."
+	@go list $(TEST) \
+		| grep -v "/vendor/" \
+		| xargs -n1 go test -timeout=60s -parallel=10 ${TESTARGS}
+
+# testrace runs the race checker
+testrace: generate
+	@echo "==> Running tests (race)..."
+	@go list $(TEST) \
+		| grep -v "/vendor/" \
+		| xargs -n1 go test -timeout=60s -race ${TESTARGS}
+
+# updatedeps installs all the dependencies needed to run and build.
+updatedeps:
+	@sh -c "'${CURDIR}/scripts/deps.sh' '${NAME}'"
+
+# generate runs `go generate` to build the dynamically generated source files.
+generate:
+	@echo "==> Generating..."
+	@find . -type f -name '.DS_Store' -delete
+	@go list ./... \
+		| grep -v "/vendor/" \
+		| xargs -n1 go generate
+
+.PHONY: default test testrace updatedeps generate
+# go-multierror
+
+[![CircleCI](https://img.shields.io/circleci/build/github/hashicorp/go-multierror/master)](https://circleci.com/gh/hashicorp/go-multierror)
+[![Go Reference](https://pkg.go.dev/badge/github.com/hashicorp/go-multierror.svg)](https://pkg.go.dev/github.com/hashicorp/go-multierror)
+![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/hashicorp/go-multierror)
+
+[circleci]: https://app.circleci.com/pipelines/github/hashicorp/go-multierror
+[godocs]: https://pkg.go.dev/github.com/hashicorp/go-multierror
+
+`go-multierror` is a package for Go that provides a mechanism for
+representing a list of `error` values as a single `error`.
+
+This allows a function in Go to return an `error` that might actually
+be a list of errors. If the caller knows this, they can unwrap the
+list and access the errors. If the caller doesn't know, the error
+formats to a nice human-readable format.
+
+`go-multierror` is fully compatible with the Go standard library
+[errors](https://golang.org/pkg/errors/) package, including the
+functions `As`, `Is`, and `Unwrap`. This provides a standardized approach
+for introspecting on error values.
+
+## Installation and Docs
+
+Install using `go get github.com/hashicorp/go-multierror`.
+
+Full documentation is available at
+https://pkg.go.dev/github.com/hashicorp/go-multierror
+
+### Requires go version 1.13 or newer
+
+`go-multierror` requires go version 1.13 or newer. Go 1.13 introduced
+[error wrapping](https://golang.org/doc/go1.13#error_wrapping), which
+this library takes advantage of.
+
+If you need to use an earlier version of go, you can use the
+[v1.0.0](https://github.com/hashicorp/go-multierror/tree/v1.0.0)
+tag, which doesn't rely on features in go 1.13.
+
+If you see compile errors that look like the below, it's likely that
+you're on an older version of go:
+
+```
+/go/src/github.com/hashicorp/go-multierror/multierror.go:112:9: undefined: errors.As
+/go/src/github.com/hashicorp/go-multierror/multierror.go:117:9: undefined: errors.Is
+```
+
+## Usage
+
+go-multierror is easy to use and purposely built to be unobtrusive in
+existing Go applications/libraries that may not be aware of it.
+
+**Building a list of errors**
+
+The `Append` function is used to create a list of errors. This function
+behaves a lot like the Go built-in `append` function: it doesn't matter
+if the first argument is nil, a `multierror.Error`, or any other `error`,
+the function behaves as you would expect.
+
+```go
+var result error
+
+if err := step1(); err != nil {
+	result = multierror.Append(result, err)
+}
+if err := step2(); err != nil {
+	result = multierror.Append(result, err)
+}
+
+return result
+```
+
+**Customizing the formatting of the errors**
+
+By specifying a custom `ErrorFormat`, you can customize the format
+of the `Error() string` function:
+
+```go
+var result *multierror.Error
+
+// ... accumulate errors here, maybe using Append
+
+if result != nil {
+	result.ErrorFormat = func([]error) string {
+		return "errors!"
+	}
+}
+```
+
+**Accessing the list of errors**
+
+`multierror.Error` implements `error` so if the caller doesn't know about
+multierror, it will work just fine. But if you're aware a multierror might
+be returned, you can use type switches to access the list of errors:
+
+```go
+if err := something(); err != nil {
+	if merr, ok := err.(*multierror.Error); ok {
+		// Use merr.Errors
+	}
+}
+```
+
+You can also use the standard [`errors.Unwrap`](https://golang.org/pkg/errors/#Unwrap)
+function. This will continue to unwrap into subsequent errors until none exist.
+
+**Extracting an error**
+
+The standard library [`errors.As`](https://golang.org/pkg/errors/#As)
+function can be used directly with a multierror to extract a specific error:
+
+```go
+// Assume err is a multierror value
+err := somefunc()
+
+// We want to know if "err" has a "RichErrorType" in it and extract it.
+var errRich RichErrorType
+if errors.As(err, &errRich) {
+	// It has it, and now errRich is populated.
+}
+```
+
+**Checking for an exact error value**
+
+Some errors are returned as exact errors such as the [`ErrNotExist`](https://golang.org/pkg/os/#pkg-variables)
+error in the `os` package. You can check if this error is present by using
+the standard [`errors.Is`](https://golang.org/pkg/errors/#Is) function.
+
+```go
+// Assume err is a multierror value
+err := somefunc()
+if errors.Is(err, os.ErrNotExist) {
+	// err contains os.ErrNotExist
+}
+```
+
+**Returning a multierror only if there are errors**
+
+If you build a `multierror.Error`, you can use the `ErrorOrNil` function
+to return an `error` implementation only if there are errors to return:
+
+```go
+var result *multierror.Error
+
+// ... accumulate errors here
+
+// Return the `error` only if errors were added to the multierror, otherwise
+// return nil since there are no errors.
+return result.ErrorOrNil()
+```
+package multierror
+
+// Append is a helper function that will append more errors
+// onto an Error in order to create a larger multi-error.
+//
+// If err is not a multierror.Error, then it will be turned into
+// one. If any of the errs are multierr.Error, they will be flattened
+// one level into err.
+// Any nil errors within errs will be ignored. If err is nil, a new
+// *Error will be returned.
+func Append(err error, errs ...error) *Error {
+	switch err := err.(type) {
+	case *Error:
+		// Typed nils can reach here, so initialize if we are nil
+		if err == nil {
+			err = new(Error)
+		}
+
+		// Go through each error and flatten
+		for _, e := range errs {
+			switch e := e.(type) {
+			case *Error:
+				if e != nil {
+					err.Errors = append(err.Errors, e.Errors...)
+				}
+			default:
+				if e != nil {
+					err.Errors = append(err.Errors, e)
+				}
+			}
+		}
+
+		return err
+	default:
+		newErrs := make([]error, 0, len(errs)+1)
+		if err != nil {
+			newErrs = append(newErrs, err)
+		}
+		newErrs = append(newErrs, errs...)
+
+		return Append(&Error{}, newErrs...)
+	}
+}
 package multierror
 
 import (
@@ -7872,6 +7743,105 @@ func TestAppend_NonError_Error(t *testing.T) {
 }
 package multierror
 
+// Flatten flattens the given error, merging any *Errors together into
+// a single *Error.
+func Flatten(err error) error {
+	// If it isn't an *Error, just return the error as-is
+	if _, ok := err.(*Error); !ok {
+		return err
+	}
+
+	// Otherwise, make the result and flatten away!
+	flatErr := new(Error)
+	flatten(err, flatErr)
+	return flatErr
+}
+
+func flatten(err error, flatErr *Error) {
+	switch err := err.(type) {
+	case *Error:
+		for _, e := range err.Errors {
+			flatten(e, flatErr)
+		}
+	default:
+		flatErr.Errors = append(flatErr.Errors, err)
+	}
+}
+package multierror
+
+import (
+	"errors"
+	"fmt"
+	"reflect"
+	"testing"
+)
+
+func TestFlatten(t *testing.T) {
+	original := &Error{
+		Errors: []error{
+			errors.New("one"),
+			&Error{
+				Errors: []error{
+					errors.New("two"),
+					&Error{
+						Errors: []error{
+							errors.New("three"),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	expected := `3 errors occurred:
+	* one
+	* two
+	* three
+
+`
+	actual := fmt.Sprintf("%s", Flatten(original))
+
+	if expected != actual {
+		t.Fatalf("expected: %s, got: %s", expected, actual)
+	}
+}
+
+func TestFlatten_nonError(t *testing.T) {
+	err := errors.New("foo")
+	actual := Flatten(err)
+	if !reflect.DeepEqual(actual, err) {
+		t.Fatalf("bad: %#v", actual)
+	}
+}
+package multierror
+
+import (
+	"fmt"
+	"strings"
+)
+
+// ErrorFormatFunc is a function callback that is called by Error to
+// turn the list of errors into a string.
+type ErrorFormatFunc func([]error) string
+
+// ListFormatFunc is a basic formatter that outputs the number of errors
+// that occurred along with a bullet point list of the errors.
+func ListFormatFunc(es []error) string {
+	if len(es) == 1 {
+		return fmt.Sprintf("1 error occurred:\n\t* %s\n\n", es[0])
+	}
+
+	points := make([]string, len(es))
+	for i, err := range es {
+		points[i] = fmt.Sprintf("* %s", err)
+	}
+
+	return fmt.Sprintf(
+		"%d errors occurred:\n\t%s\n\n",
+		len(es), strings.Join(points, "\n\t"))
+}
+package multierror
+
 import (
 	"errors"
 	"testing"
@@ -7910,201 +7880,51 @@ func TestListFormatFuncMultiple(t *testing.T) {
 		t.Fatalf("bad: %#v", actual)
 	}
 }
-TEST?=./...
+module github.com/hashicorp/go-multierror
 
-default: test
+go 1.13
 
-# test runs the test suite and vets the code.
-test: generate
-	@echo "==> Running tests..."
-	@go list $(TEST) \
-		| grep -v "/vendor/" \
-		| xargs -n1 go test -timeout=60s -parallel=10 ${TESTARGS}
+require github.com/hashicorp/errwrap v1.0.0
+github.com/hashicorp/errwrap v1.0.0 h1:hLrqtEDnRye3+sgx6z4qVLNuviH3MR5aQ0ykNJa/UYA=
+github.com/hashicorp/errwrap v1.0.0/go.mod h1:YH+1FKiLXxHSkmPseP+kNlulaMuP3n2brvKWEqk/Jc4=
+package multierror
 
-# testrace runs the race checker
-testrace: generate
-	@echo "==> Running tests (race)..."
-	@go list $(TEST) \
-		| grep -v "/vendor/" \
-		| xargs -n1 go test -timeout=60s -race ${TESTARGS}
+import "sync"
 
-# updatedeps installs all the dependencies needed to run and build.
-updatedeps:
-	@sh -c "'${CURDIR}/scripts/deps.sh' '${NAME}'"
+// Group is a collection of goroutines which return errors that need to be
+// coalesced.
+type Group struct {
+	mutex sync.Mutex
+	err   *Error
+	wg    sync.WaitGroup
+}
 
-# generate runs `go generate` to build the dynamically generated source files.
-generate:
-	@echo "==> Generating..."
-	@find . -type f -name '.DS_Store' -delete
-	@go list ./... \
-		| grep -v "/vendor/" \
-		| xargs -n1 go generate
+// Go calls the given function in a new goroutine.
+//
+// If the function returns an error it is added to the group multierror which
+// is returned by Wait.
+func (g *Group) Go(f func() error) {
+	g.wg.Add(1)
 
-.PHONY: default test testrace updatedeps generate
-version: 2.1
+	go func() {
+		defer g.wg.Done()
 
-orbs:
-  win: circleci/windows@2.2.0
+		if err := f(); err != nil {
+			g.mutex.Lock()
+			g.err = Append(g.err, err)
+			g.mutex.Unlock()
+		}
+	}()
+}
 
-references:
-  environment: &ENVIRONMENT
-    TEST_RESULTS_PATH: &TEST_RESULTS_PATH /tmp/test-results
-    WIN_TEST_RESULTS: &WIN_TEST_RESULTS c:\Users\circleci\AppData\Local\Temp\test-results
-
-commands:
-  run-gotests:
-    parameters:
-      cmd:
-        type: string
-      platform:
-        type: string
-    steps:
-      - run:
-          name: "Run go tests"
-          command: |
-            PACKAGE_NAMES=$(go list ./... | circleci tests split --split-by=timings --timings-type=classname)
-            echo "Running $(echo $PACKAGE_NAMES | wc -w) packages"
-            echo $PACKAGE_NAMES
-            << parameters.cmd >> --format=short-verbose --junitfile $TEST_RESULTS_PATH/go-multierror/gotestsum-report.xml -- -p 2 -cover -coverprofile=<< parameters.platform >>_cov_$CIRCLE_NODE_INDEX.part $PACKAGE_NAMES
-        
-jobs:
-  linux-tests:
-    docker:
-      - image: docker.mirror.hashicorp.services/circleci/golang:<< parameters.go-version >>
-    parameters:
-      go-version:
-        type: string
-    environment: 
-      <<: *ENVIRONMENT
-    parallelism: 4
-    steps:
-      - run: go version
-      - checkout
-      - attach_workspace:
-          at: .
-      - run: mkdir -p $TEST_RESULTS_PATH/go-multierror
-
-      # Restore go module cache if there is one
-      - restore_cache:
-          keys:
-            - linux-gomod-cache-v1-{{ checksum "go.mod" }}
-
-      - run: go mod download
-
-      # Save go module cache if the go.mod file has changed
-      - save_cache:
-          key: linux-gomod-cache-v1-{{ checksum "go.mod" }}
-          paths:
-            - "/go/pkg/mod"
-
-      # Check go fmt output because it does not report non-zero when there are fmt changes
-      - run:
-          name: check go fmt
-          command: |
-            files=$(go fmt ./...)
-            if [ -n "$files" ]; then
-              echo "The following file(s) do not conform to go fmt:"
-              echo "$files"
-              exit 1
-            fi
-      # Run go tests with gotestsum
-      - run-gotests:
-          cmd: "gotestsum"
-          platform: "linux"
-
-      # Save coverage report parts
-      - persist_to_workspace:
-          root: .
-          paths:
-            - linux_cov_*.part
-
-      - store_test_results:
-          path: *TEST_RESULTS_PATH
-      - store_artifacts:
-          path: *TEST_RESULTS_PATH
-
-  windows-tests:
-    executor: 
-      name: win/default
-      shell: bash --login -eo pipefail
-    environment:
-      <<: *ENVIRONMENT
-    working_directory: c:\gopath\src\github.com\hashicorp\go-multierror
-    parameters:
-      go-version:
-        type: string
-      gotestsum-version:
-        type: string
-    steps: 
-      - run: git config --global core.autocrlf false
-      - checkout
-      - attach_workspace:
-          at: .
-      - run: 
-          name: Setup (remove pre-installed go)
-          command: |
-            rm -rf "c:\Go"
-            mkdir -p $TEST_RESULTS_PATH/go-multierror
-      - restore_cache:
-          keys:
-            - win-golang-<< parameters.go-version >>-cache-v1
-            - win-gomod-cache-{{ checksum "go.mod" }}-v1
-
-      - run: 
-          name: Install go version << parameters.go-version >>
-          command: | 
-            if [ ! -d "c:\go" ]; then
-              echo "Cache not found, installing new version of go"
-              curl --fail --location https://dl.google.com/go/go<< parameters.go-version >>.windows-amd64.zip --output go.zip
-              unzip go.zip -d "/c"
-            fi
-      - run: 
-          command: go mod download
-
-      - save_cache:
-          key: win-golang-<< parameters.go-version >>-cache-v1
-          paths:
-            - /go
-
-      - save_cache:
-          key: win-gomod-cache-{{ checksum "go.mod" }}-v1
-          paths:
-            - c:\Windows\system32\config\systemprofile\go\pkg\mod
-
-      - run:
-          name: Install gotestsum
-          command: |
-            curl --fail --location https://github.com/gotestyourself/gotestsum/releases/download/v<< parameters.gotestsum-version >>/gotestsum_<< parameters.gotestsum-version >>_windows_amd64.tar.gz --output gotestsum.tar.gz
-            tar -xvzf gotestsum.tar.gz
-      - run-gotests:
-          cmd: "./gotestsum.exe"
-          platform: "win"
-
-      # Save coverage report parts
-      - persist_to_workspace:
-          root: .
-          paths:
-            - win_cov_*.part
-
-      - store_test_results:
-          path: *WIN_TEST_RESULTS
-      - store_artifacts:
-          path: *WIN_TEST_RESULTS
-
-workflows:
-  go-multierror:
-    jobs:
-      - linux-tests:
-          matrix:
-            parameters:
-              go-version: ["1.13", "1.14", "1.15"]
-          name: linux-test-go-<< matrix.go-version >>
-      - windows-tests:
-          matrix:
-            parameters:
-              go-version: ["1.13", "1.14", "1.15"]
-              gotestsum-version: ["1.6.2"]
-          name: win-test-go-<< matrix.go-version >>
+// Wait blocks until all function calls from the Go method have returned, then
+// returns the multierror.
+func (g *Group) Wait() *Error {
+	g.wg.Wait()
+	g.mutex.Lock()
+	defer g.mutex.Unlock()
+	return g.err
+}
 package multierror
 
 import (
@@ -8151,6 +7971,408 @@ func TestGroup(t *testing.T) {
 }
 package multierror
 
+import (
+	"errors"
+	"fmt"
+)
+
+// Error is an error type to track multiple errors. This is used to
+// accumulate errors in cases and return them as a single "error".
+type Error struct {
+	Errors      []error
+	ErrorFormat ErrorFormatFunc
+}
+
+func (e *Error) Error() string {
+	fn := e.ErrorFormat
+	if fn == nil {
+		fn = ListFormatFunc
+	}
+
+	return fn(e.Errors)
+}
+
+// ErrorOrNil returns an error interface if this Error represents
+// a list of errors, or returns nil if the list of errors is empty. This
+// function is useful at the end of accumulation to make sure that the value
+// returned represents the existence of errors.
+func (e *Error) ErrorOrNil() error {
+	if e == nil {
+		return nil
+	}
+	if len(e.Errors) == 0 {
+		return nil
+	}
+
+	return e
+}
+
+func (e *Error) GoString() string {
+	return fmt.Sprintf("*%#v", *e)
+}
+
+// WrappedErrors returns the list of errors that this Error is wrapping. It is
+// an implementation of the errwrap.Wrapper interface so that multierror.Error
+// can be used with that library.
+//
+// This method is not safe to be called concurrently. Unlike accessing the
+// Errors field directly, this function also checks if the multierror is nil to
+// prevent a null-pointer panic. It satisfies the errwrap.Wrapper interface.
+func (e *Error) WrappedErrors() []error {
+	if e == nil {
+		return nil
+	}
+	return e.Errors
+}
+
+// Unwrap returns an error from Error (or nil if there are no errors).
+// This error returned will further support Unwrap to get the next error,
+// etc. The order will match the order of Errors in the multierror.Error
+// at the time of calling.
+//
+// The resulting error supports errors.As/Is/Unwrap so you can continue
+// to use the stdlib errors package to introspect further.
+//
+// This will perform a shallow copy of the errors slice. Any errors appended
+// to this error after calling Unwrap will not be available until a new
+// Unwrap is called on the multierror.Error.
+func (e *Error) Unwrap() error {
+	// If we have no errors then we do nothing
+	if e == nil || len(e.Errors) == 0 {
+		return nil
+	}
+
+	// If we have exactly one error, we can just return that directly.
+	if len(e.Errors) == 1 {
+		return e.Errors[0]
+	}
+
+	// Shallow copy the slice
+	errs := make([]error, len(e.Errors))
+	copy(errs, e.Errors)
+	return chain(errs)
+}
+
+// chain implements the interfaces necessary for errors.Is/As/Unwrap to
+// work in a deterministic way with multierror. A chain tracks a list of
+// errors while accounting for the current represented error. This lets
+// Is/As be meaningful.
+//
+// Unwrap returns the next error. In the cleanest form, Unwrap would return
+// the wrapped error here but we can't do that if we want to properly
+// get access to all the errors. Instead, users are recommended to use
+// Is/As to get the correct error type out.
+//
+// Precondition: []error is non-empty (len > 0)
+type chain []error
+
+// Error implements the error interface
+func (e chain) Error() string {
+	return e[0].Error()
+}
+
+// Unwrap implements errors.Unwrap by returning the next error in the
+// chain or nil if there are no more errors.
+func (e chain) Unwrap() error {
+	if len(e) == 1 {
+		return nil
+	}
+
+	return e[1:]
+}
+
+// As implements errors.As by attempting to map to the current value.
+func (e chain) As(target interface{}) bool {
+	return errors.As(e[0], target)
+}
+
+// Is implements errors.Is by comparing the current value directly.
+func (e chain) Is(target error) bool {
+	return errors.Is(e[0], target)
+}
+package multierror
+
+import (
+	"errors"
+	"fmt"
+	"reflect"
+	"testing"
+)
+
+func TestError_Impl(t *testing.T) {
+	var _ error = new(Error)
+}
+
+func TestErrorError_custom(t *testing.T) {
+	errors := []error{
+		errors.New("foo"),
+		errors.New("bar"),
+	}
+
+	fn := func(es []error) string {
+		return "foo"
+	}
+
+	multi := &Error{Errors: errors, ErrorFormat: fn}
+	if multi.Error() != "foo" {
+		t.Fatalf("bad: %s", multi.Error())
+	}
+}
+
+func TestErrorError_default(t *testing.T) {
+	expected := `2 errors occurred:
+	* foo
+	* bar
+
+`
+
+	errors := []error{
+		errors.New("foo"),
+		errors.New("bar"),
+	}
+
+	multi := &Error{Errors: errors}
+	if multi.Error() != expected {
+		t.Fatalf("bad: %s", multi.Error())
+	}
+}
+
+func TestErrorErrorOrNil(t *testing.T) {
+	err := new(Error)
+	if err.ErrorOrNil() != nil {
+		t.Fatalf("bad: %#v", err.ErrorOrNil())
+	}
+
+	err.Errors = []error{errors.New("foo")}
+	if v := err.ErrorOrNil(); v == nil {
+		t.Fatal("should not be nil")
+	} else if !reflect.DeepEqual(v, err) {
+		t.Fatalf("bad: %#v", v)
+	}
+}
+
+func TestErrorWrappedErrors(t *testing.T) {
+	errors := []error{
+		errors.New("foo"),
+		errors.New("bar"),
+	}
+
+	multi := &Error{Errors: errors}
+	if !reflect.DeepEqual(multi.Errors, multi.WrappedErrors()) {
+		t.Fatalf("bad: %s", multi.WrappedErrors())
+	}
+
+	multi = nil
+	if err := multi.WrappedErrors(); err != nil {
+		t.Fatalf("bad: %#v", multi)
+	}
+}
+
+func TestErrorUnwrap(t *testing.T) {
+	t.Run("with errors", func(t *testing.T) {
+		err := &Error{Errors: []error{
+			errors.New("foo"),
+			errors.New("bar"),
+			errors.New("baz"),
+		}}
+
+		var current error = err
+		for i := 0; i < len(err.Errors); i++ {
+			current = errors.Unwrap(current)
+			if !errors.Is(current, err.Errors[i]) {
+				t.Fatal("should be next value")
+			}
+		}
+
+		if errors.Unwrap(current) != nil {
+			t.Fatal("should be nil at the end")
+		}
+	})
+
+	t.Run("with no errors", func(t *testing.T) {
+		err := &Error{Errors: nil}
+		if errors.Unwrap(err) != nil {
+			t.Fatal("should be nil")
+		}
+	})
+
+	t.Run("with nil multierror", func(t *testing.T) {
+		var err *Error
+		if errors.Unwrap(err) != nil {
+			t.Fatal("should be nil")
+		}
+	})
+}
+
+func TestErrorIs(t *testing.T) {
+	errBar := errors.New("bar")
+
+	t.Run("with errBar", func(t *testing.T) {
+		err := &Error{Errors: []error{
+			errors.New("foo"),
+			errBar,
+			errors.New("baz"),
+		}}
+
+		if !errors.Is(err, errBar) {
+			t.Fatal("should be true")
+		}
+	})
+
+	t.Run("with errBar wrapped by fmt.Errorf", func(t *testing.T) {
+		err := &Error{Errors: []error{
+			errors.New("foo"),
+			fmt.Errorf("errorf: %w", errBar),
+			errors.New("baz"),
+		}}
+
+		if !errors.Is(err, errBar) {
+			t.Fatal("should be true")
+		}
+	})
+
+	t.Run("without errBar", func(t *testing.T) {
+		err := &Error{Errors: []error{
+			errors.New("foo"),
+			errors.New("baz"),
+		}}
+
+		if errors.Is(err, errBar) {
+			t.Fatal("should be false")
+		}
+	})
+}
+
+func TestErrorAs(t *testing.T) {
+	match := &nestedError{}
+
+	t.Run("with the value", func(t *testing.T) {
+		err := &Error{Errors: []error{
+			errors.New("foo"),
+			match,
+			errors.New("baz"),
+		}}
+
+		var target *nestedError
+		if !errors.As(err, &target) {
+			t.Fatal("should be true")
+		}
+		if target == nil {
+			t.Fatal("target should not be nil")
+		}
+	})
+
+	t.Run("with the value wrapped by fmt.Errorf", func(t *testing.T) {
+		err := &Error{Errors: []error{
+			errors.New("foo"),
+			fmt.Errorf("errorf: %w", match),
+			errors.New("baz"),
+		}}
+
+		var target *nestedError
+		if !errors.As(err, &target) {
+			t.Fatal("should be true")
+		}
+		if target == nil {
+			t.Fatal("target should not be nil")
+		}
+	})
+
+	t.Run("without the value", func(t *testing.T) {
+		err := &Error{Errors: []error{
+			errors.New("foo"),
+			errors.New("baz"),
+		}}
+
+		var target *nestedError
+		if errors.As(err, &target) {
+			t.Fatal("should be false")
+		}
+		if target != nil {
+			t.Fatal("target should be nil")
+		}
+	})
+}
+
+// nestedError implements error and is used for tests.
+type nestedError struct{}
+
+func (*nestedError) Error() string { return "" }
+package multierror
+
+import (
+	"fmt"
+
+	"github.com/hashicorp/errwrap"
+)
+
+// Prefix is a helper function that will prefix some text
+// to the given error. If the error is a multierror.Error, then
+// it will be prefixed to each wrapped error.
+//
+// This is useful to use when appending multiple multierrors
+// together in order to give better scoping.
+func Prefix(err error, prefix string) error {
+	if err == nil {
+		return nil
+	}
+
+	format := fmt.Sprintf("%s {{err}}", prefix)
+	switch err := err.(type) {
+	case *Error:
+		// Typed nils can reach here, so initialize if we are nil
+		if err == nil {
+			err = new(Error)
+		}
+
+		// Wrap each of the errors
+		for i, e := range err.Errors {
+			err.Errors[i] = errwrap.Wrapf(format, e)
+		}
+
+		return err
+	default:
+		return errwrap.Wrapf(format, err)
+	}
+}
+package multierror
+
+import (
+	"errors"
+	"testing"
+)
+
+func TestPrefix_Error(t *testing.T) {
+	original := &Error{
+		Errors: []error{errors.New("foo")},
+	}
+
+	result := Prefix(original, "bar")
+	if result.(*Error).Errors[0].Error() != "bar foo" {
+		t.Fatalf("bad: %s", result)
+	}
+}
+
+func TestPrefix_NilError(t *testing.T) {
+	var err error
+	result := Prefix(err, "bar")
+	if result != nil {
+		t.Fatalf("bad: %#v", result)
+	}
+}
+
+func TestPrefix_NonError(t *testing.T) {
+	original := errors.New("foo")
+	result := Prefix(original, "bar")
+	if result == nil {
+		t.Fatal("error result was nil")
+	}
+	if result.Error() != "bar foo" {
+		t.Fatalf("bad: %s", result)
+	}
+}
+package multierror
+
 // Len implements sort.Interface function for length
 func (err Error) Len() int {
 	return len(err.Errors)
@@ -8164,87 +8386,6 @@ func (err Error) Swap(i, j int) {
 // Less implements sort.Interface function for determining order
 func (err Error) Less(i, j int) bool {
 	return err.Errors[i].Error() < err.Errors[j].Error()
-}
-package multierror
-
-import "sync"
-
-// Group is a collection of goroutines which return errors that need to be
-// coalesced.
-type Group struct {
-	mutex sync.Mutex
-	err   *Error
-	wg    sync.WaitGroup
-}
-
-// Go calls the given function in a new goroutine.
-//
-// If the function returns an error it is added to the group multierror which
-// is returned by Wait.
-func (g *Group) Go(f func() error) {
-	g.wg.Add(1)
-
-	go func() {
-		defer g.wg.Done()
-
-		if err := f(); err != nil {
-			g.mutex.Lock()
-			g.err = Append(g.err, err)
-			g.mutex.Unlock()
-		}
-	}()
-}
-
-// Wait blocks until all function calls from the Go method have returned, then
-// returns the multierror.
-func (g *Group) Wait() *Error {
-	g.wg.Wait()
-	g.mutex.Lock()
-	defer g.mutex.Unlock()
-	return g.err
-}
-package multierror
-
-// Append is a helper function that will append more errors
-// onto an Error in order to create a larger multi-error.
-//
-// If err is not a multierror.Error, then it will be turned into
-// one. If any of the errs are multierr.Error, they will be flattened
-// one level into err.
-// Any nil errors within errs will be ignored. If err is nil, a new
-// *Error will be returned.
-func Append(err error, errs ...error) *Error {
-	switch err := err.(type) {
-	case *Error:
-		// Typed nils can reach here, so initialize if we are nil
-		if err == nil {
-			err = new(Error)
-		}
-
-		// Go through each error and flatten
-		for _, e := range errs {
-			switch e := e.(type) {
-			case *Error:
-				if e != nil {
-					err.Errors = append(err.Errors, e.Errors...)
-				}
-			default:
-				if e != nil {
-					err.Errors = append(err.Errors, e)
-				}
-			}
-		}
-
-		return err
-	default:
-		newErrs := make([]error, 0, len(errs)+1)
-		if err != nil {
-			newErrs = append(newErrs, err)
-		}
-		newErrs = append(newErrs, errs...)
-
-		return Append(&Error{}, newErrs...)
-	}
 }
 package multierror
 
@@ -8296,147 +8437,6 @@ func TestSortMultiple(t *testing.T) {
 	sort.Sort(err)
 	if !reflect.DeepEqual(err.Errors, expected) {
 		t.Fatalf("bad: %#v", err)
-	}
-}
-package multierror
-
-import (
-	"errors"
-	"fmt"
-	"reflect"
-	"testing"
-)
-
-func TestFlatten(t *testing.T) {
-	original := &Error{
-		Errors: []error{
-			errors.New("one"),
-			&Error{
-				Errors: []error{
-					errors.New("two"),
-					&Error{
-						Errors: []error{
-							errors.New("three"),
-						},
-					},
-				},
-			},
-		},
-	}
-
-	expected := `3 errors occurred:
-	* one
-	* two
-	* three
-
-`
-	actual := fmt.Sprintf("%s", Flatten(original))
-
-	if expected != actual {
-		t.Fatalf("expected: %s, got: %s", expected, actual)
-	}
-}
-
-func TestFlatten_nonError(t *testing.T) {
-	err := errors.New("foo")
-	actual := Flatten(err)
-	if !reflect.DeepEqual(actual, err) {
-		t.Fatalf("bad: %#v", actual)
-	}
-}
-module github.com/hashicorp/go-multierror
-
-go 1.13
-
-require github.com/hashicorp/errwrap v1.0.0
-package multierror
-
-import (
-	"fmt"
-	"strings"
-)
-
-// ErrorFormatFunc is a function callback that is called by Error to
-// turn the list of errors into a string.
-type ErrorFormatFunc func([]error) string
-
-// ListFormatFunc is a basic formatter that outputs the number of errors
-// that occurred along with a bullet point list of the errors.
-func ListFormatFunc(es []error) string {
-	if len(es) == 1 {
-		return fmt.Sprintf("1 error occurred:\n\t* %s\n\n", es[0])
-	}
-
-	points := make([]string, len(es))
-	for i, err := range es {
-		points[i] = fmt.Sprintf("* %s", err)
-	}
-
-	return fmt.Sprintf(
-		"%d errors occurred:\n\t%s\n\n",
-		len(es), strings.Join(points, "\n\t"))
-}
-package multierror
-
-// Flatten flattens the given error, merging any *Errors together into
-// a single *Error.
-func Flatten(err error) error {
-	// If it isn't an *Error, just return the error as-is
-	if _, ok := err.(*Error); !ok {
-		return err
-	}
-
-	// Otherwise, make the result and flatten away!
-	flatErr := new(Error)
-	flatten(err, flatErr)
-	return flatErr
-}
-
-func flatten(err error, flatErr *Error) {
-	switch err := err.(type) {
-	case *Error:
-		for _, e := range err.Errors {
-			flatten(e, flatErr)
-		}
-	default:
-		flatErr.Errors = append(flatErr.Errors, err)
-	}
-}
-package multierror
-
-import (
-	"fmt"
-
-	"github.com/hashicorp/errwrap"
-)
-
-// Prefix is a helper function that will prefix some text
-// to the given error. If the error is a multierror.Error, then
-// it will be prefixed to each wrapped error.
-//
-// This is useful to use when appending multiple multierrors
-// together in order to give better scoping.
-func Prefix(err error, prefix string) error {
-	if err == nil {
-		return nil
-	}
-
-	format := fmt.Sprintf("%s {{err}}", prefix)
-	switch err := err.(type) {
-	case *Error:
-		// Typed nils can reach here, so initialize if we are nil
-		if err == nil {
-			err = new(Error)
-		}
-
-		// Wrap each of the errors
-		for i, e := range err.Errors {
-			err.Errors[i] = errwrap.Wrapf(format, e)
-		}
-
-		return err
-	default:
-		return errwrap.Wrapf(format, err)
 	}
 }
 
@@ -8613,7 +8613,36 @@ workflows:
 
 github.com/hashicorp/go-retryablehttp
 
-name: Build
+version: 2
+
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+  
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"name: actionlint
+
+on:
+  push:
+    paths:
+      - .github/**
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@8f4b7f84864484a7bf31766abe9204da3cbe65b3 # v3.5.0
+      - name: "Check GitHub workflow files"
+        uses: docker://docker.mirror.hashicorp.services/rhysd/actionlint:latest
+        with:
+          args: -colorname: Build
 on:
   push:
 jobs:
@@ -8658,179 +8687,6 @@ jobs:
           path: "/tmp/test-results"
 permissions:
   contents: read
-name: actionlint
-
-on:
-  push:
-    paths:
-      - .github/**
-
-permissions:
-  contents: read
-
-jobs:
-  actionlint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@8f4b7f84864484a7bf31766abe9204da3cbe65b3 # v3.5.0
-      - name: "Check GitHub workflow files"
-        uses: docker://docker.mirror.hashicorp.services/rhysd/actionlint:latest
-        with:
-          args: -colorversion: 2
-
-updates:
-  - package-ecosystem: "github-actions"
-    directory: "/"
-    schedule:
-      interval: "daily"
-  
-  - package-ecosystem: "gomod"
-    directory: "/"
-    schedule:
-      interval: "weekly"// Copyright (c) HashiCorp, Inc.
-// SPDX-License-Identifier: MPL-2.0
-
-package retryablehttp
-
-import (
-	"context"
-	"errors"
-	"io/ioutil"
-	"net"
-	"net/http"
-	"net/http/httptest"
-	"net/url"
-	"reflect"
-	"sync/atomic"
-	"testing"
-)
-
-func TestRoundTripper_implements(t *testing.T) {
-	// Compile-time proof of interface satisfaction.
-	var _ http.RoundTripper = &RoundTripper{}
-}
-
-func TestRoundTripper_init(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
-	}))
-	defer ts.Close()
-
-	// Start with a new empty RoundTripper.
-	rt := &RoundTripper{}
-
-	// RoundTrip once.
-	req, _ := http.NewRequest("GET", ts.URL, nil)
-	if _, err := rt.RoundTrip(req); err != nil {
-		t.Fatal(err)
-	}
-
-	// Check that the Client was initialized.
-	if rt.Client == nil {
-		t.Fatal("expected rt.Client to be initialized")
-	}
-
-	// Save the Client for later comparison.
-	initialClient := rt.Client
-
-	// RoundTrip again.
-	req, _ = http.NewRequest("GET", ts.URL, nil)
-	if _, err := rt.RoundTrip(req); err != nil {
-		t.Fatal(err)
-	}
-
-	// Check that the underlying Client is unchanged.
-	if rt.Client != initialClient {
-		t.Fatalf("expected %v, got %v", initialClient, rt.Client)
-	}
-}
-
-func TestRoundTripper_RoundTrip(t *testing.T) {
-	var reqCount int32 = 0
-
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		reqNo := atomic.AddInt32(&reqCount, 1)
-		if reqNo < 3 {
-			w.WriteHeader(404)
-		} else {
-			w.WriteHeader(200)
-			w.Write([]byte("success!"))
-		}
-	}))
-	defer ts.Close()
-
-	// Make a client with some custom settings to verify they are used.
-	retryClient := NewClient()
-	retryClient.CheckRetry = func(_ context.Context, resp *http.Response, _ error) (bool, error) {
-		return resp.StatusCode == 404, nil
-	}
-
-	// Get the standard client and execute the request.
-	client := retryClient.StandardClient()
-	resp, err := client.Get(ts.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-
-	// Check the response to ensure the client behaved as expected.
-	if resp.StatusCode != 200 {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
-	}
-	if v, err := ioutil.ReadAll(resp.Body); err != nil {
-		t.Fatal(err)
-	} else if string(v) != "success!" {
-		t.Fatalf("expected %q, got %q", "success!", v)
-	}
-}
-
-func TestRoundTripper_TransportFailureErrorHandling(t *testing.T) {
-	// Make a client with some custom settings to verify they are used.
-	retryClient := NewClient()
-	retryClient.CheckRetry = func(_ context.Context, resp *http.Response, err error) (bool, error) {
-		if err != nil {
-			return true, err
-		}
-
-		return false, nil
-	}
-
-	retryClient.ErrorHandler = PassthroughErrorHandler
-
-	expectedError := &url.Error{
-		Op:  "Get",
-		URL: "http://999.999.999.999:999/",
-		Err: &net.OpError{
-			Op:  "dial",
-			Net: "tcp",
-			Err: &net.DNSError{
-				Name:       "999.999.999.999",
-				Err:        "no such host",
-				IsNotFound: true,
-			},
-		},
-	}
-
-	// Get the standard client and execute the request.
-	client := retryClient.StandardClient()
-	_, err := client.Get("http://999.999.999.999:999/")
-
-	// assert expectations
-	if !reflect.DeepEqual(expectedError, normalizeError(err)) {
-		t.Fatalf("expected %q, got %q", expectedError, err)
-	}
-}
-
-func normalizeError(err error) error {
-	var dnsError *net.DNSError
-
-	if errors.As(err, &dnsError) {
-		// this field is populated with the DNS server on on CI, but not locally
-		dnsError.Server = ""
-	}
-
-	return err
-}
 .idea/
 *.iml
 *.test
@@ -8843,79 +8699,7 @@ BUG FIXES
 ## 0.7.3 (May 15, 2023)
 
 Initial release
-github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
-github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
-github.com/hashicorp/go-cleanhttp v0.5.2 h1:035FKYIWjmULyFRBKPs8TBQoi0x6d9G4xc9neXJWAZQ=
-github.com/hashicorp/go-cleanhttp v0.5.2/go.mod h1:kO/YDlP8L1346E6Sodw+PrpBSV4/SoxCXGY6BqNFT48=
-github.com/hashicorp/go-hclog v0.9.2 h1:CG6TE5H9/JXsFWJCfoIVpKFIkFe6ysEuHirp4DxCsHI=
-github.com/hashicorp/go-hclog v0.9.2/go.mod h1:5CU+agLiy3J7N7QjHK5d05KxGsuXiQLrjA0H7acj2lQ=
-github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
-github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
-github.com/stretchr/testify v1.2.2 h1:bSDNvY7ZPG5RlJ8otE/7V6gMiyenm9RtJ7IUVIAoJ1w=
-github.com/stretchr/testify v1.2.2/go.mod h1:a8OnRcib4nhh0OaRAV+Yts87kKdq0PP7pXfy6kDkUVs=
-go-retryablehttp
-================
-
-[![Build Status](http://img.shields.io/travis/hashicorp/go-retryablehttp.svg?style=flat-square)][travis]
-[![Go Documentation](http://img.shields.io/badge/go-documentation-blue.svg?style=flat-square)][godocs]
-
-[travis]: http://travis-ci.org/hashicorp/go-retryablehttp
-[godocs]: http://godoc.org/github.com/hashicorp/go-retryablehttp
-
-The `retryablehttp` package provides a familiar HTTP client interface with
-automatic retries and exponential backoff. It is a thin wrapper over the
-standard `net/http` client library and exposes nearly the same public API. This
-makes `retryablehttp` very easy to drop into existing programs.
-
-`retryablehttp` performs automatic retries under certain conditions. Mainly, if
-an error is returned by the client (connection errors, etc.), or if a 500-range
-response code is received (except 501), then a retry is invoked after a wait
-period.  Otherwise, the response is returned and left to the caller to
-interpret.
-
-The main difference from `net/http` is that requests which take a request body
-(POST/PUT et. al) can have the body provided in a number of ways (some more or
-less efficient) that allow "rewinding" the request body if the initial request
-fails so that the full request can be attempted again. See the
-[godoc](http://godoc.org/github.com/hashicorp/go-retryablehttp) for more
-details.
-
-Version 0.6.0 and before are compatible with Go prior to 1.12. From 0.6.1 onward, Go 1.12+ is required.
-From 0.6.7 onward, Go 1.13+ is required.
-
-Example Use
-===========
-
-Using this library should look almost identical to what you would do with
-`net/http`. The most simple example of a GET request is shown below:
-
-```go
-resp, err := retryablehttp.Get("/foo")
-if err != nil {
-    panic(err)
-}
-```
-
-The returned response object is an `*http.Response`, the same thing you would
-usually get from `net/http`. Had the request failed one or more times, the above
-call would block and retry with exponential backoff.
-
-## Getting a stdlib `*http.Client` with retries
-
-It's possible to convert a `*retryablehttp.Client` directly to a `*http.Client`.
-This makes use of retryablehttp broadly applicable with minimal effort. Simply
-configure a `*retryablehttp.Client` as you wish, and then call `StandardClient()`:
-
-```go
-retryClient := retryablehttp.NewClient()
-retryClient.RetryMax = 10
-
-standardClient := retryClient.StandardClient() // *http.Client
-```
-
-For more usage and examples see the
-[godoc](http://godoc.org/github.com/hashicorp/go-retryablehttp).
-Copyright (c) 2015 HashiCorp, Inc.
+* @hashicorp/release-engineeringCopyright (c) 2015 HashiCorp, Inc.
 
 Mozilla Public License, version 2.0
 
@@ -9291,6 +9075,68 @@ updatedeps:
 	go get -f -u ./...
 
 .PHONY: default test updatedeps
+go-retryablehttp
+================
+
+[![Build Status](http://img.shields.io/travis/hashicorp/go-retryablehttp.svg?style=flat-square)][travis]
+[![Go Documentation](http://img.shields.io/badge/go-documentation-blue.svg?style=flat-square)][godocs]
+
+[travis]: http://travis-ci.org/hashicorp/go-retryablehttp
+[godocs]: http://godoc.org/github.com/hashicorp/go-retryablehttp
+
+The `retryablehttp` package provides a familiar HTTP client interface with
+automatic retries and exponential backoff. It is a thin wrapper over the
+standard `net/http` client library and exposes nearly the same public API. This
+makes `retryablehttp` very easy to drop into existing programs.
+
+`retryablehttp` performs automatic retries under certain conditions. Mainly, if
+an error is returned by the client (connection errors, etc.), or if a 500-range
+response code is received (except 501), then a retry is invoked after a wait
+period.  Otherwise, the response is returned and left to the caller to
+interpret.
+
+The main difference from `net/http` is that requests which take a request body
+(POST/PUT et. al) can have the body provided in a number of ways (some more or
+less efficient) that allow "rewinding" the request body if the initial request
+fails so that the full request can be attempted again. See the
+[godoc](http://godoc.org/github.com/hashicorp/go-retryablehttp) for more
+details.
+
+Version 0.6.0 and before are compatible with Go prior to 1.12. From 0.6.1 onward, Go 1.12+ is required.
+From 0.6.7 onward, Go 1.13+ is required.
+
+Example Use
+===========
+
+Using this library should look almost identical to what you would do with
+`net/http`. The most simple example of a GET request is shown below:
+
+```go
+resp, err := retryablehttp.Get("/foo")
+if err != nil {
+    panic(err)
+}
+```
+
+The returned response object is an `*http.Response`, the same thing you would
+usually get from `net/http`. Had the request failed one or more times, the above
+call would block and retry with exponential backoff.
+
+## Getting a stdlib `*http.Client` with retries
+
+It's possible to convert a `*retryablehttp.Client` directly to a `*http.Client`.
+This makes use of retryablehttp broadly applicable with minimal effort. Simply
+configure a `*retryablehttp.Client` as you wish, and then call `StandardClient()`:
+
+```go
+retryClient := retryablehttp.NewClient()
+retryClient.RetryMax = 10
+
+standardClient := retryClient.StandardClient() // *http.Client
+```
+
+For more usage and examples see the
+[godoc](http://godoc.org/github.com/hashicorp/go-retryablehttp).
 // Copyright (c) HashiCorp, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
@@ -11111,7 +10957,17 @@ require (
 )
 
 go 1.13
-* @hashicorp/release-engineering// Copyright (c) HashiCorp, Inc.
+github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
+github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
+github.com/hashicorp/go-cleanhttp v0.5.2 h1:035FKYIWjmULyFRBKPs8TBQoi0x6d9G4xc9neXJWAZQ=
+github.com/hashicorp/go-cleanhttp v0.5.2/go.mod h1:kO/YDlP8L1346E6Sodw+PrpBSV4/SoxCXGY6BqNFT48=
+github.com/hashicorp/go-hclog v0.9.2 h1:CG6TE5H9/JXsFWJCfoIVpKFIkFe6ysEuHirp4DxCsHI=
+github.com/hashicorp/go-hclog v0.9.2/go.mod h1:5CU+agLiy3J7N7QjHK5d05KxGsuXiQLrjA0H7acj2lQ=
+github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
+github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
+github.com/stretchr/testify v1.2.2 h1:bSDNvY7ZPG5RlJ8otE/7V6gMiyenm9RtJ7IUVIAoJ1w=
+github.com/stretchr/testify v1.2.2/go.mod h1:a8OnRcib4nhh0OaRAV+Yts87kKdq0PP7pXfy6kDkUVs=
+// Copyright (c) HashiCorp, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
 package retryablehttp
@@ -11166,75 +11022,156 @@ func (rt *RoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	return resp, err
 }
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: MPL-2.0
+
+package retryablehttp
+
+import (
+	"context"
+	"errors"
+	"io/ioutil"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"reflect"
+	"sync/atomic"
+	"testing"
+)
+
+func TestRoundTripper_implements(t *testing.T) {
+	// Compile-time proof of interface satisfaction.
+	var _ http.RoundTripper = &RoundTripper{}
+}
+
+func TestRoundTripper_init(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer ts.Close()
+
+	// Start with a new empty RoundTripper.
+	rt := &RoundTripper{}
+
+	// RoundTrip once.
+	req, _ := http.NewRequest("GET", ts.URL, nil)
+	if _, err := rt.RoundTrip(req); err != nil {
+		t.Fatal(err)
+	}
+
+	// Check that the Client was initialized.
+	if rt.Client == nil {
+		t.Fatal("expected rt.Client to be initialized")
+	}
+
+	// Save the Client for later comparison.
+	initialClient := rt.Client
+
+	// RoundTrip again.
+	req, _ = http.NewRequest("GET", ts.URL, nil)
+	if _, err := rt.RoundTrip(req); err != nil {
+		t.Fatal(err)
+	}
+
+	// Check that the underlying Client is unchanged.
+	if rt.Client != initialClient {
+		t.Fatalf("expected %v, got %v", initialClient, rt.Client)
+	}
+}
+
+func TestRoundTripper_RoundTrip(t *testing.T) {
+	var reqCount int32 = 0
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqNo := atomic.AddInt32(&reqCount, 1)
+		if reqNo < 3 {
+			w.WriteHeader(404)
+		} else {
+			w.WriteHeader(200)
+			w.Write([]byte("success!"))
+		}
+	}))
+	defer ts.Close()
+
+	// Make a client with some custom settings to verify they are used.
+	retryClient := NewClient()
+	retryClient.CheckRetry = func(_ context.Context, resp *http.Response, _ error) (bool, error) {
+		return resp.StatusCode == 404, nil
+	}
+
+	// Get the standard client and execute the request.
+	client := retryClient.StandardClient()
+	resp, err := client.Get(ts.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	// Check the response to ensure the client behaved as expected.
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	if v, err := ioutil.ReadAll(resp.Body); err != nil {
+		t.Fatal(err)
+	} else if string(v) != "success!" {
+		t.Fatalf("expected %q, got %q", "success!", v)
+	}
+}
+
+func TestRoundTripper_TransportFailureErrorHandling(t *testing.T) {
+	// Make a client with some custom settings to verify they are used.
+	retryClient := NewClient()
+	retryClient.CheckRetry = func(_ context.Context, resp *http.Response, err error) (bool, error) {
+		if err != nil {
+			return true, err
+		}
+
+		return false, nil
+	}
+
+	retryClient.ErrorHandler = PassthroughErrorHandler
+
+	expectedError := &url.Error{
+		Op:  "Get",
+		URL: "http://999.999.999.999:999/",
+		Err: &net.OpError{
+			Op:  "dial",
+			Net: "tcp",
+			Err: &net.DNSError{
+				Name:       "999.999.999.999",
+				Err:        "no such host",
+				IsNotFound: true,
+			},
+		},
+	}
+
+	// Get the standard client and execute the request.
+	client := retryClient.StandardClient()
+	_, err := client.Get("http://999.999.999.999:999/")
+
+	// assert expectations
+	if !reflect.DeepEqual(expectedError, normalizeError(err)) {
+		t.Fatalf("expected %q, got %q", expectedError, err)
+	}
+}
+
+func normalizeError(err error) error {
+	var dnsError *net.DNSError
+
+	if errors.As(err, &dnsError) {
+		// this field is populated with the DNS server on on CI, but not locally
+		dnsError.Server = ""
+	}
+
+	return err
+}
 
 ================================================================================
 
 github.com/hashicorp/go-retryablehttp/.github
 
-name: Build
-on:
-  push:
-jobs:
-  run-tests:
-    runs-on: ubuntu-latest
-    env:
-      TEST_RESULTS: "/tmp/test-results"
-    steps:
-      - name: Setup go
-        uses: actions/setup-go@4d34df0c2316fe8122ab82dc22947d607c0c91f9 # v4.0.0
-        with:
-          go-version: 1.14.2
-      - uses: actions/checkout@8f4b7f84864484a7bf31766abe9204da3cbe65b3 # v3.5.0
-      - run: mkdir -p "$TEST_RESULTS"/go-retryablyhttp
-      - name: restore_cache
-        uses: actions/cache@69d9d449aced6a2ede0bc19182fadc3a0a42d2b0 # v3.2.6
-        with:
-          key: go-mod-v1-{{ checksum "go.sum" }}
-          restore-keys: go-mod-v1-{{ checksum "go.sum" }}
-          path: "/go/pkg/mod"
-      - run: go mod download
-      - name: Run go format
-        run: |-
-          files=$(go fmt ./...)
-          if [ -n "$files" ]; then
-            echo "The following file(s) do not conform to go fmt:"
-            echo "$files"
-            exit 1
-          fi
-      - name: Install gotestsum
-        run: go get gotest.tools/gotestsum
-      - name: Run unit tests
-        run: |-
-          PACKAGE_NAMES=$(go list ./...)
-          # shellcheck disable=SC2086 # can't quote package list
-          gotestsum --junitfile "${TEST_RESULTS}"/go-retryablyhttp/gotestsum-report.xml -- $PACKAGE_NAMES
-      - uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
-        with:
-          path: "/tmp/test-results"
-      - uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
-        with:
-          path: "/tmp/test-results"
-permissions:
-  contents: read
-name: actionlint
-
-on:
-  push:
-    paths:
-      - .github/**
-
-permissions:
-  contents: read
-
-jobs:
-  actionlint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@8f4b7f84864484a7bf31766abe9204da3cbe65b3 # v3.5.0
-      - name: "Check GitHub workflow files"
-        uses: docker://docker.mirror.hashicorp.services/rhysd/actionlint:latest
-        with:
-          args: -colorversion: 2
+version: 2
 
 updates:
   - package-ecosystem: "github-actions"
@@ -11245,13 +11182,25 @@ updates:
   - package-ecosystem: "gomod"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "weekly"name: actionlint
 
-================================================================================
+on:
+  push:
+    paths:
+      - .github/**
 
-github.com/hashicorp/go-retryablehttp/.github/workflows
+permissions:
+  contents: read
 
-name: Build
+jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@8f4b7f84864484a7bf31766abe9204da3cbe65b3 # v3.5.0
+      - name: "Check GitHub workflow files"
+        uses: docker://docker.mirror.hashicorp.services/rhysd/actionlint:latest
+        with:
+          args: -colorname: Build
 on:
   push:
 jobs:
@@ -11296,6 +11245,11 @@ jobs:
           path: "/tmp/test-results"
 permissions:
   contents: read
+
+================================================================================
+
+github.com/hashicorp/go-retryablehttp/.github/workflows
+
 name: actionlint
 
 on:
@@ -11314,7 +11268,51 @@ jobs:
       - name: "Check GitHub workflow files"
         uses: docker://docker.mirror.hashicorp.services/rhysd/actionlint:latest
         with:
-          args: -color
+          args: -colorname: Build
+on:
+  push:
+jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+    env:
+      TEST_RESULTS: "/tmp/test-results"
+    steps:
+      - name: Setup go
+        uses: actions/setup-go@4d34df0c2316fe8122ab82dc22947d607c0c91f9 # v4.0.0
+        with:
+          go-version: 1.14.2
+      - uses: actions/checkout@8f4b7f84864484a7bf31766abe9204da3cbe65b3 # v3.5.0
+      - run: mkdir -p "$TEST_RESULTS"/go-retryablyhttp
+      - name: restore_cache
+        uses: actions/cache@69d9d449aced6a2ede0bc19182fadc3a0a42d2b0 # v3.2.6
+        with:
+          key: go-mod-v1-{{ checksum "go.sum" }}
+          restore-keys: go-mod-v1-{{ checksum "go.sum" }}
+          path: "/go/pkg/mod"
+      - run: go mod download
+      - name: Run go format
+        run: |-
+          files=$(go fmt ./...)
+          if [ -n "$files" ]; then
+            echo "The following file(s) do not conform to go fmt:"
+            echo "$files"
+            exit 1
+          fi
+      - name: Install gotestsum
+        run: go get gotest.tools/gotestsum
+      - name: Run unit tests
+        run: |-
+          PACKAGE_NAMES=$(go list ./...)
+          # shellcheck disable=SC2086 # can't quote package list
+          gotestsum --junitfile "${TEST_RESULTS}"/go-retryablyhttp/gotestsum-report.xml -- $PACKAGE_NAMES
+      - uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
+        with:
+          path: "/tmp/test-results"
+      - uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
+        with:
+          path: "/tmp/test-results"
+permissions:
+  contents: read
 
 ================================================================================
 
@@ -20397,33 +20395,6 @@ k8s.io/cli-runtime/pkg
 
 k8s.io/client-go
 
-Copyright (c) 2009 The Go Authors. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are
-met:
-
-   * Redistributions of source code must retain the above copyright
-notice, this list of conditions and the following disclaimer.
-   * Redistributions in binary form must reproduce the above
-copyright notice, this list of conditions and the following disclaimer
-in the documentation and/or other materials provided with the
-distribution.
-   * Neither the name of Google Inc. nor the names of its
-contributors may be used to endorse or promote products derived from
-this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
                                  Apache License
                            Version 2.0, January 2004
@@ -20626,6 +20597,33 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+Copyright (c) 2009 The Go Authors. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+   * Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+   * Redistributions in binary form must reproduce the above
+copyright notice, this list of conditions and the following disclaimer
+in the documentation and/or other materials provided with the
+distribution.
+   * Neither the name of Google Inc. nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ================================================================================
 
@@ -21268,6 +21266,33 @@ k8s.io/kube-openapi/pkg
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+Copyright (c) 2020 The Go Authors. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+   * Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+   * Redistributions in binary form must reproduce the above
+copyright notice, this list of conditions and the following disclaimer
+in the documentation and/or other materials provided with the
+distribution.
+   * Neither the name of Google Inc. nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
                                  Apache License
                            Version 2.0, January 2004
@@ -21470,33 +21495,6 @@ k8s.io/kube-openapi/pkg
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
-Copyright (c) 2020 The Go Authors. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are
-met:
-
-   * Redistributions of source code must retain the above copyright
-notice, this list of conditions and the following disclaimer.
-   * Redistributions in binary form must reproduce the above
-copyright notice, this list of conditions and the following disclaimer
-in the documentation and/or other materials provided with the
-distribution.
-   * Neither the name of Google Inc. nor the names of its
-contributors may be used to endorse or promote products derived from
-this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ================================================================================
 
