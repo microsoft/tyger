@@ -8,6 +8,8 @@
 
 set -euo pipefail
 
+export LC_ALL=C
+
 repo_root=$(readlink -f "$(dirname "$0")/..")
 
 cd "$repo_root/cli"
@@ -44,7 +46,7 @@ go-licenses save ./... \
 # license and notice files will be in directories named after the import path of each library
 
 # get the library names from the directory names
-lib_names=$(find $save_dir -type f -print0 | xargs -0 realpath --relative-to $save_dir | xargs dirname | LC_COLLATE=C sort | uniq)
+lib_names=$(find $save_dir -type f -print0 | xargs -0 realpath --relative-to $save_dir | xargs dirname | sort | uniq)
 
 for lib_name in $lib_names; do
     {
