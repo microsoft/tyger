@@ -3,8 +3,8 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-# This script generates the NOTICE file for the repository based on the GO dependencies
-# using the go-licenses tool.
+# This script generates the NOTICE.txt file for the repository using the the go-licenses tool
+# for Go dependencies and the ClearlyDefined API for C# dependencies.
 
 set -euo pipefail
 
