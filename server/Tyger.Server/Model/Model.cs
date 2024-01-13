@@ -355,6 +355,8 @@ public record Run : ModelBase
     }
 }
 
+public record DatabaseVersionInUse(int Id) : ModelBase;
+
 public record RunPage(IReadOnlyList<Run> Items, Uri? NextLink);
 
 public record CodespecPage(IList<Codespec> Items, Uri? NextLink);

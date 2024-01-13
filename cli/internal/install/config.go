@@ -111,12 +111,13 @@ type HelmConfig struct {
 }
 
 type HelmChartConfig struct {
-	RepoName  string         `json:"repoName"`
-	RepoUrl   string         `json:"repoUrl"`
-	Version   string         `json:"version"`
-	ChartRef  string         `json:"chartRef"`
-	Namespace string         `json:"namespace"`
-	Values    map[string]any `json:"values"`
+	Namespace   string         `json:"namespace"`
+	ReleaseName string         `json:"releaseName"`
+	RepoName    string         `json:"repoName"`
+	RepoUrl     string         `json:"repoUrl"`
+	Version     string         `json:"version"`
+	ChartRef    string         `json:"chartRef"`
+	Values      map[string]any `json:"values"`
 }
 
 type ConfigTemplateValues struct {

@@ -17,12 +17,12 @@ public class RunLogReader : ILogSource
     private readonly ILogArchive _logArchive;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<RunLogReader> _logger;
-    private readonly KubernetesOptions _k8sOptions;
+    private readonly KubernetesApiOptions _k8sOptions;
 
     public RunLogReader(
         k8s.Kubernetes client,
         IRepository repository,
-        IOptions<KubernetesOptions> k8sOptions,
+        IOptions<KubernetesApiOptions> k8sOptions,
         ILogArchive logArchive,
         ILoggerFactory loggerFactory,
         ILogger<RunLogReader> logger)

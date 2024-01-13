@@ -11,13 +11,13 @@ public class RunUpdater
 {
     private readonly IKubernetes _client;
     private readonly IRepository _repository;
-    private readonly KubernetesOptions _k8sOptions;
+    private readonly KubernetesApiOptions _k8sOptions;
     private readonly ILogger<RunUpdater> _logger;
 
     public RunUpdater(
         IRepository repository,
         IKubernetes client,
-        IOptions<KubernetesOptions> k8sOptions,
+        IOptions<KubernetesApiOptions> k8sOptions,
         ILogger<RunUpdater> logger)
     {
         _repository = repository;

@@ -40,6 +40,11 @@ func (b *CmdBuilder) Env(key string, value string) *CmdBuilder {
 	return b
 }
 
+func (b *CmdBuilder) Arg(arg string) *CmdBuilder {
+	b.cmd.Args = append(b.cmd.Args, arg)
+	return b
+}
+
 func (b *CmdBuilder) Stdin(stdin string) *CmdBuilder {
 	b.cmd.Stdin = bytes.NewBufferString(stdin)
 	return b

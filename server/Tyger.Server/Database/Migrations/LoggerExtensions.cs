@@ -8,9 +8,6 @@ public static partial class LoggerExtensions
     [LoggerMessage(1, LogLevel.Error, "Failed to read database version")]
     public static partial void FailedToReadDatabaseVersion(this ILogger logger, Exception exception);
 
-    [LoggerMessage(2, LogLevel.Information, "No migrations to apply")]
-    public static partial void NoMigrationsToApply(this ILogger logger);
-
     [LoggerMessage(3, LogLevel.Information, "Applying migration {Id}")]
     public static partial void ApplyingMigration(this ILogger logger, int Id);
 
@@ -28,4 +25,20 @@ public static partial class LoggerExtensions
 
     [LoggerMessage(8, LogLevel.Information, "Waiting for database tables to be created...")]
     public static partial void WaitingForDatabaseTablesToBeCreated(this ILogger logger);
+
+    [LoggerMessage(9, LogLevel.Warning, "The database has been migrated to an unrecognized version {version}. The maximum known version is {maxVersion}")]
+    public static partial void UnrecognizedDatabaseVersion(this ILogger logger, int version, int maxVersion);
+
+    [LoggerMessage(10, LogLevel.Warning, "Error validating current database versions on replicas")]
+    public static partial void ErrorValidatingCurrentDatabaseVersionsOnReplicas(this ILogger logger, Exception exception);
+
+    [LoggerMessage(11, LogLevel.Information, "Waiting for pod at {address} to use required version {version} instead of {usingVersion}")]
+    public static partial void WaitingForPodToUseRequiredVersion(this ILogger logger, string address, int version, int usingVersion);
+
+    [LoggerMessage(12, LogLevel.Warning, "Newer database versions exist")]
+    public static partial void NewerDatabaseVersionsExist(this ILogger logger);
+
+    [LoggerMessage(12, LogLevel.Information, "Using most recent database version")]
+    public static partial void UsingMostRecentDatabaseVersion(this ILogger logger);
+
 }

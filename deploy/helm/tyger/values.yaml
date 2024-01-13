@@ -32,6 +32,7 @@ database:
   databaseName: postgres
   port: 5432
   autoMigrate: false
+  initialDatabaseVersion:
 
 buffers:
   storageAccounts: [] # {name: myaccount, location: westus2, endpoint: https://... }, ...

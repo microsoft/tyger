@@ -5,16 +5,39 @@ metadata:
   annotations:
     azure.workload.identity/client-id: {{ required "A value for identity.migrationRunner.clientId is required" .Values.identity.migrationRunner.clientId }}
 ---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Values.identity.migrationRunner.name }}
+rules:
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["list", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Values.identity.migrationRunner.name }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Values.identity.migrationRunner.name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.identity.migrationRunner.name }}
+---
+{{- $suffix := randAlphaNum 4 | lower -}}
+{{- $jobName := printf "%s-database-init-%s" .Release.Name $suffix -}}
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ .Release.Name }}-database-init
-  annotations:
+  name: {{ $jobName }}
 spec:
-  ttlSecondsAfterFinished: 60
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
   template:
     metadata:
-      name: {{ .Release.Name }}-database-init
+      name: {{ $jobName }}
       labels:
         azure.workload.identity/use: "true"
     spec:
@@ -23,18 +46,26 @@ spec:
         - name: database-init
           image: "{{ .Values.image | default (printf "eminence.azurecr.io/tyger-server:%s" .Chart.AppVersion) }}"
           imagePullPolicy: {{ .Values.pullPolicy }}
-          args: ["init"]
+          args:
+            - database
+            - init
+          {{- if .Values.database.initialDatabaseVersion }}
+            - --target-version
+            - "{{ .Values.database.initialDatabaseVersion }}"
+          {{- end }}
           env:
             - name: Logging__Console__FormatterName
               value: Tyger.Server.Logging.JsonFormatter
             - name: AZURE_CLIENT_ID
               value: {{ .Values.identity.migrationRunner.clientId }}
-            - name: Kubernetes__Namespace
-              value: {{ .Release.Namespace }}
             - name: Database__ConnectionString
               value: "Host={{ .Values.database.host }}; Database={{ .Values.database.databaseName }}; Port={{ .Values.database.port }}; Username={{ .Values.identity.migrationRunner.name }}; SslMode=VerifyFull;"
             - name: Database__TygerServerRoleName
               value: {{ .Values.identity.tygerServer.name }}
+            - name: Kubernetes__Namespace
+              value: {{ .Release.Namespace }}
+            - name: Kubernetes__JobServiceAccount
+              value: {{ include "tyger.fullname" . }}-job
 
       serviceAccount: {{ .Values.identity.migrationRunner.name }}
       {{- with .Values.nodeSelector }}

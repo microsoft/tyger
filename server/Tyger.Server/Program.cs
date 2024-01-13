@@ -1,43 +1,31 @@
 using System.CommandLine;
-using Tyger.Server;
+using System.CommandLine.Parsing;
 using Tyger.Server.Auth;
 using Tyger.Server.Buffers;
 using Tyger.Server.Codespecs;
 using Tyger.Server.Configuration;
 using Tyger.Server.Database;
-using Tyger.Server.Database.Migrations;
 using Tyger.Server.Identity;
 using Tyger.Server.Json;
 using Tyger.Server.Kubernetes;
 using Tyger.Server.Logging;
 using Tyger.Server.Middleware;
+using Tyger.Server.Model;
 using Tyger.Server.OpenApi;
 using Tyger.Server.Runs;
 using Tyger.Server.ServiceMetadata;
 
-// Parse command-line arguments to see if we should run migrations or start the server.
 var rootCommand = new RootCommand("Tyger Server");
 rootCommand.SetHandler(RunServer);
 
-var initCommand = new Command("init", "Initialize the database");
-initCommand.SetHandler(async () => await RunMigrations(true));
-rootCommand.AddCommand(initCommand);
-
-var res = rootCommand.Parse(args);
+rootCommand.AddDatabaseCliCommand(CreateNonWebHost);
 
 return await rootCommand.InvokeAsync(args);
 
-async Task RunMigrations(bool initOnly)
+T InitializeHostBuilder<T>(T builder) where T : IHostApplicationBuilder
 {
-    var host = ConfigureHostBuilder(Host.CreateApplicationBuilder(args)).Build();
+    bool isApi = builder is WebApplicationBuilder;
 
-    var migrationRunner = host.Services.GetRequiredService<MigrationRunner>();
-
-    await migrationRunner.RunMigrations(initOnly, null, CancellationToken.None);
-}
-
-T ConfigureHostBuilder<T>(T builder) where T : IHostApplicationBuilder
-{
     // Configuration
     builder.Configuration.AddConfigurationSources();
 
@@ -47,20 +35,34 @@ T ConfigureHostBuilder<T>(T builder) where T : IHostApplicationBuilder
     // Services
     builder.Services.AddManagedIdentity();
     builder.Services.AddDatabase();
-    builder.Services.AddKubernetes();
-    builder.Services.AddLogArchive();
-    builder.Services.AddAuth();
-    builder.Services.AddBuffers();
-    builder.Services.AddOpenApi();
-    builder.Services.AddHealthChecks();
+    builder.Services.AddKubernetes(isApi);
     builder.Services.AddJsonFormatting();
+
+    if (isApi)
+    {
+        builder.Services.AddLogArchive();
+        builder.Services.AddAuth();
+        builder.Services.AddBuffers();
+        builder.Services.AddOpenApi();
+        builder.Services.AddHealthChecks();
+    }
 
     return builder;
 }
 
+WebApplication CreateWebApplication()
+{
+    return InitializeHostBuilder(WebApplication.CreateBuilder()).Build();
+}
+
+IHost CreateNonWebHost()
+{
+    return InitializeHostBuilder(Host.CreateApplicationBuilder()).Build();
+}
+
 void RunServer()
 {
-    var app = ConfigureHostBuilder(WebApplication.CreateBuilder(args)).Build();
+    var app = CreateWebApplication();
 
     // Middleware and routes
     app.UseRequestLogging();
@@ -75,10 +77,12 @@ void RunServer()
     app.MapBuffers();
     app.MapCodespecs();
     app.MapRuns();
+
     app.MapServiceMetadata();
+    app.MapDatabaseVersionInUse();
     app.MapHealthChecks("/healthcheck").AllowAnonymous();
+
     app.MapFallback(() => Responses.BadRequest("InvalidRoute", "The request path was not recognized."));
 
-    // Run
     app.Run();
 }

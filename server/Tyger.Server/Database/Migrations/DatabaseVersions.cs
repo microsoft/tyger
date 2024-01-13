@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Reflection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Npgsql;
@@ -12,7 +13,12 @@ namespace Tyger.Server.Database.Migrations;
 public enum DatabaseVersion
 {
     [Migrator(typeof(Migrator1))]
+    [Description("Initial version")]
     Initial = 1,
+
+    [Migrator(typeof(Migrator2))]
+    [Description("Adding an index to the codespecs table")]
+    AddCodespecsIndex = 2,
 }
 
 public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable
@@ -89,6 +95,57 @@ public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable
         }, cancellationToken);
     }
 
+    public async Task<IList<DatabaseVersionInfo>> GetDatabaseVersions(CancellationToken cancellationToken)
+    {
+        DatabaseVersion? currentDatabaseVersion = null;
+        var migrationsTableExists = await DoesMigrationsTableExist(cancellationToken);
+        var stateFromDatabase = new Dictionary<int, DatabaseVersionState>();
+
+        return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
+        {
+            if (migrationsTableExists)
+            {
+                await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+                await using var cmd = new NpgsqlCommand($"""
+                    SELECT DISTINCT ON (version) version, state
+                    FROM migrations
+                    ORDER BY version ASC, timestamp DESC
+                    """, conn);
+
+                await cmd.PrepareAsync(cancellationToken);
+
+                await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    var version = (DatabaseVersion)reader.GetInt32(0);
+                    var state = reader.GetString(1) switch
+                    {
+                        MigrationStateStarted => DatabaseVersionState.Started,
+                        MigrationStateComplete => DatabaseVersionState.Complete,
+                        MigrationStateFailed => DatabaseVersionState.Failed,
+                        var s => throw new InvalidOperationException($"Unexpected state '{s}' returned from database")
+                    };
+
+                    if (state == DatabaseVersionState.Complete)
+                    {
+                        currentDatabaseVersion = version;
+                    }
+
+                    stateFromDatabase.Add((int)version, state);
+                }
+            }
+
+            return GetKnownVersions()
+                .OrderBy(v => (int)v.version)
+                .Select(v => new DatabaseVersionInfo(
+                    (int)v.version,
+                    v.version.GetType().GetField(v.version.ToString())?.GetCustomAttribute<DescriptionAttribute>()?.Description ?? v.version.ToString(),
+                    State: stateFromDatabase.TryGetValue((int)v.version, out var state) ? state : DatabaseVersionState.Available))
+                .ToList();
+        }, cancellationToken);
+    }
+
     async Task IHostedService.StartAsync(CancellationToken cancellationToken)
     {
         while (true)
@@ -147,7 +204,15 @@ public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable
 
         if (CachedCurrentVersion != readVersion.Value)
         {
-            CachedCurrentVersion = readVersion.Value;
+            var currentVersionInDatabase = readVersion.Value;
+            var mostRecentKnownVersion = GetKnownVersions().Last().version;
+            if ((int)currentVersionInDatabase > (int)mostRecentKnownVersion)
+            {
+                _logger.UnrecognizedDatabaseVersion((int)currentVersionInDatabase, (int)mostRecentKnownVersion);
+                currentVersionInDatabase = mostRecentKnownVersion;
+            }
+
+            CachedCurrentVersion = currentVersionInDatabase;
             _logger.UsingDatabaseVersion((int)readVersion.Value);
         }
 
@@ -173,3 +238,13 @@ public sealed class MigratorAttribute(Type migratorType) : Attribute
 {
     public Type MigratorType { get; } = migratorType;
 }
+
+public enum DatabaseVersionState
+{
+    Started,
+    Complete,
+    Failed,
+    Available,
+}
+
+public record DatabaseVersionInfo(int Id, string Description, DatabaseVersionState State);

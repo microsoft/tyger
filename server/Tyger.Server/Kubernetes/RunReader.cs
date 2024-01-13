@@ -19,13 +19,13 @@ public class RunReader
 
     private readonly IKubernetes _client;
     private readonly IRepository _repository;
-    private readonly KubernetesOptions _k8sOptions;
+    private readonly KubernetesApiOptions _k8sOptions;
     private readonly ILogger<RunReader> _logger;
 
     public RunReader(
         IKubernetes client,
         IRepository repository,
-        IOptions<KubernetesOptions> k8sOptions,
+        IOptions<KubernetesApiOptions> k8sOptions,
         ILogger<RunReader> logger)
     {
         _client = client;

@@ -1,4 +1,4 @@
-namespace Tyger.Server;
+namespace Tyger.Server.Model;
 
 public static class Responses
 {

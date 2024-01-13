@@ -33,11 +33,11 @@ require (
 	github.com/knadh/koanf/v2 v2.0.1
 	github.com/mattn/go-ieproxy v0.0.11
 	github.com/mitchellh/mapstructure v1.5.0
-	github.com/mittwald/go-helm-client v0.12.3
+	github.com/mittwald/go-helm-client v0.12.5
 	github.com/spf13/cobra v1.7.0
 	github.com/stretchr/testify v1.8.4
 	go.opentelemetry.io/otel v1.19.0
-	helm.sh/helm/v3 v3.12.3
+	helm.sh/helm/v3 v3.13.2
 	k8s.io/api v0.28.2
 	k8s.io/apimachinery v0.28.2
 	k8s.io/client-go v0.28.2
@@ -159,6 +159,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.19.0 // indirect
 	go.starlark.net v0.0.0-20230925163745-10651d5192ab // indirect
 	golang.org/x/crypto v0.17.0 // indirect
+	golang.org/x/exp v0.0.0-20231110203233-9a3e6036ecaa // indirect
 	golang.org/x/net v0.17.0 // indirect
 	golang.org/x/oauth2 v0.12.0 // indirect
 	golang.org/x/sync v0.3.0 // indirect

@@ -19,13 +19,13 @@ public sealed class RunSweeper : IHostedService, IDisposable
     private readonly IRepository _repository;
     private readonly ILogSource _logSource;
     private readonly ILogArchive _logArchive;
-    private readonly KubernetesOptions _k8sOptions;
+    private readonly KubernetesApiOptions _k8sOptions;
     private readonly ILogger<RunSweeper> _logger;
 
     public RunSweeper(
         IKubernetes client,
         IRepository repository,
-        IOptions<KubernetesOptions> k8sOptions,
+        IOptions<KubernetesApiOptions> k8sOptions,
         ILogSource logSource,
         ILogArchive logArchive,
         ILogger<RunSweeper> logger)

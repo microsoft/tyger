@@ -15,7 +15,7 @@ TYGER_URI = https://$(shell echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.doma
 INSTALL_CLOUD=false
 AUTO_MIGRATE=false
 
-get-environment-config:
+get-config:
 	echo '${ENVIRONMENT_CONFIG_JSON}' | yq -P
 
 ensure-environment: install-cli
@@ -51,10 +51,6 @@ set-localsettings:
 		echo "Run 'make up' and 'make set-context' before this target"; exit 1
 	fi
 
-	registry=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
-	buffer_sidecar_image="$$(docker inspect $${registry}/buffer-sidecar:dev | jq -r --arg repo $${registry}/buffer-sidecar '.[0].RepoDigests[] | select (startswith($$repo))')"
-	worker_waiter_image="$$(docker inspect $${registry}/worker-waiter:dev | jq -r --arg repo $${registry}/worker-waiter '.[0].RepoDigests[] | select (startswith($$repo))')"
-
 	jq <<- EOF > ${SERVER_PATH}/appsettings.local.json
 		{
 			"logging": { "Console": {"FormatterName": "simple" } },
@@ -69,19 +65,21 @@ set-localsettings:
 				"namespace": "${HELM_NAMESPACE}",
 				"jobServiceAccount": "${HELM_RELEASE}-job",
 				"noOpConfigMap": "${HELM_RELEASE}-no-op",
-				"workerWaiterImage": "$${worker_waiter_image}",
-				"clusters": $$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -c '.cloud.compute.clusters')
+				"workerWaiterImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.workerWaiterImage')",
+				"clusters": $$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -c '.cloud.compute.clusters'),
+				"currentPodUid": "00000000-0000-0000-0000-000000000000"
 			},
 			"logArchive": {
-				"storageAccountEndpoint": $$(echo $${helm_values} | jq -c '.server.logArchive.storageAccountEndpoint')
+				"storageAccountEndpoint": $$(echo $${helm_values} | jq -c '.logArchive.storageAccountEndpoint')
 			},
 			"buffers": {
-				"storageAccounts": $$(echo $${helm_values} | jq -c '.server.buffers.storageAccounts'),
-				"bufferSidecarImage": "$${buffer_sidecar_image}"
+				"storageAccounts": $$(echo $${helm_values} | jq -c '.buffers.storageAccounts'),
+				"bufferSidecarImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.bufferSidecarImage')"
 			},
 			"database": {
-				"connectionString": "Host=$$(echo $${helm_values} | jq -r '.server.database.host'); Database=$$(echo $${helm_values} | jq -r '.server.database.databaseName'); Port=$$(echo $${helm_values} | jq -r '.server.database.port'); Username=$$(az account show | jq -r '.user.name'); SslMode=VerifyFull",
-				"autoMigrate": ${AUTO_MIGRATE} 
+				"connectionString": "Host=$$(echo $${helm_values} | jq -r '.database.host'); Database=$$(echo $${helm_values} | jq -r '.database.databaseName'); Port=$$(echo $${helm_values} | jq -r '.database.port'); Username=$$(az account show | jq -r '.user.name'); SslMode=VerifyFull",
+				"autoMigrate": ${AUTO_MIGRATE},
+				"tygerServerRoleName": "$$(echo $${helm_values} | jq -r '.identity.tygerServer.name')"
 			}
 		}
 	EOF
@@ -113,54 +111,48 @@ unit-test:
 	cd cli
 	go test ./... | { grep -v "\\[[no test files\\]" || true; }
 
-docker-build:
+_docker-build:
 	if [[ "$${DO_NOT_BUILD_IMAGES:-}" == "true" ]]; then
 		exit
 	fi
+
+	if [[ -z "${DOCKER_BUILD_TARGET}" ]]; then
+		echo "DOCKER_BUILD_TARGET not set"
+		exit 1
+	fi
+
+	target_arg="--${DOCKER_BUILD_TARGET}"
 
 	tag=$${EXPLICIT_IMAGE_TAG:-dev}
 
 	registry=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
-	scripts/build-images.sh --push --push-force --tag "$$tag" --quiet --registry "$${registry}"
+	scripts/build-images.sh $$target_arg --push --push-force --tag "$$tag" --registry "$${registry}"
 
 docker-build-test:
-	if [[ "$${DO_NOT_BUILD_IMAGES:-}" == "true" ]]; then
-		exit
-	fi
+	$(MAKE) _docker-build DOCKER_BUILD_TARGET=test-connectivity
 
-	tag=$${EXPLICIT_IMAGE_TAG:-test}
-	
-	registry=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
-	scripts/build-images.sh --test --push --push-force --tag "$$tag" --quiet --registry "$${registry}"
+docker-build-tyger-server:
+	$(MAKE) _docker-build DOCKER_BUILD_TARGET=tyger-server
+
+docker-build-buffer-sidecar:
+	$(MAKE) _docker-build DOCKER_BUILD_TARGET=buffer-sidecar
+
+docker-build-worker-waiter:
+	$(MAKE) _docker-build DOCKER_BUILD_TARGET=worker-waiter
+
+docker-build: docker-build-test docker-build-tyger-server docker-build-buffer-sidecar docker-build-worker-waiter
 
 publish-official-images:
 	registry=$$(scripts/get-config.sh --dev -e .officialContainerRegistry.fqdn)
 	tag=$$(git describe --tags)
-	scripts/build-images.sh --push --push-force --helm --tag "$${tag}" --quiet --registry "$${registry}"
+	scripts/build-images.sh --push --push-force --helm --tag "$${tag}" --registry "$${registry}"
 
-up: ensure-environment-conditionally docker-build
-	repo_fqdn=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
-
-	if [[ -n "$${EXPLICIT_IMAGE_TAG:-}" ]]; then
-		tyger_server_image="$${repo_fqdn}/tyger-server:$${EXPLICIT_IMAGE_TAG}"
-		buffer_sidecar_image="$${repo_fqdn}/buffer-sidecar:$${EXPLICIT_IMAGE_TAG}"
-		worker_waiter_image="$${repo_fqdn}/worker-waiter:$${EXPLICIT_IMAGE_TAG}"
-	else
-		tyger_server_image="$$(docker inspect "$${repo_fqdn}/tyger-server:dev" | jq -r --arg repo "$${repo_fqdn}/tyger-server" '.[0].RepoDigests[] | select (startswith($$repo))')"
-		buffer_sidecar_image="$$(docker inspect "$${repo_fqdn}/buffer-sidecar:dev" | jq -r --arg repo "$${repo_fqdn}/buffer-sidecar" '.[0].RepoDigests[] | select (startswith($$repo))')"
-		worker_waiter_image="$$(docker inspect "$${repo_fqdn}/worker-waiter:dev" | jq -r --arg repo "$${repo_fqdn}/worker-waiter" '.[0].RepoDigests[] | select (startswith($$repo))')"
-	fi
-
-	chart_dir=$$(readlink -f deploy/helm/tyger)
-	
-	tyger api install -f <(scripts/get-config.sh) \
-		--set api.helm.tyger.chartRef="$${chart_dir}" \
-		--set api.helm.tyger.values.image="$${tyger_server_image}" \
-		--set api.helm.tyger.values.bufferSidecarImage="$${buffer_sidecar_image}" \
-		--set api.helm.tyger.values.workerWaiterImage="$${worker_waiter_image}" \
-		--set api.helm.tyger.values.database.autoMigrate=${AUTO_MIGRATE}
-
+up: ensure-environment-conditionally docker-build-tyger-server docker-build-buffer-sidecar docker-build-worker-waiter
+	tyger api install -f <(scripts/get-config.sh)
 	$(MAKE) cli-ready
+
+migrate: ensure-environment-conditionally docker-build-tyger-server
+	tyger api migrations apply --latest --wait -f <(scripts/get-config.sh)
 
 down: install-cli
 	tyger api uninstall -f <(scripts/get-config.sh)
@@ -264,10 +256,10 @@ connect-db: set-context
 	export PGPASSWORD=$$(az account get-access-token --resource-type oss-rdbms | jq -r .accessToken)
 	
 	psql \
-		--host="$$(echo $${helm_values} | jq -r '.server.database.host')" \
-		--port="$$(echo $${helm_values} | jq -r '.server.database.port')" \
+		--host="$$(echo $${helm_values} | jq -r '.database.host')" \
+		--port="$$(echo $${helm_values} | jq -r '.database.port')" \
 		--username="$$(az account show | jq -r '.user.name')" \
-		--dbname="$$(echo $${helm_values} | jq -r '.server.database.databaseName')"
+		--dbname="$$(echo $${helm_values} | jq -r '.database.databaseName')"
 
 restore:
 	cd cli

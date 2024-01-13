@@ -419,7 +419,7 @@ func getAdminRESTConfig(ctx context.Context) (*rest.Config, error) {
 	return clientcmd.RESTConfigFromKubeConfig(credResp.Kubeconfigs[0].Value)
 }
 
-func getUserRESTConfig(ctx context.Context) (*rest.Config, error) {
+func GetUserRESTConfig(ctx context.Context) (*rest.Config, error) {
 	config := GetConfigFromContext(ctx)
 	cred := GetAzureCredentialFromContext(ctx)
 

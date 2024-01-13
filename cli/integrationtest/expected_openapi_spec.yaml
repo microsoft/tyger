@@ -427,6 +427,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Metadata'
+  /v1/database-version-in-use:
+    get:
+      tags:
+        - tyger.server
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatabaseVersionInUse'
 components:
   schemas:
     Buffer:
@@ -573,6 +584,13 @@ components:
         gpu:
           type: string
           nullable: true
+      additionalProperties: false
+    DatabaseVersionInUse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int32
       additionalProperties: false
     ErrorBody:
       type: object

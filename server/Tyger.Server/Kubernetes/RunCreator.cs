@@ -19,7 +19,7 @@ public class RunCreator
     private readonly IRepository _repository;
     private readonly BufferManager _bufferManager;
     private readonly BufferOptions _bufferOptions;
-    private readonly KubernetesOptions _k8sOptions;
+    private readonly KubernetesApiOptions _k8sOptions;
     private readonly ILogger<RunCreator> _logger;
     private static readonly string[] s_waitForWorkerCommand = { "/no-op/no-op" };
 
@@ -27,7 +27,7 @@ public class RunCreator
         IKubernetes client,
         IRepository repository,
         BufferManager bufferManager,
-        IOptions<KubernetesOptions> k8sOptions,
+        IOptions<KubernetesApiOptions> k8sOptions,
         IOptions<BufferOptions> bufferOptions,
         ILogger<RunCreator> logger)
     {
