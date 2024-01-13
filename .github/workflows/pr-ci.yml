@@ -51,10 +51,7 @@ jobs:
         run: |
           scripts/generate-notice.sh
           if [[ `git status --porcelain` ]]; then
-            echo "***BEGIN NOTICE.txt***"
-            cat NOTICE.txt
-            echo "***END NOTICE.txt***"
-            # git diff
+            git diff
             echo "ERROR: NOTICE.txt needs to be regenerated using scripts/generate-notice.sh"
             exit 1
           fi
