@@ -47,6 +47,15 @@ jobs:
           set -euo pipefail
           make unit-test
 
+      - name: Generate NOTICE.txt
+        run: |
+          scripts/generate-notice.sh
+          if [[ `git status --porcelain` ]]; then
+            git diff
+            echo "ERROR: NOTICE.txt needs to be regenerated using scripts/generate-notice.sh"
+            exit 1
+          fi
+
   build-images:
     runs-on: ubuntu-latest
     needs:
