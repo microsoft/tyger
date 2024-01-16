@@ -5,11 +5,8 @@ package install
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"net/http"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v4"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
 	"github.com/rs/zerolog/log"
@@ -75,7 +72,12 @@ func createFederatedIdentityCredential(
 
 	issuerUrl := *cluster.Properties.OidcIssuerProfile.IssuerURL
 
-	desiredCred := armmsi.FederatedIdentityCredential{
+	client, err := armmsi.NewFederatedIdentityCredentialsClient(config.Cloud.SubscriptionID, cred, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create federated identity credentials client: %w", err)
+	}
+
+	_, err = client.CreateOrUpdate(ctx, config.Cloud.ResourceGroup, *mi.Name, *mi.Name, armmsi.FederatedIdentityCredential{
 		Properties: &armmsi.FederatedIdentityCredentialProperties{
 			Issuer:  &issuerUrl,
 			Subject: Ptr(fmt.Sprintf("system:serviceaccount:%s:%s", TygerNamespace, *mi.Name)),
@@ -83,30 +85,7 @@ func createFederatedIdentityCredential(
 				Ptr("api://AzureADTokenExchange"),
 			},
 		},
-	}
-
-	client, err := armmsi.NewFederatedIdentityCredentialsClient(config.Cloud.SubscriptionID, cred, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create federated identity credentials client: %w", err)
-	}
-
-	existingCred, err := client.Get(ctx, config.Cloud.ResourceGroup, *mi.Name, *mi.Name, nil)
-	if err != nil {
-		var respErr *azcore.ResponseError
-		if !errors.As(err, &respErr) || respErr.StatusCode != http.StatusNotFound {
-			return nil, fmt.Errorf("failed to get federated identity credential: %w", err)
-		}
-	} else {
-		if existingCred.Properties.Issuer != nil && *existingCred.Properties.Issuer == *desiredCred.Properties.Issuer &&
-			existingCred.Properties.Subject != nil && *existingCred.Properties.Subject == *desiredCred.Properties.Subject &&
-			existingCred.Properties.Audiences != nil && len(existingCred.Properties.Audiences) == 1 && *existingCred.Properties.Audiences[0] == *desiredCred.Properties.Audiences[0] {
-
-			log.Debug().Msgf("Federated identity credential already exists for '%s'", *mi.Name)
-			return nil, nil
-		}
-	}
-
-	_, err = client.CreateOrUpdate(ctx, config.Cloud.ResourceGroup, *mi.Name, *mi.Name, desiredCred, nil)
+	}, nil)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create federated identity credential: %w", err)
