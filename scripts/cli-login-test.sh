@@ -1,4 +1,8 @@
-#! /bin/bash
+#!/usr/bin/env bash
+
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # A simple script for testing tyger login scenarios
 
 printf "\n===PREREQUISITES===\n\n"

@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 using Shouldly;
 using Tyger.Server.Model;
 using Xunit;

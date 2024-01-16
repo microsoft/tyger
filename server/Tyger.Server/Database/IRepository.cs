@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 using Tyger.Server.Model;
 
 namespace Tyger.Server.Database;

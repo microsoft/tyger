@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 using Generator.Equals;
 using Shouldly;
 using Tyger.Server.Json;

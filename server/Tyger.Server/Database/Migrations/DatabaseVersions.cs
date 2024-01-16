@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 using System.ComponentModel;
 using System.Reflection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;

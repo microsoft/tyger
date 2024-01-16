@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 using Microsoft.Extensions.Logging.Console;
 
 namespace Tyger.Server.Logging;
