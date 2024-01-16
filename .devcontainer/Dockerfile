@@ -38,10 +38,10 @@ ARG USER_GID=$USER_UID
 
 ENV GOROOT="/usr/local/go"
 ENV GOPATH="/go"
-ENV "PATH"="/usr/local/go/bin:/go/bin:/usr/share/dotnet:${PATH}"
+ENV "PATH"="/usr/local/go/bin:/go/bin:/usr/share/dotnet:/home/${USERNAME}/.dotnet/tools:${PATH}"
 
 RUN umask 0002 \
-    &&  git clone https://github.com/devcontainers/features.git /opt/features \
+    &&  git clone https://github.com/devcontainers/features.git /opt/features\
     && cd /opt/features \
     && git checkout 4fca96b5e8a4bfc93679098cb19d73c65ce571eb \
     # DOCKER
@@ -72,15 +72,9 @@ RUN umask 0002 \
 ENTRYPOINT [ "/usr/local/share/docker-init.sh" ]
 CMD [ "sleep", "infinity" ]
 
-RUN dotnet workload update
-
 WORKDIR /opt/temp
 COPY --from=file-normalizer /data/install-tools.sh .
 RUN ./install-tools.sh
-
-USER vscode
-
-USER root
 
 # Add a file that is to be sourced from .bashrc and from the devops pipeline stages
 COPY --from=file-normalizer /data/devcontainer.bashrc /opt/devcontainer/

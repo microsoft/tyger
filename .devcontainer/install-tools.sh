@@ -19,9 +19,6 @@ wget "https://github.com/uzimaru0000/tv/releases/download/${TV_VERSION}/tv-x86_6
 KUBELOGIN_VERSION=0.0.33
 sudo az aks install-cli --kubelogin-version "${KUBELOGIN_VERSION}" --install-location "/dev/null"
 
-# install dotnet-symbol
-dotnet tool install dotnet-symbol --global
-
 # install psql
 echo "deb https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list
 wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
