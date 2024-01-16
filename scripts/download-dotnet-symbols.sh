@@ -7,4 +7,9 @@
 
 set -euo pipefail
 
-find "$(dirname "$(which dotnet)")" -name "*.dll" -exec dotnet symbol --symbols {} \;
+if ! command -v dotnet-symbol &> /dev/null; then
+    dotnet tool install dotnet-symbol --global
+fi
+
+dotnet_symbol_path=$(which dotnet-symbol)
+sudo "$dotnet_symbol_path" --symbols /usr/share/dotnet/ --recurse-subdirectories
