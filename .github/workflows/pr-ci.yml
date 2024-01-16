@@ -49,10 +49,23 @@ jobs:
 
       - name: Generate NOTICE.txt
         run: |
+          set -euo pipefail
+
           scripts/generate-notice.sh
           if [[ `git status --porcelain` ]]; then
             git diff
             echo "ERROR: NOTICE.txt needs to be regenerated using scripts/generate-notice.sh"
+            exit 1
+          fi
+
+      - name: Check copyright headers
+        run: |
+          set -euo pipefail
+
+          scripts/add-copyright-headers.sh
+          if [[ `git status --porcelain` ]]; then
+            git diff
+            echo "ERROR: update copyright headers using scripts/add-cpopyright-headers.sh"
             exit 1
           fi
 

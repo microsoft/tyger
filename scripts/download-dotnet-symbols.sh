@@ -1,5 +1,8 @@
-#! /bin/bash
-#
+#!/usr/bin/env bash
+
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Downloads .NET symbols to allow debugging framework code
 
 set -euo pipefail

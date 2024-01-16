@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 using k8s.Models;
 using Microsoft.OpenApi.Any;
 using Microsoft.OpenApi.Models;

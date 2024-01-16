@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 using Npgsql;
 using static Tyger.Server.Database.Constants;
 

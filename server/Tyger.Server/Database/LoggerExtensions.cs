@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 namespace Tyger.Server.Database;
 
 public static partial class LoggerExtensions

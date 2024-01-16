@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 .ONESHELL:
 SHELL = /bin/bash
 .SHELLFLAGS = -ecuo pipefail

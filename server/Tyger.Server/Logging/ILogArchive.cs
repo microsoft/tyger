@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 namespace Tyger.Server.Logging;
 
 public interface ILogArchive : ILogSource

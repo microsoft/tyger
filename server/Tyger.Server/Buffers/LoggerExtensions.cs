@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 namespace Tyger.Server.Buffers;
 
 public static partial class LogingExtensions
