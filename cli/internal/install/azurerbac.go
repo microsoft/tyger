@@ -55,6 +55,20 @@ func assignRbacRole(ctx context.Context, principalId, scope, roleName, subscript
 		return fmt.Errorf("failed to create role assignments client: %w", err)
 	}
 
+	pager := roleAssignmentClient.NewListForScopePager(scope, nil)
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to list role assignments: %w", err)
+		}
+
+		for _, ra := range page.RoleAssignmentListResult.Value {
+			if *ra.Properties.RoleDefinitionID == roleId && *ra.Properties.PrincipalID == principalId {
+				return nil
+			}
+		}
+	}
+
 	for i := 0; ; i++ {
 		_, err = roleAssignmentClient.Create(
 			ctx,

@@ -13,10 +13,9 @@ export LC_ALL=C
 repo_root=$(readlink -f "$(dirname "$0")/..")
 
 cd "$repo_root"
-make -s build
 
 go_sum_relative_path="cli/go.sum"
-csharp_assets_json_relative_path="server/Tyger.Server/obj/project.assets.json"
+csharp_package_lock_relative_path="server/Tyger.Server/packages.lock.json"
 notice_relative_path="NOTICE.txt"
 
 notice_metadata_path="$repo_root/.notice-metadata.txt"
@@ -24,12 +23,14 @@ expected_notice_metadata_path="/tmp/expected-notice-metadata.txt"
 
 this_script_relative_path=$(realpath --relative-to="$repo_root" "$0")
 
-sha256sum "$go_sum_relative_path" "$csharp_assets_json_relative_path" "$this_script_relative_path" "$notice_relative_path" > "$expected_notice_metadata_path"
+sha256sum "$go_sum_relative_path" "$csharp_package_lock_relative_path" "$this_script_relative_path" "$notice_relative_path" > "$expected_notice_metadata_path"
 
 if cmp -s "$notice_metadata_path" "$expected_notice_metadata_path"; then
     echo "NOTICE.txt is up to date"
     exit
 fi
+
+make -s build
 
 # the file we will be writing to
 notice_path="$repo_root/$notice_relative_path"
