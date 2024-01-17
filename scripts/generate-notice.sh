@@ -12,12 +12,30 @@ export LC_ALL=C
 
 repo_root=$(readlink -f "$(dirname "$0")/..")
 
-cd "$repo_root/cli"
+cd "$repo_root"
 
-save_dir="/tmp/licenses"
+go_sum_relative_path="cli/go.sum"
+csharp_package_lock_relative_path="server/Tyger.Server/packages.lock.json"
+notice_relative_path="NOTICE.txt"
+
+notice_metadata_path="$repo_root/.notice-metadata.txt"
+expected_notice_metadata_path="/tmp/expected-notice-metadata.txt"
+
+this_script_relative_path=$(realpath --relative-to="$repo_root" "$0")
+
+sha256sum "$go_sum_relative_path" "$csharp_package_lock_relative_path" "$this_script_relative_path" "$notice_relative_path" > "$expected_notice_metadata_path"
+
+if cmp -s "$notice_metadata_path" "$expected_notice_metadata_path"; then
+    echo "NOTICE.txt is up to date"
+    exit
+fi
+
+make -s build
 
 # the file we will be writing to
-notice_path="$repo_root/NOTICE.txt"
+notice_path="$repo_root/$notice_relative_path"
+
+cd "$repo_root/cli"
 
 # the header of the notice file
 cat >"$notice_path" <<-EOM
@@ -30,6 +48,8 @@ EOM
 # Go dependencies
 
 go install github.com/google/go-licenses@v1.6.0
+
+save_dir="/tmp/licenses"
 
 # The tool will write out warnings to stderr for non-go binary dependencies that it cannot follow.
 # This pattern will filter the known warnings out of the output.
@@ -71,19 +91,19 @@ for lib_name in $lib_names; do
 
 done
 
-
 # C# dependencies
 cd "$repo_root"
-make -s build
 
 for lib in $(jq -r '.libraries | to_entries | map(select(.value.type == "package") | .key) | sort[]' server/Tyger.Server/obj/project.assets.json); do
     {
         echo -e "================================================================================\n"
 
-        curl -sS -X POST "https://api.clearlydefined.io/notices" -H "accept: application/json" -H "Content-Type: application/json" -d "{\"coordinates\":[\"nuget/nuget/-/$lib\"],\"options\":{}}" \
+        curl -sS --fail -X POST "https://api.clearlydefined.io/notices" -H "accept: application/json" -H "Content-Type: application/json" -d "{\"coordinates\":[\"nuget/nuget/-/$lib\"],\"options\":{}}" \
             | jq -r '.content'
 
         echo ""
 
     } >>"$notice_path"
 done
+
+mv "$expected_notice_metadata_path" "$notice_metadata_path"
