@@ -271,9 +271,6 @@ func uploadBlobWithRery(ctx context.Context, httpClient *retryablehttp.Client, b
 				return fmt.Errorf("failed to upload blob: %w", httpclient.RedactHttpError(err))
 			}
 		case errBlobOverwrite:
-			if i == 0 {
-				return fmt.Errorf("buffer cannot be overwritten: %w", httpclient.RedactHttpError(err))
-			}
 			// When retrying failed writes, we might encounter the UnauthorizedBlobOverwrite if the original
 			// write went through. In such cases, we should follow up with a HEAD request to verify the
 			// Content-MD5 and x-ms-meta-cumulative_md5_chain match our expectations.
@@ -291,9 +288,10 @@ func uploadBlobWithRery(ctx context.Context, httpClient *retryablehttp.Client, b
 			md5ChainHeader := resp.Header.Get(HashChainHeader)
 
 			if md5Header == encodedMD5Hash && md5ChainHeader == encodedMD5HashChain {
-				log.Ctx(ctx).Debug().Msg("Failed blob write actually went through")
 				return nil
 			}
+
+			return fmt.Errorf("buffer cannot be overwritten: %w", httpclient.RedactHttpError(err))
 		case errBufferDoesNotExist:
 			return err
 		default:

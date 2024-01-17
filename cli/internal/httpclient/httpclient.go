@@ -46,7 +46,7 @@ type lazyInitTransport struct {
 func (m *lazyInitTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	m.transportInit.Do(func() {
 		m.transport.MaxConnsPerHost = 1000
-		m.transport.ResponseHeaderTimeout = 20 * time.Second
+		m.transport.ResponseHeaderTimeout = 60 * time.Second
 
 		if serviceInfo, err := settings.GetServiceInfoFromContext(req.Context()); err == nil {
 			m.transport.Proxy = serviceInfo.GetProxyFunc()
