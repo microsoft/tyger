@@ -1,12 +1,12 @@
-FROM mcr.microsoft.com/dotnet/sdk:8.0.100-cbl-mariner2.0-amd64 as build
+FROM mcr.microsoft.com/dotnet/sdk:8.0.100-cbl-mariner2.0 as build
 WORKDIR /src
 
 COPY server/Tyger.Server/Tyger.Server.csproj server/Tyger.Server/
-RUN dotnet restore server/Tyger.Server/Tyger.Server.csproj
+RUN dotnet restore --arch amd64 server/Tyger.Server/Tyger.Server.csproj
 
 COPY . .
 WORKDIR /src/server/Tyger.Server
-RUN dotnet publish --no-restore -c release -o /app
+RUN dotnet publish --no-restore --arch amd64 -c release -o /app
 
 
 # final stage/image
