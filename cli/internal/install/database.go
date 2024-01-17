@@ -154,23 +154,21 @@ func createDatabase(ctx context.Context, tygerServerManagedIdentityPromise, migr
 		return nil, errDependencyFailed
 	}
 
-	currentPrincipalDisplayName, err := createDatabaseAdmins(ctx, config, serverName, cred, databaseConfig, migrationRunnerManagedIdentity)
-	if err != nil {
-		return nil, err
-	}
+	promiseGroup := &PromiseGroup{}
+
+	createAdminsPromise := NewPromise(ctx, promiseGroup, func(ctx context.Context) (string, error) {
+		return createDatabaseAdmins(ctx, config, serverName, cred, databaseConfig, migrationRunnerManagedIdentity)
+	})
 
 	firewallClient, err := armpostgresqlflexibleservers.NewFirewallRulesClient(config.Cloud.SubscriptionID, cred, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create PostgreSQL server firewall client: %w", err)
 	}
 
-	// Run two tasks in parallel:
-	promiseGroup := &PromiseGroup{}
-
-	// Task one:
-	// 1. create a temporary firewall rule that allows connections from anywhere (so that we can connect from this machine)
-	// 2. create the necessary database roles
-	// 3. delete the temporary firewall rule
+	// This promise:
+	// 1. creates a temporary firewall rule that allows connections from anywhere (so that we can connect from this machine)
+	// 2. creates the necessary database roles
+	// 3. deletes the temporary firewall rule
 	NewPromise(ctx, promiseGroup, func(ctx context.Context) (any, error) {
 		log.Info().Msg("Creating temporary PostgreSQL server firewall rule")
 
@@ -194,6 +192,11 @@ func createDatabase(ctx context.Context, tygerServerManagedIdentityPromise, migr
 			return nil, errDependencyFailed
 		}
 
+		currentPrincipalDisplayName, err := createAdminsPromise.Await()
+		if err != nil {
+			return nil, errDependencyFailed
+		}
+
 		if err := createRoles(ctx, cred, config, existingServer, currentPrincipalDisplayName, tygerServerManagedIdentity, migrationRunnerManagedIdentity); err != nil {
 			return nil, err
 		}
@@ -210,7 +213,7 @@ func createDatabase(ctx context.Context, tygerServerManagedIdentityPromise, migr
 		return nil, err
 	})
 
-	// Task two: create a permanent firewall rule that allows connections from Azure services and resources
+	// Create a permanent firewall rule that allows connections from Azure services and resources
 	// (we should support private networking in the future)
 	NewPromise(ctx, promiseGroup, func(ctx context.Context) (any, error) {
 		log.Info().Msg("Adding permanent firewall rule")
@@ -233,7 +236,7 @@ func createDatabase(ctx context.Context, tygerServerManagedIdentityPromise, migr
 
 	// wait for the two tasks to complete
 	for _, p := range *promiseGroup {
-		if err := p.AwaitErr(); err != nil {
+		if err := p.AwaitErr(); err != nil && err != errDependencyFailed {
 			return nil, err
 		}
 	}
