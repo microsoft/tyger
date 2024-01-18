@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	CurrentBufferFormatVersion = "0.2.0"
+	CurrentBufferFormatVersion = "0.3.0"
 
 	BufferStatusComplete = "complete"
 	BufferStatusFailed   = "failed"
