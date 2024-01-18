@@ -6,6 +6,7 @@ package dataplane
 import (
 	"context"
 	"crypto/md5"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -23,9 +24,9 @@ import (
 )
 
 const (
-	DefaultWriteDop                = 16
-	DefaultBlockSize               = 4 * 1024 * 1024
-	EncodedMD5HashChainInitalValue = "MDAwMDAwMDAwMDAwMDAwMA=="
+	DefaultWriteDop             = 16
+	DefaultBlockSize            = 4 * 1024 * 1024
+	EncodedHashChainInitalValue = "MDAwMDAwMDAwMDAwMDAwMA=="
 )
 
 var (
@@ -118,14 +119,14 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 				md5Hash := md5.Sum(bb.Contents)
 				encodedMD5Hash := base64.StdEncoding.EncodeToString(md5Hash[:])
 
-				previousMD5HashChain := <-bb.PreviousCumulativeHash
+				previousHashChain := <-bb.PreviousCumulativeHash
 
-				md5HashChain := md5.Sum([]byte(previousMD5HashChain + encodedMD5Hash))
-				encodedMD5HashChain := base64.StdEncoding.EncodeToString(md5HashChain[:])
+				hashChain := sha256.Sum256([]byte(previousHashChain + encodedMD5Hash))
+				encodedHashChain := base64.StdEncoding.EncodeToString(hashChain[:])
 
-				bb.CurrentCumulativeHash <- encodedMD5HashChain
+				bb.CurrentCumulativeHash <- encodedHashChain
 
-				if err := uploadBlobWithRery(ctx, httpClient, blobUrl, body, encodedMD5Hash, encodedMD5HashChain); err != nil {
+				if err := uploadBlobWithRery(ctx, httpClient, blobUrl, body, encodedMD5Hash, encodedHashChain); err != nil {
 					log.Debug().Err(err).Msg("Encountered error uploading blob")
 					errorChannel <- err
 					return
@@ -142,7 +143,7 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 		var blobNumber int64 = 0
 		previousHashChannel := make(chan string, 1)
 
-		previousHashChannel <- EncodedMD5HashChainInitalValue
+		previousHashChannel <- EncodedHashChainInitalValue
 
 		for {
 
@@ -256,7 +257,7 @@ func writeEndMetadata(ctx context.Context, httpClient *retryablehttp.Client, con
 	}
 }
 
-func uploadBlobWithRery(ctx context.Context, httpClient *retryablehttp.Client, blobUrl string, body any, encodedMD5Hash string, encodedMD5HashChain string) error {
+func uploadBlobWithRery(ctx context.Context, httpClient *retryablehttp.Client, blobUrl string, body any, encodedMD5Hash string, encodedHashChain string) error {
 	start := time.Now()
 	for i := 0; ; i++ {
 		req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodPut, blobUrl, body)
@@ -268,8 +269,8 @@ func uploadBlobWithRery(ctx context.Context, httpClient *retryablehttp.Client, b
 		req.Header.Add("x-ms-blob-type", "BlockBlob")
 
 		req.Header.Add(ContentMD5Header, encodedMD5Hash)
-		if encodedMD5HashChain != "" {
-			req.Header.Add(HashChainHeader, encodedMD5HashChain)
+		if encodedHashChain != "" {
+			req.Header.Add(HashChainHeader, encodedHashChain)
 		}
 
 		resp, err := httpClient.Do(req)
@@ -292,7 +293,7 @@ func uploadBlobWithRery(ctx context.Context, httpClient *retryablehttp.Client, b
 		case errBlobOverwrite:
 			// When retrying failed writes, we might encounter the UnauthorizedBlobOverwrite if the original
 			// write went through. In such cases, we should follow up with a HEAD request to verify the
-			// Content-MD5 and x-ms-meta-cumulative_md5_chain match our expectations.
+			// Content-MD5 and x-ms-meta-cumulative_hash_chain match our expectations.
 			req, err := retryablehttp.NewRequest(http.MethodHead, blobUrl, nil)
 			if err != nil {
 				return fmt.Errorf("unable to create HEAD request: %w", err)
@@ -309,7 +310,7 @@ func uploadBlobWithRery(ctx context.Context, httpClient *retryablehttp.Client, b
 				md5Header := resp.Header.Get(ContentMD5Header)
 				md5ChainHeader := resp.Header.Get(HashChainHeader)
 
-				if md5Header == encodedMD5Hash && md5ChainHeader == encodedMD5HashChain {
+				if md5Header == encodedMD5Hash && md5ChainHeader == encodedHashChain {
 					return nil
 				}
 			}
