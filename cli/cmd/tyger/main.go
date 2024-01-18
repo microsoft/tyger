@@ -56,7 +56,6 @@ func newRootCommand() *cobra.Command {
 	rootCommand.AddCommand(cmd.NewBufferCommand())
 	rootCommand.AddCommand(cmd.NewCodespecCommand())
 	rootCommand.AddCommand(cmd.NewRunCommand())
-	rootCommand.AddCommand(cmd.NewClusterCommand())
 	rootCommand.AddCommand(install.NewConfigCommand(rootCommand))
 	rootCommand.AddCommand(install.NewCloudCommand(rootCommand))
 	rootCommand.AddCommand(install.NewApiCommand(rootCommand))

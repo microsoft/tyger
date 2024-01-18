@@ -3,42 +3,6 @@ info:
   title: tyger.server
   version: '1.0'
 paths:
-  /v1/clusters:
-    get:
-      tags:
-        - tyger.server
-      responses:
-        '200':
-          description: Success
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Cluster'
-  '/v1/clusters/{name}':
-    get:
-      tags:
-        - tyger.server
-      parameters:
-        - name: name
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Success
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Cluster'
-        '400':
-          description: Bad Request
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorBody'
   /v1/buffers:
     post:
       tags:
@@ -489,18 +453,6 @@ components:
             type: string
           nullable: true
       additionalProperties: false
-    Cluster:
-      type: object
-      properties:
-        name:
-          type: string
-        location:
-          type: string
-        nodePools:
-          type: array
-          items:
-            $ref: '#/components/schemas/NodePool'
-      additionalProperties: false
     Codespec:
       required:
         - image
@@ -644,14 +596,6 @@ components:
         cliAppUri:
           type: string
           nullable: true
-      additionalProperties: false
-    NodePool:
-      type: object
-      properties:
-        name:
-          type: string
-        vmSize:
-          type: string
       additionalProperties: false
     OvercommittableResources:
       type: object
