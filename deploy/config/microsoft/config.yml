@@ -40,10 +40,7 @@ cloud:
 
   database:
     location: westus3
-    firewallRules:
-      - name: john
-        startIpAddress: 66.130.187.50
-        endIpAddress: 66.130.187.50
+    firewallRules: ${TYGER_ENVIRONMENT_FIREWALL_RULES}
 
 api:
   domainName: ${TYGER_ENVIRONMENT_NAME}-tyger.westus2.cloudapp.azure.com
