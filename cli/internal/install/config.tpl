@@ -46,6 +46,14 @@ cloud:
   database:
     serverName: {{ .DatabaseServerName }}
     postgresMajorVersion: {{ .PostgresMajorVersion }}
+
+    # Firewall rules to control where the database can be accessed from,
+    # in addition to the control-plane cluster.
+    firewallRules:
+      - name: installerIpAddress
+        startIpAddress: {{ .CurrentIpAddress }}
+        endIpAddress: {{ .CurrentIpAddress }}
+
     # location: Defaults to defaultLocation
     # computeTier: Defaults to Burstable
     # vmSize: Defaults to Standard_B1ms

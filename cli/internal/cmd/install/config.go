@@ -21,6 +21,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armsubscriptions"
 	"github.com/eiannone/keyboard"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/ipinfo/go/v2/ipinfo"
 	"github.com/microsoft/tyger/cli/internal/install"
 
 	"github.com/spf13/cobra"
@@ -101,11 +102,19 @@ func newConfigCreateCommand() *cobra.Command {
 			fmt.Printf("\nFirst, let's collect settings for the Azure subscription to use. This is where cloud resources will be deployed.\n\n")
 
 			cred, _ := azidentity.NewAzureCLICredential(nil)
+
+			ipInfoClient := ipinfo.NewClient(nil, nil, "")
+			ip, err := ipInfoClient.GetIPInfo(nil)
+			if err != nil {
+				return fmt.Errorf("failed to get current external IP address: %w", err)
+			}
+
 			templateValues := install.ConfigTemplateValues{
 				KubernetesVersion:    install.DefaultKubernetesVersion,
 				PostgresMajorVersion: install.DefaultPostgresMajorVersion,
+				CurrentIpAddress:     ip.IP.String(),
 			}
-			var err error
+
 			ctx := cmd.Context()
 
 			for {

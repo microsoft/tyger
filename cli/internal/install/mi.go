@@ -71,7 +71,7 @@ func createFederatedIdentityCredential(
 		return nil, errDependencyFailed
 	}
 
-	log.Info().Msg("Creating or updating federated identity credential")
+	log.Info().Msgf("Creating or updating federated identity credential '%s'", *mi.Name)
 
 	issuerUrl := *cluster.Properties.OidcIssuerProfile.IssuerURL
 
