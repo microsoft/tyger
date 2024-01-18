@@ -432,7 +432,7 @@ public class RunCreator
 
         podTemplateSpec.Spec.Tolerations =
             [
-                new() { Key = "tyger", OperatorProperty= "Equal", Value = "run", Effect = "NoSchedule" } // allow this to run on a user nodepools
+                new() { Key = "tyger", OperatorProperty = "Equal", Value = "run", Effect = "NoSchedule" } // allow this to run on a user nodepools
             ];
         if (codespec.Resources?.Gpu != null || targetsGpuNodePool)
         {
