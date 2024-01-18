@@ -187,7 +187,7 @@ public class RunCreator
 
     private void AddWaitForWorkerInitContainersToJob(V1Job job, Run run)
     {
-        var initContainers = job.Spec.Template.Spec.InitContainers ??= new List<V1Container>();
+        var initContainers = job.Spec.Template.Spec.InitContainers ??= [];
 
         initContainers.Add(
             new()
@@ -213,7 +213,7 @@ public class RunCreator
                 Command = new[] { "bash", "-c", waitScript.ToString() },
             });
 
-        (job.Spec.Template.Spec.Volumes ??= new List<V1Volume>()).Add(new()
+        (job.Spec.Template.Spec.Volumes ??= []).Add(new()
         {
             Name = "no-op",
             ConfigMap = new V1ConfigMapVolumeSource
@@ -228,7 +228,7 @@ public class RunCreator
     {
         var dnsNames = GetWorkerDnsNames(run);
 
-        var envVars = GetMainContainer(job.Spec.Template.Spec).Env ??= new List<V1EnvVar>();
+        var envVars = GetMainContainer(job.Spec.Template.Spec).Env ??= [];
         envVars.Add(new("TYGER_WORKER_NODES", JsonSerializer.Serialize(dnsNames)));
         if (workerCodespec?.Endpoints != null)
         {
@@ -251,7 +251,7 @@ public class RunCreator
         const string PipeVolumeName = "pipevolume";
 
         var mainContainer = GetMainContainer(job.Spec.Template.Spec);
-        mainContainer.Env ??= new List<V1EnvVar>();
+        mainContainer.Env ??= [];
 
         foreach (var envVar in bufferMap.Select(p => new V1EnvVar($"{p.Key.ToUpperInvariant()}_PIPE", $"{FifoMountPath}/{p.Key}")))
         {
@@ -268,7 +268,7 @@ public class RunCreator
             StringData = bufferMap.ToDictionary(p => p.Key, p => p.Value.sasUri.ToString()),
         };
 
-        (job.Spec.Template.Spec.Volumes ??= new List<V1Volume>()).Add(
+        (job.Spec.Template.Spec.Volumes ??= []).Add(
             new()
             {
                 Name = "buffers",
@@ -278,7 +278,7 @@ public class RunCreator
         job.Spec.Template.Spec.Volumes.Add(new() { Name = PipeVolumeName, EmptyDir = new() });
 
         var fifoVolumeMount = new V1VolumeMount(FifoMountPath, PipeVolumeName);
-        (mainContainer.VolumeMounts ??= new List<V1VolumeMount>()).Add(fifoVolumeMount);
+        (mainContainer.VolumeMounts ??= []).Add(fifoVolumeMount);
 
         var mkfifoBuilder = new StringBuilder("set -euo pipefail").AppendLine();
         foreach (var buffer in bufferMap)
@@ -287,7 +287,7 @@ public class RunCreator
             mkfifoBuilder.AppendLine($"mkfifo {fifoPath}").AppendLine($"chmod 666 {fifoPath}");
         }
 
-        (job.Spec.Template.Spec.InitContainers ??= new List<V1Container>()).Add(
+        (job.Spec.Template.Spec.InitContainers ??= []).Add(
             new()
             {
                 Name = "mkfifo",
@@ -344,8 +344,12 @@ public class RunCreator
         ClusterOptions? targetCluster;
         if (!string.IsNullOrEmpty(newRun.Cluster))
         {
-            targetCluster = _k8sOptions.Clusters.FirstOrDefault(c => string.Equals(c.Name, newRun.Cluster, StringComparison.OrdinalIgnoreCase)) ??
-                throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "Unknown cluster '{0}'", newRun.Cluster));
+            targetCluster = _k8sOptions.Clusters.FirstOrDefault(c => string.Equals(c.Name, newRun.Cluster, StringComparison.OrdinalIgnoreCase));
+            if (targetCluster == null)
+            {
+                var options = string.Join(", ", _k8sOptions.Clusters.Select(c => $"'{c.Name}'"));
+                throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "Unknown cluster '{0}'. Valid options are: {1}.", newRun.Cluster, options));
+            }
         }
         else
         {
@@ -362,12 +366,12 @@ public class RunCreator
         {
             Metadata = new()
             {
-                Finalizers = new[] { FinalizerName }
+                Finalizers = [FinalizerName]
             },
             Spec = new()
             {
-                Containers = new List<V1Container>()
-                {
+                Containers =
+                [
                     new()
                     {
                         Name = "main",
@@ -376,7 +380,7 @@ public class RunCreator
                         Args = codespec.Args,
                         Env = codespec.Env?.Select(p => new V1EnvVar(p.Key, p.Value)).ToList()
                     }
-                },
+                ],
                 RestartPolicy = restartPolicy,
             }
         };
@@ -401,7 +405,8 @@ public class RunCreator
             NodePoolOptions? pool;
             if ((pool = targetCluster.UserNodePools.FirstOrDefault(np => string.Equals(np.Name, codeTarget.NodePool, StringComparison.OrdinalIgnoreCase))) == null)
             {
-                throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "Unknown nodepool '{0}'", targetNodePool));
+                var options = string.Join(", ", targetCluster.UserNodePools.Select(np => $"'{np.Name}'"));
+                throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "Unknown nodepool '{0}'. Valid options are: {1}.", targetNodePool, options));
             }
 
             targetsGpuNodePool = DoesVmHaveSupportedGpu(pool.VmSize);
@@ -425,10 +430,10 @@ public class RunCreator
             GetMainContainer(podTemplateSpec.Spec).Resources = new() { Requests = requests, Limits = limits };
         }
 
-        podTemplateSpec.Spec.Tolerations = new List<V1Toleration>
-            {
+        podTemplateSpec.Spec.Tolerations =
+            [
                 new() { Key = "tyger", OperatorProperty= "Equal", Value = "run", Effect = "NoSchedule" } // allow this to run on a user nodepools
-            };
+            ];
         if (codespec.Resources?.Gpu != null || targetsGpuNodePool)
         {
             podTemplateSpec.Spec.Tolerations.Add(new() { Key = "sku", OperatorProperty = "Equal", Value = "gpu", Effect = "NoSchedule" });
