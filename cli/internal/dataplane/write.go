@@ -308,9 +308,9 @@ func uploadBlobWithRery(ctx context.Context, httpClient *retryablehttp.Client, b
 
 			if resp.StatusCode == http.StatusOK {
 				md5Header := resp.Header.Get(ContentMD5Header)
-				md5ChainHeader := resp.Header.Get(HashChainHeader)
+				hashChainHeader := resp.Header.Get(HashChainHeader)
 
-				if md5Header == encodedMD5Hash && md5ChainHeader == encodedHashChain {
+				if md5Header == encodedMD5Hash && hashChainHeader == encodedHashChain {
 					return nil
 				}
 			}
