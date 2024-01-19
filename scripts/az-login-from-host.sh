@@ -6,8 +6,6 @@
 # This script is used to copy the Azure CLI context cache directory from the host to the devcontainer.
 # This can be used instead of running "az login" in the devcontainer if the user has already logged in on the host.
 
-#! /usr/bin/env bash
-
 set -euo pipefail
 
 devcontainer_id=$(cat /etc/hostname)
