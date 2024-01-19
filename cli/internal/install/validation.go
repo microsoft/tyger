@@ -5,6 +5,7 @@ package install
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"regexp"
 
@@ -217,6 +218,20 @@ func quickValidateDatabaseConfig(success *bool, cloudConfig *CloudConfig) {
 		databaseConfig.BackupRetentionDays = DefaultBackupRetentionDays
 	} else if databaseConfig.BackupRetentionDays < 0 {
 		validationError(success, "The `cloud.database.backupRetentionDays` field must be greater than or equal to zero")
+	}
+
+	for i, fr := range databaseConfig.FirewallRules {
+		if fr.Name == "" {
+			validationError(success, "The `cloud.database.firewallRules[%d].name` field is required", i)
+		} else {
+			if ip := net.ParseIP(fr.StartIpAddress); ip == nil {
+				validationError(success, "The `Firewall rule '%s' must have a valid IP adress as `startIpAddress`", fr.Name)
+			}
+
+			if ip := net.ParseIP(fr.EndIpAddress); ip == nil {
+				validationError(success, "The `Firewall rule '%s' must have a valid IP adress as `endIpAddress`", fr.Name)
+			}
+		}
 	}
 }
 

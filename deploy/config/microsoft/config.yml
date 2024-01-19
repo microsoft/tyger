@@ -40,6 +40,7 @@ cloud:
 
   database:
     location: westus3
+    firewallRules: ${TYGER_ENVIRONMENT_FIREWALL_RULES}
 
 api:
   domainName: ${TYGER_ENVIRONMENT_NAME}-tyger.westus2.cloudapp.azure.com

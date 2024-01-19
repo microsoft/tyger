@@ -6,6 +6,7 @@ package cmd
 import (
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/microsoft/tyger/cli/internal/controlplane"
@@ -69,14 +70,18 @@ func NewCommonRootCommand(commit string) *cobra.Command {
 
 			cmd.SetContext(ctx)
 
-			if cmd.CommandPath() != "tyger api install" {
+			cmdPath := cmd.CommandPath()
+			switch {
+			case strings.HasPrefix(cmdPath, "tyger api"),
+				strings.HasPrefix(cmdPath, "tyger config"),
+				strings.HasPrefix(cmdPath, "tyger cloud"):
+				break
+			default:
 				// Disable the default transport so that we don't forget
-				// to apply proxy settings.
-				// The `tyger api install` however relies on containerd
-				// libraries to download an OCI image and those libraries
-				// do not let you specify an HTTP client.
+				// to apply proxy settings, unless performing installation operations.
 				httpclient.DisableDefaultTransport()
 			}
+
 		},
 	}
 

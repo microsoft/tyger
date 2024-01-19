@@ -84,14 +84,21 @@ type StorageAccountConfig struct {
 }
 
 type DatabaseConfig struct {
-	ServerName           string `json:"serverName"`
-	Location             string `json:"location"`
-	ComputeTier          string `json:"computeTier"`
-	VMSize               string `json:"vmSize"`
-	PostgresMajorVersion int    `json:"postgresMajorVersion"`
-	StorageSizeGB        int    `json:"storageSizeGB"`
-	BackupRetentionDays  int    `json:"backupRetentionDays"`
-	BackupGeoRedundancy  bool   `json:"backupGeoRedundancy"`
+	ServerName           string          `json:"serverName"`
+	Location             string          `json:"location"`
+	ComputeTier          string          `json:"computeTier"`
+	VMSize               string          `json:"vmSize"`
+	FirewallRules        []*FirewallRule `json:"firewallRules,omitempty"`
+	PostgresMajorVersion int             `json:"postgresMajorVersion"`
+	StorageSizeGB        int             `json:"storageSizeGB"`
+	BackupRetentionDays  int             `json:"backupRetentionDays"`
+	BackupGeoRedundancy  bool            `json:"backupGeoRedundancy"`
+}
+
+type FirewallRule struct {
+	Name           string `json:"name"`
+	StartIpAddress string `json:"startIpAddress"`
+	EndIpAddress   string `json:"endIpAddress"`
 }
 
 type ApiConfig struct {
@@ -139,6 +146,7 @@ type ConfigTemplateValues struct {
 	LogsStorageAccountName   string
 	DomainName               string
 	ApiTenantId              string
+	CurrentIpAddress         string
 }
 
 func RenderConfig(templateValues ConfigTemplateValues, writer io.Writer) error {

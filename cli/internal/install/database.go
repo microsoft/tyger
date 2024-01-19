@@ -143,6 +143,88 @@ func createDatabase(ctx context.Context, tygerServerManagedIdentityPromise, migr
 		}
 	}
 
+	desiredFirewallRules := map[string]armpostgresqlflexibleservers.FirewallRule{
+		"AllowAllAzureServicesAndResources": {
+			Properties: &armpostgresqlflexibleservers.FirewallRuleProperties{
+				StartIPAddress: Ptr("0.0.0.0"),
+				EndIPAddress:   Ptr("0.0.0.0"),
+			},
+		},
+	}
+
+	for _, rule := range databaseConfig.FirewallRules {
+		desiredFirewallRules[rule.Name] = armpostgresqlflexibleservers.FirewallRule{
+			Properties: &armpostgresqlflexibleservers.FirewallRuleProperties{
+				StartIPAddress: Ptr(rule.StartIpAddress),
+				EndIPAddress:   Ptr(rule.EndIpAddress),
+			},
+		}
+	}
+
+	firewallClient, err := armpostgresqlflexibleservers.NewFirewallRulesClient(config.Cloud.SubscriptionID, cred, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create PostgreSQL server firewall client: %w", err)
+	}
+
+	existingFirewallRules := make(map[string]armpostgresqlflexibleservers.FirewallRule)
+
+	pager := firewallClient.NewListByServerPager(config.Cloud.ResourceGroup, serverName, nil)
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list PostgreSQL server firewall rules: %w", err)
+		}
+		for _, fr := range page.Value {
+			existingFirewallRules[*fr.Name] = *fr
+		}
+	}
+
+	promiseGroup := &PromiseGroup{}
+
+	for name := range desiredFirewallRules {
+		nameSnapshot := name
+		desiredRule := desiredFirewallRules[nameSnapshot]
+		if existingRule, ok := existingFirewallRules[nameSnapshot]; ok &&
+			*existingRule.Properties.StartIPAddress == *desiredRule.Properties.StartIPAddress &&
+			*existingRule.Properties.EndIPAddress == *desiredRule.Properties.EndIPAddress {
+			continue
+		}
+
+		NewPromise(ctx, promiseGroup, func(ctx context.Context) (any, error) {
+			log.Info().Msgf("Creating or updating PostgreSQL server firewall rule '%s'", nameSnapshot)
+			_, err = retryableAsyncOperation(ctx, func(ctx context.Context) (*runtime.Poller[armpostgresqlflexibleservers.FirewallRulesClientCreateOrUpdateResponse], error) {
+				return firewallClient.BeginCreateOrUpdate(ctx, config.Cloud.ResourceGroup, serverName, nameSnapshot, desiredRule, nil)
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to create PostgreSQL server firewall rule: %w", err)
+			}
+			return nil, nil
+		})
+	}
+
+	for name := range existingFirewallRules {
+		nameSnapshot := name
+		if _, ok := desiredFirewallRules[nameSnapshot]; !ok {
+			NewPromise(ctx, promiseGroup, func(ctx context.Context) (any, error) {
+				log.Info().Msgf("Deleting PostgreSQL server firewall rule '%s'", nameSnapshot)
+				_, err = retryableAsyncOperation(ctx, func(ctx context.Context) (*runtime.Poller[armpostgresqlflexibleservers.FirewallRulesClientDeleteResponse], error) {
+					return firewallClient.BeginDelete(ctx, config.Cloud.ResourceGroup, serverName, nameSnapshot, nil)
+				})
+				if err != nil {
+					return nil, fmt.Errorf("failed to delete PostgreSQL server firewall rule: %w", err)
+				}
+				return nil, nil
+			})
+		}
+	}
+
+	// wait for the tasks to complete
+	for _, p := range *promiseGroup {
+		if err := p.AwaitErr(); err != nil && err != errDependencyFailed {
+			return nil, err
+		}
+	}
+
 	// check if the database has already been configured and we can skip the steps that follow
 	if value, ok := tags[getDatabaseConfiguredTagKey(config)]; ok && value != nil && *value == dbConfiguredTagValue {
 		log.Info().Msg("PostgreSQL server is already configured")
@@ -154,91 +236,15 @@ func createDatabase(ctx context.Context, tygerServerManagedIdentityPromise, migr
 		return nil, errDependencyFailed
 	}
 
-	promiseGroup := &PromiseGroup{}
+	currentPrincipalDisplayName, err := createDatabaseAdmins(ctx, config, serverName, cred, databaseConfig, migrationRunnerManagedIdentity)
 
-	createAdminsPromise := NewPromise(ctx, promiseGroup, func(ctx context.Context) (string, error) {
-		return createDatabaseAdmins(ctx, config, serverName, cred, databaseConfig, migrationRunnerManagedIdentity)
-	})
-
-	firewallClient, err := armpostgresqlflexibleservers.NewFirewallRulesClient(config.Cloud.SubscriptionID, cred, nil)
+	tygerServerManagedIdentity, err := tygerServerManagedIdentityPromise.Await()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create PostgreSQL server firewall client: %w", err)
+		return nil, errDependencyFailed
 	}
 
-	// This promise:
-	// 1. creates a temporary firewall rule that allows connections from anywhere (so that we can connect from this machine)
-	// 2. creates the necessary database roles
-	// 3. deletes the temporary firewall rule
-	NewPromise(ctx, promiseGroup, func(ctx context.Context) (any, error) {
-		log.Info().Msg("Creating temporary PostgreSQL server firewall rule")
-
-		temporaryAllowAllFirewallRule := "TemporaryAllowAllRule"
-		temporaryAllowAllRule := armpostgresqlflexibleservers.FirewallRule{
-			Properties: &armpostgresqlflexibleservers.FirewallRuleProperties{
-				StartIPAddress: Ptr("0.0.0.0"),
-				EndIPAddress:   Ptr("255.255.255.255"),
-			},
-		}
-
-		_, err = retryableAsyncOperation(ctx, func(ctx context.Context) (*runtime.Poller[armpostgresqlflexibleservers.FirewallRulesClientCreateOrUpdateResponse], error) {
-			return firewallClient.BeginCreateOrUpdate(ctx, config.Cloud.ResourceGroup, serverName, temporaryAllowAllFirewallRule, temporaryAllowAllRule, nil)
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to create temporary PostgreSQL server firewall rule: %w", err)
-		}
-
-		tygerServerManagedIdentity, err := tygerServerManagedIdentityPromise.Await()
-		if err != nil {
-			return nil, errDependencyFailed
-		}
-
-		currentPrincipalDisplayName, err := createAdminsPromise.Await()
-		if err != nil {
-			return nil, errDependencyFailed
-		}
-
-		if err := createRoles(ctx, cred, config, existingServer, currentPrincipalDisplayName, tygerServerManagedIdentity, migrationRunnerManagedIdentity); err != nil {
-			return nil, err
-		}
-
-		log.Info().Msg("Deleting temporary PostgreSQL server firewall rule")
-
-		deletePoller, err := firewallClient.BeginDelete(ctx, config.Cloud.ResourceGroup, serverName, temporaryAllowAllFirewallRule, nil)
-		if err == nil {
-			_, err = deletePoller.PollUntilDone(ctx, nil)
-		}
-		if err != nil {
-			return nil, fmt.Errorf("failed to delete temporary PostgreSQL server firewall rule: %w", err)
-		}
+	if err := createRoles(ctx, cred, config, existingServer, currentPrincipalDisplayName, tygerServerManagedIdentity, migrationRunnerManagedIdentity); err != nil {
 		return nil, err
-	})
-
-	// Create a permanent firewall rule that allows connections from Azure services and resources
-	// (we should support private networking in the future)
-	NewPromise(ctx, promiseGroup, func(ctx context.Context) (any, error) {
-		log.Info().Msg("Adding permanent firewall rule")
-		allowAllAzureRule := armpostgresqlflexibleservers.FirewallRule{
-			Properties: &armpostgresqlflexibleservers.FirewallRuleProperties{
-				StartIPAddress: Ptr("0.0.0.0"),
-				EndIPAddress:   Ptr("0.0.0.0"),
-			},
-		}
-
-		_, err := retryableAsyncOperation(ctx, func(ctx context.Context) (*runtime.Poller[armpostgresqlflexibleservers.FirewallRulesClientCreateOrUpdateResponse], error) {
-			return firewallClient.BeginCreateOrUpdate(ctx, config.Cloud.ResourceGroup, serverName, "AllowAllAzureServicesAndResources", allowAllAzureRule, nil)
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to create PostgreSQL server firewall rule: %w", err)
-		}
-
-		return nil, nil
-	})
-
-	// wait for the two tasks to complete
-	for _, p := range *promiseGroup {
-		if err := p.AwaitErr(); err != nil && err != errDependencyFailed {
-			return nil, err
-		}
 	}
 
 	// add a tag on the server to indicate that it is configured, so we can skip the slow firewall configuration next time
