@@ -1,8 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+using System.Collections.Frozen;
 using System.Diagnostics;
 using k8s.Autorest;
+using Microsoft.AspNetCore.Mvc.ApiExplorer;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.Net.Http.Headers;
 using Tyger.Server.Model;
 using ValidationException = System.ComponentModel.DataAnnotations.ValidationException;
@@ -113,13 +116,22 @@ public class ExceptionHandler
 /// </summary>
 public class RequestLogging
 {
+    private const string Redacted = "***";
     private readonly RequestDelegate _next;
     private readonly ILogger<RequestLogging> _logger;
+    private readonly FrozenDictionary<string, bool> _systemQueryParameters; // key = parameter name, value = should value be redacted
 
-    public RequestLogging(RequestDelegate next, ILogger<RequestLogging> logger)
+    public RequestLogging(RequestDelegate next, IApiDescriptionGroupCollectionProvider apiDescriptionsProvider, ILogger<RequestLogging> logger)
     {
         _next = next;
         _logger = logger;
+
+        _systemQueryParameters = apiDescriptionsProvider.ApiDescriptionGroups.Items
+            .SelectMany(g => g.Items)
+            .SelectMany(d => d.ParameterDescriptions)
+            .Where(p => p.Source == BindingSource.Query)
+            .GroupBy(p => p.Name, StringComparer.Ordinal)
+            .ToFrozenDictionary(g => g.Key, g => g.Any(p => p.Type == typeof(string)), StringComparer.Ordinal);
     }
 
     public async Task Invoke(HttpContext context)
@@ -154,7 +166,7 @@ public class RequestLogging
         return input.Replace(Environment.NewLine, string.Empty);
     }
 
-    private static string? RedactQueryStringValues(IQueryCollection query)
+    private string? RedactQueryStringValues(IQueryCollection query)
     {
         if (query == null)
         {
@@ -166,7 +178,21 @@ public class RequestLogging
             return string.Empty;
         }
 
-        return QueryString.Create(query.Select(q => KeyValuePair.Create(q.Key, (string?)"***"))).ToString();
+        return QueryString.Create(
+            query.Select(q =>
+            {
+                if (_systemQueryParameters.TryGetValue(q.Key, out bool redactValue))
+                {
+                    if (redactValue)
+                    {
+                        return KeyValuePair.Create(SanitizeUserInputForLogging(q.Key), (string?)Redacted);
+                    }
+
+                    return KeyValuePair.Create(SanitizeUserInputForLogging(q.Key), (string?)SanitizeUserInputForLogging(q.Value.ToString()));
+                }
+
+                return KeyValuePair.Create(Redacted, (string?)Redacted);
+            })).ToString();
     }
 }
 
