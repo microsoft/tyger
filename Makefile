@@ -39,7 +39,7 @@ remove-environment: install-cli
 	tyger cloud uninstall -f <(scripts/get-config.sh)
 
 # Sets up the az subscription and kubectl config for the current environment
-set-context: check-az
+set-context: check-az-login
 	subscription=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.cloud.subscriptionId')
 	resource_group=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.cloud.resourceGroup')
 
