@@ -139,11 +139,34 @@ public class RequestLogging
         finally
         {
             _logger.RequestCompleted(
-                context.Request.Method,
-                context.Request.Path,
-                context.Request.QueryString.Value,
+                SanitizeUserInputForLogging(context.Request.Method),
+                SanitizeUserInputForLogging(context.Request.Path.ToString()),
+                RedactQueryStringValues(context.Request.Query),
                 context.Response.StatusCode, (Stopwatch.GetTimestamp() - start) * 1000.0 / Stopwatch.Frequency);
         }
+    }
+
+    /// <summary>
+    /// Basic protection against https://owasp.org/www-community/attacks/Log_Injection
+    /// </summary>
+    private static string SanitizeUserInputForLogging(string input)
+    {
+        return input.Replace(Environment.NewLine, string.Empty);
+    }
+
+    private static string? RedactQueryStringValues(IQueryCollection query)
+    {
+        if (query == null)
+        {
+            return null;
+        }
+
+        if (query.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        return QueryString.Create(query.Select(q => KeyValuePair.Create(q.Key, (string?)"***"))).ToString();
     }
 }
 
