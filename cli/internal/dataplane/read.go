@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/md5"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -143,13 +144,13 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 					panic("Content-MD5 header missing. This should have already been checked")
 				}
 
-				md5ChainHeader := respData.Header.Get(HashChainHeader)
-				if md5ChainHeader == "" {
+				hashChainHeader := respData.Header.Get(HashChainHeader)
+				if hashChainHeader == "" {
 					errorChannel <- &responseBodyReadError{reason: fmt.Errorf("expected %s header missing", HashChainHeader)}
 					return
 				}
 
-				c <- BufferBlob{BlobNumber: blobNumber, Contents: respData.Data, EncodedMD5Hash: md5Header, EncodedMD5ChainHash: md5ChainHeader}
+				c <- BufferBlob{BlobNumber: blobNumber, Contents: respData.Data, EncodedMD5Hash: md5Header, EncodedMD5ChainHash: hashChainHeader}
 			}
 		}()
 	}
@@ -158,7 +159,7 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 	go func() {
 		lastTime := time.Now()
 		var expectedBlobNumber int64 = 0
-		var encodedMD5HashChain string = EncodedMD5HashChainInitalValue
+		var encodedHashChain string = EncodedHashChainInitalValue
 		for c := range responseChannel {
 			blobResponse := <-c
 
@@ -185,10 +186,10 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 
 			pool.Put(blobResponse.Contents)
 
-			md5HashChain := md5.Sum([]byte(encodedMD5HashChain + blobResponse.EncodedMD5Hash))
-			encodedMD5HashChain = base64.StdEncoding.EncodeToString(md5HashChain[:])
+			hashChain := sha256.Sum256([]byte(encodedHashChain + blobResponse.EncodedMD5Hash))
+			encodedHashChain = base64.StdEncoding.EncodeToString(hashChain[:])
 
-			if blobResponse.EncodedMD5ChainHash != encodedMD5HashChain {
+			if blobResponse.EncodedMD5ChainHash != encodedHashChain {
 				errorChannel <- errors.New("hash chain mismatch")
 				return
 			}

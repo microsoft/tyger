@@ -17,12 +17,12 @@ import (
 )
 
 const (
-	CurrentBufferFormatVersion = "0.2.0"
+	CurrentBufferFormatVersion = "0.3.0"
 
 	BufferStatusComplete = "complete"
 	BufferStatusFailed   = "failed"
 
-	HashChainHeader  = "x-ms-meta-cumulative_md5_chain"
+	HashChainHeader  = "x-ms-meta-cumulative_hash_chain"
 	ContentMD5Header = "Content-MD5"
 
 	StartMetadataBlobName = ".bufferstart"
