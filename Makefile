@@ -18,22 +18,28 @@ TYGER_URI = https://$(shell echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.doma
 INSTALL_CLOUD=false
 AUTO_MIGRATE=false
 
+check-az-login:
+	scripts/check-az-login.sh
+
+az-login-from-host:
+	scripts/az-login-from-host.sh
+
 get-config:
 	echo '${ENVIRONMENT_CONFIG_JSON}' | yq -P
 
-ensure-environment: install-cli
+ensure-environment: check-az-login install-cli
 	tyger cloud install -f <(scripts/get-config.sh)
 
 ensure-environment-conditionally: install-cli
 	if [[ "${INSTALL_CLOUD}" == "true" ]]; then
-		tyger cloud install -f <(scripts/get-config.sh)
+		$(MAKE) ensure-environment
 	fi
 
 remove-environment: install-cli
 	tyger cloud uninstall -f <(scripts/get-config.sh)
 
 # Sets up the az subscription and kubectl config for the current environment
-set-context:
+set-context: check-az
 	subscription=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.cloud.subscriptionId')
 	resource_group=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.cloud.resourceGroup')
 
@@ -238,7 +244,7 @@ install-cli:
 	official_container_registry=$$(scripts/get-config.sh --dev -e .officialContainerRegistry.fqdn)
 	cd cli
 	tag=$$(git describe --tags 2> /dev/null || echo "0.0.0")
-	CGO_ENABLED=0 go install -ldflags="-s -w \
+	CGO_ENABLED=0 go install -buildvcs=false -ldflags="-s -w \
 		-X main.version=$${tag} \
 		-X github.com/microsoft/tyger/cli/internal/install.containerRegistry=$${official_container_registry} \
 		-X github.com/microsoft/tyger/cli/internal/install.containerImageTag=$${tag}" \
