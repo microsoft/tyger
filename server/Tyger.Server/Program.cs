@@ -76,7 +76,6 @@ void RunServer()
     app.UseOpenApi();
     app.UseAuth();
 
-    app.MapClusters();
     app.MapBuffers();
     app.MapCodespecs();
     app.MapRuns();

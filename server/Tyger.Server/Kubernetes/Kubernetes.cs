@@ -5,7 +5,6 @@ using System.ComponentModel.DataAnnotations;
 using k8s;
 using Microsoft.Extensions.Options;
 using Tyger.Server.Logging;
-using Tyger.Server.Model;
 
 namespace Tyger.Server.Kubernetes;
 
@@ -40,40 +39,6 @@ public static class Kubernetes
             services.AddSingleton<RunSweeper>();
             services.AddSingleton<IHostedService, RunSweeper>(sp => sp.GetRequiredService<RunSweeper>());
         }
-    }
-
-    public static void MapClusters(this WebApplication app)
-    {
-        app.MapGet("/v1/clusters/", (IOptions<KubernetesApiOptions> config) =>
-        {
-            return GetClustersResponse(config.Value);
-        });
-
-        app.MapGet("/v1/clusters/{name}", (string name, IOptions<KubernetesApiOptions> config) =>
-        {
-            var cluster = GetClustersResponse(config.Value).FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
-            if (cluster == null)
-            {
-                return Responses.NotFound();
-            }
-
-            return Results.Ok(cluster);
-        })
-        .Produces<Cluster>()
-        .Produces<ErrorBody>(StatusCodes.Status400BadRequest);
-    }
-
-    private static List<Cluster> GetClustersResponse(KubernetesApiOptions options)
-    {
-        return options.Clusters
-            .Where(c => c.ApiHost) // For now we don't support multiple clusters
-            .Select(c =>
-                new Cluster(
-                    c.Name,
-                    c.Location,
-                    c.UserNodePools.Select(np =>
-                        new NodePool(np.Name, np.VmSize)).ToList()))
-            .ToList();
     }
 }
 
