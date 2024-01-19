@@ -38,12 +38,17 @@ ARG USER_GID=$USER_UID
 
 ENV GOROOT="/usr/local/go"
 ENV GOPATH="/go"
-ENV "PATH"="/usr/local/go/bin:/go/bin:/usr/share/dotnet:/home/${USERNAME}/.dotnet/tools:${PATH}"
+ENV "PATH"="/usr/local/go/bin:/go/bin:/usr/share/dotnet:/home/${USERNAME}/.dotnet/tools:/usr/local/share/nvm/current/bin:${PATH}"
+ENV NVM_DIR="/usr/local/share/nvm"
+ENV NVM_SYMLINK_CURRENT="true"
 
 RUN umask 0002 \
     &&  git clone https://github.com/devcontainers/features.git /opt/features\
     && cd /opt/features \
     && git checkout 4fca96b5e8a4bfc93679098cb19d73c65ce571eb \
+    ## NODE
+    && cd /opt/features/src/node \
+    && VERSION=20.11.0 bash install.sh \
     # DOCKER
     && cd /opt/features/src/docker-outside-of-docker \
     && MOBY=false VERSION=24.0.6 DOCKERDASHCOMPOSEVERSION=none bash install.sh \
