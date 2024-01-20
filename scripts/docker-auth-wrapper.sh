@@ -20,6 +20,7 @@ set -e
 # Check if the command failed and the error text contains one of the specific strings
 if [[ "$error_output" =~ "unauthorized: authentication required" || "$error_output" =~ "denied: requested access to the resource is denied" ]]; then
     echo "Logging in to ACR..." >&2
+    "$(dirname "${0}")"/check-az-login.sh
 
     image_name=""
     counter=0
@@ -42,7 +43,7 @@ if [[ "$error_output" =~ "unauthorized: authentication required" || "$error_outp
     fi
 
     registry_name=$(echo "$image_name" | cut -d'.' -f1)
-    "$(dirname "${0}")"/check-login.sh
+    "$(dirname "${0}")"/check-az-login.sh
 
     if ! az acr login -n "$registry_name" &> /dev/null; then
         # If this script is called concurrently, the credential manager may fail, so we try again

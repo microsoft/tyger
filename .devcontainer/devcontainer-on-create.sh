@@ -15,13 +15,6 @@ if ! curl -s --fail -H Metadata:true --noproxy "*" "http://169.254.169.254/metad
         sudo tee -a /opt/devcontainer/devcontainer.bashrc >/dev/null
 fi
 
-if [ -d "/home/.host/.azure/" ]; then
-    # Copy the Azure CLI context cache directory that is bind-mounted from the host.
-    # This means that an "az login" will not be necessary in the devcontainer if the user has already
-    # logged in on the host.
-    cp -r /home/.host/.azure/ ~/.azure/
-fi
-
 # Download Go and nuget packages
 make -f "$(dirname "$0")/../Makefile" restore || true
 

@@ -5,7 +5,7 @@
 
 set -eu
 
-"$(dirname "$0")/check-login.sh"
+"$(dirname "$0")/check-az-login.sh"
 
 usage()
 {
