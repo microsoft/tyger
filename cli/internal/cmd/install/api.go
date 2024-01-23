@@ -99,7 +99,8 @@ func newApiUninstallCommand(parentCommand *cobra.Command) *cobra.Command {
 
 func NewMigrationsCommand(parentCommand *cobra.Command) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:                   "migrations",
+		Use:                   "migration",
+		Aliases:               []string{"migrations"},
 		Short:                 "Manage the tyger API database",
 		Long:                  "Manage the tyger API database",
 		DisableFlagsInUseLine: true,

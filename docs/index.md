@@ -5,8 +5,11 @@ layout: home
 hero:
   name: "Tyger"
   text: "Remote signal processing"
-  tagline:
+  tagline: Stream signal data to and from remote compute for on-demand stream processing.
   actions:
+    - theme: brand
+      text: Introduction
+      link: /markdown-examples
     - theme: brand
       text: Get Started
       link: /markdown-examples
@@ -15,10 +18,10 @@ hero:
       link: https://github.com/microsoft/tyger
 
 features:
-  - title: Durable, high-throughput streaming
-    details: Reliably transfer data streams, backed by Azure Storage.
+  - title: Reliable streaming
+    details: Transfer data streams that can be read many times.
   - title: Provision and manage compute jobs
-    details: A simple model for provisioning compute jobs backed by Kubernetes
-  - title: No SDK required
-    details: Signal processing code can be written in any language.
+    details: A simple model for provisioning compute jobs.
+  - title: Any language, any kind of data
+    details: Tyger can be used with any language and and data format.
 ---
