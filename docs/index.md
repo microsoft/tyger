@@ -8,11 +8,8 @@ hero:
   tagline: Stream signal data to and from remote compute for on-demand stream processing.
   actions:
     - theme: brand
-      text: Introduction
-      link: /markdown-examples
-    - theme: brand
-      text: Get Started
-      link: /markdown-examples
+      text: Learn more
+      link: /introduction/what-is-tyger
     - theme: alt
       text: View on GitHub
       link: https://github.com/microsoft/tyger
@@ -23,5 +20,5 @@ features:
   - title: Provision and manage compute jobs
     details: A simple model for provisioning compute jobs.
   - title: Any language, any kind of data
-    details: Tyger can be used with any language and and data format.
+    details: Tyger can be used with any language and data format.
 ---

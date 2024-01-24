@@ -10,16 +10,16 @@ export default defineConfig({
     // https://vitepress.dev/reference/default-theme-config
     nav: [
       { text: "Home", link: "/" },
-      { text: "Guide", link: "/guide/introduction" },
+      { text: "Docs", link: "/introduction/what-is-tyger" },
     ],
 
     sidebar: [
       {
         text: "Introduction",
         items: [
-          { text: "What is Tyger?", link: "/guide/what-is-tyger" },
+          { text: "What is Tyger?", link: "/introduction/what-is-tyger" },
           { text: "Installation", link: "/guide/installation" },
-          { text: "Hello world!", link: "/guide/hello-world" },
+          { text: "Quick start", link: "/guide/quick-start" },
         ],
       },
       {
@@ -34,7 +34,7 @@ export default defineConfig({
       },
       {
         text: "Reference",
-        // collapsed: false,
+        collapsed: true,
         items: [
           {
             text: "Core commands",
@@ -135,6 +135,10 @@ export default defineConfig({
 
     search: {
       provider: "local",
+    },
+
+    outline: {
+      level: "deep",
     },
   },
 
