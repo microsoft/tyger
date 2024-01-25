@@ -19,7 +19,6 @@ export default defineConfig({
         items: [
           { text: "What is Tyger?", link: "/introduction/what-is-tyger" },
           { text: "Installation", link: "/introduction/installation" },
-          { text: "Quick start", link: "/introduction/quick-start" },
         ],
       },
       {

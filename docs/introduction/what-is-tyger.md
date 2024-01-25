@@ -1,9 +1,9 @@
 # What is Tyger?
 
 Tyger is a framework for remote signal processing. It allows reliably
-transmitting data to remote computational resources where the data can be processed
-and transformed as it streams in. The scenario it was designed for is streaming
-the raw signal data that an MRI scanner acquires to the cloud, where much more
+transmitting data to remote computational resources where the data can be
+processed and transformed as it streams in. It was designed for streaming the
+raw signal data that an MRI scanner acquires to the cloud, where much more
 compute power is typically available to reconstruct the signal into images.
 However, nothing ties it to MRI and it can be used for a variety of domains and
 scenarios.
@@ -32,6 +32,21 @@ really simple, thanks to it being built on battle-tested technologies like
 Kubernetes and Azure Blob Storage.
 
 ## A simple example
+
+::: tip
+
+If you've already followed the [installation instructions](installation.md), you
+can run this example too!
+
+First, make sure you have [`ffmpeg`](https://ffmpeg.org/download.html) (which
+installs `ffplay` as well).
+
+Next, download the sample video that we'll use for this exercise and you'll be all set.
+
+```bash
+curl -OL https://aka.ms/tyger/docs/samples/hanoi.nut
+```
+:::
 
 Suppose we have a video file called `hanoi.nut`. We can pipe it contents to the
 [`ffplay`](https://ffmpeg.org/ffplay.html) video player to view it. (Normally, you would just
