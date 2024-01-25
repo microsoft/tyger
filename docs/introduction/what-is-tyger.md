@@ -39,7 +39,7 @@ If you've already followed the [installation instructions](installation.md), you
 can run this example too!
 
 First, make sure you have [`ffmpeg`](https://ffmpeg.org/download.html) (which
-installs `ffplay` as well).
+comes with `ffplay`).
 
 Next, download the sample video that we'll use for this exercise and you'll be all set.
 
@@ -62,7 +62,7 @@ cat hanoi.nut \
 
 The first couple of seconds of this video look like this:
 
-![Original Video](/hanoi.gif)
+![Original Video](hanoi.gif)
 
 Now, let's say we want to transform this video stream by applying a color
 negation filter. We can do that by inserting another ffmpeg step in the
@@ -76,11 +76,11 @@ cat hanoi.nut \
 
 The output video would now look something like this:
 
-![Converted Video](/hanoi_negated.gif)
+![Converted Video](hanoi_negated.gif)
 
-Now let's use Tyger. We'll pipe the input data to the cloud, perform the color
-negation there, and stream the transformed video back. We'll do this with the
-following pipeline:
+Now let's run the color negation in the cloud. To do that, we change our
+pipeline to the following, which will send the input data to the cloud where a
+"run" will perform the data and then we'll feed the result into ffplay:
 
 ```bash:line-numbers{2}
 cat hanoi.nut \
@@ -88,7 +88,7 @@ cat hanoi.nut \
 | ffplay -autoexit -
 ```
 
-Where `negate.yml` looks like this:
+`negate.yml` is a run configuration file that looks like this:
 
 ```yaml
 job:
@@ -139,6 +139,7 @@ There are several advantages to this design:
 - We can achieve throughput can be achieved by simple parallelism,
 - We can recover from network transmission failures by doing simple HTTP
   retries.
+- Data in motion is protected with standard TLS.
 
 We issue time-bound access tokens to read or write to buffers and always verify
 the integrity of the contents with hashes.
