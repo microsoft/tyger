@@ -64,31 +64,31 @@ The first couple of seconds of this video look like this:
 
 ![Original Video](/hanoi.gif)
 
-Now, let's say we want to transform this video stream by applying an edge
-detection filter. We can do that by inserting another ffmpeg step in the
+Now, let's say we want to transform this video stream by applying a color
+negation filter. We can do that by inserting another ffmpeg step in the
 pipeline:
 
 ```bash:line-numbers{2}
 cat hanoi.nut \
-| ffmpeg -i pipe:0 -vf edgedetect -f nut pipe:1 \
+| ffmpeg -i pipe:0 -vf negate -f nut pipe:1 \
 | ffplay -autoexit -
 ```
 
 The output video would now look something like this:
 
-![Converted Video](/hanoi_edge.gif)
+![Converted Video](/hanoi_negated.gif)
 
-Now let's use Tyger. We'll pipe the input data to the cloud, perform the edge
-detection there, and stream the transformed video back. We'll do this with the
+Now let's use Tyger. We'll pipe the input data to the cloud, perform the color
+negation there, and stream the transformed video back. We'll do this with the
 following pipeline:
 
 ```bash:line-numbers{2}
 cat hanoi.nut \
-| tyger run exec -f edgedetect.yml \
+| tyger run exec -f negate.yml \
 | ffplay -autoexit -
 ```
 
-Where `edgedetect.yml` looks like this:
+Where `negate.yml` looks like this:
 
 ```yaml
 job:
@@ -103,7 +103,7 @@ job:
       - -i
       - $(INPUT_PIPE)
       - -vf
-      - edgedetect
+      - negate
       - -f
       - nut
       - -y
