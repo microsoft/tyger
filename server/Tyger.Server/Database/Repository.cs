@@ -671,10 +671,10 @@ public class Repository : IRepository
 
             if (!reader.IsDBNull(2) && !reader.IsDBNull(3))
             {
-                var tagname = reader.GetString(2);
-                var tagvalue = reader.GetString(3);
+                var tagName = reader.GetString(2);
+                var tagValue = reader.GetString(3);
 
-                currentTags[tagname] = tagvalue;
+                currentTags[tagName] = tagValue;
             }
         }
 

@@ -24,9 +24,9 @@ import (
 )
 
 const (
-	DefaultWriteDop             = 16
-	DefaultBlockSize            = 4 * 1024 * 1024
-	EncodedHashChainInitalValue = "MDAwMDAwMDAwMDAwMDAwMA=="
+	DefaultWriteDop              = 16
+	DefaultBlockSize             = 4 * 1024 * 1024
+	EncodedHashChainInitialValue = "MDAwMDAwMDAwMDAwMDAwMA=="
 )
 
 var (
@@ -111,7 +111,7 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 				var body any = bb.Contents
 				if len(bb.Contents) == 0 {
 					// This is a bit subtle, but if we send an empty or nil []byte body,
-					// we will enpty with the Transfer-Encoding: chunked header, which
+					// we will empty with the Transfer-Encoding: chunked header, which
 					// the blob service does not support.  So we send a nil body instead.
 					body = nil
 				}
@@ -126,7 +126,7 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 
 				bb.CurrentCumulativeHash <- encodedHashChain
 
-				if err := uploadBlobWithRery(ctx, httpClient, blobUrl, body, encodedMD5Hash, encodedHashChain); err != nil {
+				if err := uploadBlobWithRetry(ctx, httpClient, blobUrl, body, encodedMD5Hash, encodedHashChain); err != nil {
 					log.Debug().Err(err).Msg("Encountered error uploading blob")
 					errorChannel <- err
 					return
@@ -143,7 +143,7 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 		var blobNumber int64 = 0
 		previousHashChannel := make(chan string, 1)
 
-		previousHashChannel <- EncodedHashChainInitalValue
+		previousHashChannel <- EncodedHashChainInitialValue
 
 		for {
 
@@ -238,7 +238,7 @@ func writeStartMetadata(ctx context.Context, httpClient *retryablehttp.Client, c
 	md5Hash := md5.Sum(startBytes)
 	encodedMD5Hash := base64.StdEncoding.EncodeToString(md5Hash[:])
 
-	return uploadBlobWithRery(ctx, httpClient, startMetadataUri, startBytes, encodedMD5Hash, "")
+	return uploadBlobWithRetry(ctx, httpClient, startMetadataUri, startBytes, encodedMD5Hash, "")
 }
 
 func writeEndMetadata(ctx context.Context, httpClient *retryablehttp.Client, container *Container, status string) {
@@ -251,13 +251,13 @@ func writeEndMetadata(ctx context.Context, httpClient *retryablehttp.Client, con
 	md5Hash := md5.Sum(endBytes)
 	encodedMD5Hash := base64.StdEncoding.EncodeToString(md5Hash[:])
 
-	err = uploadBlobWithRery(ctx, httpClient, container.GetEndMetadataUri(), endBytes, encodedMD5Hash, "")
+	err = uploadBlobWithRetry(ctx, httpClient, container.GetEndMetadataUri(), endBytes, encodedMD5Hash, "")
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to upload optional metadata at the end of the transfer")
 	}
 }
 
-func uploadBlobWithRery(ctx context.Context, httpClient *retryablehttp.Client, blobUrl string, body any, encodedMD5Hash string, encodedHashChain string) error {
+func uploadBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, blobUrl string, body any, encodedMD5Hash string, encodedHashChain string) error {
 	start := time.Now()
 	for i := 0; ; i++ {
 		req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodPut, blobUrl, body)

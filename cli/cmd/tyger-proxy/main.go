@@ -39,7 +39,7 @@ func main() {
 	rootCommand.Use = "tyger-proxy"
 	rootCommand.Long = `tyger-proxy is an HTTP proxy for Tyger. It allows accessing a subset of the
 control-plane API without authentication and to tunnel data-plane requests to Azure Storage.
-It is indended to be run on on the Siemens Host machine and to be accessed from the MARS,
+It is intended to be run on on the Siemens Host machine and to be accessed from the MARS,
 which does not have direct internet connectivity and where securely storing credentials is challenging.`
 
 	rootCommand.AddCommand(newProxyRunCommand(&optionsFilePath, &options))
@@ -57,7 +57,7 @@ func addFileFlag(cmd *cobra.Command, optionsFilePath *string) {
 # The Tyger server URI
 serverUri: https://example.com
 
-# The serive principal ID
+# The service principal ID
 servicePrincipal: api://my-client
 
 # The path to a file with the service principal certificate

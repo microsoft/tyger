@@ -55,7 +55,7 @@ Subsequent commands will be performed against this server.`,
 				}
 
 				if options.CertificateThumbprint != "" && runtime.GOOS != "windows" {
-					return errors.New("certificateThumbprint is not suported on this platform")
+					return errors.New("certificateThumbprint is not supported on this platform")
 				}
 
 				if options.ServicePrincipal != "" {

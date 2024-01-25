@@ -202,7 +202,7 @@ func TestProxiedRequestsFromDisallowedAllowedCIDR(t *testing.T) {
 	require.NoError(err)
 	require.Equal(http.StatusForbidden, resp.StatusCode)
 
-	// The metadata endpoint should still be accssible from the loopback address
+	// The metadata endpoint should still be accessible from the loopback address
 	resp, err = httpclient.DefaultRetryableClient.Get(fmt.Sprintf("http://localhost:%d/v1/metadata", proxyOptions.Port))
 	require.NoError(err)
 	require.Equal(http.StatusOK, resp.StatusCode)

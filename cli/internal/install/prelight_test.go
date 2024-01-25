@@ -17,7 +17,7 @@ func init() {
 }
 
 func TestCheckAccessExactScopeExactPermission(t *testing.T) {
-	scope := "subscriptions/bb9421df-fcf4-4e1f-b89f-6b20e94f301c/resourceGroups/test/providers/Microsoft.Storage/storageAccounts/jstestwestus2buf"
+	scope := "subscriptions/73bb1034-cc29-448a-b5cb-2d7503e54e21/resourceGroups/test/providers/Microsoft.Storage/storageAccounts/jstestwestus2buf"
 
 	role := armauthorization.RoleDefinition{
 		ID: Ptr("abc"),
@@ -42,7 +42,7 @@ func TestCheckAccessExactScopeExactPermission(t *testing.T) {
 }
 
 func TestCheckAccessExactScopeWrongPermission(t *testing.T) {
-	scope := "subscriptions/bb9421df-fcf4-4e1f-b89f-6b20e94f301c/resourceGroups/test/providers/Microsoft.Storage/storageAccounts/jstestwestus2buf"
+	scope := "subscriptions/73bb1034-cc29-448a-b5cb-2d7503e54e21/resourceGroups/test/providers/Microsoft.Storage/storageAccounts/jstestwestus2buf"
 
 	role := armauthorization.RoleDefinition{
 		ID: Ptr("abc"),
@@ -67,7 +67,7 @@ func TestCheckAccessExactScopeWrongPermission(t *testing.T) {
 }
 
 func TestCheckAccessWrongScopeExactPermission(t *testing.T) {
-	scope := "subscriptions/bb9421df-fcf4-4e1f-b89f-6b20e94f301c/resourceGroups/test/providers/Microsoft.Storage/storageAccounts/jstestwestus2buf"
+	scope := "subscriptions/73bb1034-cc29-448a-b5cb-2d7503e54e21/resourceGroups/test/providers/Microsoft.Storage/storageAccounts/jstestwestus2buf"
 
 	role := armauthorization.RoleDefinition{
 		ID: Ptr("abc"),
@@ -84,7 +84,7 @@ func TestCheckAccessWrongScopeExactPermission(t *testing.T) {
 
 	roleAssignment := armauthorization.RoleAssignment{
 		Properties: &armauthorization.RoleAssignmentProperties{
-			Scope:            Ptr("subscriptions/bb9421df-fcf4-4e1f-b89f-6b20e94f301c/resourceGroups/wrong"),
+			Scope:            Ptr("subscriptions/73bb1034-cc29-448a-b5cb-2d7503e54e21/resourceGroups/wrong"),
 			RoleDefinitionID: role.ID,
 		},
 	}
@@ -92,7 +92,7 @@ func TestCheckAccessWrongScopeExactPermission(t *testing.T) {
 }
 
 func TestCheckAccessInheritedExactPermission(t *testing.T) {
-	scope := "subscriptions/bb9421df-fcf4-4e1f-b89f-6b20e94f301c/resourceGroups/test/providers/Microsoft.Storage/storageAccounts/jstestwestus2buf"
+	scope := "subscriptions/73bb1034-cc29-448a-b5cb-2d7503e54e21/resourceGroups/test/providers/Microsoft.Storage/storageAccounts/jstestwestus2buf"
 
 	role := armauthorization.RoleDefinition{
 		ID: Ptr("abc"),
@@ -109,7 +109,7 @@ func TestCheckAccessInheritedExactPermission(t *testing.T) {
 
 	roleAssignment := armauthorization.RoleAssignment{
 		Properties: &armauthorization.RoleAssignmentProperties{
-			Scope:            Ptr("subscriptions/bb9421df-fcf4-4e1f-b89f-6b20e94f301c/resourceGroups/test"),
+			Scope:            Ptr("subscriptions/73bb1034-cc29-448a-b5cb-2d7503e54e21/resourceGroups/test"),
 			RoleDefinitionID: role.ID,
 		},
 	}
@@ -117,7 +117,7 @@ func TestCheckAccessInheritedExactPermission(t *testing.T) {
 }
 
 func TestCheckAccessInheritedWildcard(t *testing.T) {
-	scope := "subscriptions/bb9421df-fcf4-4e1f-b89f-6b20e94f301c/resourceGroups/test/providers/Microsoft.Storage/storageAccounts/jstestwestus2buf"
+	scope := "subscriptions/73bb1034-cc29-448a-b5cb-2d7503e54e21/resourceGroups/test/providers/Microsoft.Storage/storageAccounts/jstestwestus2buf"
 
 	role := armauthorization.RoleDefinition{
 		ID: Ptr("abc"),
@@ -134,7 +134,7 @@ func TestCheckAccessInheritedWildcard(t *testing.T) {
 
 	roleAssignment := armauthorization.RoleAssignment{
 		Properties: &armauthorization.RoleAssignmentProperties{
-			Scope:            Ptr("subscriptions/bb9421df-fcf4-4e1f-b89f-6b20e94f301c/resourceGroups/test"),
+			Scope:            Ptr("subscriptions/73bb1034-cc29-448a-b5cb-2d7503e54e21/resourceGroups/test"),
 			RoleDefinitionID: role.ID,
 		},
 	}
@@ -142,7 +142,7 @@ func TestCheckAccessInheritedWildcard(t *testing.T) {
 }
 
 func TestCheckAccessInheritedWildcardWithNotAction(t *testing.T) {
-	scope := "subscriptions/bb9421df-fcf4-4e1f-b89f-6b20e94f301c/resourceGroups/test/providers/Microsoft.Storage/storageAccounts/jstestwestus2buf"
+	scope := "subscriptions/73bb1034-cc29-448a-b5cb-2d7503e54e21/resourceGroups/test/providers/Microsoft.Storage/storageAccounts/jstestwestus2buf"
 
 	role := armauthorization.RoleDefinition{
 		ID: Ptr("abc"),
@@ -162,7 +162,7 @@ func TestCheckAccessInheritedWildcardWithNotAction(t *testing.T) {
 
 	roleAssignment := armauthorization.RoleAssignment{
 		Properties: &armauthorization.RoleAssignmentProperties{
-			Scope:            Ptr("subscriptions/bb9421df-fcf4-4e1f-b89f-6b20e94f301c/resourceGroups/test"),
+			Scope:            Ptr("subscriptions/73bb1034-cc29-448a-b5cb-2d7503e54e21/resourceGroups/test"),
 			RoleDefinitionID: role.ID,
 		},
 	}

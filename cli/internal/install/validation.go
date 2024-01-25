@@ -225,11 +225,11 @@ func quickValidateDatabaseConfig(success *bool, cloudConfig *CloudConfig) {
 			validationError(success, "The `cloud.database.firewallRules[%d].name` field is required", i)
 		} else {
 			if ip := net.ParseIP(fr.StartIpAddress); ip == nil {
-				validationError(success, "The `Firewall rule '%s' must have a valid IP adress as `startIpAddress`", fr.Name)
+				validationError(success, "The `Firewall rule '%s' must have a valid IP address as `startIpAddress`", fr.Name)
 			}
 
 			if ip := net.ParseIP(fr.EndIpAddress); ip == nil {
-				validationError(success, "The `Firewall rule '%s' must have a valid IP adress as `endIpAddress`", fr.Name)
+				validationError(success, "The `Firewall rule '%s' must have a valid IP address as `endIpAddress`", fr.Name)
 			}
 		}
 	}

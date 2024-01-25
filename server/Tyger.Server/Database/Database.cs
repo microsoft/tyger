@@ -166,7 +166,7 @@ public static class Database
             // Using the pod UID ensures that only callers with access to this information can call this endpoint.
             // This endpoint is meant to be called by the migration runner.
 
-            // Using a Kubernetes token is another possiblity, but verifying the token requires cluster permission to the
+            // Using a Kubernetes token is another possibility, but verifying the token requires cluster permission to the
             // TokenReview resource, which means that the principal installing the API needs to be able to create ClusterRoleBindings.
 
             const string BearerPrefix = "Bearer ";
