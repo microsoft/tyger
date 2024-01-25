@@ -1,10 +1,15 @@
-environmentName: {{ .EnvironmentName }}
+# Installation configuration file
+
+The installation configuration file looks like this:
+
+```yaml
+environmentName: demo
 
 cloud:
-  tenantId: {{ .TenantId }}
-  subscriptionId: {{ .SubscriptionId }}
-  resourceGroup: {{ .ResourceGroup }}
-  defaultLocation: {{ .DefaultLocation}}
+  tenantId: 2dda111b-8b49-4193-b6ad-7ad797aa552f
+  subscriptionId: 17f10121-f320-4d47-928f-3d42adb68e01
+  resourceGroup: demo
+  defaultLocation: westus2
 
   # Optionally point an existing Log Analytics workspace to send logs to.
   # logAnalyticsWorkspace:
@@ -13,9 +18,9 @@ cloud:
 
   compute:
     clusters:
-      - name: {{ .EnvironmentName }}
+      - name: demo
         apiHost: true
-        kubernetesVersion: {{ .KubernetesVersion }}
+        kubernetesVersion: 1.27
         # location: Defaults to defaultLocation
 
         userNodePools:
@@ -39,8 +44,8 @@ cloud:
     # For groups, kind must be "Group" and id must be the group's
     # object ID (GUID).
     managementPrincipals:
-      - kind: {{ .PrincipalKind }}
-        id: {{ .PrincipalId }} {{- if not (contains .PrincipalId "@") }} # {{ .PrincipalDisplay }} {{- end }}
+      - kind: User
+        id: me@example.com
 
     # The names of private container registries that the clusters must
     # be able to pull from.
@@ -48,15 +53,15 @@ cloud:
     #   - myprivateregistry
 
   database:
-    serverName: {{ .DatabaseServerName }}
-    postgresMajorVersion: {{ .PostgresMajorVersion }}
+    serverName: demo-tyger
+    postgresMajorVersion: 16
 
     # Firewall rules to control where the database can be accessed from,
     # in addition to the control-plane cluster.
     firewallRules:
       - name: installerIpAddress
-        startIpAddress: {{ .CurrentIpAddress }}
-        endIpAddress: {{ .CurrentIpAddress }}
+        startIpAddress: 99.99.99.99
+        endIpAddress: 99.99.99.99
 
     # location: Defaults to defaultLocation
     # computeTier: Defaults to Burstable
@@ -68,22 +73,22 @@ cloud:
   storage:
     # Storage accounts for buffers.
     buffers:
-      - name: {{ .BufferStorageAccountName }}
+      - name: demowestus2buf
         # location: Defaults to defaultLocation
         # sku: Defaults to Standard_LRS
 
     # The storage account where run logs will be stored.
     logs:
-      name: {{ .LogsStorageAccountName }}
+      name: demotygerlogs
       # location: Defaults to defaultLocation
       # sku: Defaults to Standard_LRS
 
 api:
   # The fully qualified domain name for the Tyger API.
-  domainName: {{ .DomainName }}
+  domainName: demo-tyger.westus2.cloudapp.azure.com
 
   auth:
-    tenantId: {{ .ApiTenantId }}
+    tenantId: 705ef40b-9fa6-45a3-ba0c-b7ced9af6dce
     apiAppUri: api://tyger-server
     cliAppUri: api://tyger-cli
 
@@ -95,8 +100,20 @@ api:
   #     chartRef: # e.g. oci://tyger.azurecr.io/helm/tyger
   #     namespace:
   #     version:
-  #     values:
+  #     values: # Helm values overrides
 
   #   certManager: {} # same fields as `tyger` above
   #   nvidiaDevicePlugin: {} # same fields as `tyger` above
   #   traefik: {} # same fields as `tyger` above
+
+```
+
+All of the installation commands (`tyger cloud install`, `tyger api install`,
+etc.) allow you to give a path the the config file (`--file|-f PATH`)instead of
+the default given by `tyger config get-path`. Additionally, the commands allow
+configurations values to be overridden on the command-line with `--set`. For
+example:
+
+```bash
+tyger api install --set api.helm.tyger.chartRef=oci://tyger.azurecr.io/helm/tyger --set api.helm.tyger.version=v0.4.0
+```

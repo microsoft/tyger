@@ -18,8 +18,8 @@ export default defineConfig({
         text: "Introduction",
         items: [
           { text: "What is Tyger?", link: "/introduction/what-is-tyger" },
-          { text: "Installation", link: "/guide/installation" },
-          { text: "Quick start", link: "/guide/quick-start" },
+          { text: "Installation", link: "/introduction/installation" },
+          { text: "Quick start", link: "/introduction/quick-start" },
         ],
       },
       {
@@ -36,6 +36,7 @@ export default defineConfig({
         text: "Reference",
         collapsed: true,
         items: [
+          { text: "Installation configuration file", link: "/reference/config" },
           {
             text: "Core commands",
             collapsed: true,
