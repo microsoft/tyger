@@ -65,6 +65,6 @@ worker:
 
 ## Worker discovery
 
-The job container only begins executing when all worker containers are up.The job can then discover the hostnames of the worker nodes with the environment variable `TYGER_WORKER_NODES`. This will be a JSON array of strings.
+The job container only begins executing when all worker containers are up. The job can then discover the hostnames of the worker nodes with the environment variable `TYGER_WORKER_NODES`. This will be a JSON array of strings.
 
 For each endpoint that the worker declares in the codespec, there is an environment variable named `TYGER_<ENDPOINT_NAME_UPPERCASE>_WORKER_ENDPOINT_ADDRESSES`, where `<ENDPOINT_NAME_UPPERCASE>` is the endpoint name in uppercase. The value is a JSON array of the strings in the form `hostname:port`.
