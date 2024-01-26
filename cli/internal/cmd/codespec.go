@@ -63,7 +63,7 @@ func newCodespecCreateCommand() *cobra.Command {
 	}
 
 	var cmd = &cobra.Command{
-		Use:                   "create NAME [--file YAML_SPEC] [--image IMAGE] [--kind job|worker] [--max-replicas REPLICAS] [[--input BUFFER_NAME] ...] [[--output BUFFER_NAME] ...] [[--env \"KEY=VALUE\"] ...] [[ --endpoint SERVICE=PORT ]] [resources] [--command] -- [COMMAND] [args...]",
+		Use:                   `create NAME [--file YAML_SPEC] [--image IMAGE] [--kind job|worker] [--max-replicas REPLICAS] [[--input BUFFER_NAME] ...] [[--output BUFFER_NAME] ...] [[--env \"KEY=VALUE\"] ...] [[ --endpoint SERVICE=PORT ]] [--gpu QUANTITY] [--cpu-request QUANTITY] [--memory-request QUANTITY] [--cpu-limit QUANTITY] [--memory-limit QUANTITY] [--command] -- [COMMAND] [args...]`,
 		Short:                 "Create or update a codespec",
 		Long:                  `Create or update a codespec. Outputs the version of the codespec that was created.`,
 		DisableFlagsInUseLine: true,
