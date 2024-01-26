@@ -944,6 +944,7 @@ func TestConnectivityBetweenJobAndWorkers(t *testing.T) {
 		"--kind", "worker",
 		"--image", digest,
 		"--max-replicas", "3",
+		"--endpoint", "TestWorker=29477",
 		"--",
 		"--worker")
 
