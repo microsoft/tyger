@@ -102,7 +102,10 @@ func newCodespecCreateCommand() *cobra.Command {
 				return fmt.Errorf("unexpected positional args before container args: %v", unexpectedArgs)
 			}
 
-			containerArgs := args[cmd.ArgsLenAtDash()+1:]
+			var containerArgs []string
+			if cmd.ArgsLenAtDash() > -1 {
+				containerArgs = args[cmd.ArgsLenAtDash():]
+			}
 
 			var isValidName = regexp.MustCompile(`^[a-z0-9\-._]*$`).MatchString
 			if !isValidName(newCodespec.Name) {
@@ -154,7 +157,7 @@ func newCodespecCreateCommand() *cobra.Command {
 				}
 				newCodespec.Endpoints = nil
 			case "worker":
-				if len(newCodespec.Buffers.Inputs)+len(newCodespec.Buffers.Outputs) != 0 {
+				if newCodespec.Buffers != nil && len(newCodespec.Buffers.Inputs)+len(newCodespec.Buffers.Outputs) != 0 {
 					return errors.New("worker codespecs cannot have use buffers")
 				}
 				newCodespec.Buffers = nil
@@ -242,6 +245,9 @@ func newCodespecCreateCommand() *cobra.Command {
 				q, err := resource.ParseQuantity(flags.gpu)
 				if err != nil {
 					return fmt.Errorf("gpu value is invalid: %v", err)
+				}
+				if newCodespec.Resources == nil {
+					newCodespec.Resources = &model.CodespecResources{}
 				}
 				newCodespec.Resources.Gpu = &q
 			}

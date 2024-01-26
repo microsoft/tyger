@@ -335,7 +335,7 @@ func TestInvalidCodespecNames(t *testing.T) {
 		t.Run(tC.name, func(t *testing.T) {
 			_, stdErr, err := runTyger("codespec", "create", tC.name, "--image", BasicImage)
 			if tC.valid {
-				require.Nil(t, err)
+				require.NoError(t, err)
 			} else {
 				require.NotNil(t, err)
 				require.Contains(t, stdErr, "codespec name")
