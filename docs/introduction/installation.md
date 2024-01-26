@@ -50,7 +50,126 @@ your system. You can get its path by running:
 tyger config get-path
 ```
 
-Once created, you should inspect the file and adjust its contents as needed. See [Installation configuration file](../reference/config.md) for more details on this file.
+Once created, you should inspect the file and adjust its contents as needed.
+
+The installation configuration file looks like this:
+
+```yaml
+environmentName: demo
+
+cloud:
+  tenantId: 2dda111b-8b49-4193-b6ad-7ad797aa552f
+  subscriptionId: 17f10121-f320-4d47-928f-3d42adb68e01
+  resourceGroup: demo
+  defaultLocation: westus2
+
+  # Optionally point an existing Log Analytics workspace to send logs to.
+  # logAnalyticsWorkspace:
+  #   resourceGroup:
+  #   name:
+
+  compute:
+    clusters:
+      - name: demo
+        apiHost: true
+        kubernetesVersion: 1.27
+        # location: Defaults to defaultLocation
+
+        userNodePools:
+          - name: cpunp
+            vmSize: Standard_DS12_v2
+            minCount: 1
+            maxCount: 10
+          - name: gpunp
+            vmSize: Standard_NC6s_v3
+            minCount: 0
+            maxCount: 10
+
+    # These are the principals that will be granted full access to the
+    # "tyger" namespace in each cluster.
+    # For users, kind must be "User".
+    #   If the user's home tenant is this subscription's tenant and
+    #   is not a personal Microsoft account, set id to the user
+    #   principal name (email). Otherwise, set id to the object ID (GUID).
+    # For service principals, kind must also be "User" and id must
+    # be the service principal's object ID (GUID).
+    # For groups, kind must be "Group" and id must be the group's
+    # object ID (GUID).
+    managementPrincipals:
+      - kind: User
+        id: me@example.com
+
+    # The names of private container registries that the clusters must
+    # be able to pull from.
+    # privateContainerRegistries:
+    #   - myprivateregistry
+
+  database:
+    serverName: demo-tyger
+    postgresMajorVersion: 16
+
+    # Firewall rules to control where the database can be accessed from,
+    # in addition to the control-plane cluster.
+    firewallRules:
+      - name: installerIpAddress
+        startIpAddress: 99.99.99.99
+        endIpAddress: 99.99.99.99
+
+    # location: Defaults to defaultLocation
+    # computeTier: Defaults to Burstable
+    # vmSize: Defaults to Standard_B1ms
+    # storageSizeGB: Defaults to 32GB (the minimum supported)
+    # backupRetentionDays: Defaults to 7
+    # backupGeoRedundancy: Defaults to false
+
+  storage:
+    # Storage accounts for buffers.
+    buffers:
+      - name: demowestus2buf
+        # location: Defaults to defaultLocation
+        # sku: Defaults to Standard_LRS
+
+    # The storage account where run logs will be stored.
+    logs:
+      name: demotygerlogs
+      # location: Defaults to defaultLocation
+      # sku: Defaults to Standard_LRS
+
+api:
+  # The fully qualified domain name for the Tyger API.
+  domainName: demo-tyger.westus2.cloudapp.azure.com
+
+  auth:
+    tenantId: 705ef40b-9fa6-45a3-ba0c-b7ced9af6dce
+    apiAppUri: api://tyger-server
+    cliAppUri: api://tyger-cli
+
+  # Optional Helm chart overrides
+  # helm:
+  #   tyger:
+  #     repoName:
+  #     repoUrl: # not set if using `chartRef`
+  #     chartRef: # e.g. oci://tyger.azurecr.io/helm/tyger
+  #     namespace:
+  #     version:
+  #     values: # Helm values overrides
+
+  #   certManager: {} # same fields as `tyger` above
+  #   nvidiaDevicePlugin: {} # same fields as `tyger` above
+  #   traefik: {} # same fields as `tyger` above
+
+```
+
+All of the installation commands (`tyger cloud install`, `tyger api install`,
+etc.) allow you to give a path the the config file (`--file|-f PATH`)instead of
+the default given by `tyger config get-path`. Additionally, the commands allow
+configurations values to be overridden on the command-line with `--set`. For
+example:
+
+```bash
+tyger api install --set api.helm.tyger.chartRef=oci://tyger.azurecr.io/helm/tyger --set api.helm.tyger.version=v0.4.0
+```
+
 
 ## Install cloud resources
 

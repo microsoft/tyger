@@ -34,7 +34,6 @@ export default defineConfig({
         text: "Reference",
         collapsed: true,
         items: [
-          { text: "Installation configuration file", link: "/reference/config" },
           { text: "Database management", link: "/reference/database" },
           { text: "<code>tyger-proxy</code>", link: "/reference/tyger-proxy" },
         ],
