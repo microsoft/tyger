@@ -142,8 +142,7 @@ resources:
   # The number of GPUs required.
   gpu: 1
 
-# The maximum number of replicas this codepec can have.
-# Applies only to worker codespecs. The default is 1.
+# The maximum number of replicas this codespec can have. The default is 1.
 maxReplicas: 1
 
 # Applies only to worker codespecs.

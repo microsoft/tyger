@@ -28,7 +28,7 @@ export default defineConfig({
           { text: "Working with buffers", link: "/guides/buffers" },
           { text: "Working with codespecs", link: "/guides/codespecs" },
           { text: "Working with runs", link: "/guides/runs" },
-          { text: "Distributed runs", link: "/guides/distributed" },
+          { text: "Distributed runs", link: "/guides/distributed-runs" },
         ],
       },
       {

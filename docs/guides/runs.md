@@ -108,6 +108,72 @@ Notice how we pass in buffers as arguments to the codespec's buffer parameters.
 Any buffers that are not given as arguments are created automatically. Their IDs
 can be retried by running `tyger run show`.
 
+## `exec` and `create` options
+
+Both `tyger run create` and `tyger run exec` have the following command-line parameters
+
+`-f|--file`: a YAML file with the run specification. All other flags override the values in the file.
+
+`--buffer`: maps a codespec buffer parameter to a buffer ID. Can be specified multiple times.
+
+`-c|--codespec`: the name of the job codespec to execute.
+
+`--version`: the version of the job codespec to execute. The latest version is
+used if this is not given.
+
+`-r|--replicas` the number of parallel job replicas. Defaults to 1.
+
+`--timeout`: how log before the run times out. Specified in a sequence of decimal
+numbers, each with optional fraction and a unit suffix, such as "300s", "1.5h"
+or "2h45m". Valid time units are "s", "m", "h"
+
+`--tag`: add a key-value tag to be applied to any buffer created by the job. Can
+be specified multiple times.
+
+`--cluster`: specify the name of the cluster to target.
+
+`--node-pool`: the name of the nodepool to execute the job in.
+
+### Run specification file
+
+The `--file` argument points to a YAML file where these options are specified.
+Here is a commented specification file with all fields specified:
+
+```yaml
+# Every run has a "job"
+job:
+
+  # The codespec to run. This can either be:
+  # 1. A versioned reference: <name>/versions/<version>
+  # 2. A simple reference (which will use the latest version): <name>
+  # 3. An inline codespec definition
+  codespec: mycodespec/versions/22
+
+  # Buffer arguments to the parameters defined in the codespec
+  # in the form <parameter>: <buffer id>
+  # Any missing buffers will be created automatically.
+  buffers:
+    input: lopoahtz7chepdpmgvunuvtqke
+
+  # Tags to set on automatically created buffers.
+  tags:
+    mykey: myvalue
+
+  # The name of the nodepool to run in
+  nodePool: cpunp
+
+  # The number of replicas.
+  replicas: 1
+
+# The name of the cluster to run in.
+cluster: mycluster
+
+# The run is given this amount of time to complete,
+# starting from when the run was created, not when it
+# when it started executing.
+timeoutSeconds: 43200
+```
+
 ## Showing runs
 
 You can display the status and definition of a run with
