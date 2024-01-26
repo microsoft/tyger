@@ -33,6 +33,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/api/resource"
+	"sigs.k8s.io/yaml"
 )
 
 func init() {
@@ -321,6 +323,84 @@ timeoutSeconds: 600`, BasicImage)
 	require.Empty(execStdOut)
 }
 
+func mustParseQuentity(s string) *resource.Quantity {
+	q, err := resource.ParseQuantity(s)
+	if err != nil {
+		panic(err)
+	}
+	return &q
+}
+
+func TestCreateCodespecsWithSpecFile(t *testing.T) {
+	t.Parallel()
+
+	codespecName := strings.ToLower(t.Name() + "1")
+
+	spec := fmt.Sprintf(`
+name: %s
+buffers:
+  inputs:
+    - input
+  outputs:
+    - output
+image: quay.io/linuxserver.io/ffmpeg
+command: ["ffmpeg"]
+args: ["1", "2", "3"]
+workingDir: /some/path
+env:
+  MY_VAR: myValue
+resources:
+  requests:
+    cpu: 1
+    memory: 1G
+  limits:
+    cpu: 2
+    memory: 2G
+  gpu: 1
+maxReplicas: 1
+`, codespecName)
+
+	tempDir := t.TempDir()
+	specPath := filepath.Join(tempDir, "spec.yaml")
+	require.NoError(t, os.WriteFile(specPath, []byte(spec), 0644))
+	parsedSpec := model.Codespec{}
+	require.NoError(t, yaml.Unmarshal([]byte(spec), &parsedSpec))
+
+	runTygerSucceeds(t, "codespec", "create", "-f", specPath)
+
+	receivedSpecString := runTygerSucceeds(t, "codespec", "show", codespecName)
+	var receivedSpec model.Codespec
+	require.NoError(t, json.Unmarshal([]byte(receivedSpecString), &receivedSpec))
+
+	require.Equal(t, codespecName, receivedSpec.Name)
+	require.Equal(t, parsedSpec.Buffers, receivedSpec.Buffers)
+	require.Equal(t, parsedSpec.Image, receivedSpec.Image)
+	require.Equal(t, parsedSpec.Command, receivedSpec.Command)
+	require.Equal(t, parsedSpec.Args, receivedSpec.Args)
+	require.Equal(t, parsedSpec.WorkingDir, receivedSpec.WorkingDir)
+	require.Equal(t, parsedSpec.Env, receivedSpec.Env)
+	require.Equal(t, parsedSpec.Resources, receivedSpec.Resources)
+	require.Equal(t, parsedSpec.MaxReplicas, receivedSpec.MaxReplicas)
+
+	// now override the spec name
+	codespec2Name := strings.ToLower(t.Name() + "2")
+	runTygerSucceeds(t, "codespec", "create", codespec2Name, "-f", specPath)
+
+	receivedSpecString = runTygerSucceeds(t, "codespec", "show", codespec2Name)
+	require.NoError(t, json.Unmarshal([]byte(receivedSpecString), &receivedSpec))
+
+	require.Equal(t, codespec2Name, receivedSpec.Name)
+
+	// now override the spec name and image
+	codespec3Name := strings.ToLower(t.Name() + "3")
+	runTygerSucceeds(t, "codespec", "create", codespec3Name, "-f", specPath, "--image", "ubuntu")
+
+	receivedSpecString = runTygerSucceeds(t, "codespec", "show", codespec3Name)
+	require.NoError(t, json.Unmarshal([]byte(receivedSpecString), &receivedSpec))
+
+	require.Equal(t, codespec3Name, receivedSpec.Name)
+	require.Equal(t, "ubuntu", receivedSpec.Image)
+}
 func TestInvalidCodespecNames(t *testing.T) {
 	testCases := []struct {
 		name  string

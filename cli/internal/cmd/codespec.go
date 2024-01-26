@@ -112,29 +112,29 @@ func newCodespecCreateCommand() *cobra.Command {
 				return errors.New("codespec names must contain only lower case letters (a-z), numbers (0-9), dashes (-), underscores (_), and dots (.)")
 			}
 
-			if cmd.Flags().Changed("image") {
+			if hasFlagChanged(cmd, "image") {
 				newCodespec.Image = flags.image
 			}
 
-			if cmd.Flags().Changed("input") {
+			if hasFlagChanged(cmd, "input") {
 				if newCodespec.Buffers == nil {
 					newCodespec.Buffers = &model.BufferParameters{}
 				}
 				newCodespec.Buffers.Inputs = flags.inputBuffers
 			}
 
-			if cmd.Flags().Changed("output") {
+			if hasFlagChanged(cmd, "output") {
 				if newCodespec.Buffers == nil {
 					newCodespec.Buffers = &model.BufferParameters{}
 				}
 				newCodespec.Buffers.Outputs = flags.outputBuffers
 			}
 
-			if cmd.Flags().Changed("env") {
+			if hasFlagChanged(cmd, "env") {
 				newCodespec.Env = flags.env
 			}
 
-			if cmd.Flags().Changed("endpoint") {
+			if hasFlagChanged(cmd, "endpoint") {
 				newCodespec.Endpoints = flags.endpoints
 			}
 
@@ -179,7 +179,7 @@ func newCodespecCreateCommand() *cobra.Command {
 				if cmd.Flags().Lookup(cpuFlagName) == nil {
 					panic(fmt.Sprintf("flag not found: %s", cpuFlagName))
 				}
-				if cmd.Flags().Changed(cpuFlagName) {
+				if hasFlagChanged(cmd, cpuFlagName) {
 					q, err := resource.ParseQuantity(resourceStrings.cpu)
 					if err != nil {
 						return nil, fmt.Errorf("cpu %s value is invalid: %v", resourceType, err)
@@ -192,7 +192,7 @@ func newCodespecCreateCommand() *cobra.Command {
 					panic(fmt.Sprintf("flag not found: %s", memoryFlagName))
 				}
 
-				if cmd.Flags().Changed(memoryFlagName) {
+				if hasFlagChanged(cmd, memoryFlagName) {
 					q, err := resource.ParseQuantity(resourceStrings.memory)
 					if err != nil {
 						return nil, fmt.Errorf("memory %s value is invalid: %v", resourceType, err)
@@ -241,7 +241,7 @@ func newCodespecCreateCommand() *cobra.Command {
 				}
 			}
 
-			if cmd.Flags().Changed("gpu") {
+			if hasFlagChanged(cmd, "gpu") {
 				q, err := resource.ParseQuantity(flags.gpu)
 				if err != nil {
 					return fmt.Errorf("gpu value is invalid: %v", err)
