@@ -24,6 +24,7 @@ export default defineConfig({
       {
         text: "Guides",
         items: [
+          { text: "Log in to Tyger", link: "/guides/login" },
           { text: "Working with buffers", link: "/guides/buffers" },
           { text: "Working with codespecs", link: "/guides/codespecs" },
           { text: "Working with runs", link: "/guides/runs" },

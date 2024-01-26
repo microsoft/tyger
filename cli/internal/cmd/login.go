@@ -23,7 +23,7 @@ func NewLoginCommand() *cobra.Command {
 	}
 
 	loginCmd := &cobra.Command{
-		Use:   "login { SERVER_URL [--service-pricipal APPID --certificate CERTPATH] [--use-device-code] url } | --file LOGIN_FILE.yaml",
+		Use:   "login { SERVER_URL [--service-principal APPID --certificate CERTPATH] [--use-device-code] [--proxy PROXY] } | --file LOGIN_FILE.yaml",
 		Short: "Login to a server",
 		Long: `Login to the Tyger server at the given URL.
 Subsequent commands will be performed against this server.`,
@@ -125,7 +125,7 @@ Subsequent commands will be performed against this server.`,
 # The Tyger server URI
 serverUri: https://example.com
 
-# The serive principal ID
+# The service principal ID
 servicePrincipal: api://my-client
 
 # The path to a file with the service principal certificate
@@ -142,7 +142,7 @@ proxy: auto
 	loginCmd.Flags().StringVarP(&options.CertificatePath, "cert-file", "c", "", "The path to the certificate in PEM format to use for service principal authentication")
 
 	if runtime.GOOS == "windows" {
-		loginCmd.Flags().StringVarP(&options.CertificateThumbprint, "cert-thumbprint", "t", "", "The thumprint of a certificate in a Windows certificate store to use for service principal authentication")
+		loginCmd.Flags().StringVarP(&options.CertificateThumbprint, "cert-thumbprint", "t", "", "The thumbprint of a certificate in a Windows certificate store to use for service principal authentication")
 		loginCmd.MarkFlagsMutuallyExclusive("cert-file", "cert-thumbprint")
 	}
 
