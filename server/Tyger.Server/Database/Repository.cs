@@ -586,7 +586,7 @@ public class Repository : IRepository
                 var id = await GetTagId(conn, tag.Key, cancellationToken);
                 if (id == null)
                 {
-                    return (new List<Buffer>(), null);
+                    return ([], null);
                 }
 
                 commandText.AppendLine($" t{index}.key = ${param} and t{index}.value = ${param + 1}");

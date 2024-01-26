@@ -131,15 +131,17 @@ you run `set`.
 
 ## Listing buffers
 
-You can list all buffers with the command:
+You can list buffers with the command:
 
 ```bash
 tyger buffer list
 ```
 
-This lists tag metadata and orders the result in descending creation time.
+The results are ordered in descending creation time.
 
-You can limit the number of results with the `--limit` parameter.
+You can limit the number of results with the `--limit` parameter. If not
+specified, the results are truncated to 1000 results and a warning is written
+out to standard error.
 
 You can also limit results to buffers that have tag values set:
 
