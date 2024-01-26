@@ -147,6 +147,8 @@ type ConfigTemplateValues struct {
 	DomainName               string
 	ApiTenantId              string
 	CurrentIpAddress         string
+	CpuNodePoolMinCount      int
+	GpuNodePoolMinCount      int
 }
 
 func RenderConfig(templateValues ConfigTemplateValues, writer io.Writer) error {

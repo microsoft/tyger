@@ -21,11 +21,11 @@ cloud:
         userNodePools:
           - name: cpunp
             vmSize: Standard_DS12_v2
-            minCount: 0
+            minCount: {{ .CpuNodePoolMinCount }}
             maxCount: 10
           - name: gpunp
             vmSize: Standard_NC6s_v3
-            minCount: 0
+            minCount: {{ .GpuNodePoolMinCount }}
             maxCount: 10
 
     # These are the principals that will be granted full access to the
