@@ -1,58 +1,60 @@
 # Installation
 
-To use Tyger, you will need to have an Azure subscription and the [Azure
+To use Tyger, you need an Azure subscription and the [Azure
 CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) installed.
 
-The steps to installing Tyger are:
+The steps for installing Tyger are:
 
-1. Install the `tyger` CLI
-2. Create an installation config file
-3. Install cloud resources
-4. Install authentication identities
-5. Install the Tyger API
+1. Install the `tyger` CLI.
+2. Create an installation config file.
+3. Install cloud resources.
+4. Install authentication identities.
+5. Install the Tyger API.
 
-After installing the `tyger` CLI, you will use it to perform the subsequent steps.
+After installing the `tyger` CLI, you will use it for the subsequent steps.
 
-For step (3), you will need to have the Owner role at a resource group or the subscription level.
+For step (3), you will need to have the Owner role at a resource group or the
+subscription level.
 
-For step (4), you will need to have permissions to create applications in your
-Microsoft Entra tenant.
+For step (4), you will need permissions to create applications in your Microsoft
+Entra tenant.
 
 Step (5) does not require either of these.
 
 ## Install the `tyger` CLI
 
-`tyger` is a single executable file. The installation steps are:
+`tyger` is a single executable file. To install it:
 
-1. Head over to the latest release page.
-1. Download the right archive for your platform.
-1. Extract the archive and find the `tyger` executable. Copy it to a directory in your PATH environment variable.
+1. Visit the [releases](https://github.com/microsoft/tyger/releases) page.
+2. Download the right archive for your platform.
+3. Extract the archive to find the `tyger` executable. Copy it to a directory
+   included in your PATH environment variable.
 
 You should now be able to run `tyger --version`.
 
-## Generate an installation config file
+## Generate an installation configuration file
 
 We will now generate an installation configuration file, which will be used for
 subsequent installation steps.
 
-Make sure you have logged in the Azure CLI using `az login`.
+First, ensure you're logged into the Azure CLI using `az login`.
 
-Now we will generate an installation configuration file. To do this, run
+Next, generate an installation configuration file with:
 
 ```bash
 tyger config create
 ```
 
-This runs an interactive wizard that results in a config file that is saved on
-your system. You can get its path by running:
+This command runs an interactive wizard, resulting in a config file saved
+on your system. Retrieve its path with:
 
 ```bash
 tyger config get-path
 ```
 
-Once created, you should inspect the file and adjust its contents as needed.
+Review and adjust the file's contents as needed.
 
-The installation configuration file looks like this:
+The installation configuration file typically looks like this:
 
 ```yaml
 environmentName: demo
@@ -170,61 +172,53 @@ example:
 tyger api install --set api.helm.tyger.chartRef=oci://tyger.azurecr.io/helm/tyger --set api.helm.tyger.version=v0.4.0
 ```
 
-
 ## Install cloud resources
 
-You will now create and configure the necessary cloud components for Tyger
-(Azure Kubernetes Service, storage accounts, etc.). To do this, simply run:
+To create and configure the necessary cloud components for Tyger (Azure
+Kubernetes Service, storage accounts, etc.), run:
 
 ```bash
 tyger cloud install
 ```
 
-If you need to make changes to your cloud resources, you can update the config
-file and run this command again.
-
+If later on you need to make changes to your cloud resources, you can update the
+config file and run this command again.
 
 ## Install authentication identities
 
-Run the following command installs Entra ID applications for the `tyger` CLI and
-for the Tyger server. These are needed for OAuth authentication.
+Execute the following to install Entra ID applications for the `tyger` CLI and
+the Tyger API. These are needed for OAuth authentication:
 
 ```bash
 tyger identities install
 ```
 
-This command is idempotent can be run multiple times. You will receive errors if
+This command is idempotent and can be run multiple times. You will receive errors if
 you do not have sufficient permissions.
 
-The tyger CLI can use a service principal instead of a user's identity for calls
-to the Tyger API. If you want to use a service principal for this purpose, you
-may use an existing one or create a new one on your own.
+For calls to the Tyger API, the `tyger` CLI can use a service principal instead
+of a user's identity. If you want to use a service principal for this purpose,
+you can use an existing one or create a new one on your own.
 
-## Install the tyger API
+## Install the Tyger API
 
-The last step is to install the Tyger API, which can be done by running
+The last step is to install the Tyger API, which can be done by running:
 
 ```bash
 tyger api install
 ```
 
-This installs the Tyger API from a Helm chart in the
-`tyger.azurecr.io/helm/tyger` with a tag (version) that is baked into `tyger`
-CLI executable. Update the CLI and run `tyger api install` again to upgrade the
-server.
+This command installs the Tyger API from the Helm chart in the
+`tyger.azurecr.io/helm/tyger` registry, using a version baked into the `tyger`
+CLI. Upgrade the server by updating the CLI and rerunning `tyger api install`.
 
 The API's TLS certificate is automatically created using [Let's
 Encrypt](https://letsencrypt.org/).
 
 ## Testing it out
 
-You will now log in with the `tyger` CLI. The domain name in in the config file
-under the path `api.domainName`. The simplest way to log in is by running:
-
-```bash
-tyger login https://DOMAINNAME
-```
-e.g.
+Log in with the `tyger` CLI using the domain name specified in the config file
+under `api.domainName`. For example:
 
 ```bash
 tyger login https://demo-tyger.westus2.cloudapp.azure.com
@@ -232,7 +226,7 @@ tyger login https://demo-tyger.westus2.cloudapp.azure.com
 
 This will take you through an interactive login flow similar to logging `az login`.
 
-Once login succeeds, you should be able to run any of the core commands, such as:
+Once logged in, you should be able to run any of the core commands, such as:
 
 ```bash
 tyger run list
@@ -246,7 +240,7 @@ To uninstall the Tyger API, run:
 tyger api uninstall
 ```
 
-Note that this does **not** delete the data in the database, nor does it delete any buffers.
+Note: This does **not** delete any database data or buffers.
 
 To uninstall all cloud resources, run:
 

@@ -1,27 +1,28 @@
 # Working with runs
 
-A run combines a codespec with buffers and executes in a Tyger Kubernetes
-cluster. Buffers serve as parameters to the buffer parameters defined in the
-codespec.
+A run in Tyger is the execution of a codespec combined with buffers. Buffers
+serve as as arguments to the buffer parameters defined in the codespec.
 
 ::: info Note
 
-This does not discuss runs with workers. Those are covered in [Distributed
-runs](distributed-runs.md).
+This guide does not cover runs with workers. Those are covered in [Distributed
+Runs](distributed-runs.md).
 
 :::
 
 ## Creating runs with `exec`
 
-`tyger run exec` is the easiest way to create and execute a run. It supports up to one buffer's contents being provided though standard in, and up to one buffer written to standard out.
+`tyger run exec` is a the easiest way to create and execute a run. It allows
+up to one buffer's contents to be provided through standard input and up to one
+buffer's output to be written to standard output.
 
-Let's first create a codespec named `hello`:
+First, create a codespec named `hello`:
 
 ```bash
 tyger codespec create -f hello.yml
 ```
 
-With `hello.yml` being:
+With `hello.yml` looking like this:
 
 ```yaml
 name: hello
@@ -48,8 +49,6 @@ This will write status information to standard error and "Hello Paul" to
 results.txt.
 
 You can also provide the run specification as a file:
-
-For example:
 
 ```bash
 echo "Paul" | tyger run exec -f hello.yml > result.txt
@@ -80,18 +79,17 @@ job:
         echo "Hello ${inp}" > "$OUTPUT_PIPE"
 ```
 
-In each of these cases, `tyger run exec` creates buffers for the `input` and
-`output` buffer parameters, copies standard in to the input buffer, copies the
-output buffer to standard out, and creates and watches the run until it
-completes.
+In each of these cases, `tyger run exec` creates buffers for `input` and
+`output`, copies standard input to the input buffer, copies the output buffer to
+standard output, and monitors the run until completion.
 
 ## Creating runs with `create`
 
-While exec combines synchronously executes a run, `tyger buffer create` creates
-a run but does not wait on its completion, not does to read or write to its
-buffers.
+`tyger run create` creates a run without waiting for its completion or reading
+or writing to its buffers.
 
-Using `tyger buffer create`, you would rewrite the above example as:
+Using `tyger buffer create`, you accomplish the same as the previous example
+with:
 
 ```bash
 input_id=$(tyger buffer create)
@@ -105,39 +103,28 @@ tyger buffer read $output_id > result.txt
 ```
 
 Notice how we pass in buffers as arguments to the codespec's buffer parameters.
-Any buffers that are not given as arguments are created automatically. Their IDs
-can be retried by running `tyger run show`.
+Missing buffers arguments are automatically created and their IDs can be retrieved using
+`tyger run show`.
 
 ## `exec` and `create` options
 
-Both `tyger run create` and `tyger run exec` have the following command-line parameters
+Both `tyger run create` and `tyger run exec` share the following command-line
+parameters:
 
-`-f|--file`: a YAML file with the run specification. All other flags override the values in the file.
-
-`--buffer`: maps a codespec buffer parameter to a buffer ID. Can be specified multiple times.
-
-`-c|--codespec`: the name of the job codespec to execute.
-
-`--version`: the version of the job codespec to execute. The latest version is
-used if this is not given.
-
-`-r|--replicas` the number of parallel job replicas. Defaults to 1.
-
-`--timeout`: how log before the run times out. Specified in a sequence of decimal
-numbers, each with optional fraction and a unit suffix, such as "300s", "1.5h"
-or "2h45m". Valid time units are "s", "m", "h"
-
-`--tag`: add a key-value tag to be applied to any buffer created by the job. Can
-be specified multiple times.
-
-`--cluster`: specify the name of the cluster to target.
-
-`--node-pool`: the name of the nodepool to execute the job in.
+- `-f|--file`: A YAML file with the run specification. Other flags override file values.
+- `--buffer`: Maps a codespec buffer parameter to a buffer ID. Repeatable.
+- `-c|--codespec`: The name of the job codespec to execute.
+- `--version`: The version of the job codespec. Defaults to the latest version if not provided.
+- `-r|--replicas`: The number of parallel job replicas. The default is 1.
+- `--timeout`: The run timeout duration, in formats like "300s", "1.5h", or "2h45m".
+- `--tag`: Key-value tags for any buffer created by the job. Can be specified
+  multiple times.
+- `--cluster`: The target cluster name.
+- `--node-pool`: The nodepool to run the job in.
 
 ### Run specification file
 
-The `--file` argument points to a YAML file where these options are specified.
-Here is a commented specification file with all fields specified:
+The `--file` argument points to a YAML file with these options:
 
 ```yaml
 # Every run has a "job"
@@ -176,37 +163,42 @@ timeoutSeconds: 43200
 
 ## Showing runs
 
-You can display the status and definition of a run with
+You can display the status and definition of a run with:
 
 ```bash
 tyger run show ID
 ```
 
 ID corresponds to the ID returned by `tyger run create`. If using `tyger run
-exec`, the ID is written in the stand error logs.
+exec`, the ID is included in the standard error logs.
+
+## Watching runs
+
+You can monitor a run's status in real-time:
+
+```bash
+tyger run watch ID [--full-resource]
+```
+
+This will write out a JSON line whenever the status of the run changes until it
+reaches a terminal state. By default, it only includes system metadata fields.
+To print the entire resource, specify `--full-resource`.
 
 ## Listing runs
 
-You can list runs with the command:
+List runs with:
 
 ```bash
 tyger run list [--since DATE/TIME] [--limit COUNT]
 ```
 
-`--since` can be a datatime or a relative string such as "1 hour ago".
-
-If `--limit` is not provided, 1000 runs are returned and a warning is written to
-standard error if more exist.
-
-Runs are ordered by descending creation time.
+Runs are listed in descending order of creation time. If `--limit` is not
+specified, a maximum of 1000 runs are shown with a warning if the output had to
+be truncated.
 
 ::: info Tip
 
-To get the most recent run, you can write:
-
-```bash
-tyger run list --limit 1
-```
+Use `tyger run list --limit 1` to fetch the most recent run.
 
 :::
 
@@ -221,7 +213,7 @@ following values:
 - `Running`: The run is executing.
 - `Failed`: The run failed. This could be because of a non-zero exit code, or
   because the job failed to start (e.g. the container image could not be
-  downloaded). or its execution timed out. Note that runs are never restarted.
+  downloaded), or its execution timed out. Note that runs are never restarted.
 - `Succeeded`: The run completed with an exit code of 0.
 - `Canceling`: Cancellation has been requested for this job.
 - `Canceled`: The job has been canceled.
@@ -229,9 +221,20 @@ following values:
 The `statusReason` field may have more information concerning failures, but
 often you will want to view a run's logs to determine the cause of failure.
 
+## Cancel a run
+
+You can cancel a job with:
+
+```bash
+tyger run cancel ID
+```
+
+This an asynchronous command and the run may continue executing for some time
+before being terminated.
+
 ## Viewing logs
 
-You can retrieve the logs for a run using the command
+You can retrieve the logs for a run using:
 
 ```bash
 tyger run logs
@@ -242,24 +245,24 @@ tyger run logs
     [--timestamps]
 ```
 
-This return everything that all the containers that make up the run wrote to
-standard out and standard error, ordered by the time the line was written.
+Logs include all standard output and error messages from all of the run's
+containers chronologically ordered.
 
-`--follow` keeps writing logs as they are written by the containers until the
+`--follow` keeps writing logs as they are written until the
 run completes.
 
-`--since` only shows logs after a a given time
+`--since` only shows logs after a a given time.
 
 `--tail` only shows new last N log lines.
 
-`--timestamps` prefixes each line with the timestamp that it was written
+`--timestamps` prefixes each line with the timestamp that it was written.
 
 When a run completes, the logs are archived in a storage account so that they
 can be retrieved later.
 
 ::: info Tip
 
-The `exec` command can also stream run logs to standard error if `--logs` is
+The `exec` command can stream run logs to standard error if `--logs` is
 specified.
 
 :::

@@ -1,10 +1,13 @@
 # Working with codespecs
 
-Codespecs are a specification of the code to execute during a Tyger run. Named
-codespecs are reusable and can be reused across many runs. Runs can also declare
-codespecs inline. In this guide, we will work with named codespecs.
+Codespecs in Tyger define the code executed during a run. Named codespecs can be
+used by for multiple runs. While can also declare codespecs inline, this guide
+focuses on working with named codespecs.
 
-Codespecs are created with the `tyger codespec create` command. The properties of the codespec can be given as command-line arguments:
+## Creating a codespec
+
+Create a codespec using the `tyger codespec create` command. You can set the
+properties of the codespec via command-line arguments:
 
 ```bash
 tyger codespec create \
@@ -12,7 +15,7 @@ tyger codespec create \
     --image quay.io/linuxserver.io/ffmpeg \
     --input input \
     --output output \
-    -- -i '$(INPUT_PIPE)' -vf negate -f- nut -y '$(OUTPUT_PIPE)'
+    -- -i '$(INPUT_PIPE)' -vf negate -f nut -y '$(OUTPUT_PIPE)'
 ```
 
 Alternatively, you could create the same codespec with a specification file:
@@ -21,7 +24,7 @@ Alternatively, you could create the same codespec with a specification file:
 tyger codespec create -f negating.yml
 ```
 
-With `negating.yml` looking like this:
+`negating.yml` would be structured as follows:
 
 ```yaml
 name: negatingcodespec
@@ -41,20 +44,17 @@ args:
   - $(OUTPUT_PIPE)
 ```
 
-Any properties specified on the command-line override values given in the spec
-file.
+Command-line arguments override values specified in the spec file.
 
-When successful, `tyger codespec create` outputs the version of the codespec. A
-codespec can have many versions, but each version is immutable. The first
-command above would return 1 as the version. The second command would also
-return 1, because it the specification is the same as the latest version. But we
-could specify something different, for example:
+`tyger codespec create` outputs the codespec version upon success. Each version
+is immutable. If you create a codespec with specifications identical to the
+current version, it will return the same version number. However, a change in
+the specification, such as adding an environment variable, results in a new
+version:
 
 ```bash
 tyger codespec create -f negating.yml --env MY_ENV=MY_VALUE
 ```
-
-This sets an environment variable on the codespec and would result in a new version of the codespec being created.
 
 ## Codespec properties
 
@@ -157,7 +157,7 @@ Properties specific to worker codespecs are explained in [Distributed runs](dist
 
 :::
 
-These values can be provided as command-line arguments:
+These properties can also be provided via command-line arguments:
 
 ```
 tyger codespec create
@@ -176,28 +176,29 @@ tyger codespec create
     [--command] [ -- [COMMAND] [args...]]
 ```
 
-Whatever appears after the `--` is treated as `args` for the codespec, unless
-`--command` is set, in which case it is treated as the `command` value.
+Entries after `--` are treated as `args` for the codespec, unless `--command` is
+specified, in which case they are treated as the `command` value.
 
 ## Showing codespecs
 
-You can retrieve a codespec with the command:
+Retrieve a specific codespec version with:
 
 ```bash
 tyger codespec show NAME [-v|--version VERSION]
 ```
 
-If `--version` is not provided, the latest version of the codespec is returned.
+Without `--version`, the latest version is returned.
 
-You can list codespecs with the command:
+## Listing codespecs
+
+List **latest version** of codespecs with:
 
 ```bash
 tyger codespec list [--prefix STRING] [--limit COUNT]
 ```
 
-Codespecs are returned in alphabetical order, up to the `--limit` value
-provided. If no limit is provided, 1000 codespecs are returned and a
-warning is written to standard error if more exist.
+Codespecs are listed alphabetically up to the `--limit` value. If no limit is
+set, a maximum of 1000 codespecs are returned with a warning if more exist.
 
-Use the `--prefix` argument to only show codespecs that start with the given
-string, which is case-sensitive.
+Use `--prefix` to filter codespecs that start with a specific case-sensitive
+string.

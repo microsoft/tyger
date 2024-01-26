@@ -1,37 +1,36 @@
 # What is Tyger?
 
-Tyger is a framework for remote signal processing. It allows reliably
-transmitting data to remote computational resources where the data can be
-processed and transformed as it streams in. It was designed for streaming the
-raw signal data that an MRI scanner acquires to the cloud, where much more
-compute power is typically available to reconstruct the signal into images.
-However, nothing ties it to MRI and it can be used for a variety of domains and
-scenarios.
+Tyger is a framework for remote signal processing. It enables reliable
+transmission of data to remote computational resources, where the data can be
+processed and transformed as it streams in. It was designed for streaming raw
+signal data from an MRI scanner to the cloud, where much more compute power is
+typically available to reconstruct images from the signal. However, its
+application is not limited to MRI and it could be used in a variety of domains
+and scenarios.
 
-At a high level, Tyger is a REST API that provides an abstraction over an Azure
-Kubernetes cluster and Azure Blob storage, though we intend to support on-prem
-deployments in the future. It ships with a command-line tool, `tyger`, that
-facilitates interacting with this API. Signal processing code is specified as a
-container image.
+At a high level, Tyger is a REST API that abstracts over an Azure Kubernetes
+cluster and Azure Blob storage. Future plans include support for on-prem
+deployments. It includes a command-line tool, `tyger`, for easy interaction with
+this API. Users specify signal processing code as a container image.
 
-Tyger is built around **stream processing**, where data can be processed as it
-is acquired, without first waiting for a the dataset to have been completely
-produced. It is also a based on an **asynchronous** model, where data producers
-do not need to wait for data consumers (processors) to be available before
-sending data, and similarly data consumers can run during data production or
-after. Data streams are Write once read many (**WORM**).
+Tyger is centered around **stream processing**, allowing data to be processed as
+it is acquired, without needing to wait for the complete dataset. It is based on
+an **asynchronous** model, where data producers to do not need to wait for the
+availability of data consumers. Additionally, data consumers can operate during
+or after data production, since data streams are Write Once Read Many
+(**WORM**).
 
-Signal processing code can be written in any language and only needs to be able
-to read and write to named pipes (which are essentially files that do no support
-random access). There is no SDK. This that you can write, test, debug code on
-your laptop using only files and without anything to do with Tyger, and build a
-container image and run the same code in the cloud using Tyger.
+Signal processing code can be written in any language, as long as it can read
+and write to named pipes (which are file-like but do not support random access).
+There is no SDK, meaning you can develop, test, and debug code on your laptop
+using only files, without Tyger dependencies. Then, you build a container image
+to run the same code in the cloud with Tyger.
 
-Tyger is designed to be powerful and easy to use. Its implementation is also
-really simple, thanks to it being built on battle-tested technologies like
-Kubernetes and Azure Blob Storage.
+Tyger is designed to be both powerful and easy to use. Its implementation is
+also simple, since a lot of the heavy lifting is done by proven technologies
+like Kubernetes and Azure Blob Storage.
 
-## A simple example
+## A Simple Example
 
 ::: tip
 
@@ -41,32 +40,31 @@ can run this example too!
 First, make sure you have [`ffmpeg`](https://ffmpeg.org/download.html) (which
 comes with `ffplay`).
 
-Next, download the sample video that we'll use for this exercise and you'll be all set.
+Next, download the sample video used in this exercise:
 
 ```bash
 curl -OL https://aka.ms/tyger/docs/samples/hanoi.nut
 ```
 :::
 
-Suppose we have a video file called `hanoi.nut`. We can pipe it contents to the
-[`ffplay`](https://ffmpeg.org/ffplay.html) video player to view it. (Normally, you would just
-play the file directly in ffplay, but here we explicitly want to work with pipe
-streams).
+Suppose we have a video file named `hanoi.nut`. We can pipe its contents to
+[`ffplay`](https://ffmpeg.org/ffplay.html), a video player. (Normally, you would
+play the file directly in ffplay, but for this example, we explicitly want to
+work with pipe streams.)
 
 You can do this with the following command line:
 
 ```bash
 cat hanoi.nut \
-| ffplay -autoexit  -
+| ffplay -autoexit -
 ```
 
 The first couple of seconds of this video look like this:
 
 ![Original Video](hanoi.gif)
 
-Now, let's say we want to transform this video stream by applying a color
-negation filter. We can do that by inserting another ffmpeg step in the
-pipeline:
+Now, suppose we want to apply a color negation filter to this video stream. We
+can do this by adding an ffmpeg step in the pipeline:
 
 ```bash:line-numbers{2}
 cat hanoi.nut \
@@ -74,13 +72,13 @@ cat hanoi.nut \
 | ffplay -autoexit -
 ```
 
-The output video would now look something like this:
+The output video will look like this:
 
 ![Converted Video](hanoi_negated.gif)
 
-Now let's run the color negation in the cloud. To do that, we change our
-pipeline to the following, which will send the input data to the cloud where a
-"run" will perform the data and then we'll feed the result into ffplay:
+Now let's run the color negation in the cloud. To do that, modify the pipeline
+as follows, which now uploads the input data to the cloud to apply the filter and
+feeds the downloaded result into ffplay:
 
 ```bash:line-numbers{2}
 cat hanoi.nut \
@@ -110,56 +108,43 @@ job:
       - $(OUTPUT_PIPE)
 ```
 
-For now, we'll ignore the details of this file, but in summary, it says to run
-an FFmpeg container image, it declares input and output "buffer" parameters, and
-specifies command-line arguments to `ffmpeg` that are very similar to the
-example before, except that the input and outputs are expressed in terms of
-pipes to these buffers.
+This file specifies running an FFmpeg container image, declaring input and
+output "buffer" parameters, and includes command-line arguments for `ffmpeg`.
+These arguments are similar to the earlier example, except that inputs and
+outputs are pipes to these buffers.
 
 ## Concepts
 
 Tyger is built around three main concepts: buffers, codespecs, and runs. Buffers
-are used for transporting data, codespecs describe what code to run, and runs
-are the execution of a codespec that read and write to buffers.
+are used for transporting data, codespecs describe the code to run, and runs
+execute a codespec, reading and writing to buffers.
 
 ### Buffers
 
 A buffer is an abstraction over an Azure Blob storage container. Data streams
-are broken up into (usually) fixed-size blobs (files) with a sequential naming
-scheme and uploaded and downloaded in parallel. It's conceptually similar to a
-service like Apache Kafka, but much simpler and optimized for a single writer
-than can produce gigabits or even tens of gigabits per second.
+are split into fixed-size blobs (files) with a sequential naming scheme and
+uploaded and downloaded in parallel. The result is a conceptually similar to a
+queueing service, but simpler and optimized for a single writer that can produce
+gigabits or even tens of gigabits per second.
 
-There are several advantages to this design:
+Advantages of this design include:
 
-- It's extremely simple and Azure storage is an extremely reliable service.
-- Producers and consumers are decoupled. The producer can send its data without
-  waiting for the consumer to come online.
-- Data can be read again and again.
-- We can achieve throughput can be achieved by simple parallelism,
-- We can recover from network transmission failures by doing simple HTTP
-  retries.
-- Data in motion is protected with standard TLS.
-
-We issue time-bound access tokens to read or write to buffers and always verify
-the integrity of the contents with hashes.
+- Simplicity and reliability, thanks to the use of Azure storage services.
+- Decoupled producers and consumers, allowing asynchronous data transmission.
+- Data is readable multiple times.
+- High throughput achieved through parallelism.
+- Resilience to network failures via simple HTTP retries.
+- Data in motion is secured with standard TLS.
 
 ### Codespecs
 
-Codespecs are a reusable specification of the code to run in a Tyger cluster. It
-specifies a container image, command-line arguments, environment variables,
-required resources (like GPUs and memory), and a set of buffer parameters.
-Buffer parameters do not refer to actual buffer instances, since codespecs are
-meant to be reusable, but are instead a lot like function parameters. A codespec
-declares zero or more input and zero or more output buffer parameters. These can
-be referred to in the codespec's command-line arguments and environment
-variables.
+Codespecs are reusable specifications for code execution in a Tyger cluster.
+They define a container image, command-line arguments, environment variables,
+required resources (like GPUs and memory), and buffer parameters. Buffer
+parameters, like function parameters, allow a codespec to be reused for many
+runs.
 
 ### Runs
 
-Runs are instances of a codespec that are executed in a cluster and provided
-buffer instances as arguments to the codespec's buffer parameters. Runs execute
-until the container process exits.
-
-Runs can optionally declare a codespec inline instead of referencing an existing
-codespec.
+Runs are instances of codespecs executed in a cluster, with buffer instances as
+arguments. They execute until the container process exits.

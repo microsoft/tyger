@@ -1,26 +1,37 @@
 # Database management
 
-Tyger uses a PostgreSQL to store information about codespecs, runs, and buffer metadata. Occasionally, we will need to evolve the database schema (add new tables, columns, etc.).
+Tyger uses a PostgreSQL database to store information about codespecs, runs, and
+buffer metadata. As the functionality of Tyger evolves, the database schema may
+occasionally require updates, such as adding tables, columns, and indexes.
 
-These changes are published as "migrations", which named sequences of SQL
-statements. When installing a new version of the tyger API, you will get a
-warning if there are migrations to apply. The new code will still run on the old
-database schema, but you should upgrade the database as sooner rather than
-later.
+These updates are published as "migrations," which are essentially numbered
+database scripts. When installing a new version of the Tyger API, you will
+receive a warning if there are available migrations to apply. While the new code
+version will continue operate with the old database schema, it is advisable to
+perform database upgrades sooner rather than later.
 
-Database migrations are designed to be run without needing to take Tyger offline. However, we strongly recommend taking a backup of the database before apply migrations, running the migrations at a time outside of peak hours, and testing in a non-production first.
+Database migrations are designed to run without Tyger downtime.
+However, it is strongly recommended to:
 
-To see what migrations are available, run:
+1. Backup the database before applying migrations.
+2. Schedule migrations during off-peak hours.
+3. Test migrations in a non-production environment first.
+
+## Viewing available migrations
+
+To check available migrations, execute:
 
 ```bash
 tyger api migration list [--all]
 ```
 
-This will show you the current database version and the migrations that are
-available to be applied. If you specify `--all`, all migrations are displayed,
-even previously applied ones.
+This command shows the current database version and lists pending migrations.
+Use `--all` to view all migrations, including those that have already been
+already applied.
 
-To apply one or more migrations, you run:
+## Applying migrations
+
+To apply migrations, use:
 
 ```bash
 tyger api migration apply
@@ -28,17 +39,17 @@ tyger api migration apply
     --wait
 ```
 
-If multiple migrations need to be applied, each one is applied sequentially.
+If multiple migrations need to be applied, they will be done so sequentially. By
+default, `apply` initiates the migrations and exits without waiting for
+completion. Use `--wait` to make the command wait for all migrations to complete.
 
-Migrations might take a while to run, so by default `apply` starts the
-migrations and does not wait for them to finish. If you specify `--wait`, the
-command waits until all migrations have been applied or one of them fails.
+## Viewing migration logs
 
-To get the logs of a particular migration, run:
+To get the logs from the application of a migration, run:
 
 ```bash
 tyger api migration log ID
 ```
 
-Migrations are designed to be idempotent, and retrying an migration should not
-cause any harm.
+Migrations are designed to be idempotent. Retrying a migration should not cause
+any issues.
