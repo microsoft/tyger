@@ -114,10 +114,16 @@ func newCodespecCreateCommand() *cobra.Command {
 			}
 
 			if cmd.Flags().Changed("input") {
+				if newCodespec.Buffers == nil {
+					newCodespec.Buffers = &model.BufferParameters{}
+				}
 				newCodespec.Buffers.Inputs = flags.inputBuffers
 			}
 
 			if cmd.Flags().Changed("output") {
+				if newCodespec.Buffers == nil {
+					newCodespec.Buffers = &model.BufferParameters{}
+				}
 				newCodespec.Buffers.Outputs = flags.outputBuffers
 			}
 
