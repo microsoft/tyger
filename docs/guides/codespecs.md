@@ -56,9 +56,24 @@ version:
 tyger codespec create -f negating.yml --env MY_ENV=MY_VALUE
 ```
 
+## Using buffers
+
+The commands above specify two buffers one for input, one for output, named
+`input` and `output` respectively. For each buffer, tyger creates a named pipe
+for reading or writing buffer contents, depending on the declared
+directionality. The path to the named pipe is given in an environment variable
+named `<UPPERCASE_BUFFER_NAME>_PIPE`, where `<UPPERCASE_BUFFER_NAME>` is the
+declared buffer name in uppercase.
+
+In a Tyger codespec, to use an environment variable as a command-line argument or
+another environment variable, use the syntax `$(VAR_NAME)`, e.g. `$(INPUT_PIPE)`
+or `$(OUTPUT_PIPE)`.
+
+Codespecs can have any number of buffers.
+
 ## Codespec properties
 
-Here is a commented specification file with all fields specified:
+Here is a commented specification file:
 
 ```yaml
 # The codespec kind: "job" or "worker". The default is "job".

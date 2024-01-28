@@ -13,9 +13,9 @@ perform database upgrades sooner rather than later.
 Database migrations are designed to run without Tyger downtime.
 However, it is strongly recommended to:
 
-1. Backup the database before applying migrations.
-2. Schedule migrations during off-peak hours.
-3. Test migrations in a non-production environment first.
+- Backup the database before applying migrations.
+- Schedule migrations during off-peak hours.
+- Test migrations in a non-production environment first.
 
 ## Viewing available migrations
 
@@ -39,7 +39,7 @@ tyger api migration apply
     --wait
 ```
 
-If multiple migrations need to be applied, they will be done so sequentially. By
+If multiple migrations need to be applied, they will be done sequentially. By
 default, `apply` initiates the migrations and exits without waiting for
 completion. Use `--wait` to make the command wait for all migrations to complete.
 

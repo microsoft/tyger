@@ -1,9 +1,9 @@
 # Distributed Runs
 
 All runs in Tyger use a "job" codespec for primary execution. Distributed runs
-can additionally employ workers for distributing workloads. These workers,
-defined by a separate codespec, typically listen on network ports so that the
-the job can communicate with them over the cluster's local network.
+additionally employ workers for distributing workloads. These workers, defined
+by a separate codespec, typically listen on network ports so that the the job
+can communicate with them over the cluster's local network.
 
 ## Creating a worker codespec
 
@@ -38,7 +38,8 @@ Creating a distributed run requires additional parameters for `tyger run create`
   Optional.
 - `--worker-replicas`: The number of parallel workers. Defaults to 1.
 
-If using a specification file, a distributed run must include:
+If using a specification file, a distributed run must include a top-level
+`worker` field:
 
 ```yaml
 # ...
@@ -67,6 +68,6 @@ variable, which contains a JSON array of strings.
 
 For each endpoint declared in the worker codespec, there is a corresponding
 environment variable
-`TYGER_<ENDPOINT_NAME_UPPERCASE>_WORKER_ENDPOINT_ADDRESSES`. This variable,
-where `<ENDPOINT_NAME_UPPERCASE>` is the endpoint name in uppercase, holds a
+`TYGER_<UPPERCASE_ENDPOINT_NAME>_WORKER_ENDPOINT_ADDRESSES`. This variable,
+where `<UPPERCASE_ENDPOINT_NAME>` is the endpoint name in uppercase, holds a
 JSON array of `hostname:port` strings.

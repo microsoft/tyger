@@ -147,16 +147,16 @@ tyger buffer list --tag mykey1=myvalue1
 
 ```json
 [
-    {
-      "id": "yf4sx2aqzitepjhmxjhanomn5e",
-      "etag": "638418036499348393",
-      "createdAt": "2024-01-25T18:20:49.951262Z",
-      "tags": {
-        "mykey1": "myvalue1",
-        "mykey2": "myvalue2"
-      }
+  {
+    "id": "yf4sx2aqzitepjhmxjhanomn5e",
+    "etag": "638418036499348393",
+    "createdAt": "2024-01-25T18:20:49.951262Z",
+    "tags": {
+      "mykey1": "myvalue1",
+      "mykey2": "myvalue2"
     }
-  ]
+  }
+]
 ```
 
 All tag arguments must match:
@@ -167,15 +167,15 @@ tyger buffer list --tag mykey1=myvalue1 --tag mykey2=myvalue2
 
 ```json
 [
-    {
-      "id": "yf4sx2aqzitepjhmxjhanomn5e",
-      "etag": "638418036499348393",
-      "createdAt": "2024-01-25T18:20:49.951262Z",
-      "tags": {
-        "mykey1": "myvalue1",
-        "mykey2": "myvalue2"
-      }
+  {
+    "id": "yf4sx2aqzitepjhmxjhanomn5e",
+    "etag": "638418036499348393",
+    "createdAt": "2024-01-25T18:20:49.951262Z",
+    "tags": {
+      "mykey1": "myvalue1",
+      "mykey2": "myvalue2"
     }
+  }
 ]
 ```
 

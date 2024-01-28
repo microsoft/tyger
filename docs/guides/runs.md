@@ -1,7 +1,7 @@
 # Working with runs
 
-A run in Tyger is the execution of a codespec combined with buffers. Buffers
-serve as as arguments to the buffer parameters defined in the codespec.
+A run in Tyger is the execution of a codespec with buffers provided as arguments
+to the codespec's buffer parameters.
 
 ::: info Note
 
@@ -112,7 +112,7 @@ Both `tyger run create` and `tyger run exec` share the following command-line
 parameters:
 
 - `-f|--file`: A YAML file with the run specification. Other flags override file values.
-- `--buffer`: Maps a codespec buffer parameter to a buffer ID. Repeatable.
+- `--buffer`: Maps a codespec buffer parameter to a buffer ID. Can be specified for each buffer parameter.
 - `-c|--codespec`: The name of the job codespec to execute.
 - `--version`: The version of the job codespec. Defaults to the latest version if not provided.
 - `-r|--replicas`: The number of parallel job replicas. The default is 1.
@@ -161,6 +161,25 @@ cluster: mycluster
 timeoutSeconds: 43200
 ```
 
+## Run lifecycle
+
+The output of `tyger run show` has a `status` field which will be one of the
+following values:
+
+- `Pending`: The run has been created but has not yet started executing. It
+  could be waiting for nodes to spin up, other jobs to complete, the container
+  image to be downloaded, etc.
+- `Running`: The run is executing.
+- `Failed`: The run failed. This could be because of a non-zero exit code, or
+  because the job failed to start (e.g. the container image could not be
+  downloaded), or its execution timed out. Note that runs are never restarted.
+- `Succeeded`: The run completed with an exit code of 0.
+- `Canceling`: Cancellation has been requested for this job.
+- `Canceled`: The job has been canceled.
+
+The `statusReason` field may have more information concerning failures, but
+often you will want to view a run's logs to determine the cause of failure.
+
 ## Showing runs
 
 You can display the status and definition of a run with:
@@ -202,25 +221,6 @@ Use `tyger run list --limit 1` to fetch the most recent run.
 
 :::
 
-## Run lifecycle
-
-The output of `tyger run show` has a `status` field which will be one of the
-following values:
-
-- `Pending`: The run has been created but has not yet started executing. It
-  could be waiting for nodes to spin up, other jobs to complete, the container
-  image to be downloaded, etc.
-- `Running`: The run is executing.
-- `Failed`: The run failed. This could be because of a non-zero exit code, or
-  because the job failed to start (e.g. the container image could not be
-  downloaded), or its execution timed out. Note that runs are never restarted.
-- `Succeeded`: The run completed with an exit code of 0.
-- `Canceling`: Cancellation has been requested for this job.
-- `Canceled`: The job has been canceled.
-
-The `statusReason` field may have more information concerning failures, but
-often you will want to view a run's logs to determine the cause of failure.
-
 ## Cancel a run
 
 You can cancel a job with:
@@ -245,19 +245,19 @@ tyger run logs
     [--timestamps]
 ```
 
-Logs include all standard output and error messages from all of the run's
-containers chronologically ordered.
+This returns a chronologically merged view of all standard output and error messages from all of
+the run's containers.
 
-`--follow` keeps writing logs as they are written until the
+`--follow` streams logs to standard output as they are written until the
 run completes.
 
 `--since` only shows logs after a a given time.
 
 `--tail` only shows new last N log lines.
 
-`--timestamps` prefixes each line with the timestamp that it was written.
+`--timestamps` prefixes each line with its timestamp.
 
-When a run completes, the logs are archived in a storage account so that they
+When a run completes, the logs are archived to a storage account so that they
 can be retrieved later.
 
 ::: info Tip
