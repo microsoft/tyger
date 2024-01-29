@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -122,4 +123,13 @@ func NewCommonRootCommand(commit string) *cobra.Command {
 func isStdErrTerminal() bool {
 	o, _ := os.Stderr.Stat()
 	return (o.Mode() & os.ModeCharDevice) == os.ModeCharDevice
+}
+
+func hasFlagChanged(cmd *cobra.Command, flagName string) bool {
+	flag := cmd.Flags().Lookup(flagName)
+	if flag == nil {
+		panic(fmt.Sprintf("flag %s not found", flagName))
+	}
+
+	return flag.Changed
 }

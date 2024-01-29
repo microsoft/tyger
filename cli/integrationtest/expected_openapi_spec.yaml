@@ -658,7 +658,7 @@ components:
           nullable: true
         timeoutSeconds:
           type: integer
-          description: 'The mamimum number of seconds to wait for the run to complete. If the run does not complete within this time, it will be canceled.'
+          description: 'The maximum number of seconds to wait for the run to complete. If the run does not complete within this time, it will be canceled.'
           format: int32
           nullable: true
         cluster:

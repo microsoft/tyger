@@ -48,13 +48,27 @@ func main() {
 		log.Fatal(err)
 	}
 
+	workerEndpointsString, ok := os.LookupEnv("TYGER_TESTWORKER_WORKER_ENDPOINT_ADDRESSES")
+	if !ok {
+		log.Fatal("TYGER_TESTWORKER_WORKER_ENDPOINT_ADDRESSES missing")
+	}
+
 	if len(hostnames) <= 1 {
 		log.Fatal("Expected several hostnames")
 	}
 
+	var workerEndpoints []string
+	if err := json.Unmarshal([]byte(workerEndpointsString), &workerEndpoints); err != nil {
+		log.Fatal(err)
+	}
+
+	if len(workerEndpoints) != len(hostnames) {
+		log.Fatalf("Number of worker endpoints (%d) does not match number of hostnames (%d)", len(workerEndpoints), len(hostnames))
+	}
+
 	results := make(map[string]string)
-	for _, hostname := range hostnames {
-		resp, err := retryablehttp.Get(fmt.Sprintf("http://%s:%d", hostname, port))
+	for _, addr := range workerEndpoints {
+		resp, err := retryablehttp.Get(fmt.Sprintf("http://%s", addr))
 		if err != nil {
 			log.Fatal(err)
 		}

@@ -47,17 +47,17 @@ type CodespecResources struct {
 }
 
 type Codespec struct {
-	Kind string `json:"kind"`
-	CodespecMetadata
-	Buffers     *BufferParameters  `json:"buffers,omitempty"`
-	Image       string             `json:"image"`
-	Command     []string           `json:"command,omitempty"`
-	Args        []string           `json:"args,omitempty"`
-	WorkingDir  string             `json:"workingDir,omitempty"`
-	Env         map[string]string  `json:"env,omitempty"`
-	Resources   *CodespecResources `json:"resources,omitempty"`
-	MaxReplicas *int               `json:"maxReplicas,omitempty"`
-	Endpoints   map[string]int     `json:"endpoints,omitempty"`
+	Kind             string `json:"kind"`
+	CodespecMetadata `json:",inline"`
+	Buffers          *BufferParameters  `json:"buffers,omitempty"`
+	Image            string             `json:"image"`
+	Command          []string           `json:"command,omitempty"`
+	Args             []string           `json:"args,omitempty"`
+	WorkingDir       string             `json:"workingDir,omitempty"`
+	Env              map[string]string  `json:"env,omitempty"`
+	Resources        *CodespecResources `json:"resources,omitempty"`
+	MaxReplicas      *int               `json:"maxReplicas,omitempty"`
+	Endpoints        map[string]int     `json:"endpoints,omitempty"`
 }
 
 type CodespecMetadata struct {

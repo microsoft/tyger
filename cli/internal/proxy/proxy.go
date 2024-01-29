@@ -225,7 +225,7 @@ func (h *proxyHandler) forwardControlPlaneRequest(w http.ResponseWriter, r *http
 	for {
 		line, err := bufferedReader.ReadSlice('\n')
 		if err != nil && err != bufio.ErrBufferFull && err != io.EOF {
-			log.Ctx(r.Context()).Error().Err(err).Msg("error copying reponse")
+			log.Ctx(r.Context()).Error().Err(err).Msg("error copying response")
 			return
 		}
 		w.Write(line)

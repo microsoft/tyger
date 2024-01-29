@@ -586,7 +586,7 @@ public class Repository : IRepository
                 var id = await GetTagId(conn, tag.Key, cancellationToken);
                 if (id == null)
                 {
-                    return (new List<Buffer>(), null);
+                    return ([], null);
                 }
 
                 commandText.AppendLine($" t{index}.key = ${param} and t{index}.value = ${param + 1}");
@@ -671,10 +671,10 @@ public class Repository : IRepository
 
             if (!reader.IsDBNull(2) && !reader.IsDBNull(3))
             {
-                var tagname = reader.GetString(2);
-                var tagvalue = reader.GetString(3);
+                var tagName = reader.GetString(2);
+                var tagValue = reader.GetString(3);
 
-                currentTags[tagname] = tagvalue;
+                currentTags[tagName] = tagValue;
             }
         }
 

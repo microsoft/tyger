@@ -21,7 +21,7 @@ public static class OpenApi
             c.UseOneOfForPolymorphism();
             c.UseAllOfForInheritance();
 
-            c.MapType<CodespecKind>(() => new OpenApiSchema { Enum = new List<IOpenApiAny> { new OpenApiString("job"), new OpenApiString("worker") } });
+            c.MapType<CodespecKind>(() => new OpenApiSchema { Enum = [new OpenApiString("job"), new OpenApiString("worker")] });
             c.SelectDiscriminatorNameUsing(type => type == typeof(JobCodespec) ? "kind" : null);
             c.SelectDiscriminatorValueUsing(type => type switch
             {

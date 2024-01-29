@@ -1,0 +1,19 @@
+job:
+  codespec:
+    image: ghcr.io/gadgetron/gadgetron/gadgetron_ubuntu_rt_nocuda:latest
+    buffers:
+      inputs:
+        - input
+      outputs:
+        - output
+    args:
+      - "-c"
+      - "default.xml"
+      - "--from_stream"
+      - "-i"
+      - "$(INPUT_PIPE)"
+      - "-o"
+      - "$(OUTPUT_PIPE)"
+    resources:
+      requests:
+        cpu: 1

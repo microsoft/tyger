@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -226,6 +227,19 @@ func newConfigCreateCommand() *cobra.Command {
 			templateValues.LogsStorageAccountName, err = prompt("Give the logs storage account a name:", fmt.Sprintf("%stygerlogs", templateValues.EnvironmentName), "", install.StorageAccountNameRegex)
 			if err != nil {
 				return err
+			}
+
+			positiveIntegerRegex := regexp.MustCompile(`^\d+$`)
+			if numString, err := prompt("Enter the minimum node count for the CPU node pool:", "1", "", positiveIntegerRegex); err != nil {
+				return err
+			} else {
+				templateValues.CpuNodePoolMinCount, _ = strconv.Atoi(numString)
+			}
+
+			if numString, err := prompt("Enter the minimum node count for the GPU node pool:", "0", "", positiveIntegerRegex); err != nil {
+				return err
+			} else {
+				templateValues.GpuNodePoolMinCount, _ = strconv.Atoi(numString)
 			}
 
 			suggestedDomainName := fmt.Sprintf("%s-tyger", templateValues.EnvironmentName)

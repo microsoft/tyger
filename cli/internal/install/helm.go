@@ -453,12 +453,12 @@ func InstallTygerHelmChart(ctx context.Context, restConfig *rest.Config, dryRun 
 		overrides = config.Api.Helm.Tyger
 	}
 
-	ajustSpec := func(cs *helmclient.ChartSpec, c helmclient.Client) error {
+	adjustSpec := func(cs *helmclient.ChartSpec, c helmclient.Client) error {
 		cs.CreateNamespace = false
 		return nil
 	}
 
-	if manifest, valuesYaml, err = installHelmChart(ctx, restConfig, &helmConfig, overrides, dryRun, ajustSpec); err != nil {
+	if manifest, valuesYaml, err = installHelmChart(ctx, restConfig, &helmConfig, overrides, dryRun, adjustSpec); err != nil {
 		return "", "", fmt.Errorf("failed to install Tyger Helm chart: %w", err)
 	}
 

@@ -64,7 +64,7 @@ public class LogMergerTests
     }
 
     [Fact]
-    public async Task LiveMergeWithInitialyDelayedStreams()
+    public async Task LiveMergeWithInitiallyDelayedStreams()
     {
         var startTime = new DateTimeOffset(2022, 1, 1, 0, 0, 0, 0, TimeSpan.Zero);
         var random = new Random();

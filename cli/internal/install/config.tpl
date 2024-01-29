@@ -21,25 +21,29 @@ cloud:
         userNodePools:
           - name: cpunp
             vmSize: Standard_DS12_v2
-            minCount: 0
+            minCount: {{ .CpuNodePoolMinCount }}
             maxCount: 10
           - name: gpunp
             vmSize: Standard_NC6s_v3
-            minCount: 0
+            minCount: {{ .GpuNodePoolMinCount }}
             maxCount: 10
 
     # These are the principals that will be granted full access to the
     # "tyger" namespace in each cluster.
     # For users, kind must be "User".
-    #   If the user's home tenant is this subsciption's tenant and is not a personal Microsoft account,
-    #   set id to the user principal name (email). Otherwise, set id to the object ID (GUID).
-    # For service principals, kind must also be "User" and id must be the service principal's object ID (GUID).
-    # For groups, kind must be "Group" and id must be the group's object ID (GUID).
+    #   If the user's home tenant is this subscription's tenant and
+    #   is not a personal Microsoft account, set id to the user
+    #   principal name (email). Otherwise, set id to the object ID (GUID).
+    # For service principals, kind must also be "User" and id must
+    # be the service principal's object ID (GUID).
+    # For groups, kind must be "Group" and id must be the group's
+    # object ID (GUID).
     managementPrincipals:
       - kind: {{ .PrincipalKind }}
         id: {{ .PrincipalId }} {{- if not (contains .PrincipalId "@") }} # {{ .PrincipalDisplay }} {{- end }}
 
-    # The names of private container registries that the clusters must be able to pull from
+    # The names of private container registries that the clusters must
+    # be able to pull from.
     # privateContainerRegistries:
     #   - myprivateregistry
 
@@ -87,12 +91,12 @@ api:
   # helm:
   #   tyger:
   #     repoName:
-  #     repoUrl:
-  #     chartRef:
+  #     repoUrl: # not set if using `chartRef`
+  #     chartRef: # e.g. oci://tyger.azurecr.io/helm/tyger
   #     namespace:
   #     version:
   #     values:
 
-  #   certManager: {}
-  #   nvidiaDevicePlugin: {}
-  #   traefik: {}
+  #   certManager: {} # same fields as `tyger` above
+  #   nvidiaDevicePlugin: {} # same fields as `tyger` above
+  #   traefik: {} # same fields as `tyger` above

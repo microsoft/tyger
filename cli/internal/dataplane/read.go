@@ -159,7 +159,7 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 	go func() {
 		lastTime := time.Now()
 		var expectedBlobNumber int64 = 0
-		var encodedHashChain string = EncodedHashChainInitalValue
+		var encodedHashChain string = EncodedHashChainInitialValue
 		for c := range responseChannel {
 			blobResponse := <-c
 

@@ -58,7 +58,7 @@ public class LogArchive : ILogArchive, IHostedService, IHealthCheck
 
     public async Task<Pipeline?> GetLogs(long runId, GetLogsOptions options, CancellationToken cancellationToken)
     {
-        _logger.RetrievingAchivedLogsForRun(runId);
+        _logger.RetrievingArchivedLogsForRun(runId);
         try
         {
             var response = await GetLogsBlobClient(runId).DownloadStreamingAsync(cancellationToken: cancellationToken);

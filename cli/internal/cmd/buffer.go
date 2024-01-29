@@ -101,8 +101,8 @@ func newBufferSetCommand() *cobra.Command {
 	tagEntries := make(map[string]string)
 	cmd := &cobra.Command{
 		Use:                   "set ID [--etag ETAG] [--tag key=value ...]",
-		Short:                 "Sets the tag on an existing buffer",
-		Long:                  `Sets the tag on an existing buffer.`,
+		Short:                 "Sets replaces the tags set on a buffer",
+		Long:                  `Sets replaces the tags set on a buffer`,
 		Args:                  exactlyOneArg("buffer ID"),
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -126,7 +126,7 @@ func newBufferSetCommand() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&etag, "etag", etag, "the ETag assigned to the buffer, ")
+	cmd.Flags().StringVar(&etag, "etag", etag, "the ETag read ETag to guard against concurrent updates, ")
 	cmd.Flags().StringToStringVar(&tagEntries, "tag", nil, "add a key-value tag to the buffer. Can be specified multiple times.")
 
 	return cmd

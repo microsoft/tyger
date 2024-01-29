@@ -226,7 +226,7 @@ func Logout() error {
 func (c *serviceInfo) GetAccessToken(ctx context.Context) (string, error) {
 	// Quick check to see if the last token is still valid.
 	// This token is in the full MSAL token cache, but unfortunately calling
-	// client.AcquireTokenSilent currenly always calls an AAD discovery endpoint, which
+	// client.AcquireTokenSilent currently always calls an AAD discovery endpoint, which
 	// can take > 0.5 seconds. So we store it ourselves and use it here if it is still valid.
 	if c.LastTokenExpiry-discardTokenIfExpiringWithinSeconds > time.Now().UTC().Unix() && c.LastToken != "" {
 		return c.LastToken, nil

@@ -289,3 +289,8 @@ purge-runs: set-context
 			--patch='[ { "op": "remove", "path": "/metadata/finalizers" } ]'
 	done
 	kubectl delete job,statefulset,secret,service -n "${HELM_NAMESPACE}" -l tyger-run --cascade=foreground
+
+start-docs-website:
+	cd docs
+	npm install
+	npm run docs:dev

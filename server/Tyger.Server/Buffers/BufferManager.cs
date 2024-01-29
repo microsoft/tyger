@@ -18,7 +18,7 @@ namespace Tyger.Server.Buffers;
 
 public sealed class BufferManager : IHealthCheck, IHostedService, IDisposable
 {
-    private static readonly TimeSpan s_userDeledationKeyDuration = TimeSpan.FromDays(1);
+    private static readonly TimeSpan s_userDelegationKeyDuration = TimeSpan.FromDays(1);
     private readonly IRepository _repository;
     private readonly ILogger<BufferManager> _logger;
     private readonly BlobServiceClient _serviceClient;
@@ -157,7 +157,7 @@ public sealed class BufferManager : IHealthCheck, IHostedService, IDisposable
         {
             while (!cancellationToken.IsCancellationRequested)
             {
-                await Task.Delay(s_userDeledationKeyDuration * 0.75, cancellationToken);
+                await Task.Delay(s_userDelegationKeyDuration * 0.75, cancellationToken);
                 while (true)
                 {
                     try
@@ -199,7 +199,7 @@ public sealed class BufferManager : IHealthCheck, IHostedService, IDisposable
     private async Task RefreshUserDelegationKey(CancellationToken cancellationToken)
     {
         var start = DateTimeOffset.UtcNow.AddMinutes(-5);
-        _userDelegationKey = await _serviceClient.GetUserDelegationKeyAsync(start, start.Add(s_userDeledationKeyDuration), cancellationToken);
+        _userDelegationKey = await _serviceClient.GetUserDelegationKeyAsync(start, start.Add(s_userDelegationKeyDuration), cancellationToken);
     }
 
     public void Dispose()

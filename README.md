@@ -1,16 +1,38 @@
-# Tyger: Signal Processing Control Plane
+# Tyger
 
-Tyger is a control plane API for orchestrating remote signal processing in
-Kubernetes clusters. `tyger` is also a command-line application for calling the
-Tyger API. The API has three main concepts:
+Tyger is a framework for remote signal processing. It enables reliable
+transmission of data to remote computational resources, where the data can be
+processed and transformed as it streams in. It was designed for streaming raw
+signal data from an MRI scanner to the cloud, where much more compute power is
+typically available to reconstruct images from the signal. However, its
+application is not limited to MRI and it could be used in a variety of domains
+and scenarios.
 
-1. **Buffers**, which are used for reliably and streaming data with high
-   throughput to and from the remote compute. These are ultimately Azure Blob
-   Storage containers.
-2. **Codespecs**, similar to a Kubernetes Pod specs, specify a container image,
-   command-line args, environment variables, and buffer parameters.
-3. **Runs**, which are the execution of a codespec with buffer arguments, plus
-   an optional worker codespec.
+At a high level, Tyger is a REST API that abstracts over an Azure Kubernetes
+cluster and Azure Blob storage. Future plans include support for on-prem
+deployments. It includes a command-line tool, `tyger`, for easy interaction with
+this API. Users specify signal processing code as a container image.
+
+Tyger is centered around **stream processing**, allowing data to be processed as
+it is acquired, without needing to wait for the complete dataset. It is based on
+an **asynchronous** model, where data producers to do not need to wait for the
+availability of data consumers. Additionally, data consumers can operate during
+or after data production, since data streams are Write Once Read Many
+(**WORM**).
+
+Signal processing code can be written in any language, as long as it can read
+and write to named pipes (which are file-like but do not support random access).
+There is no SDK, meaning you can develop, test, and debug code on your laptop
+using only files, without Tyger dependencies. Then, you build a container image
+to run the same code in the cloud with Tyger.
+
+Tyger is designed to be both powerful and easy to use. Its implementation is
+also simple, since a lot of the heavy lifting is done by proven technologies
+like Kubernetes and Azure Blob Storage.
+
+## Start using Tyger
+
+See the documentation at https://microsoft.github.io/tyger
 
 ## Contributing
 

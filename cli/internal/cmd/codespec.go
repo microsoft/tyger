@@ -7,10 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"math"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -19,6 +19,7 @@ import (
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"sigs.k8s.io/yaml"
 )
 
 func NewCodespecCommand() *cobra.Command {
@@ -47,6 +48,7 @@ func newCodespecCreateCommand() *cobra.Command {
 		memory string
 	}
 	var flags struct {
+		specFile      string
 		image         string
 		kind          string
 		inputBuffers  []string
@@ -61,14 +63,37 @@ func newCodespecCreateCommand() *cobra.Command {
 	}
 
 	var cmd = &cobra.Command{
-		Use:                   "create NAME --image IMAGE [--kind job|worker] [--max-replicas REPLICAS] [[--input BUFFER_NAME] ...] [[--output BUFFER_NAME] ...] [[--env \"KEY=VALUE\"] ...] [[ --endpoint SERVICE=PORT ]] [resources] [--command] -- [COMMAND] [args...]",
+		Use:                   `create NAME [--file YAML_SPEC] [--image IMAGE] [--kind job|worker] [--max-replicas REPLICAS] [[--input BUFFER_NAME] ...] [[--output BUFFER_NAME] ...] [[--env \"KEY=VALUE\"] ...] [[ --endpoint SERVICE=PORT ]] [--gpu QUANTITY] [--cpu-request QUANTITY] [--memory-request QUANTITY] [--cpu-limit QUANTITY] [--memory-limit QUANTITY] [--command] -- [COMMAND] [args...]`,
 		Short:                 "Create or update a codespec",
 		Long:                  `Create or update a codespec. Outputs the version of the codespec that was created.`,
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) == 0 || cmd.ArgsLenAtDash() == 0 {
-				return errors.New("a name for the codespec is required")
+			newCodespec := model.Codespec{}
+
+			if flags.specFile != "" {
+				bytes, err := os.ReadFile(flags.specFile)
+				if err != nil {
+					return fmt.Errorf("failed to read file %s: %w", flags.specFile, err)
+				}
+
+				err = yaml.UnmarshalStrict(bytes, &newCodespec)
+				if err != nil {
+					return fmt.Errorf("failed to parse file %s: %w", flags.specFile, err)
+				}
+
+				if len(args) > 0 && cmd.ArgsLenAtDash() != 0 {
+					newCodespec.Name = args[0]
+				} else if newCodespec.Name == "" {
+					return errors.New("a name for the codespec must be required")
+				}
+			} else {
+				if len(args) == 0 || cmd.ArgsLenAtDash() == 0 {
+					return errors.New("if -f|--file is not provided, a name for the codespec is required")
+				}
+
+				newCodespec.Name = args[0]
 			}
+
 			if len(args) > 1 && cmd.ArgsLenAtDash() == -1 {
 				return fmt.Errorf("unexpected positional args %v. Container arguments must be preceded by -- and placed at the end of the command-line", args[1:])
 			}
@@ -77,27 +102,40 @@ func newCodespecCreateCommand() *cobra.Command {
 				return fmt.Errorf("unexpected positional args before container args: %v", unexpectedArgs)
 			}
 
-			codespecName := args[0]
-			containerArgs := args[1:]
+			var containerArgs []string
+			if cmd.ArgsLenAtDash() > -1 {
+				containerArgs = args[cmd.ArgsLenAtDash():]
+			}
 
 			var isValidName = regexp.MustCompile(`^[a-z0-9\-._]*$`).MatchString
-			if !isValidName(codespecName) {
+			if !isValidName(newCodespec.Name) {
 				return errors.New("codespec names must contain only lower case letters (a-z), numbers (0-9), dashes (-), underscores (_), and dots (.)")
 			}
 
-			newCodespec := model.Codespec{
-				Kind:  flags.kind,
-				Image: flags.image,
-				Buffers: &model.BufferParameters{
-					Inputs:  flags.inputBuffers,
-					Outputs: flags.outputBuffers,
-				},
-				Env: flags.env,
-				Resources: &model.CodespecResources{
-					Requests: &model.OvercommittableResources{},
-					Limits:   &model.OvercommittableResources{},
-				},
-				Endpoints: flags.endpoints,
+			if hasFlagChanged(cmd, "image") {
+				newCodespec.Image = flags.image
+			}
+
+			if hasFlagChanged(cmd, "input") {
+				if newCodespec.Buffers == nil {
+					newCodespec.Buffers = &model.BufferParameters{}
+				}
+				newCodespec.Buffers.Inputs = flags.inputBuffers
+			}
+
+			if hasFlagChanged(cmd, "output") {
+				if newCodespec.Buffers == nil {
+					newCodespec.Buffers = &model.BufferParameters{}
+				}
+				newCodespec.Buffers.Outputs = flags.outputBuffers
+			}
+
+			if hasFlagChanged(cmd, "env") {
+				newCodespec.Env = flags.env
+			}
+
+			if hasFlagChanged(cmd, "endpoint") {
+				newCodespec.Endpoints = flags.endpoints
 			}
 
 			if flags.maxReplicas != "" {
@@ -108,32 +146,40 @@ func newCodespecCreateCommand() *cobra.Command {
 				newCodespec.MaxReplicas = &mr
 			}
 
-			flags.kind = strings.ToLower(flags.kind)
+			if newCodespec.Kind == "" {
+				newCodespec.Kind = strings.ToLower(flags.kind)
+			}
 
-			switch flags.kind {
+			switch newCodespec.Kind {
 			case "job":
 				if len(newCodespec.Endpoints) != 0 {
 					return errors.New("job codespecs cannot have endpoints")
 				}
 				newCodespec.Endpoints = nil
 			case "worker":
-				if len(newCodespec.Buffers.Inputs)+len(newCodespec.Buffers.Outputs) != 0 {
+				if newCodespec.Buffers != nil && len(newCodespec.Buffers.Inputs)+len(newCodespec.Buffers.Outputs) != 0 {
 					return errors.New("worker codespecs cannot have use buffers")
 				}
 				newCodespec.Buffers = nil
 			default:
-				return errors.New("--kind must be either 'job' or worker'")
+				return errors.New("codespec kind must be either 'job', worker' or empty (defaults to 'job')")
 			}
 
-			if flags.command {
-				newCodespec.Command = containerArgs
-			} else {
-				newCodespec.Args = containerArgs
+			if cmd.ArgsLenAtDash() > -1 {
+				if flags.command {
+					newCodespec.Command = containerArgs
+				} else {
+					newCodespec.Args = containerArgs
+				}
 			}
 
 			parseOvercommittableResources := func(resourceStrings overcommittableResourceStrings, resourceType string) (*model.OvercommittableResources, error) {
 				resources := &model.OvercommittableResources{}
-				if (resourceStrings.cpu) != "" {
+				cpuFlagName := fmt.Sprintf("cpu-%s", resourceType)
+				if cmd.Flags().Lookup(cpuFlagName) == nil {
+					panic(fmt.Sprintf("flag not found: %s", cpuFlagName))
+				}
+				if hasFlagChanged(cmd, cpuFlagName) {
 					q, err := resource.ParseQuantity(resourceStrings.cpu)
 					if err != nil {
 						return nil, fmt.Errorf("cpu %s value is invalid: %v", resourceType, err)
@@ -141,7 +187,12 @@ func newCodespecCreateCommand() *cobra.Command {
 					resources.Cpu = &q
 				}
 
-				if (resourceStrings.memory) != "" {
+				memoryFlagName := fmt.Sprintf("memory-%s", resourceType)
+				if cmd.Flags().Lookup(memoryFlagName) == nil {
+					panic(fmt.Sprintf("flag not found: %s", memoryFlagName))
+				}
+
+				if hasFlagChanged(cmd, memoryFlagName) {
 					q, err := resource.ParseQuantity(resourceStrings.memory)
 					if err != nil {
 						return nil, fmt.Errorf("memory %s value is invalid: %v", resourceType, err)
@@ -152,26 +203,56 @@ func newCodespecCreateCommand() *cobra.Command {
 				return resources, nil
 			}
 
-			var err error
-			newCodespec.Resources.Requests, err = parseOvercommittableResources(flags.requests, "request")
-			if err != nil {
+			if res, err := parseOvercommittableResources(flags.requests, "request"); err != nil {
 				return err
+			} else {
+				if res.Cpu != nil || res.Memory != nil {
+					if newCodespec.Resources == nil {
+						newCodespec.Resources = &model.CodespecResources{}
+					}
+					if newCodespec.Resources.Requests == nil {
+						newCodespec.Resources.Requests = &model.OvercommittableResources{}
+					}
+					if res.Cpu != nil {
+						newCodespec.Resources.Requests.Cpu = res.Cpu
+					}
+					if res.Memory != nil {
+						newCodespec.Resources.Requests.Memory = res.Memory
+					}
+				}
 			}
 
-			newCodespec.Resources.Limits, err = parseOvercommittableResources(flags.limits, "limit")
-			if err != nil {
+			if res, err := parseOvercommittableResources(flags.limits, "limit"); err != nil {
 				return err
+			} else {
+				if res.Cpu != nil || res.Memory != nil {
+					if newCodespec.Resources == nil {
+						newCodespec.Resources = &model.CodespecResources{}
+					}
+					if newCodespec.Resources.Limits == nil {
+						newCodespec.Resources.Limits = &model.OvercommittableResources{}
+					}
+					if res.Cpu != nil {
+						newCodespec.Resources.Limits.Cpu = res.Cpu
+					}
+					if res.Memory != nil {
+						newCodespec.Resources.Limits.Memory = res.Memory
+					}
+				}
 			}
 
-			if (flags.gpu) != "" {
+			if hasFlagChanged(cmd, "gpu") {
 				q, err := resource.ParseQuantity(flags.gpu)
 				if err != nil {
 					return fmt.Errorf("gpu value is invalid: %v", err)
 				}
+				if newCodespec.Resources == nil {
+					newCodespec.Resources = &model.CodespecResources{}
+				}
 				newCodespec.Resources.Gpu = &q
 			}
 
-			resp, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPut, fmt.Sprintf("v1/codespecs/%s", codespecName), newCodespec, &newCodespec)
+			resp, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPut, fmt.Sprintf("v1/codespecs/%s", newCodespec.Name), newCodespec, &newCodespec)
 			if err != nil {
 				return err
 			}
@@ -187,9 +268,7 @@ func newCodespecCreateCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&flags.image, "image", "", "The container image (required)")
-	if err := cmd.MarkFlagRequired("image"); err != nil {
-		log.Panicln(err)
-	}
+	cmd.Flags().StringVarP(&flags.specFile, "file", "f", "", "A YAML file with the run specification. All other flags override the values in the file.")
 	cmd.Flags().StringVarP(&flags.kind, "kind", "k", "job", "The codespec kind. Either 'job' (the default) or 'worker'.")
 	cmd.Flags().StringVarP(&flags.maxReplicas, "max-replicas", "r", "", "The maximum number of replicas this codespec supports.")
 	cmd.Flags().StringSliceVarP(&flags.inputBuffers, "input", "i", nil, "Input buffer parameter names")
