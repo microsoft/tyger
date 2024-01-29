@@ -5,7 +5,7 @@ layout: home
 hero:
   name: "Tyger"
   text: "Remote signal processing"
-  tagline: Stream signal data to and from remote compute for on-demand stream processing.
+  tagline: Stream signal data to and from remote compute for on-demand processing.
   actions:
     - theme: brand
       text: Learn more
