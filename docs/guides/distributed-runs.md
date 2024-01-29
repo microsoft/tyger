@@ -71,3 +71,9 @@ environment variable
 `TYGER_<UPPERCASE_ENDPOINT_NAME>_WORKER_ENDPOINT_ADDRESSES`. This variable,
 where `<UPPERCASE_ENDPOINT_NAME>` is the endpoint name in uppercase, holds a
 JSON array of `hostname:port` strings.
+
+## Example
+
+[Gadgetron
+examples](../reference/gadgetron/gadgetron.md#distributed-reconstruction) has an
+example that uses a disributed run.

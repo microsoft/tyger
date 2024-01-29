@@ -1,6 +1,6 @@
 job:
   codespec:
-    image: eminencepublic.azurecr.io/gadgetron:current
+    image: ghcr.io/gadgetron/gadgetron/gadgetron_ubuntu_rt_nocuda:latest
     buffers:
       inputs:
         - input

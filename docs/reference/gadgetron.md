@@ -1,2 +1,0 @@
-# Gadgeton examples
-
