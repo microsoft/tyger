@@ -163,7 +163,7 @@ api:
 ```
 
 All of the installation commands (`tyger cloud install`, `tyger api install`,
-etc.) allow you to give a path the the config file (`--file|-f PATH`)instead of
+etc.) allow you to give a path the the config file (`--file|-f PATH`) instead of
 the default given by `tyger config get-path`. Additionally, the commands allow
 configuration values to be overridden on the command-line with `--set`. For
 example:

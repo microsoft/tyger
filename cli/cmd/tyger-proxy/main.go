@@ -39,8 +39,8 @@ func main() {
 	rootCommand.Use = "tyger-proxy"
 	rootCommand.Long = `tyger-proxy is an HTTP proxy for Tyger. It allows accessing a subset of the
 control-plane API without authentication and to tunnel data-plane requests to Azure Storage.
-It is intended to be run on on the Siemens Host machine and to be accessed from the MARS,
-which does not have direct internet connectivity and where securely storing credentials is challenging.`
+It is intended to be run on an instrument (e.g. an MRI scanner) host and be accessed from
+instrument subsystems that cannot acccess the internet directly`
 
 	rootCommand.AddCommand(newProxyRunCommand(&optionsFilePath, &options))
 	rootCommand.AddCommand(newProxyStartCommand(&optionsFilePath, &options))

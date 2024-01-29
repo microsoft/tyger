@@ -131,7 +131,9 @@ Advantages of this design include:
 
 - Simplicity and reliability, thanks to the use of Azure storage services.
 - Decoupled producers and consumers, allowing asynchronous data transmission.
-- Data is readable multiple times.
+- Data is stored and can be read multiple times. Buffers can also be tagged
+  with metadata and these tags can be searched for use in later
+  workflows.
 - High throughput achieved through parallelism.
 - Resilience to network failures via simple HTTP retries.
 - Data in motion is secured with standard TLS.
