@@ -257,7 +257,6 @@ jobs:
 
   publish-official-images:
     runs-on: ubuntu-latest
-    needs:
     defaults:
       run:
         shell: bash
