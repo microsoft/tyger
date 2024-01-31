@@ -15,7 +15,7 @@ this API. Users specify signal processing code as a container image.
 
 Tyger is centered around **stream processing**, allowing data to be processed as
 it is acquired, without needing to wait for the complete dataset. It is based on
-an **asynchronous** model, where data producers to do not need to wait for the
+an **asynchronous** model, where data producers do not need to wait for the
 availability of data consumers. Additionally, data consumers can operate during
 or after data production, since data streams are Write Once Read Many
 (**WORM**).
