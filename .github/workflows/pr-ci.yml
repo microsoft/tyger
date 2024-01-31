@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     tags: ["v*.*.*"]
-  pull_request: # all branches
+  pull_request_target: # All branches. See authorize job below.
   workflow_dispatch:
 
 permissions:
@@ -12,6 +12,17 @@ permissions:
   contents: read
 
 jobs:
+
+  # See https://dvc.ai/blog/testing-external-contributions-using-github-actions-secrets.
+  # Forks are run in an environment called "external", which requires approval before running.
+  # The `pull_request_target` event runs in the context of the of the base of the pull request (e.g. `main`),
+  # so we have to specify the commit hash when invoking the actions/checkout action.
+  # But this event can access secrets, unlike the `pull_request` event.
+  authorize:
+    environment: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository && 'external' || 'internal' }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: "true"
 
   unit-tests-and-format:
     runs-on: ubuntu-latest
@@ -24,6 +35,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
           fetch-depth: 0
 
       - uses: actions/setup-go@v4
@@ -72,6 +84,7 @@ jobs:
   build-images:
     runs-on: ubuntu-latest
     needs:
+      - authorize
       - get-config
     defaults:
       run:
@@ -79,7 +92,7 @@ jobs:
     env:
       EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}
     steps:
-      - name: Login into Azure
+      - name: Log in to Azure
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
@@ -87,6 +100,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
           fetch-depth: 0
 
       - name: build images
@@ -108,6 +122,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
           fetch-depth: 0
 
       - name: Generate tag
@@ -146,6 +161,7 @@ jobs:
   up:
     runs-on: ubuntu-latest
     needs:
+      - authorize
       - get-config
     defaults:
       run:
@@ -156,7 +172,7 @@ jobs:
       EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}
       TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
     steps:
-      - name: Login into Azure
+      - name: Log in to Azure
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
@@ -164,6 +180,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
           fetch-depth: 0
 
       - uses: actions/setup-go@v4
@@ -180,6 +197,7 @@ jobs:
   restore-scale-to-zero:
     runs-on: ubuntu-latest
     needs:
+      - authorize
       - up
       - get-config
     defaults:
@@ -188,7 +206,7 @@ jobs:
     env:
       TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
     steps:
-      - name: Login into Azure
+      - name: Log in to Azure
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
@@ -196,6 +214,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
           fetch-depth: 0
 
       - uses: actions/setup-go@v4
@@ -211,6 +230,7 @@ jobs:
   integration-tests:
     runs-on: ubuntu-latest
     needs:
+      - authorize
       - get-config
       - up
     defaults:
@@ -222,7 +242,7 @@ jobs:
       EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}
       TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
     steps:
-      - name: Login into Azure
+      - name: Log in to Azure
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
@@ -230,6 +250,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
           fetch-depth: 0
 
       - uses: actions/setup-go@v4
@@ -244,11 +265,13 @@ jobs:
 
   publish-official-images:
     runs-on: ubuntu-latest
+    needs:
+      - authorize
     defaults:
       run:
         shell: bash
     steps:
-      - name: Login into Azure
+      - name: Log in to Azure
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
@@ -256,6 +279,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
           fetch-depth: 0
 
       - name: Publish official images
@@ -272,6 +296,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
           fetch-depth: 0
 
       - uses: actions/setup-go@v4
@@ -305,6 +330,7 @@ jobs:
   windows-smoke-tests:
     runs-on: windows-latest
     needs:
+      - authorize
       - get-config
       - build-windows-binaries
       - up
@@ -312,6 +338,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
           fetch-depth: 0
 
       - name: Download artifacts
@@ -320,7 +347,7 @@ jobs:
           name: windows-cli-tools
           path: windows-cli-tools
 
-      - name: Login into Azure
+      - name: Log in to Azure
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
@@ -372,6 +399,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
           fetch-depth: 0
 
       - uses: actions/setup-go@v4
@@ -428,6 +456,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          fetch-depth: 0
+
       - name: Build static page
         run: |
             cd docs
@@ -459,6 +491,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
           fetch-depth: 0
 
       - uses: actions/setup-go@v4
