@@ -77,7 +77,6 @@ jobs:
   build-images:
     runs-on: ubuntu-latest
     needs:
-      - authorize
       - get-config
     defaults:
       run:
@@ -154,7 +153,6 @@ jobs:
   up:
     runs-on: ubuntu-latest
     needs:
-      - authorize
       - get-config
     defaults:
       run:
@@ -191,7 +189,6 @@ jobs:
   restore-scale-to-zero:
     runs-on: ubuntu-latest
     needs:
-      - authorize
       - up
       - get-config
     defaults:
@@ -225,7 +222,6 @@ jobs:
   integration-tests:
     runs-on: ubuntu-latest
     needs:
-      - authorize
       - get-config
       - up
     defaults:
@@ -262,7 +258,6 @@ jobs:
   publish-official-images:
     runs-on: ubuntu-latest
     needs:
-      - authorize
     defaults:
       run:
         shell: bash
@@ -326,7 +321,6 @@ jobs:
   windows-smoke-tests:
     runs-on: windows-latest
     needs:
-      - authorize
       - get-config
       - build-windows-binaries
       - up
