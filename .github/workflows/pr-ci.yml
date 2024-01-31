@@ -18,13 +18,6 @@ env:
 
 jobs:
 
-  # Forks run this job in an environment called "external", which requires approval before running.
-  authorize:
-    environment: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository && 'external' || null }}
-    runs-on: ubuntu-latest
-    steps:
-      - run: "true"
-
   unit-tests-and-format:
     runs-on: ubuntu-latest
     defaults:
@@ -83,7 +76,6 @@ jobs:
 
   build-images:
     runs-on: ubuntu-latest
-    environment: azure
     needs:
       - authorize
       - get-config
@@ -161,7 +153,6 @@ jobs:
 
   up:
     runs-on: ubuntu-latest
-    environment: azure
     needs:
       - authorize
       - get-config
@@ -199,7 +190,6 @@ jobs:
 
   restore-scale-to-zero:
     runs-on: ubuntu-latest
-    environment: azure
     needs:
       - authorize
       - up
@@ -234,7 +224,6 @@ jobs:
 
   integration-tests:
     runs-on: ubuntu-latest
-    environment: azure
     needs:
       - authorize
       - get-config
@@ -272,7 +261,6 @@ jobs:
 
   publish-official-images:
     runs-on: ubuntu-latest
-    environment: azure
     needs:
       - authorize
     defaults:
@@ -337,7 +325,6 @@ jobs:
 
   windows-smoke-tests:
     runs-on: windows-latest
-    environment: azure
     needs:
       - authorize
       - get-config
