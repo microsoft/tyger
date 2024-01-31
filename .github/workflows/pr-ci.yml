@@ -26,6 +26,10 @@ jobs:
     env:
       EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
       - name: Log in to Azure
         uses: azure/login@v1
         with:
