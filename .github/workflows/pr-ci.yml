@@ -11,6 +11,11 @@ permissions:
   id-token: write
   contents: read
 
+env:
+  AZURE_CLIENT_ID: 56ab98d2-93dd-4d44-88be-c932fa3bc974
+  AZURE_TENANT_ID: 72f988bf-86f1-41af-91ab-2d7cd011db47
+  AZURE_SUBSCRIPTION_ID: 87d8acb3-5176-4651-b457-6ab9cefd8e3d
+
 jobs:
 
   unit-tests-and-format:
@@ -79,10 +84,12 @@ jobs:
     env:
       EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}
     steps:
-      - name: Login into Azure
+      - name: Log in to Azure
         uses: azure/login@v1
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
       - name: Checkout
         uses: actions/checkout@v3
@@ -156,10 +163,12 @@ jobs:
       EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}
       TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
     steps:
-      - name: Login into Azure
+      - name: Log in to Azure
         uses: azure/login@v1
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
       - name: Checkout
         uses: actions/checkout@v3
@@ -188,10 +197,12 @@ jobs:
     env:
       TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
     steps:
-      - name: Login into Azure
+      - name: Log in to Azure
         uses: azure/login@v1
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
       - name: Checkout
         uses: actions/checkout@v3
@@ -222,10 +233,12 @@ jobs:
       EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}
       TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
     steps:
-      - name: Login into Azure
+      - name: Log in to Azure
         uses: azure/login@v1
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
       - name: Checkout
         uses: actions/checkout@v3
@@ -248,10 +261,12 @@ jobs:
       run:
         shell: bash
     steps:
-      - name: Login into Azure
+      - name: Log in to Azure
         uses: azure/login@v1
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
       - name: Checkout
         uses: actions/checkout@v3
@@ -320,10 +335,12 @@ jobs:
           name: windows-cli-tools
           path: windows-cli-tools
 
-      - name: Login into Azure
+      - name: Log in to Azure
         uses: azure/login@v1
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
           enable-AzPSSession: true
 
       - name: Run smoke tests
@@ -428,6 +445,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
       - name: Build static page
         run: |
             cd docs
