@@ -12,11 +12,39 @@ permissions:
   contents: read
 
 env:
-  AZURE_CLIENT_ID: 56ab98d2-93dd-4d44-88be-c932fa3bc974
+  AZURE_CLIENT_ID: 789b8572-1fae-4a5f-b376-6d9d14651245
   AZURE_TENANT_ID: 72f988bf-86f1-41af-91ab-2d7cd011db47
   AZURE_SUBSCRIPTION_ID: 87d8acb3-5176-4651-b457-6ab9cefd8e3d
 
+  CAN_ACCESS_SECRETS: ${{ secrets.CAN_ACCESS_SECRETS }}
+
 jobs:
+
+  # If this is running a Dependabot PR or PR from a fork, it we won't have access to secrets
+  # nor will be be able to obtain a federated token to access Azure resources.
+  # Therefore, in those cases, we use hosted runners with managed identity to access Azure resources.
+  # We only want to use those when necessary since they are a lot slower to come up, so this job
+  # determines what we should pass in to `runs-on` for jobs that access Azure resources.
+  # Also, this repo is configured to require approvals for all workflowd external contributors, and we
+  # should inspect the code in the PR before approving the run.
+  test-azure-needs-hosted-runner:
+    runs-on: ubuntu-latest
+    outputs:
+      AZURE_RUNS_ON_JSON: ${{ steps.set-vars.outputs.AZURE_RUNS_ON_JSON }}
+      AZURE_RUNS_ON_WINDOWS_JSON: ${{ steps.set-vars.outputs.AZURE_RUNS_ON_WINDOWS_JSON }}
+    steps:
+      - id: set-vars
+        run: |
+          if [[ -n "${CAN_ACCESS_SECRETS:-}" ]]; then
+            AZURE_RUNS_ON_JSON='"ubuntu-latest"'
+            AZURE_RUNS_ON_WINDOWS_JSON='"windows-latest"'
+          else
+            AZURE_RUNS_ON_JSON='["self-hosted", "1ES.Pool=tyger-gh-1es"]'
+            AZURE_RUNS_ON_WINDOWS_JSON='["self-hosted", "1ES.Pool=tyger-gh-1es-windows"]'
+          fi
+
+          echo "AZURE_RUNS_ON_JSON=$AZURE_RUNS_ON_JSON" >> "$GITHUB_OUTPUT"
+          echo "AZURE_RUNS_ON_WINDOWS_JSON=$AZURE_RUNS_ON_WINDOWS_JSON" >> "$GITHUB_OUTPUT"
 
   unit-tests-and-format:
     runs-on: ubuntu-latest
@@ -75,26 +103,23 @@ jobs:
           fi
 
   build-images:
-    runs-on: ubuntu-latest
     needs:
+      - test-azure-needs-hosted-runner
       - get-config
-    defaults:
-      run:
-        shell: bash
+
+    runs-on: ${{ fromJson(needs.test-azure-needs-hosted-runner.outputs.AZURE_RUNS_ON_JSON)}}
+
     env:
       EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}
     steps:
-      - name: Log in to Azure
-        uses: azure/login@v1
-        with:
-          client-id: ${{ env.AZURE_CLIENT_ID }}
-          tenant-id: ${{ env.AZURE_TENANT_ID }}
-          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
       - name: Checkout
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
+
+      - name: Log in to Azure
+        uses: ./.github/actions/login-azure
 
       - name: build images
         run: |
@@ -151,9 +176,10 @@ jobs:
           echo "DEVELOPER_CONFIG_BASE64=$developer_config_base64" >> "$GITHUB_ENV"
 
   up:
-    runs-on: ubuntu-latest
     needs:
+      - test-azure-needs-hosted-runner
       - get-config
+    runs-on: ${{ fromJson(needs.test-azure-needs-hosted-runner.outputs.AZURE_RUNS_ON_JSON)}}
     defaults:
       run:
         shell: bash
@@ -162,18 +188,16 @@ jobs:
       DO_NOT_BUILD_IMAGES: "true"
       EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}
       TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
+
     steps:
-      - name: Log in to Azure
-        uses: azure/login@v1
-        with:
-          client-id: ${{ env.AZURE_CLIENT_ID }}
-          tenant-id: ${{ env.AZURE_TENANT_ID }}
-          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
       - name: Checkout
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
+
+      - name: Log in to Azure
+        uses: ./.github/actions/login-azure
 
       - uses: actions/setup-go@v4
         with:
@@ -187,27 +211,24 @@ jobs:
           make -s migrate
 
   restore-scale-to-zero:
-    runs-on: ubuntu-latest
     needs:
+      - test-azure-needs-hosted-runner
       - up
       - get-config
+    runs-on: ${{ fromJson(needs.test-azure-needs-hosted-runner.outputs.AZURE_RUNS_ON_JSON)}}
     defaults:
       run:
         shell: bash
     env:
       TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
     steps:
-      - name: Log in to Azure
-        uses: azure/login@v1
-        with:
-          client-id: ${{ env.AZURE_CLIENT_ID }}
-          tenant-id: ${{ env.AZURE_TENANT_ID }}
-          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
-
       - name: Checkout
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
+
+      - name: Log in to Azure
+        uses: ./.github/actions/login-azure
 
       - uses: actions/setup-go@v4
         with:
@@ -220,30 +241,24 @@ jobs:
           make -s ensure-environment
 
   integration-tests:
-    runs-on: ubuntu-latest
     needs:
+      - test-azure-needs-hosted-runner
       - get-config
       - up
-    defaults:
-      run:
-        shell: bash
+    runs-on: ${{ fromJson(needs.test-azure-needs-hosted-runner.outputs.AZURE_RUNS_ON_JSON)}}
     env:
       TYGER_MIN_NODE_COUNT: "1"
       DO_NOT_BUILD_IMAGES: "true"
       EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}
       TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
     steps:
-      - name: Log in to Azure
-        uses: azure/login@v1
-        with:
-          client-id: ${{ env.AZURE_CLIENT_ID }}
-          tenant-id: ${{ env.AZURE_TENANT_ID }}
-          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
-
       - name: Checkout
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
+
+      - name: Log in to Azure
+        uses: ./.github/actions/login-azure
 
       - uses: actions/setup-go@v4
         with:
@@ -256,22 +271,20 @@ jobs:
           make -s integration-test-no-up
 
   publish-official-images:
-    runs-on: ubuntu-latest
+    needs:
+      - test-azure-needs-hosted-runner
+    runs-on: ${{ fromJson(needs.test-azure-needs-hosted-runner.outputs.AZURE_RUNS_ON_JSON)}}
     defaults:
       run:
         shell: bash
     steps:
-      - name: Log in to Azure
-        uses: azure/login@v1
-        with:
-          client-id: ${{ env.AZURE_CLIENT_ID }}
-          tenant-id: ${{ env.AZURE_TENANT_ID }}
-          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
-
       - name: Checkout
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
+
+      - name: Log in to Azure
+        uses: ./.github/actions/login-azure
 
       - name: Publish official images
         run: |
@@ -318,11 +331,12 @@ jobs:
           path: windows-cli-tools
 
   windows-smoke-tests:
-    runs-on: windows-latest
     needs:
+      - test-azure-needs-hosted-runner
       - get-config
       - build-windows-binaries
       - up
+    runs-on: ${{ fromJson(needs.test-azure-needs-hosted-runner.outputs.AZURE_RUNS_ON_WINDOWS_JSON)}}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -336,12 +350,7 @@ jobs:
           path: windows-cli-tools
 
       - name: Log in to Azure
-        uses: azure/login@v1
-        with:
-          client-id: ${{ env.AZURE_CLIENT_ID }}
-          tenant-id: ${{ env.AZURE_TENANT_ID }}
-          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
-          enable-AzPSSession: true
+        uses: ./.github/actions/login-azure
 
       - name: Run smoke tests
         env:

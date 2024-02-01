@@ -33,10 +33,6 @@ import (
 	"github.com/erikgeiser/promptkit/textinput"
 )
 
-var (
-	errNotLoggedIn = errors.New("not logged in")
-)
-
 func NewConfigCommand(parentCommand *cobra.Command) *cobra.Command {
 	installCmd := &cobra.Command{
 		Use:                   "config",
@@ -100,10 +96,6 @@ func newConfigCreateCommand() *cobra.Command {
 				}
 			}
 
-			fmt.Printf("\nFirst, let's collect settings for the Azure subscription to use. This is where cloud resources will be deployed.\n\n")
-
-			cred, _ := azidentity.NewAzureCLICredential(nil)
-
 			ipInfoClient := ipinfo.NewClient(nil, nil, "")
 			ip, err := ipInfoClient.GetIPInfo(nil)
 			if err != nil {
@@ -116,14 +108,22 @@ func newConfigCreateCommand() *cobra.Command {
 				CurrentIpAddress:     ip.IP.String(),
 			}
 
+			fmt.Printf("\nFirst, let's collect settings for the Azure subscription to use. This is where cloud resources will be deployed.\n\n")
+
+			var cred azcore.TokenCredential
+
 			ctx := cmd.Context()
 
 			for {
 				var principal ExtendedPrincipal
 				for {
-					principal, err = getCurrentPrincipal(ctx, cred)
+
+					cred, err = install.NewMiAwareAzureCLICredential(nil)
 					if err != nil {
-						if err == errNotLoggedIn {
+						principal, err = getCurrentPrincipal(ctx, cred)
+					}
+					if err != nil {
+						if err == install.ErrNotLoggedIn {
 							fmt.Printf("You are not logged in to Azure. Please run `az login` in another terminal window.\nPress any key to continue when ready...\n\n")
 							getSingleKey()
 							continue
@@ -153,7 +153,7 @@ func newConfigCreateCommand() *cobra.Command {
 				return err
 			}
 
-			tenantCred, err := azidentity.NewAzureCLICredential(
+			tenantCred, err := install.NewMiAwareAzureCLICredential(
 				&azidentity.AzureCLICredentialOptions{
 					TenantID: templateValues.TenantId,
 				})
@@ -377,7 +377,7 @@ func chooseSubscription(cred azcore.TokenCredential) (string, error) {
 func getCurrentPrincipal(ctx context.Context, cred azcore.TokenCredential) (principal ExtendedPrincipal, err error) {
 	tokenResponse, err := cred.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{cloud.AzurePublic.Services[cloud.ResourceManager].Audience}})
 	if err != nil {
-		return principal, errNotLoggedIn
+		return principal, install.ErrNotLoggedIn
 	}
 
 	claims := jwt.MapClaims{}

@@ -41,7 +41,7 @@ func newIdentitiesInstallCommand() *cobra.Command {
 			ctx := commonPrerun(cmd.Context(), &flags)
 
 			config := install.GetConfigFromContext(ctx)
-			cred, err := azidentity.NewAzureCLICredential(&azidentity.AzureCLICredentialOptions{TenantID: config.Api.Auth.TenantID})
+			cred, err := install.NewMiAwareAzureCLICredential(&azidentity.AzureCLICredentialOptions{TenantID: config.Api.Auth.TenantID})
 			if err != nil {
 				return err
 			}
