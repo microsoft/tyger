@@ -17,7 +17,6 @@ env:
   AZURE_SUBSCRIPTION_ID: 87d8acb3-5176-4651-b457-6ab9cefd8e3d
 
   CAN_ACCESS_SECRETS: ${{ secrets.CAN_ACCESS_SECRETS }}
-  AZURE_RUN_ON_JSON: ${{ secrets.CAN_ACCESS_SECRETS && fromJSON('["self-hosted", "1ES.Pool=tyger-gh-1es"]') || 'ubuntu-latest'}}
 
 jobs:
   test-azure-needs-hosted-runner:
@@ -54,6 +53,9 @@ jobs:
         run: |
           az login --identity --username $AZURE_CLIENT_ID
           az account show
+
+      - run: |
+          env | sort
 
   # unit-tests-and-format:
   #   runs-on: ubuntu-latest
