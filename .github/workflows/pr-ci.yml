@@ -27,7 +27,7 @@ jobs:
 
     steps:
       - run: |
-          az login --identity
+          az login --identity --username 789b8572-1fae-4a5f-b376-6d9d14651245 --tenant 72f988bf-86f1-41af-91ab-2d7cd011db47 --subscription 87d8acb3-5176-4651-b457-6ab9cefd8e3d
           az account show
 
   # unit-tests-and-format:
