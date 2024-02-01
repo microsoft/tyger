@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/golang-jwt/jwt/v5"
 	koanfyaml "github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/v2"
@@ -64,6 +65,14 @@ func TestMigrations(t *testing.T) {
 
 	username := runCommandSucceeds(t, "az", "account", "show", "--query", "user.name", "-o", "tsv")
 	password := runCommandSucceeds(t, "az", "account", "get-access-token", "--resource-type", "oss-rdbms", "--query", "accessToken", "-o", "tsv")
+	if username == "systemAssignedIdentity" || username == "userAssignedIdentity" {
+		// Need to get the managed identity app id from the token
+		claims := jwt.MapClaims{}
+		_, _, err = jwt.NewParser().ParseUnverified(password, claims)
+		require.NoError(t, err)
+		username = claims["appid"].(string)
+	}
+
 	host := helmValues["database"].(map[string]any)["host"].(string)
 	port := helmValues["database"].(map[string]any)["port"].(float64)
 	databaseName := helmValues["database"].(map[string]any)["databaseName"].(string)
