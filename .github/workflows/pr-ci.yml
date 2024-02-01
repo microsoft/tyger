@@ -12,22 +12,47 @@ permissions:
   contents: read
 
 env:
-  AZURE_CLIENT_ID: 56ab98d2-93dd-4d44-88be-c932fa3bc974
+  AZURE_CLIENT_ID: 789b8572-1fae-4a5f-b376-6d9d14651245
   AZURE_TENANT_ID: 72f988bf-86f1-41af-91ab-2d7cd011db47
   AZURE_SUBSCRIPTION_ID: 87d8acb3-5176-4651-b457-6ab9cefd8e3d
 
-  IS_FORK: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository }}
-  AZURE_POOL_JSON: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository && '["self-hosted", "1ES.Pool=tyger-gh-1es"]' || 'ubuntu-latest' }}
+  CAN_ACCESS_SECRETS: ${{ secrets.CAN_ACCESS_SECRETS }}
+  AZURE_RUN_ON_JSON: ${{ secrets.CAN_ACCESS_SECRETS && fromJSON('["self-hosted", "1ES.Pool=tyger-gh-1es"]') || 'ubuntu-latest'}}
 
 jobs:
+  test-azure-needs-hosted-runner:
+    runs-on: ubuntu-latest
+    outputs:
+      AZURE_RUN_ON_JSON: ${{ steps.set-vars.outputs.AZURE_RUN_ON_JSON }}
+    steps:
+      - id: set-vars
+        run: |
+          if [[ -z "$CAN_ACCESS_SECRETS" ]]; then
+            AZURE_RUN_ON_JSON='"ubuntu-latest"'
+          else
+            AZURE_RUN_ON_JSON='["self-hosted", "1ES.Pool=tyger-gh-1es"]'
+          fi
+
+          echo "AZURE_RUN_ON_JSON=$AZURE_RUN_ON_JSON" >> "$GITHUB_OUTPUT"
 
   test:
-    runs-on: ${{ fromJSON('["self-hosted", "1ES.Pool=tyger-gh-1es"]')}}
-    # runs-on: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository && fromJSON('["self-hosted", "1ES.Pool=tyger-gh-1es"]') || 'ubuntu-latest' }}
+    needs:
+      - test-azure-needs-hosted-runner
+    runs-on: ${{ fromJson(needs.test-azure-needs-hosted-runner.outputs.AZURE_RUN_ON_JSON)}}
 
     steps:
-      - run: |
-          az login --identity --username 789b8572-1fae-4a5f-b376-6d9d14651245
+      - name: Log in to Azure
+        if: ${{ env.CAN_ACCESS_SECRETS }}
+        uses: azure/login@v1
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Log in to Azure with managed identity
+        if: ${{ ! env.CAN_ACCESS_SECRETS }}
+        run: |
+          az login --identity --username $AZURE_CLIENT_ID
           az account show
 
   # unit-tests-and-format:
