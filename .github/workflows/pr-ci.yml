@@ -32,10 +32,11 @@ jobs:
             AZURE_RUNS_ON_WINDOWS_JSON='"windows-latest"'
           else
             AZURE_RUNS_ON_JSON='["self-hosted", "1ES.Pool=tyger-gh-1es"]'
-
+            AZURE_RUNS_ON_WINDOWS_JSON='["self-hosted", "1ES.Pool=tyger-gh-1es-windows"]'
           fi
 
           echo "AZURE_RUNS_ON_JSON=$AZURE_RUNS_ON_JSON" >> "$GITHUB_OUTPUT"
+          echo "AZURE_RUNS_ON_WINDOWS_JSON=$AZURE_RUNS_ON_WINDOWS_JSON" >> "$GITHUB_OUTPUT"
 
 
   unit-tests-and-format:
