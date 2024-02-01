@@ -40,6 +40,12 @@ jobs:
     runs-on: ${{ fromJson(needs.test-azure-needs-hosted-runner.outputs.AZURE_RUN_ON_JSON)}}
 
     steps:
+
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
       - uses: ./.github/actions/login-azure
 
       - run: |
