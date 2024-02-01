@@ -94,7 +94,7 @@ func getDefaultConfigPath() string {
 
 func loginAndValidateSubscription(ctx context.Context) (context.Context, error) {
 	config := install.GetConfigFromContext(ctx)
-	cred, err := azidentity.NewAzureCLICredential(
+	cred, err := install.NewMiAwareAzureCLICredential(
 		&azidentity.AzureCLICredentialOptions{
 			TenantID: config.Cloud.TenantID,
 		})
