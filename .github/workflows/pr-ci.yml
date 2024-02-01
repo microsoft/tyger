@@ -20,12 +20,12 @@ env:
 
 jobs:
 
-  # If this is running a Dependabot PR or PR from a fork, this we won't have access to secrets
-  # nor will be be able to obtaine a federated token to access Azure resources.
+  # If this is running a Dependabot PR or PR from a fork, it we won't have access to secrets
+  # nor will be be able to obtain a federated token to access Azure resources.
   # Therefore, in those cases, we use hosted runners with managed identity to access Azure resources.
-  # Only want to use those when necessary since they are a lot slower to come up, so this job
+  # We only want to use those when necessary since they are a lot slower to come up, so this job
   # determines what we should pass in to `runs-on` for jobs that access Azure resources.
-  # Also, this repo is configured to require approvals for all workflow runs from forks, and we
+  # Also, this repo is configured to require approvals for all workflowd external contributors, and we
   # should inspect the code in the PR before approving the run.
   test-azure-needs-hosted-runner:
     runs-on: ubuntu-latest
@@ -285,8 +285,6 @@ jobs:
 
       - name: Log in to Azure
         uses: ./.github/actions/login-azure
-
-      - run: az account show
 
       - name: Publish official images
         run: |
