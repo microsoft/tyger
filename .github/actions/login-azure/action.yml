@@ -1,6 +1,7 @@
 name: Log in to Azure
 description: |
   Log in to Azure either using managed identity or the azure/login action.
+
 runs:
   using: composite
   steps:
@@ -18,4 +19,3 @@ runs:
       shell: bash
       run: |
         az login --identity --username $AZURE_CLIENT_ID
-        az account show
