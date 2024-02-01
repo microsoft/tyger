@@ -46,7 +46,7 @@ func TestMigrations(t *testing.T) {
 	ctx := context.Background()
 
 	ctx = install.SetConfigOnContext(ctx, &config)
-	cred, err := azidentity.NewAzureCLICredential(
+	cred, err := install.NewMiAwareAzureCLICredential(
 		&azidentity.AzureCLICredentialOptions{
 			TenantID: config.Cloud.TenantID,
 		})
