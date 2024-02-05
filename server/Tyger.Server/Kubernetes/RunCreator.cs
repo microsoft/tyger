@@ -523,7 +523,7 @@ public class RunCreator
                 arguments![param.param] = bufferId;
             }
 
-            var bufferAccess = await _bufferManager.CreateBufferAccessString(bufferId, param.writeable, cancellationToken)
+            var bufferAccess = await _bufferManager.CreateBufferAccessUrl(bufferId, param.writeable, cancellationToken)
                 ?? throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The buffer '{0}' was not found", bufferId));
             outputMap[param.param] = (param.writeable, bufferAccess.Uri);
             argumentsClone.Remove(param.param);
