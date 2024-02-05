@@ -17,9 +17,10 @@ public static class Buffers
     {
         services.AddOptions<BufferOptions>().BindConfiguration("buffers").ValidateDataAnnotations().ValidateOnStart();
         services.AddSingleton<BufferManager>();
-        services.AddSingleton<IHostedService, BufferManager>(sp => sp.GetRequiredService<BufferManager>());
-
-        services.AddHealthChecks().AddCheck<BufferManager>("buffers");
+        services.AddSingleton<AzureBlobBufferProvider>();
+        services.AddSingleton<IBufferProvider, AzureBlobBufferProvider>();
+        services.AddSingleton<IHostedService, AzureBlobBufferProvider>(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
+        services.AddHealthChecks().AddCheck<AzureBlobBufferProvider>("buffers");
     }
 
     public static void MapBuffers(this WebApplication app)
@@ -128,7 +129,7 @@ public static class Buffers
 
         app.MapPost("/v1/buffers/{id}/access", async (BufferManager manager, string id, bool? writeable, CancellationToken cancellationToken) =>
             {
-                var bufferAccess = await manager.CreateBufferAccessString(id, writeable == true, cancellationToken);
+                var bufferAccess = await manager.CreateBufferAccessUrl(id, writeable == true, cancellationToken);
                 if (bufferAccess is null)
                 {
                     return Responses.NotFound();
