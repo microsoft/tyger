@@ -18,8 +18,8 @@ public static class Buffers
         services.AddOptions<BufferOptions>().BindConfiguration("buffers").ValidateDataAnnotations().ValidateOnStart();
         services.AddSingleton<BufferManager>();
         services.AddSingleton<AzureBlobBufferProvider>();
-        services.AddSingleton<IBufferProvider, AzureBlobBufferProvider>();
-        services.AddSingleton<IHostedService, AzureBlobBufferProvider>(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
+        services.AddSingleton<IBufferProvider>(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
+        services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
         services.AddHealthChecks().AddCheck<AzureBlobBufferProvider>("buffers");
     }
 
