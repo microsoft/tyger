@@ -13,14 +13,27 @@ namespace Tyger.Server.Buffers;
 
 public static class Buffers
 {
-    public static void AddBuffers(this IServiceCollection services)
+    private const string ConfigSectionPath = "buffers";
+
+    public static void AddBuffers(this IServiceCollection services, IConfigurationManager configuration)
     {
-        services.AddOptions<BufferOptions>().BindConfiguration("buffers").ValidateDataAnnotations().ValidateOnStart();
+        services.AddOptions<BufferOptions>().BindConfiguration(ConfigSectionPath).ValidateDataAnnotations().ValidateOnStart();
         services.AddSingleton<BufferManager>();
-        services.AddSingleton<AzureBlobBufferProvider>();
-        services.AddSingleton<IBufferProvider>(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
-        services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
-        services.AddHealthChecks().AddCheck<AzureBlobBufferProvider>("buffers");
+        var bufferOptions = configuration.GetSection(ConfigSectionPath).Get<BufferOptions>();
+
+        if (bufferOptions?.LocalStorage.Enabled == true)
+        {
+            services.AddSingleton<LocalStorageBufferProvider>();
+            services.AddSingleton<IBufferProvider>(sp => sp.GetRequiredService<LocalStorageBufferProvider>());
+            services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<LocalStorageBufferProvider>());
+        }
+        else
+        {
+            services.AddSingleton<AzureBlobBufferProvider>();
+            services.AddSingleton<IBufferProvider>(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
+            services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
+            services.AddHealthChecks().AddCheck<AzureBlobBufferProvider>("buffers");
+        }
     }
 
     public static void MapBuffers(this WebApplication app)
@@ -140,6 +153,19 @@ public static class Buffers
             .WithName("getBufferAccessString")
             .Produces<BufferAccess>(StatusCodes.Status201Created)
             .Produces<ErrorBody>(StatusCodes.Status404NotFound);
+
+        if (app.Services.GetService<LocalStorageBufferProvider>() is var localProvider and not null)
+        {
+            app.MapPut("v1/buffers/data/{id}/{**blobRelativePath}", async (string id, string blobRelativePath, HttpContext context, CancellationToken cancellationToken) =>
+            {
+                await localProvider.HandlePutBlob(id, blobRelativePath, context, cancellationToken);
+            }).AllowAnonymous();
+
+            app.MapGet("v1/buffers/data/{id}/{**blobRelativePath}", async (string id, string blobRelativePath, HttpContext context, CancellationToken cancellationToken) =>
+            {
+                await localProvider.HandleGetBlob(id, blobRelativePath, context, cancellationToken);
+            }).AllowAnonymous();
+        }
     }
 }
 
@@ -148,8 +174,18 @@ public class BufferOptions
     [Required, MinLength(1)]
     public required BufferStorageAccountOptions[] StorageAccounts { get; init; }
 
+    public LocalStorageOptions LocalStorage { get; } = new();
+
     [Required]
     public required string BufferSidecarImage { get; init; }
+}
+
+public class LocalStorageOptions
+{
+    public bool Enabled { get; init; }
+
+    [Required, MinLength(1)]
+    public string DataDirectory { get; init; } = null!;
 }
 
 public class BufferStorageAccountOptions

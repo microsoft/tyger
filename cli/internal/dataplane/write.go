@@ -315,7 +315,7 @@ func uploadBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, 
 				}
 			}
 
-			return fmt.Errorf("buffer cannot be overwritten: %w", httpclient.RedactHttpError(err))
+			return fmt.Errorf("buffer cannot be overwritten")
 		case errBufferDoesNotExist:
 			return err
 		default:
