@@ -63,6 +63,9 @@ set-localsettings:
 	jq <<- EOF > ${SERVER_PATH}/appsettings.local.json
 		{
 			"logging": { "Console": {"FormatterName": "simple" } },
+			"serviceMetadata": {
+				"externalBaseUrl": "http://localhost:5000"
+			},
 			"auth": {
 				"enabled": "${SECURITY_ENABLED}",
 				"authority": "https://login.microsoftonline.com/$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.auth.tenantId')",
@@ -83,6 +86,10 @@ set-localsettings:
 			},
 			"buffers": {
 				"storageAccounts": $$(echo $${helm_values} | jq -c '.buffers.storageAccounts'),
+				"localStorage": {
+					"enabled": true,
+					"dataDirectory": "/tmp/bufferdata"
+				},
 				"bufferSidecarImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.bufferSidecarImage')"
 			},
 			"database": {

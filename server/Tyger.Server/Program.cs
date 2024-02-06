@@ -43,9 +43,10 @@ T InitializeHostBuilder<T>(T builder) where T : IHostApplicationBuilder
 
     if (isApi)
     {
+        builder.Services.AddServiceMetadata();
         builder.Services.AddLogArchive();
         builder.Services.AddAuth();
-        builder.Services.AddBuffers();
+        builder.Services.AddBuffers(builder.Configuration);
         builder.Services.AddOpenApi();
         builder.Services.AddHealthChecks();
     }
