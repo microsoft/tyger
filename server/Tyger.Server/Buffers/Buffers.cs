@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.ComponentModel.DataAnnotations;
+using System.Security.Cryptography.X509Certificates;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Primitives;
@@ -17,7 +18,17 @@ public static class Buffers
 
     public static void AddBuffers(this IServiceCollection services, IConfigurationManager configuration)
     {
-        services.AddOptions<BufferOptions>().BindConfiguration(ConfigSectionPath).ValidateDataAnnotations().ValidateOnStart();
+        services.AddOptions<BufferOptions>().BindConfiguration(ConfigSectionPath).ValidateDataAnnotations().ValidateOnStart().Validate(o =>
+        {
+            o.LocalStorage.PrimarySigningCertificate = X509Certificate2.CreateFromPemFile(o.LocalStorage.PrimarySigningCertificatePath);
+            if (o.LocalStorage.SecondarySigningCertificatePath is not null)
+            {
+                o.LocalStorage.SecondarySigningCertificate = X509Certificate2.CreateFromPem(File.ReadAllText(o.LocalStorage.SecondarySigningCertificatePath));
+            }
+
+            return true;
+        });
+
         services.AddSingleton<BufferManager>();
         var bufferOptions = configuration.GetSection(ConfigSectionPath).Get<BufferOptions>();
 
@@ -26,6 +37,8 @@ public static class Buffers
             services.AddSingleton<LocalStorageBufferProvider>();
             services.AddSingleton<IBufferProvider>(sp => sp.GetRequiredService<LocalStorageBufferProvider>());
             services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<LocalStorageBufferProvider>());
+
+            services.AddSingleton<LocalSasHandler>();
         }
         else
         {
@@ -154,7 +167,7 @@ public static class Buffers
             .Produces<BufferAccess>(StatusCodes.Status201Created)
             .Produces<ErrorBody>(StatusCodes.Status404NotFound);
 
-        if (app.Services.GetService<LocalStorageBufferProvider>() is var localProvider and not null)
+        if (app.Services.GetService<LocalStorageBufferProvider>() is { } localProvider)
         {
             app.MapPut("v1/buffers/data/{id}/{**blobRelativePath}", async (string id, string blobRelativePath, HttpContext context, CancellationToken cancellationToken) =>
             {
@@ -169,7 +182,7 @@ public static class Buffers
     }
 }
 
-public class BufferOptions
+public class BufferOptions : IValidatableObject
 {
     [Required, MinLength(1)]
     public required BufferStorageAccountOptions[] StorageAccounts { get; init; }
@@ -178,6 +191,15 @@ public class BufferOptions
 
     [Required]
     public required string BufferSidecarImage { get; init; }
+
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        var results = new List<ValidationResult>();
+
+        Validator.TryValidateObject(LocalStorage, new ValidationContext(LocalStorage), results, validateAllProperties: true);
+
+        return results;
+    }
 }
 
 public class LocalStorageOptions
@@ -186,6 +208,15 @@ public class LocalStorageOptions
 
     [Required, MinLength(1)]
     public string DataDirectory { get; init; } = null!;
+
+    [Required, MinLength(1)]
+    public string PrimarySigningCertificatePath { get; init; } = null!;
+
+    public X509Certificate2 PrimarySigningCertificate { get; set; } = null!;
+
+    public string? SecondarySigningCertificatePath { get; init; }
+
+    public X509Certificate2? SecondarySigningCertificate { get; set; }
 }
 
 public class BufferStorageAccountOptions
