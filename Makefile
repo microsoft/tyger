@@ -88,7 +88,8 @@ set-localsettings:
 				"storageAccounts": $$(echo $${helm_values} | jq -c '.buffers.storageAccounts'),
 				"localStorage": {
 					"enabled": true,
-					"dataDirectory": "/tmp/bufferdata"
+					"dataDirectory": "/tmp/bufferdata",
+					"primarySigningCertificatePath": "$${HOME}/tyger_local_buffer_service_cert$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version').pem"
 				},
 				"bufferSidecarImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.bufferSidecarImage')"
 			},
@@ -203,6 +204,19 @@ download-test-client-cert:
 		vault_name=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.keyVault')
 		cert_name=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.name')
 		cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.version')
+		az keyvault secret download --vault-name "$${vault_name}" --name "$${cert_name}" --version "$${cert_version}" --file "$${cert_path}" --subscription "$${subscription}"
+		chmod 600 "$${cert_path}"
+	fi
+
+download-local-buffer-service-cert:
+	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version')
+	cert_path=$${HOME}/tyger_local_buffer_service_cert$${cert_version}.pem
+	if [[ ! -f "$${cert_path}" ]]; then
+		rm -f "$${cert_path}"
+		subscription=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | yq '.cloud.subscriptionId')
+		vault_name=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.keyVault')
+		cert_name=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.name')
+		cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version')
 		az keyvault secret download --vault-name "$${vault_name}" --name "$${cert_name}" --version "$${cert_version}" --file "$${cert_path}" --subscription "$${subscription}"
 		chmod 600 "$${cert_path}"
 	fi
