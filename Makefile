@@ -154,7 +154,7 @@ docker-build: docker-build-test docker-build-tyger-server docker-build-buffer-si
 publish-official-images:
 	registry=$$(scripts/get-config.sh --dev -e .officialContainerRegistry.fqdn)
 	tag=$$(git describe --tags)
-	scripts/build-images.sh --push --push-force --helm --tag "$${tag}" --registry "$${registry}"
+	scripts/build-images.sh --push --push-force --tyger-server --worker-waiter --buffer-sidecar --helm --tag "$${tag}" --registry "$${registry}"
 
 up: ensure-environment-conditionally docker-build-tyger-server docker-build-buffer-sidecar docker-build-worker-waiter
 	tyger api install -f <(scripts/get-config.sh)
