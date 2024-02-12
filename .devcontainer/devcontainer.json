@@ -73,7 +73,8 @@
 
   "mounts": [
     // Bind mount docker socket under an alias to support docker-from-docker
-    "source=/var/run/docker.sock,target=/var/run/docker-host.sock,type=bind"
+    "source=/var/run/docker.sock,target=/var/run/docker-host.sock,type=bind",
+    "source=/tmp,target=/host-tmp,type=bind"
   ],
 
   "remoteUser": "vscode",
