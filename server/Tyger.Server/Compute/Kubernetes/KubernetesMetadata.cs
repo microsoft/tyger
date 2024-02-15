@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-namespace Tyger.Server.Kubernetes;
+namespace Tyger.Server.Compute.Kubernetes;
 
 public static class KubernetesMetadata
 {

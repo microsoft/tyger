@@ -8,7 +8,7 @@
 
 set -euo pipefail
 
-devcontainer_id=$(cat /etc/hostname)
+devcontainer_id=$(head -1 /proc/self/cgroup|cut -d/ -f3)
 devcontainer_image=$(docker inspect "$devcontainer_id" | jq -r '.[0].Image')
 container_id=$(docker run -d -u "$USER" --mount "source=${DEVCONTAINER_HOST_HOME}/.azure/,target=/home/${USER}/.azure,type=bind,readonly" "$devcontainer_image" 2>/dev/null || true)
 if [[ -n "$container_id" ]]; then

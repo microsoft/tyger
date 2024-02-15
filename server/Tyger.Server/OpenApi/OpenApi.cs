@@ -11,10 +11,10 @@ namespace Tyger.Server.OpenApi;
 
 public static class OpenApi
 {
-    public static void AddOpenApi(this IServiceCollection services)
+    public static void AddOpenApi(this IHostApplicationBuilder builder)
     {
-        services.AddEndpointsApiExplorer();
-        services.AddSwaggerGen(c =>
+        builder.Services.AddEndpointsApiExplorer();
+        builder.Services.AddSwaggerGen(c =>
         {
             c.SupportNonNullableReferenceTypes();
 

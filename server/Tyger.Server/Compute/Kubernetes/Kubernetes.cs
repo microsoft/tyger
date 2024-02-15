@@ -4,23 +4,20 @@
 using System.ComponentModel.DataAnnotations;
 using k8s;
 using Microsoft.Extensions.Options;
+using Tyger.Server.Database;
 using Tyger.Server.Logging;
+using Tyger.Server.Runs;
 
-namespace Tyger.Server.Kubernetes;
+namespace Tyger.Server.Compute.Kubernetes;
 
 public static class Kubernetes
 {
-    public static void AddKubernetes(this IServiceCollection services, bool isApi)
+    public static void AddKubernetes(this IHostApplicationBuilder builder)
     {
-        if (isApi)
-        {
-            services.AddOptions<KubernetesApiOptions>().BindConfiguration("kubernetes").ValidateDataAnnotations().ValidateOnStart();
-        }
+        builder.Services.AddOptions<KubernetesCoreOptions>().BindConfiguration("compute:kubernetes").ValidateDataAnnotations().ValidateOnStart();
 
-        services.AddOptions<KubernetesCoreOptions>().BindConfiguration("kubernetes").ValidateDataAnnotations().ValidateOnStart();
-
-        services.AddSingleton<LoggingHandler>();
-        services.AddSingleton(sp =>
+        builder.Services.AddSingleton<LoggingHandler>();
+        builder.Services.AddSingleton(sp =>
         {
             var kubernetesOptions = sp.GetRequiredService<IOptions<KubernetesCoreOptions>>().Value;
             var config = string.IsNullOrEmpty(kubernetesOptions.KubeconfigPath)
@@ -28,16 +25,22 @@ public static class Kubernetes
                 : KubernetesClientConfiguration.BuildConfigFromConfigFile(kubernetesOptions.KubeconfigPath);
             return new k8s.Kubernetes(config, sp.GetRequiredService<LoggingHandler>());
         });
-        services.AddSingleton<IKubernetes>(sp => sp.GetRequiredService<k8s.Kubernetes>());
+        builder.Services.AddSingleton<IKubernetes>(sp => sp.GetRequiredService<k8s.Kubernetes>());
 
-        if (isApi)
+        builder.Services.AddHttpClient(Options.DefaultName).AddStandardResilienceHandler();
+        builder.Services.AddSingleton<IReplicaDatabaseVersionProvider, ReplicaDatabaseVersionProvider>();
+
+        if (builder is WebApplicationBuilder)
         {
-            services.AddSingleton<RunCreator>();
-            services.AddSingleton<RunReader>();
-            services.AddSingleton<RunUpdater>();
-            services.AddSingleton<ILogSource, RunLogReader>();
-            services.AddSingleton<RunSweeper>();
-            services.AddSingleton<IHostedService, RunSweeper>(sp => sp.GetRequiredService<RunSweeper>());
+            builder.Services.AddOptions<KubernetesApiOptions>().BindConfiguration("compute:kubernetes").ValidateDataAnnotations().ValidateOnStart();
+            builder.Services.AddSingleton<RunCreator>();
+            builder.Services.AddSingleton<IRunCreator>(sp => sp.GetRequiredService<RunCreator>());
+            builder.Services.AddSingleton<RunReader>();
+            builder.Services.AddSingleton<IRunReader>(sp => sp.GetRequiredService<RunReader>());
+            builder.Services.AddSingleton<RunUpdater>();
+            builder.Services.AddSingleton<ILogSource, RunLogReader>();
+            builder.Services.AddSingleton<RunSweeper>();
+            builder.Services.AddSingleton<IHostedService, RunSweeper>(sp => sp.GetRequiredService<RunSweeper>());
         }
     }
 }

@@ -7,10 +7,10 @@ namespace Tyger.Server.Logging;
 
 public static class Logging
 {
-    public static void ConfigureLogging(this ILoggingBuilder builder)
+    public static void ConfigureLogging(this IHostApplicationBuilder builder)
     {
-        builder.AddConsole(o => o.LogToStandardErrorThreshold = 0); // always log to stderr
-        builder.AddConsoleFormatter<JsonFormatter, ConsoleFormatterOptions>();
-        builder.Configure(l => l.ActivityTrackingOptions = ActivityTrackingOptions.None);
+        builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = 0); // always log to stderr
+        builder.Logging.AddConsoleFormatter<JsonFormatter, ConsoleFormatterOptions>();
+        builder.Logging.Configure(l => l.ActivityTrackingOptions = ActivityTrackingOptions.None);
     }
 }

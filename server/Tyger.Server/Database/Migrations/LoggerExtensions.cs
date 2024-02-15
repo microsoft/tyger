@@ -35,13 +35,13 @@ public static partial class LoggerExtensions
     [LoggerMessage(10, LogLevel.Warning, "Error validating current database versions on replicas")]
     public static partial void ErrorValidatingCurrentDatabaseVersionsOnReplicas(this ILogger logger, Exception exception);
 
-    [LoggerMessage(11, LogLevel.Information, "Waiting for pod at {address} to use required version {version} instead of {usingVersion}")]
-    public static partial void WaitingForPodToUseRequiredVersion(this ILogger logger, string address, int version, int usingVersion);
+    [LoggerMessage(11, LogLevel.Information, "Waiting for replica at {address} to use required version {version} instead of {usingVersion}")]
+    public static partial void WaitingForReplicaToUseRequiredVersion(this ILogger logger, string address, int version, int usingVersion);
 
     [LoggerMessage(12, LogLevel.Warning, "Newer database versions exist")]
     public static partial void NewerDatabaseVersionsExist(this ILogger logger);
 
-    [LoggerMessage(12, LogLevel.Information, "Using most recent database version")]
+    [LoggerMessage(13, LogLevel.Information, "Using most recent database version")]
     public static partial void UsingMostRecentDatabaseVersion(this ILogger logger);
 
 }

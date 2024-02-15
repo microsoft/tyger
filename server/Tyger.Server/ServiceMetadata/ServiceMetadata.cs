@@ -10,9 +10,9 @@ namespace Tyger.Server.ServiceMetadata;
 
 public static class ServiceMetadata
 {
-    public static void AddServiceMetadata(this IServiceCollection services)
+    public static void AddServiceMetadata(this IHostApplicationBuilder builder)
     {
-        services.AddOptions<ServiceMetadataOptions>().BindConfiguration("serviceMetadata").ValidateDataAnnotations().ValidateOnStart();
+        builder.Services.AddOptions<ServiceMetadataOptions>().BindConfiguration("serviceMetadata").ValidateDataAnnotations().ValidateOnStart();
     }
 
     public static void MapServiceMetadata(this WebApplication app)

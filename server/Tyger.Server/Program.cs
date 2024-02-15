@@ -6,11 +6,11 @@ using System.CommandLine.Parsing;
 using Tyger.Server.Auth;
 using Tyger.Server.Buffers;
 using Tyger.Server.Codespecs;
+using Tyger.Server.Compute;
 using Tyger.Server.Configuration;
 using Tyger.Server.Database;
 using Tyger.Server.Identity;
 using Tyger.Server.Json;
-using Tyger.Server.Kubernetes;
 using Tyger.Server.Logging;
 using Tyger.Server.Middleware;
 using Tyger.Server.Model;
@@ -21,52 +21,38 @@ using Tyger.Server.ServiceMetadata;
 var rootCommand = new RootCommand("Tyger Server");
 rootCommand.SetHandler(RunServer);
 
-rootCommand.AddDatabaseCliCommand(CreateNonWebHost);
+rootCommand.AddDatabaseCliCommand(() =>
+    {
+        var builder = Host.CreateApplicationBuilder();
+        AddCommonServices(builder);
+        return builder.Build();
+    });
 
 return await rootCommand.InvokeAsync(args);
 
-T InitializeHostBuilder<T>(T builder) where T : IHostApplicationBuilder
+void AddCommonServices(IHostApplicationBuilder builder)
 {
-    bool isApi = builder is WebApplicationBuilder;
-
-    // Configuration
-    builder.Configuration.AddConfigurationSources();
-
-    // Logging
-    builder.Logging.ConfigureLogging();
-
-    // Services
-    builder.Services.AddManagedIdentity();
-    builder.Services.AddDatabase();
-    builder.Services.AddKubernetes(isApi);
-    builder.Services.AddJsonFormatting();
-
-    if (isApi)
-    {
-        builder.Services.AddServiceMetadata();
-        builder.Services.AddLogArchive();
-        builder.Services.AddAuth();
-        builder.Services.AddBuffers(builder.Configuration);
-        builder.Services.AddOpenApi();
-        builder.Services.AddHealthChecks();
-    }
-
-    return builder;
-}
-
-WebApplication CreateWebApplication()
-{
-    return InitializeHostBuilder(WebApplication.CreateBuilder()).Build();
-}
-
-IHost CreateNonWebHost()
-{
-    return InitializeHostBuilder(Host.CreateApplicationBuilder()).Build();
+    builder.AddConfigurationSources();
+    builder.AddCompute();
+    builder.ConfigureLogging();
+    builder.AddManagedIdentity();
+    builder.AddDatabase();
+    builder.AddCompute();
+    builder.AddJsonFormatting();
 }
 
 void RunServer()
 {
-    var app = CreateWebApplication();
+    var builder = WebApplication.CreateBuilder();
+
+    AddCommonServices(builder);
+    builder.AddServiceMetadata();
+    builder.AddLogArchive();
+    builder.AddAuth();
+    builder.AddBuffers();
+    builder.AddOpenApi();
+
+    var app = builder.Build();
 
     // Middleware and routes
     app.UseRequestLogging();

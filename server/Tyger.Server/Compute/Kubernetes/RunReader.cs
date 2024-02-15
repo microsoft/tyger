@@ -11,11 +11,13 @@ using k8s.Models;
 using Microsoft.Extensions.Options;
 using Tyger.Server.Database;
 using Tyger.Server.Model;
-using static Tyger.Server.Kubernetes.KubernetesMetadata;
+using Tyger.Server.Runs;
+using static Tyger.Server.Compute.Kubernetes.KubernetesMetadata;
 
-namespace Tyger.Server.Kubernetes;
+namespace Tyger.Server.Compute.Kubernetes;
 
-public class RunReader
+public class RunReader : IRunReader
+
 {
     // Used to extract "gpunp" from an AKS node named "aks-gpunp-23329378-vmss000007"
     private static readonly Regex s_nodePoolFromNodeName = new(@"^aks-([^\-]+)-", RegexOptions.Compiled);

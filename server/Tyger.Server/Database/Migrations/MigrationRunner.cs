@@ -2,13 +2,9 @@
 // Licensed under the MIT License.
 
 using System.ComponentModel.DataAnnotations;
-using System.Text.Json;
-using k8s;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using Polly;
-using Tyger.Server.Kubernetes;
-using Tyger.Server.Model;
 using static Tyger.Server.Database.Constants;
 
 namespace Tyger.Server.Database.Migrations;
@@ -22,9 +18,7 @@ public class MigrationRunner : IHostedService
     private readonly DatabaseVersions _databaseVersions;
     private readonly ResiliencePipeline _resiliencePipeline;
     private readonly DatabaseOptions _databaseOptions;
-    private readonly IKubernetes _kubernetesClient;
-    private readonly JsonSerializerOptions _jsonSerializerOptions;
-    private readonly KubernetesCoreOptions _kubernetesOptions;
+    private readonly IReplicaDatabaseVersionProvider _replicaDatabaseVersionProvider;
     private readonly ILogger<MigrationRunner> _logger;
     private readonly ILoggerFactory _loggerFactory;
 
@@ -33,9 +27,7 @@ public class MigrationRunner : IHostedService
         DatabaseVersions databaseVersions,
         IOptions<DatabaseOptions> databaseOptions,
         ResiliencePipeline resiliencePipeline,
-        IKubernetes kubernetesClient,
-        IOptions<KubernetesCoreOptions> kubernetesOptions,
-        JsonSerializerOptions jsonSerializerOptions,
+        IReplicaDatabaseVersionProvider replicaDatabaseVersionProvider,
         ILogger<MigrationRunner> logger,
         ILoggerFactory loggerFactory)
     {
@@ -43,9 +35,7 @@ public class MigrationRunner : IHostedService
         _databaseVersions = databaseVersions;
         _resiliencePipeline = resiliencePipeline;
         _databaseOptions = databaseOptions.Value;
-        _kubernetesClient = kubernetesClient;
-        _jsonSerializerOptions = jsonSerializerOptions;
-        _kubernetesOptions = kubernetesOptions.Value;
+        _replicaDatabaseVersionProvider = replicaDatabaseVersionProvider;
         _logger = logger;
         _loggerFactory = loggerFactory;
     }
@@ -66,11 +56,6 @@ public class MigrationRunner : IHostedService
             _logger.DatabaseAlreadyInitialized();
             await LogCurrentOrAvailableDatabaseVersions(knownVersions, cancellationToken);
             return;
-        }
-
-        if (!offline && !string.IsNullOrEmpty(_kubernetesOptions.KubeconfigPath))
-        {
-            offline = true;
         }
 
         if (targetVersion != null)
@@ -99,57 +84,30 @@ public class MigrationRunner : IHostedService
             {
                 for (int i = 0; ; i++)
                 {
-                    if (i != 0)
-                    {
-                        await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
-                    }
-
+                    var allReady = true;
                     try
                     {
-                        var endpointSlices = await _kubernetesClient.DiscoveryV1.ListNamespacedEndpointSliceAsync(_kubernetesOptions.Namespace, labelSelector: "kubernetes.io/service-name=tyger-server", cancellationToken: cancellationToken);
-                        Console.WriteLine($"Endpoint Slices: {endpointSlices.Items.Count}");
-                        foreach (var slice in endpointSlices.Items)
+                        await foreach ((var replicaUri, var replicaDatabaseVersion) in _replicaDatabaseVersionProvider.GetDatabaseVersionsOfReplicas(cancellationToken))
                         {
-                            var port = slice.Ports.Single(p => p.Protocol == "TCP");
-                            foreach (var ep in slice.Endpoints)
+                            if (replicaDatabaseVersion != version)
                             {
-                                if (ep.Conditions.Ready != true)
-                                {
-                                    continue;
-                                }
-
-                                foreach (var address in ep.Addresses)
-                                {
-                                    var uri = new Uri($"http://{address}:{port.Port}/v1/database-version-in-use");
-
-                                    var message = new HttpRequestMessage(HttpMethod.Get, uri)
-                                    {
-                                        Headers =
-                                        {
-                                            // Adding custom bearer token to secure this endpoint. The token is the pod UID.
-                                            // See comment on enpoint.
-                                            Authorization = new ("Bearer", ep.TargetRef.Uid)
-                                        },
-                                    };
-
-                                    var resp = await httpClient.SendAsync(message, cancellationToken);
-                                    resp.EnsureSuccessStatusCode();
-                                    var versionInUse = (await resp.Content.ReadFromJsonAsync<DatabaseVersionInUse>(_jsonSerializerOptions, cancellationToken))!;
-                                    if (versionInUse.Id != (int)version - 1)
-                                    {
-                                        _logger.WaitingForPodToUseRequiredVersion(address, (int)version - 1, versionInUse.Id);
-                                        continue;
-                                    }
-                                }
+                                _logger.WaitingForReplicaToUseRequiredVersion(replicaUri.ToString(), (int)version, (int)replicaDatabaseVersion);
+                                allReady = false;
                             }
                         }
-
-                        break;
                     }
-                    catch (Exception e) when (!cancellationToken.IsCancellationRequested)
+                    catch (Exception e) when (!cancellationToken.IsCancellationRequested && i < 50)
                     {
                         _logger.ErrorValidatingCurrentDatabaseVersionsOnReplicas(e);
+                        allReady = false;
                     }
+
+                    if (allReady)
+                    {
+                        break;
+                    }
+
+                    await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
                 }
             }
 

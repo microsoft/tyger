@@ -7,7 +7,7 @@ using System.Runtime.ExceptionServices;
 using k8s;
 using k8s.Models;
 
-namespace Tyger.Server.Kubernetes;
+namespace Tyger.Server.Compute.Kubernetes;
 
 public static class KubernetesExtensions
 {

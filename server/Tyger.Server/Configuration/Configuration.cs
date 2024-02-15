@@ -5,17 +5,17 @@ namespace Tyger.Server.Configuration;
 
 public static class Configuration
 {
-    public static void AddConfigurationSources(this IConfigurationManager configurationManager)
+    public static void AddConfigurationSources(this IHostApplicationBuilder builder)
     {
-        configurationManager.AddJsonFile("appsettings.local.json", optional: true);
-        if (configurationManager.GetValue<string>("KeyPerFileDirectory") is string keyPerFileDir)
+        builder.Configuration.AddJsonFile("appsettings.local.json", optional: true);
+        if (builder.Configuration.GetValue<string>("KeyPerFileDirectory") is string keyPerFileDir)
         {
-            configurationManager.AddKeyPerFile(keyPerFileDir, optional: true);
+            builder.Configuration.AddKeyPerFile(keyPerFileDir, optional: true);
         }
 
-        if (configurationManager.GetValue<string>("AppSettingsDirectory") is string settingsDir)
+        if (builder.Configuration.GetValue<string>("AppSettingsDirectory") is string settingsDir)
         {
-            configurationManager.AddJsonFile(Path.Combine(settingsDir, "appsettings.json"), optional: false);
+            builder.Configuration.AddJsonFile(Path.Combine(settingsDir, "appsettings.json"), optional: false);
         }
     }
 }
