@@ -252,8 +252,10 @@ public sealed class LocalSasHandler
 
     public LocalSasHandler(IOptions<BufferOptions> options)
     {
-        static (Func<byte[], byte[]> sign, Func<byte[], byte[], bool> validate) GetHandlers(X509Certificate2 cert)
+        static (Func<byte[], byte[]> sign, Func<byte[], byte[], bool> validate) GetHandlers(string certificatePath)
         {
+            var cert = X509Certificate2.CreateFromPemFile(certificatePath);
+
             if (cert.GetECDsaPrivateKey() is { } ecdsaKey)
             {
                 return ((data) => ecdsaKey.SignData(data, HashAlgorithmName.SHA256), (data, signature) => ecdsaKey.VerifyData(data, signature, HashAlgorithmName.SHA256));
@@ -268,11 +270,11 @@ public sealed class LocalSasHandler
             }
         }
 
-        (_signData, _validateSignature) = GetHandlers(options.Value.LocalStorage.PrimarySigningCertificate);
+        (_signData, _validateSignature) = GetHandlers(options.Value.LocalStorage.PrimarySigningCertificatePath);
 
-        if (options.Value.LocalStorage.SecondarySigningCertificate is { } secondaryCert)
+        if (!string.IsNullOrEmpty(options.Value.LocalStorage.SecondarySigningCertificatePath))
         {
-            var (_, secondaryValidateSignature) = GetHandlers(secondaryCert);
+            var (_, secondaryValidateSignature) = GetHandlers(options.Value.LocalStorage.SecondarySigningCertificatePath);
             var primaryValidateSignature = _validateSignature;
             _validateSignature = (data, signature) => primaryValidateSignature(data, signature) || secondaryValidateSignature(data, signature);
         }

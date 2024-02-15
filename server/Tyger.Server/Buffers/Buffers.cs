@@ -2,7 +2,6 @@
 // Licensed under the MIT License.
 
 using System.ComponentModel.DataAnnotations;
-using System.Security.Cryptography.X509Certificates;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Primitives;
@@ -16,36 +15,27 @@ public static class Buffers
 {
     private const string ConfigSectionPath = "buffers";
 
-    public static void AddBuffers(this IServiceCollection services, IConfigurationManager configuration)
+    public static void AddBuffers(this IHostApplicationBuilder builder)
     {
-        services.AddOptions<BufferOptions>().BindConfiguration(ConfigSectionPath).ValidateDataAnnotations().ValidateOnStart().Validate(o =>
-        {
-            o.LocalStorage.PrimarySigningCertificate = X509Certificate2.CreateFromPemFile(o.LocalStorage.PrimarySigningCertificatePath);
-            if (o.LocalStorage.SecondarySigningCertificatePath is not null)
-            {
-                o.LocalStorage.SecondarySigningCertificate = X509Certificate2.CreateFromPem(File.ReadAllText(o.LocalStorage.SecondarySigningCertificatePath));
-            }
+        builder.Services.AddOptions<BufferOptions>().BindConfiguration(ConfigSectionPath).ValidateDataAnnotations().ValidateOnStart();
 
-            return true;
-        });
-
-        services.AddSingleton<BufferManager>();
-        var bufferOptions = configuration.GetSection(ConfigSectionPath).Get<BufferOptions>();
+        builder.Services.AddSingleton<BufferManager>();
+        var bufferOptions = builder.Configuration.GetSection(ConfigSectionPath).Get<BufferOptions>();
 
         if (bufferOptions?.LocalStorage.Enabled == true)
         {
-            services.AddSingleton<LocalStorageBufferProvider>();
-            services.AddSingleton<IBufferProvider>(sp => sp.GetRequiredService<LocalStorageBufferProvider>());
-            services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<LocalStorageBufferProvider>());
+            builder.Services.AddSingleton<LocalStorageBufferProvider>();
+            builder.Services.AddSingleton<IBufferProvider>(sp => sp.GetRequiredService<LocalStorageBufferProvider>());
+            builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<LocalStorageBufferProvider>());
 
-            services.AddSingleton<LocalSasHandler>();
+            builder.Services.AddSingleton<LocalSasHandler>();
         }
         else
         {
-            services.AddSingleton<AzureBlobBufferProvider>();
-            services.AddSingleton<IBufferProvider>(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
-            services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
-            services.AddHealthChecks().AddCheck<AzureBlobBufferProvider>("buffers");
+            builder.Services.AddSingleton<AzureBlobBufferProvider>();
+            builder.Services.AddSingleton<IBufferProvider>(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
+            builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
+            builder.Services.AddHealthChecks().AddCheck<AzureBlobBufferProvider>("buffers");
         }
     }
 
@@ -184,22 +174,43 @@ public static class Buffers
 
 public class BufferOptions : IValidatableObject
 {
-    [Required, MinLength(1)]
-    public required BufferStorageAccountOptions[] StorageAccounts { get; init; }
-
     public LocalStorageOptions LocalStorage { get; } = new();
 
+    public CloudStorageOptions CloudStorage { get; } = new();
+
     [Required]
-    public required string BufferSidecarImage { get; init; }
+    public string BufferSidecarImage { get; set; } = null!;
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
         var results = new List<ValidationResult>();
 
-        Validator.TryValidateObject(LocalStorage, new ValidationContext(LocalStorage), results, validateAllProperties: true);
+        switch (LocalStorage.Enabled, CloudStorage.Enabled)
+        {
+            case (true, false):
+                Validator.TryValidateObject(LocalStorage, new ValidationContext(LocalStorage), results, validateAllProperties: true);
+                break;
+            case (false, true):
+                Validator.TryValidateObject(CloudStorage, new ValidationContext(CloudStorage), results, validateAllProperties: true);
+                break;
+            case (false, false):
+                results.Add(new ValidationResult("At least one storage option must be enabled.", [nameof(LocalStorage), nameof(CloudStorage)]));
+                break;
+            case (true, true):
+                results.Add(new ValidationResult("Only one storage option can be enabled.", [nameof(LocalStorage), nameof(CloudStorage)]));
+                break;
+        }
 
         return results;
     }
+}
+
+public class CloudStorageOptions
+{
+    public bool Enabled { get; init; }
+
+    [Required, MinLength(1)]
+    public IList<BufferStorageAccountOptions> StorageAccounts { get; } = [];
 }
 
 public class LocalStorageOptions
@@ -212,11 +223,7 @@ public class LocalStorageOptions
     [Required, MinLength(1)]
     public string PrimarySigningCertificatePath { get; init; } = null!;
 
-    public X509Certificate2 PrimarySigningCertificate { get; set; } = null!;
-
     public string? SecondarySigningCertificatePath { get; init; }
-
-    public X509Certificate2? SecondarySigningCertificate { get; set; }
 }
 
 public class BufferStorageAccountOptions

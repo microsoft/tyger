@@ -14,6 +14,6 @@ public static partial class LogingExtensions
     [LoggerMessage(2, LogLevel.Warning, "Failed to refresh user delegation key")]
     public static partial void FailedToRefreshUserDelegationKey(this ILogger logger, Exception ex);
 
-    [LoggerMessage(2, LogLevel.Error, "Failed to refresh user delegation key (expired)")]
+    [LoggerMessage(3, LogLevel.Error, "Failed to refresh user delegation key (expired)")]
     public static partial void FailedToRefreshExpiredUserDelegationKey(this ILogger logger, Exception ex);
 }

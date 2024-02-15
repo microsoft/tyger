@@ -10,15 +10,15 @@ namespace Tyger.Server.Json;
 
 public static class Json
 {
-    public static void AddJsonFormatting(this IServiceCollection services)
+    public static void AddJsonFormatting(this IHostApplicationBuilder builder)
     {
-        services.Configure<JsonOptions>(options =>
+        builder.Services.Configure<JsonOptions>(options =>
         {
             options.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault;
             options.SerializerOptions.AllowTrailingCommas = true;
             options.SerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
         });
 
-        services.AddSingleton(sp => sp.GetRequiredService<IOptions<JsonOptions>>().Value.SerializerOptions);
+        builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<JsonOptions>>().Value.SerializerOptions);
     }
 }

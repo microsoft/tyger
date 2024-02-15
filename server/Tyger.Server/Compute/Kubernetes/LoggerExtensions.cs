@@ -3,7 +3,7 @@
 
 using Tyger.Server.Model;
 
-namespace Tyger.Server.Kubernetes;
+namespace Tyger.Server.Compute.Kubernetes;
 
 public static partial class LoggerExtensions
 {

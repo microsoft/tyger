@@ -77,13 +77,16 @@
     "source=/tmp,target=/host-tmp,type=bind"
   ],
 
+  "runArgs": ["--network=host"],
+
   "remoteUser": "vscode",
   "overrideCommand": false,
   "onCreateCommand": ".devcontainer/devcontainer-on-create.sh",
 
   "containerEnv": {
     "DOCKER_BUIKDKIT": "1",
-    "DEVCONTAINER_HOST_HOME": "${localEnv:HOME}"
+    "DEVCONTAINER_HOST_HOME": "${localEnv:HOME}",
+    "HOST_WORKSPACE_PATH": "${localWorkspaceFolder}"
   },
 
   "forwardPorts": [

@@ -8,9 +8,9 @@ namespace Tyger.Server.Identity;
 
 public static class Identity
 {
-    public static void AddManagedIdentity(this IServiceCollection services)
+    public static void AddManagedIdentity(this IHostApplicationBuilder builder)
     {
         // AzureCliCredential is for when we are running on a local dev machine
-        services.AddSingleton<TokenCredential>(new ChainedTokenCredential(new WorkloadIdentityCredential(), new AzureCliCredential()));
+        builder.Services.AddSingleton<TokenCredential>(new ChainedTokenCredential(new WorkloadIdentityCredential(), new AzureCliCredential()));
     }
 }

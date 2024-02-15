@@ -2,7 +2,6 @@
 // Licensed under the MIT License.
 
 using System.Buffers;
-using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 using System.IO.Pipelines;
 using Azure.Core;
@@ -14,19 +13,25 @@ namespace Tyger.Server.Logging;
 
 public static class LogArchiveRegistration
 {
-    public static void AddLogArchive(this IServiceCollection services)
+    public static void AddLogArchive(this IHostApplicationBuilder builder)
     {
-        services.AddOptions<LogArchiveOptions>().BindConfiguration("logArchive").ValidateDataAnnotations().ValidateOnStart();
-        services.AddSingleton<LogArchive>();
-        services.AddSingleton<ILogArchive>(sp => sp.GetRequiredService<LogArchive>());
-        services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<LogArchive>());
-        services.AddHealthChecks().AddCheck<LogArchive>("logArchive");
+        if (builder.Configuration.GetSection("logArchive").Exists())
+        {
+            builder.Services.AddOptions<LogArchiveOptions>().BindConfiguration("logArchive").ValidateDataAnnotations().ValidateOnStart();
+            builder.Services.AddSingleton<LogArchive>();
+            builder.Services.AddSingleton<ILogArchive>(sp => sp.GetRequiredService<LogArchive>());
+            builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<LogArchive>());
+            builder.Services.AddHealthChecks().AddCheck<LogArchive>("logArchive");
+        }
+        else
+        {
+            builder.Services.AddSingleton<ILogArchive, NullLogArchive>();
+        }
     }
 }
 
 public class LogArchiveOptions
 {
-    [Required]
     public string StorageAccountEndpoint { get; set; } = null!;
 }
 
@@ -224,5 +229,18 @@ public class LogArchive : ILogArchive, IHostedService, IHealthCheck
 
             return reader.Position;
         }
+    }
+}
+
+public class NullLogArchive : ILogArchive
+{
+    public Task ArchiveLogs(long runId, Pipeline pipeline, CancellationToken cancellationToken)
+    {
+        return Task.CompletedTask;
+    }
+
+    public Task<Pipeline?> GetLogs(long runId, GetLogsOptions options, CancellationToken cancellationToken)
+    {
+        return Task.FromResult<Pipeline?>(null);
     }
 }

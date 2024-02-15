@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Primitives;
 using Tyger.Server.Json;
-using Tyger.Server.Kubernetes;
+using Tyger.Server.Compute.Kubernetes;
 using Tyger.Server.Logging;
 using Tyger.Server.Model;
 
@@ -18,7 +18,7 @@ public static class Runs
 
     public static void MapRuns(this WebApplication app)
     {
-        app.MapPost("/v1/runs", async (RunCreator runCreator, HttpContext context) =>
+        app.MapPost("/v1/runs", async (IRunCreator runCreator, HttpContext context) =>
         {
             var run = await context.Request.ReadAndValidateJson<Run>(context.RequestAborted);
             Run createdRun = await runCreator.CreateRun(run, context.RequestAborted);
@@ -28,7 +28,7 @@ public static class Runs
         .Produces<Run>(StatusCodes.Status201Created)
         .Produces<ErrorBody>(StatusCodes.Status400BadRequest);
 
-        app.MapGet("/v1/runs", async (RunReader runReader, int? limit, DateTimeOffset? since, [FromQuery(Name = "_ct")] string? continuationToken, HttpContext context) =>
+        app.MapGet("/v1/runs", async (IRunReader runReader, int? limit, DateTimeOffset? since, [FromQuery(Name = "_ct")] string? continuationToken, HttpContext context) =>
         {
             limit = limit is null ? 20 : Math.Min(limit.Value, 200);
             (var items, var nextContinuationToken) = await runReader.ListRuns(limit.Value, since, continuationToken, context.RequestAborted);
@@ -55,7 +55,7 @@ public static class Runs
         app.MapGet("/v1/runs/{runId}", async (
             string runId,
             bool? watch,
-            RunReader runReader,
+            IRunReader runReader,
             HttpContext context,
             JsonSerializerOptions serializerOptions) =>
         {
@@ -137,7 +137,7 @@ public static class Runs
 
         app.MapPost("/v1/runs/{runId}/cancel", async (
             string runId,
-            RunUpdater runUpdater,
+            IRunUpdater runUpdater,
             HttpContext context,
             JsonSerializerOptions serializerOptions) =>
         {
@@ -162,4 +162,21 @@ public static class Runs
             await runSweeper.SweepRuns(cancellationToken);
         }).ExcludeFromDescription();
     }
+}
+
+public interface IRunCreator
+{
+    Task<Run> CreateRun(Run newRun, CancellationToken cancellationToken);
+}
+
+public interface IRunReader
+{
+    Task<(IReadOnlyList<Run>, string? nextContinuationToken)> ListRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken);
+    Task<Run?> GetRun(long id, CancellationToken cancellationToken);
+    IAsyncEnumerable<Run> WatchRun(long id, CancellationToken cancellationToken);
+}
+
+public interface IRunUpdater
+{
+    Task<Run?> CancelRun(long id, CancellationToken cancellationToken);
 }

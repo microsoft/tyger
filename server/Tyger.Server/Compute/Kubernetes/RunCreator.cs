@@ -12,11 +12,12 @@ using Microsoft.Extensions.Options;
 using Tyger.Server.Buffers;
 using Tyger.Server.Database;
 using Tyger.Server.Model;
-using static Tyger.Server.Kubernetes.KubernetesMetadata;
+using Tyger.Server.Runs;
+using static Tyger.Server.Compute.Kubernetes.KubernetesMetadata;
 
-namespace Tyger.Server.Kubernetes;
+namespace Tyger.Server.Compute.Kubernetes;
 
-public class RunCreator
+public class RunCreator : IRunCreator
 {
     private readonly IKubernetes _client;
     private readonly IRepository _repository;

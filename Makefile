@@ -72,24 +72,24 @@ set-localsettings:
 				"audience": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.auth.apiAppUri')",
 				"cliAppUri": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.auth.cliAppUri')"
 			},
-			"kubernetes": {
-				"kubeconfigPath": "$${HOME}/.kube/config",
-				"namespace": "${HELM_NAMESPACE}",
-				"jobServiceAccount": "${HELM_RELEASE}-job",
-				"noOpConfigMap": "${HELM_RELEASE}-no-op",
-				"workerWaiterImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.workerWaiterImage')",
-				"clusters": $$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -c '.cloud.compute.clusters'),
-				"currentPodUid": "00000000-0000-0000-0000-000000000000"
+			"compute": {
+				"kubernetes": {
+					"kubeconfigPath": "$${HOME}/.kube/config",
+					"namespace": "${HELM_NAMESPACE}",
+					"jobServiceAccount": "${HELM_RELEASE}-job",
+					"noOpConfigMap": "${HELM_RELEASE}-no-op",
+					"workerWaiterImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.workerWaiterImage')",
+					"clusters": $$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -c '.cloud.compute.clusters'),
+					"currentPodUid": "00000000-0000-0000-0000-000000000000"
+				}
 			},
 			"logArchive": {
 				"storageAccountEndpoint": $$(echo $${helm_values} | jq -c '.logArchive.storageAccountEndpoint')
 			},
 			"buffers": {
-				"storageAccounts": $$(echo $${helm_values} | jq -c '.buffers.storageAccounts'),
-				"localStorage": {
+				"cloudStorage": {
 					"enabled": true,
-					"dataDirectory": "/tmp/bufferdata",
-					"primarySigningCertificatePath": "$${HOME}/tyger_local_buffer_service_cert$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version').pem"
+					"storageAccounts": $$(echo $${helm_values} | jq -c '.buffers.storageAccounts')
 				},
 				"bufferSidecarImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.bufferSidecarImage')"
 			},
@@ -97,6 +97,38 @@ set-localsettings:
 				"connectionString": "Host=$$(echo $${helm_values} | jq -r '.database.host'); Database=$$(echo $${helm_values} | jq -r '.database.databaseName'); Port=$$(echo $${helm_values} | jq -r '.database.port'); Username=$$(az account show | jq -r '.user.name'); SslMode=VerifyFull",
 				"autoMigrate": ${AUTO_MIGRATE},
 				"tygerServerRoleName": "$$(echo $${helm_values} | jq -r '.identity.tygerServer.name')"
+			}
+		}
+	EOF
+
+local-docker-set-localsettings:
+		jq <<- EOF > ${SERVER_PATH}/appsettings.local.json
+		{
+			"logging": { "Console": {"FormatterName": "simple" } },
+			"serviceMetadata": {
+				"externalBaseUrl": "http://localhost:5000"
+			},
+			"auth": {
+				"enabled": "false"
+			},
+			"compute": {
+				"docker": {
+					"enabled": "true"
+				}
+			},
+			"buffers": {
+				"localStorage": {
+					"enabled": true,
+					"dataDirectory": "/tmp/bufferdata",
+					"primarySigningCertificatePath": "$$(readlink -f "local-docker/secrets/tyger_local_buffer_service_cert$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version').pem")"
+				},
+				"bufferSidecarImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.bufferSidecarImage')"
+			},
+			"database": {
+				"connectionString": "Host=localhost; Port=5432; Username=tyger-server",
+				"passwordFile": "$$(readlink -f "local-docker/secrets/db_password.txt")",
+				"autoMigrate": "true",
+				"tygerServerRoleName": "tyger-server"
 			}
 		}
 	EOF
@@ -118,9 +150,9 @@ run: set-localsettings
 	cd ${SERVER_PATH}
 	dotnet run -v m --no-restore
 
-watch: set-localsettings
+local-docker-run: local-docker-set-localsettings
 	cd ${SERVER_PATH}
-	dotnet watch
+	dotnet run -v m --no-restore
 
 unit-test:
 	find . -name *csproj | xargs -L 1 dotnet test --no-restore -v q
@@ -168,6 +200,23 @@ up: ensure-environment-conditionally docker-build-tyger-server docker-build-buff
 	tyger api install -f <(scripts/get-config.sh)
 	$(MAKE) cli-ready
 
+
+local-docker-up:
+	cd local-docker
+
+	# if secrets/db_password.txt is not present or empty, generate a new password
+	if [[ ! -s secrets/db_password.txt ]]; then
+		openssl rand -base64 36 > secrets/db_password.txt
+	fi
+
+	if [[ -n "$$HOST_WORKSPACE_PATH" ]]; then
+		export SECRETS_PATH=$$HOST_WORKSPACE_PATH/local-docker/secrets
+	fi
+
+	echo "Using secrets from $$SECRETS_PATH"
+
+	docker compose up -d --wait
+
 migrate: ensure-environment-conditionally docker-build-tyger-server
 	tyger api migrations apply --latest --wait -f <(scripts/get-config.sh)
 
@@ -210,7 +259,7 @@ download-test-client-cert:
 
 download-local-buffer-service-cert:
 	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version')
-	cert_path=$${HOME}/tyger_local_buffer_service_cert$${cert_version}.pem
+	cert_path=local-docker/secrets/tyger_local_buffer_service_cert$${cert_version}.pem
 	if [[ ! -f "$${cert_path}" ]]; then
 		rm -f "$${cert_path}"
 		subscription=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | yq '.cloud.subscriptionId')

@@ -10,12 +10,12 @@ namespace Tyger.Server.Auth;
 
 public static class Auth
 {
-    public static void AddAuth(this IServiceCollection services)
+    public static void AddAuth(this IHostApplicationBuilder builder)
     {
-        services.AddOptions<AuthOptions>().BindConfiguration("auth", o => o.ErrorOnUnknownConfiguration = true).ValidateDataAnnotations().ValidateOnStart();
+        builder.Services.AddOptions<AuthOptions>().BindConfiguration("auth", o => o.ErrorOnUnknownConfiguration = true).ValidateDataAnnotations().ValidateOnStart();
 
-        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
-        services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme).Configure<IOptions<AuthOptions>>((jwtOptions, securityConfiguration) =>
+        builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
+        builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme).Configure<IOptions<AuthOptions>>((jwtOptions, securityConfiguration) =>
         {
             if (securityConfiguration.Value.Enabled)
             {
@@ -25,8 +25,8 @@ public static class Auth
             }
         });
 
-        services.AddAuthorization();
-        services.AddOptions<AuthorizationOptions>().Configure<IOptions<AuthOptions>>((authOptions, securityConfigurations) =>
+        builder.Services.AddAuthorization();
+        builder.Services.AddOptions<AuthorizationOptions>().Configure<IOptions<AuthOptions>>((authOptions, securityConfigurations) =>
         {
             if (securityConfigurations.Value.Enabled)
             {

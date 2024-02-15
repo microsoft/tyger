@@ -1,0 +1,37 @@
+# Use postgres/example user/password credentials
+version: "3.1"
+
+services:
+  db:
+    image: postgres
+    restart: always
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    secrets:
+      - db_password
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+      POSTGRES_USER: tyger-server
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready", "-d", "db_prod"]
+      interval: 2s
+      timeout: 60s
+      retries: 5
+      start_period: 80s
+
+  # tyger:
+  #   depends_on:
+  #     - db
+
+  #   build:
+  #     context: ..
+  #     dockerfile: server/Dockerfile
+
+volumes:
+  db_data:
+
+secrets:
+  db_password:
+    file: ${SECRETS_PATH}/db_password.txt

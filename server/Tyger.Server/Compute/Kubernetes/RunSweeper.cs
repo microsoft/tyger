@@ -8,9 +8,9 @@ using Microsoft.Extensions.Options;
 using Tyger.Server.Database;
 using Tyger.Server.Logging;
 using Tyger.Server.Model;
-using static Tyger.Server.Kubernetes.KubernetesMetadata;
+using static Tyger.Server.Compute.Kubernetes.KubernetesMetadata;
 
-namespace Tyger.Server.Kubernetes;
+namespace Tyger.Server.Compute.Kubernetes;
 
 public sealed class RunSweeper : IHostedService, IDisposable
 {

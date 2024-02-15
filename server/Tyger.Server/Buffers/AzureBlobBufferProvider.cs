@@ -20,7 +20,7 @@ public sealed class AzureBlobBufferProvider : IBufferProvider, IHealthCheck, IHo
     public AzureBlobBufferProvider(TokenCredential credential, IOptions<BufferOptions> config, ILogger<BufferManager> logger)
     {
         _logger = logger;
-        var bufferStorageAccountOptions = config.Value.StorageAccounts[0];
+        var bufferStorageAccountOptions = config.Value.CloudStorage.StorageAccounts[0];
         _serviceClient = new BlobServiceClient(new Uri(bufferStorageAccountOptions.Endpoint), credential);
     }
 
