@@ -17,11 +17,9 @@ using static Tyger.Server.Compute.Kubernetes.KubernetesMetadata;
 
 namespace Tyger.Server.Compute.Kubernetes;
 
-public class RunCreator : IRunCreator
+public class RunCreator : RunCreatorBase, IRunCreator
 {
     private readonly IKubernetes _client;
-    private readonly IRepository _repository;
-    private readonly BufferManager _bufferManager;
     private readonly BufferOptions _bufferOptions;
     private readonly KubernetesApiOptions _k8sOptions;
     private readonly ILogger<RunCreator> _logger;
@@ -34,10 +32,9 @@ public class RunCreator : IRunCreator
         IOptions<KubernetesApiOptions> k8sOptions,
         IOptions<BufferOptions> bufferOptions,
         ILogger<RunCreator> logger)
+        : base(repository, bufferManager)
     {
         _client = client;
-        _repository = repository;
-        _bufferManager = bufferManager;
         _bufferOptions = bufferOptions.Value;
         _k8sOptions = k8sOptions.Value;
         _logger = logger;
@@ -99,7 +96,7 @@ public class RunCreator : IRunCreator
 
         // Phase 2: now that we have performed validation, create a record for this run in the database
 
-        var run = await _repository.CreateRun(newRun, cancellationToken);
+        var run = await Repository.CreateRun(newRun, cancellationToken);
 
         // Phase 3: assemble and create Kubernetes objects
 
@@ -181,7 +178,7 @@ public class RunCreator : IRunCreator
 
         // Phase 4: Inform the database that the Kubernetes objects have been created in the cluster.
 
-        await _repository.UpdateRun(run, resourcesCreated: true, cancellationToken: cancellationToken);
+        await Repository.UpdateRun(run, resourcesCreated: true, cancellationToken: cancellationToken);
         _logger.CreatedRun(run.Id.Value);
         return run;
     }
@@ -467,74 +464,5 @@ public class RunCreator : IRunCreator
     {
         return vmSize.StartsWith("Standard_N", StringComparison.OrdinalIgnoreCase) &&
             !vmSize.EndsWith("_v4", StringComparison.OrdinalIgnoreCase); // unsupported AMD GPU
-    }
-
-    private async Task<Codespec> GetCodespec(ICodespecRef codespecRef, CancellationToken cancellationToken)
-    {
-        if (codespecRef is Codespec inlineCodespec)
-        {
-            return inlineCodespec;
-        }
-
-        if (codespecRef is not CommittedCodespecRef committedCodespecRef)
-        {
-            throw new InvalidOperationException("Invalid codespec reference");
-        }
-
-        if (committedCodespecRef.Version == null)
-        {
-            return await _repository.GetLatestCodespec(committedCodespecRef.Name, cancellationToken)
-                ?? throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The codespec '{0}' was not found", committedCodespecRef.Name));
-        }
-
-        var codespec = await _repository.GetCodespecAtVersion(committedCodespecRef.Name, committedCodespecRef.Version.Value, cancellationToken);
-        if (codespec == null)
-        {
-            // See if it's just the version number that was not found
-            var latestCodespec = await _repository.GetLatestCodespec(committedCodespecRef.Name, cancellationToken)
-                ?? throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The codespec '{0}' was not found", committedCodespecRef.Name));
-
-            throw new ValidationException(
-                string.Format(
-                    CultureInfo.InvariantCulture,
-                    "The version '{0}' of codespec '{1}' was not found. The latest version is '{2}'.",
-                    committedCodespecRef.Version, committedCodespecRef.Name, latestCodespec.Version));
-        }
-
-        return codespec;
-    }
-
-    private async Task<Dictionary<string, (bool write, Uri sasUri)>> GetBufferMap(BufferParameters? parameters, Dictionary<string, string> arguments, Dictionary<string, string> tags, CancellationToken cancellationToken)
-    {
-        Dictionary<string, string> argumentsClone = arguments == null ? new(StringComparer.OrdinalIgnoreCase) : new(arguments, StringComparer.OrdinalIgnoreCase);
-        IEnumerable<(string param, bool writeable)> combinedParameters = (parameters?.Inputs?.Select(param => (param, false)) ?? Enumerable.Empty<(string, bool)>())
-            .Concat(parameters?.Outputs?.Select(param => (param, true)) ?? Enumerable.Empty<(string, bool)>());
-
-        var outputMap = new Dictionary<string, (bool write, Uri sasUri)>();
-
-        foreach (var param in combinedParameters)
-        {
-            if (!argumentsClone.TryGetValue(param.param, out var bufferId))
-            {
-                var newTags = new Dictionary<string, string>(tags) { ["bufferName"] = param.param };
-                var newBuffer = new Model.Buffer() { Tags = newTags };
-
-                var buffer = await _bufferManager.CreateBuffer(newBuffer, cancellationToken);
-                bufferId = buffer.Id!;
-                arguments![param.param] = bufferId;
-            }
-
-            var bufferAccess = await _bufferManager.CreateBufferAccessUrl(bufferId, param.writeable, cancellationToken)
-                ?? throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The buffer '{0}' was not found", bufferId));
-            outputMap[param.param] = (param.writeable, bufferAccess.Uri);
-            argumentsClone.Remove(param.param);
-        }
-
-        foreach (var arg in argumentsClone)
-        {
-            throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "Buffer argument '{0}' does not correspond to a buffer parameter on the codespec", arg));
-        }
-
-        return outputMap;
     }
 }

@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/microsoft/tyger/cli/internal/cmd"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -33,26 +35,30 @@ func newRootCommand() *cobra.Command {
 	namespace := ""
 	podName := ""
 	containerName := ""
+	tombstoneFile := ""
 
 	readCommand := cmd.NewBufferReadCommand(func(filePath string, flag int, perm fs.FileMode) (*os.File, error) {
-		return tryOpenFileUntilContainerExits(&namespace, &podName, &containerName, filePath, flag, perm)
+		return tryOpenFileUntilContainerExits(namespace, podName, containerName, tombstoneFile, filePath, flag, perm)
 	})
 
 	writeCommand := cmd.NewBufferWriteCommand(func(filePath string, flag int, perm fs.FileMode) (*os.File, error) {
-		return tryOpenFileUntilContainerExits(&namespace, &podName, &containerName, filePath, flag, perm)
+		return tryOpenFileUntilContainerExits(namespace, podName, containerName, tombstoneFile, filePath, flag, perm)
 	})
 
 	commands := []*cobra.Command{readCommand, writeCommand}
 	for _, command := range commands {
 		command.Flags().StringVar(&namespace, "namespace", "", "The namespace of the pod to watch")
-		command.MarkFlagRequired("namespace")
 		command.Flags().StringVar(&podName, "pod", "", "The name of the pod to watch")
-		command.MarkFlagRequired("pod")
 		command.Flags().StringVar(&containerName, "container", "", "The name of the container to watch")
-		command.MarkFlagRequired("container")
+		command.Flags().StringVar(&tombstoneFile, "tombstone", "", "The file that signals when the main container has exited")
+
+		command.MarkFlagsRequiredTogether("namespace", "pod", "container")
+		command.MarkFlagsMutuallyExclusive("tombstone", "namespace")
+		command.MarkFlagsMutuallyExclusive("tombstone", "pod")
+		command.MarkFlagsMutuallyExclusive("tombstone", "container")
 
 		command.Long += `
-While waiting to open the named pipe, this command will watch the specified container for completion.
+While waiting to open the named pipe, this command will either watch the specified Kubernetes container for completion or will wait for the tombstone file to be created.
 If it completes before the pipe is opened, the command will abandon opening the pipe and will treat the contents as empty.
 The reason for this is to avoid hanging indefinitely if the container completes without touching the pipe.`
 
@@ -62,37 +68,54 @@ The reason for this is to avoid hanging indefinitely if the container completes 
 	return rootCommand
 }
 
-func tryOpenFileUntilContainerExits(namespace, podName, containerName *string, filePath string, flag int, perm fs.FileMode) (*os.File, error) {
-	// Create Kubernetes client
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to load in-cluster Kubernetes config")
-	}
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to create Kubernetes clientset")
-	}
-
+func tryOpenFileUntilContainerExits(namespace, podName, containerName, tombstoneFilePath string, filePath string, flag int, perm fs.FileMode) (*os.File, error) {
 	// Create cancellable contexts
 	openFileCtx, openFileCancel := context.WithCancel(context.Background())
 	watchCtx, watchCancel := context.WithCancel(context.Background())
 	defer watchCancel()
 
-	// begin watching for container completion
-	go func() {
-		err := watchUntilContainerCompletion(watchCtx, clientset, *namespace, *podName, *containerName)
-		if err != nil {
-			if err == context.Canceled {
-				log.Debug().Msg("Container completion watcher canceled.")
+	if tombstoneFilePath != "" {
+		// begin watching for tombstone file
+		go func() {
+			err := watchUntilTombstoneFileCreated(watchCtx, tombstoneFilePath)
+			if err != nil {
+				if err == context.Canceled {
+					return
+				}
+				log.Warn().Err(err).Msg("Tombstone file watcher failed with unexpected error.")
 				return
 			}
-			log.Warn().Err(err).Msg("Container completion watcher failed with unexpected error.")
-			return
+
+			log.Info().Msg("Tombstone file created.")
+			openFileCancel()
+		}()
+	} else {
+		// Create Kubernetes client
+		config, err := rest.InClusterConfig()
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to load in-cluster Kubernetes config")
+		}
+		clientset, err := kubernetes.NewForConfig(config)
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to create Kubernetes clientset")
 		}
 
-		log.Info().Msg("Target container completed.")
-		openFileCancel()
-	}()
+		// begin watching for container completion
+		go func() {
+			err := watchUntilContainerCompletion(watchCtx, clientset, namespace, podName, containerName)
+			if err != nil {
+				if err == context.Canceled {
+					log.Debug().Msg("Container completion watcher canceled.")
+					return
+				}
+				log.Warn().Err(err).Msg("Container completion watcher failed with unexpected error.")
+				return
+			}
+
+			log.Info().Msg("Target container completed.")
+			openFileCancel()
+		}()
+	}
 
 	// try to open the file with the cancellable context
 	inputFile, err := openFileWithCtx(openFileCtx, filePath, flag, perm)
@@ -101,6 +124,45 @@ func tryOpenFileUntilContainerExits(namespace, podName, containerName *string, f
 	}
 
 	return inputFile, nil
+}
+
+func watchUntilTombstoneFileCreated(watchCtx context.Context, tombstoneFilePath string) error {
+	// creates a new file watcher
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return fmt.Errorf("failed to create file watcher: %w", err)
+	}
+	defer watcher.Close()
+
+	// watch the directory containing the tombstone file
+	err = watcher.Add(path.Dir(tombstoneFilePath))
+	if err != nil {
+		return fmt.Errorf("failed to watch directory: %w", err)
+	}
+
+	if _, err := os.Stat(tombstoneFilePath); err == nil {
+		return nil
+	}
+
+	for {
+		select {
+		case <-watchCtx.Done():
+			return watchCtx.Err()
+		case event, ok := <-watcher.Events:
+			if !ok {
+				return errors.New("file watcher closed")
+			}
+			if event.Op&fsnotify.Create == fsnotify.Create && event.Name == tombstoneFilePath {
+				return nil
+			}
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return errors.New("file watcher closed")
+			}
+			return fmt.Errorf("file watcher error: %w", err)
+		}
+	}
+
 }
 
 func main() {

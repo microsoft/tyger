@@ -86,7 +86,9 @@
   "containerEnv": {
     "DOCKER_BUIKDKIT": "1",
     "DEVCONTAINER_HOST_HOME": "${localEnv:HOME}",
-    "HOST_WORKSPACE_PATH": "${localWorkspaceFolder}"
+    "HOST_WORKSPACE_PATH": "${localWorkspaceFolder}",
+    "RUN_SECRETS_BASE_PATH": "/host-tmp",
+    "RUN_SECRETS_HOST_BASE_PATH": "/tmp"
   },
 
   "forwardPorts": [
