@@ -9,6 +9,10 @@ using Tyger.Server.Json;
 using Tyger.Server.Compute.Kubernetes;
 using Tyger.Server.Logging;
 using Tyger.Server.Model;
+using Tyger.Server.Database;
+using Tyger.Server.Buffers;
+using System.ComponentModel.DataAnnotations;
+using System.Globalization;
 
 namespace Tyger.Server.Runs;
 
@@ -161,6 +165,88 @@ public static class Runs
         {
             await runSweeper.SweepRuns(cancellationToken);
         }).ExcludeFromDescription();
+    }
+}
+
+public abstract class RunCreatorBase
+{
+    protected RunCreatorBase(IRepository repository, BufferManager bufferManager)
+    {
+        Repository = repository;
+        BufferManager = bufferManager;
+    }
+
+    protected IRepository Repository { get; init; }
+
+    protected BufferManager BufferManager { get; init; }
+
+    protected async Task<Codespec> GetCodespec(ICodespecRef codespecRef, CancellationToken cancellationToken)
+    {
+        if (codespecRef is Codespec inlineCodespec)
+        {
+            return inlineCodespec;
+        }
+
+        if (codespecRef is not CommittedCodespecRef committedCodespecRef)
+        {
+            throw new InvalidOperationException("Invalid codespec reference");
+        }
+
+        if (committedCodespecRef.Version == null)
+        {
+            return await Repository.GetLatestCodespec(committedCodespecRef.Name, cancellationToken)
+                ?? throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The codespec '{0}' was not found", committedCodespecRef.Name));
+        }
+
+        var codespec = await Repository.GetCodespecAtVersion(committedCodespecRef.Name, committedCodespecRef.Version.Value, cancellationToken);
+        if (codespec == null)
+        {
+            // See if it's just the version number that was not found
+            var latestCodespec = await Repository.GetLatestCodespec(committedCodespecRef.Name, cancellationToken)
+                ?? throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The codespec '{0}' was not found", committedCodespecRef.Name));
+
+            throw new ValidationException(
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "The version '{0}' of codespec '{1}' was not found. The latest version is '{2}'.",
+                    committedCodespecRef.Version, committedCodespecRef.Name, latestCodespec.Version));
+        }
+
+        return codespec;
+    }
+
+    protected async Task<Dictionary<string, (bool write, Uri sasUri)>> GetBufferMap(BufferParameters? parameters, Dictionary<string, string> arguments, Dictionary<string, string> tags, CancellationToken cancellationToken)
+    {
+        Dictionary<string, string> argumentsClone = arguments == null ? new(StringComparer.OrdinalIgnoreCase) : new(arguments, StringComparer.OrdinalIgnoreCase);
+        IEnumerable<(string param, bool writeable)> combinedParameters = (parameters?.Inputs?.Select(param => (param, false)) ?? Enumerable.Empty<(string, bool)>())
+            .Concat(parameters?.Outputs?.Select(param => (param, true)) ?? Enumerable.Empty<(string, bool)>());
+
+        var outputMap = new Dictionary<string, (bool write, Uri sasUri)>();
+
+        foreach (var param in combinedParameters)
+        {
+            if (!argumentsClone.TryGetValue(param.param, out var bufferId))
+            {
+                var newTags = new Dictionary<string, string>(tags) { ["bufferName"] = param.param };
+                var newBuffer = new Model.Buffer() { Tags = newTags };
+
+                var buffer = await BufferManager.CreateBuffer(newBuffer, cancellationToken);
+                bufferId = buffer.Id!;
+                arguments![param.param] = bufferId;
+            }
+
+            var bufferAccess = await BufferManager.CreateBufferAccessUrl(bufferId, param.writeable, cancellationToken)
+                ?? throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The buffer '{0}' was not found", bufferId));
+            outputMap[param.param] = (param.writeable, bufferAccess.Uri);
+            argumentsClone.Remove(param.param);
+        }
+
+        foreach (var arg in argumentsClone)
+        {
+            throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "Buffer argument '{0}' does not correspond to a buffer parameter on the codespec", arg));
+        }
+
+        return outputMap;
     }
 }
 

@@ -102,7 +102,11 @@ set-localsettings:
 	EOF
 
 local-docker-set-localsettings:
-		jq <<- EOF > ${SERVER_PATH}/appsettings.local.json
+	run_secrets_path="$${RUN_SECRETS_BASE_PATH:-/tmp}/tyger-run-secrets"
+	mkdir -p "$${run_secrets_path}"
+	run_secrets_host_path="$${RUN_SECRETS_HOST_BASE_PATH:-/tmp}/tyger-run-secrets"
+
+	jq <<- EOF > ${SERVER_PATH}/appsettings.local.json
 		{
 			"logging": { "Console": {"FormatterName": "simple" } },
 			"serviceMetadata": {
@@ -113,7 +117,8 @@ local-docker-set-localsettings:
 			},
 			"compute": {
 				"docker": {
-					"enabled": "true"
+					"runSecretsPath": "$${run_secrets_path}",
+					"runSecretsHostPath": "$${run_secrets_host_path}"
 				}
 			},
 			"buffers": {
