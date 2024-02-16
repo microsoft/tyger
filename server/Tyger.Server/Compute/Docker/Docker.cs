@@ -40,6 +40,7 @@ public class DockerSecretOptions
 public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedService
 {
     private readonly DockerClient _client;
+    private readonly ILogger<DockerRunCreator> _logger;
     private readonly string _bufferSidecarImage;
     private readonly DockerSecretOptions _dockerSecretOptions;
 
@@ -48,10 +49,12 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         IRepository repository,
         BufferManager bufferManager,
         IOptions<BufferOptions> bufferOptions,
-        IOptions<DockerSecretOptions> dockerSecretOptions)
+        IOptions<DockerSecretOptions> dockerSecretOptions,
+        ILogger<DockerRunCreator> logger)
     : base(repository, bufferManager)
     {
         _client = client;
+        _logger = logger;
         _bufferSidecarImage = bufferOptions.Value.BufferSidecarImage;
         _dockerSecretOptions = dockerSecretOptions.Value;
     }
@@ -84,11 +87,21 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
         var bufferMap = await GetBufferMap(jobCodespec.Buffers, newRun.Job.Buffers, newRun.Job.Tags, cancellationToken);
 
+        try
+        {
+            await _client.Images.InspectImageAsync(jobCodespec.Image, cancellationToken: cancellationToken);
+        }
+        catch (DockerImageNotFoundException)
+        {
+            throw new ValidationException($"The image '{jobCodespec.Image}' was not found on the system. Run `docker pull {jobCodespec.Image}` and try again.");
+        }
+
         var run = await Repository.CreateRun(newRun, cancellationToken);
 
         var relativeSecretsPath = run.Id.ToString()!;
         var relativePipesPath = Path.Combine(relativeSecretsPath, "pipes");
         var relativeAccessFilesPath = Path.Combine(relativeSecretsPath, "access-files");
+        var relativeTombstonePath = Path.Combine(relativeSecretsPath, "tombstone");
 
         var absoluteSecretsBase = _dockerSecretOptions.RunSecretsPath;
         var absoluteHostSecretsBase = string.IsNullOrEmpty(_dockerSecretOptions.RunSecretsHostPath) ? absoluteSecretsBase : _dockerSecretOptions.RunSecretsHostPath;
@@ -98,6 +111,9 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
         Directory.CreateDirectory(Path.Combine(absoluteSecretsBase, relativePipesPath));
         Directory.CreateDirectory(Path.Combine(absoluteSecretsBase, relativeAccessFilesPath));
+        Directory.CreateDirectory(Path.Combine(absoluteSecretsBase, relativeTombstonePath));
+
+        var labels = new Dictionary<string, string>() { { "tyger-run", run.Id?.ToString()! } };
 
         foreach ((var bufferName, (bool write, Uri accessUri)) in bufferMap)
         {
@@ -118,6 +134,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             {
                 Image = _bufferSidecarImage,
                 Name = $"tyger-run-{run.Id}-sidecar-{bufferName}",
+                Labels = labels,
                 Cmd =
                 [
                     write ? "write" : "read",
@@ -125,7 +142,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                     write ? "-i" : "-o",
                     containerPipePath,
                     "--tombstone",
-                    "/tmp/tombstone.txt"
+                    Path.Combine(absoluteContainerSecretsBase, relativeTombstonePath, "tombstone.txt")
                 ],
                 HostConfig = new()
                 {
@@ -142,6 +159,13 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                         {
                             Source = Path.Combine(absoluteHostSecretsBase, relativeAccessFilesPath, accessFileName),
                             Target = Path.Combine(absoluteContainerSecretsBase, relativeAccessFilesPath, accessFileName),
+                            Type = "bind",
+                            ReadOnly = true,
+                        },
+                        new()
+                        {
+                            Source = Path.Combine(absoluteHostSecretsBase, relativeTombstonePath),
+                            Target = Path.Combine(absoluteContainerSecretsBase, relativeTombstonePath),
                             Type = "bind",
                             ReadOnly = true,
                         }
@@ -162,9 +186,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             Env = env.Select(e => $"{e.Key}={e.Value}").ToList(),
             Cmd = jobCodespec.Args?.Select(a => ExpandVariables(a, env))?.ToList(),
             Entrypoint = jobCodespec.Command is { Length: > 0 } ? jobCodespec.Command.Select(a => ExpandVariables(a, env)).ToList() : null,
-            Labels = new Dictionary<string, string>(){
-                { "tyger-run", run.Id?.ToString()! },
-            },
+            Labels = labels,
             HostConfig = new()
             {
                 Mounts =
@@ -181,23 +203,51 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         };
 
         var createResponse = await _client.Containers.CreateContainerAsync(mainContainerParameters, cancellationToken);
+        var containerId = createResponse.ID;
 
-        var container = await _client.Containers.InspectContainerAsync(createResponse.ID, cancellationToken);
+        var monitorCancellation = new CancellationTokenSource();
 
-        // var cancellation = new CancellationTokenSource();
-        // var linkedCancellationToken = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, cancellation.Token).Token;
+        void WriteTombstone()
+        {
+            try
+            {
+                monitorCancellation.Cancel();
+            }
+            catch
+            {
+            }
 
-        // var monitorTask = _client.System.MonitorEventsAsync(new ContainerEventsParameters()
-        // {
-        //     Filters = new Dictionary<string, IDictionary<string, bool>>
-        //     {
-        //         {"container", new Dictionary<string, bool>{{ container.ID, true } } }
-        //     }
-        // }, new Progress<Message>(m => Console.WriteLine($"Status = {m.Status}, {m.Action} {m.Actor} {m.ID} ")), linkedCancellationToken);
+            File.WriteAllText(Path.Combine(absoluteSecretsBase, relativeTombstonePath, "tombstone.txt"), "tombstone");
+        }
 
-        await _client.Containers.StartContainerAsync(createResponse.ID, null, cancellationToken);
+        _ = _client.System.MonitorEventsAsync(new ContainerEventsParameters()
+        {
+            Filters = new Dictionary<string, IDictionary<string, bool>>
+            {
+                {"container", new Dictionary<string, bool>{{ containerId, true } } }
+            }
+        }, new Progress<Message>(m =>
+        {
+            if (m.Action is "die" or "destroy" or "stop" or "kill")
+            {
+                WriteTombstone();
+            }
+        }), monitorCancellation.Token);
 
-        // await monitorTask;
+        try
+        {
+            await _client.Containers.StartContainerAsync(containerId, null, cancellationToken);
+        }
+        catch (DockerApiException e)
+        {
+            WriteTombstone();
+
+            throw new ValidationException($"Failed to start the run: {e.Message}");
+            throw;
+        }
+
+        await Repository.UpdateRun(run, resourcesCreated: true, cancellationToken: cancellationToken);
+        _logger.CreatedRun(run.Id!.Value);
         return run;
     }
 
@@ -245,19 +295,91 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
 public class DockerRunReader : IRunReader
 {
-    public Task<Run?> GetRun(long id, CancellationToken cancellationToken)
+    private readonly DockerClient _client;
+    private readonly IRepository _repository;
+    private readonly ILogger<DockerRunReader> _logger;
+
+    public DockerRunReader(DockerClient client, IRepository repository, ILogger<DockerRunReader> logger)
     {
-        throw new NotImplementedException();
+        _client = client;
+        _repository = repository;
+        _logger = logger;
     }
 
-    public Task<(IReadOnlyList<Run>, string? nextContinuationToken)> ListRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken)
+    public async Task<Run?> GetRun(long id, CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        if (await _repository.GetRun(id, cancellationToken) is not (Run run, var final, _))
+        {
+            return null;
+        }
+
+        if (final)
+        {
+            return run;
+        }
+
+        var containers = await (await _client.Containers
+            .ListContainersAsync(
+                new ContainersListParameters()
+                {
+                    All = true,
+                    Filters = new Dictionary<string, IDictionary<string, bool>>
+                    {
+                        {"label", new Dictionary<string, bool>{{ $"tyger-run={id}", true } } }
+                    }
+                }, cancellationToken))
+            .ToAsyncEnumerable()
+            .SelectAwait(async c => await _client.Containers.InspectContainerAsync(c.ID, cancellationToken))
+            .ToListAsync(cancellationToken);
+
+        return UpdateRunFromContainers(run, containers);
+    }
+
+    public async Task<(IReadOnlyList<Run>, string? nextContinuationToken)> ListRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken)
+    {
+        (var partialRuns, var nextContinuationToken) = await _repository.GetRuns(limit, since, continuationToken, cancellationToken);
+        if (partialRuns.All(r => r.final))
+        {
+            return (partialRuns.Select(r => r.run).ToList(), nextContinuationToken);
+        }
+
+        for (int i = 0; i < partialRuns.Count; i++)
+        {
+            (var run, var final) = partialRuns[i];
+            if (!final)
+            {
+                partialRuns[i] = (await GetRun(run.Id!.Value, cancellationToken) ?? run, false);
+            }
+        }
+
+        return (partialRuns.Select(r => r.run).ToList(), nextContinuationToken);
     }
 
     public IAsyncEnumerable<Run> WatchRun(long id, CancellationToken cancellationToken)
     {
         throw new NotImplementedException();
+    }
+
+    private static Run UpdateRunFromContainers(Run run, IReadOnlyList<ContainerInspectResponse> containers)
+    {
+        var expectedCountainerCount = (run.Job.Buffers?.Count ?? 0) + 1;
+
+        if (containers.Count != expectedCountainerCount)
+        {
+            return run with { Status = RunStatus.Failed };
+        }
+
+        if (containers.Any(c => c.State.Running))
+        {
+            return run with { Status = RunStatus.Running };
+        }
+
+        if (containers.All(c => c.State.Status == "exited" && c.State.ExitCode == 0))
+        {
+            return run with { Status = RunStatus.Succeeded };
+        }
+
+        return run with { Status = RunStatus.Failed };
     }
 }
 
