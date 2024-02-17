@@ -1,6 +1,8 @@
 using System.ComponentModel.DataAnnotations;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
+using System.Threading.Channels;
 using Docker.DotNet;
 using Docker.DotNet.Models;
 using Microsoft.Extensions.Options;
@@ -61,6 +63,11 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
     public async Task<Run> CreateRun(Run newRun, CancellationToken cancellationToken)
     {
+        if (newRun.Worker != null)
+        {
+            throw new ValidationException("Runs with workers are only supported on Kubernetes");
+        }
+
         if (await GetCodespec(newRun.Job.Codespec, cancellationToken) is not JobCodespec jobCodespec)
         {
             throw new ArgumentException($"The codespec for the job is required to be a job codespec");
@@ -248,7 +255,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
         await Repository.UpdateRun(run, resourcesCreated: true, cancellationToken: cancellationToken);
         _logger.CreatedRun(run.Id!.Value);
-        return run;
+        return run with { Status = RunStatus.Running };
     }
 
     [LibraryImport("libSystem.Native", EntryPoint = "SystemNative_MkFifo", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
@@ -355,9 +362,74 @@ public class DockerRunReader : IRunReader
         return (partialRuns.Select(r => r.run).ToList(), nextContinuationToken);
     }
 
-    public IAsyncEnumerable<Run> WatchRun(long id, CancellationToken cancellationToken)
+    public async IAsyncEnumerable<Run> WatchRun(long id, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        var run = await GetRun(id, cancellationToken);
+        if (run is null)
+        {
+            yield break;
+        }
+
+        yield return run;
+
+        if (run.Status is RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceled)
+        {
+            yield break;
+        }
+
+        var channel = Channel.CreateUnbounded<object?>();
+        var cancellation = new CancellationTokenSource();
+        try
+        {
+
+            _ = _client.System.MonitorEventsAsync(new ContainerEventsParameters()
+            {
+                Filters = new Dictionary<string, IDictionary<string, bool>>
+                {
+                    {
+                        "label", new Dictionary<string, bool> { { $"tyger-run={run.Id}", true } }
+                    }
+                }
+            }, new Progress<Message>(m =>
+            {
+                if (!channel.Writer.TryWrite(null))
+                {
+                    channel.Writer.WriteAsync(m).AsTask().Wait(cancellationToken);
+                }
+            }), cancellation.Token);
+
+            async Task ScheduleFirstUpdate()
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
+                await channel.Writer.WriteAsync(null, cancellationToken);
+            }
+
+            _ = ScheduleFirstUpdate();
+
+            await foreach (var _ in channel.Reader.ReadAllAsync(cancellationToken))
+            {
+                var updatedRun = await GetRun(id, cancellationToken);
+                if (updatedRun is null)
+                {
+                    yield break;
+                }
+
+                if (updatedRun.Status != run.Status)
+                {
+                    run = updatedRun;
+                    yield return updatedRun;
+                }
+
+                if (run.Status is RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceled)
+                {
+                    yield break;
+                }
+            }
+        }
+        finally
+        {
+            cancellation.Cancel();
+        }
     }
 
     private static Run UpdateRunFromContainers(Run run, IReadOnlyList<ContainerInspectResponse> containers)
