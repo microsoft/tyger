@@ -501,7 +501,19 @@ public class DockerLogSource : ILogSource
             .ToEnumerable()
             .ToArray();
 
-        var pipeline = new Pipeline(new FixedLogMerger(cancellationToken, pipelineSources));
+        LogMerger logMerger;
+        if (options.Follow)
+        {
+            var liveLogMerger = new LiveLogMerger();
+            liveLogMerger.Activate(cancellationToken, pipelineSources);
+            logMerger = liveLogMerger;
+        }
+        else
+        {
+            logMerger = new FixedLogMerger(cancellationToken, pipelineSources);
+        }
+
+        var pipeline = new Pipeline(logMerger);
         if (!options.IncludeTimestamps)
         {
             pipeline.AddElement(new LogLineFormatter(false, null));
@@ -549,7 +561,19 @@ public class DockerLogSource : ILogSource
 
         var stdout = await GetSingleStreamLogs(true);
         var stderr = await GetSingleStreamLogs(false);
-        var pipeline = new Pipeline(new FixedLogMerger(cancellationToken, stdout, stderr));
+        LogMerger logMerger;
+        if (options.Follow)
+        {
+            var liveLogMerger = new LiveLogMerger();
+            liveLogMerger.Activate(cancellationToken, stdout, stderr);
+            logMerger = liveLogMerger;
+        }
+        else
+        {
+            logMerger = new FixedLogMerger(cancellationToken, stdout, stderr);
+        }
+
+        var pipeline = new Pipeline(logMerger);
         if (!string.IsNullOrEmpty(prefix))
         {
             pipeline.AddElement(new LogLineFormatter(options.IncludeTimestamps, prefix));
@@ -558,7 +582,6 @@ public class DockerLogSource : ILogSource
         return pipeline;
     }
 }
-
 
 public class DockerReplicaDatabaseVersionProvider : IReplicaDatabaseVersionProvider
 {
