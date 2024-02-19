@@ -1,11 +1,15 @@
+using System.Collections.Immutable;
 using System.ComponentModel.DataAnnotations;
+using System.IO.Pipelines;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using System.Threading.Channels;
+using Azure.Storage.Blobs.Models;
 using Docker.DotNet;
 using Docker.DotNet.Models;
 using Microsoft.Extensions.Options;
+using Npgsql.Replication.PgOutput.Messages;
 using Tyger.Server.Buffers;
 using Tyger.Server.Database;
 using Tyger.Server.Database.Migrations;
@@ -120,7 +124,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         Directory.CreateDirectory(Path.Combine(absoluteSecretsBase, relativeAccessFilesPath));
         Directory.CreateDirectory(Path.Combine(absoluteSecretsBase, relativeTombstonePath));
 
-        var labels = new Dictionary<string, string>() { { "tyger-run", run.Id?.ToString()! } };
+        var labels = ImmutableDictionary<string, string>.Empty.Add("tyger-run", run.Id?.ToString()!);
 
         foreach ((var bufferName, (bool write, Uri accessUri)) in bufferMap)
         {
@@ -141,7 +145,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             {
                 Image = _bufferSidecarImage,
                 Name = $"tyger-run-{run.Id}-sidecar-{bufferName}",
-                Labels = labels,
+                Labels = labels.Add("tyger-run-container-name", $"{bufferName}-buffer-sidecar"),
                 Cmd =
                 [
                     write ? "write" : "read",
@@ -193,7 +197,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             Env = env.Select(e => $"{e.Key}={e.Value}").ToList(),
             Cmd = jobCodespec.Args?.Select(a => ExpandVariables(a, env))?.ToList(),
             Entrypoint = jobCodespec.Command is { Length: > 0 } ? jobCodespec.Command.Select(a => ExpandVariables(a, env)).ToList() : null,
-            Labels = labels,
+            Labels = labels.Add("tyger-run-container-name", $"main"),
             HostConfig = new()
             {
                 Mounts =
@@ -465,11 +469,96 @@ public class DockerRunUpdater : IRunUpdater
 
 public class DockerLogSource : ILogSource
 {
-    public Task<Pipeline?> GetLogs(long runId, GetLogsOptions options, CancellationToken cancellationToken)
+    private readonly DockerClient _client;
+
+    public DockerLogSource(DockerClient client)
     {
-        throw new NotImplementedException();
+        _client = client;
+    }
+
+    public async Task<Pipeline?> GetLogs(long runId, GetLogsOptions options, CancellationToken cancellationToken)
+    {
+        var containers = await _client.Containers.ListContainersAsync(new ContainersListParameters()
+        {
+            All = true,
+            Filters = new Dictionary<string, IDictionary<string, bool>>
+            {
+                {"label", new Dictionary<string, bool>{{ $"tyger-run={runId}", true } } }
+            }
+        }, cancellationToken);
+
+        if (containers.Count == 0)
+        {
+            return null;
+        }
+
+        var pipelineSources = containers.ToAsyncEnumerable()
+            .SelectAwait(async c => await GetContainerLogs(
+                c.ID,
+                c.Labels.TryGetValue("tyger-run-container-name", out var prefix) ? $"[{prefix}]" : null,
+                options with { IncludeTimestamps = true },
+                cancellationToken))
+            .ToEnumerable()
+            .ToArray();
+
+        var pipeline = new Pipeline(new FixedLogMerger(cancellationToken, pipelineSources));
+        if (!options.IncludeTimestamps)
+        {
+            pipeline.AddElement(new LogLineFormatter(false, null));
+        }
+
+        return pipeline;
+    }
+
+    private async Task<IPipelineSource> GetContainerLogs(string containerId, string? prefix, GetLogsOptions options, CancellationToken cancellationToken)
+    {
+        async Task<IPipelineSource> GetSingleStreamLogs(bool stdout)
+        {
+            var muliplexedStream = await _client.Containers.GetContainerLogsAsync(containerId, tty: false, new()
+            {
+                ShowStdout = stdout,
+                ShowStderr = !stdout,
+                Follow = options.Follow,
+                Tail = options.TailLines?.ToString() ?? "all",
+                Timestamps = options.IncludeTimestamps,
+                Since = options.Since?.ToUnixTimeSeconds().ToString(),
+            }, cancellationToken);
+
+            var pipe = new Pipe();
+
+            async Task Copy()
+            {
+                try
+                {
+                    await muliplexedStream.CopyOutputToAsync(
+                        stdin: Stream.Null,
+                        stdout: stdout ? pipe.Writer.AsStream() : Stream.Null,
+                        stderr: stdout ? Stream.Null : pipe.Writer.AsStream(),
+                        cancellationToken);
+                }
+                finally
+                {
+                    pipe.Writer.Complete();
+                }
+            }
+
+            _ = Copy();
+
+            return new SimplePipelineSource(pipe.Reader);
+        }
+
+        var stdout = await GetSingleStreamLogs(true);
+        var stderr = await GetSingleStreamLogs(false);
+        var pipeline = new Pipeline(new FixedLogMerger(cancellationToken, stdout, stderr));
+        if (!string.IsNullOrEmpty(prefix))
+        {
+            pipeline.AddElement(new LogLineFormatter(options.IncludeTimestamps, prefix));
+        }
+
+        return pipeline;
     }
 }
+
 
 public class DockerReplicaDatabaseVersionProvider : IReplicaDatabaseVersionProvider
 {

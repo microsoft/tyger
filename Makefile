@@ -155,7 +155,7 @@ run: set-localsettings
 	cd ${SERVER_PATH}
 	dotnet run -v m --no-restore
 
-local-docker-run: local-docker-set-localsettings
+local-docker-run: local-docker-set-localsettings download-local-buffer-service-cert
 	cd ${SERVER_PATH}
 	dotnet run -v m --no-restore
 
@@ -204,7 +204,6 @@ publish-official-images:
 up: ensure-environment-conditionally docker-build-tyger-server docker-build-buffer-sidecar docker-build-worker-waiter
 	tyger api install -f <(scripts/get-config.sh)
 	$(MAKE) cli-ready
-
 
 local-docker-up:
 	cd local-docker
