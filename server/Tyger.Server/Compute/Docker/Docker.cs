@@ -7,6 +7,7 @@ using System.Text.RegularExpressions;
 using System.Threading.Channels;
 using Docker.DotNet;
 using Docker.DotNet.Models;
+using k8s.Models;
 using Microsoft.Extensions.Options;
 using Tyger.Server.Buffers;
 using Tyger.Server.Database;
@@ -78,6 +79,26 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             throw new ArgumentException($"The codespec for the job is required to be a job codespec");
         }
 
+        try
+        {
+            await _client.Images.InspectImageAsync(jobCodespec.Image, cancellationToken: cancellationToken);
+        }
+        catch (DockerImageNotFoundException)
+        {
+            throw new ValidationException($"The image '{jobCodespec.Image}' was not found on the system. Run `docker pull {jobCodespec.Image}` and try again.");
+        }
+
+        bool needsGpu = false;
+        if (jobCodespec.Resources?.Gpu is ResourceQuantity q && q.ToDecimal() != 0)
+        {
+            needsGpu = true;
+            var systemInfo = await _client.System.GetSystemInfoAsync(cancellationToken);
+            if (systemInfo.Runtimes?.ContainsKey("nvidia") != true)
+            {
+                throw new ValidationException("The Docker engine does not have the NVIDIA runtime installed, which is required for GPU support.");
+            }
+        }
+
         newRun = newRun with
         {
             Cluster = null,
@@ -98,15 +119,6 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         }
 
         var bufferMap = await GetBufferMap(jobCodespec.Buffers, newRun.Job.Buffers, newRun.Job.Tags, cancellationToken);
-
-        try
-        {
-            await _client.Images.InspectImageAsync(jobCodespec.Image, cancellationToken: cancellationToken);
-        }
-        catch (DockerImageNotFoundException)
-        {
-            throw new ValidationException($"The image '{jobCodespec.Image}' was not found on the system. Run `docker pull {jobCodespec.Image}` and try again.");
-        }
 
         var run = await Repository.CreateRun(newRun, cancellationToken);
 
@@ -201,6 +213,13 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             Labels = labels.Add("tyger-run-container-name", $"main"),
             HostConfig = new()
             {
+                DeviceRequests = needsGpu ? [
+                    new()
+                    {
+                        Count = -1,
+                        Capabilities = [["gpu"]]
+                    }
+                ] : [],
                 Mounts =
                 [
                     new()
