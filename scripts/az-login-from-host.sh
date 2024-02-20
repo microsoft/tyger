@@ -8,8 +8,7 @@
 
 set -euo pipefail
 
-devcontainer_id=$(head -1 /proc/self/cgroup|cut -d/ -f3)
-devcontainer_image=$(docker inspect "$devcontainer_id" | jq -r '.[0].Image')
+devcontainer_image=$(docker ps --filter label=devcontainer.metadata --format json | jq -r '.Image' | head -n 1)
 container_id=$(docker run -d -u "$USER" --mount "source=${DEVCONTAINER_HOST_HOME}/.azure/,target=/home/${USER}/.azure,type=bind,readonly" "$devcontainer_image" 2>/dev/null || true)
 if [[ -n "$container_id" ]]; then
     trap 'docker rm -f "$container_id" 2&> /dev/null' EXIT
