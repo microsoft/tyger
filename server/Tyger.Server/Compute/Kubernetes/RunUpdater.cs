@@ -42,12 +42,12 @@ public class RunUpdater : IRunUpdater
             return run;
         }
 
-        Run newRun = run with
+        Run updatedRun = run with
         {
             Status = RunStatus.Canceling
         };
 
-        await _repository.UpdateRun(newRun, cancellationToken: cancellationToken);
+        await _repository.UpdateRun(updatedRun, cancellationToken: cancellationToken);
         _logger.CancelingRun(id);
 
         var annotation = new Dictionary<string, string>
@@ -59,6 +59,6 @@ public class RunUpdater : IRunUpdater
                     JobNameFromRunId(id),
                     _k8sOptions.Namespace, cancellationToken: cancellationToken);
 
-        return newRun;
+        return updatedRun;
     }
 }
