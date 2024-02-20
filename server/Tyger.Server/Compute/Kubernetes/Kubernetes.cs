@@ -41,6 +41,8 @@ public static class Kubernetes
             builder.Services.AddSingleton<ILogSource, RunLogReader>();
             builder.Services.AddSingleton<RunSweeper>();
             builder.Services.AddSingleton<IHostedService, RunSweeper>(sp => sp.GetRequiredService<RunSweeper>());
+            builder.Services.AddSingleton<RunSweeper>();
+            builder.Services.AddSingleton<IRunSweeper>(sp => sp.GetRequiredService<RunSweeper>());
         }
     }
 }

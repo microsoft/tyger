@@ -6,7 +6,6 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Primitives;
 using Tyger.Server.Json;
-using Tyger.Server.Compute.Kubernetes;
 using Tyger.Server.Logging;
 using Tyger.Server.Model;
 using Tyger.Server.Database;
@@ -18,7 +17,7 @@ namespace Tyger.Server.Runs;
 
 public static class Runs
 {
-    private static readonly ReadOnlyMemory<byte> s_newline = new(new[] { (byte)'\n' });
+    private static readonly ReadOnlyMemory<byte> s_newline = new("\n"u8.ToArray());
 
     public static void MapRuns(this WebApplication app)
     {
@@ -161,7 +160,7 @@ public static class Runs
         .Produces<ErrorBody>(StatusCodes.Status404NotFound);
 
         // this endpoint is for testing purposes only, to force the background pod sweep
-        app.MapPost("/v1/runs/_sweep", async (RunSweeper runSweeper, CancellationToken cancellationToken) =>
+        app.MapPost("/v1/runs/_sweep", async (IRunSweeper runSweeper, CancellationToken cancellationToken) =>
         {
             await runSweeper.SweepRuns(cancellationToken);
         }).ExcludeFromDescription();
@@ -265,4 +264,9 @@ public interface IRunReader
 public interface IRunUpdater
 {
     Task<Run?> CancelRun(long id, CancellationToken cancellationToken);
+}
+
+public interface IRunSweeper
+{
+    Task SweepRuns(CancellationToken cancellationToken);
 }
