@@ -437,6 +437,11 @@ public class DockerRunReader : IRunReader
 
     public static Run UpdateRunFromContainers(Run run, IReadOnlyList<ContainerInspectResponse> containers)
     {
+        if (run.Status is RunStatus.Canceled)
+        {
+            return run;
+        }
+
         var expectedCountainerCount = (run.Job.Buffers?.Count ?? 0) + 1;
 
         if (containers.Count != expectedCountainerCount)
@@ -465,9 +470,64 @@ public class DockerRunReader : IRunReader
 
 public class DockerRunUpdater : IRunUpdater
 {
-    public Task<Run?> CancelRun(long id, CancellationToken cancellationToken)
+    private readonly IRepository _repository;
+    private readonly DockerClient _client;
+    private readonly ILogger<DockerRunUpdater> _logger;
+
+    public DockerRunUpdater(
+    IRepository repository,
+    DockerClient client,
+    ILogger<DockerRunUpdater> logger)
     {
-        throw new NotImplementedException();
+        _repository = repository;
+        _logger = logger;
+        _client = client;
+    }
+    public async Task<Run?> CancelRun(long id, CancellationToken cancellationToken)
+    {
+        if (await _repository.GetRun(id, cancellationToken) is not (Run run, var final, _))
+        {
+            return null;
+        }
+
+        if (final || run.Status is RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceling or RunStatus.Canceled)
+        {
+            return run;
+        }
+
+        Run updatedRun = run with
+        {
+            Status = RunStatus.Canceled
+        };
+
+        await _repository.UpdateRun(updatedRun, cancellationToken: cancellationToken);
+        _logger.CancelingRun(id);
+
+        var containers = await _client.Containers.ListContainersAsync(new ContainersListParameters()
+        {
+            All = true,
+            Filters = new Dictionary<string, IDictionary<string, bool>>
+            {
+                {"label", new Dictionary<string, bool>{{ $"tyger-run={id}", true } } }
+            }
+        }, cancellationToken);
+
+        foreach (var container in containers)
+        {
+            if (container.State is not "exited" or "dead")
+            {
+                try
+                {
+                    await _client.Containers.KillContainerAsync(container.ID, new ContainerKillParameters(), cancellationToken);
+                }
+                catch (DockerApiException e)
+                {
+                    _logger.FailedToKillContainer(container.ID, e);
+                }
+            }
+        }
+
+        return updatedRun;
     }
 }
 
