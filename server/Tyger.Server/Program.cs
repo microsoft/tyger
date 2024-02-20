@@ -37,7 +37,6 @@ void AddCommonServices(IHostApplicationBuilder builder)
     builder.ConfigureLogging();
     builder.AddManagedIdentity();
     builder.AddDatabase();
-    builder.AddCompute();
     builder.AddJsonFormatting();
 }
 

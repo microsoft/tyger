@@ -3,7 +3,9 @@
 
 using System.Buffers;
 using System.Globalization;
+using System.IO.Compression;
 using System.IO.Pipelines;
+using System.Text.RegularExpressions;
 using Azure.Core;
 using Azure.Storage.Blobs;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -11,95 +13,92 @@ using Microsoft.Extensions.Options;
 
 namespace Tyger.Server.Logging;
 
-public static class LogArchiveRegistration
+public static class Logs
 {
     public static void AddLogArchive(this IHostApplicationBuilder builder)
     {
         if (builder.Configuration.GetSection("logArchive").Exists())
         {
-            builder.Services.AddOptions<LogArchiveOptions>().BindConfiguration("logArchive").ValidateDataAnnotations().ValidateOnStart();
             builder.Services.AddSingleton<LogArchive>();
             builder.Services.AddSingleton<ILogArchive>(sp => sp.GetRequiredService<LogArchive>());
-            builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<LogArchive>());
-            builder.Services.AddHealthChecks().AddCheck<LogArchive>("logArchive");
+
+            switch (cloud: builder.Configuration.GetSection("logArchive:cloudStorage").Exists(), local: builder.Configuration.GetSection("logArchive:localStorage").Exists())
+            {
+                case (cloud: true, local: false):
+                    builder.Services.AddOptions<CloudLogArchiveOptions>().BindConfiguration("logArchive:cloudStorage").ValidateDataAnnotations().ValidateOnStart();
+                    builder.Services.AddSingleton<AzureStorageLogArchiveProvider>();
+                    builder.Services.AddSingleton<ILogArchiveProvider>(sp => sp.GetRequiredService<AzureStorageLogArchiveProvider>());
+                    builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<AzureStorageLogArchiveProvider>());
+                    builder.Services.AddHealthChecks().AddCheck<AzureStorageLogArchiveProvider>("logArchive");
+                    return;
+                case (cloud: false, local: true):
+                    builder.Services.AddOptions<LocalLogArchiveOptions>().BindConfiguration("logArchive:localStorage").ValidateDataAnnotations().ValidateOnStart();
+                    builder.Services.AddSingleton<LocalLogArchiveProvider>();
+                    builder.Services.AddSingleton<ILogArchiveProvider>(sp => sp.GetRequiredService<LocalLogArchiveProvider>());
+                    return;
+                case (cloud: true, local: true):
+                    throw new InvalidOperationException("Only one of 'logArchive:cloudStorage' and 'logArchive:fileStorage' can be specified");
+                case (cloud: false, local: false):
+                    break;
+            }
         }
-        else
-        {
-            builder.Services.AddSingleton<ILogArchive, NullLogArchive>();
-        }
+
+        builder.Services.AddSingleton<ILogArchive, NullLogArchive>();
     }
 }
 
-public class LogArchiveOptions
+public class CloudLogArchiveOptions
 {
     public string StorageAccountEndpoint { get; set; } = null!;
 }
 
-public class LogArchive : ILogArchive, IHostedService, IHealthCheck
+public class LocalLogArchiveOptions
+{
+    public string LogsDirectory { get; set; } = null!;
+}
+
+public interface ILogArchiveProvider
+{
+    Task StoreLogs(long runId, Stream stream, CancellationToken cancellationToken);
+    Task<(Stream stream, long lineCount)?> GetLogs(long runId, CancellationToken cancellationToken);
+}
+
+public class AzureStorageLogArchiveProvider : ILogArchiveProvider, IHostedService, IHealthCheck
 {
     private const string LineCountMetadataKey = "lineCount";
     private readonly BlobContainerClient _containerClient;
-    private readonly ILogger<LogArchive> _logger;
 
-    public LogArchive(IOptions<LogArchiveOptions> options, TokenCredential tokenCredential, ILogger<LogArchive> logger)
+    public AzureStorageLogArchiveProvider(IOptions<CloudLogArchiveOptions> options, TokenCredential tokenCredential)
     {
         _containerClient = new BlobServiceClient(new Uri(options.Value.StorageAccountEndpoint), tokenCredential).GetBlobContainerClient("runs");
-        _logger = logger;
     }
 
-    public async Task ArchiveLogs(long runId, Pipeline pipeline, CancellationToken cancellationToken)
+    public async Task StoreLogs(long runId, Stream stream, CancellationToken cancellationToken)
     {
         var blobClient = GetLogsBlobClient(runId);
 
-        var pipe = new Pipe();
-        _ = pipeline.Process(pipe.Writer, cancellationToken);
-
-        using var lineCountingStream = new LineCountingReadStream(pipe.Reader.AsStream());
+        using var lineCountingStream = new LineCountingReadStream(stream);
         await blobClient.UploadAsync(lineCountingStream, overwrite: true, cancellationToken: cancellationToken);
-        await blobClient.SetMetadataAsync(new Dictionary<string, string> { { LineCountMetadataKey, lineCountingStream.LineCount.ToString(CultureInfo.InvariantCulture) } }, cancellationToken: cancellationToken);
-
-        _logger.ArchivedLogsForRun(runId);
+        await blobClient.SetMetadataAsync(
+            new Dictionary<string, string> { { LineCountMetadataKey, lineCountingStream.LineCount.ToString(CultureInfo.InvariantCulture) } },
+            cancellationToken: cancellationToken);
     }
 
-    public async Task<Pipeline?> GetLogs(long runId, GetLogsOptions options, CancellationToken cancellationToken)
+    public async Task<(Stream stream, long lineCount)?> GetLogs(long runId, CancellationToken cancellationToken)
     {
-        _logger.RetrievingArchivedLogsForRun(runId);
+        var blobClient = _containerClient.GetBlobClient(runId.ToString(CultureInfo.InvariantCulture));
         try
         {
-            var response = await GetLogsBlobClient(runId).DownloadStreamingAsync(cancellationToken: cancellationToken);
-            var pipeline = new Pipeline(new SimplePipelineSource(response.Value.Content));
-
-            if (options.IncludeTimestamps && options.TailLines == null && options.Since == null)
-            {
-                // fast path: the logs can be returned without modification
-                return pipeline;
-            }
-
-            // Turn the TailLines parameter into a number of lines to skip by using the line count
-            // that we stored as metadata on the blob.
-            // This allows us to avoid buffering potentially large amounts of the log.
-            int skipLines = 0;
-            if (options.TailLines.HasValue &&
-                response.Value.Details.Metadata.TryGetValue(LineCountMetadataKey, out var lineCountString) &&
-                int.TryParse(lineCountString, out var lineCount))
-            {
-                skipLines = lineCount - options.TailLines.Value;
-            }
-
-            return pipeline.AddElement(GetLogFilterPipelineElement(options.IncludeTimestamps, skipLines, options.Since));
+            var response = await blobClient.DownloadStreamingAsync(cancellationToken: cancellationToken);
+            return (
+                response.Value.Content,
+                long.Parse(response.Value.Details.Metadata[LineCountMetadataKey])
+            );
         }
         catch (Azure.RequestFailedException e) when (e.ErrorCode == "BlobNotFound")
         {
             return null;
         }
-    }
-
-    public static IPipelineElement GetLogFilterPipelineElement(bool includeTimestamps, int skipLines, DateTimeOffset? since) =>
-        new LogFilter(includeTimestamps, skipLines, since);
-
-    private BlobClient GetLogsBlobClient(long runId)
-    {
-        return _containerClient.GetBlobClient(runId.ToString(CultureInfo.InvariantCulture));
     }
 
     public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
@@ -115,14 +114,141 @@ public class LogArchive : ILogArchive, IHostedService, IHealthCheck
 
     Task IHostedService.StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
+    private BlobClient GetLogsBlobClient(long runId)
+    {
+        return _containerClient.GetBlobClient(runId.ToString(CultureInfo.InvariantCulture));
+    }
+}
+
+public partial class LocalLogArchiveProvider : ILogArchiveProvider
+{
+    private readonly string _logsDirectory;
+    private readonly ILogger<LocalLogArchiveProvider> _logger;
+
+    public LocalLogArchiveProvider(IOptions<LocalLogArchiveOptions> options, ILogger<LocalLogArchiveProvider> logger)
+    {
+        _logsDirectory = options.Value.LogsDirectory;
+        _logger = logger;
+
+        Directory.CreateDirectory(_logsDirectory);
+    }
+
+    public async Task StoreLogs(long runId, Stream stream, CancellationToken cancellationToken)
+    {
+        var tempFilePath = Path.Combine(_logsDirectory, $"tmp-{Guid.NewGuid()}.gz");
+
+        try
+        {
+            int lineCount = 0;
+            using (var fileStream = File.OpenWrite(tempFilePath))
+            using (var gzipStream = new GZipStream(fileStream, CompressionLevel.Optimal))
+            using (var lineCountingStream = new LineCountingReadStream(stream))
+            {
+                await lineCountingStream.CopyToAsync(gzipStream, cancellationToken);
+                lineCount = lineCountingStream.LineCount;
+            }
+
+            var finalFilePath = Path.Combine(_logsDirectory, $"{runId.ToString(CultureInfo.InvariantCulture)}-{lineCount}.gz");
+            File.Move(tempFilePath, finalFilePath, overwrite: true);
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(tempFilePath))
+                {
+                    File.Delete(tempFilePath);
+                }
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    public Task<(Stream stream, long lineCount)?> GetLogs(long runId, CancellationToken cancellationToken)
+    {
+        foreach (var path in Directory.GetFiles(_logsDirectory, $"{runId.ToString(CultureInfo.InvariantCulture)}-*.gz", SearchOption.TopDirectoryOnly))
+        {
+            if (FileNameRegex().Match(Path.GetFileName(path)) is { Success: true } match)
+            {
+                var lineCount = long.Parse(match.Groups[2].Value);
+                var fileStream = File.OpenRead(path);
+                var decompressStream = new GZipStream(fileStream, CompressionMode.Decompress);
+                return Task.FromResult<(Stream stream, long lineCount)?>((decompressStream, lineCount));
+            }
+            else
+            {
+                _logger.LocalLogFileDoesNotHaveExpectedName(path);
+            }
+        }
+
+        return Task.FromResult<(Stream stream, long lineCount)?>(null);
+    }
+
+    [GeneratedRegex(@"^(\d+)-(\d+)\.gz$")]
+    private static partial Regex FileNameRegex();
+}
+
+public class LogArchive : ILogArchive
+{
+    private readonly ILogArchiveProvider _provider;
+    private readonly ILogger<LogArchive> _logger;
+
+    public LogArchive(ILogArchiveProvider provider, ILogger<LogArchive> logger)
+    {
+        _provider = provider;
+        _logger = logger;
+    }
+
+    public async Task ArchiveLogs(long runId, Pipeline pipeline, CancellationToken cancellationToken)
+    {
+        var pipe = new Pipe();
+        _ = pipeline.Process(pipe.Writer, cancellationToken);
+        await _provider.StoreLogs(runId, pipe.Reader.AsStream(), cancellationToken);
+        _logger.ArchivedLogsForRun(runId);
+    }
+
+    public async Task<Pipeline?> GetLogs(long runId, GetLogsOptions options, CancellationToken cancellationToken)
+    {
+        _logger.RetrievingArchivedLogsForRun(runId);
+        var result = await _provider.GetLogs(runId, cancellationToken);
+        if (result == null)
+        {
+            return null;
+        }
+
+        var pipeline = new Pipeline(new SimplePipelineSource(result.Value.stream));
+
+        if (options.IncludeTimestamps && options.TailLines == null && options.Since == null)
+        {
+            // fast path: the logs can be returned without modification
+            return pipeline;
+        }
+
+        // Turn the TailLines parameter into a number of lines to skip by using the line count
+        // that we stored as metadata on the blob.
+        // This allows us to avoid buffering potentially large amounts of the log.
+        long skipLines = 0;
+        if (options.TailLines.HasValue)
+        {
+            skipLines = Math.Max(result.Value.lineCount - options.TailLines.Value, 0);
+        }
+
+        return pipeline.AddElement(GetLogFilterPipelineElement(options.IncludeTimestamps, skipLines, options.Since));
+    }
+
+    public static IPipelineElement GetLogFilterPipelineElement(bool includeTimestamps, long skipLines, DateTimeOffset? since) =>
+        new LogFilter(includeTimestamps, skipLines, since);
+
     private sealed class LogFilter : IPipelineElement
     {
         private readonly bool _includeTimestamps;
 
-        private int _skipLines;
+        private long _skipLines;
         private DateTimeOffset? _since;
 
-        public LogFilter(bool includeTimestamps, int skipLines, DateTimeOffset? since)
+        public LogFilter(bool includeTimestamps, long skipLines, DateTimeOffset? since)
         {
             _includeTimestamps = includeTimestamps;
             _skipLines = skipLines;

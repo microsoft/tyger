@@ -31,6 +31,8 @@ public class LineCountingReadStream : Stream
 
     public override void Flush() => _inner.Flush();
 
+    public override Task FlushAsync(CancellationToken cancellationToken) => base.FlushAsync(cancellationToken);
+
     public override int Read(byte[] buffer, int offset, int count)
     {
         int c = _inner.Read(buffer, offset, count);

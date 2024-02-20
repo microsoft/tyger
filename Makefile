@@ -84,7 +84,9 @@ set-localsettings:
 				}
 			},
 			"logArchive": {
-				"storageAccountEndpoint": $$(echo $${helm_values} | jq -c '.logArchive.storageAccountEndpoint')
+				"cloudStorage": {
+					"storageAccountEndpoint": $$(echo $${helm_values} | jq -c '.logArchive.storageAccountEndpoint')
+				}
 			},
 			"buffers": {
 				"cloudStorage": {
@@ -119,6 +121,11 @@ local-docker-set-localsettings:
 				"docker": {
 					"runSecretsPath": "$${run_secrets_path}",
 					"runSecretsHostPath": "$${run_secrets_host_path}"
+				}
+			},
+			"logArchive": {
+				"localStorage": {
+					"logsDirectory": "/tmp/tygerlogs"
 				}
 			},
 			"buffers": {

@@ -8,11 +8,12 @@ using Microsoft.Extensions.Options;
 using Tyger.Server.Database;
 using Tyger.Server.Logging;
 using Tyger.Server.Model;
+using Tyger.Server.Runs;
 using static Tyger.Server.Compute.Kubernetes.KubernetesMetadata;
 
 namespace Tyger.Server.Compute.Kubernetes;
 
-public sealed class RunSweeper : IHostedService, IDisposable
+public sealed class RunSweeper : IRunSweeper, IHostedService, IDisposable
 {
     private static readonly TimeSpan s_minDurationAfterArchivingBeforeDeletingPod = TimeSpan.FromSeconds(30);
 
