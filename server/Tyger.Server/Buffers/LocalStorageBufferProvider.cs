@@ -19,19 +19,19 @@ public class LocalStorageBufferProvider : IBufferProvider, IHostedService
     private const string ContentMd5Header = "Content-MD5";
     private const string CustomHeaderPrefix = "x-ms-meta-";
     private readonly LocalSasHandler _sasHandler;
-    private readonly BufferOptions _options;
+    private readonly LocalBufferStorageOptions _options;
     private readonly string _dataDir;
     private readonly string _metadataDir;
     private readonly string _stagingDir;
     private readonly Uri _baseUrl;
 
-    public LocalStorageBufferProvider(LocalSasHandler sasHandler, IOptions<BufferOptions> bufferOptions, IOptions<ServiceMetadataOptions> serviceMetadataOptions)
+    public LocalStorageBufferProvider(LocalSasHandler sasHandler, IOptions<LocalBufferStorageOptions> bufferOptions, IOptions<ServiceMetadataOptions> serviceMetadataOptions)
     {
         _sasHandler = sasHandler;
         _options = bufferOptions.Value;
-        _dataDir = Path.Combine(_options.LocalStorage.DataDirectory, "data");
-        _metadataDir = Path.Combine(_options.LocalStorage.DataDirectory, "metadata");
-        _stagingDir = Path.Combine(_options.LocalStorage.DataDirectory, "staging");
+        _dataDir = Path.Combine(_options.DataDirectory, "data");
+        _metadataDir = Path.Combine(_options.DataDirectory, "metadata");
+        _stagingDir = Path.Combine(_options.DataDirectory, "staging");
 
         var baseUrl = serviceMetadataOptions.Value.ExternalBaseUrl.ToString();
         if (!baseUrl.EndsWith('/'))
@@ -63,12 +63,9 @@ public class LocalStorageBufferProvider : IBufferProvider, IHostedService
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        if (_options.LocalStorage.Enabled)
-        {
-            Directory.CreateDirectory(_dataDir);
-            Directory.CreateDirectory(_metadataDir);
-            Directory.CreateDirectory(_stagingDir);
-        }
+        Directory.CreateDirectory(_dataDir);
+        Directory.CreateDirectory(_metadataDir);
+        Directory.CreateDirectory(_stagingDir);
 
         return Task.CompletedTask;
     }
@@ -250,7 +247,7 @@ public sealed class LocalSasHandler
     private readonly Func<byte[], byte[]> _signData;
     private readonly Func<byte[], byte[], bool> _validateSignature;
 
-    public LocalSasHandler(IOptions<BufferOptions> options)
+    public LocalSasHandler(IOptions<LocalBufferStorageOptions> options)
     {
         static (Func<byte[], byte[]> sign, Func<byte[], byte[], bool> validate) GetHandlers(string certificatePath)
         {
@@ -270,11 +267,11 @@ public sealed class LocalSasHandler
             }
         }
 
-        (_signData, _validateSignature) = GetHandlers(options.Value.LocalStorage.PrimarySigningCertificatePath);
+        (_signData, _validateSignature) = GetHandlers(options.Value.PrimarySigningCertificatePath);
 
-        if (!string.IsNullOrEmpty(options.Value.LocalStorage.SecondarySigningCertificatePath))
+        if (!string.IsNullOrEmpty(options.Value.SecondarySigningCertificatePath))
         {
-            var (_, secondaryValidateSignature) = GetHandlers(options.Value.LocalStorage.SecondarySigningCertificatePath);
+            var (_, secondaryValidateSignature) = GetHandlers(options.Value.SecondarySigningCertificatePath);
             var primaryValidateSignature = _validateSignature;
             _validateSignature = (data, signature) => primaryValidateSignature(data, signature) || secondaryValidateSignature(data, signature);
         }

@@ -30,10 +30,10 @@ func TestProxiedRequests(t *testing.T) {
 	require := require.New(t)
 
 	// create a run
-	runSpec := `
+	runSpec := fmt.Sprintf(`
 job:
   codespec:
-    image: curlimages/curl
+    image: %s
     buffers:
       inputs: ["input"]
       outputs: ["output"]
@@ -45,7 +45,7 @@ job:
         inp=$(cat "$INPUT_PIPE")
         echo "${inp}: Bonjour" > "$OUTPUT_PIPE"
         echo "this is a log message"
-timeoutSeconds: 600`
+timeoutSeconds: 600`, BasicImage)
 
 	tempDir := t.TempDir()
 	runSpecPath := filepath.Join(tempDir, "runspec.yaml")

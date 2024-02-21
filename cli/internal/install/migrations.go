@@ -147,7 +147,7 @@ func getDatabaseVersionsFromPod(ctx context.Context, podName string, allVersions
 	return versions, nil
 }
 
-func ApplyMigrations(ctx context.Context, targetVersion int, latest, waitForCompletion bool) error {
+func ApplyMigrations(ctx context.Context, targetVersion int, latest, offline, waitForCompletion bool) error {
 	versions, err := ListDatabaseVersions(ctx, true)
 	if err != nil {
 		return err
@@ -233,6 +233,9 @@ func ApplyMigrations(ctx context.Context, targetVersion int, latest, waitForComp
 	for i, v := range migrations {
 		container := job.Spec.Template.Spec.Containers[0]
 		container.Args = []string{"database", "migrate", "--target-version", strconv.Itoa(v)}
+		if offline {
+			container.Args = append(container.Args, "--offline")
+		}
 		container.Name = fmt.Sprintf("migration-%d", v)
 		containers[i] = container
 	}

@@ -140,7 +140,7 @@ public static class Runs
 
         app.MapPost("/v1/runs/{runId}/cancel", async (
             string runId,
-            IRunUpdater runUpdater,
+            [FromServices] IRunUpdater runUpdater,
             HttpContext context,
             JsonSerializerOptions serializerOptions) =>
         {

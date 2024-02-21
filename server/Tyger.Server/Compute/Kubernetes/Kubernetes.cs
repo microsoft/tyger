@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using Tyger.Server.Database;
 using Tyger.Server.Logging;
 using Tyger.Server.Runs;
+using Tyger.Server.ServiceMetadata;
 
 namespace Tyger.Server.Compute.Kubernetes;
 
@@ -35,9 +36,11 @@ public static class Kubernetes
             builder.Services.AddOptions<KubernetesApiOptions>().BindConfiguration("compute:kubernetes").ValidateDataAnnotations().ValidateOnStart();
             builder.Services.AddSingleton<RunCreator>();
             builder.Services.AddSingleton<IRunCreator>(sp => sp.GetRequiredService<RunCreator>());
+            builder.Services.AddSingleton<ICapabilitiesContributor>(sp => sp.GetRequiredService<RunCreator>());
             builder.Services.AddSingleton<RunReader>();
             builder.Services.AddSingleton<IRunReader>(sp => sp.GetRequiredService<RunReader>());
             builder.Services.AddSingleton<RunUpdater>();
+            builder.Services.AddSingleton<IRunUpdater>(sp => sp.GetRequiredService<RunUpdater>());
             builder.Services.AddSingleton<ILogSource, RunLogReader>();
             builder.Services.AddSingleton<RunSweeper>();
             builder.Services.AddSingleton<IHostedService, RunSweeper>(sp => sp.GetRequiredService<RunSweeper>());

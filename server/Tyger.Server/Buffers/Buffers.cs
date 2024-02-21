@@ -13,29 +13,36 @@ namespace Tyger.Server.Buffers;
 
 public static class Buffers
 {
-    private const string ConfigSectionPath = "buffers";
-
     public static void AddBuffers(this IHostApplicationBuilder builder)
     {
-        builder.Services.AddOptions<BufferOptions>().BindConfiguration(ConfigSectionPath).ValidateDataAnnotations().ValidateOnStart();
+        builder.Services.AddOptions<BufferOptions>().BindConfiguration("buffers").ValidateDataAnnotations().ValidateOnStart();
 
         builder.Services.AddSingleton<BufferManager>();
-        var bufferOptions = builder.Configuration.GetSection(ConfigSectionPath).Get<BufferOptions>();
 
-        if (bufferOptions?.LocalStorage.Enabled == true)
-        {
-            builder.Services.AddSingleton<LocalStorageBufferProvider>();
-            builder.Services.AddSingleton<IBufferProvider>(sp => sp.GetRequiredService<LocalStorageBufferProvider>());
-            builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<LocalStorageBufferProvider>());
+        bool cloudStorageEnabled = builder.Configuration.GetSection("buffers:cloudStorage").Exists();
+        bool localStorageEnabled = builder.Configuration.GetSection("buffers:localStorage").Exists();
 
-            builder.Services.AddSingleton<LocalSasHandler>();
-        }
-        else
+        switch (cloudStorageEnabled, localStorageEnabled)
         {
-            builder.Services.AddSingleton<AzureBlobBufferProvider>();
-            builder.Services.AddSingleton<IBufferProvider>(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
-            builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
-            builder.Services.AddHealthChecks().AddCheck<AzureBlobBufferProvider>("buffers");
+            case (true, false):
+                builder.Services.AddOptions<CloudBufferStorageOptions>().BindConfiguration("buffers:cloudStorage").ValidateDataAnnotations().ValidateOnStart();
+                builder.Services.AddSingleton<AzureBlobBufferProvider>();
+                builder.Services.AddSingleton<IBufferProvider>(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
+                builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
+                builder.Services.AddHealthChecks().AddCheck<AzureBlobBufferProvider>("buffers");
+                break;
+            case (false, true):
+                builder.Services.AddOptions<LocalBufferStorageOptions>().BindConfiguration("buffers:localStorage").ValidateDataAnnotations().ValidateOnStart();
+                builder.Services.AddSingleton<LocalStorageBufferProvider>();
+                builder.Services.AddSingleton<IBufferProvider>(sp => sp.GetRequiredService<LocalStorageBufferProvider>());
+                builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<LocalStorageBufferProvider>());
+
+                builder.Services.AddSingleton<LocalSasHandler>();
+                break;
+            case (false, false):
+                throw new InvalidOperationException("One of `buffers.localStorage` and `buffers.cloudStorage` must be enabled.");
+            case (true, true):
+                throw new InvalidOperationException("`buffers.localStorage` and `buffers.cloudStorage` must cannot both be enabled.");
         }
     }
 
@@ -174,51 +181,20 @@ public static class Buffers
     }
 }
 
-public class BufferOptions : IValidatableObject
+public class BufferOptions
 {
-    public LocalStorageOptions LocalStorage { get; } = new();
-
-    public CloudStorageOptions CloudStorage { get; } = new();
-
     [Required]
     public string BufferSidecarImage { get; set; } = null!;
-
-    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
-    {
-        var results = new List<ValidationResult>();
-
-        switch (LocalStorage.Enabled, CloudStorage.Enabled)
-        {
-            case (true, false):
-                Validator.TryValidateObject(LocalStorage, new ValidationContext(LocalStorage), results, validateAllProperties: true);
-                break;
-            case (false, true):
-                Validator.TryValidateObject(CloudStorage, new ValidationContext(CloudStorage), results, validateAllProperties: true);
-                break;
-            case (false, false):
-                results.Add(new ValidationResult("At least one storage option must be enabled.", [nameof(LocalStorage), nameof(CloudStorage)]));
-                break;
-            case (true, true):
-                results.Add(new ValidationResult("Only one storage option can be enabled.", [nameof(LocalStorage), nameof(CloudStorage)]));
-                break;
-        }
-
-        return results;
-    }
 }
 
-public class CloudStorageOptions
+public class CloudBufferStorageOptions
 {
-    public bool Enabled { get; init; }
-
     [Required, MinLength(1)]
     public IList<BufferStorageAccountOptions> StorageAccounts { get; } = [];
 }
 
-public class LocalStorageOptions
+public class LocalBufferStorageOptions
 {
-    public bool Enabled { get; init; }
-
     [Required, MinLength(1)]
     public string DataDirectory { get; init; } = null!;
 

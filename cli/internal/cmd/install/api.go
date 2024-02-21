@@ -122,6 +122,7 @@ func NewMigrationApplyCommand() *cobra.Command {
 	targetVersion := 0
 	latest := false
 	wait := false
+	offline := false
 	cmd := &cobra.Command{
 		Use:                   "apply",
 		Short:                 "Apply tyger database migrations",
@@ -144,7 +145,7 @@ func NewMigrationApplyCommand() *cobra.Command {
 				log.Fatal().Err(err).Send()
 			}
 
-			if err := install.ApplyMigrations(ctx, targetVersion, latest, wait); err != nil {
+			if err := install.ApplyMigrations(ctx, targetVersion, latest, offline, wait); err != nil {
 				log.Fatal().Err(err).Send()
 			}
 		},
@@ -153,6 +154,7 @@ func NewMigrationApplyCommand() *cobra.Command {
 	cmd.Flags().IntVar(&targetVersion, "target-version", targetVersion, "The target version to migrate to")
 	cmd.Flags().BoolVar(&latest, "latest", latest, "Migrate to the latest version")
 	cmd.Flags().BoolVar(&wait, "wait", wait, "Wait for the migration to complete")
+	cmd.Flags().BoolVar(&offline, "offline", offline, "Do not coordinate with replicas to ensure uninterrupted service")
 
 	addCommonFlags(cmd, &flags)
 	return cmd
