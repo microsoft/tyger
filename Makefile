@@ -90,7 +90,6 @@ set-localsettings:
 			},
 			"buffers": {
 				"cloudStorage": {
-					"enabled": true,
 					"storageAccounts": $$(echo $${helm_values} | jq -c '.buffers.storageAccounts')
 				},
 				"bufferSidecarImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.bufferSidecarImage')"
@@ -130,7 +129,6 @@ local-docker-set-localsettings:
 			},
 			"buffers": {
 				"localStorage": {
-					"enabled": true,
 					"dataDirectory": "/tmp/bufferdata",
 					"primarySigningCertificatePath": "$$(readlink -f "local-docker/secrets/tyger_local_buffer_service_cert$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version').pem")"
 				},

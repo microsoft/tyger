@@ -17,10 +17,10 @@ public sealed class AzureBlobBufferProvider : IBufferProvider, IHealthCheck, IHo
     private readonly CancellationTokenSource _backgroundCancellationTokenSource = new();
     private UserDelegationKey? _userDelegationKey;
 
-    public AzureBlobBufferProvider(TokenCredential credential, IOptions<BufferOptions> config, ILogger<BufferManager> logger)
+    public AzureBlobBufferProvider(TokenCredential credential, IOptions<CloudBufferStorageOptions> config, ILogger<BufferManager> logger)
     {
         _logger = logger;
-        var bufferStorageAccountOptions = config.Value.CloudStorage.StorageAccounts[0];
+        var bufferStorageAccountOptions = config.Value.StorageAccounts[0];
         _serviceClient = new BlobServiceClient(new Uri(bufferStorageAccountOptions.Endpoint), credential);
     }
 

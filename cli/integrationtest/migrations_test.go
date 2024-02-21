@@ -25,7 +25,6 @@ import (
 
 func TestMigrations(t *testing.T) {
 	t.Parallel()
-	t.Skip("TODO: fix!")
 
 	environmentConfig := runCommandSucceeds(t, "../../scripts/get-config.sh")
 	tempDir := t.TempDir()
@@ -94,7 +93,7 @@ func TestMigrations(t *testing.T) {
 		RunSucceeds(t)
 
 	tygerMigrationApplyArgs := []string{
-		"api", "migrations", "apply", "--latest", "--wait",
+		"api", "migrations", "apply", "--latest", "--offline", "--wait",
 		"-f", configPath,
 		"--set", fmt.Sprintf("api.helm.tyger.values.database.databaseName=%s", temporaryDatabaseName),
 	}

@@ -62,9 +62,9 @@ spec:
               value: "Host={{ .Values.database.host }}; Database={{ .Values.database.databaseName }}; Port={{ .Values.database.port }}; Username={{ .Values.identity.migrationRunner.name }}; SslMode=VerifyFull;"
             - name: Database__TygerServerRoleName
               value: {{ .Values.identity.tygerServer.name }}
-            - name: Kubernetes__Namespace
+            - name: Compute__Kubernetes__Namespace
               value: {{ .Release.Namespace }}
-            - name: Kubernetes__JobServiceAccount
+            - name: Compute__Kubernetes__JobServiceAccount
               value: {{ include "tyger.fullname" . }}-job
 
       serviceAccount: {{ .Values.identity.migrationRunner.name }}

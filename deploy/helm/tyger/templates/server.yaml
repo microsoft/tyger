@@ -68,9 +68,11 @@ metadata:
 data:
   appsettings.json: |-
     {
-      "kubernetes": {
-        "clusters":
-          {{ .Values.clusterConfigurationJson }}
+      "compute": {
+        "kubernetes": {
+          "clusters":
+            {{ .Values.clusterConfigurationJson }}
+        }
       }
     }
 ---
@@ -108,6 +110,8 @@ spec:
               value: Tyger.Server.Logging.JsonFormatter
             - name: AZURE_CLIENT_ID
               value: {{ .Values.identity.tygerServer.clientId }}
+            - name: ServiceMetadata__ExternalBaseUrl
+              value: https://{{ required "A value for hostname is required" .Values.hostname }}
             - name: Auth__Enabled
               value: "{{ .Values.security.enabled }}"
           {{- if .Values.security.enabled }}
@@ -118,15 +122,15 @@ spec:
             - name: Auth__CliAppUri
               value: {{ required "When security.enabled is true, a value for security.cliAppUri is required" .Values.security.cliAppUri }}
           {{- end }}
-            - name: Kubernetes__Namespace
+            - name: Compute__Kubernetes__Namespace
               value: {{ .Release.Namespace }}
-            - name: Kubernetes__JobServiceAccount
+            - name: Compute__Kubernetes__JobServiceAccount
               value: {{ include "tyger.fullname" . }}-job
-            - name: Kubernetes__NoOpConfigMap
+            - name: Compute__Kubernetes__NoOpConfigMap
               value: {{ include "tyger.fullname" . }}-no-op
-            - name: Kubernetes__WorkerWaiterImage
+            - name: Compute__Kubernetes__WorkerWaiterImage
               value: {{ required "A value for workerWaiterImage is required" .Values.workerWaiterImage }}
-            - name: Kubernetes__CurrentPodUid
+            - name: Compute__Kubernetes__CurrentPodUid
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.uid
@@ -137,16 +141,16 @@ spec:
             - name: Database__AutoMigrate
               value: "{{ .Values.database.autoMigrate }}"
             {{- range $index, $element := .Values.buffers.storageAccounts }}
-            - name: Buffers__StorageAccounts__{{ $index }}__name
+            - name: Buffers__CloudStorage__StorageAccounts__{{ $index }}__name
               value: "{{ $element.name }}"
-            - name: Buffers__StorageAccounts__{{ $index }}__location
+            - name: Buffers__CloudStorage__StorageAccounts__{{ $index }}__location
               value: "{{ $element.location }}"
-            - name: Buffers__StorageAccounts__{{ $index }}__endpoint
+            - name: Buffers__CloudStorage__StorageAccounts__{{ $index }}__endpoint
               value: "{{ $element.endpoint }}"
             {{- end }}
             - name: Buffers__BufferSidecarImage
               value: {{ required "A value for bufferSidecarImage is required" .Values.bufferSidecarImage }}
-            - name: LogArchive__StorageAccountEndpoint
+            - name: LogArchive__CloudStorage__StorageAccountEndpoint
               value: {{ required "A value for logArchive.storageAccountEndpoint is required" .Values.logArchive.storageAccountEndpoint }}
           readinessProbe:
             httpGet:

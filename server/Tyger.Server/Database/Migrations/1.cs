@@ -14,7 +14,7 @@ public class Migrator1 : Migrator
         batch.BatchCommands.Add(new($"""
             DO $$
             BEGIN
-                IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '%s') THEN
+                IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '{OwnersRole}') THEN
                     CREATE ROLE "{OwnersRole}";
                 END IF;
             END
