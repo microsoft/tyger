@@ -353,7 +353,7 @@ public class RunLogReader : ILogSource
                 var pipeline = new Pipeline(new SimplePipelineSource(logs));
                 if (options.IncludeTimestamps)
                 {
-                    pipeline.AddElement(new TimestampedLogReformatter());
+                    pipeline.AddElement(new KubernetesTimestampedLogReformatter());
                 }
 
                 if (!string.IsNullOrEmpty(prefix))

@@ -51,6 +51,37 @@ const (
 	BasicImage = "mcr.microsoft.com/cbl-mariner/base/core:2.0"
 )
 
+func getServiceMetadata(t *testing.T) model.ServiceMetadata {
+	t.Helper()
+	ctx, _ := getServiceInfoContext(t)
+	metadata := model.ServiceMetadata{}
+	_, err := controlplane.InvokeRequest(ctx, http.MethodGet, "v1/metadata", nil, &metadata)
+	require.NoError(t, err)
+	return metadata
+}
+
+func hasCapability(t *testing.T, capability string) bool {
+	t.Helper()
+	metadata := getServiceMetadata(t)
+	for _, capabilityString := range metadata.Capabilities {
+		if capabilityString == capability {
+			return true
+		}
+	}
+
+	return false
+}
+
+func supportsMultipleNodePools(t *testing.T) bool {
+	t.Helper()
+	return hasCapability(t, "NodePools")
+}
+
+func supportsDistributedRuns(t *testing.T) bool {
+	t.Helper()
+	return hasCapability(t, "DistributedRuns")
+}
+
 func TestEndToEnd(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
@@ -458,8 +489,10 @@ func TestGpuResourceRequirement(t *testing.T) {
 	run := waitForRunSuccess(t, runId)
 
 	require.NoError(t, json.Unmarshal([]byte(runTygerSucceeds(t, "run", "show", runId)), &run))
-	require.NotEmpty(t, run.Cluster)
-	require.Equal(t, "gpunp", run.Job.NodePool)
+	if supportsMultipleNodePools(t) {
+		require.NotEmpty(t, run.Cluster)
+		require.Equal(t, "gpunp", run.Job.NodePool)
+	}
 }
 
 // Verify that a run using a codespec that does not require a GPU
@@ -484,6 +517,9 @@ func TestNoGpuResourceRequirement(t *testing.T) {
 
 func TestTargetGpuNodePool(t *testing.T) {
 	t.Parallel()
+	if !supportsMultipleNodePools(t) {
+		t.Skip("NodePools capability not supported")
+	}
 
 	codespecName := strings.ToLower(t.Name())
 	runTygerSucceeds(t,
@@ -520,6 +556,9 @@ func TestTargetCpuNodePool(t *testing.T) {
 
 func TestTargetingInvalidClusterReturnsError(t *testing.T) {
 	t.Parallel()
+	if !supportsMultipleNodePools(t) {
+		t.Skip("NodePools capability not supported")
+	}
 
 	codespecName := strings.ToLower(t.Name())
 	runTygerSucceeds(t,
@@ -533,6 +572,9 @@ func TestTargetingInvalidClusterReturnsError(t *testing.T) {
 
 func TestTargetingInvalidNodePoolReturnsError(t *testing.T) {
 	t.Parallel()
+	if !supportsMultipleNodePools(t) {
+		t.Skip("NodePools capability not supported")
+	}
 
 	codespecName := strings.ToLower(t.Name())
 	runTygerSucceeds(t,
@@ -546,6 +588,9 @@ func TestTargetingInvalidNodePoolReturnsError(t *testing.T) {
 
 func TestTargetCpuNodePoolWithGpuResourcesReturnsError(t *testing.T) {
 	t.Parallel()
+	if !supportsMultipleNodePools(t) {
+		t.Skip("NodePools capability not supported")
+	}
 
 	codespecName := strings.ToLower(t.Name())
 	runTygerSucceeds(t,
@@ -1005,6 +1050,9 @@ func TestGetArchivedLogsWithLongLines(t *testing.T) {
 
 func TestConnectivityBetweenJobAndWorkers(t *testing.T) {
 	t.Parallel()
+	if !supportsDistributedRuns(t) {
+		t.Skip("Distributed runs not supported")
+	}
 
 	jobCodespecName := strings.ToLower(t.Name()) + "-job"
 	workerCodespecName := strings.ToLower(t.Name()) + "-worker"
@@ -1034,6 +1082,10 @@ func TestConnectivityBetweenJobAndWorkers(t *testing.T) {
 
 func TestAuthenticationRequired(t *testing.T) {
 	t.Parallel()
+	if getServiceMetadata(t).Authority == "" {
+		t.Skip("Authentication disabled for this server")
+	}
+
 	ctx, serviceInfo := getServiceInfoContext(t)
 	req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/v1/runs/abc", serviceInfo.GetServerUri()), nil)
 	require.NoError(t, err)
