@@ -8,7 +8,7 @@ using Xunit;
 
 namespace Tyger.Server.UnitTests.Logging;
 
-public class TimestampedLogFormatterTests
+public class KubernetesTimestampedLogFormatterTests
 {
     [Fact]
     public async Task NormalLines()
@@ -25,7 +25,7 @@ public class TimestampedLogFormatterTests
 2022-04-14T16:22:26.803090288Z 9
 ";
         using var ms = new MemoryStream(Encoding.UTF8.GetBytes(input));
-        var pipeline = new Pipeline(Encoding.UTF8.GetBytes(input), new TimestampedLogReformatter());
+        var pipeline = new Pipeline(Encoding.UTF8.GetBytes(input), new KubernetesTimestampedLogReformatter());
         (await pipeline.ReadAllAsString()).ShouldBe(input);
     }
 
@@ -52,7 +52,7 @@ public class TimestampedLogFormatterTests
 
         var input = sb.ToString();
 
-        var pipeline = new Pipeline(Encoding.UTF8.GetBytes(input), new TimestampedLogReformatter());
+        var pipeline = new Pipeline(Encoding.UTF8.GetBytes(input), new KubernetesTimestampedLogReformatter());
         (await pipeline.ReadAllAsString()).ShouldBe(input);
     }
 
@@ -62,7 +62,7 @@ public class TimestampedLogFormatterTests
         var input = @"unable to retrieve container logs for containerd://90cf2459f602ed64a3898dba30f698b6abf8e11f3ab0d12f1a570a9e7ce213d3";
         var expected = @"0001-01-01T00:00:00.000000000Z " + input;
         using var ms = new MemoryStream(Encoding.UTF8.GetBytes(input));
-        var pipeline = new Pipeline(Encoding.UTF8.GetBytes(input), new TimestampedLogReformatter());
+        var pipeline = new Pipeline(Encoding.UTF8.GetBytes(input), new KubernetesTimestampedLogReformatter());
         (await pipeline.ReadAllAsString()).ShouldBe(expected);
     }
 }

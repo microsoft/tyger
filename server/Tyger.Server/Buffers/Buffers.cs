@@ -162,12 +162,14 @@ public static class Buffers
             app.MapPut("v1/buffers/data/{id}/{**blobRelativePath}", async (string id, string blobRelativePath, HttpContext context, CancellationToken cancellationToken) =>
             {
                 await localProvider.HandlePutBlob(id, blobRelativePath, context, cancellationToken);
-            }).AllowAnonymous();
+            }).AllowAnonymous()
+            .ExcludeFromDescription();
 
             app.MapGet("v1/buffers/data/{id}/{**blobRelativePath}", async (string id, string blobRelativePath, HttpContext context, CancellationToken cancellationToken) =>
             {
                 await localProvider.HandleGetBlob(id, blobRelativePath, context, cancellationToken);
-            }).AllowAnonymous();
+            }).AllowAnonymous()
+            .ExcludeFromDescription();
         }
     }
 }

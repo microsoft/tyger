@@ -44,7 +44,7 @@ public record Buffer : ModelBase
 
 public record BufferAccess(Uri Uri) : ModelBase;
 
-public record Metadata(string? Authority = null, string? Audience = null, string? CliAppUri = null) : ModelBase;
+public record ServiceMetadata(string? Authority = null, string? Audience = null, string? CliAppUri = null, IEnumerable<string>? Capabilities = null) : ModelBase;
 
 [Equatable]
 public partial record BufferParameters(

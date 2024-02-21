@@ -13,11 +13,12 @@ using Tyger.Server.Buffers;
 using Tyger.Server.Database;
 using Tyger.Server.Model;
 using Tyger.Server.Runs;
+using Tyger.Server.ServiceMetadata;
 using static Tyger.Server.Compute.Kubernetes.KubernetesMetadata;
 
 namespace Tyger.Server.Compute.Kubernetes;
 
-public class RunCreator : RunCreatorBase, IRunCreator
+public class RunCreator : RunCreatorBase, IRunCreator, ICapabilitiesContributor
 {
     private readonly IKubernetes _client;
     private readonly BufferOptions _bufferOptions;
@@ -39,6 +40,8 @@ public class RunCreator : RunCreatorBase, IRunCreator
         _k8sOptions = k8sOptions.Value;
         _logger = logger;
     }
+
+    public Capabilities GetCapabilities() => Capabilities.DistributedRuns | Capabilities.NodePools;
 
     public async Task<Run> CreateRun(Run newRun, CancellationToken cancellationToken)
     {

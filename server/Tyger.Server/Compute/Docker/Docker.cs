@@ -15,6 +15,7 @@ using Tyger.Server.Database.Migrations;
 using Tyger.Server.Logging;
 using Tyger.Server.Model;
 using Tyger.Server.Runs;
+using Tyger.Server.ServiceMetadata;
 
 namespace Tyger.Server.Compute.Docker;
 
@@ -27,8 +28,10 @@ public static class Docker
         builder.Services.AddSingleton(sp => new DockerClientConfiguration().CreateClient());
 
         builder.Services.AddSingleton<IReplicaDatabaseVersionProvider, DockerReplicaDatabaseVersionProvider>();
-        builder.Services.AddSingleton<IRunCreator, DockerRunCreator>();
+        builder.Services.AddSingleton<DockerRunCreator>();
+        builder.Services.AddSingleton<IRunCreator>(sp => sp.GetRequiredService<DockerRunCreator>());
         builder.Services.AddSingleton(sp => (IHostedService)sp.GetRequiredService<IRunCreator>());
+        builder.Services.AddSingleton<ICapabilitiesContributor>(sp => sp.GetRequiredService<DockerRunCreator>());
         builder.Services.AddSingleton<IRunReader, DockerRunReader>();
         builder.Services.AddSingleton<IRunUpdater, DockerRunUpdater>();
         builder.Services.AddSingleton<ILogSource, DockerLogSource>();
@@ -45,12 +48,14 @@ public class DockerSecretOptions
     public string? RunSecretsHostPath { get; set; }
 }
 
-public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedService
+public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedService, ICapabilitiesContributor
 {
     private readonly DockerClient _client;
     private readonly ILogger<DockerRunCreator> _logger;
     private readonly string _bufferSidecarImage;
     private readonly DockerSecretOptions _dockerSecretOptions;
+
+    private bool _supportsGpu;
 
     public DockerRunCreator(
         DockerClient client,
@@ -66,6 +71,8 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         _bufferSidecarImage = bufferOptions.Value.BufferSidecarImage;
         _dockerSecretOptions = dockerSecretOptions.Value;
     }
+
+    public Capabilities GetCapabilities() => _supportsGpu ? Capabilities.Gpu : Capabilities.None;
 
     public async Task<Run> CreateRun(Run newRun, CancellationToken cancellationToken)
     {
@@ -92,8 +99,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         if (jobCodespec.Resources?.Gpu is ResourceQuantity q && q.ToDecimal() != 0)
         {
             needsGpu = true;
-            var systemInfo = await _client.System.GetSystemInfoAsync(cancellationToken);
-            if (systemInfo.Runtimes?.ContainsKey("nvidia") != true)
+            if (!_supportsGpu)
             {
                 throw new ValidationException("The Docker engine does not have the NVIDIA runtime installed, which is required for GPU support.");
             }
@@ -210,7 +216,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             Env = env.Select(e => $"{e.Key}={e.Value}").ToList(),
             Cmd = jobCodespec.Args?.Select(a => ExpandVariables(a, env))?.ToList(),
             Entrypoint = jobCodespec.Command is { Length: > 0 } ? jobCodespec.Command.Select(a => ExpandVariables(a, env)).ToList() : null,
-            Labels = labels.Add("tyger-run-container-name", $"main"),
+            Labels = bufferMap.Count == 0 ? labels : labels.Add("tyger-run-container-name", $"main"),
             HostConfig = new()
             {
                 DeviceRequests = needsGpu ? [
@@ -312,16 +318,19 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         });
     }
 
-    public Task StartAsync(CancellationToken cancellationToken)
+    public async Task StartAsync(CancellationToken cancellationToken)
     {
         Directory.CreateDirectory(_dockerSecretOptions.RunSecretsPath);
-        return Task.CompletedTask;
+
+        var systemInfo = await _client.System.GetSystemInfoAsync(cancellationToken);
+        _supportsGpu = systemInfo.Runtimes?.ContainsKey("nvidia") == true;
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     [GeneratedRegex(@"\$\(([^)]+)\)|\$\$([^)]+)")]
     private static partial Regex EnvironmentVariableExpansionRegex();
+
 }
 
 public class DockerRunReader : IRunReader
@@ -516,7 +525,8 @@ public class DockerRunUpdater : IRunUpdater
 
         Run updatedRun = run with
         {
-            Status = RunStatus.Canceled
+            Status = RunStatus.Canceled,
+            StatusReason = "Canceled by user"
         };
 
         await _repository.UpdateRun(updatedRun, cancellationToken: cancellationToken);
@@ -651,7 +661,9 @@ public class DockerLogSource : ILogSource
 
             _ = Copy();
 
-            return new SimplePipelineSource(pipe.Reader);
+            var pipeline = new Pipeline(new SimplePipelineSource(pipe.Reader));
+            pipeline.AddElement(new DockerTimestampedLogReformatter());
+            return pipeline;
         }
 
         var stdout = await GetSingleStreamLogs(true);

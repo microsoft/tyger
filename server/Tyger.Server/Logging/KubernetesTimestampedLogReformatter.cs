@@ -12,7 +12,7 @@ namespace Tyger.Server.Logging;
 /// will then be something like "unable to retrieve container logs for containerd://...". In this case,
 /// we prepend a dummy timestamp of 0001-01-01T00:00:00.000000000Z.
 /// </summary>
-public class TimestampedLogReformatter : IPipelineElement
+public class KubernetesTimestampedLogReformatter : IPipelineElement
 {
     private static readonly Memory<byte> s_emptyTimestampPrefix = System.Text.Encoding.UTF8.GetBytes("0001-01-01T00:00:00.000000000Z ");
 
