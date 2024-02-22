@@ -214,6 +214,7 @@ func newRunExecCommand() *cobra.Command {
 
 		consecutiveErrors := 0
 	beginWatch:
+		var runFailedErr error
 		eventChan, errChan := watchRun(ctx, run.Id)
 
 		for {
@@ -246,7 +247,12 @@ func newRunExecCommand() *cobra.Command {
 					case model.Pending:
 					case model.Running:
 					default:
-						log.Fatal().Str("status", event.Status.String()).Str("statusReason", event.StatusReason).Msg("Run failed.")
+						msg := fmt.Sprintf("run failed with status %s", event.Status.String())
+						if event.StatusReason != "" {
+							msg = fmt.Sprintf("%s (%s)", msg, event.StatusReason)
+						}
+						runFailedErr = errors.New(msg)
+						goto end
 					}
 				}
 			}
@@ -270,6 +276,10 @@ func newRunExecCommand() *cobra.Command {
 			case <-time.After(20 * time.Second):
 				log.Warn().Msg("Timed out waiting for logs to finish streaming")
 			}
+		}
+
+		if runFailedErr != nil {
+			log.Fatal().Err(runFailedErr).Msg("Run failed")
 		}
 
 		return nil
