@@ -20,7 +20,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/postgresql/armpostgresqlflexibleservers/v4"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage"
 	"github.com/hashicorp/go-retryablehttp"
-	"github.com/microsoft/tyger/cli/internal/httpclient"
+	"github.com/microsoft/tyger/cli/internal/client"
 	helmclient "github.com/mittwald/go-helm-client"
 	"github.com/rs/zerolog/log"
 	"helm.sh/helm/v3/pkg/release"
@@ -221,7 +221,7 @@ func InstallTyger(ctx context.Context) error {
 	baseEndpoint := fmt.Sprintf("https://%s", config.Api.DomainName)
 	healthCheckEndpoint := fmt.Sprintf("%s/healthcheck", baseEndpoint)
 
-	client := httpclient.NewRetryableClient()
+	client := client.NewRetryableClient()
 	client.RetryMax = 0 // we do own own retrying here
 
 	for i := 0; ; i++ {

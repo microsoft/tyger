@@ -8,6 +8,7 @@ package integrationtest
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -19,7 +20,6 @@ import (
 
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
-	"github.com/microsoft/tyger/cli/internal/httpclient"
 	"github.com/microsoft/tyger/cli/internal/proxy"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
@@ -53,14 +53,14 @@ timeoutSeconds: 600`, BasicImage)
 
 	runId := runTygerSucceeds(t, "run", "create", "--file", runSpecPath)
 
-	ctx, serviceInfo := getServiceInfoContext(t)
+	tygerClient, err := controlplane.GetClientFromCache()
 
 	proxyOptions := proxy.ProxyOptions{}
 
 	proxyLogBuffer := SyncBuffer{}
 	logger := zerolog.New(&proxyLogBuffer)
 
-	closeProxy, err := proxy.RunProxy(ctx, serviceInfo, &proxyOptions, logger)
+	closeProxy, err := proxy.RunProxy(context.Background(), tygerClient, &proxyOptions, logger)
 	require.NoError(err)
 	defer closeProxy()
 
@@ -174,10 +174,11 @@ func TestProxiedRequestsFromAllowedCIDR(t *testing.T) {
 	proxyLogBuffer := SyncBuffer{}
 	logger := zerolog.New(&proxyLogBuffer)
 
-	ctx, serviceInfo := getServiceInfoContext(t)
-	closeProxy, err := proxy.RunProxy(ctx, serviceInfo, &proxyOptions, logger)
+	tygerClient, err := controlplane.GetClientFromCache()
+	require.NoError(err)
+	closeProxy, err := proxy.RunProxy(context.Background(), tygerClient, &proxyOptions, logger)
 	defer closeProxy()
-	resp, err := httpclient.DefaultRetryableClient.Get(fmt.Sprintf("http://localhost:%d/v1/metadata", proxyOptions.Port))
+	resp, err := tygerClient.ControlPlaneClient.Get(fmt.Sprintf("http://localhost:%d/v1/metadata", proxyOptions.Port))
 	require.NoError(err)
 	require.Equal(http.StatusOK, resp.StatusCode)
 }
@@ -192,18 +193,19 @@ func TestProxiedRequestsFromDisallowedAllowedCIDR(t *testing.T) {
 		},
 	}
 
-	ctx, serviceInfo := getServiceInfoContext(t)
+	tygerClient, err := controlplane.GetClientFromCache()
+	require.NoError(err)
 	proxyLogBuffer := SyncBuffer{}
 	logger := zerolog.New(&proxyLogBuffer)
 
-	closeProxy, err := proxy.RunProxy(ctx, serviceInfo, &proxyOptions, logger)
+	closeProxy, err := proxy.RunProxy(context.Background(), tygerClient, &proxyOptions, logger)
 	defer closeProxy()
-	resp, err := httpclient.DefaultRetryableClient.Get(fmt.Sprintf("http://localhost:%d/v1/runs/1", proxyOptions.Port))
+	resp, err := tygerClient.ControlPlaneClient.Get(fmt.Sprintf("http://localhost:%d/v1/runs/1", proxyOptions.Port))
 	require.NoError(err)
 	require.Equal(http.StatusForbidden, resp.StatusCode)
 
 	// The metadata endpoint should still be accessible from the loopback address
-	resp, err = httpclient.DefaultRetryableClient.Get(fmt.Sprintf("http://localhost:%d/v1/metadata", proxyOptions.Port))
+	resp, err = tygerClient.ControlPlaneClient.Get(fmt.Sprintf("http://localhost:%d/v1/metadata", proxyOptions.Port))
 	require.NoError(err)
 	require.Equal(http.StatusOK, resp.StatusCode)
 }
@@ -211,45 +213,47 @@ func TestProxiedRequestsFromDisallowedAllowedCIDR(t *testing.T) {
 func TestRunningProxyOnSamePort(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	ctx, serviceInfo := getServiceInfoContext(t)
+	tygerClient, err := controlplane.GetClientFromCache()
+	require.NoError(err)
 
 	proxyOptions := proxy.ProxyOptions{
 		LoginConfig: controlplane.LoginConfig{
-			ServerUri: serviceInfo.GetServerUri().String(),
+			ServerUri: tygerClient.ControlPlaneUrl.String(),
 		},
 	}
 	proxyLogBuffer := SyncBuffer{}
 	logger := zerolog.New(&proxyLogBuffer)
 
-	closeProxy, err := proxy.RunProxy(ctx, serviceInfo, &proxyOptions, logger)
+	closeProxy, err := proxy.RunProxy(context.Background(), tygerClient, &proxyOptions, logger)
 	require.NoError(err)
 	defer closeProxy()
 
-	_, err = proxy.RunProxy(ctx, serviceInfo, &proxyOptions, logger)
+	_, err = proxy.RunProxy(context.Background(), tygerClient, &proxyOptions, logger)
 	require.ErrorIs(err, proxy.ErrProxyAlreadyRunning)
 }
 
 func TestRunningProxyOnSamePortDifferentTarget(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	ctx, serviceInfo := getServiceInfoContext(t)
+	tygerClient, err := controlplane.GetClientFromCache()
+	require.NoError(err)
 
 	proxyOptions := proxy.ProxyOptions{
 		LoginConfig: controlplane.LoginConfig{
-			ServerUri: serviceInfo.GetServerUri().String(),
+			ServerUri: tygerClient.ControlPlaneUrl.String(),
 		},
 	}
 	proxyLogBuffer := SyncBuffer{}
 	logger := zerolog.New(&proxyLogBuffer)
 
-	closeProxy, err := proxy.RunProxy(ctx, serviceInfo, &proxyOptions, logger)
+	closeProxy, err := proxy.RunProxy(context.Background(), tygerClient, &proxyOptions, logger)
 	require.NoError(err)
 	defer closeProxy()
 
 	secondProxyOptions := *&proxyOptions
 	secondProxyOptions.LoginConfig.ServerUri = "http://someotherserver"
 
-	_, err = proxy.RunProxy(ctx, serviceInfo, &secondProxyOptions, logger)
+	_, err = proxy.RunProxy(context.Background(), tygerClient, &secondProxyOptions, logger)
 	require.ErrorIs(err, proxy.ErrProxyAlreadyRunningWrongTarget)
 }
 

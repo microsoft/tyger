@@ -18,7 +18,8 @@ import (
 
 	"github.com/hashicorp/go-retryablehttp"
 	pool "github.com/libp2p/go-buffer-pool"
-	"github.com/microsoft/tyger/cli/internal/httpclient"
+	"github.com/microsoft/tyger/cli/internal/client"
+	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -72,8 +73,12 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 
 	ctx = log.With().Str("operation", "buffer write").Logger().WithContext(ctx)
 	if writeOptions.httpClient == nil {
-		writeOptions.httpClient = httpclient.NewRetryableClient()
-		writeOptions.httpClient.HTTPClient.Timeout = ResponseTimeout
+		tygerClient, _ := controlplane.GetClientFromCache()
+		if tygerClient != nil {
+			writeOptions.httpClient = tygerClient.DataPlaneClient
+		} else {
+			writeOptions.httpClient = client.DefaultRetryableClient()
+		}
 	}
 
 	httpClient := writeOptions.httpClient
@@ -288,7 +293,7 @@ func uploadBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, 
 				log.Ctx(ctx).Debug().Msg("MD5 mismatch, retrying")
 				continue
 			} else {
-				return fmt.Errorf("failed to upload blob: %w", httpclient.RedactHttpError(err))
+				return fmt.Errorf("failed to upload blob: %w", client.RedactHttpError(err))
 			}
 		case errBlobOverwrite:
 			// When retrying failed writes, we might encounter the UnauthorizedBlobOverwrite if the original
@@ -319,7 +324,7 @@ func uploadBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, 
 		case errBufferDoesNotExist:
 			return err
 		default:
-			return fmt.Errorf("failed to upload blob: %w", httpclient.RedactHttpError(err))
+			return fmt.Errorf("failed to upload blob: %w", client.RedactHttpError(err))
 		}
 	}
 

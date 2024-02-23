@@ -26,7 +26,6 @@ import (
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/dataplane"
-	"github.com/microsoft/tyger/cli/internal/httpclient"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -157,7 +156,6 @@ func newRunExecCommand() *cobra.Command {
 
 		mainWg := sync.WaitGroup{}
 
-		httpClient := httpclient.DefaultRetryableClient
 		var stopFunc context.CancelFunc
 		ctx, stopFunc = signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 
@@ -172,7 +170,6 @@ func newRunExecCommand() *cobra.Command {
 			go func() {
 				defer mainWg.Done()
 				err := dataplane.Write(ctx, inputSasUri, os.Stdin,
-					dataplane.WithWriteHttpClient(httpClient),
 					dataplane.WithWriteBlockSize(blockSize),
 					dataplane.WithWriteDop(writeDop))
 				if err != nil {
@@ -189,7 +186,6 @@ func newRunExecCommand() *cobra.Command {
 			go func() {
 				defer mainWg.Done()
 				err := dataplane.Read(ctx, outputSasUri, os.Stdout,
-					dataplane.WithReadHttpClient(httpClient),
 					dataplane.WithReadDop(readDop))
 				if err != nil {
 					if errors.Is(err, ctx.Err()) {

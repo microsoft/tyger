@@ -18,8 +18,6 @@ import (
 	"github.com/fatih/color"
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
-	"github.com/microsoft/tyger/cli/internal/httpclient"
-	"github.com/microsoft/tyger/cli/internal/settings"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel/propagation"
@@ -30,17 +28,17 @@ func InvokeRequest(ctx context.Context, method string, relativeUri string, input
 }
 
 func InvokeRequestWithHeaders(ctx context.Context, method string, relativeUri string, input interface{}, output interface{}, headers http.Header) (*http.Response, error) {
-	serviceInfo, err := settings.GetServiceInfoFromContext(ctx)
-	if err != nil || serviceInfo.GetServerUri() == nil {
+	tygerClient, err := GetClientFromCache()
+	if err != nil || tygerClient.ControlPlaneUrl == nil {
 		return nil, errors.New("run 'tyger login' to connect to a Tyger server")
 	}
 
-	token, err := serviceInfo.GetAccessToken(ctx)
+	token, err := tygerClient.GetAccessToken(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("run `tyger login` to login to a server: %v", err)
 	}
 
-	absoluteUri := fmt.Sprintf("%s/%s", serviceInfo.GetServerUri(), relativeUri)
+	absoluteUri := fmt.Sprintf("%s/%s", tygerClient.ControlPlaneUrl, relativeUri)
 	var body io.Reader = nil
 	if input != nil {
 		serializedBody, err := json.Marshal(input)
@@ -79,7 +77,7 @@ func InvokeRequestWithHeaders(ctx context.Context, method string, relativeUri st
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 	}
 
-	resp, err := httpclient.DefaultRetryableClient.Do(req)
+	resp, err := tygerClient.ControlPlaneClient.Do(req)
 	if err != nil {
 		return resp, fmt.Errorf("unable to connect to server: %v", err)
 	}

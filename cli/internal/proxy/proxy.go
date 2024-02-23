@@ -22,10 +22,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/hashicorp/go-cleanhttp"
+	"github.com/microsoft/tyger/cli/internal/client"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
-	"github.com/microsoft/tyger/cli/internal/httpclient"
-	"github.com/microsoft/tyger/cli/internal/settings"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -48,13 +47,13 @@ var (
 
 type CloseProxyFunc func() error
 
-func RunProxy(ctx context.Context, serviceInfo settings.ServiceInfo, options *ProxyOptions, logger zerolog.Logger) (CloseProxyFunc, error) {
-	controlPlaneTargetUri := serviceInfo.GetServerUri()
+func RunProxy(ctx context.Context, tygerClient *client.TygerClient, options *ProxyOptions, logger zerolog.Logger) (CloseProxyFunc, error) {
+	controlPlaneTargetUri := tygerClient.ControlPlaneUrl
 	handler := proxyHandler{
-		serviceInfo:           serviceInfo,
+		tygerClient:           tygerClient,
 		targetControlPlaneUri: controlPlaneTargetUri,
 		options:               options,
-		nextProxyFunc:         serviceInfo.GetProxyFunc(),
+		nextProxyFunc:         client.GetHttpTransport(tygerClient.DataPlaneClient.HTTPClient).Proxy,
 	}
 
 	r := chi.NewRouter()
@@ -158,7 +157,7 @@ func GetExistingProxyMetadata(options *ProxyOptions) *ProxyServiceMetadata {
 }
 
 type proxyHandler struct {
-	serviceInfo           settings.ServiceInfo
+	tygerClient           *client.TygerClient
 	targetControlPlaneUri *url.URL
 	options               *ProxyOptions
 	nextProxyFunc         func(*http.Request) (*url.URL, error)
@@ -196,7 +195,7 @@ func (h *proxyHandler) forwardControlPlaneRequest(w http.ResponseWriter, r *http
 		proxyReq.URL = proxyReq.URL.JoinPath(h.targetControlPlaneUri.Path, proxyReq.URL.Path)
 	}
 
-	token, err := h.serviceInfo.GetAccessToken(r.Context())
+	token, err := h.tygerClient.GetAccessToken(r.Context())
 
 	if err != nil {
 		log.Ctx(r.Context()).Error().Err(err).Send()
@@ -205,7 +204,7 @@ func (h *proxyHandler) forwardControlPlaneRequest(w http.ResponseWriter, r *http
 	}
 
 	proxyReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	resp, err := httpclient.DefaultRetryableClient.HTTPClient.Transport.RoundTrip(proxyReq)
+	resp, err := h.tygerClient.ControlPlaneClient.HTTPClient.Transport.RoundTrip(proxyReq)
 	if err != nil {
 		log.Ctx(r.Context()).Error().Err(err).Msg("Failed to forward request")
 		http.Error(w, "Bad Gateway", http.StatusBadGateway)
