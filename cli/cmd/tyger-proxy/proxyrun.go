@@ -66,12 +66,12 @@ func newProxyRunCommand(optionsFilePath *string, options *proxy.ProxyOptions) *c
 				log.Info().Str("path", logFile.Name()).Msg("Logging to file")
 			}
 
-			ctx, serviceInfo, err := controlplane.Login(cmd.Context(), options.LoginConfig)
+			client, err := controlplane.Login(cmd.Context(), options.LoginConfig)
 			if err != nil {
 				log.Fatal().Err(err).Msg("login failed")
 			}
 
-			_, err = proxy.RunProxy(ctx, serviceInfo, options, log.Logger)
+			_, err = proxy.RunProxy(cmd.Context(), client, options, log.Logger)
 			if err != nil {
 				if err == proxy.ErrProxyAlreadyRunning {
 					log.Info().Int("port", options.Port).Msg("A proxy is already running at this address.")

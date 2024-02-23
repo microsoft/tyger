@@ -24,10 +24,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-retryablehttp"
-	"github.com/mattn/go-ieproxy"
+	"github.com/microsoft/tyger/cli/internal/client"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
-	"github.com/microsoft/tyger/cli/internal/httpclient"
-	"github.com/microsoft/tyger/cli/internal/settings"
 	"sigs.k8s.io/yaml"
 )
 
@@ -76,65 +74,10 @@ type serviceInfo struct {
 	confidentialClient              *confidential.Client
 }
 
-func (c *serviceInfo) GetServerUri() *url.URL {
-	return c.parsedServerUri
-}
-
-func (c *serviceInfo) GetPrincipal() string {
-	return c.Principal
-}
-
-func (c *serviceInfo) GetProxyFunc() func(*http.Request) (*url.URL, error) {
-	var base func(*http.Request) (*url.URL, error)
-	switch c.Proxy {
-	case "none":
-		base = func(r *http.Request) (*url.URL, error) {
-			return nil, nil
-		}
-	case "", "auto", "automatic":
-		base = ieproxy.GetProxyFunc()
-	default:
-		base = func(r *http.Request) (*url.URL, error) {
-			return c.parsedProxy, nil
-		}
-	}
-
-	var withDataPlaneCheck func(*http.Request) (*url.URL, error)
-	if c.parsedDataPlaneProxy == nil {
-		withDataPlaneCheck = base
-	} else {
-		controlPlaneUrl := c.parsedServerUri
-		withDataPlaneCheck = func(r *http.Request) (*url.URL, error) {
-			if r.URL.Scheme == controlPlaneUrl.Scheme &&
-				r.URL.Host == controlPlaneUrl.Host &&
-				strings.HasPrefix(r.URL.Path, controlPlaneUrl.Path) {
-				// This is a request to the control plane
-				return base(r)
-			}
-			return c.parsedDataPlaneProxy, nil
-		}
-	}
-
-	return func(r *http.Request) (*url.URL, error) {
-		if r.URL.Scheme == "http" {
-			// We will not use an HTTP proxy when when not using TLS.
-			// The only supported scenario for using http and not https is
-			// when using using tyger to call tyger-proxy. In that case, we
-			// want to connect to tyger-proxy directly, and not through a proxy.
-			return nil, nil
-		}
-		return withDataPlaneCheck(r)
-	}
-}
-
-func (c *serviceInfo) GetDisableTlsCertificateValidation() bool {
-	return c.DisableTlsCertificateValidation
-}
-
-func Login(ctx context.Context, options LoginConfig) (context.Context, settings.ServiceInfo, error) {
+func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error) {
 	normalizedServerUri, err := normalizeServerUri(options.ServerUri)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	options.ServerUri = normalizedServerUri.String()
 
@@ -149,15 +92,20 @@ func Login(ctx context.Context, options LoginConfig) (context.Context, settings.
 	}
 
 	if err := validateServiceInfo(si); err != nil {
-		return ctx, nil, err
+		return nil, err
 	}
 
-	// store in context so that the HTTP client can pick up the settings
-	ctx = settings.SetServiceInfoOnContext(ctx, si)
+	if err := client.PrepareDefaultHttpTransport(options.Proxy); err != nil {
+		return nil, err
+	}
+
+	if si.DisableTlsCertificateValidation {
+		client.DisableTlsCertificateValidation()
+	}
 
 	serviceMetadata, err := getServiceMetadata(ctx, options.ServerUri)
 	if err != nil {
-		return ctx, nil, err
+		return nil, err
 	}
 
 	// augment with data received from the metadata endpoint
@@ -168,7 +116,7 @@ func Login(ctx context.Context, options LoginConfig) (context.Context, settings.
 	si.DataPlaneProxy = serviceMetadata.DataPlaneProxy
 
 	if err := validateServiceInfo(si); err != nil {
-		return ctx, nil, err
+		return nil, err
 	}
 
 	if serviceMetadata.Authority != "" {
@@ -181,7 +129,7 @@ func Login(ctx context.Context, options LoginConfig) (context.Context, settings.
 			authResult, err = si.performUserLogin(ctx, options.UseDeviceCode)
 		}
 		if err != nil {
-			return ctx, nil, err
+			return nil, err
 		}
 
 		si.LastToken = authResult.AccessToken
@@ -195,7 +143,7 @@ func Login(ctx context.Context, options LoginConfig) (context.Context, settings.
 			// So we need to extract the client ID from the access token and use that next time.
 			claims := jwt.MapClaims{}
 			if _, _, err := jwt.NewParser().ParseUnverified(authResult.AccessToken, claims); err != nil {
-				return nil, nil, fmt.Errorf("unable to parse access token: %w", err)
+				return nil, fmt.Errorf("unable to parse access token: %w", err)
 			} else {
 				si.ClientId = claims["appid"].(string)
 			}
@@ -206,7 +154,7 @@ func Login(ctx context.Context, options LoginConfig) (context.Context, settings.
 		err = si.persist()
 	}
 
-	return ctx, si, err
+	return client.NewTygerClient(si.parsedServerUri, si.GetAccessToken, si.parsedDataPlaneProxy, si.Principal), err
 }
 
 func normalizeServerUri(uri string) (*url.URL, error) {
@@ -247,7 +195,7 @@ func (c *serviceInfo) GetAccessToken(ctx context.Context) (string, error) {
 		customHttpClient := &clientIdReplacingHttpClient{
 			clientAppUri: c.ClientAppUri,
 			clientAppId:  c.ClientId,
-			innerClient:  httpclient.DefaultRetryableClient.StandardClient(),
+			innerClient:  http.DefaultClient,
 		}
 
 		// fall back to using the refresh token from the cache
@@ -350,28 +298,37 @@ func persistCacheContents(path string, bytes []byte) error {
 	return err
 }
 
-func GetPersistedServiceInfo() (settings.ServiceInfo, error) {
-	si := &serviceInfo{}
+func GetClientFromCache() (*client.TygerClient, error) {
 	path, err := GetCachePath()
 	if err != nil {
-		return si, err
+		return nil, err
 	}
 
 	bytes, err := readCachedContents(path)
 
 	if err != nil {
-		return si, err
+		return nil, err
 	}
 
+	si := serviceInfo{}
 	err = yaml.Unmarshal(bytes, &si)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := validateServiceInfo(si); err != nil {
+	if err := validateServiceInfo(&si); err != nil {
 		return nil, err
 	}
-	return si, err
+
+	if err := client.PrepareDefaultHttpTransport(si.Proxy); err != nil {
+		return nil, err
+	}
+
+	if si.DisableTlsCertificateValidation {
+		client.DisableTlsCertificateValidation()
+	}
+
+	return client.NewTygerClient(si.parsedServerUri, si.GetAccessToken, si.parsedDataPlaneProxy, si.Principal), err
 }
 
 func validateServiceInfo(si *serviceInfo) error {
@@ -432,7 +389,7 @@ func getServiceMetadata(ctx context.Context, serverUri string) (*model.ServiceMe
 		return nil, fmt.Errorf("unable to create request: %w", err)
 	}
 
-	resp, err := httpclient.DefaultRetryableClient.Do(req)
+	resp, err := client.DefaultRetryableClient().Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -452,7 +409,7 @@ func (si *serviceInfo) performServicePrincipalLogin(ctx context.Context) (authRe
 			return authResult, fmt.Errorf("error creating credential: %w", err)
 		}
 
-		client, err := confidential.New(si.Authority, si.Principal, cred, confidential.WithHTTPClient(httpclient.DefaultRetryableClient.StandardClient()))
+		client, err := confidential.New(si.Authority, si.Principal, cred, confidential.WithHTTPClient(client.DefaultRetryableClient().StandardClient()))
 		if err != nil {
 			return authResult, err
 		}
@@ -498,7 +455,7 @@ func (si *serviceInfo) performUserLogin(ctx context.Context, useDeviceCode bool)
 		si.ClientAppUri,
 		public.WithAuthority(si.Authority),
 		public.WithCache(si),
-		public.WithHTTPClient(httpclient.DefaultRetryableClient.StandardClient()),
+		public.WithHTTPClient(client.DefaultRetryableClient().StandardClient()),
 	)
 	if err != nil {
 		return

@@ -17,7 +17,7 @@ import (
 )
 
 var (
-	ErrNotLoggedIn = errors.New("You must run `az login` before running this command")
+	ErrNotLoggedIn = errors.New("you must run `az login` before running this command")
 )
 
 // az account get-access-token fails if --tenant is provided and the user is logged in with a managed identity

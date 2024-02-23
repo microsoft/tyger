@@ -20,7 +20,8 @@ import (
 
 	"github.com/hashicorp/go-retryablehttp"
 	pool "github.com/libp2p/go-buffer-pool"
-	"github.com/microsoft/tyger/cli/internal/httpclient"
+	"github.com/microsoft/tyger/cli/internal/client"
+	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/rs/zerolog/log"
 )
 
@@ -64,8 +65,12 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 	}
 
 	if readOptions.httpClient == nil {
-		readOptions.httpClient = httpclient.NewRetryableClient()
-		readOptions.httpClient.HTTPClient.Timeout = ResponseTimeout
+		tygerClient, _ := controlplane.GetClientFromCache()
+		if tygerClient != nil {
+			readOptions.httpClient = tygerClient.DataPlaneClient
+		} else {
+			readOptions.httpClient = client.DefaultRetryableClient()
+		}
 	}
 
 	httpClient := readOptions.httpClient
@@ -293,7 +298,7 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUri
 
 		resp, err := httpClient.Do(req)
 		if err != nil {
-			return nil, httpclient.RedactHttpError(err)
+			return nil, client.RedactHttpError(err)
 		}
 
 		respData, err := handleReadResponse(ctx, resp)
@@ -314,7 +319,7 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUri
 				log.Ctx(ctx).Debug().Msg("MD5 mismatch, retrying")
 				continue
 			} else {
-				return nil, fmt.Errorf("failed to read blob: %w", httpclient.RedactHttpError(err))
+				return nil, fmt.Errorf("failed to read blob: %w", client.RedactHttpError(err))
 			}
 		}
 		if err == ErrNotFound {
@@ -383,7 +388,7 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUri
 			}
 		}
 
-		return nil, httpclient.RedactHttpError(err)
+		return nil, client.RedactHttpError(err)
 	}
 }
 

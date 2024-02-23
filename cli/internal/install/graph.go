@@ -15,7 +15,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/hashicorp/go-retryablehttp"
-	"github.com/microsoft/tyger/cli/internal/httpclient"
+	"github.com/microsoft/tyger/cli/internal/client"
 	"github.com/rs/zerolog/log"
 )
 
@@ -205,7 +205,7 @@ func executeGraphCall(ctx context.Context, cred azcore.TokenCredential, method, 
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", tokenResponse.Token))
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := httpclient.DefaultRetryableClient.Do(req)
+	resp, err := client.DefaultRetryableClient().Do(req)
 	if err != nil {
 		return fmt.Errorf("graph call failed: %w", err)
 	}
