@@ -68,14 +68,24 @@ func hasCapability(t *testing.T, capability string) bool {
 	return false
 }
 
-func supportsMultipleNodePools(t *testing.T) bool {
-	t.Helper()
+func supportsNodePools(t *testing.T) bool {
 	return hasCapability(t, "NodePools")
 }
 
+func skipIfNodePoolsNotSupported(t *testing.T) {
+	if !supportsNodePools(t) {
+		t.Skip("NodePools capability not supported")
+	}
+}
+
 func supportsDistributedRuns(t *testing.T) bool {
-	t.Helper()
 	return hasCapability(t, "DistributedRuns")
+}
+
+func skipIfDistributedRunsNotSupported(t *testing.T) {
+	if !supportsDistributedRuns(t) {
+		t.Skip("DistributedRuns capability not supported")
+	}
 }
 
 func TestEndToEnd(t *testing.T) {
@@ -484,7 +494,7 @@ func TestGpuResourceRequirement(t *testing.T) {
 	run := waitForRunSuccess(t, runId)
 
 	require.NoError(t, json.Unmarshal([]byte(runTygerSucceeds(t, "run", "show", runId)), &run))
-	if supportsMultipleNodePools(t) {
+	if supportsNodePools(t) {
 		require.NotEmpty(t, run.Cluster)
 		require.Equal(t, "gpunp", run.Job.NodePool)
 	}
@@ -512,9 +522,7 @@ func TestNoGpuResourceRequirement(t *testing.T) {
 
 func TestTargetGpuNodePool(t *testing.T) {
 	t.Parallel()
-	if !supportsMultipleNodePools(t) {
-		t.Skip("NodePools capability not supported")
-	}
+	skipIfNodePoolsNotSupported(t)
 
 	codespecName := strings.ToLower(t.Name())
 	runTygerSucceeds(t,
@@ -551,9 +559,7 @@ func TestTargetCpuNodePool(t *testing.T) {
 
 func TestTargetingInvalidClusterReturnsError(t *testing.T) {
 	t.Parallel()
-	if !supportsMultipleNodePools(t) {
-		t.Skip("NodePools capability not supported")
-	}
+	skipIfNodePoolsNotSupported(t)
 
 	codespecName := strings.ToLower(t.Name())
 	runTygerSucceeds(t,
@@ -567,9 +573,7 @@ func TestTargetingInvalidClusterReturnsError(t *testing.T) {
 
 func TestTargetingInvalidNodePoolReturnsError(t *testing.T) {
 	t.Parallel()
-	if !supportsMultipleNodePools(t) {
-		t.Skip("NodePools capability not supported")
-	}
+	skipIfNodePoolsNotSupported(t)
 
 	codespecName := strings.ToLower(t.Name())
 	runTygerSucceeds(t,
@@ -583,9 +587,7 @@ func TestTargetingInvalidNodePoolReturnsError(t *testing.T) {
 
 func TestTargetCpuNodePoolWithGpuResourcesReturnsError(t *testing.T) {
 	t.Parallel()
-	if !supportsMultipleNodePools(t) {
-		t.Skip("NodePools capability not supported")
-	}
+	skipIfNodePoolsNotSupported(t)
 
 	codespecName := strings.ToLower(t.Name())
 	runTygerSucceeds(t,
@@ -1035,9 +1037,7 @@ func TestGetArchivedLogsWithLongLines(t *testing.T) {
 
 func TestConnectivityBetweenJobAndWorkers(t *testing.T) {
 	t.Parallel()
-	if !supportsDistributedRuns(t) {
-		t.Skip("Distributed runs not supported")
-	}
+	skipIfDistributedRunsNotSupported(t)
 
 	jobCodespecName := strings.ToLower(t.Name()) + "-job"
 	workerCodespecName := strings.ToLower(t.Name()) + "-worker"

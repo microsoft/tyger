@@ -21,6 +21,10 @@ var (
 	defaultRetryableClient  *retryablehttp.Client
 )
 
+func init() {
+	registerHttpUnixProtocolHandler(underlyingHttpTransport)
+}
+
 type TygerClient struct {
 	ControlPlaneUrl    *url.URL
 	ControlPlaneClient *retryablehttp.Client
@@ -56,6 +60,8 @@ func NewTygerClient(controlPlaneUrl *url.URL, getAccessToken AccessTokenFunc, da
 			panic(fmt.Sprintf("unexpected roundtripper type %T", t))
 		}
 
+		// Alt protocol registrations are not cloned in Clone() so we need to re-register them
+		registerHttpUnixProtocolHandler(dataPlaneHttpTransport)
 		dataPlaneHttpTransport.Proxy = httpCheckProxyFunc(http.ProxyURL(dataPlaneProxy))
 		dataPlaneClient.HTTPClient.Transport = dataPlaneRoundtripper
 	}

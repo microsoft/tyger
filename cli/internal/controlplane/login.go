@@ -164,6 +164,12 @@ func normalizeServerUri(uri string) (*url.URL, error) {
 		return nil, errors.New("a valid absolute uri is required")
 	}
 
+	if parsedUrl.Scheme == "http+unix" || parsedUrl.Scheme == "https+unix" {
+		if !strings.HasSuffix(uri, ":") {
+			parsedUrl.Path += ":"
+		}
+	}
+
 	return parsedUrl, err
 }
 

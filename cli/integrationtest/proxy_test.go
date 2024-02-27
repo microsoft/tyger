@@ -27,6 +27,8 @@ import (
 
 func TestProxiedRequests(t *testing.T) {
 	t.Parallel()
+	skipIfUsingUnixSocket(t)
+
 	require := require.New(t)
 
 	// create a run
@@ -163,6 +165,8 @@ timeoutSeconds: 600`, BasicImage)
 
 func TestProxiedRequestsFromAllowedCIDR(t *testing.T) {
 	t.Parallel()
+	skipIfUsingUnixSocket(t)
+
 	require := require.New(t)
 
 	proxyOptions := proxy.ProxyOptions{
@@ -185,6 +189,8 @@ func TestProxiedRequestsFromAllowedCIDR(t *testing.T) {
 
 func TestProxiedRequestsFromDisallowedAllowedCIDR(t *testing.T) {
 	t.Parallel()
+	skipIfUsingUnixSocket(t)
+
 	require := require.New(t)
 
 	proxyOptions := proxy.ProxyOptions{
@@ -212,6 +218,8 @@ func TestProxiedRequestsFromDisallowedAllowedCIDR(t *testing.T) {
 
 func TestRunningProxyOnSamePort(t *testing.T) {
 	t.Parallel()
+	skipIfUsingUnixSocket(t)
+
 	require := require.New(t)
 	tygerClient, err := controlplane.GetClientFromCache()
 	require.NoError(err)
@@ -234,6 +242,8 @@ func TestRunningProxyOnSamePort(t *testing.T) {
 
 func TestRunningProxyOnSamePortDifferentTarget(t *testing.T) {
 	t.Parallel()
+	skipIfUsingUnixSocket(t)
+
 	require := require.New(t)
 	tygerClient, err := controlplane.GetClientFromCache()
 	require.NoError(err)

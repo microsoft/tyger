@@ -22,6 +22,7 @@ require (
 	github.com/eiannone/keyboard v0.0.0-20220611211555-0d226195f203
 	github.com/erikgeiser/promptkit v0.9.0
 	github.com/fatih/color v1.16.0
+	github.com/fsnotify/fsnotify v1.7.0
 	github.com/getkin/kin-openapi v0.115.0
 	github.com/go-chi/chi/v5 v5.0.10
 	github.com/golang-jwt/jwt/v5 v5.0.0
@@ -80,7 +81,6 @@ require (
 	github.com/evanphx/json-patch v5.7.0+incompatible // indirect
 	github.com/exponent-io/jsonpath v0.0.0-20210407135951-1de76d718b3f // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
-	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/go-gorp/gorp/v3 v3.1.0 // indirect
 	github.com/go-logr/logr v1.4.1 // indirect
@@ -121,6 +121,7 @@ require (
 	github.com/mattn/go-localereader v0.0.1 // indirect
 	github.com/mattn/go-runewidth v0.0.15 // indirect
 	github.com/matttproud/golang_protobuf_extensions/v2 v2.0.0 // indirect
+	github.com/miekg/dns v1.1.54 // indirect
 	github.com/mitchellh/copystructure v1.2.0 // indirect
 	github.com/mitchellh/go-wordwrap v1.0.1 // indirect
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect

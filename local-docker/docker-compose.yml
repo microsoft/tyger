@@ -34,4 +34,4 @@ volumes:
 
 secrets:
   db_password:
-    file: ${SECRETS_PATH}/db_password.txt
+    file: /opt/tyger/secrets/db_password.txt
