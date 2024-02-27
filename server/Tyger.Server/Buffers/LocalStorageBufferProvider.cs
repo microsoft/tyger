@@ -57,8 +57,8 @@ public class LocalStorageBufferProvider : IBufferProvider, IHostedService
 
     public Task<Uri> CreateBufferAccessUrl(string id, bool writeable, CancellationToken cancellationToken)
     {
-        var builder = new UriBuilder(new Uri(_baseUrl, id)) { Query = _sasHandler.GetSasQueryString(id, writeable).ToString() };
-        return Task.FromResult(builder.Uri);
+        return Task.FromResult(
+            new Uri(new Uri(_baseUrl, id).ToString() + _sasHandler.GetSasQueryString(id, writeable).ToString()));
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -224,6 +224,11 @@ public class LocalStorageBufferProvider : IBufferProvider, IHostedService
         }
 
         context.Response.Headers.ContentLength = dataFileInfo.Length;
+
+        if (context.Request.Method == HttpMethods.Head)
+        {
+            return;
+        }
 
         await using var dataFileStream = new FileStream(dataPath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous | FileOptions.SequentialScan);
         await dataFileStream.CopyToAsync(context.Response.Body, cancellationToken);

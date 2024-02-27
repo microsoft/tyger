@@ -166,17 +166,24 @@ public static class Buffers
 
         if (app.Services.GetService<LocalStorageBufferProvider>() is { } localProvider)
         {
-            app.MapPut("v1/buffers/data/{id}/{**blobRelativePath}", async (string id, string blobRelativePath, HttpContext context, CancellationToken cancellationToken) =>
-            {
-                await localProvider.HandlePutBlob(id, blobRelativePath, context, cancellationToken);
-            }).AllowAnonymous()
-            .ExcludeFromDescription();
+            app.MapPut(
+                "v1/buffers/data/{id}/{**blobRelativePath}",
+                async (string id, string blobRelativePath, HttpContext context, CancellationToken cancellationToken) =>
+                {
+                    await localProvider.HandlePutBlob(id, blobRelativePath, context, cancellationToken);
+                })
+                .AllowAnonymous()
+                .ExcludeFromDescription();
 
-            app.MapGet("v1/buffers/data/{id}/{**blobRelativePath}", async (string id, string blobRelativePath, HttpContext context, CancellationToken cancellationToken) =>
-            {
-                await localProvider.HandleGetBlob(id, blobRelativePath, context, cancellationToken);
-            }).AllowAnonymous()
-            .ExcludeFromDescription();
+            app.MapMethods(
+                "v1/buffers/data/{id}/{**blobRelativePath}",
+                [HttpMethods.Get, HttpMethods.Head],
+                async (string id, string blobRelativePath, HttpContext context, CancellationToken cancellationToken) =>
+                {
+                    await localProvider.HandleGetBlob(id, blobRelativePath, context, cancellationToken);
+                })
+                .AllowAnonymous()
+                .ExcludeFromDescription();
         }
     }
 }

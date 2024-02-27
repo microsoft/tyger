@@ -192,7 +192,9 @@ func (h *proxyHandler) forwardControlPlaneRequest(w http.ResponseWriter, r *http
 	proxyReq.URL.Host = h.targetControlPlaneUri.Host
 	proxyReq.Host = h.targetControlPlaneUri.Host
 	if h.targetControlPlaneUri.Path != "" {
-		proxyReq.URL = proxyReq.URL.JoinPath(h.targetControlPlaneUri.Path, proxyReq.URL.Path)
+		p := proxyReq.URL.Path
+		proxyReq.URL.Path = "/"
+		proxyReq.URL = proxyReq.URL.JoinPath(h.targetControlPlaneUri.Path, p)
 	}
 
 	token, err := h.tygerClient.GetAccessToken(r.Context())

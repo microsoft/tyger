@@ -25,6 +25,7 @@ import (
 
 func TestMigrations(t *testing.T) {
 	t.Parallel()
+	skipIfUsingUnixSocket(t) // TODO: use better skip condition
 
 	environmentConfig := runCommandSucceeds(t, "../../scripts/get-config.sh")
 	tempDir := t.TempDir()

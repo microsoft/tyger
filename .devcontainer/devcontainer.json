@@ -75,21 +75,20 @@
   "mounts": [
     // Bind mount docker socket under an alias to support docker-from-docker
     "source=/var/run/docker.sock,target=/var/run/docker-host.sock,type=bind",
-    "source=/tmp,target=/host-tmp,type=bind"
+    "source=/opt/tyger,target=/opt/tyger,type=bind"
   ],
 
   "runArgs": ["--network=host"],
 
   "remoteUser": "vscode",
   "overrideCommand": false,
+  "initializeCommand": ".devcontainer/prepare-host.sh",
   "onCreateCommand": ".devcontainer/devcontainer-on-create.sh",
 
   "containerEnv": {
     "DOCKER_BUIKDKIT": "1",
     "DEVCONTAINER_HOST_HOME": "${localEnv:HOME}",
     "HOST_WORKSPACE_PATH": "${localWorkspaceFolder}",
-    "RUN_SECRETS_BASE_PATH": "/host-tmp",
-    "RUN_SECRETS_HOST_BASE_PATH": "/tmp",
     "DEVCONTAINER_ID": "${devcontainerId}"
   },
 

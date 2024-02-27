@@ -2,7 +2,6 @@ using System.Collections.Immutable;
 using System.ComponentModel.DataAnnotations;
 using System.IO.Pipelines;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using System.Threading.Channels;
 using Docker.DotNet;
@@ -16,6 +15,7 @@ using Tyger.Server.Logging;
 using Tyger.Server.Model;
 using Tyger.Server.Runs;
 using Tyger.Server.ServiceMetadata;
+using static Tyger.Server.Compute.Docker.Interop;
 
 namespace Tyger.Server.Compute.Docker;
 
@@ -45,7 +45,6 @@ public class DockerSecretOptions
 {
     [Required]
     public required string RunSecretsPath { get; set; }
-    public string? RunSecretsHostPath { get; set; }
 }
 
 public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedService, ICapabilitiesContributor
@@ -134,7 +133,6 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         var relativeTombstonePath = Path.Combine(relativeSecretsPath, "tombstone");
 
         var absoluteSecretsBase = _dockerSecretOptions.RunSecretsPath;
-        var absoluteHostSecretsBase = string.IsNullOrEmpty(_dockerSecretOptions.RunSecretsHostPath) ? absoluteSecretsBase : _dockerSecretOptions.RunSecretsHostPath;
         var absoluteContainerSecretsBase = "/run/secrets";
 
         var env = jobCodespec.Env ?? [];
@@ -144,6 +142,11 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         Directory.CreateDirectory(Path.Combine(absoluteSecretsBase, relativeTombstonePath));
 
         var labels = ImmutableDictionary<string, string>.Empty.Add("tyger-run", run.Id?.ToString()!);
+
+        var unixSocketsForBuffers = bufferMap.Where(b => b.Value.sasUri.Scheme is "http+unix" or "https+unix")
+            .Select(b => b.Value.sasUri.AbsolutePath.Split(":")[0])
+            .Distinct()
+            .ToList();
 
         foreach ((var bufferName, (bool write, Uri accessUri)) in bufferMap)
         {
@@ -180,21 +183,21 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                     [
                         new()
                         {
-                            Source = Path.Combine(absoluteHostSecretsBase, relativePipesPath),
+                            Source = Path.Combine(absoluteSecretsBase, relativePipesPath),
                             Target = Path.Combine(absoluteContainerSecretsBase, relativePipesPath),
                             Type = "bind",
                             ReadOnly = false,
                         },
                         new()
                         {
-                            Source = Path.Combine(absoluteHostSecretsBase, relativeAccessFilesPath, accessFileName),
+                            Source = Path.Combine(absoluteSecretsBase, relativeAccessFilesPath, accessFileName),
                             Target = Path.Combine(absoluteContainerSecretsBase, relativeAccessFilesPath, accessFileName),
                             Type = "bind",
                             ReadOnly = true,
                         },
                         new()
                         {
-                            Source = Path.Combine(absoluteHostSecretsBase, relativeTombstonePath),
+                            Source = Path.Combine(absoluteSecretsBase, relativeTombstonePath),
                             Target = Path.Combine(absoluteContainerSecretsBase, relativeTombstonePath),
                             Type = "bind",
                             ReadOnly = true,
@@ -203,6 +206,25 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                     NetworkMode = "host"
                 },
             };
+
+            foreach (var dataPlaneSocket in unixSocketsForBuffers)
+            {
+                Stat(dataPlaneSocket, out var stat);
+                var uid = stat.Uid.ToString();
+                if (sidecarContainerParameters.User is { Length: > 0 } && sidecarContainerParameters.User != uid)
+                {
+                    throw new InvalidOperationException("All data plane sockets must have the same owner");
+                }
+
+                sidecarContainerParameters.User = uid;
+                sidecarContainerParameters.HostConfig.Mounts.Add(new()
+                {
+                    Source = dataPlaneSocket,
+                    Target = dataPlaneSocket,
+                    Type = "bind",
+                    ReadOnly = false,
+                });
+            }
 
             var sidecarCreateResponse = await _client.Containers.CreateContainerAsync(sidecarContainerParameters, cancellationToken);
             await _client.Containers.StartContainerAsync(sidecarCreateResponse.ID, null, cancellationToken);
@@ -230,7 +252,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                 [
                     new()
                     {
-                        Source = Path.Combine(absoluteHostSecretsBase, relativePipesPath),
+                        Source = Path.Combine(absoluteSecretsBase, relativePipesPath),
                         Target = Path.Combine(absoluteContainerSecretsBase, relativePipesPath),
                         Type = "bind",
                         ReadOnly = false,
@@ -287,12 +309,6 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         _logger.CreatedRun(run.Id!.Value);
         return run with { Status = RunStatus.Running };
     }
-
-    [LibraryImport("libSystem.Native", EntryPoint = "SystemNative_MkFifo", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
-    private static partial int MkFifo(string pathName, uint mode);
-
-    [LibraryImport("libSystem.Native", EntryPoint = "SystemNative_ChMod", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
-    internal static partial int ChMod(string path, int mode);
 
     public static string ExpandVariables(string input, IDictionary<string, string> environment)
     {

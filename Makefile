@@ -103,34 +103,35 @@ set-localsettings:
 	EOF
 
 local-docker-set-localsettings:
-	run_secrets_path="$${RUN_SECRETS_BASE_PATH:-/tmp}/tyger-run-secrets"
+	run_secrets_path="/opt/tyger/secrets/runs"
 	mkdir -p "$${run_secrets_path}"
-	run_secrets_host_path="$${RUN_SECRETS_HOST_BASE_PATH:-/tmp}/tyger-run-secrets"
+	logs_path="/opt/tyger/logs"
+	mkdir -p "$${logs_path}"
 
 	jq <<- EOF > ${SERVER_PATH}/appsettings.local.json
 		{
+			"urls": "http://unix:/opt/tyger/tyger.sock",
 			"logging": { "Console": {"FormatterName": "simple" } },
 			"serviceMetadata": {
-				"externalBaseUrl": "http://localhost:5000"
+				"externalBaseUrl": "http+unix:///opt/tyger/tyger.sock:"
 			},
 			"auth": {
 				"enabled": "false"
 			},
 			"compute": {
 				"docker": {
-					"runSecretsPath": "$${run_secrets_path}",
-					"runSecretsHostPath": "$${run_secrets_host_path}"
+					"runSecretsPath": "$${run_secrets_path}"
 				}
 			},
 			"logArchive": {
 				"localStorage": {
-					"logsDirectory": "/tmp/tygerlogs"
+					"logsDirectory": "$${logs_path}"
 				}
 			},
 			"buffers": {
 				"localStorage": {
-					"dataDirectory": "/tmp/bufferdata",
-					"primarySigningCertificatePath": "$$(readlink -f "local-docker/secrets/tyger_local_buffer_service_cert$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version').pem")"
+					"dataDirectory": "/opt/tyger/buffers",
+					"primarySigningCertificatePath": "/opt/tyger/secrets/tyger_local_buffer_service_cert_$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version').pem"
 				},
 				"bufferSidecarImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.bufferSidecarImage')"
 			},
@@ -214,15 +215,9 @@ local-docker-up:
 	cd local-docker
 
 	# if secrets/db_password.txt is not present or empty, generate a new password
-	if [[ ! -s secrets/db_password.txt ]]; then
-		openssl rand -base64 36 > secrets/db_password.txt
+	if [[ ! -s /opt/tyger/secrets/db_password.txt ]]; then
+		openssl rand -base64 36 > /opt/tyger/secrets/db_password.txt
 	fi
-
-	if [[ -n "$$HOST_WORKSPACE_PATH" ]]; then
-		export SECRETS_PATH=$$HOST_WORKSPACE_PATH/local-docker/secrets
-	fi
-
-	echo "Using secrets from $$SECRETS_PATH"
 
 	docker compose up -d --wait
 
@@ -267,8 +262,9 @@ download-test-client-cert:
 	fi
 
 download-local-buffer-service-cert:
+	mkdir -p /opt/tyger/secrets
 	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version')
-	cert_path=local-docker/secrets/tyger_local_buffer_service_cert$${cert_version}.pem
+	cert_path=/opt/tyger/secrets/tyger_local_buffer_service_cert_$${cert_version}.pem
 	if [[ ! -f "$${cert_path}" ]]; then
 		rm -f "$${cert_path}"
 		subscription=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | yq '.cloud.subscriptionId')
@@ -286,6 +282,9 @@ check-test-client-cert:
 
 get-tyger-uri:
 	echo ${TYGER_URI}
+
+login-local-docker:
+	tyger login http+unix:///opt/tyger/tyger.sock:
 
 login-service-principal: install-cli download-test-client-cert
 	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.version')
@@ -309,6 +308,13 @@ start-proxy: install-cli download-test-client-cert
 	servicePrincipal: $${test_app_uri}
 	certificatePath: $${cert_path}
 	allowedClientCIDRs: ["127.0.0.1/32"]
+	logPath: "/tmp/tyger-proxy"
+	EOF
+	)
+
+run-local-docker-proxy:
+	tyger-proxy run -f <(cat <<EOF
+	serverUri: "http+unix:///opt/tyger/tyger.sock:"
 	logPath: "/tmp/tyger-proxy"
 	EOF
 	)
