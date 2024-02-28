@@ -15,7 +15,7 @@ Usage: $0 [options]
 Options:
   -r, --registry                   The FQDN of container registry to push to.
   --test-connectivity              Build (and optionally push) the testconnectivity image
-  --tyger-server                   Build (and optionally push) the tyger-server image
+  --tyger-server     Build (and optionally push) the tyger-server image
   --worker-waiter                  Build (and optionally push) the worker-waiter image
   --buffer-sidecar                 Build (and optionally push) the buffer-sidecar image
   --helm                           Package and push the Tyger Helm chart
@@ -40,7 +40,7 @@ while [[ $# -gt 0 ]]; do
     shift
     ;;
   --tyger-server)
-    tyger_server=1
+    tyger_control_plane_server=1
     shift
     ;;
   --worker-waiter)
@@ -133,9 +133,9 @@ if [[ -n "${test_connectivity:-}" ]]; then
   build_and_push
 fi
 
-if [[ -n "${tyger_server:-}" ]]; then
+if [[ -n "${tyger_control_plane_server:-}" ]]; then
   build_context="${repo_root_dir}/"
-  dockerfile_path="${repo_root_dir}/server/Dockerfile"
+  dockerfile_path="${repo_root_dir}/server/ControlPlane/Dockerfile"
   target="runtime"
   local_tag="tyger-server"
   remote_repo="tyger-server"

@@ -118,7 +118,7 @@ func ListDatabaseVersions(ctx context.Context, allVersions bool) ([]DatabaseVers
 }
 
 func getDatabaseVersionsFromPod(ctx context.Context, podName string, allVersions bool) ([]DatabaseVersion, error) {
-	stdout, stderr, err := PodExec(ctx, podName, "/app/tyger.server", "database", "list-versions")
+	stdout, stderr, err := PodExec(ctx, podName, "/app/tyger-server", "database", "list-versions")
 	if err != nil {
 		errorLog := ""
 		if stderr != nil {

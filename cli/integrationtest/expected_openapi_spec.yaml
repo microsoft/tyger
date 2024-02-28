@@ -1,12 +1,12 @@
 openapi: 3.0.1
 info:
-  title: tyger.server
+  title: tyger-server
   version: '1.0'
 paths:
   /v1/buffers:
     post:
       tags:
-        - tyger.server
+        - tyger-server
       operationId: createBuffer
       requestBody:
         content:
@@ -23,7 +23,7 @@ paths:
                 $ref: '#/components/schemas/Buffer'
     get:
       tags:
-        - tyger.server
+        - tyger-server
       operationId: getBuffers
       parameters:
         - name: limit
@@ -45,7 +45,7 @@ paths:
   '/v1/buffers/{id}':
     get:
       tags:
-        - tyger.server
+        - tyger-server
       operationId: getBufferById
       parameters:
         - name: id
@@ -69,7 +69,7 @@ paths:
   '/v1/buffers/{id}/tags':
     put:
       tags:
-        - tyger.server
+        - tyger-server
       operationId: setBufferTags
       parameters:
         - name: id
@@ -107,7 +107,7 @@ paths:
   '/v1/buffers/{id}/access':
     post:
       tags:
-        - tyger.server
+        - tyger-server
       operationId: getBufferAccessString
       parameters:
         - name: id
@@ -135,7 +135,7 @@ paths:
   '/v1/codespecs/{name}':
     put:
       tags:
-        - tyger.server
+        - tyger-server
       parameters:
         - name: name
           in: path
@@ -178,7 +178,7 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
     get:
       tags:
-        - tyger.server
+        - tyger-server
       parameters:
         - name: name
           in: path
@@ -198,7 +198,7 @@ paths:
   /v1/codespecs:
     get:
       tags:
-        - tyger.server
+        - tyger-server
       parameters:
         - name: limit
           in: query
@@ -223,7 +223,7 @@ paths:
   '/v1/codespecs/{name}/versions/{version}':
     get:
       tags:
-        - tyger.server
+        - tyger-server
       parameters:
         - name: name
           in: path
@@ -248,7 +248,7 @@ paths:
   /v1/runs:
     post:
       tags:
-        - tyger.server
+        - tyger-server
       requestBody:
         content:
           application/json:
@@ -270,7 +270,7 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
     get:
       tags:
-        - tyger.server
+        - tyger-server
       parameters:
         - name: limit
           in: query
@@ -296,7 +296,7 @@ paths:
   '/v1/runs/{runId}':
     get:
       tags:
-        - tyger.server
+        - tyger-server
       parameters:
         - name: runId
           in: path
@@ -323,7 +323,7 @@ paths:
   '/v1/runs/{runId}/logs':
     get:
       tags:
-        - tyger.server
+        - tyger-server
       parameters:
         - name: runId
           in: path
@@ -360,7 +360,7 @@ paths:
   '/v1/runs/{runId}/cancel':
     post:
       tags:
-        - tyger.server
+        - tyger-server
       parameters:
         - name: runId
           in: path
@@ -383,7 +383,7 @@ paths:
   /v1/metadata:
     get:
       tags:
-        - tyger.server
+        - tyger-server
       responses:
         '200':
           description: Success
@@ -394,7 +394,7 @@ paths:
   /v1/database-version-in-use:
     get:
       tags:
-        - tyger.server
+        - tyger-server
       responses:
         '200':
           description: Success
