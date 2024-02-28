@@ -55,7 +55,7 @@ spec:
           {{- end }}
           env:
             - name: Logging__Console__FormatterName
-              value: Tyger.Server.Logging.JsonFormatter
+              value: Tyger.ControlPlane.Logging.JsonFormatter
             - name: AZURE_CLIENT_ID
               value: {{ .Values.identity.migrationRunner.clientId }}
             - name: Database__ConnectionString

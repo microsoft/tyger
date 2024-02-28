@@ -10,7 +10,7 @@ SHELL = /bin/bash
 ENVIRONMENT_CONFIG_JSON = $(shell scripts/get-config.sh -o json | jq -c)
 DEVELOPER_CONFIG_JSON = $(shell scripts/get-config.sh --dev -o json | jq -c)
 
-SERVER_PATH=server/Tyger.Server
+SERVER_PATH=server/ControlPlane
 SECURITY_ENABLED=true
 HELM_NAMESPACE=tyger
 HELM_RELEASE=tyger
@@ -137,7 +137,7 @@ local-docker-set-localsettings:
 			},
 			"database": {
 				"connectionString": "Host=localhost; Port=5432; Username=tyger-server",
-				"passwordFile": "$$(readlink -f "local-docker/secrets/db_password.txt")",
+				"passwordFile": "/opt/tyger/secrets/db_password.txt",
 				"autoMigrate": "true",
 				"tygerServerRoleName": "tyger-server"
 			}
@@ -358,8 +358,8 @@ connect-db: set-context
 restore:
 	cd cli
 	go mod download
-	cd ..
-	find . -name *csproj | xargs -L 1 dotnet restore
+	cd ../server
+	dotnet restore
 
 format:
 	find . -name *csproj | xargs -L 1 dotnet format

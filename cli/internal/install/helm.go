@@ -305,13 +305,13 @@ func InstallTyger(ctx context.Context) error {
 		}
 
 		if category, ok := parsedLine["category"].(string); ok {
-			if category == "Tyger.Server.Database.Migrations.MigrationRunner[NewerDatabaseVersionsExist]" {
+			if category == "Tyger.ControlPlane.Database.Migrations.MigrationRunner[NewerDatabaseVersionsExist]" {
 				log.Warn().Msgf("The database schema should be upgraded. Run `tyger api migrations list` to see the available migrations and `tyger api migrations apply` to apply them.")
 				found = true
 				break
 			}
 
-			if category == "Tyger.Server.Database.Migrations.MigrationRunner[UsingMostRecentDatabaseVersion]" {
+			if category == "Tyger.ControlPlane.Database.Migrations.MigrationRunner[UsingMostRecentDatabaseVersion]" {
 				log.Debug().Msg("Database schema is up to date")
 				found = true
 				break

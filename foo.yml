@@ -1,0 +1,13 @@
+job:
+  codespec:
+    image: ubuntu
+    buffers:
+      inputs:
+        - input
+      outputs:
+        - output
+    command:
+     - bash
+     - -c
+     - |
+       echo "Hi $(cat $INPUT_PIPE)" > $OUTPUT_PIPE
