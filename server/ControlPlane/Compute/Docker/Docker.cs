@@ -203,7 +203,6 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                             ReadOnly = true,
                         }
                     ],
-                    NetworkMode = "host"
                 },
             };
 

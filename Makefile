@@ -134,8 +134,7 @@ local-docker-set-localsettings: download-local-buffer-service-cert
 				"bufferSidecarImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.bufferSidecarImage')"
 			},
 			"database": {
-				"connectionString": "Host=localhost; Port=5432; Username=tyger-server",
-				"passwordFile": "/opt/tyger/secrets/db_password.txt",
+				"connectionString": "Host=/opt/tyger/pg; Username=tyger-server",
 				"autoMigrate": "true",
 				"tygerServerRoleName": "tyger-server"
 			}
@@ -224,14 +223,13 @@ up: ensure-environment-conditionally docker-build-tyger-server docker-build-buff
 	$(MAKE) cli-ready
 
 local-docker-up:
+	mkdir -p /opt/tyger/pg
 	cd local-docker
-
-	# if secrets/db_password.txt is not present or empty, generate a new password
-	if [[ ! -s /opt/tyger/secrets/db_password.txt ]]; then
-		openssl rand -base64 36 > /opt/tyger/secrets/db_password.txt
-	fi
-
 	docker compose up -d --wait
+
+local-docker-down:
+	cd local-docker
+	docker compose down -v
 
 migrate: ensure-environment-conditionally docker-build-tyger-server
 	tyger api migrations apply --latest --wait -f <(scripts/get-config.sh)

@@ -5,33 +5,25 @@ services:
   db:
     image: postgres
     restart: always
+    command:
+      - -c
+      - listen_addresses=localhost
     volumes:
       - db_data:/var/lib/postgresql/data
-    secrets:
-      - db_password
+      - type: bind
+        source: /opt/tyger/pg
+        target: /var/run/postgresql/
+
     environment:
-      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+      POSTGRES_HOST_AUTH_METHOD: trust
       POSTGRES_USER: tyger-server
-    ports:
-      - "5432:5432"
+
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready", "-d", "db_prod"]
+      test: ["CMD-SHELL", "pg_isready -U tyger-server"]
       interval: 2s
       timeout: 60s
       retries: 5
       start_period: 80s
 
-  # tyger:
-  #   depends_on:
-  #     - db
-
-  #   build:
-  #     context: ..
-  #     dockerfile: server/Dockerfile
-
 volumes:
   db_data:
-
-secrets:
-  db_password:
-    file: /opt/tyger/secrets/db_password.txt

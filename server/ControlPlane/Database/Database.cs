@@ -52,25 +52,32 @@ public static class Database
 
             if (string.IsNullOrEmpty(databaseOptions.PasswordFile))
             {
-                var tokenCredential = sp.GetRequiredService<TokenCredential>();
-                var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(Database).FullName!);
-                dataSourceBuilder.UsePeriodicPasswordProvider(
-                    async (b, ct) =>
-                    {
-                        try
+                // if connecting via a unix socket, it could be that no password is needed.
+                if (dataSourceBuilder.ConnectionStringBuilder.Host == null ||
+                    !Path.IsPathFullyQualified(dataSourceBuilder.ConnectionStringBuilder.Host) ||
+                    !Path.Exists(dataSourceBuilder.ConnectionStringBuilder.Host))
+                {
+                    // assume we are connecting to a cloud database
+                    var tokenCredential = sp.GetRequiredService<TokenCredential>();
+                    var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(Database).FullName!);
+                    dataSourceBuilder.UsePeriodicPasswordProvider(
+                        async (b, ct) =>
                         {
-                            var resp = await tokenCredential.GetTokenAsync(new TokenRequestContext(scopes: s_scopes), ct);
-                            logger?.RefreshedDatabaseCredentials();
-                            return resp.Token;
-                        }
-                        catch (Exception ex)
-                        {
-                            logger?.FailedToRefreshDatabaseCredentials(ex);
-                            throw new NpgsqlException("Failed to get token", ex);
-                        }
-                    },
-                    TimeSpan.FromMinutes(30),
-                    TimeSpan.FromMinutes(1));
+                            try
+                            {
+                                var resp = await tokenCredential.GetTokenAsync(new TokenRequestContext(scopes: s_scopes), ct);
+                                logger?.RefreshedDatabaseCredentials();
+                                return resp.Token;
+                            }
+                            catch (Exception ex)
+                            {
+                                logger?.FailedToRefreshDatabaseCredentials(ex);
+                                throw new NpgsqlException("Failed to get token", ex);
+                            }
+                        },
+                        TimeSpan.FromMinutes(30),
+                        TimeSpan.FromMinutes(1));
+                }
             }
             else
             {
