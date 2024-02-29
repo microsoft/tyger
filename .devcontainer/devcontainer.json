@@ -78,8 +78,6 @@
     "source=/opt/tyger,target=/opt/tyger,type=bind"
   ],
 
-  "runArgs": ["--network=host"],
-
   "remoteUser": "vscode",
   "overrideCommand": false,
   "initializeCommand": ".devcontainer/prepare-host.sh",
