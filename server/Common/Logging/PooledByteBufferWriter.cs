@@ -4,7 +4,7 @@
 using System.Buffers;
 using System.Diagnostics;
 
-namespace Tyger.Logging;
+namespace Tyger.Common.Logging;
 
 /// <summary>
 /// This is only to be able to use a Utf8JsonWriter when we need to produce a string

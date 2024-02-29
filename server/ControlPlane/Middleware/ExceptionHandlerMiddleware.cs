@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 using k8s.Autorest;
-using Tyger.Api;
+using Tyger.Common.Api;
 using ValidationException = System.ComponentModel.DataAnnotations.ValidationException;
 
 namespace Tyger.ControlPlane.Middleware;

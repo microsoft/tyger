@@ -9,8 +9,8 @@ using Microsoft.Extensions.Options;
 using Npgsql;
 using Polly;
 using Polly.Retry;
-using Tyger.ControlPlane.Database.Migrations;
 using Tyger.ControlPlane.Compute.Kubernetes;
+using Tyger.ControlPlane.Database.Migrations;
 using Tyger.ControlPlane.Model;
 
 namespace Tyger.ControlPlane.Database;

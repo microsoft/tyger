@@ -1,6 +1,6 @@
 using System.Net.Sockets;
 
-namespace Tyger.UnixDomainSockets;
+namespace Tyger.Common.UnixDomainSockets;
 
 public static class UnixDomainSockets
 {

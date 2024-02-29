@@ -1,12 +1,8 @@
-
-
-using System.Diagnostics.Contracts;
 using System.Globalization;
 using System.Text;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Extensions;
 
-namespace Tyger.Buffers;
+namespace Tyger.Common.Buffers;
 
 public static class LocalSasHandler
 {

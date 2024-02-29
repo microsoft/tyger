@@ -5,7 +5,7 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
-using Tyger.Buffers;
+using Tyger.Common.Buffers;
 
 namespace Tyger.DataPlane;
 

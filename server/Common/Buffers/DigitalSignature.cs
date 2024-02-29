@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 
-namespace Tyger.Buffers;
+namespace Tyger.Common.Buffers;
 
 public delegate byte[] SignDataFunc(byte[] data);
 public delegate bool ValidateSignatureFunc(byte[] data, byte[] signature);
