@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-using System.ComponentModel.DataAnnotations;
 using Microsoft.Extensions.Options;
 using Tyger.ControlPlane.Auth;
 
@@ -9,11 +8,6 @@ namespace Tyger.ControlPlane.ServiceMetadata;
 
 public static class ServiceMetadata
 {
-    public static void AddServiceMetadata(this IHostApplicationBuilder builder)
-    {
-        builder.Services.AddOptions<ServiceMetadataOptions>().BindConfiguration("serviceMetadata").ValidateDataAnnotations().ValidateOnStart();
-    }
-
     public static void MapServiceMetadata(this WebApplication app)
     {
         Model.ServiceMetadata? serviceMetadata = null;
@@ -33,12 +27,6 @@ public static class ServiceMetadata
                 return serviceMetadata;
             }).AllowAnonymous();
     }
-}
-
-public class ServiceMetadataOptions
-{
-    [Required]
-    public required Uri ExternalBaseUrl { get; set; }
 }
 
 [Flags]

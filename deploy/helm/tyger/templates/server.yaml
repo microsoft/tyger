@@ -106,8 +106,6 @@ spec:
               value: /etc/secrets/
             - name: AppSettingsDirectory
               value: /etc/config/
-            - name: Logging__Console__FormatterName
-              value: Tyger.ControlPlane.Logging.JsonFormatter
             - name: AZURE_CLIENT_ID
               value: {{ .Values.identity.tygerServer.clientId }}
             - name: ServiceMetadata__ExternalBaseUrl

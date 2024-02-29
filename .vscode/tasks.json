@@ -5,9 +5,17 @@
       "label": "build",
       "command": "dotnet",
       "type": "process",
+      "presentation": {
+        "echo": true,
+        "reveal": "silent",
+        "focus": false,
+        "panel": "dedicated",
+        "showReuseMessage": true,
+        "clear": false
+      },
       "args": [
         "build",
-        "${workspaceFolder}/server/Tyger.Server/Tyger.ControlPlane.csproj",
+        "${workspaceFolder}/server/tyger.sln",
         "/property:GenerateFullPaths=true",
         "/consoleloggerparameters:NoSummary"
       ],

@@ -54,8 +54,6 @@ spec:
             - "{{ .Values.database.initialDatabaseVersion }}"
           {{- end }}
           env:
-            - name: Logging__Console__FormatterName
-              value: Tyger.ControlPlane.Logging.JsonFormatter
             - name: AZURE_CLIENT_ID
               value: {{ .Values.identity.migrationRunner.clientId }}
             - name: Database__ConnectionString

@@ -10,7 +10,8 @@ SHELL = /bin/bash
 ENVIRONMENT_CONFIG_JSON = $(shell scripts/get-config.sh -o json | jq -c)
 DEVELOPER_CONFIG_JSON = $(shell scripts/get-config.sh --dev -o json | jq -c)
 
-SERVER_PATH=server/ControlPlane
+CONTROL_PLANE_SERVER_PATH=server/ControlPlane
+DATA_PLANE_SERVER_PATH=server/DataPlane
 SECURITY_ENABLED=true
 HELM_NAMESPACE=tyger
 HELM_RELEASE=tyger
@@ -60,7 +61,7 @@ set-localsettings:
 		echo "Run 'make up' and 'make set-context' before this target"; exit 1
 	fi
 
-	jq <<- EOF > ${SERVER_PATH}/appsettings.local.json
+	jq <<- EOF > ${CONTROL_PLANE_SERVER_PATH}/appsettings.local.json
 		{
 			"logging": { "Console": {"FormatterName": "simple" } },
 			"serviceMetadata": {
@@ -102,19 +103,16 @@ set-localsettings:
 		}
 	EOF
 
-local-docker-set-localsettings:
+local-docker-set-localsettings: download-local-buffer-service-cert
 	run_secrets_path="/opt/tyger/secrets/runs"
 	mkdir -p "$${run_secrets_path}"
 	logs_path="/opt/tyger/logs"
 	mkdir -p "$${logs_path}"
 
-	jq <<- EOF > ${SERVER_PATH}/appsettings.local.json
+	jq <<- EOF > ${CONTROL_PLANE_SERVER_PATH}/appsettings.local.json
 		{
 			"urls": "http://unix:/opt/tyger/tyger.sock",
 			"logging": { "Console": {"FormatterName": "simple" } },
-			"serviceMetadata": {
-				"externalBaseUrl": "http+unix:///opt/tyger/tyger.sock:"
-			},
 			"auth": {
 				"enabled": "false"
 			},
@@ -130,8 +128,8 @@ local-docker-set-localsettings:
 			},
 			"buffers": {
 				"localStorage": {
-					"dataDirectory": "/opt/tyger/buffers",
-					"primarySigningCertificatePath": "/opt/tyger/secrets/tyger_local_buffer_service_cert_$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version').pem"
+					"signingCertificatePath": "/opt/tyger/secrets/tyger_local_buffer_service_cert_$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version').pem",
+					"dataPlaneEndpoint": "http+unix:///opt/tyger/tyger.data.sock"
 				},
 				"bufferSidecarImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.bufferSidecarImage')"
 			},
@@ -141,6 +139,16 @@ local-docker-set-localsettings:
 				"autoMigrate": "true",
 				"tygerServerRoleName": "tyger-server"
 			}
+		}
+	EOF
+
+local-docker-set-data-plane-localsettings:
+	jq <<- EOF > ${DATA_PLANE_SERVER_PATH}/appsettings.local.json
+		{
+			"urls": "http://unix:/opt/tyger/tyger.data.sock",
+			"logging": { "Console": {"FormatterName": "simple" } },
+			"dataDirectory": "/opt/tyger/buffers",
+			"primarySigningCertificatePath": "/opt/tyger/secrets/tyger_local_buffer_service_cert_$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version')_public.pem"
 		}
 	EOF
 
@@ -154,15 +162,19 @@ build-go:
 build: build-csharp build-go
 
 build-server:
-	cd ${SERVER_PATH}
+	cd ${CONTROL_PLANE_SERVER_PATH}
 	dotnet build --no-restore
 
 run: set-localsettings
-	cd ${SERVER_PATH}
+	cd ${CONTROL_PLANE_SERVER_PATH}
 	dotnet run -v m --no-restore
 
-local-docker-run: local-docker-set-localsettings download-local-buffer-service-cert
-	cd ${SERVER_PATH}
+local-docker-run: local-docker-set-localsettings
+	cd ${CONTROL_PLANE_SERVER_PATH}
+	dotnet run -v m --no-restore
+
+local-docker-data-plane-run: local-docker-set-data-plane-localsettings
+	cd ${DATA_PLANE_SERVER_PATH}
 	dotnet run -v m --no-restore
 
 unit-test:
@@ -265,14 +277,21 @@ download-local-buffer-service-cert:
 	mkdir -p /opt/tyger/secrets
 	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version')
 	cert_path=/opt/tyger/secrets/tyger_local_buffer_service_cert_$${cert_version}.pem
+	public_cert_path=/opt/tyger/secrets/tyger_local_buffer_service_cert_$${cert_version}_public.pem
+
+	subscription=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | yq '.cloud.subscriptionId')
+	vault_name=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.keyVault')
+	cert_name=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.name')
+	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version')
+
 	if [[ ! -f "$${cert_path}" ]]; then
 		rm -f "$${cert_path}"
-		subscription=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | yq '.cloud.subscriptionId')
-		vault_name=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.keyVault')
-		cert_name=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.name')
-		cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version')
+
 		az keyvault secret download --vault-name "$${vault_name}" --name "$${cert_name}" --version "$${cert_version}" --file "$${cert_path}" --subscription "$${subscription}"
 		chmod 600 "$${cert_path}"
+	fi
+	if [[ ! -f "$${public_cert_path}" ]]; then
+		az keyvault certificate download --encoding pem --vault-name "$${vault_name}" --name "$${cert_name}" --version "$${cert_version}" --file "$${public_cert_path}" --subscription "$${subscription}"
 	fi
 
 check-test-client-cert:

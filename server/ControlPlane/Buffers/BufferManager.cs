@@ -93,6 +93,6 @@ public sealed class BufferManager
             return null;
         }
 
-        return new BufferAccess(await _bufferProvider.CreateBufferAccessUrl(id, writeable, cancellationToken));
+        return new BufferAccess(_bufferProvider.CreateBufferAccessUrl(id, writeable));
     }
 }

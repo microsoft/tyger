@@ -15,7 +15,8 @@ repo_root=$(readlink -f "$(dirname "$0")/..")
 cd "$repo_root"
 
 go_sum_relative_path="cli/go.sum"
-csharp_package_lock_relative_path="server/Tyger.Server/packages.lock.json"
+csharp_control_plane_package_lock_relative_path="server/ControlPlane/packages.lock.json"
+csharp_data_plane_package_lock_relative_path="server/DataPlane/packages.lock.json"
 notice_relative_path="NOTICE.txt"
 
 notice_metadata_path="$repo_root/.notice-metadata.txt"
@@ -24,7 +25,7 @@ expected_notice_metadata_path="/tmp/expected-notice-metadata.txt"
 this_script_relative_path=$(realpath --relative-to="$repo_root" "$0")
 
 generate_expected_notice_metadata() {
-    sha256sum "$go_sum_relative_path" "$csharp_package_lock_relative_path" "$this_script_relative_path" "$notice_relative_path" > "$expected_notice_metadata_path"
+    sha256sum "$go_sum_relative_path" "$csharp_control_plane_package_lock_relative_path" "$csharp_data_plane_package_lock_relative_path" "$this_script_relative_path" "$notice_relative_path" > "$expected_notice_metadata_path"
 }
 
 generate_expected_notice_metadata
@@ -98,7 +99,7 @@ done
 # C# dependencies
 cd "$repo_root"
 
-for lib in $(jq -r '.libraries | to_entries | map(select(.value.type == "package") | .key) | sort[]' server/Tyger.Server/obj/project.assets.json); do
+for lib in $(jq -r '.libraries | to_entries | map(select(.value.type == "package") | .key) | sort[]' server/ControlPlane/obj/project.assets.json server/DataPlane/obj/project.assets.json); do
     {
         echo -e "================================================================================\n"
 

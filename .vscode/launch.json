@@ -5,13 +5,25 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Server",
+      "name": "Control Plane",
       "type": "coreclr",
       "request": "launch",
       "preLaunchTask": "build",
       "program": "${workspaceFolder}/server/ControlPlane/bin/Debug/net8.0/tyger-server",
       "args": [],
       "cwd": "${workspaceFolder}/server/ControlPlane",
+      "stopAtEntry": false,
+      "console": "internalConsole",
+      "justMyCode": true
+    },
+    {
+      "name": "Data Plane",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "${workspaceFolder}/server/DataPlane/bin/Debug/net8.0/tyger-data-plane-server",
+      "args": [],
+      "cwd": "${workspaceFolder}/server/DataPlane",
       "stopAtEntry": false,
       "console": "internalConsole",
       "justMyCode": true

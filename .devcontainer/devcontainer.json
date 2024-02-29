@@ -65,7 +65,7 @@
         "humao.rest-client",
         "mhutchie.git-graph",
         "ms-azuretools.vscode-docker",
-        "ms-dotnettools.csharp",
+        "ms-dotnettools.csdevkit",
         "ms-kubernetes-tools.vscode-kubernetes-tools",
         "timonwong.shellcheck"
       ]

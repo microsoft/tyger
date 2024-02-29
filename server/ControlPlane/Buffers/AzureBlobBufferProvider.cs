@@ -29,7 +29,7 @@ public sealed class AzureBlobBufferProvider : IBufferProvider, IHealthCheck, IHo
         await _serviceClient.CreateBlobContainerAsync(id, cancellationToken: cancellationToken);
     }
 
-    public Task<Uri> CreateBufferAccessUrl(string id, bool writeable, CancellationToken cancellationToken)
+    public Uri CreateBufferAccessUrl(string id, bool writeable)
     {
         var permissions = BlobContainerSasPermissions.Read;
         if (writeable)
@@ -56,7 +56,7 @@ public sealed class AzureBlobBufferProvider : IBufferProvider, IHealthCheck, IHo
             Sas = sasBuilder.ToSasQueryParameters(_userDelegationKey, containerClient.AccountName)
         };
 
-        return Task.FromResult(uriBuilder.ToUri());
+        return uriBuilder.ToUri();
     }
 
     public async Task<bool> BufferExists(string id, CancellationToken cancellationToken)

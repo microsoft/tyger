@@ -1791,8 +1791,12 @@
           "System.CommandLine": "[2.0.0-beta4.22272.1, )",
           "System.IdentityModel.Tokens.Jwt": "[7.1.2, )",
           "System.Interactive.Async": "[6.0.1, )",
-          "System.Linq.Async": "[6.0.1, )"
+          "System.Linq.Async": "[6.0.1, )",
+          "Tyger.Common": "[1.0.0, )"
         }
+      },
+      "tyger.common": {
+        "type": "Project"
       }
     }
   }
