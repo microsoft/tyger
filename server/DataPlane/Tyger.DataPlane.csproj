@@ -9,7 +9,10 @@
     <AnalysisMode>Recommended</AnalysisMode>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Common/Tyger.Common.csproj" />
+  </ItemGroup>
 
 </Project>

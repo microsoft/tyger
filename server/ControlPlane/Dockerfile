@@ -1,7 +1,14 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0.100-cbl-mariner2.0 as build
 WORKDIR /src
 
+COPY server/Directory.Build.targets server/
+
+COPY server/Common/Tyger.Common.csproj server/Common/
+COPY server/Common/packages.lock.json server/Common/
+
 COPY server/ControlPlane/Tyger.ControlPlane.csproj server/ControlPlane/
+COPY server/ControlPlane/packages.lock.json server/ControlPlane/
+
 RUN dotnet restore --arch amd64 server/ControlPlane/Tyger.ControlPlane.csproj
 
 COPY . .

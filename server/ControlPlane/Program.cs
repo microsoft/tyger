@@ -3,20 +3,23 @@
 
 using System.CommandLine;
 using System.CommandLine.Parsing;
+using Tyger.Configuration;
+using Tyger.Logging;
+using Tyger.Middleware;
+using Tyger.UnixDomainSockets;
 using Tyger.ControlPlane.Auth;
 using Tyger.ControlPlane.Buffers;
 using Tyger.ControlPlane.Codespecs;
 using Tyger.ControlPlane.Compute;
-using Tyger.ControlPlane.Configuration;
 using Tyger.ControlPlane.Database;
 using Tyger.ControlPlane.Identity;
 using Tyger.ControlPlane.Json;
 using Tyger.ControlPlane.Logging;
 using Tyger.ControlPlane.Middleware;
-using Tyger.ControlPlane.Model;
 using Tyger.ControlPlane.OpenApi;
 using Tyger.ControlPlane.Runs;
 using Tyger.ControlPlane.ServiceMetadata;
+using Tyger.Api;
 
 var rootCommand = new RootCommand("Tyger Server");
 rootCommand.SetHandler(RunServer);
@@ -45,11 +48,11 @@ void RunServer()
     var builder = WebApplication.CreateBuilder();
 
     AddCommonServices(builder);
-    builder.AddServiceMetadata();
     builder.AddLogArchive();
     builder.AddAuth();
     builder.AddBuffers();
     builder.AddOpenApi();
+    builder.EnsureUnixDomainSocketsDeleted();
 
     var app = builder.Build();
 

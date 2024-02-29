@@ -1,7 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-namespace Tyger.ControlPlane.Model;
+using Microsoft.AspNetCore.Http;
+
+namespace Tyger.Api;
 
 public static class Responses
 {

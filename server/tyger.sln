@@ -9,13 +9,12 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tyger.ControlPlane.UnitTest
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tyger.DataPlane", "DataPlane\Tyger.DataPlane.csproj", "{075F3F22-AFBE-4D69-A15E-A562F6C5E64E}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tyger.Common", "Common\Tyger.Common.csproj", "{454B22D6-5221-438F-AC4D-9FC55786D69A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
 		Release|Any CPU = Release|Any CPU
-	EndGlobalSection
-	GlobalSection(SolutionProperties) = preSolution
-		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{3D6E29A6-19A4-4ED4-878D-6634A44852B4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
@@ -30,5 +29,12 @@ Global
 		{075F3F22-AFBE-4D69-A15E-A562F6C5E64E}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{075F3F22-AFBE-4D69-A15E-A562F6C5E64E}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{075F3F22-AFBE-4D69-A15E-A562F6C5E64E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{454B22D6-5221-438F-AC4D-9FC55786D69A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{454B22D6-5221-438F-AC4D-9FC55786D69A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{454B22D6-5221-438F-AC4D-9FC55786D69A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{454B22D6-5221-438F-AC4D-9FC55786D69A}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
 	EndGlobalSection
 EndGlobal

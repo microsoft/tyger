@@ -5,6 +5,7 @@ using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Primitives;
+using Tyger.Api;
 using Tyger.ControlPlane.Json;
 using Tyger.ControlPlane.Model;
 using Buffer = Tyger.ControlPlane.Model.Buffer;
@@ -35,9 +36,7 @@ public static class Buffers
                 builder.Services.AddOptions<LocalBufferStorageOptions>().BindConfiguration("buffers:localStorage").ValidateDataAnnotations().ValidateOnStart();
                 builder.Services.AddSingleton<LocalStorageBufferProvider>();
                 builder.Services.AddSingleton<IBufferProvider>(sp => sp.GetRequiredService<LocalStorageBufferProvider>());
-                builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<LocalStorageBufferProvider>());
-
-                builder.Services.AddSingleton<LocalSasHandler>();
+                builder.Services.AddHealthChecks().AddCheck<LocalStorageBufferProvider>("data plane");
                 break;
             case (false, false):
                 throw new InvalidOperationException("One of `buffers.localStorage` and `buffers.cloudStorage` must be enabled.");
@@ -163,28 +162,6 @@ public static class Buffers
             .WithName("getBufferAccessString")
             .Produces<BufferAccess>(StatusCodes.Status201Created)
             .Produces<ErrorBody>(StatusCodes.Status404NotFound);
-
-        if (app.Services.GetService<LocalStorageBufferProvider>() is { } localProvider)
-        {
-            app.MapPut(
-                "v1/buffers/data/{id}/{**blobRelativePath}",
-                async (string id, string blobRelativePath, HttpContext context, CancellationToken cancellationToken) =>
-                {
-                    await localProvider.HandlePutBlob(id, blobRelativePath, context, cancellationToken);
-                })
-                .AllowAnonymous()
-                .ExcludeFromDescription();
-
-            app.MapMethods(
-                "v1/buffers/data/{id}/{**blobRelativePath}",
-                [HttpMethods.Get, HttpMethods.Head],
-                async (string id, string blobRelativePath, HttpContext context, CancellationToken cancellationToken) =>
-                {
-                    await localProvider.HandleGetBlob(id, blobRelativePath, context, cancellationToken);
-                })
-                .AllowAnonymous()
-                .ExcludeFromDescription();
-        }
     }
 }
 
@@ -203,12 +180,10 @@ public class CloudBufferStorageOptions
 public class LocalBufferStorageOptions
 {
     [Required, MinLength(1)]
-    public string DataDirectory { get; init; } = null!;
+    public string SigningCertificatePath { get; init; } = null!;
 
-    [Required, MinLength(1)]
-    public string PrimarySigningCertificatePath { get; init; } = null!;
-
-    public string? SecondarySigningCertificatePath { get; init; }
+    [Required]
+    public Uri DataPlaneEndpoint { get; init; } = null!;
 }
 
 public class BufferStorageAccountOptions

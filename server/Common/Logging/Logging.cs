@@ -3,7 +3,7 @@
 
 using Microsoft.Extensions.Logging.Console;
 
-namespace Tyger.ControlPlane.Logging;
+namespace Tyger.Logging;
 
 public static class Logging
 {

@@ -1,7 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-namespace Tyger.ControlPlane.Configuration;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
+
+namespace Tyger.Configuration;
 
 public static class Configuration
 {
