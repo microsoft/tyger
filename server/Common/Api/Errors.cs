@@ -1,9 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-using Microsoft.AspNetCore.Http;
-
-namespace Tyger.Api;
+namespace Tyger.Common.Api;
 
 public static class Responses
 {

@@ -381,10 +381,13 @@ restore:
 	dotnet restore
 
 format:
-	find . -name *csproj | xargs -L 1 dotnet format
+	cd server
+	dotnet format
 
 verify-format:
-	find . -name *csproj | xargs -i sh -c 'dotnet build -p:EnforceCodeStyleInBuild=true {} && dotnet format --verify-no-changes {}'
+	cd server
+	dotnet build -p:EnforceCodeStyleInBuild=true
+	dotnet format --verify-no-changes
 
 purge-runs: set-context
 	for pod in $$(kubectl get pod -n "${HELM_NAMESPACE}" -l tyger-run -o go-template='{{range .items}}{{.metadata.name}}{{"\n"}}{{end}}'); do

@@ -1,13 +1,10 @@
 using System.Collections.Frozen;
 using System.Diagnostics;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.ApiExplorer;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
-using Microsoft.Extensions.Logging;
 using Microsoft.Net.Http.Headers;
 
-namespace Tyger.Middleware;
+namespace Tyger.Common.Middleware;
 
 public static class Middleware
 {

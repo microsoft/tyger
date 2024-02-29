@@ -1,10 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Hosting;
-
-namespace Tyger.Configuration;
+namespace Tyger.Common.Configuration;
 
 public static class Configuration
 {

@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Logging.Console;
 using Microsoft.Extensions.Options;
 
-namespace Tyger.Logging;
+namespace Tyger.Common.Logging;
 
 /// <summary>
 /// Writes out log entries as ndjson. The formatting is different from the

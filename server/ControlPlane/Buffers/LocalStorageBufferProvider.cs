@@ -1,7 +1,7 @@
 using System.Net.Sockets;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
-using Tyger.Buffers;
+using Tyger.Common.Buffers;
 
 namespace Tyger.ControlPlane.Buffers;
 
@@ -86,10 +86,11 @@ public sealed class LocalStorageBufferProvider : IBufferProvider, IHealthCheck, 
         var queryString = LocalSasHandler.GetSasQueryString(id, SasResourceType.Container, SasAction.Read, _signData);
         var req = new HttpRequestMessage(HttpMethod.Head, $"v1/containers/{id}{queryString}");
         var resp = await _dataPlaneClient.SendAsync(req, cancellationToken);
-        return resp.StatusCode switch
+
+        return (int)resp.StatusCode switch
         {
-            System.Net.HttpStatusCode.OK => true,
-            System.Net.HttpStatusCode.NotFound => false,
+            StatusCodes.Status200OK => true,
+            StatusCodes.Status404NotFound => false,
             _ => throw new HttpRequestException($"Unexpected status code {resp.StatusCode}: {resp.ReasonPhrase}", null, resp.StatusCode),
         };
     }
