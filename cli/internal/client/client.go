@@ -16,6 +16,14 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+const (
+	DefaultControlPlaneUnixSocketPath = "/opt/tyger/tyger.sock"
+	DefaultControlPlaneUnixSocketUrl  = "http+unix://" + DefaultControlPlaneUnixSocketPath + ":"
+
+	DefaultDataPlaneUnixSocketPath = "/opt/tyger/tyger.data.sock"
+	DefaultDataPlaneUnixSocketUrl  = "http+unix://" + DefaultDataPlaneUnixSocketPath + ":"
+)
+
 var (
 	underlyingHttpTransport = http.DefaultTransport.(*http.Transport)
 	defaultRetryableClient  *retryablehttp.Client
