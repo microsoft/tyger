@@ -10,8 +10,10 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"github.com/microsoft/tyger/cli/internal/client"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"sigs.k8s.io/yaml"
 )
 
@@ -21,18 +23,37 @@ func NewLoginCommand() *cobra.Command {
 		Persisted: true,
 	}
 
+	local := false
+
 	loginCmd := &cobra.Command{
-		Use:   "login { SERVER_URL [--service-principal APPID --certificate CERTPATH] [--use-device-code] [--proxy PROXY] } | --file LOGIN_FILE.yaml",
+		Use:   "login { SERVER_URL [--service-principal APPID --certificate CERTPATH] [--use-device-code] [--proxy PROXY] } | --file LOGIN_FILE.yaml | --local",
 		Short: "Login to a server",
 		Long: `Login to the Tyger server at the given URL.
 Subsequent commands will be performed against this server.`,
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if local {
+				othersSet := false
+				cmd.LocalFlags().VisitAll(func(f *pflag.Flag) {
+					othersSet = othersSet || (f.Changed && f.Name != "local")
+				})
+				if othersSet {
+					return errors.New("--local cannot be used with other options")
+				}
+
+				if len(args) > 0 {
+					return errors.New("--local cannot be specified with a server address")
+				}
+
+				options.ServerUri = client.DefaultControlPlaneUnixSocketUrl
+				_, err := controlplane.Login(cmd.Context(), options)
+				return err
+			}
 
 			switch len(args) {
 			case 0:
 				if optionsFilePath == "" {
-					return errors.New("either a server URL or --file must be specified")
+					return errors.New("either a server URL, --file, or --local must be specified")
 				}
 
 				optionsFilePath, err := filepath.Abs(optionsFilePath)
@@ -151,6 +172,8 @@ proxy: auto
 
 	loginCmd.Flags().BoolVar(&options.DisableTlsCertificateValidation, "disable-tls-certificate-validation", false, "Disable TLS certificate validation.")
 	loginCmd.Flags().MarkHidden("disable-tls-certificate-validation")
+
+	loginCmd.Flags().BoolVar(&local, "local", false, "Login to  local Tyger server. Cannot be used with other flags.")
 
 	return loginCmd
 }
