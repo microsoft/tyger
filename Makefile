@@ -292,6 +292,12 @@ download-local-buffer-service-cert:
 		az keyvault certificate download --encoding pem --vault-name "$${vault_name}" --name "$${cert_name}" --version "$${cert_version}" --file "$${public_cert_path}" --subscription "$${subscription}"
 	fi
 
+	public_cert_latest_path=/opt/tyger/secrets/tyger_local_buffer_service_cert_latest_public.pem
+	cert_latest_path=/opt/tyger/secrets/tyger_local_buffer_service_cert_latest.pem
+
+	ln -s "$${cert_path}" "$${cert_latest_path}"
+	ln -s "$${public_cert_path}" "$${public_cert_latest_path}"
+
 check-test-client-cert:
 	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}'' | jq -r '.pemCertSecret.version')
 	cert_path=$${HOME}/tyger_test_client_cert_$${cert_version}.pem
