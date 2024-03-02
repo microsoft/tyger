@@ -135,10 +135,16 @@ fi
 
 if [[ -n "${tyger_control_plane_server:-}" ]]; then
   build_context="${repo_root_dir}/"
-  dockerfile_path="${repo_root_dir}/server/ControlPlane/Dockerfile"
-  target="runtime"
+  dockerfile_path="${repo_root_dir}/server/Dockerfile"
+  target="control-plane"
   local_tag="tyger-server"
   remote_repo="tyger-server"
+
+  build_and_push
+
+  target="data-plane"
+  local_tag="tyger-data-plane-server"
+  remote_repo="tyger-data-plane-server"
 
   build_and_push
 fi
