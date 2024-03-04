@@ -2,9 +2,10 @@
 version: "3.1"
 
 services:
+
   db:
     image: postgres
-    restart: always
+    restart: unless-stopped
     command:
       - -c
       - listen_addresses=localhost
@@ -21,7 +22,7 @@ services:
       POSTGRES_USER: tyger-server
 
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U tyger-server"]
+      test: [ "CMD-SHELL", "pg_isready -U tyger-server" ]
       interval: 2s
       timeout: 60s
       retries: 5
@@ -33,6 +34,7 @@ services:
       dockerfile: server/Dockerfile
       target: data-plane
 
+    restart: unless-stopped
     environment:
       Urls: http://unix:/opt/tyger/tyger.data.sock
       Auth__Enabled: "false"
@@ -45,13 +47,16 @@ services:
         source: /opt/tyger
         target: /opt/tyger
 
-    user: "502632372" # TODO: hack!
+    user: "1000" # TODO: hack!
+    network_mode: none
 
   control-plane:
     build:
       context: ..
       dockerfile: server/Dockerfile
       target: control-plane
+
+    restart: unless-stopped
 
     environment:
       Urls: http://unix:/opt/tyger/tyger.sock
@@ -74,9 +79,12 @@ services:
         source: /var/run/docker.sock
         target: /var/run/docker.sock
 
-    user: "502632372:9005" # TODO: hack!
-
+    user: "1000:998" # TODO: hack!
     network_mode: none
+
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
   db_data:
