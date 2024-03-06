@@ -104,14 +104,14 @@ set-localsettings:
 	EOF
 
 local-docker-set-localsettings: download-local-buffer-service-cert
-	run_secrets_path="/opt/tyger/secrets/runs"
+	run_secrets_path="/opt/tyger/control-plane/run-secrets/"
 	mkdir -p "$${run_secrets_path}"
-	logs_path="/opt/tyger/logs"
+	logs_path="/var/lib/docker/volumes/local-docker_run_logs/_data"
 	mkdir -p "$${logs_path}"
 
 	jq <<- EOF > ${CONTROL_PLANE_SERVER_PATH}/appsettings.local.json
 		{
-			"urls": "http://unix:/opt/tyger/tyger.sock",
+			"urls": "http://unix:/opt/tyger/control-plane/tyger.sock",
 			"logging": { "Console": {"FormatterName": "simple" } },
 			"auth": {
 				"enabled": "false"
@@ -129,12 +129,12 @@ local-docker-set-localsettings: download-local-buffer-service-cert
 			"buffers": {
 				"localStorage": {
 					"signingCertificatePath": "/opt/tyger/secrets/tyger_local_buffer_service_cert_$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version').pem",
-					"dataPlaneEndpoint": "http+unix:///opt/tyger/tyger.data.sock"
+					"dataPlaneEndpoint": "http+unix:///opt/tyger/data-plane/tyger.data.sock"
 				},
 				"bufferSidecarImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.bufferSidecarImage')"
 			},
 			"database": {
-				"connectionString": "Host=/opt/tyger/pg; Username=tyger-server",
+				"connectionString": "Host=/opt/tyger/database; Username=tyger-server",
 				"autoMigrate": "true",
 				"tygerServerRoleName": "tyger-server"
 			}
@@ -144,9 +144,9 @@ local-docker-set-localsettings: download-local-buffer-service-cert
 local-docker-set-data-plane-localsettings:
 	jq <<- EOF > ${DATA_PLANE_SERVER_PATH}/appsettings.local.json
 		{
-			"urls": "http://unix:/opt/tyger/tyger.data.sock",
+			"urls": "http://unix:/opt/tyger/data-plane/tyger.data.sock",
 			"logging": { "Console": {"FormatterName": "simple" } },
-			"dataDirectory": "/opt/tyger/buffers",
+			"dataDirectory": "/var/lib/docker/volumes/local-docker_buffers/_data",
 			"primarySigningCertificatePath": "/opt/tyger/secrets/tyger_local_buffer_service_cert_$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version')_public.pem"
 		}
 	EOF
@@ -223,7 +223,10 @@ up: ensure-environment-conditionally docker-build-tyger-server docker-build-buff
 	$(MAKE) cli-ready
 
 local-docker-up:
-	mkdir -p /opt/tyger/pg
+	mkdir -p /opt/tyger/control-plane/
+	mkdir -p /opt/tyger/control-plane/run-secrets/
+	mkdir -p /opt/tyger/data-plane/
+	mkdir -p /opt/tyger/database/
 	cd local-docker
 	docker compose up -d --wait
 
@@ -295,8 +298,8 @@ download-local-buffer-service-cert:
 	public_cert_latest_path=/opt/tyger/secrets/tyger_local_buffer_service_cert_latest_public.pem
 	cert_latest_path=/opt/tyger/secrets/tyger_local_buffer_service_cert_latest.pem
 
-	ln -s "$${cert_path}" "$${cert_latest_path}"
-	ln -s "$${public_cert_path}" "$${public_cert_latest_path}"
+	ln -sf "$${cert_path}" "$${cert_latest_path}"
+	ln -sf "$${public_cert_path}" "$${public_cert_latest_path}"
 
 check-test-client-cert:
 	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}'' | jq -r '.pemCertSecret.version')

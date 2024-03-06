@@ -65,8 +65,7 @@
         "humao.rest-client",
         "mhutchie.git-graph",
         "ms-azuretools.vscode-docker",
-        "ms-dotnettools.csdevkit",
-        "ms-kubernetes-tools.vscode-kubernetes-tools",
+        "ms-dotnettools.csharp",
         "timonwong.shellcheck"
       ]
     }
@@ -75,7 +74,8 @@
   "mounts": [
     // Bind mount docker socket under an alias to support docker-from-docker
     "source=/var/run/docker.sock,target=/var/run/docker-host.sock,type=bind",
-    "source=/opt/tyger,target=/opt/tyger,type=bind"
+    "source=/opt/tyger,target=/opt/tyger,type=bind",
+    "source=/var/lib/docker/volumes,target=/var/lib/docker/volumes,type=bind"
   ],
 
   "remoteUser": "vscode",
@@ -85,9 +85,7 @@
 
   "containerEnv": {
     "DOCKER_BUIKDKIT": "1",
-    "DEVCONTAINER_HOST_HOME": "${localEnv:HOME}",
-    "HOST_WORKSPACE_PATH": "${localWorkspaceFolder}",
-    "DEVCONTAINER_ID": "${devcontainerId}"
+    "DEVCONTAINER_HOST_HOME": "${localEnv:HOME}"
   },
 
   "forwardPorts": [

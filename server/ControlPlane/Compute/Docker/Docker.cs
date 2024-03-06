@@ -148,6 +148,8 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             .Distinct()
             .ToList();
 
+        var startContainersTasks = new List<Task>();
+
         foreach ((var bufferName, (bool write, Uri accessUri)) in bufferMap)
         {
             var pipeName = bufferName + ".pipe";
@@ -225,8 +227,13 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                 });
             }
 
-            var sidecarCreateResponse = await _client.Containers.CreateContainerAsync(sidecarContainerParameters, cancellationToken);
-            await _client.Containers.StartContainerAsync(sidecarCreateResponse.ID, null, cancellationToken);
+            async Task StartSidecar()
+            {
+                var createResponse = await _client.Containers.CreateContainerAsync(sidecarContainerParameters, cancellationToken);
+                await _client.Containers.StartContainerAsync(createResponse.ID, null, cancellationToken);
+            }
+
+            startContainersTasks.Add(StartSidecar());
         }
 
         var mainContainerParameters = new CreateContainerParameters
@@ -292,9 +299,14 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             }
         }), monitorCancellation.Token);
 
+        startContainersTasks.Add(_client.Containers.StartContainerAsync(containerId, null, cancellationToken));
+
         try
         {
-            await _client.Containers.StartContainerAsync(containerId, null, cancellationToken);
+            foreach (var task in startContainersTasks)
+            {
+                await task;
+            }
         }
         catch (DockerApiException e)
         {

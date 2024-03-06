@@ -78,6 +78,12 @@ func skipIfNodePoolsNotSupported(t *testing.T) {
 	}
 }
 
+func skipIfGpuNotSupported(t *testing.T) {
+	if !hasCapability(t, "Gpu") {
+		t.Skip("Gpu capability not supported")
+	}
+}
+
 func supportsDistributedRuns(t *testing.T) bool {
 	return hasCapability(t, "DistributedRuns")
 }
@@ -477,6 +483,7 @@ func TestCodespecNameRequirements(t *testing.T) {
 // is scheduled on a node with one.
 func TestGpuResourceRequirement(t *testing.T) {
 	t.Parallel()
+	skipIfGpuNotSupported(t)
 
 	const codespecName = "gputestcodespec"
 	runTygerSucceeds(t,

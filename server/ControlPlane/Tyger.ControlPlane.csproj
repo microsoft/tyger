@@ -16,7 +16,6 @@
     <PackageReference Include="Azure.Identity" Version="1.11.0" />
     <PackageReference Include="Azure.Storage.Blobs" Version="12.19.1" />
     <PackageReference Include="Docker.DotNet" Version="3.125.15" />
-    <PackageReference Include="EFCore.NamingConventions" Version="7.0.2" />
     <PackageReference Include="Generator.Equals" Version="3.0.0" />
     <PackageReference Include="KubernetesClient" Version="12.1.1" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.0" />
