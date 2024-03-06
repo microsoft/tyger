@@ -17,10 +17,10 @@ import (
 )
 
 const (
-	DefaultControlPlaneUnixSocketPath = "/opt/tyger/tyger.sock"
+	DefaultControlPlaneUnixSocketPath = "/opt/tyger/control-plane/tyger.sock"
 	DefaultControlPlaneUnixSocketUrl  = "http+unix://" + DefaultControlPlaneUnixSocketPath + ":"
 
-	DefaultDataPlaneUnixSocketPath = "/opt/tyger/tyger.data.sock"
+	DefaultDataPlaneUnixSocketPath = "/opt/tyger/data-plane/tyger.data.sock"
 	DefaultDataPlaneUnixSocketUrl  = "http+unix://" + DefaultDataPlaneUnixSocketPath + ":"
 )
 

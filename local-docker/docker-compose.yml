@@ -12,7 +12,7 @@ services:
     volumes:
       - db_data:/var/lib/postgresql/data
       - type: bind
-        source: /opt/tyger/pg
+        source: /opt/tyger/database
         target: /var/run/postgresql/
 
     network_mode: none
@@ -23,10 +23,6 @@ services:
 
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U tyger-server" ]
-      interval: 2s
-      timeout: 60s
-      retries: 5
-      start_period: 80s
 
   data-plane:
     build:
@@ -34,21 +30,27 @@ services:
       dockerfile: server/Dockerfile
       target: data-plane
 
-    restart: unless-stopped
+    # restart: unless-stopped
     environment:
-      Urls: http://unix:/opt/tyger/tyger.data.sock
+      Urls: http://unix:/opt/tyger/data-plane/tyger.data.sock
       Auth__Enabled: "false"
-      DataDirectory: /opt/tyger/buffers
-      LogArchive__LocalStorage__LogsDirectory: /opt/tyger/logs
-      primarySigningCertificatePath: /opt/tyger/secrets/tyger_local_buffer_service_cert_latest_public.pem
+      DataDirectory: /app/data
+      PrimarySigningCertificatePath: /opt/tyger/secrets/tyger_local_buffer_service_cert_latest_public.pem
 
     volumes:
+      - buffers:/app/data
       - type: bind
-        source: /opt/tyger
-        target: /opt/tyger
+        source: /opt/tyger/secrets/tyger_local_buffer_service_cert_latest_public.pem
+        target: /opt/tyger/secrets/tyger_local_buffer_service_cert_latest_public.pem
+      - type: bind
+        source: /opt/tyger/data-plane
+        target: /opt/tyger/data-plane
 
     user: "1000" # TODO: hack!
     network_mode: none
+    healthcheck:
+      test: [ "CMD", "/app/bin/curl", "--fail", "--unix", "/opt/tyger/data-plane/tyger.data.sock", "http://local/healthcheck" ]
+      interval: 5s
 
   control-plane:
     build:
@@ -56,24 +58,37 @@ services:
       dockerfile: server/Dockerfile
       target: control-plane
 
-    restart: unless-stopped
+    # restart: unless-stopped
 
     environment:
-      Urls: http://unix:/opt/tyger/tyger.sock
+      Urls: http://unix:/opt/tyger/control-plane/tyger.sock
       Auth__Enabled: "false"
-      Compute__Docker__RunSecretsPath: /opt/tyger/secrets/runs
-      LogArchive__LocalStorage__LogsDirectory: /opt/tyger/logs
+      Compute__Docker__RunSecretsPath: /opt/tyger/control-plane/run-secrets/
+      LogArchive__LocalStorage__LogsDirectory: /app/logs
       Buffers__LocalStorage__SigningCertificatePath: /opt/tyger/secrets/tyger_local_buffer_service_cert_latest.pem
-      Buffers__LocalStorage__DataPlaneEndpoint: http+unix:///opt/tyger/tyger.data.sock
+      Buffers__LocalStorage__DataPlaneEndpoint: http+unix:///opt/tyger/data-plane/tyger.data.sock
       Buffers__BufferSidecarImage: eminence.azurecr.io/buffer-sidecar:dev
-      Database__ConnectionString: Host=/opt/tyger/pg; Username=tyger-server
+      Database__ConnectionString: Host=/opt/tyger/database; Username=tyger-server
       Database__AutoMigrate: "true"
       Database__TygerServerRoleName: tyger-server
 
     volumes:
+      - run_logs:/app/logs
       - type: bind
-        source: /opt/tyger
-        target: /opt/tyger
+        source: /opt/tyger/secrets/tyger_local_buffer_service_cert_latest.pem
+        target: /opt/tyger/secrets/tyger_local_buffer_service_cert_latest.pem
+
+      - type: bind
+        source: /opt/tyger/control-plane
+        target: /opt/tyger/control-plane
+
+      - type: bind
+        source: /opt/tyger/data-plane/
+        target: /opt/tyger/data-plane
+
+      - type: bind
+        source: /opt/tyger/database
+        target: /opt/tyger/database
 
       - type: bind
         source: /var/run/docker.sock
@@ -88,3 +103,5 @@ services:
 
 volumes:
   db_data:
+  buffers:
+  run_logs:

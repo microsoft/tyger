@@ -17,7 +17,7 @@ public static class DataPlane
     {
         builder.Services.AddOptions<StorageOptions>().BindConfiguration("").ValidateDataAnnotations().ValidateOnStart();
         builder.Services.AddSingleton<DataPlaneStorageHandler>();
-        builder.Services.AddHealthChecks();
+        builder.Services.AddHealthChecks().AddCheck<DataPlaneStorageHandler>("DataPlaneStorageHandler");
     }
 
     public static void MapDataPlane(this WebApplication app)
