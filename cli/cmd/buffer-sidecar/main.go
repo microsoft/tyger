@@ -57,7 +57,7 @@ func newRootCommand() *cobra.Command {
 
 	listenAddress := ""
 	outputFilePath := ""
-	createListener := func() net.Listener {
+	createListener := func() (net.Listener, error) {
 		u, err := url.Parse(listenAddress)
 		if err != nil {
 			log.Fatal().Err(err).Msg("Failed to parse listen address")
@@ -66,37 +66,56 @@ func newRootCommand() *cobra.Command {
 		var listener net.Listener
 		switch u.Scheme {
 		case "unix":
+			os.Remove(u.Path)
 			listener, err = net.Listen(u.Scheme, u.Path)
 		default:
 			listener, err = net.Listen(u.Scheme, u.Host)
 		}
 
-		log.Info().Str("address", listenAddress).Msg("Listening for connections")
 		if err != nil {
-			log.Fatal().Err(err).Msg("Failed to create listener")
+			return nil, fmt.Errorf("failed to create listener: %w", err)
 		}
 
-		return listener
+		log.Info().Str("address", listenAddress).Msg("Listening for connections")
+		return listener, nil
 	}
 	relayReadCommand := &cobra.Command{
 		Use: "read",
 		Run: func(cmd *cobra.Command, args []string) {
-			var outputFile *os.File
-			if outputFilePath != "" {
-				var err error
-				outputFile, err = openFileFunc(outputFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-				if err != nil {
-					if err == context.Canceled {
-						log.Warn().Msg("OpenFile operation canceled. Exiting.")
-						return
+			ctx, cancel := context.WithCancel(cmd.Context())
+			impl := func() error {
+				var outputWriter io.Writer
+				if outputFilePath != "" {
+					var err error
+					outputFile, err := openFileFunc(outputFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+					if err != nil {
+						if err == context.Canceled {
+							log.Warn().Msg("OpenFile operation canceled. Will discard input")
+							outputWriter = io.Discard
+							go func() {
+								time.Sleep(time.Minute)
+								cancel()
+							}()
+						} else {
+							return fmt.Errorf("failed to open output file: %w", err)
+						}
+					} else {
+						defer outputFile.Close()
+						outputWriter = outputFile
 					}
-					log.Fatal().Err(err).Msg("Unable to open output file for writing")
+				} else {
+					outputWriter = os.Stdout
 				}
-				defer outputFile.Close()
-			} else {
-				outputFile = os.Stdout
+
+				listener, err := createListener()
+				if err != nil {
+					return err
+				}
+
+				return dataplane.RelayReadServer(ctx, listener, containerName, outputWriter)
 			}
-			if err := dataplane.RelayReadServer(cmd.Context(), createListener(), containerName, outputFile); err != nil {
+
+			if err := impl(); err != nil {
 				log.Fatal().Err(err).Send()
 			}
 		},
@@ -111,26 +130,42 @@ func newRootCommand() *cobra.Command {
 	relayWriteCommand := &cobra.Command{
 		Use: "write",
 		Run: func(cmd *cobra.Command, args []string) {
-			readerChan := make(chan io.ReadCloser, 1)
-			errorChan := make(chan error, 1)
-			go func() {
-				if inputFilePath == "" {
-					readerChan <- os.Stdin
-				}
-				inputFile, err := openFileFunc(inputFilePath, os.O_RDONLY, 0)
-				if err != nil {
-					if err == context.Canceled {
-						log.Warn().Msg("OpenFile operation canceled. Will write an empty payload to the buffer.")
-						readerChan <- io.NopCloser(bytes.NewReader([]byte{}))
-					} else {
-						errorChan <- err
+			ctx, cancel := context.WithCancel(cmd.Context())
+			impl := func() error {
+				readerChan := make(chan io.ReadCloser, 1)
+				errorChan := make(chan error, 1)
+				go func() {
+					if inputFilePath == "" {
+						readerChan <- os.Stdin
 					}
-				} else {
-					readerChan <- inputFile
-				}
-			}()
+					log.Info().Msgf("Opening file %s for reading", inputFilePath)
+					inputFile, err := openFileFunc(inputFilePath, os.O_RDONLY, 0)
+					if err != nil {
+						if err == context.Canceled {
+							log.Warn().Msg("OpenFile operation canceled. Will return an empty response body.")
+							readerChan <- io.NopCloser(bytes.NewReader([]byte{}))
+							go func() {
+								time.Sleep(time.Minute)
+								cancel()
+							}()
+						} else {
+							errorChan <- err
+						}
+					} else {
+						log.Info().Str("file", inputFilePath).Msg("Opened file for reading")
+						readerChan <- inputFile
+					}
+				}()
 
-			if err := dataplane.RelayWriteServer(cmd.Context(), createListener(), containerName, readerChan, errorChan); err != nil {
+				listener, err := createListener()
+				if err != nil {
+					return err
+				}
+
+				return dataplane.RelayWriteServer(ctx, listener, containerName, readerChan, errorChan)
+			}
+
+			if err := impl(); err != nil {
 				log.Fatal().Err(err).Send()
 			}
 		},

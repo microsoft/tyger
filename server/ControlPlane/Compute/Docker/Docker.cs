@@ -59,9 +59,9 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
     private readonly ILogger<DockerRunCreator> _logger;
     private readonly string _bufferSidecarImage;
     private readonly DockerOptions _dockerSecretOptions;
+    private readonly string? _dataPlaneSocketPath;
 
     private bool _supportsGpu;
-    private FileStatus _dataPlaneSocketStat;
 
     public DockerRunCreator(
         DockerClient client,
@@ -82,8 +82,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         {
             if (localDpEndpoint.Scheme is "http+unix" or "https+unix")
             {
-                var socketPath = localDpEndpoint.AbsolutePath.Split(":")[0];
-                Stat(socketPath, out _dataPlaneSocketStat);
+                _dataPlaneSocketPath = localDpEndpoint.AbsolutePath.Split(":")[0];
             }
         }
     }
@@ -260,6 +259,10 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
             if (isRelay)
             {
+                // Write out a 0-byte file at the socket path. This will help the client
+                // distinguish between the case of the relay server not having started
+                // vs exited.
+                File.WriteAllBytes(relaySocketPath!, Array.Empty<byte>());
                 var socketDir = Path.GetDirectoryName(relaySocketPath)!;
                 sidecarContainerParameters.HostConfig.Mounts.Add(new()
                 {
@@ -268,9 +271,11 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                     Type = "bind",
                     ReadOnly = false,
                 });
-                if (_dataPlaneSocketStat.Uid != 0)
+                if (_dataPlaneSocketPath != null)
                 {
-                    sidecarContainerParameters.User = $"{_dataPlaneSocketStat.Uid}:{_dataPlaneSocketStat.Gid}";
+                    // use the same ownership as the data plane socket
+                    Stat(_dataPlaneSocketPath, out var stat);
+                    sidecarContainerParameters.User = $"{stat.Uid}:{stat.Gid}";
                 }
             }
             else if (accessUri.Scheme is "http+unix" or "https+unix")

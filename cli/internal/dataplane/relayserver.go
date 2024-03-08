@@ -17,12 +17,20 @@ func RelayReadServer(ctx context.Context, listener net.Listener, containerId str
 	addRoutes := func(r *chi.Mux, complete context.CancelFunc) {
 		r.Put("/", func(w http.ResponseWriter, r *http.Request) {
 			defer complete()
+			if outputWriter == io.Discard {
+				log.Warn().Msg("Discarding input data")
+				w.WriteHeader(http.StatusAccepted)
+				return
+			}
+
 			_, err := io.Copy(outputWriter, r.Body)
 			if err != nil {
 				log.Error().Err(err).Msg("transfer failed")
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
+
+			w.WriteHeader(http.StatusAccepted)
 		})
 	}
 

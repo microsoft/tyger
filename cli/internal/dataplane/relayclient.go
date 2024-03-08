@@ -2,9 +2,12 @@ package dataplane
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"syscall"
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
@@ -37,7 +40,7 @@ func relayWrite(ctx context.Context, httpClient *retryablehttp.Client, container
 		return fmt.Errorf("error writing to relay: %w", err)
 	}
 	io.Copy(io.Discard, resp.Body)
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusAccepted {
 		return fmt.Errorf("error writing to relay: %s", resp.Status)
 	}
 
@@ -96,10 +99,23 @@ func pingRelay(ctx context.Context, uri string, httpClient *retryablehttp.Client
 	for retryCount := 0; ; retryCount++ {
 		resp, err := httpClient.HTTPClient.Do(headRequest)
 		if err == nil && resp.StatusCode == http.StatusOK {
-			break
+			log.Ctx(ctx).Info().Msg("Connection to relay server established.")
+			return nil
 		}
 
-		log.Ctx(ctx).Trace().AnErr("err", err).Msg("Waiting for relay server.")
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("buffer relay server does not exist: %w", err)
+			}
+
+			if errors.Is(err, syscall.ECONNREFUSED) {
+				log.Ctx(ctx).Info().Msg("Waiting for relay server to be ready.")
+			} else {
+				return fmt.Errorf("error connecting to relay server: %w", err)
+			}
+		} else {
+			log.Ctx(ctx).Info().Int("status", resp.StatusCode).Msg("Waiting for relay server to be ready.")
+		}
 
 		switch {
 		case retryCount < 10:
@@ -112,8 +128,6 @@ func pingRelay(ctx context.Context, uri string, httpClient *retryablehttp.Client
 			time.Sleep(5 * time.Second)
 		}
 	}
-	log.Ctx(ctx).Info().Msg("Connection to relay server established.")
-	return nil
 }
 
 type ReaderWithMetrics struct {

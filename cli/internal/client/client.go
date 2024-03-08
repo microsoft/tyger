@@ -116,7 +116,7 @@ func PrepareDefaultHttpTransport(proxyString string) error {
 	underlyingHttpTransport.MaxConnsPerHost = 1000
 	underlyingHttpTransport.ResponseHeaderTimeout = 60 * time.Second
 
-	if log.Logger.GetLevel() > zerolog.TraceLevel {
+	if log.Logger.GetLevel() <= zerolog.DebugLevel {
 		http.DefaultClient.Transport = &loggingTransport{transport: underlyingHttpTransport}
 	}
 
