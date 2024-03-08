@@ -98,13 +98,13 @@ func newRunExecCommand() *cobra.Command {
 		}
 		unmappedInputBuffers := make([]string, 0)
 		for _, input := range bufferParameters.Inputs {
-			if _, ok := run.Job.Buffers[input]; !ok {
+			if id, ok := run.Job.Buffers[input]; !ok || id == "_" {
 				unmappedInputBuffers = append(unmappedInputBuffers, input)
 			}
 		}
 		unmappedOutputBuffers := make([]string, 0)
 		for _, output := range bufferParameters.Outputs {
-			if _, ok := run.Job.Buffers[output]; !ok {
+			if id, ok := run.Job.Buffers[output]; !ok || id == "_" {
 				unmappedOutputBuffers = append(unmappedOutputBuffers, output)
 			}
 		}

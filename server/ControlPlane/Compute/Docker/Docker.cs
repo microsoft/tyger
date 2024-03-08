@@ -4,10 +4,12 @@ using System.IO.Pipelines;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using System.Threading.Channels;
+using System.Web;
 using Docker.DotNet;
 using Docker.DotNet.Models;
 using k8s.Models;
 using Microsoft.Extensions.Options;
+using Tyger.Common.Buffers;
 using Tyger.ControlPlane.Buffers;
 using Tyger.ControlPlane.Database;
 using Tyger.ControlPlane.Database.Migrations;
@@ -23,7 +25,7 @@ public static class Docker
 {
     public static void AddDocker(this IHostApplicationBuilder builder)
     {
-        builder.Services.AddOptions<DockerSecretOptions>().BindConfiguration("compute:docker").ValidateDataAnnotations().ValidateOnStart();
+        builder.Services.AddOptions<DockerOptions>().BindConfiguration("compute:docker").ValidateDataAnnotations().ValidateOnStart();
 
         builder.Services.AddSingleton(sp => new DockerClientConfiguration().CreateClient());
 
@@ -38,13 +40,17 @@ public static class Docker
         builder.Services.AddSingleton<DockerRunSweeper>();
         builder.Services.AddSingleton<IRunSweeper>(sp => sp.GetRequiredService<DockerRunSweeper>());
         builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<DockerRunSweeper>());
+        builder.Services.AddSingleton<IEphemeralBufferProvider, DockerEphemeralBufferProvider>();
     }
 }
 
-public class DockerSecretOptions
+public class DockerOptions
 {
     [Required]
     public required string RunSecretsPath { get; set; }
+
+    [Required]
+    public required string EphemeralBuffersPath { get; set; }
 }
 
 public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedService, ICapabilitiesContributor
@@ -52,7 +58,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
     private readonly DockerClient _client;
     private readonly ILogger<DockerRunCreator> _logger;
     private readonly string _bufferSidecarImage;
-    private readonly DockerSecretOptions _dockerSecretOptions;
+    private readonly DockerOptions _dockerSecretOptions;
 
     private bool _supportsGpu;
 
@@ -61,7 +67,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         IRepository repository,
         BufferManager bufferManager,
         IOptions<BufferOptions> bufferOptions,
-        IOptions<DockerSecretOptions> dockerSecretOptions,
+        IOptions<DockerOptions> dockerSecretOptions,
         ILogger<DockerRunCreator> logger)
     : base(repository, bufferManager)
     {
@@ -127,6 +133,21 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
         var run = await Repository.CreateRun(newRun, cancellationToken);
 
+        if (newRun.Job.Buffers != null)
+        {
+            foreach ((var bufferParameterName, var bufferId) in newRun.Job.Buffers)
+            {
+                if (bufferId.StartsWith("temp-", StringComparison.Ordinal))
+                {
+                    var newBufferId = $"run-{run.Id}-{bufferId}";
+                    newRun.Job.Buffers[bufferParameterName] = newBufferId;
+                    (var write, _) = bufferMap[bufferParameterName];
+                    var accessUri = await BufferManager.CreateBufferAccessUrl(newBufferId, write, cancellationToken);
+                    bufferMap[bufferParameterName] = (write, accessUri!.Uri);
+                }
+            }
+        }
+
         var relativeSecretsPath = run.Id.ToString()!;
         var relativePipesPath = Path.Combine(relativeSecretsPath, "pipes");
         var relativeAccessFilesPath = Path.Combine(relativeSecretsPath, "access-files");
@@ -165,20 +186,38 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             File.WriteAllText(accessFilePath, accessUri.ToString());
             var containerAccessFilePath = Path.Combine(absoluteContainerSecretsBase, relativeAccessFilesPath, accessFileName);
 
+            var args = new List<string>();
+
+            bool isRelay = HttpUtility.ParseQueryString(accessUri.Query).Get("relay") is "true";
+            string? relaySocketPath = null;
+            if (isRelay)
+            {
+                if (accessUri.Scheme != "http+unix")
+                {
+                    throw new InvalidOperationException("Relay is only supported for http+unix URIs");
+                }
+
+                relaySocketPath = accessUri.AbsolutePath.Split(':')[0];
+
+                args.AddRange(["relay", write ? "write" : "read", "--listen", $"unix://{relaySocketPath}"]);
+            }
+            else
+            {
+                args.AddRange([write ? "write" : "read", containerAccessFilePath,]);
+            }
+
+            args.AddRange([
+                write ? "-i" : "-o",
+                containerPipePath,
+                "--tombstone",
+                Path.Combine(absoluteContainerSecretsBase, relativeTombstonePath, "tombstone.txt")]);
+
             var sidecarContainerParameters = new CreateContainerParameters
             {
                 Image = _bufferSidecarImage,
                 Name = $"tyger-run-{run.Id}-sidecar-{bufferName}",
                 Labels = labels.Add("tyger-run-container-name", $"{bufferName}-buffer-sidecar"),
-                Cmd =
-                [
-                    write ? "write" : "read",
-                    containerAccessFilePath,
-                    write ? "-i" : "-o",
-                    containerPipePath,
-                    "--tombstone",
-                    Path.Combine(absoluteContainerSecretsBase, relativeTombstonePath, "tombstone.txt")
-                ],
+                Cmd = args,
                 HostConfig = new()
                 {
                     Mounts =
@@ -208,16 +247,21 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                 },
             };
 
-            foreach (var dataPlaneSocket in unixSocketsForBuffers)
+            if (isRelay)
             {
-                Stat(dataPlaneSocket, out var stat);
-                var uid = stat.Uid.ToString();
-                if (sidecarContainerParameters.User is { Length: > 0 } && sidecarContainerParameters.User != uid)
+                var socketDir = Path.GetDirectoryName(relaySocketPath)!;
+                sidecarContainerParameters.HostConfig.Mounts.Add(new()
                 {
-                    throw new InvalidOperationException("All data plane sockets must have the same owner");
-                }
-
-                sidecarContainerParameters.User = uid;
+                    Source = socketDir,
+                    Target = socketDir,
+                    Type = "bind",
+                    ReadOnly = false,
+                });
+                sidecarContainerParameters.User = "1000"; // TODO: hack!
+            }
+            else if (accessUri.Scheme is "http+unix" or "https+unix")
+            {
+                var dataPlaneSocket = accessUri.AbsolutePath.Split(':')[0];
                 sidecarContainerParameters.HostConfig.Mounts.Add(new()
                 {
                     Source = dataPlaneSocket,
@@ -225,6 +269,18 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                     Type = "bind",
                     ReadOnly = false,
                 });
+
+                foreach (var sock in unixSocketsForBuffers)
+                {
+                    Stat(sock, out var stat);
+                    var uid = stat.Uid.ToString();
+                    if (sidecarContainerParameters.User is { Length: > 0 } && sidecarContainerParameters.User != uid)
+                    {
+                        throw new InvalidOperationException("All data plane sockets must have the same owner");
+                    }
+
+                    sidecarContainerParameters.User = uid;
+                }
             }
 
             async Task StartSidecar()
@@ -724,14 +780,14 @@ public sealed class DockerRunSweeper : IRunSweeper, IHostedService, IDisposable
     private Task? _backgroundTask;
     private CancellationTokenSource? _backgroundCancellationTokenSource;
     private readonly ILogSource _logSource;
-    private readonly DockerSecretOptions _dockerSecretOptions;
+    private readonly DockerOptions _dockerSecretOptions;
     private readonly ILogArchive _logArchive;
     private readonly IRepository _repository;
     private readonly DockerClient _client;
     private readonly IRunReader _runReader;
     private readonly ILogger<DockerRunSweeper> _logger;
 
-    public DockerRunSweeper(IRepository repository, DockerClient client, IRunReader runReader, ILogSource logSource, ILogArchive logArchive, IOptions<DockerSecretOptions> dockerSecretOptions, ILogger<DockerRunSweeper> logger)
+    public DockerRunSweeper(IRepository repository, DockerClient client, IRunReader runReader, ILogSource logSource, ILogArchive logArchive, IOptions<DockerOptions> dockerSecretOptions, ILogger<DockerRunSweeper> logger)
     {
         _repository = repository;
         _client = client;
@@ -914,5 +970,25 @@ public class DockerReplicaDatabaseVersionProvider : IReplicaDatabaseVersionProvi
     public IAsyncEnumerable<(Uri, DatabaseVersion)> GetDatabaseVersionsOfReplicas(CancellationToken cancellationToken)
     {
         return AsyncEnumerable.Empty<(Uri, DatabaseVersion)>();
+    }
+}
+
+public class DockerEphemeralBufferProvider : IEphemeralBufferProvider
+{
+    private readonly string _ephemeralBuffersDir;
+    private readonly SignDataFunc _signData;
+
+    public DockerEphemeralBufferProvider(IOptions<DockerOptions> dockerOptions, IOptions<LocalBufferStorageOptions> bufferOptions)
+    {
+        _ephemeralBuffersDir = dockerOptions.Value.EphemeralBuffersPath;
+        _signData = DigitalSignature.CreateSingingFunc(bufferOptions.Value.SigningCertificatePath);
+    }
+
+    public Uri CreateBufferAccessUrl(string id, bool writeable)
+    {
+        var action = writeable ? SasAction.Create | SasAction.Read : SasAction.Read;
+        var queryString = LocalSasHandler.GetSasQueryString(id, SasResourceType.Blob, action, _signData);
+        queryString = queryString.Add("relay", "true");
+        return new Uri($"http+unix://{Path.Combine(_ephemeralBuffersDir, id)}.sock:{queryString}");
     }
 }

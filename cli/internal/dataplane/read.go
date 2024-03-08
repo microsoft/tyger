@@ -84,6 +84,10 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 		log.Ctx(ctx).Fatal().Err(err).Msg("invalid URL:")
 	}
 
+	if container.SupportsRelay() {
+		return readRelay(ctx, httpClient, container, outputWriter)
+	}
+
 	if err := readBufferStart(ctx, httpClient, container); err != nil {
 		return err
 	}

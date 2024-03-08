@@ -9,16 +9,18 @@ using Buffer = Tyger.ControlPlane.Model.Buffer;
 
 namespace Tyger.ControlPlane.Buffers;
 
-public sealed class BufferManager
+public sealed partial class BufferManager
 {
     private readonly IRepository _repository;
     private readonly IBufferProvider _bufferProvider;
+    private readonly IEphemeralBufferProvider _ephemeralBufferProvider;
     private readonly ILogger<BufferManager> _logger;
 
-    public BufferManager(IRepository repository, IBufferProvider bufferProvider, ILogger<BufferManager> logger)
+    public BufferManager(IRepository repository, IBufferProvider bufferProvider, IEphemeralBufferProvider ephemeralBufferProvider, ILogger<BufferManager> logger)
     {
         _repository = repository;
         _bufferProvider = bufferProvider;
+        _ephemeralBufferProvider = ephemeralBufferProvider;
         _logger = logger;
     }
 
@@ -88,6 +90,25 @@ public sealed class BufferManager
 
     internal async Task<BufferAccess?> CreateBufferAccessUrl(string id, bool writeable, CancellationToken cancellationToken)
     {
+        var match = BufferIdRegex().Match(id);
+        if (!match.Success)
+        {
+            return null;
+        }
+
+        id = match.Groups["BUFFERID"].Value;
+
+        if (match.Groups["TEMP"].Success)
+        {
+            var runIdGroup = match.Groups["RUNID"];
+            if (runIdGroup.Success)
+            {
+                return new BufferAccess(_ephemeralBufferProvider.CreateBufferAccessUrl(id, writeable));
+            }
+
+            return new BufferAccess(new Uri("temporary", UriKind.Relative));
+        }
+
         if (await GetBufferById(id, cancellationToken) is null)
         {
             return null;
@@ -95,4 +116,7 @@ public sealed class BufferManager
 
         return new BufferAccess(_bufferProvider.CreateBufferAccessUrl(id, writeable));
     }
+
+    [GeneratedRegex(@"^(?<TEMP>(run-(?<RUNID>\d+)-)?temp-)?(?<BUFFERID>\w+)$")]
+    private static partial Regex BufferIdRegex();
 }

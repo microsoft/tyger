@@ -137,6 +137,11 @@ func (c *Container) GetContainerName() string {
 	return path.Base(c.Path)
 }
 
+func (c *Container) SupportsRelay() bool {
+	relayParam, ok := c.Query()["relay"]
+	return ok && len(relayParam) == 1 && relayParam[0] == "true"
+}
+
 func NewContainer(sasUri string, httpClient *retryablehttp.Client) (*Container, error) {
 	parsedUri, err := url.Parse(sasUri)
 	if err != nil {

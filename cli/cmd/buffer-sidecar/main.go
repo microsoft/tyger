@@ -4,16 +4,21 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
+	"net"
+	"net/url"
 	"os"
 	"path"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/microsoft/tyger/cli/internal/cmd"
+	"github.com/microsoft/tyger/cli/internal/dataplane"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
@@ -37,15 +42,106 @@ func newRootCommand() *cobra.Command {
 	containerName := ""
 	tombstoneFile := ""
 
-	readCommand := cmd.NewBufferReadCommand(func(filePath string, flag int, perm fs.FileMode) (*os.File, error) {
+	openFileFunc := func(filePath string, flag int, perm fs.FileMode) (*os.File, error) {
 		return tryOpenFileUntilContainerExits(namespace, podName, containerName, tombstoneFile, filePath, flag, perm)
-	})
+	}
 
-	writeCommand := cmd.NewBufferWriteCommand(func(filePath string, flag int, perm fs.FileMode) (*os.File, error) {
-		return tryOpenFileUntilContainerExits(namespace, podName, containerName, tombstoneFile, filePath, flag, perm)
-	})
+	readCommand := cmd.NewBufferReadCommand(openFileFunc)
+	writeCommand := cmd.NewBufferWriteCommand(openFileFunc)
 
-	commands := []*cobra.Command{readCommand, writeCommand}
+	relayCommand := &cobra.Command{
+		Use: "relay",
+	}
+
+	rootCommand.AddCommand(relayCommand)
+
+	listenAddress := ""
+	outputFilePath := ""
+	createListener := func() net.Listener {
+		u, err := url.Parse(listenAddress)
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to parse listen address")
+		}
+
+		var listener net.Listener
+		switch u.Scheme {
+		case "unix":
+			listener, err = net.Listen(u.Scheme, u.Path)
+		default:
+			listener, err = net.Listen(u.Scheme, u.Host)
+		}
+
+		log.Info().Str("address", listenAddress).Msg("Listening for connections")
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to create listener")
+		}
+
+		return listener
+	}
+	relayReadCommand := &cobra.Command{
+		Use: "read",
+		Run: func(cmd *cobra.Command, args []string) {
+			var outputFile *os.File
+			if outputFilePath != "" {
+				var err error
+				outputFile, err = openFileFunc(outputFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+				if err != nil {
+					if err == context.Canceled {
+						log.Warn().Msg("OpenFile operation canceled. Exiting.")
+						return
+					}
+					log.Fatal().Err(err).Msg("Unable to open output file for writing")
+				}
+				defer outputFile.Close()
+			} else {
+				outputFile = os.Stdout
+			}
+			if err := dataplane.RelayReadServer(cmd.Context(), createListener(), containerName, outputFile); err != nil {
+				log.Fatal().Err(err).Send()
+			}
+		},
+	}
+
+	relayReadCommand.Flags().StringVarP(&outputFilePath, "output", "o", outputFilePath, "The file write to. If not specified, data is written to standard out.")
+	relayReadCommand.Flags().StringVarP(&listenAddress, "listen", "l", listenAddress, "The address to listen on.")
+	relayReadCommand.MarkFlagRequired("listen")
+	relayCommand.AddCommand(relayReadCommand)
+
+	inputFilePath := ""
+	relayWriteCommand := &cobra.Command{
+		Use: "write",
+		Run: func(cmd *cobra.Command, args []string) {
+			readerChan := make(chan io.ReadCloser, 1)
+			errorChan := make(chan error, 1)
+			go func() {
+				if inputFilePath == "" {
+					readerChan <- os.Stdin
+				}
+				inputFile, err := openFileFunc(inputFilePath, os.O_RDONLY, 0)
+				if err != nil {
+					if err == context.Canceled {
+						log.Warn().Msg("OpenFile operation canceled. Will write an empty payload to the buffer.")
+						readerChan <- io.NopCloser(bytes.NewReader([]byte{}))
+					} else {
+						errorChan <- err
+					}
+				} else {
+					readerChan <- inputFile
+				}
+			}()
+
+			if err := dataplane.RelayWriteServer(cmd.Context(), createListener(), containerName, readerChan, errorChan); err != nil {
+				log.Fatal().Err(err).Send()
+			}
+		},
+	}
+	relayWriteCommand.Flags().StringVarP(&inputFilePath, "input", "i", inputFilePath, "The file to read from. If not specified, data is read from standard in.")
+	relayWriteCommand.Flags().StringVarP(&listenAddress, "listen", "l", listenAddress, "The address to listen on.")
+	relayWriteCommand.MarkFlagRequired("listen")
+
+	relayCommand.AddCommand(relayWriteCommand)
+
+	commands := []*cobra.Command{readCommand, writeCommand, relayReadCommand, relayWriteCommand}
 	for _, command := range commands {
 		command.Flags().StringVar(&namespace, "namespace", "", "The namespace of the pod to watch")
 		command.Flags().StringVar(&podName, "pod", "", "The name of the pod to watch")

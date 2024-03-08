@@ -234,6 +234,11 @@ public abstract class RunCreatorBase
                 bufferId = buffer.Id!;
                 arguments![param.param] = bufferId;
             }
+            else if (bufferId == "_")
+            {
+                bufferId = $"temp-{UniqueId.Create()}";
+                arguments![param.param] = bufferId;
+            }
 
             var bufferAccess = await BufferManager.CreateBufferAccessUrl(bufferId, param.writeable, cancellationToken)
                 ?? throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The buffer '{0}' was not found", bufferId));

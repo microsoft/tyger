@@ -261,7 +261,7 @@ func NewBufferReadCommand(openFileFunc func(name string, flag int, perm fs.FileM
 }
 
 func NewBufferWriteCommand(openFileFunc func(name string, flag int, perm fs.FileMode) (*os.File, error)) *cobra.Command {
-	intputFilePath := ""
+	inputFilePath := ""
 	dop := dataplane.DefaultWriteDop
 	blockSizeString := ""
 
@@ -291,8 +291,8 @@ func NewBufferWriteCommand(openFileFunc func(name string, flag int, perm fs.File
 			}
 
 			var inputReader io.Reader
-			if intputFilePath != "" {
-				inputFile, err := openFileFunc(intputFilePath, os.O_RDONLY, 0)
+			if inputFilePath != "" {
+				inputFile, err := openFileFunc(inputFilePath, os.O_RDONLY, 0)
 				if err != nil {
 					if err == context.Canceled {
 						log.Warn().Msg("OpenFile operation canceled. Will write an empty payload to the buffer.")
@@ -338,7 +338,7 @@ func NewBufferWriteCommand(openFileFunc func(name string, flag int, perm fs.File
 		},
 	}
 
-	cmd.Flags().StringVarP(&intputFilePath, "input", "i", intputFilePath, "The file to read from. If not specified, data is read from standard in.")
+	cmd.Flags().StringVarP(&inputFilePath, "input", "i", inputFilePath, "The file to read from. If not specified, data is read from standard in.")
 	cmd.Flags().IntVarP(&dop, "dop", "p", dop, "The degree of parallelism")
 	cmd.Flags().StringVarP(&blockSizeString, "block-size", "b", blockSizeString, "Split the stream into blocks of this size.")
 	return cmd

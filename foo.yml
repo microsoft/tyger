@@ -10,4 +10,9 @@ job:
      - bash
      - -c
      - |
-       echo "Hi $(cat $INPUT_PIPE)" > $OUTPUT_PIPE
+      set -euo pipefail
+      cat $INPUT_PIPE > $OUTPUT_PIPE
+
+  buffers:
+    input: _
+    output: _

@@ -4,6 +4,7 @@
 using System.ComponentModel.DataAnnotations;
 using k8s;
 using Microsoft.Extensions.Options;
+using Tyger.ControlPlane.Buffers;
 using Tyger.ControlPlane.Database;
 using Tyger.ControlPlane.Logging;
 using Tyger.ControlPlane.Runs;
@@ -46,6 +47,7 @@ public static class Kubernetes
             builder.Services.AddSingleton<IHostedService, RunSweeper>(sp => sp.GetRequiredService<RunSweeper>());
             builder.Services.AddSingleton<RunSweeper>();
             builder.Services.AddSingleton<IRunSweeper>(sp => sp.GetRequiredService<RunSweeper>());
+            builder.Services.AddSingleton<IEphemeralBufferProvider, KubernetesEphemeralBufferProvider>();
         }
     }
 }
