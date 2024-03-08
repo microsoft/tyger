@@ -64,6 +64,7 @@ services:
       Urls: http://unix:/opt/tyger/control-plane/tyger.sock
       Auth__Enabled: "false"
       Compute__Docker__RunSecretsPath: /opt/tyger/control-plane/run-secrets/
+      Compute__Docker__EphemeralBuffersPath: /opt/tyger/control-plane/ephemeral-buffers/
       LogArchive__LocalStorage__LogsDirectory: /app/logs
       Buffers__LocalStorage__SigningCertificatePath: /opt/tyger/secrets/tyger_local_buffer_service_cert_latest.pem
       Buffers__LocalStorage__DataPlaneEndpoint: http+unix:///opt/tyger/data-plane/tyger.data.sock

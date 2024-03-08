@@ -105,9 +105,8 @@ set-localsettings:
 
 local-docker-set-localsettings: download-local-buffer-service-cert
 	run_secrets_path="/opt/tyger/control-plane/run-secrets/"
-	mkdir -p "$${run_secrets_path}"
+	ephemeral_buffers_path="/opt/tyger/control-plane/ephemeral-buffers/"
 	logs_path="/var/lib/docker/volumes/local-docker_run_logs/_data"
-	mkdir -p "$${logs_path}"
 
 	jq <<- EOF > ${CONTROL_PLANE_SERVER_PATH}/appsettings.local.json
 		{
@@ -118,7 +117,8 @@ local-docker-set-localsettings: download-local-buffer-service-cert
 			},
 			"compute": {
 				"docker": {
-					"runSecretsPath": "$${run_secrets_path}"
+					"runSecretsPath": "$${run_secrets_path}",
+					"ephemeralBuffersPath": "$${ephemeral_buffers_path}"
 				}
 			},
 			"logArchive": {
@@ -225,10 +225,11 @@ up: ensure-environment-conditionally docker-build-tyger-server docker-build-buff
 local-docker-up:
 	mkdir -p /opt/tyger/control-plane/
 	mkdir -p /opt/tyger/control-plane/run-secrets/
+	mkdir -p /opt/tyger/control-plane/ephemeral-buffers/
 	mkdir -p /opt/tyger/data-plane/
 	mkdir -p /opt/tyger/database/
 	cd local-docker
-	docker compose up -d --wait
+	docker compose up --build -d --wait
 
 local-docker-down:
 	cd local-docker

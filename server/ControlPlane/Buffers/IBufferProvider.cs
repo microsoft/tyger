@@ -7,3 +7,8 @@ public interface IBufferProvider
 
     Uri CreateBufferAccessUrl(string id, bool writeable);
 }
+
+public interface IEphemeralBufferProvider
+{
+    Uri CreateBufferAccessUrl(string id, bool writeable);
+}

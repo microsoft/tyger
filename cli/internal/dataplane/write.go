@@ -91,6 +91,10 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 		return fmt.Errorf("invalid URL: %w", err)
 	}
 
+	if container.SupportsRelay() {
+		return relayWrite(ctx, httpClient, container, inputReader)
+	}
+
 	if err := writeStartMetadata(ctx, httpClient, container); err != nil {
 		return err
 	}
