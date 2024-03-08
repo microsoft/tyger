@@ -4,6 +4,8 @@ namespace Tyger.ControlPlane.Compute.Docker;
 
 internal static partial class Interop
 {
+    [LibraryImport("libSystem.Native", EntryPoint = "SystemNative_SymLink", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial int SymLink(string target, string linkPath);
 
     [LibraryImport("libSystem.Native", EntryPoint = "SystemNative_MkFifo", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
     internal static partial int MkFifo(string pathName, uint mode);
