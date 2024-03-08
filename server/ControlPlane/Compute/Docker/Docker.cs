@@ -61,6 +61,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
     private readonly DockerOptions _dockerSecretOptions;
 
     private bool _supportsGpu;
+    private FileStatus _dataPlaneSocketStat;
 
     public DockerRunCreator(
         DockerClient client,
@@ -68,6 +69,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         BufferManager bufferManager,
         IOptions<BufferOptions> bufferOptions,
         IOptions<DockerOptions> dockerSecretOptions,
+        IOptions<LocalBufferStorageOptions> localBufferStorageOptions,
         ILogger<DockerRunCreator> logger)
     : base(repository, bufferManager)
     {
@@ -75,6 +77,15 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         _logger = logger;
         _bufferSidecarImage = bufferOptions.Value.BufferSidecarImage;
         _dockerSecretOptions = dockerSecretOptions.Value;
+
+        if (localBufferStorageOptions.Value?.DataPlaneEndpoint is { } localDpEndpoint)
+        {
+            if (localDpEndpoint.Scheme is "http+unix" or "https+unix")
+            {
+                var socketPath = localDpEndpoint.AbsolutePath.Split(":")[0];
+                Stat(socketPath, out _dataPlaneSocketStat);
+            }
+        }
     }
 
     public Capabilities GetCapabilities() => _supportsGpu ? Capabilities.Gpu : Capabilities.None;
@@ -257,7 +268,10 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                     Type = "bind",
                     ReadOnly = false,
                 });
-                sidecarContainerParameters.User = "1000"; // TODO: hack!
+                if (_dataPlaneSocketStat.Uid != 0)
+                {
+                    sidecarContainerParameters.User = $"{_dataPlaneSocketStat.Uid}:{_dataPlaneSocketStat.Gid}";
+                }
             }
             else if (accessUri.Scheme is "http+unix" or "https+unix")
             {
