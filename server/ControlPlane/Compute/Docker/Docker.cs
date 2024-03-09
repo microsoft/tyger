@@ -238,7 +238,9 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                 write ? "-i" : "-o",
                 containerPipePath,
                 "--tombstone",
-                Path.Combine(absoluteContainerSecretsBase, relativeTombstonePath, "tombstone.txt")]);
+                Path.Combine(absoluteContainerSecretsBase, relativeTombstonePath, "tombstone.txt"),
+                "--log-format", "json",
+            ]);
 
             var sidecarContainerParameters = new CreateContainerParameters
             {
