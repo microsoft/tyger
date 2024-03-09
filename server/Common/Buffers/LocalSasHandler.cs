@@ -83,13 +83,23 @@ public static class LocalSasHandler
         }
 
         var stringToSign = string.Join("\n",
-            CurrentSasVersion,
+            sv,
             containerId,
             sp,
             st,
             se);
 
-        if (!validateSignature(Encoding.UTF8.GetBytes(stringToSign), Convert.FromBase64String(sig.ToString())))
+        byte[] sigBytes;
+        try
+        {
+            sigBytes = Convert.FromBase64String(sig.ToString());
+        }
+        catch (FormatException)
+        {
+            return SasValidationResult.InvalidSas;
+        }
+
+        if (!validateSignature(Encoding.UTF8.GetBytes(stringToSign), sigBytes))
         {
             return SasValidationResult.InvalidSas;
         }

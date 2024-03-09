@@ -14,7 +14,7 @@ public static class DigitalSignature
 
         if (cert.GetECDsaPrivateKey() is { } ecdsaKey)
         {
-            return (data) => ecdsaKey.SignData(data, HashAlgorithmName.SHA256);
+            return (data) => ecdsaKey.SignData(data, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
         }
         else if (cert.GetRSAPrivateKey() is { } rsaKey)
         {
@@ -28,18 +28,18 @@ public static class DigitalSignature
 
     public static ValidateSignatureFunc CreateValidationFunc(string primaryCertificatePath, string? secondaryCertificatePath)
     {
-        static ValidateSignatureFunc GetValidator(string certificatePath)
+        static Func<byte[], byte[], bool> GetHashValidator(string certificatePath)
         {
             ReadOnlySpan<char> certContents = File.ReadAllText(certificatePath);
             var cert = X509Certificate2.CreateFromPem(certContents);
 
             if (cert.GetECDsaPublicKey() is { } ecdsaKey)
             {
-                return (data, signature) => ecdsaKey.VerifyData(data, signature, HashAlgorithmName.SHA256);
+                return ecdsaKey.VerifyHash;
             }
             else if (cert.GetRSAPublicKey() is { } rsaKey)
             {
-                return (data, signature) => rsaKey.VerifyData(data, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+                return (data, signature) => rsaKey.VerifyHash(data, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
             }
             else
             {
@@ -47,15 +47,13 @@ public static class DigitalSignature
             }
         }
 
-        var primaryValidator = GetValidator(primaryCertificatePath);
-        if (!string.IsNullOrEmpty(secondaryCertificatePath))
+        var primaryValidator = GetHashValidator(primaryCertificatePath);
+        var secondaryValidator = string.IsNullOrEmpty(secondaryCertificatePath) ? null : GetHashValidator(secondaryCertificatePath);
+
+        return (data, signature) =>
         {
-            var secondaryValidator = GetValidator(secondaryCertificatePath);
-            return (data, signature) => primaryValidator(data, signature) || secondaryValidator(data, signature);
-        }
-        else
-        {
-            return primaryValidator;
-        }
+            var hash = SHA256.HashData(data);
+            return primaryValidator(hash, signature) || (secondaryValidator != null && secondaryValidator(hash, signature));
+        };
     }
 }

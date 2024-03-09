@@ -2,9 +2,14 @@ package dataplane
 
 import (
 	"context"
+	"encoding/base64"
+	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -13,9 +18,34 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func RelayReadServer(ctx context.Context, listener net.Listener, containerId string, outputWriter io.Writer) error {
+const (
+	errorCodeHeaderName = "x-ms-error-code"
+)
+
+func RelayReadServer(
+	ctx context.Context,
+	listener net.Listener,
+	bufferId string,
+	outputWriter io.Writer,
+	validateSignatureFunc ValidateSignatureFunc,
+) error {
 	addRoutes := func(r *chi.Mux, complete context.CancelFunc) {
 		r.Put("/", func(w http.ResponseWriter, r *http.Request) {
+			if err := ValidateSas(bufferId, SasActionCreate, r.URL.Query(), validateSignatureFunc); err != nil {
+				switch err {
+				case ErrInvalidSas:
+					w.Header().Set(errorCodeHeaderName, "AuthenticationFailed")
+					w.WriteHeader(http.StatusForbidden)
+					return
+				case ErrSasActionNotAllowed:
+					w.Header().Set(errorCodeHeaderName, "AuthorizationPermissionMismatch")
+					w.WriteHeader(http.StatusForbidden)
+					return
+				default:
+					panic(fmt.Sprintf("unexpected error: %v", err))
+				}
+			}
+
 			defer complete()
 			if outputWriter == io.Discard {
 				log.Warn().Msg("Discarding input data")
@@ -37,9 +67,31 @@ func RelayReadServer(ctx context.Context, listener net.Listener, containerId str
 	return relayServer(ctx, listener, addRoutes)
 }
 
-func RelayWriteServer(ctx context.Context, listener net.Listener, containerId string, inputReaderChan <-chan io.ReadCloser, errorChan <-chan error) error {
+func RelayWriteServer(
+	ctx context.Context,
+	listener net.Listener,
+	containerId string,
+	inputReaderChan <-chan io.ReadCloser,
+	errorChan <-chan error,
+	validateSignatureFunc ValidateSignatureFunc,
+) error {
 	addRoutes := func(r *chi.Mux, complete context.CancelFunc) {
 		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+			if err := ValidateSas(containerId, SasActionRead, r.URL.Query(), validateSignatureFunc); err != nil {
+				switch err {
+				case ErrInvalidSas:
+					w.Header().Set(errorCodeHeaderName, "AuthenticationFailed")
+					w.WriteHeader(http.StatusForbidden)
+					return
+				case ErrSasActionNotAllowed:
+					w.Header().Set(errorCodeHeaderName, "AuthorizationPermissionMismatch")
+					w.WriteHeader(http.StatusForbidden)
+					return
+				default:
+					panic(fmt.Sprintf("unexpected error: %v", err))
+				}
+			}
+
 			var inputReader io.ReadCloser
 			select {
 			case inputReader = <-inputReaderChan:
@@ -117,4 +169,97 @@ func createRequestLoggerMiddleware() func(http.Handler) http.Handler {
 		}
 		return http.HandlerFunc(fn)
 	}
+}
+
+type SasAction int
+
+const (
+	SasActionRead   SasAction = iota
+	SasActionCreate SasAction = iota
+)
+
+const CurrentSasVersion = "0.1.0"
+
+var (
+	ErrInvalidSas          = errors.New("the SAS token is not valid")
+	ErrSasActionNotAllowed = errors.New("the requested action is not permissed with the given SAS token")
+)
+
+func ValidateSas(containerId string, action SasAction, queryString url.Values, validateSignature ValidateSignatureFunc) error {
+	var (
+		sv       string
+		sp       string
+		st       string
+		stParsed time.Time
+		se       string
+		seParsed time.Time
+		sig      string
+		sigBytes []byte
+	)
+
+	if sv = queryString.Get("sv"); sv != CurrentSasVersion {
+		return ErrInvalidSas
+	}
+
+	if sp = queryString.Get("sp"); sp == "" {
+		return ErrInvalidSas
+	}
+
+	if st = queryString.Get("st"); st == "" {
+		return ErrInvalidSas
+	}
+
+	var err error
+	if stParsed, err = time.Parse(time.RFC3339, st); err != nil {
+		return ErrInvalidSas
+	}
+
+	if se = queryString.Get("se"); se == "" {
+		return ErrInvalidSas
+	}
+
+	if seParsed, err = time.Parse(time.RFC3339, se); err != nil {
+		return ErrInvalidSas
+	}
+
+	if sig = queryString.Get("sig"); sig == "" {
+		return ErrInvalidSas
+	}
+
+	now := time.Now().UTC()
+
+	if now.Before(stParsed) || now.After(seParsed) {
+		return ErrInvalidSas
+	}
+
+	stringToSign := strings.Join([]string{
+		sv,
+		containerId,
+		sp,
+		st,
+		se}, "\n")
+
+	sigBytes, err = base64.StdEncoding.DecodeString(sig)
+	if err != nil {
+		return ErrInvalidSas
+	}
+
+	if !validateSignature([]byte(stringToSign), sigBytes) {
+		return ErrInvalidSas
+	}
+
+	switch action {
+	case SasActionRead:
+		if !strings.Contains(sp, "r") {
+			return ErrSasActionNotAllowed
+		}
+	case SasActionCreate:
+		if !strings.Contains(sp, "c") {
+			return ErrSasActionNotAllowed
+		}
+	default:
+		panic(fmt.Sprintf("unknown action: %v", action))
+	}
+
+	return nil
 }

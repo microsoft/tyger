@@ -118,7 +118,8 @@ local-docker-set-localsettings: download-local-buffer-service-cert
 			"compute": {
 				"docker": {
 					"runSecretsPath": "$${run_secrets_path}",
-					"ephemeralBuffersPath": "$${ephemeral_buffers_path}"
+					"ephemeralBuffersPath": "$${ephemeral_buffers_path}",
+					"primarySigningPublicCertificatePath": "/opt/tyger/secrets/tyger_local_buffer_service_cert_$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version')_public.pem"
 				}
 			},
 			"logArchive": {
@@ -147,7 +148,7 @@ local-docker-set-data-plane-localsettings:
 			"urls": "http://unix:/opt/tyger/data-plane/tyger.data.sock",
 			"logging": { "Console": {"FormatterName": "simple" } },
 			"dataDirectory": "/var/lib/docker/volumes/local-docker_buffers/_data",
-			"primarySigningCertificatePath": "/opt/tyger/secrets/tyger_local_buffer_service_cert_$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version')_public.pem"
+			"PrimarySigningPublicCertificatePath": "/opt/tyger/secrets/tyger_local_buffer_service_cert_$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version')_public.pem"
 		}
 	EOF
 

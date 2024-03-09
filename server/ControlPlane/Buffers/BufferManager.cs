@@ -117,6 +117,17 @@ public sealed partial class BufferManager
         return new BufferAccess(_bufferProvider.CreateBufferAccessUrl(id, writeable));
     }
 
+    public string GetUnqualifiedBufferId(string id)
+    {
+        var match = BufferIdRegex().Match(id);
+        if (!match.Success)
+        {
+            return id;
+        }
+
+        return match.Groups["BUFFERID"].Value;
+    }
+
     [GeneratedRegex(@"^(?<TEMP>(run-(?<RUNID>\d+)-)?temp-)?(?<BUFFERID>\w+)$")]
     private static partial Regex BufferIdRegex();
 }

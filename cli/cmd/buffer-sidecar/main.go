@@ -57,6 +57,9 @@ func newRootCommand() *cobra.Command {
 
 	listenAddress := ""
 	outputFilePath := ""
+	primaryCertPath := ""
+	secondaryCertPath := ""
+	bufferId := ""
 	createListener := func() (net.Listener, error) {
 		u, err := url.Parse(listenAddress)
 		if err != nil {
@@ -79,11 +82,17 @@ func newRootCommand() *cobra.Command {
 		log.Info().Str("address", listenAddress).Msg("Listening for connections")
 		return listener, nil
 	}
+
 	relayReadCommand := &cobra.Command{
 		Use: "read",
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx, cancel := context.WithCancel(cmd.Context())
 			impl := func() error {
+				validateSignatureFunc, err := dataplane.CreateSignatureValidationFunc(primaryCertPath, secondaryCertPath)
+				if err != nil {
+					return err
+				}
+
 				var outputWriter io.Writer
 				if outputFilePath != "" {
 					var err error
@@ -112,7 +121,7 @@ func newRootCommand() *cobra.Command {
 					return err
 				}
 
-				return dataplane.RelayReadServer(ctx, listener, containerName, outputWriter)
+				return dataplane.RelayReadServer(ctx, listener, bufferId, outputWriter, validateSignatureFunc)
 			}
 
 			if err := impl(); err != nil {
@@ -124,6 +133,11 @@ func newRootCommand() *cobra.Command {
 	relayReadCommand.Flags().StringVarP(&outputFilePath, "output", "o", outputFilePath, "The file write to. If not specified, data is written to standard out.")
 	relayReadCommand.Flags().StringVarP(&listenAddress, "listen", "l", listenAddress, "The address to listen on.")
 	relayReadCommand.MarkFlagRequired("listen")
+	relayReadCommand.Flags().StringVarP(&bufferId, "buffer", "b", bufferId, "The buffer ID")
+	relayReadCommand.MarkFlagRequired("buffer")
+	relayReadCommand.Flags().StringVarP(&primaryCertPath, "primary-cert", "p", primaryCertPath, "The path to the primary signing certificate public key file")
+	relayReadCommand.MarkFlagRequired("primary-cert")
+	relayReadCommand.Flags().StringVarP(&secondaryCertPath, "secondary-cert", "s", secondaryCertPath, "The path to the secondary signing certificate public key file")
 	relayCommand.AddCommand(relayReadCommand)
 
 	inputFilePath := ""
@@ -132,6 +146,10 @@ func newRootCommand() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx, cancel := context.WithCancel(cmd.Context())
 			impl := func() error {
+				validateSignatureFunc, err := dataplane.CreateSignatureValidationFunc(primaryCertPath, secondaryCertPath)
+				if err != nil {
+					return err
+				}
 				readerChan := make(chan io.ReadCloser, 1)
 				errorChan := make(chan error, 1)
 				go func() {
@@ -162,7 +180,7 @@ func newRootCommand() *cobra.Command {
 					return err
 				}
 
-				return dataplane.RelayWriteServer(ctx, listener, containerName, readerChan, errorChan)
+				return dataplane.RelayWriteServer(ctx, listener, bufferId, readerChan, errorChan, validateSignatureFunc)
 			}
 
 			if err := impl(); err != nil {
@@ -173,6 +191,11 @@ func newRootCommand() *cobra.Command {
 	relayWriteCommand.Flags().StringVarP(&inputFilePath, "input", "i", inputFilePath, "The file to read from. If not specified, data is read from standard in.")
 	relayWriteCommand.Flags().StringVarP(&listenAddress, "listen", "l", listenAddress, "The address to listen on.")
 	relayWriteCommand.MarkFlagRequired("listen")
+	relayWriteCommand.Flags().StringVarP(&bufferId, "buffer", "b", bufferId, "The buffer ID")
+	relayWriteCommand.MarkFlagRequired("buffer")
+	relayWriteCommand.Flags().StringVarP(&primaryCertPath, "primary-cert", "p", primaryCertPath, "The path to the primary signing certificate public key file")
+	relayWriteCommand.MarkFlagRequired("primary-cert")
+	relayWriteCommand.Flags().StringVarP(&secondaryCertPath, "secondary-cert", "s", secondaryCertPath, "The path to the secondary signing certificate public key file")
 
 	relayCommand.AddCommand(relayWriteCommand)
 

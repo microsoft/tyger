@@ -51,6 +51,11 @@ public class DockerOptions
 
     [Required]
     public required string EphemeralBuffersPath { get; set; }
+
+    [Required]
+    public required string PrimarySigningPublicCertificatePath { get; set; }
+
+    public string? SecondarySigningPublicCertificatePath { get; set; }
 }
 
 public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedService, ICapabilitiesContributor
@@ -181,17 +186,17 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
         var startContainersTasks = new List<Task>();
 
-        foreach ((var bufferName, (bool write, Uri accessUri)) in bufferMap)
+        foreach ((var bufferParameterName, (bool write, Uri accessUri)) in bufferMap)
         {
-            var pipeName = bufferName + ".pipe";
+            var pipeName = bufferParameterName + ".pipe";
             var pipePath = Path.Combine(absoluteSecretsBase, relativePipesPath, pipeName);
             MkFifo(pipePath, 0x1FF);
             ChMod(pipePath, 0x1FF);
 
             var containerPipePath = Path.Combine(absoluteContainerSecretsBase, relativePipesPath, Path.GetFileName(pipePath));
-            env[$"{bufferName.ToUpperInvariant()}_PIPE"] = containerPipePath;
+            env[$"{bufferParameterName.ToUpperInvariant()}_PIPE"] = containerPipePath;
 
-            var accessFileName = bufferName + ".access";
+            var accessFileName = bufferParameterName + ".access";
             var accessFilePath = Path.Combine(absoluteSecretsBase, relativeAccessFilesPath, accessFileName);
             File.WriteAllText(accessFilePath, accessUri.ToString());
             var containerAccessFilePath = Path.Combine(absoluteContainerSecretsBase, relativeAccessFilesPath, accessFileName);
@@ -209,7 +214,20 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
                 relaySocketPath = accessUri.AbsolutePath.Split(':')[0];
 
-                args.AddRange(["relay", write ? "write" : "read", "--listen", $"unix://{relaySocketPath}"]);
+                args.AddRange([
+                    "relay",
+                    write ? "write" : "read",
+                    "--listen", $"unix://{relaySocketPath}",
+                    "--primary-cert", _dockerSecretOptions.PrimarySigningPublicCertificatePath,
+                ]);
+                if (!string.IsNullOrEmpty(_dockerSecretOptions.SecondarySigningPublicCertificatePath))
+                {
+                    args.AddRange(["--secondary-cert", _dockerSecretOptions.SecondarySigningPublicCertificatePath]);
+                }
+
+                var unqualifiedBufferId = BufferManager.GetUnqualifiedBufferId(run.Job.Buffers![bufferParameterName]);
+
+                args.AddRange(["--buffer", unqualifiedBufferId]);
             }
             else
             {
@@ -225,8 +243,8 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             var sidecarContainerParameters = new CreateContainerParameters
             {
                 Image = _bufferSidecarImage,
-                Name = $"tyger-run-{run.Id}-sidecar-{bufferName}",
-                Labels = labels.Add("tyger-run-container-name", $"{bufferName}-buffer-sidecar"),
+                Name = $"tyger-run-{run.Id}-sidecar-{bufferParameterName}",
+                Labels = labels.Add("tyger-run-container-name", $"{bufferParameterName}-buffer-sidecar"),
                 Cmd = args,
                 HostConfig = new()
                 {
@@ -276,6 +294,25 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                     // use the same ownership as the data plane socket
                     Stat(_dataPlaneSocketPath, out var stat);
                     sidecarContainerParameters.User = $"{stat.Uid}:{stat.Gid}";
+                }
+
+                sidecarContainerParameters.HostConfig.Mounts.Add(new()
+                {
+                    Source = _dockerSecretOptions.PrimarySigningPublicCertificatePath,
+                    Target = _dockerSecretOptions.PrimarySigningPublicCertificatePath,
+                    Type = "bind",
+                    ReadOnly = true,
+                });
+
+                if (!string.IsNullOrEmpty(_dockerSecretOptions.SecondarySigningPublicCertificatePath))
+                {
+                    sidecarContainerParameters.HostConfig.Mounts.Add(new()
+                    {
+                        Source = _dockerSecretOptions.SecondarySigningPublicCertificatePath,
+                        Target = _dockerSecretOptions.SecondarySigningPublicCertificatePath,
+                        Type = "bind",
+                        ReadOnly = true,
+                    });
                 }
             }
             else if (accessUri.Scheme is "http+unix" or "https+unix")
