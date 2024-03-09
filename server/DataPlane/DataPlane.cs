@@ -76,7 +76,7 @@ public class StorageOptions
     public string DataDirectory { get; init; } = null!;
 
     [Required, MinLength(1)]
-    public string PrimarySigningCertificatePath { get; init; } = null!;
+    public string PrimarySigningPublicCertificatePath { get; init; } = null!;
 
     public string? SecondarySigningCertificatePath { get; init; }
 }
@@ -104,7 +104,7 @@ public class DataPlaneStorageHandler : IHealthCheck
         Directory.CreateDirectory(_metadataDir);
         Directory.CreateDirectory(_stagingDir);
 
-        _validateSignature = DigitalSignature.CreateValidationFunc(bufferOptions.Value.PrimarySigningCertificatePath, bufferOptions.Value.SecondarySigningCertificatePath);
+        _validateSignature = DigitalSignature.CreateValidationFunc(bufferOptions.Value.PrimarySigningPublicCertificatePath, bufferOptions.Value.SecondarySigningCertificatePath);
     }
 
     internal void HandleHeadContainer(string containerId, HttpContext context)

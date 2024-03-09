@@ -35,7 +35,7 @@ services:
       Urls: http://unix:/opt/tyger/data-plane/tyger.data.sock
       Auth__Enabled: "false"
       DataDirectory: /app/data
-      PrimarySigningCertificatePath: /opt/tyger/secrets/tyger_local_buffer_service_cert_latest_public.pem
+      PrimarySigningPublicCertificatePath: /opt/tyger/secrets/tyger_local_buffer_service_cert_latest_public.pem
 
     volumes:
       - buffers:/app/data
@@ -65,6 +65,7 @@ services:
       Auth__Enabled: "false"
       Compute__Docker__RunSecretsPath: /opt/tyger/control-plane/run-secrets/
       Compute__Docker__EphemeralBuffersPath: /opt/tyger/control-plane/ephemeral-buffers/
+      Compute__Docker__PrimarySigningPublicCertificatePath: /opt/tyger/secrets/tyger_local_buffer_service_cert_latest_public.pem
       LogArchive__LocalStorage__LogsDirectory: /app/logs
       Buffers__LocalStorage__SigningCertificatePath: /opt/tyger/secrets/tyger_local_buffer_service_cert_latest.pem
       Buffers__LocalStorage__DataPlaneEndpoint: http+unix:///opt/tyger/data-plane/tyger.data.sock
@@ -78,6 +79,10 @@ services:
       - type: bind
         source: /opt/tyger/secrets/tyger_local_buffer_service_cert_latest.pem
         target: /opt/tyger/secrets/tyger_local_buffer_service_cert_latest.pem
+
+      - type: bind
+        source: /opt/tyger/secrets/tyger_local_buffer_service_cert_latest_public.pem
+        target: /opt/tyger/secrets/tyger_local_buffer_service_cert_latest_public.pem
 
       - type: bind
         source: /opt/tyger/control-plane
