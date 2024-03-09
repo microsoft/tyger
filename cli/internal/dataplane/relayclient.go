@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
+	"github.com/microsoft/tyger/cli/internal/client"
 	"github.com/rs/zerolog/log"
 )
 
@@ -37,7 +38,7 @@ func relayWrite(ctx context.Context, httpClient *retryablehttp.Client, container
 
 	resp, err := relayClient.Do(request)
 	if err != nil {
-		return fmt.Errorf("error writing to relay: %w", err)
+		return fmt.Errorf("error writing to relay: %w", client.RedactHttpError(err))
 	}
 	io.Copy(io.Discard, resp.Body)
 	if resp.StatusCode != http.StatusAccepted {
@@ -64,7 +65,7 @@ func readRelay(ctx context.Context, httpClient *retryablehttp.Client, container 
 
 	resp, err := relayClient.Do(request)
 	if err != nil {
-		return fmt.Errorf("error reading from relay: %w", err)
+		return fmt.Errorf("error reading from relay: %w", client.RedactHttpError(err))
 	}
 
 	defer resp.Body.Close()
@@ -86,7 +87,7 @@ func readRelay(ctx context.Context, httpClient *retryablehttp.Client, container 
 		metrics.Stop()
 	}
 
-	return err
+	return client.RedactHttpError(err)
 }
 
 func pingRelay(ctx context.Context, uri string, httpClient *retryablehttp.Client) error {
@@ -109,12 +110,12 @@ func pingRelay(ctx context.Context, uri string, httpClient *retryablehttp.Client
 			}
 
 			if errors.Is(err, syscall.ECONNREFUSED) {
-				log.Ctx(ctx).Info().Msg("Waiting for relay server to be ready.")
+				log.Ctx(ctx).Debug().Msg("Waiting for relay server to be ready.")
 			} else {
-				return fmt.Errorf("error connecting to relay server: %w", err)
+				return fmt.Errorf("error connecting to relay server: %w", client.RedactHttpError(err))
 			}
 		} else {
-			log.Ctx(ctx).Info().Int("status", resp.StatusCode).Msg("Waiting for relay server to be ready.")
+			log.Ctx(ctx).Debug().Int("status", resp.StatusCode).Msg("Waiting for relay server to be ready.")
 		}
 
 		switch {

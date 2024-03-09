@@ -69,8 +69,14 @@ func newRootCommand() *cobra.Command {
 		var listener net.Listener
 		switch u.Scheme {
 		case "unix":
-			os.Remove(u.Path)
-			listener, err = net.Listen(u.Scheme, u.Path)
+			tempPath := u.Path + "." + "temp"
+			defer os.Remove(tempPath)
+			listener, err = net.Listen(u.Scheme, tempPath)
+			if err == nil {
+				if err := os.Rename(tempPath, u.Path); err != nil {
+					return nil, fmt.Errorf("failed to move socket: %w", err)
+				}
+			}
 		default:
 			listener, err = net.Listen(u.Scheme, u.Host)
 		}
