@@ -203,7 +203,7 @@ public class RunCreator : RunCreatorBase, IRunCreator, ICapabilitiesContributor
         waitScript.AppendLine($"until kubectl wait --for=condition=ready pod -l {WorkerLabel}={run.Id}; do echo waiting for workers to be ready; sleep 1; done;");
         foreach (var host in GetWorkerDnsNames(run))
         {
-            waitScript.AppendLine($"until nslookup {host}; do echo waiting for hostname {host} to resolve; sleep 1; done;");
+            waitScript.AppendLine($"until getent hosts {host}; do echo waiting for hostname {host} to resolve; sleep 1; done;");
         }
 
         initContainers.Add(

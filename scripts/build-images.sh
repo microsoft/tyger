@@ -40,7 +40,7 @@ while [[ $# -gt 0 ]]; do
     shift
     ;;
   --tyger-server)
-    tyger_control_plane_server=1
+    tyger_server=1
     shift
     ;;
   --worker-waiter)
@@ -88,11 +88,12 @@ export DOCKER_BUILDKIT=1
 
 repo_root_dir="$(dirname "$0")/.."
 
-function build_and_push() {
-  echo "Building image ${local_tag}..."
+function build_and_push_platform() {
+  full_image="${container_registry_fqdn}/${repo}:${image_tag_with_platform}"
+  echo "Building image ${full_image}..."
 
   set +e
-  output=$(docker build -f "${dockerfile_path}" -t "${local_tag}" --target "${target}" --build-arg TYGER_VERSION="${image_tag}" "${build_context}" --progress plain 2>&1)
+  output=$(docker buildx build --platform "${platform}" -f "${dockerfile_path}" -t "${full_image}" --target "${target}" --build-arg TYGER_VERSION="${image_tag}" "${build_context}" --progress plain 2>&1)
   ret=$?
   set -e
   if [[ $ret -ne 0 ]]; then
@@ -100,12 +101,9 @@ function build_and_push() {
     exit 1
   fi
 
-
   if [[ -z "${push:-}" ]]; then
     return 0
   fi
-
-  full_image="${container_registry_fqdn}/${remote_repo}:${image_tag}"
 
   # Push image
   if [[ -z "${force:-}" ]]; then
@@ -118,33 +116,56 @@ function build_and_push() {
     fi
   fi
 
-  docker tag "${local_tag}" "$full_image"
   echo "Pushing image ${full_image}..."
   "$(dirname "${0}")/docker-auth-wrapper.sh" push --quiet "$full_image" >/dev/null
+}
+
+function build_and_push() {
+  platform=amd64
+  image_tag_with_platform=$"${image_tag}-${platform}"
+  build_and_push_platform
+
+  platform=arm64
+  image_tag_with_platform=$"${image_tag}-${platform}"
+  build_and_push_platform
+
+  manifest="${container_registry_fqdn}/${repo}:${image_tag}"
+  docker manifest create "${manifest}" --amend "${container_registry_fqdn}/${repo}:${image_tag}-amd64" --amend "${container_registry_fqdn}/${repo}:${image_tag}-arm64" > /dev/null
+
+  # Push manigest
+  if [[ -z "${force:-}" ]]; then
+    # First try to pull the image
+    manifest_exists=$("$(dirname "${0}")/docker-auth-wrapper.sh" pull "$manifest" 2>/dev/null || true)
+    if [[ -n "$manifest_exists" ]]; then
+      echo "Attempting to push a manifest that already exists: $manifest"
+      echo "Use \"--push-force\" to overwrite existing image tags"
+      exit 1
+    fi
+  fi
+
+  echo "Pushing manifest ${manifest}..."
+  docker manifest push "${manifest}" > /dev/null
 }
 
 if [[ -n "${test_connectivity:-}" ]]; then
   build_context="${repo_root_dir}/cli"
   dockerfile_path="${repo_root_dir}/cli/integrationtest/testconnectivity/Dockerfile"
   target="testconnectivity"
-  local_tag="testconnectivity"
-  remote_repo="testconnectivity"
+  repo="testconnectivity"
 
   build_and_push
 fi
 
-if [[ -n "${tyger_control_plane_server:-}" ]]; then
+if [[ -n "${tyger_server:-}" ]]; then
   build_context="${repo_root_dir}/"
   dockerfile_path="${repo_root_dir}/server/Dockerfile"
   target="control-plane"
-  local_tag="tyger-server"
-  remote_repo="tyger-server"
+  repo="tyger-server"
 
   build_and_push
 
   target="data-plane"
-  local_tag="tyger-data-plane-server"
-  remote_repo="tyger-data-plane-server"
+  repo="tyger-data-plane-server"
 
   build_and_push
 fi
@@ -153,8 +174,7 @@ if [[ -n "${worker_waiter:-}" ]]; then
   build_context="${repo_root_dir}/deploy/images/worker-waiter"
   dockerfile_path="${repo_root_dir}/deploy/images/worker-waiter/Dockerfile"
   target="worker-waiter"
-  local_tag="worker-waiter"
-  remote_repo="worker-waiter"
+  repo="worker-waiter"
 
   build_and_push
 fi
@@ -163,8 +183,7 @@ if [[ -n "${buffer_sidecar:-}" ]]; then
   build_context="${repo_root_dir}/cli"
   dockerfile_path="${repo_root_dir}/cli/Dockerfile"
   target="buffer-sidecar"
-  local_tag="buffer-sidecar"
-  remote_repo="buffer-sidecar"
+  repo="buffer-sidecar"
 
   build_and_push
 fi
