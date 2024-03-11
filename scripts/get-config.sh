@@ -93,9 +93,9 @@ else
 		BUFFER_SIDECAR_IMAGE="${repo_fqdn}/buffer-sidecar:${EXPLICIT_IMAGE_TAG}"
 		WORKER_WAITER_IMAGE="${repo_fqdn}/worker-waiter:${EXPLICIT_IMAGE_TAG}"
 	else
-		TYGER_SERVER_IMAGE="$(docker inspect "${repo_fqdn}/tyger-server:dev" 2> /dev/null | jq -r --arg repo "${repo_fqdn}/tyger-server" '.[0].RepoDigests[] | select (startswith($repo))' 2> /dev/null || true)"
-		BUFFER_SIDECAR_IMAGE="$(docker inspect "${repo_fqdn}/buffer-sidecar:dev" 2> /dev/null | jq -r --arg repo "${repo_fqdn}/buffer-sidecar" '.[0].RepoDigests[] | select (startswith($repo))' 2> /dev/null || true)"
-		WORKER_WAITER_IMAGE="$(docker inspect "${repo_fqdn}/worker-waiter:dev" 2> /dev/null | jq -r --arg repo "${repo_fqdn}/worker-waiter" '.[0].RepoDigests[] | select (startswith($repo))' 2> /dev/null || true)"
+		TYGER_SERVER_IMAGE="$(docker inspect "${repo_fqdn}/tyger-server:dev-amd64" 2> /dev/null | jq -r --arg repo "${repo_fqdn}/tyger-server" '.[0].RepoDigests[] | select (startswith($repo))' 2> /dev/null || true)"
+		BUFFER_SIDECAR_IMAGE="$(docker inspect "${repo_fqdn}/buffer-sidecar:dev-amd64" 2> /dev/null | jq -r --arg repo "${repo_fqdn}/buffer-sidecar" '.[0].RepoDigests[] | select (startswith($repo))' 2> /dev/null || true)"
+		WORKER_WAITER_IMAGE="$(docker inspect "${repo_fqdn}/worker-waiter:dev-amd64" 2> /dev/null | jq -r --arg repo "${repo_fqdn}/worker-waiter" '.[0].RepoDigests[] | select (startswith($repo))' 2> /dev/null || true)"
 	fi
 
   export TYGER_SERVER_IMAGE

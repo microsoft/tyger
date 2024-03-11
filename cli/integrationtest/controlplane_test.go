@@ -1408,5 +1408,20 @@ func getTestConnectivityImage(t *testing.T) string {
 		return imgVar
 	}
 
-	return runCommandSucceeds(t, "docker", "inspect", "testconnectivity", "--format", "{{ index .RepoDigests 0 }}")
+	devConfig := getDevConfig(t)
+	containerRegistryFqdn := devConfig["wipContainerRegistry"].(map[string]any)["fqdn"].(string)
+
+	c, err := controlplane.GetClientFromCache()
+	require.NoError(t, err)
+	var tag string
+	switch c.ControlPlaneUrl.Scheme {
+	case "http+unix", "https+unix":
+		tag = "dev"
+	default:
+		tag = "dev-amd64"
+	}
+
+	image := fmt.Sprintf("%s/testconnectivity:%s", containerRegistryFqdn, tag)
+
+	return runCommandSucceeds(t, "docker", "inspect", image, "--format", "{{ index .RepoDigests 0 }}")
 }
