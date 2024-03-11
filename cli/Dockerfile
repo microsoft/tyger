@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/oss/go/microsoft/golang:1.21.3-bullseye as go-build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/oss/go/microsoft/golang:1.21.3-bullseye as go-build
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     upx \
@@ -10,9 +10,9 @@ ARG TYGER_VERSION="a"
 RUN --mount=type=cache,target=/root/.cache/go-build go mod download
 COPY . .
 RUN --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.version=${TYGER_VERSION}" -v -o /go/bin/dist/linux/amd64/buffer-sidecar ./cmd/buffer-sidecar \
-    && upx /go/bin/dist/linux/amd64/buffer-sidecar
+    CGO_ENABLED=0 GOOS=${BUILDOS} GOARCH=${TARGETARCH} go build -ldflags="-s -w -X main.version=${TYGER_VERSION}" -v -o /go/bin/dist/${BUILDOS}/${TARGETARCH}/buffer-sidecar ./cmd/buffer-sidecar \
+    && upx /go/bin/dist/${BUILDOS}/${TARGETARCH}/buffer-sidecar
 
-FROM mcr.microsoft.com/cbl-mariner/distroless/minimal:2.0-nonroot.20240112-amd64 as buffer-sidecar
-COPY --from=go-build /go/bin/dist/linux/amd64/buffer-sidecar /
+FROM mcr.microsoft.com/cbl-mariner/distroless/minimal:2.0-nonroot.20240112 as buffer-sidecar
+COPY --from=go-build /go/bin/dist/${BUILDOS}/${TARGETARCH}/buffer-sidecar /
 ENTRYPOINT ["/buffer-sidecar"]
