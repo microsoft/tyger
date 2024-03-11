@@ -93,7 +93,7 @@ function build_and_push_platform() {
   echo "Building image ${full_image}..."
 
   set +e
-  output=$(docker buildx build --platform "${platform}" -f "${dockerfile_path}" -t "${full_image}" --target "${target}" --build-arg TYGER_VERSION="${image_tag}" "${build_context}" --progress plain 2>&1)
+  output=$(docker buildx build --platform "${platform}" -f "${dockerfile_path}" -t "${full_image}" --target "${target}" --build-arg TYGER_VERSION="${image_tag}" "${build_context}" --provenance false --progress plain 2>&1)
   ret=$?
   set -e
   if [[ $ret -ne 0 ]]; then
