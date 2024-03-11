@@ -26,6 +26,7 @@ const (
 
 var (
 	underlyingHttpTransport = http.DefaultTransport.(*http.Transport)
+	defaultRoundTripper     = http.DefaultTransport
 	defaultRetryableClient  *retryablehttp.Client
 )
 
@@ -101,7 +102,9 @@ func NewRetryableClient() *retryablehttp.Client {
 	}
 	client.CheckRetry = createCheckRetryFunc(client)
 
-	client.HTTPClient = http.DefaultClient
+	client.HTTPClient = &http.Client{
+		Transport: defaultRoundTripper,
+	}
 
 	return client
 }
@@ -117,7 +120,8 @@ func PrepareDefaultHttpTransport(proxyString string) error {
 	underlyingHttpTransport.ResponseHeaderTimeout = 60 * time.Second
 
 	if log.Logger.GetLevel() <= zerolog.DebugLevel {
-		http.DefaultClient.Transport = &loggingTransport{transport: underlyingHttpTransport}
+		defaultRoundTripper = &loggingTransport{transport: underlyingHttpTransport}
+		http.DefaultClient.Transport = defaultRoundTripper
 	}
 
 	return nil
