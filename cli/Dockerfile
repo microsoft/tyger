@@ -1,4 +1,5 @@
 FROM --platform=$BUILDPLATFORM mcr.microsoft.com/oss/go/microsoft/golang:1.21.3-bullseye as go-build
+ARG TARGETARCH BUILDOS
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     upx \
@@ -14,5 +15,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     && upx /go/bin/dist/${BUILDOS}/${TARGETARCH}/buffer-sidecar
 
 FROM mcr.microsoft.com/cbl-mariner/distroless/minimal:2.0-nonroot.20240112 as buffer-sidecar
+ARG TARGETARCH BUILDOS
+
 COPY --from=go-build /go/bin/dist/${BUILDOS}/${TARGETARCH}/buffer-sidecar /
 ENTRYPOINT ["/buffer-sidecar"]
