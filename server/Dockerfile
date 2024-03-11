@@ -42,10 +42,12 @@ RUN dotnet publish --no-restore --arch ${TARGETARCH} -c release -o /control-plan
 WORKDIR /src/server/DataPlane
 RUN dotnet publish --no-restore --arch ${TARGETARCH} -c release -o /data-plane
 
+FROM mcr.microsoft.com/dotnet/aspnet:8.0.0-cbl-mariner2.0 as runtime-prep
+
 FROM mcr.microsoft.com/dotnet/aspnet:8.0.0-cbl-mariner2.0-distroless as control-plane
 COPY --from=build /cp /app
 WORKDIR /app/bin
-COPY --from=build /usr/bin/sleep .
+COPY --from=runtime-prep /usr/bin/sleep .
 COPY --from=build /control-plane .
 USER app:app
 ENTRYPOINT ["/app/bin/tyger-server"]

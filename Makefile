@@ -242,7 +242,7 @@ migrate: ensure-environment-conditionally docker-build-tyger-server
 down: install-cli
 	tyger api uninstall -f <(scripts/get-config.sh)
 
-integration-test-no-up-prereqs: docker-build-test
+integration-test-no-up-prereqs:
 
 integration-test-no-up: integration-test-no-up-prereqs cli-ready
 	if [[ -n "$${EXPLICIT_IMAGE_TAG:-}" ]]; then

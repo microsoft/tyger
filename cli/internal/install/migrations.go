@@ -47,7 +47,7 @@ func ListDatabaseVersions(ctx context.Context, allVersions bool) ([]DatabaseVers
 
 	job.Spec.TTLSecondsAfterFinished = Ptr(int32(0))
 
-	job.Spec.Template.Spec.Containers[0].Command = []string{"/app/sleep", "5m"}
+	job.Spec.Template.Spec.Containers[0].Command = []string{"/app/bin/sleep", "5m"}
 	job.Spec.Template.Spec.Containers[0].Args = []string{}
 
 	if job.Spec.Template.Labels == nil {
@@ -118,7 +118,7 @@ func ListDatabaseVersions(ctx context.Context, allVersions bool) ([]DatabaseVers
 }
 
 func getDatabaseVersionsFromPod(ctx context.Context, podName string, allVersions bool) ([]DatabaseVersion, error) {
-	stdout, stderr, err := PodExec(ctx, podName, "/app/tyger-server", "database", "list-versions")
+	stdout, stderr, err := PodExec(ctx, podName, "/app/bin/tyger-server", "database", "list-versions")
 	if err != nil {
 		errorLog := ""
 		if stderr != nil {
