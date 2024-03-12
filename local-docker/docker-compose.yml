@@ -46,7 +46,7 @@ services:
         source: /opt/tyger/data-plane
         target: /opt/tyger/data-plane
 
-    user: "502632372" # TODO: hack!
+    user: "1000" # TODO: hack!
     network_mode: none
     healthcheck:
       test: [ "CMD", "/app/bin/curl", "--fail", "--unix", "/opt/tyger/data-plane/tyger.data.sock", "http://local/healthcheck" ]
@@ -100,12 +100,26 @@ services:
         source: /var/run/docker.sock
         target: /var/run/docker.sock
 
-    user: "502632372:9005" # TODO: hack!
+    user: "1000:998" # TODO: hack!
     network_mode: none
 
     depends_on:
       db:
         condition: service_healthy
+
+  docker-gateway:
+    build:
+      context: ../cli
+      dockerfile: Dockerfile
+      target: docker-gateway
+
+    network_mode: host
+
+    volumes:
+      - /opt/tyger/control-plane/:/opt/tyger/control-plane/
+      - /opt/tyger/data-plane:/opt/tyger/data-plane/
+
+    user: "1000" # TODO: hack!
 
 volumes:
   db_data:

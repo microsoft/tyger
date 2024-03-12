@@ -40,7 +40,16 @@
       "mode": "auto",
       "program": "cli/cmd/tyger",
       "cwd": "${workspaceFolder}",
-      "args": ["login", "status"]
+      "args": ["run", "show", "1"]
+    },
+    {
+      "name": "docker-gateway",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "cli/cmd/docker-gateway",
+      "cwd": "${workspaceFolder}",
+      "args": []
     }
   ]
 }

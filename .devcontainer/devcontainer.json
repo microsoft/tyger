@@ -79,6 +79,8 @@
     "source=local-docker_run_logs,target=/opt/tyger/dev/volumes/run_logs,type=volume"
   ],
 
+  "runArgs": ["--network=host"],
+
   "remoteUser": "vscode",
   "overrideCommand": false,
   "initializeCommand": ".devcontainer/prepare-host.sh",

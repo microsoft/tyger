@@ -186,6 +186,11 @@ if [[ -n "${buffer_sidecar:-}" ]]; then
   repo="buffer-sidecar"
 
   build_and_push
+
+  target="docker-gateway"
+  repo="docker-gateway"
+
+  build_and_push
 fi
 
 if [[ -n "${helm:-}" ]]; then
