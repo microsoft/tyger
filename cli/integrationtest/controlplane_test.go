@@ -34,6 +34,11 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+const (
+	BasicImage = "mcr.microsoft.com/cbl-mariner/base/core:2.0"
+	GpuImage   = "nvidia/cuda:11.0.3-base-ubuntu20.04"
+)
+
 func init() {
 	stdout, stderr, err := runTyger("login", "status")
 	if err != nil {
@@ -42,11 +47,20 @@ func init() {
 	}
 
 	log.Logger = log.Logger.Level(zerolog.ErrorLevel)
-}
 
-const (
-	BasicImage = "mcr.microsoft.com/cbl-mariner/base/core:2.0"
-)
+	if c, _ := controlplane.GetClientFromCache(); c.ControlPlaneUrl.Scheme == "http+unix" {
+		if _, _, err := runCommand("docker", "inspect", BasicImage, GpuImage); err != nil {
+			if stdout, stderr, err := runCommand("docker", "pull", BasicImage); err != nil {
+				fmt.Fprintln(os.Stderr, stderr, stdout)
+				log.Fatal().Err(err).Send()
+			}
+			if stdout, stderr, err := runCommand("docker", "pull", GpuImage); err != nil {
+				fmt.Fprintln(os.Stderr, stderr, stdout)
+				log.Fatal().Err(err).Send()
+			}
+		}
+	}
+}
 
 func getServiceMetadata(t *testing.T) model.ServiceMetadata {
 	t.Helper()
@@ -489,7 +503,7 @@ func TestGpuResourceRequirement(t *testing.T) {
 	runTygerSucceeds(t,
 		"codespec",
 		"create", codespecName,
-		"--image", "nvidia/cuda:11.0.3-base-ubuntu20.04",
+		"--image", GpuImage,
 		"--gpu", "1",
 		"--command",
 		"--",
@@ -516,7 +530,7 @@ func TestNoGpuResourceRequirement(t *testing.T) {
 	runTygerSucceeds(t,
 		"codespec",
 		"create", codespecName,
-		"--image", "nvidia/cuda:11.0.3-base-ubuntu20.04",
+		"--image", GpuImage,
 		"--command",
 		"--",
 		"bash", "-c", "[[ ! $(nvidia-smi) ]]") // verify that no GPU is available
@@ -535,7 +549,7 @@ func TestTargetGpuNodePool(t *testing.T) {
 	runTygerSucceeds(t,
 		"codespec",
 		"create", codespecName,
-		"--image", "nvidia/cuda:11.0.3-base-ubuntu20.04",
+		"--image", GpuImage,
 		"--command",
 		"--",
 		"bash", "-c", "[[ $(nvidia-smi -L | wc -l) == 1 ]]") // verify that a GPU is available
@@ -553,7 +567,7 @@ func TestTargetCpuNodePool(t *testing.T) {
 	runTygerSucceeds(t,
 		"codespec",
 		"create", codespecName,
-		"--image", "nvidia/cuda:11.0.3-base-ubuntu20.04",
+		"--image", GpuImage,
 		"--command",
 		"--",
 		"bash", "-c", "[[ ! $(nvidia-smi) ]]") // verify that no GPU is available
