@@ -129,22 +129,22 @@ function build_and_push() {
   image_tag_with_platform=$"${image_tag}-${platform}"
   build_and_push_platform
 
-  manifest="${container_registry_fqdn}/${repo}:${image_tag}"
-  docker manifest create "${manifest}" --amend "${container_registry_fqdn}/${repo}:${image_tag}-amd64" --amend "${container_registry_fqdn}/${repo}:${image_tag}-arm64" > /dev/null
+  manifest_name="${container_registry_fqdn}/${repo}:${image_tag}"
+  docker manifest create "${manifest_name}" --amend "${container_registry_fqdn}/${repo}:${image_tag}-amd64" --amend "${container_registry_fqdn}/${repo}:${image_tag}-arm64" > /dev/null
 
   # Push manigest
   if [[ -z "${force:-}" ]]; then
     # First try to pull the image
-    manifest_exists=$("$(dirname "${0}")/docker-auth-wrapper.sh" pull "$manifest" 2>/dev/null || true)
+    manifest_exists=$("$(dirname "${0}")/docker-auth-wrapper.sh" pull "$manifest_name" 2>/dev/null || true)
     if [[ -n "$manifest_exists" ]]; then
-      echo "Attempting to push a manifest that already exists: $manifest"
+      echo "Attempting to push a manifest that already exists: $manifest_name"
       echo "Use \"--push-force\" to overwrite existing image tags"
       exit 1
     fi
   fi
 
-  echo "Pushing manifest ${manifest}..."
-  docker manifest push "${manifest}" > /dev/null
+  docker manifest push "${manifest_name}" > /dev/null
+  docker tag "${container_registry_fqdn}/${repo}:${image_tag}-$(dpkg --print-architecture)" "$manifest_name"
 }
 
 if [[ -n "${test_connectivity:-}" ]]; then

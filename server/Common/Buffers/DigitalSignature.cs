@@ -35,7 +35,7 @@ public static class DigitalSignature
 
             if (cert.GetECDsaPublicKey() is { } ecdsaKey)
             {
-                return ecdsaKey.VerifyHash;
+                return (data, signature) => ecdsaKey.VerifyHash(data, signature, DSASignatureFormat.Rfc3279DerSequence);
             }
             else if (cert.GetRSAPublicKey() is { } rsaKey)
             {

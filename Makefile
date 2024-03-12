@@ -106,7 +106,7 @@ set-localsettings:
 local-docker-set-localsettings: download-local-buffer-service-cert
 	run_secrets_path="/opt/tyger/control-plane/run-secrets/"
 	ephemeral_buffers_path="/opt/tyger/control-plane/ephemeral-buffers/"
-	logs_path="/var/lib/docker/volumes/local-docker_run_logs/_data"
+	logs_path="/opt/tyger/dev/volumes/run_logs"
 
 	jq <<- EOF > ${CONTROL_PLANE_SERVER_PATH}/appsettings.local.json
 		{
@@ -147,7 +147,7 @@ local-docker-set-data-plane-localsettings:
 		{
 			"urls": "http://unix:/opt/tyger/data-plane/tyger.data.sock",
 			"logging": { "Console": {"FormatterName": "simple" } },
-			"dataDirectory": "/var/lib/docker/volumes/local-docker_buffers/_data",
+			"dataDirectory": "/opt/tyger/dev/volumes/buffers/",
 			"PrimarySigningPublicCertificatePath": "/opt/tyger/secrets/tyger_local_buffer_service_cert_$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version')_public.pem"
 		}
 	EOF
@@ -219,7 +219,7 @@ publish-official-images:
 	tag=$$(git describe --tags)
 	scripts/build-images.sh --push --push-force --tyger-server --worker-waiter --buffer-sidecar --helm --tag "$${tag}" --registry "$${registry}"
 
-up: ensure-environment-conditionally docker-build-tyger-server docker-build-buffer-sidecar docker-build-worker-waiter
+up: install-cli ensure-environment-conditionally docker-build-tyger-server docker-build-buffer-sidecar docker-build-worker-waiter
 	tyger api install -f <(scripts/get-config.sh)
 	$(MAKE) cli-ready
 
