@@ -235,6 +235,8 @@ local-docker-up:
 local-docker-down:
 	cd local-docker
 	docker compose down -v
+	rm -rf /opt/tyger/dev/volumes/buffers/*
+	rm -rf /opt/tyger/dev/volumes/run_logs/*
 
 migrate: ensure-environment-conditionally docker-build-tyger-server
 	tyger api migrations apply --latest --wait -f <(scripts/get-config.sh)
