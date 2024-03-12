@@ -20,8 +20,7 @@ const (
 	DefaultControlPlaneUnixSocketPath = "/opt/tyger/control-plane/tyger.sock"
 	DefaultControlPlaneUnixSocketUrl  = "http+unix://" + DefaultControlPlaneUnixSocketPath + ":"
 
-	DefaultDataPlaneUnixSocketPath = "/opt/tyger/data-plane/tyger.data.sock"
-	DefaultDataPlaneUnixSocketUrl  = "http+unix://" + DefaultDataPlaneUnixSocketPath + ":"
+	DefaultDockerGatewayUrl = "http://localhost:6777"
 )
 
 var (
@@ -208,9 +207,10 @@ func ParseProxy(proxyString string) (func(r *http.Request) (*url.URL, error), er
 
 func httpCheckProxyFunc(baseCheckProxyFunc func(r *http.Request) (*url.URL, error)) func(r *http.Request) (*url.URL, error) {
 	return func(r *http.Request) (*url.URL, error) {
-		if r.URL.Scheme == "http" {
-			// We will not use an HTTP proxy when when not using TLS.
-			// The only supported scenario for using http and not https is
+		if r.URL.Scheme == "http" && !strings.HasPrefix(r.URL.Host, "!unix!") {
+			// We will not use an HTTP proxy when when not using TLS,
+			// unless we are using Unix domain dockets.
+			// Otherwise, the only supported scenario for using http and not https is
 			// when using using tyger to call tyger-proxy. In that case, we
 			// want to connect to tyger-proxy directly, and not through a proxy.
 			return nil, nil

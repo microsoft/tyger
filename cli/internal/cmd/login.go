@@ -33,12 +33,18 @@ Subsequent commands will be performed against this server.`,
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if local {
-				othersSet := false
+				var err error
 				cmd.LocalFlags().VisitAll(func(f *pflag.Flag) {
-					othersSet = othersSet || (f.Changed && f.Name != "local")
+					if f.Changed && err == nil {
+						switch f.Name {
+						case "local", "proxy":
+						default:
+							err = fmt.Errorf("the options --local and --%s cannot be used together", f.Name)
+						}
+					}
 				})
-				if othersSet {
-					return errors.New("--local cannot be used with other options")
+				if err != nil {
+					return err
 				}
 
 				if len(args) > 0 {
@@ -46,7 +52,7 @@ Subsequent commands will be performed against this server.`,
 				}
 
 				options.ServerUri = client.DefaultControlPlaneUnixSocketUrl
-				_, err := controlplane.Login(cmd.Context(), options)
+				_, err = controlplane.Login(cmd.Context(), options)
 				return err
 			}
 

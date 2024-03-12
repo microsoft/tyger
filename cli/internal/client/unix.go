@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/base32"
 	"errors"
 	"fmt"
 	"net"
@@ -9,8 +10,12 @@ import (
 	"strings"
 )
 
-// Based on github.com/peterbourgon/unixtransport, but not cloning the transport
-// using a host prefixing instead of bas64 encoding for communicating with the dialer
+// Inspired by github.com/peterbourgon/unixtransport
+
+var (
+	errNotSocketHost = errors.New("not a socket path host")
+	encoding         = base32.StdEncoding.WithPadding(base32.NoPadding)
+)
 
 func registerHttpUnixProtocolHandler(t *http.Transport) {
 	switch {
@@ -42,8 +47,8 @@ func dialContextAdapter(next dialContextFunc) dialContextFunc {
 			host = address
 		}
 
-		if strings.HasPrefix(host, "unix:") {
-			network, address = "unix", host[5:]
+		if socketPath, err := DecodeUnixPathFromHost(host); err == nil {
+			network, address = "unix", socketPath
 		}
 
 		return next(ctx, network, address)
@@ -56,17 +61,19 @@ func roundTripAdapter(next http.RoundTripper) http.RoundTripper {
 			return nil, fmt.Errorf("unix transport: no request URL")
 		}
 
-		scheme := strings.TrimSuffix(req.URL.Scheme, "+unix")
-		if scheme == req.URL.Scheme {
+		var scheme string
+		switch req.URL.Scheme {
+		case "http+unix":
+			scheme = "http"
+		case "https+unix":
+			scheme = "https"
+		default:
 			return nil, fmt.Errorf("unix transport: missing '+unix' suffix in scheme %s", req.URL.Scheme)
 		}
 
 		parts := strings.SplitN(req.URL.Path, ":", 2)
-
-		var (
-			socketPath  string
-			requestPath string
-		)
+		var socketPath string
+		var requestPath string
 
 		switch len(parts) {
 		case 1:
@@ -79,7 +86,7 @@ func roundTripAdapter(next http.RoundTripper) http.RoundTripper {
 			return nil, errors.New("unix transport: invalid path")
 		}
 
-		encodedHost := fmt.Sprintf("[unix:%s]", socketPath)
+		encodedHost := fmt.Sprintf("!unix!%s", encoding.EncodeToString([]byte(socketPath)))
 
 		req = req.Clone(req.Context())
 
@@ -89,6 +96,15 @@ func roundTripAdapter(next http.RoundTripper) http.RoundTripper {
 
 		return next.RoundTrip(req)
 	})
+}
+func DecodeUnixPathFromHost(host string) (string, error) {
+	if strings.HasPrefix(host, "!unix!") {
+		if res, err := encoding.DecodeString(host[6:]); err == nil {
+			return string(res), nil
+		}
+	}
+
+	return "", errNotSocketHost
 }
 
 type dialContextFunc func(ctx context.Context, network, address string) (net.Conn, error)

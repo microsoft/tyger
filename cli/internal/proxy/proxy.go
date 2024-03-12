@@ -22,6 +22,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/hashicorp/go-cleanhttp"
+	pool "github.com/libp2p/go-buffer-pool"
 	"github.com/microsoft/tyger/cli/internal/client"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
@@ -216,29 +217,8 @@ func (h *proxyHandler) forwardControlPlaneRequest(w http.ResponseWriter, r *http
 	copyHeaders(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
 
-	// We could do a simple io.Copy(), but that does not work well for streaming logs,
-	// since it waits for buffers to fill up, resulting in high latency when lines trickle out
-
-	flusher, canFlush := w.(http.Flusher)
-	shouldFlush := false
-	bufferedReader := bufio.NewReader(resp.Body)
-	startTime := time.Now()
-	for {
-		line, err := bufferedReader.ReadSlice('\n')
-		if err != nil && err != bufio.ErrBufferFull && err != io.EOF {
-			log.Ctx(r.Context()).Error().Err(err).Msg("error copying response")
-			return
-		}
-		w.Write(line)
-		if err == io.EOF {
-			return
-		}
-		if err != bufio.ErrBufferFull {
-			if canFlush && (shouldFlush || time.Since(startTime) > time.Second) {
-				shouldFlush = true
-				flusher.Flush()
-			}
-		}
+	if err := CopyResponse(w, resp); err != nil {
+		log.Ctx(r.Context()).Error().Err(err).Msg("error copying response")
 	}
 }
 
@@ -313,6 +293,37 @@ func createIpFilteringMidleware(options *ProxyOptions) func(http.Handler) http.H
 func copyHeaders(dst, src http.Header) {
 	for k, vv := range src {
 		dst[k] = vv
+	}
+}
+
+func CopyResponse(w http.ResponseWriter, resp *http.Response) error {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		// The ResponseWriter doesn't support flushing, fallback to simple copy
+		_, err := io.Copy(w, resp.Body)
+		return err
+	}
+
+	// Copy with flushing whenever there is data so that a trickle of data does not get buffered
+	// and result in high latency
+
+	buf := pool.Get(32 * 1024)
+	defer func() {
+		pool.Put(buf)
+	}()
+
+	for {
+		n, err := resp.Body.Read(buf)
+		if n > 0 {
+			w.Write(buf[:n])
+			flusher.Flush()
+		}
+		if err != nil {
+			if err != io.EOF {
+				return err
+			}
+			return nil
+		}
 	}
 }
 
