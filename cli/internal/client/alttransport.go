@@ -8,12 +8,15 @@ import (
 	"net"
 	"net/http"
 	"strings"
+
+	"github.com/docker/cli/cli/connhelper/commandconn"
 )
 
 // Inspired by github.com/peterbourgon/unixtransport
 
 var (
 	errNotSocketHost = errors.New("not a socket path host")
+	errNotSshHost    = errors.New("not an SSH host")
 	encoding         = base32.StdEncoding.WithPadding(base32.NoPadding)
 )
 
@@ -42,6 +45,7 @@ func registerHttpUnixProtocolHandler(t *http.Transport) {
 
 func dialContextAdapter(next dialContextFunc) dialContextFunc {
 	return func(ctx context.Context, network, address string) (net.Conn, error) {
+
 		host, _, err := net.SplitHostPort(address)
 		if err != nil {
 			host = address
@@ -49,6 +53,8 @@ func dialContextAdapter(next dialContextFunc) dialContextFunc {
 
 		if socketPath, err := DecodeUnixPathFromHost(host); err == nil {
 			network, address = "unix", socketPath
+		} else if sshParams, err := DecodeSshUrlFromHost(host); err == nil {
+			return commandconn.New(ctx, "ssh", sshParams.FormatArgs()...)
 		}
 
 		return next(ctx, network, address)
@@ -86,17 +92,20 @@ func roundTripAdapter(next http.RoundTripper) http.RoundTripper {
 			return nil, errors.New("unix transport: invalid path")
 		}
 
-		encodedHost := fmt.Sprintf("!unix!%s", encoding.EncodeToString([]byte(socketPath)))
-
 		req = req.Clone(req.Context())
 
 		req.URL.Scheme = scheme
-		req.URL.Host = encodedHost
+		req.URL.Host = EncodeUnixPathToHost(socketPath)
 		req.URL.Path = requestPath
 
 		return next.RoundTrip(req)
 	})
 }
+
+func EncodeUnixPathToHost(socketPath string) string {
+	return fmt.Sprintf("!unix!%s", encoding.EncodeToString([]byte(socketPath)))
+}
+
 func DecodeUnixPathFromHost(host string) (string, error) {
 	if strings.HasPrefix(host, "!unix!") {
 		if res, err := encoding.DecodeString(host[6:]); err == nil {
@@ -105,6 +114,22 @@ func DecodeUnixPathFromHost(host string) (string, error) {
 	}
 
 	return "", errNotSocketHost
+}
+
+func EncodeSshUrlToHost(sp *SshParams) string {
+	u := sp.URL()
+	u.Path = ""
+	return fmt.Sprintf("!ssh!%s", encoding.EncodeToString([]byte(u.String())))
+}
+
+func DecodeSshUrlFromHost(host string) (*SshParams, error) {
+	if strings.HasPrefix(host, "!ssh!") {
+		if res, err := encoding.DecodeString(host[5:]); err == nil {
+			return ParseSshUrl(string(res))
+		}
+	}
+
+	return nil, errNotSshHost
 }
 
 type dialContextFunc func(ctx context.Context, network, address string) (net.Conn, error)

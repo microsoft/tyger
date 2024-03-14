@@ -12,7 +12,11 @@ job:
      - |
       set -euo pipefail
       cat $INPUT_PIPE > $OUTPUT_PIPE
+      # while true; do
+      #   date
+      #   sleep 1
+      # done
 
-  buffers:
-    input: _
-    output: _
+  # buffers:
+  #   input: _
+  #   output: _

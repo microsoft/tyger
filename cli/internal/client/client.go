@@ -115,7 +115,11 @@ func PrepareDefaultHttpTransport(proxyString string) error {
 	}
 
 	underlyingHttpTransport.Proxy = proxyFunc
-	underlyingHttpTransport.MaxConnsPerHost = 1000
+	if strings.HasPrefix(proxyString, "ssh://") {
+		underlyingHttpTransport.MaxConnsPerHost = 16
+	}
+
+	underlyingHttpTransport.MaxIdleConnsPerHost = 1000
 	underlyingHttpTransport.ResponseHeaderTimeout = 60 * time.Second
 
 	if log.Logger.GetLevel() <= zerolog.DebugLevel {

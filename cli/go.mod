@@ -18,6 +18,7 @@ require (
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.2.0
 	github.com/IGLOU-EU/go-wildcard/v2 v2.0.2
 	github.com/andreyvit/diff v0.0.0-20170406064948-c7f18ee00883
+	github.com/docker/cli v25.0.4+incompatible
 	github.com/docker/docker v24.0.9+incompatible
 	github.com/eiannone/keyboard v0.0.0-20220611211555-0d226195f203
 	github.com/erikgeiser/promptkit v0.9.0
@@ -33,9 +34,11 @@ require (
 	github.com/knadh/koanf/parsers/yaml v0.1.0
 	github.com/knadh/koanf/providers/file v0.1.0
 	github.com/knadh/koanf/v2 v2.0.1
+	github.com/loft-sh/devpod v0.5.4
 	github.com/mattn/go-ieproxy v0.0.11
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/mittwald/go-helm-client v0.12.8
+	github.com/pkg/errors v0.9.1
 	github.com/spf13/cobra v1.8.0
 	github.com/stretchr/testify v1.8.4
 	go.opentelemetry.io/otel v1.21.0
@@ -71,7 +74,6 @@ require (
 	github.com/containerd/log v0.1.0 // indirect
 	github.com/cyphar/filepath-securejoin v0.2.4 // indirect
 	github.com/distribution/reference v0.5.0 // indirect
-	github.com/docker/cli v24.0.7+incompatible // indirect
 	github.com/docker/distribution v2.8.3+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.8.0 // indirect
 	github.com/docker/go-connections v0.4.0 // indirect
@@ -144,7 +146,6 @@ require (
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	github.com/perimeterx/marshmallow v1.1.4 // indirect
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
-	github.com/pkg/errors v0.9.1 // indirect
 	github.com/prometheus/client_golang v1.18.0 // indirect
 	github.com/prometheus/client_model v0.5.0 // indirect
 	github.com/prometheus/common v0.45.0 // indirect

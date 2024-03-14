@@ -40,7 +40,7 @@
       "mode": "auto",
       "program": "cli/cmd/tyger",
       "cwd": "${workspaceFolder}",
-      "args": ["run", "show", "1"]
+      "args": ["buffer", "read", "lu4qcau76xpulir3xxko2uaawy", "--dop", "4"]
     },
     {
       "name": "docker-gateway",

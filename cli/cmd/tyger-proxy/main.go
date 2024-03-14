@@ -16,7 +16,7 @@ import (
 
 	"github.com/microsoft/tyger/cli/internal/cmd"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
-	"github.com/microsoft/tyger/cli/internal/proxy"
+	"github.com/microsoft/tyger/cli/internal/tygerproxy"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"sigs.k8s.io/yaml"
@@ -29,7 +29,7 @@ var (
 
 func main() {
 	optionsFilePath := ""
-	options := proxy.ProxyOptions{
+	options := tygerproxy.ProxyOptions{
 		LoginConfig: controlplane.LoginConfig{
 			Port: 6888,
 		},
@@ -103,7 +103,7 @@ func createLogFileInDirectory(dir string) (*os.File, error) {
 	return f, os.Chmod(f.Name(), 0644)
 }
 
-func readProxyOptions(optionsFilePath string, options *proxy.ProxyOptions) error {
+func readProxyOptions(optionsFilePath string, options *tygerproxy.ProxyOptions) error {
 	var file *os.File
 	if optionsFilePath == "-" {
 		file = os.Stdin
@@ -166,8 +166,8 @@ func readProxyOptions(optionsFilePath string, options *proxy.ProxyOptions) error
 	return nil
 }
 
-func exitIfRunning(options *proxy.ProxyOptions, alreadyRunning bool) {
-	proxyMetadata, err := proxy.CheckProxyAlreadyRunning(options)
+func exitIfRunning(options *tygerproxy.ProxyOptions, alreadyRunning bool) {
+	proxyMetadata, err := tygerproxy.CheckProxyAlreadyRunning(options)
 	switch err {
 	case nil:
 		var message string
@@ -179,7 +179,7 @@ func exitIfRunning(options *proxy.ProxyOptions, alreadyRunning bool) {
 
 		log.Info().Int("port", options.Port).Str("logFile", proxyMetadata.LogPath).Msg(message)
 		os.Exit(0)
-	case proxy.ErrProxyAlreadyRunningWrongTarget:
+	case tygerproxy.ErrProxyAlreadyRunningWrongTarget:
 		log.Fatal().Str("logFile", proxyMetadata.LogPath).Msg("A proxy is already running on the specified port, but it is not targeting the same server")
 	}
 }

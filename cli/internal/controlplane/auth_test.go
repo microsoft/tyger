@@ -19,7 +19,7 @@ func TestServerUriNormalization(t *testing.T) {
 	}
 	for _, tC := range testCases {
 		t.Run(tC.input, func(t *testing.T) {
-			normalized, err := normalizeServerUri(tC.input)
+			normalized, err := NormalizeServerUri(tC.input)
 			assert.Nil(t, err)
 			assert.Equal(t, tC.expected, normalized.String())
 		})
@@ -33,7 +33,7 @@ func TestServerUriValidation(t *testing.T) {
 	}
 	for _, tC := range testCases {
 		t.Run(tC, func(t *testing.T) {
-			_, err := normalizeServerUri(tC)
+			_, err := NormalizeServerUri(tC)
 			assert.NotNil(t, err)
 		})
 	}
