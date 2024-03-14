@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/microsoft/tyger/cli/internal/client"
 	"github.com/microsoft/tyger/cli/internal/cmd"
 	"github.com/microsoft/tyger/cli/internal/proxy"
 	"github.com/rs/zerolog/log"
@@ -32,7 +31,9 @@ func newRootCommand() *cobra.Command {
 
 	rootCommand.Run = func(cmd *cobra.Command, args []string) {
 		server := &http.Server{
-			Handler: http.HandlerFunc(handleRequest),
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				proxy.HandleUDSProxyRequest(r.Context(), w, r)
+			}),
 			// Disable HTTP/2.
 			TLSNextProto: make(map[string]func(*http.Server, *tls.Conn, http.Handler)),
 		}
@@ -50,44 +51,4 @@ func newRootCommand() *cobra.Command {
 	}
 
 	return rootCommand
-}
-
-func handleRequest(w http.ResponseWriter, r *http.Request) {
-	proxyReq := r.Clone(r.Context())
-	proxyReq.RequestURI = "" // need to clear this since the instance will be used for a new request
-
-	decodedSocketPath, err := client.DecodeUnixPathFromHost(proxyReq.Host)
-
-	log.Info().Str("socket", decodedSocketPath).Str("method", proxyReq.Method).Str("path", proxyReq.URL.Path).Msg("Handling request")
-	if err != nil {
-		log.Ctx(r.Context()).Error().Err(err).Msg("Failed to decode socket path")
-		http.Error(w, "Bad request", http.StatusBadRequest)
-		return
-	}
-
-	proxyReq.URL.Scheme = "http+unix"
-	proxyReq.URL.Host = ""
-	proxyReq.Host = ""
-	proxyReq.URL.Path = string(decodedSocketPath) + ":" + proxyReq.URL.Path
-
-	resp, err := client.DefaultRetryableClient().HTTPClient.Transport.RoundTrip(proxyReq)
-	if err != nil {
-		// TODO: handle socket write error!
-		log.Ctx(r.Context()).Error().Err(err).Msg("Failed to forward request")
-		http.Error(w, "Bad Gateway", http.StatusBadGateway)
-		return
-	}
-
-	copyHeaders(w.Header(), resp.Header)
-	w.WriteHeader(resp.StatusCode)
-
-	if err := proxy.CopyResponse(w, resp); err != nil {
-		log.Ctx(r.Context()).Warn().Err(err).Msg("Failure while copying response")
-	}
-}
-
-func copyHeaders(dst, src http.Header) {
-	for k, vv := range src {
-		dst[k] = vv
-	}
 }

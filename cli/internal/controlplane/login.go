@@ -4,6 +4,7 @@
 package controlplane
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -75,7 +76,7 @@ type serviceInfo struct {
 }
 
 func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error) {
-	normalizedServerUri, err := normalizeServerUri(options.ServerUri)
+	normalizedServerUri, err := NormalizeServerUri(options.ServerUri)
 	if err != nil {
 		return nil, err
 	}
@@ -91,61 +92,95 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 		DisableTlsCertificateValidation: options.DisableTlsCertificateValidation,
 	}
 
-	if err := validateServiceInfo(si); err != nil {
-		return nil, err
-	}
-
-	if err := client.PrepareDefaultHttpTransport(options.Proxy); err != nil {
-		return nil, err
-	}
-
-	if si.DisableTlsCertificateValidation {
-		client.DisableTlsCertificateValidation()
-	}
-
-	serviceMetadata, err := getServiceMetadata(ctx, options.ServerUri)
-	if err != nil {
-		return nil, err
-	}
-
-	// augment with data received from the metadata endpoint
-	si.ServerUri = options.ServerUri
-	si.Authority = serviceMetadata.Authority
-	si.Audience = serviceMetadata.Audience
-	si.ClientAppUri = serviceMetadata.CliAppUri
-	si.DataPlaneProxy = serviceMetadata.DataPlaneProxy
-
-	if err := validateServiceInfo(si); err != nil {
-		return nil, err
-	}
-
-	if serviceMetadata.Authority != "" {
-		useServicePrincipal := options.ServicePrincipal != ""
-
-		var authResult public.AuthResult
-		if useServicePrincipal {
-			authResult, err = si.performServicePrincipalLogin(ctx)
-		} else {
-			authResult, err = si.performUserLogin(ctx, options.UseDeviceCode)
+	if normalizedServerUri.Scheme == "ssh" {
+		sshParams, err := client.ParseSshUrl(normalizedServerUri.String())
+		if err != nil {
+			return nil, fmt.Errorf("invalid ssh URL: %w", err)
 		}
+
+		preFlightCommand := exec.CommandContext(ctx, "ssh", sshParams.FormatLoginArgs("--preflight")...)
+		preFlightCommand.Stdin = os.Stdin
+		preFlightCommand.Stdout = os.Stdout
+		preFlightCommand.Stderr = os.Stderr
+		if err := preFlightCommand.Run(); err != nil {
+			return nil, fmt.Errorf("failed to establish a remote tyger connection: %w", err)
+		}
+
+		loginCommand := exec.CommandContext(ctx, "ssh", sshParams.FormatLoginArgs()...)
+		var outb, errb bytes.Buffer
+		loginCommand.Stdout = &outb
+		loginCommand.Stderr = &errb
+		if err := loginCommand.Run(); err != nil {
+			return nil, fmt.Errorf("failed to establish a remote tyger connection: %w. stderr: %s", err, errb.String())
+		}
+
+		innerServiceUri, err := NormalizeServerUri(strings.TrimSpace(outb.String()))
 		if err != nil {
 			return nil, err
 		}
 
-		si.LastToken = authResult.AccessToken
-		si.LastTokenExpiry = authResult.ExpiresOn.Unix()
+		si.ServerUri = innerServiceUri.String()
+		si.parsedServerUri = innerServiceUri
 
-		if !useServicePrincipal {
-			si.Principal = authResult.IDToken.PreferredUsername
+		si.parsedProxy = &url.URL{Scheme: "ssh", Host: client.EncodeSshUrlToHost(sshParams)}
+		si.Proxy = si.parsedProxy.String()
+	} else {
+		if err := validateServiceInfo(si); err != nil {
+			return nil, err
+		}
 
-			// We used the client app URI as the client ID when logging in interactively.
-			// This works, but the refresh token will only be valid for the client ID (GUID).
-			// So we need to extract the client ID from the access token and use that next time.
-			claims := jwt.MapClaims{}
-			if _, _, err := jwt.NewParser().ParseUnverified(authResult.AccessToken, claims); err != nil {
-				return nil, fmt.Errorf("unable to parse access token: %w", err)
+		if err := client.PrepareDefaultHttpTransport(options.Proxy); err != nil {
+			return nil, err
+		}
+
+		if si.DisableTlsCertificateValidation {
+			client.DisableTlsCertificateValidation()
+		}
+
+		serviceMetadata, err := getServiceMetadata(ctx, options.ServerUri)
+		if err != nil {
+			return nil, err
+		}
+
+		// augment with data received from the metadata endpoint
+		si.ServerUri = options.ServerUri
+		si.Authority = serviceMetadata.Authority
+		si.Audience = serviceMetadata.Audience
+		si.ClientAppUri = serviceMetadata.CliAppUri
+		si.DataPlaneProxy = serviceMetadata.DataPlaneProxy
+
+		if err := validateServiceInfo(si); err != nil {
+			return nil, err
+		}
+
+		if serviceMetadata.Authority != "" {
+			useServicePrincipal := options.ServicePrincipal != ""
+
+			var authResult public.AuthResult
+			if useServicePrincipal {
+				authResult, err = si.performServicePrincipalLogin(ctx)
 			} else {
-				si.ClientId = claims["appid"].(string)
+				authResult, err = si.performUserLogin(ctx, options.UseDeviceCode)
+			}
+			if err != nil {
+				return nil, err
+			}
+
+			si.LastToken = authResult.AccessToken
+			si.LastTokenExpiry = authResult.ExpiresOn.Unix()
+
+			if !useServicePrincipal {
+				si.Principal = authResult.IDToken.PreferredUsername
+
+				// We used the client app URI as the client ID when logging in interactively.
+				// This works, but the refresh token will only be valid for the client ID (GUID).
+				// So we need to extract the client ID from the access token and use that next time.
+				claims := jwt.MapClaims{}
+				if _, _, err := jwt.NewParser().ParseUnverified(authResult.AccessToken, claims); err != nil {
+					return nil, fmt.Errorf("unable to parse access token: %w", err)
+				} else {
+					si.ClientId = claims["appid"].(string)
+				}
 			}
 		}
 	}
@@ -157,7 +192,7 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 	return client.NewTygerClient(si.parsedServerUri, si.GetAccessToken, si.parsedDataPlaneProxy, si.Principal), err
 }
 
-func normalizeServerUri(uri string) (*url.URL, error) {
+func NormalizeServerUri(uri string) (*url.URL, error) {
 	uri = strings.TrimRight(uri, "/")
 	parsedUrl, err := url.Parse(uri)
 	if err != nil || !parsedUrl.IsAbs() {
@@ -340,7 +375,7 @@ func GetClientFromCache() (*client.TygerClient, error) {
 func validateServiceInfo(si *serviceInfo) error {
 	var err error
 	if si.ServerUri != "" {
-		si.parsedServerUri, err = normalizeServerUri(si.ServerUri)
+		si.parsedServerUri, err = NormalizeServerUri(si.ServerUri)
 		if err != nil {
 			return fmt.Errorf("the server URI is invalid")
 		}

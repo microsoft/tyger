@@ -60,6 +60,7 @@ func newRootCommand() *cobra.Command {
 	rootCommand.AddCommand(install.NewCloudCommand(rootCommand))
 	rootCommand.AddCommand(install.NewApiCommand(rootCommand))
 	rootCommand.AddCommand(install.NewIdentitiesCommand(rootCommand))
+	rootCommand.AddCommand(cmd.NewStdioProxyCommand())
 
 	return rootCommand
 }
