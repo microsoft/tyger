@@ -60,6 +60,8 @@ public class DockerOptions
 
 public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedService, ICapabilitiesContributor
 {
+    public const string EphemeralBufferSocketPathLabelKey = "tyger-ephemeral-buffer-socket-path";
+
     private readonly DockerClient _client;
     private readonly ILogger<DockerRunCreator> _logger;
     private readonly string _bufferSidecarImage;
@@ -188,6 +190,8 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
         foreach ((var bufferParameterName, (bool write, Uri accessUri)) in bufferMap)
         {
+            var sidecarLabels = labels.Add("tyger-run-container-name", $"{bufferParameterName}-buffer-sidecar");
+
             var pipeName = bufferParameterName + ".pipe";
             var pipePath = Path.Combine(absoluteSecretsBase, relativePipesPath, pipeName);
             MkFifo(pipePath, 0x1FF);
@@ -213,6 +217,8 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                 }
 
                 relaySocketPath = accessUri.AbsolutePath.Split(':')[0];
+
+                sidecarLabels = sidecarLabels.Add(EphemeralBufferSocketPathLabelKey, relaySocketPath);
 
                 args.AddRange([
                     "relay",
@@ -246,7 +252,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             {
                 Image = _bufferSidecarImage,
                 Name = $"tyger-run-{run.Id}-sidecar-{bufferParameterName}",
-                Labels = labels.Add("tyger-run-container-name", $"{bufferParameterName}-buffer-sidecar"),
+                Labels = sidecarLabels,
                 Cmd = args,
                 HostConfig = new()
                 {
@@ -985,6 +991,18 @@ public sealed class DockerRunSweeper : IRunSweeper, IHostedService, IDisposable
                 catch (DockerApiException e)
                 {
                     _logger.FailedToRemoveContainer(container.ID, e);
+                }
+
+                if (container.Labels?.TryGetValue(DockerRunCreator.EphemeralBufferSocketPathLabelKey, out var socketPath) == true)
+                {
+                    try
+                    {
+                        File.Delete(socketPath);
+                    }
+                    catch (Exception e)
+                    {
+                        _logger.FailedToRemoveEphemeralBufferSocket(socketPath, e);
+                    }
                 }
             }
         }
