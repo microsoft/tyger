@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	DefaultControlPlaneUnixSocketPath = "/opt/tyger/control-plane/tyger.sock"
+	DefaultControlPlaneUnixSocketPath = "/opt/tyger/api.sock"
 	DefaultControlPlaneUnixSocketUrl  = "http+unix://" + DefaultControlPlaneUnixSocketPath + ":"
 
 	DefaultDockerGatewayUrl = "http://localhost:6777"

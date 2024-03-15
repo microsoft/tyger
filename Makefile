@@ -229,6 +229,8 @@ local-docker-up:
 	mkdir -p /opt/tyger/control-plane/ephemeral-buffers/
 	mkdir -p /opt/tyger/data-plane/
 	mkdir -p /opt/tyger/database/
+
+	ln -sf /opt/tyger/control-plane/tyger.sock /opt/tyger/api.sock
 	cd local-docker
 	docker compose up --build -d --wait
 
