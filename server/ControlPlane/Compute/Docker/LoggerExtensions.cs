@@ -12,4 +12,6 @@ public static partial class LoggerExtensions
     [LoggerMessage(2, LogLevel.Warning, "Failed to remove secrets for run {runId}")]
     public static partial void FailedToRemoveRunSecretsDirectory(this ILogger logger, long runId, Exception exception);
 
+    [LoggerMessage(3, LogLevel.Warning, "Failed to remove ephemeral buffer socket {path}")]
+    public static partial void FailedToRemoveEphemeralBufferSocket(this ILogger logger, string path, Exception exception);
 }
