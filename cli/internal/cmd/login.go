@@ -6,9 +6,11 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/microsoft/tyger/cli/internal/client"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
@@ -51,7 +53,7 @@ Subsequent commands will be performed against this server.`,
 					return errors.New("--local cannot be specified with a server address")
 				}
 
-				options.ServerUri = client.DefaultControlPlaneUnixSocketUrl
+				options.ServerUri = controlplane.LocalUriSentinel
 				_, err = controlplane.Login(cmd.Context(), options)
 				return err
 			}
@@ -203,12 +205,34 @@ func newLoginStatusCommand() *cobra.Command {
 				return fmt.Errorf("run `tyger login` to login to a server: %v", err)
 			}
 
+			var urlString = tygerClient.ControlPlaneUrl.String()
+			if tygerClient.ControlPlaneUrl.Scheme == "http+unix" {
+				urlString = "unix://" + strings.Split(tygerClient.ControlPlaneUrl.Path, ":")[0]
+			}
+
+			var proxyString string
+			req, _ := http.NewRequest(http.MethodGet, tygerClient.ControlPlaneUrl.String(), nil)
+			proxy, _ := client.GetHttpTransport(tygerClient.ControlPlaneClient.HTTPClient).Proxy(req)
+			if proxy != nil {
+				proxyString = proxy.String()
+				if sshParams, err := client.DecodeSshUrlFromHost(proxy.Host); err == nil {
+					urlString = sshParams.String()
+					proxyString = ""
+				}
+			}
+
 			principal := tygerClient.Principal
 			if principal == "" {
-				fmt.Printf("You are anonymously logged in to %s\n", tygerClient.ControlPlaneUrl)
+				fmt.Printf("You are logged in to %s", urlString)
 			} else {
-				fmt.Printf("You are logged in to %s as %s\n", tygerClient.ControlPlaneUrl, principal)
+				fmt.Printf("You are logged in to %s as %s", urlString, principal)
 			}
+
+			if proxyString != "" {
+				fmt.Printf(" using proxy server %s", proxyString)
+			}
+			fmt.Println()
+
 			return nil
 		},
 	}

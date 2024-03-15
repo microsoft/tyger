@@ -116,8 +116,10 @@ services:
     network_mode: host
 
     volumes:
+      - /opt/tyger/api.sock:/opt/tyger/api.sock
       - /opt/tyger/control-plane/:/opt/tyger/control-plane/
       - /opt/tyger/data-plane:/opt/tyger/data-plane/
+
 
     user: "1000" # TODO: hack!
 

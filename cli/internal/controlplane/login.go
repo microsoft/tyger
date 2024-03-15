@@ -35,6 +35,7 @@ const (
 	userScope                           = "Read.Write"
 	servicePrincipalScope               = ".default"
 	discardTokenIfExpiringWithinSeconds = 10 * 60
+	LocalUriSentinel                    = "local"
 )
 
 type LoginConfig struct {
@@ -129,6 +130,14 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 			return nil, err
 		}
 
+		switch si.Proxy {
+		case "auto", "automatic", "":
+			switch normalizedServerUri.Scheme {
+			case "http", "http+unix":
+				si.Proxy = "none"
+			}
+		}
+
 		if err := client.PrepareDefaultHttpTransport(options.Proxy); err != nil {
 			return nil, err
 		}
@@ -193,6 +202,10 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 }
 
 func NormalizeServerUri(uri string) (*url.URL, error) {
+	if uri == LocalUriSentinel {
+		return url.Parse(client.DefaultControlPlaneUnixSocketUrl)
+	}
+
 	uri = strings.TrimRight(uri, "/")
 	parsedUrl, err := url.Parse(uri)
 	if err != nil || !parsedUrl.IsAbs() {
