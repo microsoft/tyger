@@ -119,7 +119,7 @@ func newConfigCreateCommand() *cobra.Command {
 				for {
 
 					cred, err = install.NewMiAwareAzureCLICredential(nil)
-					if err != nil {
+					if err == nil {
 						principal, err = getCurrentPrincipal(ctx, cred)
 					}
 					if err != nil {
