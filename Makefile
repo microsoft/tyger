@@ -244,13 +244,11 @@ local-docker-up:
 
 	if test -w /var/run/docker-host.sock; then
 		export CONTROL_PLANE_USER_ID=$$(id -u)
-		export CONTROL_PLANE_GROUP_ID=$$(id -g)
+		export CONTROL_PLANE_GROUP_ID=$$(getent group docker | cut -d: -f3)
 	else
 		export CONTROL_PLANE_USER_ID=0
 		export CONTROL_PLANE_GROUP_ID=0
 	fi
-
-	export CONTROL_PLANE_GROUP_ID=$$(getent group docker | cut -d: -f3)
 	
 	docker compose up --build -d --wait
 
