@@ -232,6 +232,10 @@ local-docker-up:
 
 	ln -sf /opt/tyger/control-plane/tyger.sock /opt/tyger/api.sock
 	cd local-docker
+
+	export USER_ID=$$(id -u)
+	export DOCKER_GROUP_ID=$$(getent group docker | cut -d: -f3)
+	
 	docker compose up --build -d --wait
 
 local-docker-down:

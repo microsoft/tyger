@@ -25,10 +25,7 @@ services:
       test: [ "CMD-SHELL", "pg_isready -U tyger-server" ]
 
   data-plane:
-    build:
-      context: ..
-      dockerfile: server/Dockerfile
-      target: data-plane
+    image: eminence.azurecr.io/tyger-data-plane-server:dev
 
     # restart: unless-stopped
     environment:
@@ -46,17 +43,14 @@ services:
         source: /opt/tyger/data-plane
         target: /opt/tyger/data-plane
 
-    user: "1000" # TODO: hack!
+    user: "${USER_ID}" # TODO: hack!
     network_mode: none
     healthcheck:
       test: [ "CMD", "/app/bin/curl", "--fail", "--unix", "/opt/tyger/data-plane/tyger.data.sock", "http://local/healthcheck" ]
       interval: 5s
 
   control-plane:
-    build:
-      context: ..
-      dockerfile: server/Dockerfile
-      target: control-plane
+    image: eminence.azurecr.io/tyger-server:dev
 
     # restart: unless-stopped
 
@@ -100,7 +94,7 @@ services:
         source: /var/run/docker.sock
         target: /var/run/docker.sock
 
-    user: "1000:998" # TODO: hack!
+    user: "${USER_ID}:${DOCKER_GROUP_ID}" # TODO: hack!
     network_mode: none
 
     depends_on:
@@ -108,10 +102,7 @@ services:
         condition: service_healthy
 
   docker-gateway:
-    build:
-      context: ../cli
-      dockerfile: Dockerfile
-      target: docker-gateway
+    image: eminence.azurecr.io/docker-gateway:dev
 
     network_mode: host
 
@@ -121,7 +112,7 @@ services:
         target: /opt/tyger/
 
 
-    user: "1000" # TODO: hack!
+    user: "${USER_ID}" # TODO: hack!
 
 volumes:
   db_data:
