@@ -233,8 +233,24 @@ local-docker-up:
 	ln -sf /opt/tyger/control-plane/tyger.sock /opt/tyger/api.sock
 	cd local-docker
 
-	export USER_ID=$$(id -u)
-	export DOCKER_GROUP_ID=$$(getent group docker | cut -d: -f3)
+	export DATA_PLANE_USER_ID=$$(id -u)
+	export RELAY_USER_ID=$$(id -u)
+
+	socket=/var/run/docker-host.sock
+	
+	if [[ ! -S "$${socket}" ]]; then
+		socket=/var/run/docker.sock
+	fi
+
+	if test -w /var/run/docker-host.sock; then
+		export CONTROL_PLANE_USER_ID=$$(id -u)
+		export CONTROL_PLANE_GROUP_ID=$$(id -g)
+	else
+		export CONTROL_PLANE_USER_ID=0
+		export CONTROL_PLANE_GROUP_ID=0
+	fi
+
+	export CONTROL_PLANE_GROUP_ID=$$(getent group docker | cut -d: -f3)
 	
 	docker compose up --build -d --wait
 

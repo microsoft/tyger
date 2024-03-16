@@ -43,7 +43,7 @@ services:
         source: /opt/tyger/data-plane
         target: /opt/tyger/data-plane
 
-    user: "${USER_ID}" # TODO: hack!
+    user: "${DATA_PLANE_USER_ID}" # TODO: hack!
     network_mode: none
     healthcheck:
       test: [ "CMD", "/app/bin/curl", "--fail", "--unix", "/opt/tyger/data-plane/tyger.data.sock", "http://local/healthcheck" ]
@@ -94,7 +94,7 @@ services:
         source: /var/run/docker.sock
         target: /var/run/docker.sock
 
-    user: "${USER_ID}:${DOCKER_GROUP_ID}" # TODO: hack!
+    user: "${CONTROL_PLANE_USER_ID}:${CONTROL_PLANE_GROUP_ID}" # TODO: hack!
     network_mode: none
 
     depends_on:
@@ -112,7 +112,7 @@ services:
         target: /opt/tyger/
 
 
-    user: "${USER_ID}" # TODO: hack!
+    user: "${RELAY_USER_ID}" # TODO: hack!
 
 volumes:
   db_data:
