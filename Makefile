@@ -223,7 +223,7 @@ up: install-cli ensure-environment-conditionally docker-build-tyger-server docke
 	tyger api install -f <(scripts/get-config.sh)
 	$(MAKE) cli-ready
 
-local-docker-up:
+local-docker-up: download-local-buffer-service-cert
 	mkdir -p /opt/tyger/control-plane/
 	mkdir -p /opt/tyger/control-plane/run-secrets/
 	mkdir -p /opt/tyger/control-plane/ephemeral-buffers/
