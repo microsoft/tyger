@@ -130,7 +130,7 @@ function build_and_push() {
   build_and_push_platform
 
   manifest_name="${container_registry_fqdn}/${repo}:${image_tag}"
-  docker manifest create "${manifest_name}" --amend "${container_registry_fqdn}/${repo}:${image_tag}-amd64" --amend "${container_registry_fqdn}/${repo}:${image_tag}-arm64" > /dev/null
+  docker manifest create --amend "${manifest_name}" "${container_registry_fqdn}/${repo}:${image_tag}-amd64" "${container_registry_fqdn}/${repo}:${image_tag}-arm64" > /dev/null
 
   # Push manigest
   if [[ -z "${force:-}" ]]; then
@@ -143,7 +143,7 @@ function build_and_push() {
     fi
   fi
 
-  docker manifest push "${manifest_name}" > /dev/null
+  docker manifest push "${manifest_name}" --purge > /dev/null
   docker tag "${container_registry_fqdn}/${repo}:${image_tag}-$(dpkg --print-architecture)" "$manifest_name"
 }
 
