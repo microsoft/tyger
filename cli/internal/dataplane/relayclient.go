@@ -106,7 +106,7 @@ func pingRelay(ctx context.Context, uri string, httpClient *retryablehttp.Client
 
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("buffer relay server does not exist: %w", err)
+				return fmt.Errorf("buffer relay server does not exist: %w", client.RedactHttpError(err))
 			}
 
 			if errors.Is(err, syscall.ECONNREFUSED) {
