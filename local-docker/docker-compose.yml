@@ -27,7 +27,8 @@ services:
   data-plane:
     image: eminence.azurecr.io/tyger-data-plane-server:dev
 
-    # restart: unless-stopped
+    restart: unless-stopped
+
     environment:
       Urls: http://unix:/opt/tyger/data-plane/tyger.data.sock
       Auth__Enabled: "false"
@@ -52,7 +53,7 @@ services:
   control-plane:
     image: eminence.azurecr.io/tyger-server:dev
 
-    # restart: unless-stopped
+    restart: unless-stopped
 
     environment:
       Urls: http://unix:/opt/tyger/control-plane/tyger.sock
@@ -103,6 +104,8 @@ services:
 
   docker-gateway:
     image: eminence.azurecr.io/docker-gateway:dev
+
+    restart: unless-stopped
 
     network_mode: host
 
