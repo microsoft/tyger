@@ -18,21 +18,21 @@ using static Tyger.ControlPlane.Compute.Kubernetes.KubernetesMetadata;
 
 namespace Tyger.ControlPlane.Compute.Kubernetes;
 
-public class RunCreator : RunCreatorBase, IRunCreator, ICapabilitiesContributor
+public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesContributor
 {
     private readonly IKubernetes _client;
     private readonly BufferOptions _bufferOptions;
     private readonly KubernetesApiOptions _k8sOptions;
-    private readonly ILogger<RunCreator> _logger;
+    private readonly ILogger<KubernetesRunCreator> _logger;
     private static readonly string[] s_waitForWorkerCommand = { "/no-op/no-op" };
 
-    public RunCreator(
+    public KubernetesRunCreator(
         IKubernetes client,
         IRepository repository,
         BufferManager bufferManager,
         IOptions<KubernetesApiOptions> k8sOptions,
         IOptions<BufferOptions> bufferOptions,
-        ILogger<RunCreator> logger)
+        ILogger<KubernetesRunCreator> logger)
         : base(repository, bufferManager)
     {
         _client = client;

@@ -13,22 +13,22 @@ using static Tyger.ControlPlane.Compute.Kubernetes.KubernetesMetadata;
 
 namespace Tyger.ControlPlane.Compute.Kubernetes;
 
-public class RunLogReader : ILogSource
+public class KubernetesRunLogReader : ILogSource
 {
     private readonly k8s.Kubernetes _client;
     private readonly IRepository _repository;
     private readonly ILogArchive _logArchive;
     private readonly ILoggerFactory _loggerFactory;
-    private readonly ILogger<RunLogReader> _logger;
+    private readonly ILogger<KubernetesRunLogReader> _logger;
     private readonly KubernetesApiOptions _k8sOptions;
 
-    public RunLogReader(
+    public KubernetesRunLogReader(
         k8s.Kubernetes client,
         IRepository repository,
         IOptions<KubernetesApiOptions> k8sOptions,
         ILogArchive logArchive,
         ILoggerFactory loggerFactory,
-        ILogger<RunLogReader> logger)
+        ILogger<KubernetesRunLogReader> logger)
     {
         _client = client;
         _repository = repository;
@@ -56,7 +56,7 @@ public class RunLogReader : ILogSource
                     return null;
                 }
 
-                if (RunReader.UpdateRunFromJobAndPods(run, jobs.Items.Single(), Array.Empty<V1Pod>()).Status is RunStatus.Succeeded or RunStatus.Failed)
+                if (KubernetesRunReader.UpdateRunFromJobAndPods(run, jobs.Items.Single(), Array.Empty<V1Pod>()).Status is RunStatus.Succeeded or RunStatus.Failed)
                 {
                     return await GetLogsSnapshot(run, options, cancellationToken);
                 }
@@ -152,7 +152,7 @@ public class RunLogReader : ILogSource
                         case WatchEventType.Deleted:
                             return;
                         case WatchEventType.Modified:
-                            var status = RunReader.UpdateRunFromJobAndPods(run, item, Array.Empty<V1Pod>()).Status;
+                            var status = KubernetesRunReader.UpdateRunFromJobAndPods(run, item, Array.Empty<V1Pod>()).Status;
                             if (status is RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceled)
                             {
                                 return;

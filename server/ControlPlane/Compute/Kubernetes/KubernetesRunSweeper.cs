@@ -13,7 +13,7 @@ using static Tyger.ControlPlane.Compute.Kubernetes.KubernetesMetadata;
 
 namespace Tyger.ControlPlane.Compute.Kubernetes;
 
-public sealed class RunSweeper : IRunSweeper, IHostedService, IDisposable
+public sealed class KubernetesRunSweeper : IRunSweeper, IHostedService, IDisposable
 {
     private static readonly TimeSpan s_minDurationAfterArchivingBeforeDeletingPod = TimeSpan.FromSeconds(30);
 
@@ -24,15 +24,15 @@ public sealed class RunSweeper : IRunSweeper, IHostedService, IDisposable
     private readonly ILogSource _logSource;
     private readonly ILogArchive _logArchive;
     private readonly KubernetesApiOptions _k8sOptions;
-    private readonly ILogger<RunSweeper> _logger;
+    private readonly ILogger<KubernetesRunSweeper> _logger;
 
-    public RunSweeper(
+    public KubernetesRunSweeper(
         IKubernetes client,
         IRepository repository,
         IOptions<KubernetesApiOptions> k8sOptions,
         ILogSource logSource,
         ILogArchive logArchive,
-        ILogger<RunSweeper> logger)
+        ILogger<KubernetesRunSweeper> logger)
     {
         _client = client;
         _repository = repository;
@@ -113,8 +113,8 @@ public sealed class RunSweeper : IRunSweeper, IHostedService, IDisposable
 
             foreach (var job in jobs.Items)
             {
-                bool isCanceling = RunReader.IsJobCanceling(job);
-                if (isCanceling || RunReader.HasJobSucceeded(job) || RunReader.HasJobFailed(job, out _))
+                bool isCanceling = KubernetesRunReader.IsJobCanceling(job);
+                if (isCanceling || KubernetesRunReader.HasJobSucceeded(job) || KubernetesRunReader.HasJobFailed(job, out _))
                 {
                     var runId = long.Parse(job.GetLabel(JobLabel), CultureInfo.InvariantCulture);
 
@@ -140,7 +140,7 @@ public sealed class RunSweeper : IRunSweeper, IHostedService, IDisposable
                             var pods = await _client.EnumeratePodsInNamespace(_k8sOptions.Namespace, labelSelector: $"{RunLabel}={runId}", cancellationToken: cancellationToken)
                                 .ToListAsync(cancellationToken);
 
-                            run = RunReader.UpdateRunFromJobAndPods(run, job, pods);
+                            run = KubernetesRunReader.UpdateRunFromJobAndPods(run, job, pods);
                             if (isCanceling && run.Status != RunStatus.Canceled)
                             {
                                 // the pods did not termintate in time. Override the status.
