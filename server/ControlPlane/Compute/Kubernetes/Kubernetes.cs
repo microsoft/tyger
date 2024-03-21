@@ -30,23 +30,23 @@ public static class Kubernetes
         builder.Services.AddSingleton<IKubernetes>(sp => sp.GetRequiredService<k8s.Kubernetes>());
 
         builder.Services.AddHttpClient(Options.DefaultName).AddStandardResilienceHandler();
-        builder.Services.AddSingleton<IReplicaDatabaseVersionProvider, ReplicaDatabaseVersionProvider>();
+        builder.Services.AddSingleton<IReplicaDatabaseVersionProvider, KubernetesReplicaDatabaseVersionProvider>();
 
         if (builder is WebApplicationBuilder)
         {
             builder.Services.AddOptions<KubernetesApiOptions>().BindConfiguration("compute:kubernetes").ValidateDataAnnotations().ValidateOnStart();
-            builder.Services.AddSingleton<RunCreator>();
-            builder.Services.AddSingleton<IRunCreator>(sp => sp.GetRequiredService<RunCreator>());
-            builder.Services.AddSingleton<ICapabilitiesContributor>(sp => sp.GetRequiredService<RunCreator>());
-            builder.Services.AddSingleton<RunReader>();
-            builder.Services.AddSingleton<IRunReader>(sp => sp.GetRequiredService<RunReader>());
-            builder.Services.AddSingleton<RunUpdater>();
-            builder.Services.AddSingleton<IRunUpdater>(sp => sp.GetRequiredService<RunUpdater>());
-            builder.Services.AddSingleton<ILogSource, RunLogReader>();
-            builder.Services.AddSingleton<RunSweeper>();
-            builder.Services.AddSingleton<IHostedService, RunSweeper>(sp => sp.GetRequiredService<RunSweeper>());
-            builder.Services.AddSingleton<RunSweeper>();
-            builder.Services.AddSingleton<IRunSweeper>(sp => sp.GetRequiredService<RunSweeper>());
+            builder.Services.AddSingleton<KubernetesRunCreator>();
+            builder.Services.AddSingleton<IRunCreator>(sp => sp.GetRequiredService<KubernetesRunCreator>());
+            builder.Services.AddSingleton<ICapabilitiesContributor>(sp => sp.GetRequiredService<KubernetesRunCreator>());
+            builder.Services.AddSingleton<KubernetesRunReader>();
+            builder.Services.AddSingleton<IRunReader>(sp => sp.GetRequiredService<KubernetesRunReader>());
+            builder.Services.AddSingleton<KubernetesRunUpdater>();
+            builder.Services.AddSingleton<IRunUpdater>(sp => sp.GetRequiredService<KubernetesRunUpdater>());
+            builder.Services.AddSingleton<ILogSource, KubernetesRunLogReader>();
+            builder.Services.AddSingleton<KubernetesRunSweeper>();
+            builder.Services.AddSingleton<IHostedService, KubernetesRunSweeper>(sp => sp.GetRequiredService<KubernetesRunSweeper>());
+            builder.Services.AddSingleton<KubernetesRunSweeper>();
+            builder.Services.AddSingleton<IRunSweeper>(sp => sp.GetRequiredService<KubernetesRunSweeper>());
             builder.Services.AddSingleton<IEphemeralBufferProvider, KubernetesEphemeralBufferProvider>();
         }
     }

@@ -11,18 +11,18 @@ using static Tyger.ControlPlane.Compute.Kubernetes.KubernetesMetadata;
 
 namespace Tyger.ControlPlane.Compute.Kubernetes;
 
-public class RunUpdater : IRunUpdater
+public class KubernetesRunUpdater : IRunUpdater
 {
     private readonly IKubernetes _client;
     private readonly IRepository _repository;
     private readonly KubernetesApiOptions _k8sOptions;
-    private readonly ILogger<RunUpdater> _logger;
+    private readonly ILogger<KubernetesRunUpdater> _logger;
 
-    public RunUpdater(
+    public KubernetesRunUpdater(
         IRepository repository,
         IKubernetes client,
         IOptions<KubernetesApiOptions> k8sOptions,
-        ILogger<RunUpdater> logger)
+        ILogger<KubernetesRunUpdater> logger)
     {
         _repository = repository;
         _logger = logger;

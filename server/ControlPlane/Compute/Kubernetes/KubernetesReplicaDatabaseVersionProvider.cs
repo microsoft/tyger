@@ -11,7 +11,7 @@ using Tyger.ControlPlane.Model;
 
 namespace Tyger.ControlPlane.Compute.Kubernetes;
 
-public class ReplicaDatabaseVersionProvider : IReplicaDatabaseVersionProvider
+public class KubernetesReplicaDatabaseVersionProvider : IReplicaDatabaseVersionProvider
 {
     private readonly IKubernetes _kubernetesClient;
     private readonly KubernetesCoreOptions _kubernetesOptions;
@@ -19,7 +19,7 @@ public class ReplicaDatabaseVersionProvider : IReplicaDatabaseVersionProvider
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly JsonSerializerOptions _jsonSerializerOptions;
 
-    public ReplicaDatabaseVersionProvider(IKubernetes kubernetesClient, IOptions<KubernetesCoreOptions> kubernetesOptions, IHttpClientFactory httpClientFactory, JsonSerializerOptions jsonSerializerOptions)
+    public KubernetesReplicaDatabaseVersionProvider(IKubernetes kubernetesClient, IOptions<KubernetesCoreOptions> kubernetesOptions, IHttpClientFactory httpClientFactory, JsonSerializerOptions jsonSerializerOptions)
     {
         _kubernetesClient = kubernetesClient;
         _kubernetesOptions = kubernetesOptions.Value;

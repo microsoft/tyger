@@ -16,7 +16,7 @@ using static Tyger.ControlPlane.Compute.Kubernetes.KubernetesMetadata;
 
 namespace Tyger.ControlPlane.Compute.Kubernetes;
 
-public class RunReader : IRunReader
+public class KubernetesRunReader : IRunReader
 
 {
     // Used to extract "gpunp" from an AKS node named "aks-gpunp-23329378-vmss000007"
@@ -25,13 +25,13 @@ public class RunReader : IRunReader
     private readonly IKubernetes _client;
     private readonly IRepository _repository;
     private readonly KubernetesApiOptions _k8sOptions;
-    private readonly ILogger<RunReader> _logger;
+    private readonly ILogger<KubernetesRunReader> _logger;
 
-    public RunReader(
+    public KubernetesRunReader(
         IKubernetes client,
         IRepository repository,
         IOptions<KubernetesApiOptions> k8sOptions,
-        ILogger<RunReader> logger)
+        ILogger<KubernetesRunReader> logger)
     {
         _client = client;
         _repository = repository;
