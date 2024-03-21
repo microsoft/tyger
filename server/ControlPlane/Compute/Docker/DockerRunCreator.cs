@@ -180,8 +180,10 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                 args.AddRange([
                     "relay",
                     write ? "write" : "read",
-                    "--listen", $"unix://{relaySocketPath}",
-                    "--primary-cert", _dockerSecretOptions.PrimarySigningPublicCertificatePath,
+                    "--listen",
+                    $"unix://{relaySocketPath}",
+                    "--primary-cert",
+                    _dockerSecretOptions.PrimarySigningPublicCertificatePath,
                 ]);
                 if (!string.IsNullOrEmpty(_dockerSecretOptions.SecondarySigningPublicCertificatePath))
                 {
@@ -202,7 +204,8 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                 containerPipePath,
                 "--tombstone",
                 Path.Combine(absoluteContainerSecretsBase, relativeTombstonePath, "tombstone.txt"),
-                "--log-format", "json",
+                "--log-format",
+                "json",
             ]);
 
             var sidecarContainerParameters = new CreateContainerParameters
