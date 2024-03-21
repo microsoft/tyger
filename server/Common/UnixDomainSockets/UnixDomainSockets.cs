@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 using System.Net.Sockets;
 
 namespace Tyger.Common.UnixDomainSockets;

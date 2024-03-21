@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 using System.Globalization;
 using System.Text;
 using Microsoft.AspNetCore.Http.Extensions;
