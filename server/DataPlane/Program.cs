@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 using Tyger.Common.Api;
 using Tyger.Common.Configuration;
 using Tyger.Common.Logging;

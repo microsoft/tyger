@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 using System.Collections.Immutable;
 using System.ComponentModel.DataAnnotations;
 using System.Text.RegularExpressions;

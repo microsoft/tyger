@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 using System.Collections.Frozen;
 using System.Diagnostics;
 using Microsoft.AspNetCore.Mvc.ApiExplorer;
