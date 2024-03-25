@@ -129,6 +129,10 @@ function build_and_push() {
   image_tag_with_platform=$"${image_tag}-${platform}"
   build_and_push_platform
 
+  if [[ -z "${push:-}" ]]; then
+    return 0
+  fi
+
   manifest_name="${container_registry_fqdn}/${repo}:${image_tag}"
   docker manifest create --amend "${manifest_name}" "${container_registry_fqdn}/${repo}:${image_tag}-amd64" "${container_registry_fqdn}/${repo}:${image_tag}-arm64" > /dev/null
 
