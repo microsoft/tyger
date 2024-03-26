@@ -1,0 +1,169 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+ENVIRONMENT_CONFIG_JSON = $(shell scripts/get-config.sh -o json | jq -c)
+
+SECURITY_ENABLED=true
+HELM_NAMESPACE=tyger
+HELM_RELEASE=tyger
+TYGER_URI = https://$(shell echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.domainName')
+INSTALL_CLOUD=false
+AUTO_MIGRATE=false
+
+get-config:
+	echo '${ENVIRONMENT_CONFIG_JSON}' | yq -P
+
+ensure-environment: check-az-login install-cli
+	tyger cloud install -f <(scripts/get-config.sh)
+
+ensure-environment-conditionally: install-cli
+	if [[ "${INSTALL_CLOUD}" == "true" ]]; then
+		$(MAKE) ensure-environment
+	fi
+
+remove-environment: install-cli
+	tyger cloud uninstall -f <(scripts/get-config.sh)
+
+# Sets up the az subscription and kubectl config for the current environment
+set-context: check-az-login
+	subscription=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.cloud.subscriptionId')
+	resource_group=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.cloud.resourceGroup')
+
+	for cluster in $$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -c '.cloud.compute.clusters | .[]'); do
+		if [[ "$$(echo "$$cluster" | jq -r '.apiHost')" == "true" ]]; then
+			cluster_name=$$(echo "$$cluster" | jq -r '.name')
+			az account set --subscription "$${subscription}"
+			az aks get-credentials -n "$${cluster_name}" -g "$${resource_group}" --overwrite-existing --only-show-errors
+			kubelogin convert-kubeconfig -l azurecli
+			kubectl config set-context --current --namespace=${HELM_NAMESPACE}
+		fi
+	done
+
+set-localsettings:
+	helm_values=$$(helm get values -n ${HELM_NAMESPACE} ${HELM_RELEASE} -o json || true)
+
+	if [[ -z "$${helm_values}" ]]; then
+		echo "Run 'make up' and 'make set-context' before this target"; exit 1
+	fi
+
+	jq <<- EOF > ${CONTROL_PLANE_SERVER_PATH}/appsettings.local.json
+		{
+			"logging": { "Console": {"FormatterName": "simple" } },
+			"serviceMetadata": {
+				"externalBaseUrl": "http://localhost:5000"
+			},
+			"auth": {
+				"enabled": "${SECURITY_ENABLED}",
+				"authority": "https://login.microsoftonline.com/$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.auth.tenantId')",
+				"audience": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.auth.apiAppUri')",
+				"cliAppUri": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.auth.cliAppUri')"
+			},
+			"compute": {
+				"kubernetes": {
+					"kubeconfigPath": "$${HOME}/.kube/config",
+					"namespace": "${HELM_NAMESPACE}",
+					"jobServiceAccount": "${HELM_RELEASE}-job",
+					"noOpConfigMap": "${HELM_RELEASE}-no-op",
+					"workerWaiterImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.workerWaiterImage')",
+					"clusters": $$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -c '.cloud.compute.clusters'),
+					"currentPodUid": "00000000-0000-0000-0000-000000000000"
+				}
+			},
+			"logArchive": {
+				"cloudStorage": {
+					"storageAccountEndpoint": $$(echo $${helm_values} | jq -c '.logArchive.storageAccountEndpoint')
+				}
+			},
+			"buffers": {
+				"cloudStorage": {
+					"storageAccounts": $$(echo $${helm_values} | jq -c '.buffers.storageAccounts')
+				},
+				"bufferSidecarImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.bufferSidecarImage')"
+			},
+			"database": {
+				"connectionString": "Host=$$(echo $${helm_values} | jq -r '.database.host'); Database=$$(echo $${helm_values} | jq -r '.database.databaseName'); Port=$$(echo $${helm_values} | jq -r '.database.port'); Username=$$(az account show | jq -r '.user.name'); SslMode=VerifyFull",
+				"autoMigrate": ${AUTO_MIGRATE},
+				"tygerServerRoleName": "$$(echo $${helm_values} | jq -r '.identity.tygerServer.name')"
+			}
+		}
+	EOF
+
+up: install-cli ensure-environment-conditionally docker-build-tyger-server docker-build-buffer-sidecar docker-build-worker-waiter
+	tyger api install -f <(scripts/get-config.sh)
+	$(MAKE) cli-ready
+
+down: install-cli
+	tyger api uninstall -f <(scripts/get-config.sh)
+
+migrate: ensure-environment-conditionally docker-build-tyger-server
+	tyger api migrations apply --latest --wait -f <(scripts/get-config.sh)
+
+download-test-client-cert:
+	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.version')
+	cert_path=$${HOME}/tyger_test_client_cert_$${cert_version}.pem
+	if [[ ! -f "$${cert_path}" ]]; then
+		rm -f "$${cert_path}"
+		subscription=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | yq '.cloud.subscriptionId')
+		vault_name=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.keyVault')
+		cert_name=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.name')
+		cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.version')
+		az keyvault secret download --vault-name "$${vault_name}" --name "$${cert_name}" --version "$${cert_version}" --file "$${cert_path}" --subscription "$${subscription}"
+		chmod 600 "$${cert_path}"
+	fi
+
+check-test-client-cert:
+	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}'' | jq -r '.pemCertSecret.version')
+	cert_path=$${HOME}/tyger_test_client_cert_$${cert_version}.pem
+	[ -f ${TEST_CLIENT_CERT_FILE} ]
+
+login: install-cli download-test-client-cert
+	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.version')
+	cert_path=$${HOME}/tyger_test_client_cert_$${cert_version}.pem
+	test_app_uri=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.testAppUri')
+
+	tyger login -f <(cat <<EOF
+	serverUri: ${TYGER_URI}
+	servicePrincipal: $${test_app_uri}
+	certificatePath: $${cert_path}
+	EOF
+	)
+
+start-proxy: install-cli download-test-client-cert
+	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.version')
+	cert_path=$${HOME}/tyger_test_client_cert_$${cert_version}.pem
+	test_app_uri=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.testAppUri')
+
+	tyger-proxy start -f <(cat <<EOF
+	serverUri: ${TYGER_URI}
+	servicePrincipal: $${test_app_uri}
+	certificatePath: $${cert_path}
+	allowedClientCIDRs: ["127.0.0.1/32"]
+	logPath: "/tmp/tyger-proxy"
+	EOF
+	)
+
+kill-proxy:
+	killall tyger-proxy
+
+connect-db: set-context
+	helm_values=$$(helm get values -n ${HELM_NAMESPACE} ${HELM_RELEASE} -o json || true)
+
+	if [[ -z "$${helm_values}" ]]; then
+		echo "Run 'make up' before this target"; exit 1
+	fi
+
+	export PGPASSWORD=$$(az account get-access-token --resource-type oss-rdbms | jq -r .accessToken)
+
+	psql \
+		--host="$$(echo $${helm_values} | jq -r '.database.host')" \
+		--port="$$(echo $${helm_values} | jq -r '.database.port')" \
+		--username="$$(az account show | jq -r '.user.name')" \
+		--dbname="$$(echo $${helm_values} | jq -r '.database.databaseName')"
+
+purge-runs: set-context
+	for pod in $$(kubectl get pod -n "${HELM_NAMESPACE}" -l tyger-run -o go-template='{{range .items}}{{.metadata.name}}{{"\n"}}{{end}}'); do
+		kubectl patch pod -n "${HELM_NAMESPACE}" "$${pod}" \
+			--type json \
+			--patch='[ { "op": "remove", "path": "/metadata/finalizers" } ]'
+	done
+	kubectl delete job,statefulset,secret,service -n "${HELM_NAMESPACE}" -l tyger-run --cascade=foreground

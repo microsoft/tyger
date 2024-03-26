@@ -16,6 +16,9 @@
         "files.trimFinalNewlines": true,
         "files.trimTrailingWhitespace": true,
         "files.insertFinalNewline": true,
+        "files.associations": {
+          "Makefile.*": "makefile"
+        },
 
         "[csharp]": {
           "editor.formatOnSave": true

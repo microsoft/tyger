@@ -1,3 +1,4 @@
+subscriptionId: 87d8acb3-5176-4651-b457-6ab9cefd8e3d
 wipContainerRegistry:
   name: eminence
   fqdn: eminence.azurecr.io
