@@ -11,14 +11,14 @@ make -f "$(dirname "$0")/../Makefile" install-cli
 if ! make -f "$(dirname "$0")/../Makefile" check-test-client-cert; then
     make -f "$(dirname "$0")/../Makefile" download-test-client-cert
 fi
-make -f "$(dirname "$0")/../Makefile" login-service-principal
+make -f "$(dirname "$0")/../Makefile" login
 uri=$(make -s -f "$(dirname "$0")/../Makefile" get-tyger-uri)
 
 set -euo pipefail
 
 printf "\n===SERVICE PRINCIPAL LOGIN===\n\n"
 
-make -f "$(dirname "$0")/../Makefile" login-service-principal
+make -f "$(dirname "$0")/../Makefile" login
 tyger login status
 
 token_file="${XDG_CACHE_HOME:-$HOME/.cache}/tyger/.tyger"

@@ -96,3 +96,5 @@ RUN echo -e "\n\
 if ! grep -q \"^source /opt/devcontainer/devcontainer.bashrc\" \${HOME}/.bashrc; then\n\
 	echo \"source /opt/devcontainer/devcontainer.bashrc\" >> \${HOME}/.bashrc\n\
 fi\n" >> /etc/bash.bashrc
+
+RUN mkdir -p /workspaces && ln -s /workspaces/tyger /workspaces/tyger-docker

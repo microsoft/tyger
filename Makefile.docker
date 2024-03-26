@@ -1,0 +1,116 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+set-localsettings: download-buffer-service-cert
+	run_secrets_path="/opt/tyger/control-plane/run-secrets/"
+	ephemeral_buffers_path="/opt/tyger/control-plane/ephemeral-buffers/"
+	logs_path="/opt/tyger/dev/volumes/run_logs"
+
+	jq <<- EOF > ${CONTROL_PLANE_SERVER_PATH}/appsettings.local.json
+		{
+			"urls": "http://unix:/opt/tyger/control-plane/tyger.sock",
+			"logging": { "Console": {"FormatterName": "simple" } },
+			"auth": {
+				"enabled": "false"
+			},
+			"compute": {
+				"docker": {
+					"runSecretsPath": "$${run_secrets_path}",
+					"ephemeralBuffersPath": "$${ephemeral_buffers_path}",
+					"primarySigningPublicCertificatePath": "/opt/tyger/secrets/tyger_local_buffer_service_cert_$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version')_public.pem"
+				}
+			},
+			"logArchive": {
+				"localStorage": {
+					"logsDirectory": "$${logs_path}"
+				}
+			},
+			"buffers": {
+				"localStorage": {
+					"signingCertificatePath": "/opt/tyger/secrets/tyger_local_buffer_service_cert_$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version').pem",
+					"dataPlaneEndpoint": "http+unix:///opt/tyger/data-plane/tyger.data.sock"
+				},
+				"bufferSidecarImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.bufferSidecarImage')"
+			},
+			"database": {
+				"connectionString": "Host=/opt/tyger/database; Username=tyger-server",
+				"autoMigrate": "true",
+				"tygerServerRoleName": "tyger-server"
+			}
+		}
+	EOF
+
+set-data-plane-localsettings:
+	jq <<- EOF > ${DATA_PLANE_SERVER_PATH}/appsettings.local.json
+		{
+			"urls": "http://unix:/opt/tyger/data-plane/tyger.data.sock",
+			"logging": { "Console": {"FormatterName": "simple" } },
+			"dataDirectory": "/opt/tyger/dev/volumes/buffers/",
+			"PrimarySigningPublicCertificatePath": "/opt/tyger/secrets/tyger_local_buffer_service_cert_$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version')_public.pem"
+		}
+	EOF
+
+up: download-buffer-service-cert install-cli docker-build-tyger-server docker-build-buffer-sidecar
+	mkdir -p /opt/tyger/control-plane/
+	mkdir -p /opt/tyger/control-plane/run-secrets/
+	mkdir -p /opt/tyger/control-plane/ephemeral-buffers/
+	mkdir -p /opt/tyger/data-plane/
+	mkdir -p /opt/tyger/database/
+
+	ln -sf /opt/tyger/control-plane/tyger.sock /opt/tyger/api.sock
+	cd local-docker
+
+	export DATA_PLANE_USER_ID=$$(id -u)
+	export RELAY_USER_ID=$$(id -u)
+
+	socket=/var/run/docker-host.sock
+	
+	if [[ ! -S "$${socket}" ]]; then
+		socket=/var/run/docker.sock
+	fi
+
+	if test -w /var/run/docker-host.sock; then
+		export CONTROL_PLANE_USER_ID=$$(id -u)
+		export CONTROL_PLANE_GROUP_ID=$$(getent group docker | cut -d: -f3)
+	else
+		export CONTROL_PLANE_USER_ID=0
+		export CONTROL_PLANE_GROUP_ID=0
+	fi
+	
+	docker compose up --build -d --wait
+
+down:
+	cd local-docker
+	docker compose down -v
+	rm -rf /opt/tyger/dev/volumes/buffers/*
+
+download-buffer-service-cert:
+	mkdir -p /opt/tyger/secrets
+	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version')
+	cert_path=/opt/tyger/secrets/tyger_local_buffer_service_cert_$${cert_version}.pem
+	public_cert_path=/opt/tyger/secrets/tyger_local_buffer_service_cert_$${cert_version}_public.pem
+
+	subscription=$$(echo '${DEVELOPER_CONFIG_JSON}' | yq '.subscriptionId')
+	vault_name=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.keyVault')
+	cert_name=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.name')
+	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version')
+
+	if [[ ! -f "$${cert_path}" ]]; then
+		rm -f "$${cert_path}"
+
+		az keyvault secret download --vault-name "$${vault_name}" --name "$${cert_name}" --version "$${cert_version}" --file "$${cert_path}" --subscription "$${subscription}"
+		chmod 600 "$${cert_path}"
+	fi
+	if [[ ! -f "$${public_cert_path}" ]]; then
+		az keyvault certificate download --encoding pem --vault-name "$${vault_name}" --name "$${cert_name}" --version "$${cert_version}" --file "$${public_cert_path}" --subscription "$${subscription}"
+	fi
+
+	public_cert_latest_path=/opt/tyger/secrets/tyger_local_buffer_service_cert_latest_public.pem
+	cert_latest_path=/opt/tyger/secrets/tyger_local_buffer_service_cert_latest.pem
+
+	ln -sf "$${cert_path}" "$${cert_latest_path}"
+	ln -sf "$${public_cert_path}" "$${public_cert_latest_path}"
+
+
+login:
+	tyger login --local
