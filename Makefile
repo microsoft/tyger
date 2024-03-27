@@ -20,8 +20,11 @@ else ifeq ($(TYGER_ENVIRONMENT_TYPE),docker)
 include Makefile.docker
 endif
 
-launch-docker-env:
+open-docker-window:
 	code /workspaces/tyger-docker
+
+open-cloud-window:
+	code /workspaces/tyger
 
 check-az-login:
 	scripts/check-az-login.sh
