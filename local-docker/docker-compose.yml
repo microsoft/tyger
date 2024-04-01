@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     command:
       - -c
-      - listen_addresses=localhost
+      - "listen_addresses="
     volumes:
       - db_data:/var/lib/postgresql/data
       - type: bind

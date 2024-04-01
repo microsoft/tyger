@@ -21,7 +21,18 @@ var (
 	DatabaseServerNameRegex = regexp.MustCompile(`^([a-z0-9](?:[a-z0-9\-]{1,61}[a-z0-9])?)?$`)
 )
 
-func QuickValidateEnvironmentConfig(config *EnvironmentConfig) bool {
+func QuickValidateEnvironmentConfig(config EnvironmentConfig) bool {
+	switch c := config.(type) {
+	case *CloudEnvironmentConfig:
+		return QuickValidateCloudEnvironmentConfig(c)
+	case *DockerEnvironmentConfig:
+		return QuickValidateDockerEnvironmentConfig(c)
+	default:
+		panic(fmt.Sprintf("unexpected environment config type %T", config))
+	}
+}
+
+func QuickValidateCloudEnvironmentConfig(config *CloudEnvironmentConfig) bool {
 	success := true
 
 	if config.EnvironmentName == "" {
@@ -36,7 +47,7 @@ func QuickValidateEnvironmentConfig(config *EnvironmentConfig) bool {
 	return success
 }
 
-func quickValidateCloudConfig(success *bool, environmentConfig *EnvironmentConfig) {
+func quickValidateCloudConfig(success *bool, environmentConfig *CloudEnvironmentConfig) {
 	cloudConfig := environmentConfig.Cloud
 	if cloudConfig == nil {
 		validationError(success, "The `cloud` field is required")
@@ -270,7 +281,7 @@ func GetDomainNameRegex(location string) *regexp.Regexp {
 	return regexp.MustCompile(fmt.Sprintf(`^[a-zA-Z]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?%s$`, regexp.QuoteMeta(GetDomainNameSuffix(location))))
 }
 
-func quickValidateApiConfig(success *bool, environmentConfig *EnvironmentConfig) {
+func quickValidateApiConfig(success *bool, environmentConfig *CloudEnvironmentConfig) {
 	apiConfig := environmentConfig.Api
 	if apiConfig == nil {
 		validationError(success, "The `api` field is required")
@@ -312,6 +323,11 @@ func quickValidateApiConfig(success *bool, environmentConfig *EnvironmentConfig)
 			}
 		}
 	}
+}
+
+func QuickValidateDockerEnvironmentConfig(config *DockerEnvironmentConfig) bool {
+	success := true
+	return success
 }
 
 func validationError(success *bool, format string, args ...any) {

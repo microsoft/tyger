@@ -18,7 +18,7 @@ func CreateStorageAccount(ctx context.Context,
 	restConfigPromise *Promise[*rest.Config],
 	managedIdentityPromise *Promise[*armmsi.Identity],
 ) (any, error) {
-	config := GetConfigFromContext(ctx)
+	config := GetCloudEnvironmentConfigFromContext(ctx)
 	cred := GetAzureCredentialFromContext(ctx)
 
 	storageClient, err := armstorage.NewAccountsClient(config.Cloud.SubscriptionID, cred, nil)

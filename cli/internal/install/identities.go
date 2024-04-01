@@ -12,7 +12,7 @@ import (
 
 func InstallIdentities(ctx context.Context, cred azcore.TokenCredential) error {
 	const permissionScopeId = "6291652f-fd9d-4a31-aa5f-87306c599bb6"
-	config := GetConfigFromContext(ctx)
+	config := GetCloudEnvironmentConfigFromContext(ctx)
 
 	serverApp := aadApp{
 		DisplayName:    "Tyger API",

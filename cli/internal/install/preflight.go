@@ -19,7 +19,7 @@ import (
 )
 
 func preflightCheck(ctx context.Context) error {
-	config := GetConfigFromContext(ctx)
+	config := GetCloudEnvironmentConfigFromContext(ctx)
 	cred := GetAzureCredentialFromContext(ctx)
 
 	if err := checkRPsRegistered(ctx, config, cred); err != nil {
@@ -33,7 +33,7 @@ func preflightCheck(ctx context.Context) error {
 	return nil
 }
 
-func checkRPsRegistered(ctx context.Context, config *EnvironmentConfig, cred azcore.TokenCredential) error {
+func checkRPsRegistered(ctx context.Context, config *CloudEnvironmentConfig, cred azcore.TokenCredential) error {
 	providersClient, err := armresources.NewProvidersClient(config.Cloud.SubscriptionID, cred, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create providers client: %w", err)
@@ -74,7 +74,7 @@ func checkRPRegistered(ctx context.Context, providersClient *armresources.Provid
 	return nil
 }
 
-func checkRbac(ctx context.Context, config *EnvironmentConfig, cred azcore.TokenCredential) error {
+func checkRbac(ctx context.Context, config *CloudEnvironmentConfig, cred azcore.TokenCredential) error {
 	tokenResponse, err := cred.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{cloud.AzurePublic.Services[cloud.ResourceManager].Audience}})
 	if err != nil {
 		return err

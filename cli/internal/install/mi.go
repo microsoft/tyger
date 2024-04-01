@@ -29,7 +29,7 @@ func createMigrationRunnerManagedIdentity(ctx context.Context) (*armmsi.Identity
 }
 
 func createManagedIdentity(ctx context.Context, name string) (*armmsi.Identity, error) {
-	config := GetConfigFromContext(ctx)
+	config := GetCloudEnvironmentConfigFromContext(ctx)
 	cred := GetAzureCredentialFromContext(ctx)
 
 	log.Info().Msgf("Creating or updating managed identity '%s'", name)
@@ -58,7 +58,7 @@ func createFederatedIdentityCredential(
 	managedIdentityPromise *Promise[*armmsi.Identity],
 	clusterPromise *Promise[*armcontainerservice.ManagedCluster],
 ) (any, error) {
-	config := GetConfigFromContext(ctx)
+	config := GetCloudEnvironmentConfigFromContext(ctx)
 	cred := GetAzureCredentialFromContext(ctx)
 
 	cluster, err := clusterPromise.Await()

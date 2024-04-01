@@ -31,7 +31,7 @@ func TestRenderConfig(t *testing.T) {
 
 	require.NoError(t, RenderConfig(values, &buf))
 
-	config := EnvironmentConfig{}
+	config := CloudEnvironmentConfig{}
 	require.NoError(t, yaml.UnmarshalStrict(buf.Bytes(), &config))
 
 	require.Equal(t, values.EnvironmentName, config.EnvironmentName)
@@ -49,9 +49,8 @@ func TestRenderConfig(t *testing.T) {
 
 	buf.Reset()
 	require.NoError(t, RenderConfig(values, &buf))
-	config = EnvironmentConfig{}
+	config = CloudEnvironmentConfig{}
 	require.NoError(t, yaml.UnmarshalStrict(buf.Bytes(), &config))
 
 	require.Equal(t, values.PrincipalId, config.Cloud.Compute.ManagementPrincipals[0].Id)
-
 }

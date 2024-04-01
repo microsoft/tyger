@@ -4,6 +4,7 @@
 package install
 
 import (
+	"context"
 	"errors"
 	"os"
 
@@ -24,8 +25,8 @@ func NewCloudCommand(parentCommand *cobra.Command) *cobra.Command {
 		},
 	}
 
-	cmd.AddCommand(newCloudInstallCommand(cmd))
-	cmd.AddCommand(newCloudUninstallCommand(cmd))
+	cmd.AddCommand(newCloudInstallCommand())
+	cmd.AddCommand(newCloudUninstallCommand())
 
 	return cmd
 }
@@ -35,7 +36,7 @@ type commonFlags struct {
 	setOverrides map[string]string
 }
 
-func newCloudInstallCommand(parentCommand *cobra.Command) *cobra.Command {
+func newCloudInstallCommand() *cobra.Command {
 	flags := commonFlags{}
 	cmd := cobra.Command{
 		Use:                   "install",
@@ -45,6 +46,8 @@ func newCloudInstallCommand(parentCommand *cobra.Command) *cobra.Command {
 		Args:                  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx := commonPrerun(cmd.Context(), &flags)
+
+			CheckCloudEnvironmentConfig(ctx)
 
 			log.Info().Msg("Starting cloud install")
 			ctx, err := loginAndValidateSubscription(ctx)
@@ -66,7 +69,7 @@ func newCloudInstallCommand(parentCommand *cobra.Command) *cobra.Command {
 	return &cmd
 }
 
-func newCloudUninstallCommand(parentCommand *cobra.Command) *cobra.Command {
+func newCloudUninstallCommand() *cobra.Command {
 	flags := commonFlags{}
 	cmd := cobra.Command{
 		Use:                   "uninstall",
@@ -76,6 +79,8 @@ func newCloudUninstallCommand(parentCommand *cobra.Command) *cobra.Command {
 		Args:                  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx := commonPrerun(cmd.Context(), &flags)
+
+			CheckCloudEnvironmentConfig(ctx)
 
 			log.Info().Msg("Starting cloud uninstall")
 			ctx, err := loginAndValidateSubscription(ctx)
@@ -101,4 +106,11 @@ func newCloudUninstallCommand(parentCommand *cobra.Command) *cobra.Command {
 func addCommonFlags(cmd *cobra.Command, flags *commonFlags) {
 	cmd.Flags().StringVarP(&flags.configPath, "file", "f", "", "path to config file")
 	cmd.Flags().StringToStringVar(&flags.setOverrides, "set", nil, "override config values (e.g. --set cloud.subscriptionID=1234 --set cloud.resourceGroup=mygroup)")
+}
+
+func CheckCloudEnvironmentConfig(ctx context.Context) {
+	config := install.GetEnvironmentConfigFromContext(ctx)
+	if _, ok := config.(*install.CloudEnvironmentConfig); !ok {
+		log.Fatal().Msgf("This command is only supported on configurations where the `kind` field is `%s`.", install.EnvironmentKindCloud)
+	}
 }

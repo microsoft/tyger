@@ -129,8 +129,8 @@ func runTygerSucceeds(t *testing.T, args ...string) string {
 	return runCommandSucceeds(t, "tyger", args...)
 }
 
-func getConfig(t *testing.T) install.EnvironmentConfig {
-	config := install.EnvironmentConfig{}
+func getConfig(t *testing.T) install.CloudEnvironmentConfig {
+	config := install.CloudEnvironmentConfig{}
 	require.NoError(t, yaml.UnmarshalStrict([]byte(runCommandSucceeds(t, "../../scripts/get-config.sh")), &config))
 	return config
 }

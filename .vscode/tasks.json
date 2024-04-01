@@ -15,7 +15,7 @@
       },
       "args": [
         "build",
-        "${workspaceFolder}/server/tyger.sln",
+        "server/tyger.sln",
         "/property:GenerateFullPaths=true",
         "/consoleloggerparameters:NoSummary"
       ],

@@ -46,7 +46,7 @@ var (
 )
 
 func installTraefik(ctx context.Context, restConfigPromise *Promise[*rest.Config]) (any, error) {
-	config := GetConfigFromContext(ctx)
+	config := GetCloudEnvironmentConfigFromContext(ctx)
 
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
@@ -112,7 +112,7 @@ func installTraefik(ctx context.Context, restConfigPromise *Promise[*rest.Config
 }
 
 func installCertManager(ctx context.Context, restConfigPromise *Promise[*rest.Config]) (any, error) {
-	config := GetConfigFromContext(ctx)
+	config := GetCloudEnvironmentConfigFromContext(ctx)
 
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
@@ -146,7 +146,7 @@ func installCertManager(ctx context.Context, restConfigPromise *Promise[*rest.Co
 }
 
 func installNvidiaDevicePlugin(ctx context.Context, restConfigPromise *Promise[*rest.Config]) (any, error) {
-	config := GetConfigFromContext(ctx)
+	config := GetCloudEnvironmentConfigFromContext(ctx)
 
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
@@ -206,7 +206,7 @@ func installNvidiaDevicePlugin(ctx context.Context, restConfigPromise *Promise[*
 	return nil, nil
 }
 
-func InstallTyger(ctx context.Context) error {
+func InstallTygerInCloud(ctx context.Context) error {
 	restConfig, err := GetUserRESTConfig(ctx)
 	if err != nil {
 		return err
@@ -217,7 +217,7 @@ func InstallTyger(ctx context.Context) error {
 		return err
 	}
 
-	config := GetConfigFromContext(ctx)
+	config := GetCloudEnvironmentConfigFromContext(ctx)
 	baseEndpoint := fmt.Sprintf("https://%s", config.Api.DomainName)
 	healthCheckEndpoint := fmt.Sprintf("%s/healthcheck", baseEndpoint)
 
@@ -338,7 +338,7 @@ func InstallTygerHelmChart(ctx context.Context, restConfig *rest.Config, dryRun 
 		panic("officialContainerImageTag not set during build")
 	}
 
-	config := GetConfigFromContext(ctx)
+	config := GetCloudEnvironmentConfigFromContext(ctx)
 	cred := GetAzureCredentialFromContext(ctx)
 
 	clustersConfigJson, err := json.Marshal(config.Cloud.Compute.Clusters)
@@ -614,7 +614,7 @@ func GetChartSpec(
 	return chartSpec, nil
 }
 
-func UninstallTyger(ctx context.Context) error {
+func UninstallTygerFromCloud(ctx context.Context) error {
 	restConfig, err := GetUserRESTConfig(ctx)
 	if err != nil {
 		return err

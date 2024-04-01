@@ -6,6 +6,7 @@ package install
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strconv"
 
@@ -26,14 +27,14 @@ func NewApiCommand(parentCommand *cobra.Command) *cobra.Command {
 		},
 	}
 
-	cmd.AddCommand(newApiInstallCommand(cmd))
-	cmd.AddCommand(newApiUninstallCommand(cmd))
-	cmd.AddCommand(NewMigrationsCommand(cmd))
+	cmd.AddCommand(newApiInstallCommand())
+	cmd.AddCommand(newApiUninstallCommand())
+	cmd.AddCommand(NewMigrationsCommand())
 
 	return cmd
 }
 
-func newApiInstallCommand(parentCommand *cobra.Command) *cobra.Command {
+func newApiInstallCommand() *cobra.Command {
 	flags := commonFlags{}
 	cmd := cobra.Command{
 		Use:                   "install",
@@ -46,17 +47,32 @@ func newApiInstallCommand(parentCommand *cobra.Command) *cobra.Command {
 
 			log.Info().Msg("Starting Tyger API install")
 
-			ctx, err := loginAndValidateSubscription(ctx)
-			if err != nil {
-				log.Fatal().Err(err).Send()
-			}
-
-			if err := install.InstallTyger(ctx); err != nil {
-				if err != install.ErrAlreadyLoggedError {
+			switch t := install.GetEnvironmentConfigFromContext(ctx).(type) {
+			case *install.CloudEnvironmentConfig:
+				ctx, err := loginAndValidateSubscription(ctx)
+				if err != nil {
 					log.Fatal().Err(err).Send()
 				}
-				os.Exit(1)
+
+				if err := install.InstallTygerInCloud(ctx); err != nil {
+					if err != install.ErrAlreadyLoggedError {
+						log.Fatal().Err(err).Send()
+					}
+					os.Exit(1)
+				}
+
+			case *install.DockerEnvironmentConfig:
+				if err := install.InstallTygerInDocker(ctx); err != nil {
+					if err != install.ErrAlreadyLoggedError {
+						log.Fatal().Err(err).Send()
+					}
+					os.Exit(1)
+				}
+
+			default:
+				panic(fmt.Sprintf("unexpected environment config type: %T", t))
 			}
+
 			log.Info().Msg("Install complete")
 		},
 	}
@@ -65,7 +81,7 @@ func newApiInstallCommand(parentCommand *cobra.Command) *cobra.Command {
 	return &cmd
 }
 
-func newApiUninstallCommand(parentCommand *cobra.Command) *cobra.Command {
+func newApiUninstallCommand() *cobra.Command {
 	flags := commonFlags{}
 	cmd := cobra.Command{
 		Use:                   "uninstall",
@@ -78,17 +94,32 @@ func newApiUninstallCommand(parentCommand *cobra.Command) *cobra.Command {
 
 			log.Info().Msg("Starting Tyger API uninstall")
 
-			ctx, err := loginAndValidateSubscription(ctx)
-			if err != nil {
-				log.Fatal().Err(err).Send()
-			}
-
-			if err := install.UninstallTyger(ctx); err != nil {
-				if err != install.ErrAlreadyLoggedError {
+			switch t := install.GetEnvironmentConfigFromContext(ctx).(type) {
+			case *install.CloudEnvironmentConfig:
+				ctx, err := loginAndValidateSubscription(ctx)
+				if err != nil {
 					log.Fatal().Err(err).Send()
 				}
-				os.Exit(1)
+
+				if err := install.UninstallTygerFromCloud(ctx); err != nil {
+					if err != install.ErrAlreadyLoggedError {
+						log.Fatal().Err(err).Send()
+					}
+					os.Exit(1)
+				}
+
+			case *install.DockerEnvironmentConfig:
+				if err := install.UninstallTygerInDocker(ctx); err != nil {
+					if err != install.ErrAlreadyLoggedError {
+						log.Fatal().Err(err).Send()
+					}
+					os.Exit(1)
+				}
+
+			default:
+				panic(fmt.Sprintf("unexpected environment config type: %T", t))
 			}
+
 			log.Info().Msg("Uninstall complete")
 		},
 	}
@@ -97,7 +128,7 @@ func newApiUninstallCommand(parentCommand *cobra.Command) *cobra.Command {
 	return &cmd
 }
 
-func NewMigrationsCommand(parentCommand *cobra.Command) *cobra.Command {
+func NewMigrationsCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                   "migration",
 		Aliases:               []string{"migrations"},

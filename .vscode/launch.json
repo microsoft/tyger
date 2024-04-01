@@ -40,7 +40,13 @@
       "mode": "auto",
       "program": "cli/cmd/tyger",
       "cwd": "${workspaceFolder}",
-      "args": ["buffer", "read", "lu4qcau76xpulir3xxko2uaawy", "--dop", "4"]
+      "args": ["api", "uninstall", "-f", "/workspaces/tyger-docker/config.yml"],
+      "substitutePath": [
+        {
+          "from": "/workspaces/tyger-docker",
+          "to": "/workspaces/tyger"
+        }
+      ]
     },
     {
       "name": "docker-gateway",
@@ -49,7 +55,13 @@
       "mode": "auto",
       "program": "cli/cmd/docker-gateway",
       "cwd": "${workspaceFolder}",
-      "args": []
+      "args": [],
+      "substitutePath": [
+        {
+          "from": "/workspaces/tyger-docker",
+          "to": "/workspaces/tyger"
+        }
+      ]
     }
   ]
 }

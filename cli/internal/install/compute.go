@@ -26,7 +26,7 @@ import (
 const DefaultKubernetesVersion = "1.27" // LTS
 
 func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (*armcontainerservice.ManagedCluster, error) {
-	config := GetConfigFromContext(ctx)
+	config := GetCloudEnvironmentConfigFromContext(ctx)
 	cred := GetAzureCredentialFromContext(ctx)
 
 	clustersClient, err := armcontainerservice.NewManagedClustersClient(config.Cloud.SubscriptionID, cred, nil)
@@ -358,7 +358,7 @@ func getContainerRegistryId(ctx context.Context, name string, subscriptionId str
 }
 
 func onDeleteCluster(ctx context.Context, clusterConfig *ClusterConfig) error {
-	config := GetConfigFromContext(ctx)
+	config := GetCloudEnvironmentConfigFromContext(ctx)
 	cred := GetAzureCredentialFromContext(ctx)
 
 	clustersClient, err := armcontainerservice.NewManagedClustersClient(config.Cloud.SubscriptionID, cred, nil)
@@ -406,7 +406,7 @@ func onDeleteCluster(ctx context.Context, clusterConfig *ClusterConfig) error {
 }
 
 func getAdminRESTConfig(ctx context.Context) (*rest.Config, error) {
-	config := GetConfigFromContext(ctx)
+	config := GetCloudEnvironmentConfigFromContext(ctx)
 	cred := GetAzureCredentialFromContext(ctx)
 
 	clustersClient, err := armcontainerservice.NewManagedClustersClient(config.Cloud.SubscriptionID, cred, nil)
@@ -423,7 +423,7 @@ func getAdminRESTConfig(ctx context.Context) (*rest.Config, error) {
 }
 
 func GetUserRESTConfig(ctx context.Context) (*rest.Config, error) {
-	config := GetConfigFromContext(ctx)
+	config := GetCloudEnvironmentConfigFromContext(ctx)
 	cred := GetAzureCredentialFromContext(ctx)
 
 	clustersClient, err := armcontainerservice.NewManagedClustersClient(config.Cloud.SubscriptionID, cred, nil)

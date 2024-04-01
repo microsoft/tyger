@@ -42,7 +42,7 @@ const (
 )
 
 func createDatabase(ctx context.Context, tygerServerManagedIdentityPromise, migrationRunnerManagedIdentityPromise *Promise[*armmsi.Identity]) (any, error) {
-	config := GetConfigFromContext(ctx)
+	config := GetCloudEnvironmentConfigFromContext(ctx)
 	databaseConfig := *config.Cloud.DatabaseConfig
 	cred := GetAzureCredentialFromContext(ctx)
 
@@ -236,7 +236,7 @@ func createDatabase(ctx context.Context, tygerServerManagedIdentityPromise, migr
 		return nil, errDependencyFailed
 	}
 
-	currentPrincipalDisplayName, err := createDatabaseAdmins(ctx, config, serverName, cred, databaseConfig, migrationRunnerManagedIdentity)
+	currentPrincipalDisplayName, err := createDatabaseAdmins(ctx, config, serverName, cred, migrationRunnerManagedIdentity)
 
 	tygerServerManagedIdentity, err := tygerServerManagedIdentityPromise.Await()
 	if err != nil {
@@ -267,10 +267,9 @@ func createDatabase(ctx context.Context, tygerServerManagedIdentityPromise, migr
 // These are not superusers.
 func createDatabaseAdmins(
 	ctx context.Context,
-	config *EnvironmentConfig,
+	config *CloudEnvironmentConfig,
 	serverName string,
 	cred azcore.TokenCredential,
-	databaseConfig DatabaseConfig,
 	migrationRunnerManagedIdentity *armmsi.Identity,
 ) (currentPrincipalDisplayname string, err error) {
 	adminClient, err := armpostgresqlflexibleservers.NewAdministratorsClient(config.Cloud.SubscriptionID, cred, nil)
@@ -326,7 +325,7 @@ func createDatabaseAdmins(
 func createRoles(
 	ctx context.Context,
 	cred azcore.TokenCredential,
-	config *EnvironmentConfig,
+	config *CloudEnvironmentConfig,
 	server *armpostgresqlflexibleservers.Server,
 	currentPrincipalDisplayName string,
 	tygerServerIdentity *armmsi.Identity,
@@ -492,18 +491,18 @@ func getRandomName() string {
 	return strings.ReplaceAll(namesgenerator.GetRandomName(0), "_", "-")
 }
 
-func getUniqueSuffixTagKey(config *EnvironmentConfig) string {
+func getUniqueSuffixTagKey(config *CloudEnvironmentConfig) string {
 	return fmt.Sprintf("tyger-unique-suffix-%s", config.EnvironmentName)
 }
 
-func getDatabaseConfiguredTagKey(config *EnvironmentConfig) string {
+func getDatabaseConfiguredTagKey(config *CloudEnvironmentConfig) string {
 	return fmt.Sprintf("tyger-database-configured-%s", config.EnvironmentName)
 }
 
 // If you try to create a database server less than five days after one with the same name was deleted, you might get an error.
 // For this reason, we allow the database server name to be left empty in the config, and we will give it a random name.
 // The suffix of this name is stored in a tag on the resource group.
-func getDatabaseServerName(ctx context.Context, config *EnvironmentConfig, cred azcore.TokenCredential, generateIfNecessary bool) (string, error) {
+func getDatabaseServerName(ctx context.Context, config *CloudEnvironmentConfig, cred azcore.TokenCredential, generateIfNecessary bool) (string, error) {
 	if config.Cloud.DatabaseConfig.ServerName != "" {
 		return config.Cloud.DatabaseConfig.ServerName, nil
 	}
@@ -542,7 +541,7 @@ func getDatabaseServerName(ctx context.Context, config *EnvironmentConfig, cred 
 }
 
 // Export logs to Log Analytics.
-func enableDiagnosticSettings(ctx context.Context, cred azcore.TokenCredential, config *EnvironmentConfig, server *armpostgresqlflexibleservers.Server) error {
+func enableDiagnosticSettings(ctx context.Context, cred azcore.TokenCredential, config *CloudEnvironmentConfig, server *armpostgresqlflexibleservers.Server) error {
 	log.Info().Msg("Enabling diagnostics on PostgreSQL server")
 
 	diagnosticsSettingsClient, err := armmonitor.NewDiagnosticSettingsClient(cred, nil)

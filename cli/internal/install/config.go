@@ -13,11 +13,31 @@ import (
 //go:embed config.tpl
 var configTemplate string
 
-type EnvironmentConfig struct {
+type EnvironmentKind string
+
+const (
+	EnvironmentKindCloud  EnvironmentKind = "azureCloud"
+	EnvironmentKindDocker EnvironmentKind = "docker"
+)
+
+type EnvironmentConfigCommon struct {
+	Kind EnvironmentKind `json:"kind"`
+}
+
+type EnvironmentConfig interface {
+	_environmentConfig()
+}
+
+type CloudEnvironmentConfig struct {
+	EnvironmentConfigCommon
 	EnvironmentName string       `json:"environmentName"`
 	Cloud           *CloudConfig `json:"cloud"`
 	Api             *ApiConfig   `json:"api"`
 }
+
+func (c *CloudEnvironmentConfig) _environmentConfig() {}
+
+var _ EnvironmentConfig = &CloudEnvironmentConfig{}
 
 type CloudConfig struct {
 	TenantID              string              `json:"tenantId"`
@@ -32,7 +52,7 @@ type CloudConfig struct {
 
 type ComputeConfig struct {
 	Clusters                   []*ClusterConfig `json:"clusters"`
-	ManagementPrincipals       []AksPrincipal   `apjson:"managementPrincipals"`
+	ManagementPrincipals       []AksPrincipal   `json:"managementPrincipals"`
 	PrivateContainerRegistries []string         `json:"privateContainerRegistries"`
 }
 
@@ -128,6 +148,23 @@ type HelmChartConfig struct {
 	Version     string         `json:"version"`
 	ChartRef    string         `json:"chartRef"`
 	Values      map[string]any `json:"values"`
+}
+
+type DockerEnvironmentConfig struct {
+	EnvironmentConfigCommon
+
+	EnvironmentName string `json:"environmentName"`
+
+	PostgresImage      string `json:"postgresImage"`
+	ControlPlaneImage  string `json:"controlPlaneImage"`
+	DataPlaneImage     string `json:"dataPlaneImage"`
+	BufferSidecarImage string `json:"bufferSidecarImage"`
+	GatewayImage       string `json:"gatewayImage"`
+
+	UseGateway bool `json:"useGateway"`
+}
+
+func (*DockerEnvironmentConfig) _environmentConfig() {
 }
 
 type ConfigTemplateValues struct {

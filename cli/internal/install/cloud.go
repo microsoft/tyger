@@ -28,7 +28,7 @@ var (
 )
 
 func InstallCloud(ctx context.Context) (err error) {
-	config := GetConfigFromContext(ctx)
+	config := GetCloudEnvironmentConfigFromContext(ctx)
 
 	if err := ensureResourceGroupCreated(ctx); err != nil {
 		logError(err, "")
@@ -55,7 +55,7 @@ func InstallCloud(ctx context.Context) (err error) {
 }
 
 func UninstallCloud(ctx context.Context) (err error) {
-	config := GetConfigFromContext(ctx)
+	config := GetCloudEnvironmentConfigFromContext(ctx)
 	for _, c := range config.Cloud.Compute.Clusters {
 		if err := onDeleteCluster(ctx, c); err != nil {
 			return err
@@ -169,9 +169,7 @@ func GetDefaultApiVersionForResource(ctx context.Context, resourceId string, pro
 	if err != nil {
 		return "", fmt.Errorf("failed to get resource provider for namespace '%s': %w", providerNamespace, err)
 	}
-	if err != nil {
-		return "", fmt.Errorf("failed to get provider namespace from resource ID '%s': %w", resourceId, err)
-	}
+
 	var apiVersion string
 	for _, t := range provider.Provider.ResourceTypes {
 		if *t.ResourceType == resourceType {
@@ -198,7 +196,7 @@ func getProviderNamespaceAndResourceType(resourceID string) (string, string, err
 }
 
 func ensureResourceGroupCreated(ctx context.Context) error {
-	config := GetConfigFromContext(ctx)
+	config := GetCloudEnvironmentConfigFromContext(ctx)
 	cred := GetAzureCredentialFromContext(ctx)
 
 	c, err := armresources.NewResourceGroupsClient(config.Cloud.SubscriptionID, cred, nil)
@@ -242,7 +240,7 @@ func logError(err error, msg string) {
 	}
 }
 
-func createPromises(ctx context.Context, config *EnvironmentConfig) PromiseGroup {
+func createPromises(ctx context.Context, config *CloudEnvironmentConfig) PromiseGroup {
 	group := &PromiseGroup{}
 
 	var createApiHostClusterPromise *Promise[*armcontainerservice.ManagedCluster]

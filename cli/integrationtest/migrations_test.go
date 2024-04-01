@@ -17,7 +17,7 @@ import (
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/v2"
 	"github.com/microsoft/tyger/cli/internal/install"
-	"github.com/mitchellh/mapstructure"
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
@@ -32,7 +32,7 @@ func TestMigrations(t *testing.T) {
 	configPath := fmt.Sprintf("%s/environment-config.yaml", tempDir)
 	require.NoError(t, os.WriteFile(configPath, []byte(environmentConfig), 0644))
 
-	config := install.EnvironmentConfig{}
+	config := install.CloudEnvironmentConfig{}
 
 	koanfConfig := koanf.New(".")
 	require.NoError(t, koanfConfig.Load(file.Provider(configPath), koanfyaml.Parser()))
@@ -47,7 +47,7 @@ func TestMigrations(t *testing.T) {
 
 	ctx := context.Background()
 
-	ctx = install.SetConfigOnContext(ctx, &config)
+	ctx = install.SetEnvironmentConfigOnContext(ctx, &config)
 	cred, err := install.NewMiAwareAzureCLICredential(
 		&azidentity.AzureCLICredentialOptions{
 			TenantID: config.Cloud.TenantID,

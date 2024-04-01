@@ -41,7 +41,7 @@ func createTygerNamespace(ctx context.Context, restConfigPromise *Promise[*rest.
 }
 
 func createTygerClusterRBAC(ctx context.Context, restConfigPromise *Promise[*rest.Config], createTygerNamespacePromise *Promise[any]) (any, error) {
-	config := GetConfigFromContext(ctx)
+	config := GetCloudEnvironmentConfigFromContext(ctx)
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
 		return nil, errDependencyFailed

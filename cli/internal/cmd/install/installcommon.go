@@ -14,12 +14,12 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/google/uuid"
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/v2"
 	"github.com/microsoft/tyger/cli/internal/install"
-	"github.com/mitchellh/mapstructure"
 	"github.com/rs/zerolog/log"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 )
@@ -52,12 +52,25 @@ func commonPrerun(ctx context.Context, flags *commonFlags) context.Context {
 		koanfConfig.Set(k, v)
 	}
 
-	config := install.EnvironmentConfig{}
+	var config install.EnvironmentConfig
+
+	environmentKind := koanfConfig.Get("kind")
+
+	switch environmentKind {
+	case nil, string(install.EnvironmentKindCloud):
+		config = &install.CloudEnvironmentConfig{}
+	case string(install.EnvironmentKindDocker):
+		config = &install.DockerEnvironmentConfig{}
+	default:
+		log.Fatal().Msgf("The `kind` field must be one of `%s` or `%s`. Given value: `%s`", install.EnvironmentKindCloud, install.EnvironmentKindDocker, environmentKind)
+	}
+
 	err := koanfConfig.UnmarshalWithConf("", &config, koanf.UnmarshalConf{
 		Tag: "json",
 		DecoderConfig: &mapstructure.DecoderConfig{
 			WeaklyTypedInput: true,
 			ErrorUnused:      true,
+			Squash:           true,
 			Result:           &config,
 		},
 	})
@@ -66,7 +79,7 @@ func commonPrerun(ctx context.Context, flags *commonFlags) context.Context {
 		log.Fatal().Err(err).Msg("Failed to parse config file")
 	}
 
-	ctx = install.SetConfigOnContext(ctx, &config)
+	ctx = install.SetEnvironmentConfigOnContext(ctx, config)
 
 	var stopFunc context.CancelFunc
 	ctx, stopFunc = signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
@@ -77,7 +90,7 @@ func commonPrerun(ctx context.Context, flags *commonFlags) context.Context {
 		log.Warn().Msg("Canceling...")
 	}()
 
-	if !install.QuickValidateEnvironmentConfig(&config) {
+	if !install.QuickValidateEnvironmentConfig(config) {
 		os.Exit(1)
 	}
 	return ctx
@@ -93,7 +106,7 @@ func getDefaultConfigPath() string {
 }
 
 func loginAndValidateSubscription(ctx context.Context) (context.Context, error) {
-	config := install.GetConfigFromContext(ctx)
+	config := install.GetCloudEnvironmentConfigFromContext(ctx)
 	cred, err := install.NewMiAwareAzureCLICredential(
 		&azidentity.AzureCLICredentialOptions{
 			TenantID: config.Cloud.TenantID,
