@@ -22,6 +22,7 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/psanford/memfs"
 	"github.com/rs/zerolog/log"
 )
@@ -60,26 +61,135 @@ func createControlPlaneContainer(ctx context.Context, dockerClient *client.Clien
 		return err
 	}
 
-	return nil
-}
-
-func pullImage(ctx context.Context, dockerClient *client.Client, containerImage string, always bool) error {
-	if !always {
-		_, _, err := dockerClient.ImageInspectWithRaw(ctx, containerImage)
-		if err == nil {
-			return nil
-		}
-	}
-
-	reader, err := dockerClient.ImagePull(ctx, containerImage, image.PullOptions{})
+	currentUser, err := user.Current()
 	if err != nil {
-		return fmt.Errorf("error pulling image: %w", err)
+		return fmt.Errorf("error getting current user: %w", err)
 	}
 
-	defer reader.Close()
-	log.Info().Msgf("Pulling image %s", containerImage)
-	io.Copy(io.Discard, reader)
-	log.Info().Msgf("Done pulling image %s", containerImage)
+	_, dockerSocketGroupId, dockerSocketPerms, err := statDockerSocket(ctx, dockerClient)
+	if err != nil {
+		return fmt.Errorf("error statting docker socket: %w", err)
+	}
+
+	var userString string
+	if dockerSocketGroupId != 0 && (dockerSocketPerms&0060 == 0060) {
+		userString = fmt.Sprintf("%s:%d", currentUser.Uid, dockerSocketGroupId)
+	} else {
+		userString = "0"
+	}
+
+	if err := pullImage(ctx, dockerClient, config.BufferSidecarImage, false); err != nil {
+		return fmt.Errorf("error pulling buffer sidecar image: %w", err)
+	}
+
+	image := config.ControlPlaneImage
+
+	primaryPublicCertificatePath := "/app/tyger-data-plane-primary.pem"
+	secondaryPublicCertificatePath := "/app/tyger-data-plane-secondary.pem"
+	if config.DataPlaneSecondarySigningCertificate == "" {
+		secondaryPublicCertificatePath = ""
+	}
+
+	desiredContainerConfig := container.Config{
+		Image: image,
+		User:  userString,
+		Env: []string{
+			"Urls=http://unix:/opt/tyger/control-plane/tyger.sock",
+			"Auth__Enabled=false",
+			"Compute__Docker__RunSecretsPath=/opt/tyger/control-plane/run-secrets/",
+			"Compute__Docker__EphemeralBuffersPath=/opt/tyger/control-plane/ephemeral-buffers/",
+			"LogArchive__LocalStorage__LogsDirectory=/app/logs",
+			"Buffers__BufferSidecarImage=" + config.BufferSidecarImage,
+			"Buffers__LocalStorage__DataPlaneEndpoint=http+unix:///opt/tyger/data-plane/tyger.data.sock",
+			"Buffers__PrimarySigningCertificatePath=" + primaryPublicCertificatePath,
+			"Buffers__SecondarySigningCertificatePath=" + secondaryPublicCertificatePath,
+			"Database__ConnectionString=Host=/opt/tyger/database; Username=tyger-server",
+			"Database__AutoMigrate=true",
+			"Database__TygerServerRoleName=tyger-server",
+		},
+		Healthcheck: &container.HealthConfig{
+			Test: []string{
+				"CMD",
+				"/app/bin/curl",
+				"--fail",
+				"--unix", "/opt/tyger/control-plane/tyger.sock",
+				"http://local/healthcheck",
+			},
+			StartInterval: 2 * time.Second,
+			Interval:      10 * time.Second,
+		},
+	}
+
+	desiredHostConfig := container.HostConfig{
+		Mounts: []mount.Mount{
+			{
+				Type:   "volume",
+				Source: runLogsDockerVolumeName(config),
+				Target: "/app/logs",
+			},
+			{
+				Type:   "bind",
+				Source: "/opt/tyger/control-plane",
+				Target: "/opt/tyger/control-plane",
+			},
+			{
+				Type:   "bind",
+				Source: "/opt/tyger/data-plane",
+				Target: "/opt/tyger/data-plane",
+			},
+			{
+				Type:   "bind",
+				Source: "/opt/tyger/database",
+				Target: "/opt/tyger/database",
+			},
+			{
+				Type:   "bind",
+				Source: "/var/run/docker.sock",
+				Target: "/var/run/docker.sock",
+			},
+		},
+		NetworkMode: "none",
+		RestartPolicy: container.RestartPolicy{
+			Name: container.RestartPolicyUnlessStopped,
+		},
+	}
+	desiredNetworkingConfig := network.NetworkingConfig{}
+
+	postCreateAction := func(containerName string) error {
+		tarFs := memfs.New()
+
+		primaryPemBytes, err := os.ReadFile(config.DataPlanePrimarySigningCertificate)
+		if err != nil {
+			return err
+		}
+
+		tarFs.WriteFile(path.Base(primaryPublicCertificatePath), primaryPemBytes, 0777)
+
+		if config.DataPlaneSecondarySigningCertificate != "" {
+			secondaryPemBytes, err := os.ReadFile(config.DataPlaneSecondarySigningCertificate)
+			if err != nil {
+				return err
+			}
+
+			tarFs.WriteFile(path.Base(secondaryPublicCertificatePath), secondaryPemBytes, 0777)
+		}
+
+		buf := &bytes.Buffer{}
+		tw := tar.NewWriter(buf)
+		tw.AddFS(tarFs)
+		tw.Close()
+
+		return dockerClient.CopyToContainer(ctx, containerName, "/app", buf, types.CopyToContainerOptions{})
+	}
+
+	if err := createContainer(
+		ctx,
+		dockerClient,
+		controlPlaneDockerContainerName(config),
+		&desiredContainerConfig, &desiredHostConfig, &desiredNetworkingConfig,
+		postCreateAction); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -181,7 +291,6 @@ func createDataPlaneContainer(ctx context.Context, dockerClient *client.Client, 
 		User:  currentUser.Uid,
 		Env: []string{
 			"Urls=http://unix:/opt/tyger/data-plane/tyger.data.sock",
-			"Auth__Enabled=false",
 			"DataDirectory=/app/data",
 			"PrimarySigningPublicCertificatePath=" + primaryPublicCertificatePath,
 			"SecondarySigningPublicCertificatePath=" + secondaryPublicCertificatePath,
@@ -357,6 +466,27 @@ func createContainer(
 	return nil
 }
 
+func pullImage(ctx context.Context, dockerClient *client.Client, containerImage string, always bool) error {
+	if !always {
+		_, _, err := dockerClient.ImageInspectWithRaw(ctx, containerImage)
+		if err == nil {
+			return nil
+		}
+	}
+
+	reader, err := dockerClient.ImagePull(ctx, containerImage, image.PullOptions{})
+	if err != nil {
+		return fmt.Errorf("error pulling image: %w", err)
+	}
+
+	defer reader.Close()
+	log.Info().Msgf("Pulling image %s", containerImage)
+	io.Copy(io.Discard, reader)
+	log.Info().Msgf("Done pulling image %s", containerImage)
+
+	return nil
+}
+
 func computeContainerConfigHash(desiredConfig *container.Config, desiredHostConfig *container.HostConfig, desiredNetworkingConfig *network.NetworkingConfig) string {
 	combinedDesiredConfig := struct {
 		Config  *container.Config
@@ -429,4 +559,74 @@ func buffersDockerVolumeName(config *DockerEnvironmentConfig) string {
 
 func runLogsDockerVolumeName(config *DockerEnvironmentConfig) string {
 	return fmt.Sprintf("tyger-%s-run-logs", config.EnvironmentName)
+}
+
+func statDockerSocket(ctx context.Context, dockerClient *client.Client) (userId uint32, groupId uint32, permissions uint32, err error) {
+	// Define the container configuration
+	containerConfig := &container.Config{
+		Image: "mcr.microsoft.com/cbl-mariner/base/core:2.0",
+		Cmd:   []string{"stat", "-c", "%u %g %a", "/var/run/docker.sock"},
+		Tty:   false, // not interactive
+	}
+
+	// Define the host configuration (volume mounts)
+	hostConfig := &container.HostConfig{
+		Binds: []string{"/var/run/docker.sock:/var/run/docker.sock"},
+	}
+
+	if err := pullImage(ctx, dockerClient, containerConfig.Image, false); err != nil {
+		return 0, 0, 0, fmt.Errorf("error pulling image: %w", err)
+	}
+
+	resp, err := dockerClient.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, "")
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	defer func() {
+		if err := dockerClient.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true}); err != nil {
+			panic(err)
+		}
+	}()
+
+	if err := dockerClient.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+		return 0, 0, 0, err
+	}
+
+	// Wait for the container to finish
+	statusCh, errCh := dockerClient.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
+	select {
+	case err := <-errCh:
+		if err != nil {
+			return 0, 0, 0, err
+		}
+	case r := <-statusCh:
+		if r.StatusCode != 0 {
+			return 0, 0, 0, fmt.Errorf("unable to stat docker socket: container exited with status %d", r.StatusCode)
+		}
+	}
+
+	out, err := dockerClient.ContainerLogs(ctx, resp.ID, container.LogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+	})
+
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	defer out.Close()
+
+	// Read the output
+	stdOutput, errOutput := &bytes.Buffer{}, &bytes.Buffer{}
+	_, err = stdcopy.StdCopy(stdOutput, errOutput, out)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	if _, err := fmt.Sscanf(stdOutput.String(), "%d %d %o", &userId, &groupId, &permissions); err != nil {
+		return 0, 0, 0, fmt.Errorf("error parsing stat output: %w", err)
+	}
+
+	return userId, groupId, permissions, nil
 }

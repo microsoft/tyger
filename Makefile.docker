@@ -56,7 +56,7 @@ up: download-buffer-service-cert install-cli docker-build-tyger-server docker-bu
 	tyger api install -f <(scripts/get-config.sh --docker)
 
 down: install-cli
-	tyger api install -f <(scripts/get-config.sh --docker)
+	tyger api uninstall -f <(scripts/get-config.sh --docker)
 
 download-buffer-service-cert:
 	mkdir -p /opt/tyger/secrets

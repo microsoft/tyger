@@ -48,6 +48,7 @@ FROM mcr.microsoft.com/dotnet/aspnet:8.0.0-cbl-mariner2.0-distroless as control-
 COPY --from=build /cp /app
 WORKDIR /app/bin
 COPY --from=runtime-prep /usr/bin/sleep .
+COPY --from=build /static/curl .
 COPY --from=build /control-plane .
 USER app:app
 ENTRYPOINT ["/app/bin/tyger-server"]
