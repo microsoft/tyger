@@ -78,8 +78,8 @@
     // Bind mount docker socket under an alias to support docker-from-docker
     "source=/var/run/docker.sock,target=/var/run/docker-host.sock,type=bind",
     "source=/opt/tyger,target=/opt/tyger,type=bind",
-    "source=local-docker_buffers,target=/opt/tyger/dev/volumes/buffers,type=volume",
-    "source=local-docker_run_logs,target=/opt/tyger/dev/volumes/run_logs,type=volume"
+    "source=tyger-local-buffers,target=/opt/tyger/dev/volumes/buffers,type=volume"
+    // "source=tyger-local-buffers,target=/opt/tyger/dev/volumes/run_logs,type=volume"
   ],
 
   "runArgs": ["--network=host"],

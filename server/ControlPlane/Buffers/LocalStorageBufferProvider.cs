@@ -10,28 +10,28 @@ namespace Tyger.ControlPlane.Buffers;
 
 public sealed class LocalStorageBufferProvider : IBufferProvider, IHealthCheck, IDisposable
 {
-    private readonly LocalBufferStorageOptions _options;
+    private readonly LocalBufferStorageOptions _storageOptions;
     private readonly Uri _baseUrl;
     private readonly HttpClient _dataPlaneClient;
     private readonly SignDataFunc _signData;
 
-    public LocalStorageBufferProvider(IOptions<LocalBufferStorageOptions> bufferOptions)
+    public LocalStorageBufferProvider(IOptions<LocalBufferStorageOptions> storageOptions, IOptions<BufferOptions> bufferOptions)
     {
-        _options = bufferOptions.Value;
+        _storageOptions = storageOptions.Value;
 
-        var baseUrl = _options.DataPlaneEndpoint.ToString();
-        if (_options.DataPlaneEndpoint.Scheme is "http+unix" or "https+unix")
+        var baseUrl = _storageOptions.DataPlaneEndpoint.ToString();
+        if (_storageOptions.DataPlaneEndpoint.Scheme is "http+unix" or "https+unix")
         {
             string? socketPath = null;
-            var colonIndex = _options.DataPlaneEndpoint.AbsolutePath.IndexOf(':');
+            var colonIndex = _storageOptions.DataPlaneEndpoint.AbsolutePath.IndexOf(':');
             if (colonIndex < 0)
             {
-                socketPath = _options.DataPlaneEndpoint.AbsolutePath;
+                socketPath = _storageOptions.DataPlaneEndpoint.AbsolutePath;
                 baseUrl += ":";
             }
             else
             {
-                socketPath = _options.DataPlaneEndpoint.AbsolutePath[..colonIndex];
+                socketPath = _storageOptions.DataPlaneEndpoint.AbsolutePath[..colonIndex];
             }
 
             var socketsHandler = new SocketsHttpHandler()
@@ -48,13 +48,13 @@ public sealed class LocalStorageBufferProvider : IBufferProvider, IHealthCheck, 
 
             var httpClientBaseUriBuilder = new UriBuilder()
             {
-                Scheme = _options.DataPlaneEndpoint.Scheme[.._options.DataPlaneEndpoint.Scheme.IndexOf('+')],
+                Scheme = _storageOptions.DataPlaneEndpoint.Scheme[.._storageOptions.DataPlaneEndpoint.Scheme.IndexOf('+')],
                 Host = "ignored",
             };
 
-            if (colonIndex >= 0 && _options.DataPlaneEndpoint.AbsolutePath.Length > colonIndex + 1)
+            if (colonIndex >= 0 && _storageOptions.DataPlaneEndpoint.AbsolutePath.Length > colonIndex + 1)
             {
-                httpClientBaseUriBuilder.Path = _options.DataPlaneEndpoint.AbsolutePath[(colonIndex + 1)..];
+                httpClientBaseUriBuilder.Path = _storageOptions.DataPlaneEndpoint.AbsolutePath[(colonIndex + 1)..];
             }
 
             if (!httpClientBaseUriBuilder.Path.EndsWith('/'))
@@ -81,7 +81,12 @@ public sealed class LocalStorageBufferProvider : IBufferProvider, IHealthCheck, 
             _dataPlaneClient.BaseAddress = _baseUrl;
         }
 
-        _signData = DigitalSignature.CreateSingingFunc(_options.SigningCertificatePath);
+        if (string.IsNullOrEmpty(bufferOptions.Value.PrimarySigningCertificatePath))
+        {
+            throw new InvalidOperationException("A value for buffers::primarySigningCertificatePath must be provided.");
+        }
+
+        _signData = DigitalSignature.CreateSingingFunc(bufferOptions.Value.PrimarySigningCertificatePath);
     }
 
     public async Task<bool> BufferExists(string id, CancellationToken cancellationToken)

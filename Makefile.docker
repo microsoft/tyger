@@ -1,6 +1,8 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+ENVIRONMENT_CONFIG_JSON = $(shell scripts/get-config.sh --docker -o json | jq -c)
+
 set-localsettings: download-buffer-service-cert
 	run_secrets_path="/opt/tyger/control-plane/run-secrets/"
 	ephemeral_buffers_path="/opt/tyger/control-plane/ephemeral-buffers/"
@@ -26,11 +28,11 @@ set-localsettings: download-buffer-service-cert
 				}
 			},
 			"buffers": {
+				"primarySigningCertificatePath": "/opt/tyger/secrets/tyger_local_buffer_service_cert_$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version').pem",
+				"bufferSidecarImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.bufferSidecarImage')",
 				"localStorage": {
-					"signingCertificatePath": "/opt/tyger/secrets/tyger_local_buffer_service_cert_$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version').pem",
 					"dataPlaneEndpoint": "http+unix:///opt/tyger/data-plane/tyger.data.sock"
-				},
-				"bufferSidecarImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.bufferSidecarImage')"
+				}
 			},
 			"database": {
 				"connectionString": "Host=/opt/tyger/database; Username=tyger-server",
@@ -51,38 +53,10 @@ set-data-plane-localsettings:
 	EOF
 
 up: download-buffer-service-cert install-cli docker-build-tyger-server docker-build-buffer-sidecar
-	mkdir -p /opt/tyger/control-plane/
-	mkdir -p /opt/tyger/control-plane/run-secrets/
-	mkdir -p /opt/tyger/control-plane/ephemeral-buffers/
-	mkdir -p /opt/tyger/data-plane/
-	mkdir -p /opt/tyger/database/
+	tyger api install -f <(scripts/get-config.sh --docker)
 
-	ln -sf /opt/tyger/control-plane/tyger.sock /opt/tyger/api.sock
-	cd local-docker
-
-	export DATA_PLANE_USER_ID=$$(id -u)
-	export RELAY_USER_ID=$$(id -u)
-
-	socket=/var/run/docker-host.sock
-	
-	if [[ ! -S "$${socket}" ]]; then
-		socket=/var/run/docker.sock
-	fi
-
-	if test -w /var/run/docker-host.sock; then
-		export CONTROL_PLANE_USER_ID=$$(id -u)
-		export CONTROL_PLANE_GROUP_ID=$$(getent group docker | cut -d: -f3)
-	else
-		export CONTROL_PLANE_USER_ID=0
-		export CONTROL_PLANE_GROUP_ID=0
-	fi
-	
-	docker compose up --build -d --wait
-
-down:
-	cd local-docker
-	docker compose down -v
-	rm -rf /opt/tyger/dev/volumes/buffers/*
+down: install-cli
+	tyger api install -f <(scripts/get-config.sh --docker)
 
 download-buffer-service-cert:
 	mkdir -p /opt/tyger/secrets
@@ -111,6 +85,13 @@ download-buffer-service-cert:
 	ln -sf "$${cert_path}" "$${cert_latest_path}"
 	ln -sf "$${public_cert_path}" "$${public_cert_latest_path}"
 
+run: set-localsettings
+	cd server/ControlPlane
+	dotnet run -v m --no-restore
+
+run-data-plane: set-data-plane-localsettings
+	cd server/DataPlane
+	dotnet run -v m --no-restore
 
 login:
 	tyger login --local

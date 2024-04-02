@@ -10,9 +10,6 @@ TYGER_URI = https://$(shell echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.doma
 INSTALL_CLOUD=false
 AUTO_MIGRATE=false
 
-get-config:
-	echo '${ENVIRONMENT_CONFIG_JSON}' | yq -P
-
 ensure-environment: check-az-login install-cli
 	tyger cloud install -f <(scripts/get-config.sh)
 

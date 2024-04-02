@@ -161,6 +161,9 @@ type DockerEnvironmentConfig struct {
 	BufferSidecarImage string `json:"bufferSidecarImage"`
 	GatewayImage       string `json:"gatewayImage"`
 
+	DataPlanePrimarySigningCertificate   string `json:"dataPlanePrimarySigningCertificate"`
+	DataPlaneSecondarySigningCertificate string `json:"dataPlaneSecondarySigningCertificate"`
+
 	UseGateway bool `json:"useGateway"`
 }
 

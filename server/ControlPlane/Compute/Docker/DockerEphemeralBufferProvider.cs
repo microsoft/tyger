@@ -12,10 +12,10 @@ public class DockerEphemeralBufferProvider : IEphemeralBufferProvider
     private readonly string _ephemeralBuffersDir;
     private readonly SignDataFunc _signData;
 
-    public DockerEphemeralBufferProvider(IOptions<DockerOptions> dockerOptions, IOptions<LocalBufferStorageOptions> bufferOptions)
+    public DockerEphemeralBufferProvider(IOptions<DockerOptions> dockerOptions, IOptions<BufferOptions> bufferOptions)
     {
         _ephemeralBuffersDir = dockerOptions.Value.EphemeralBuffersPath;
-        _signData = DigitalSignature.CreateSingingFunc(bufferOptions.Value.SigningCertificatePath);
+        _signData = DigitalSignature.CreateSingingFunc(bufferOptions.Value.PrimarySigningCertificatePath);
     }
 
     public Uri CreateBufferAccessUrl(string id, bool writeable)

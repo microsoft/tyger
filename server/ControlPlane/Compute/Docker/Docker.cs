@@ -41,9 +41,4 @@ public class DockerOptions
 
     [Required]
     public required string EphemeralBuffersPath { get; set; }
-
-    [Required]
-    public required string PrimarySigningPublicCertificatePath { get; set; }
-
-    public string? SecondarySigningPublicCertificatePath { get; set; }
 }

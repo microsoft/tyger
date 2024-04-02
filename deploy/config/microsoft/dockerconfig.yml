@@ -1,0 +1,8 @@
+kind: docker
+environmentName: local
+
+dataPlanePrimarySigningCertificate: /opt/tyger/secrets/tyger_local_buffer_service_cert_latest.pem
+
+controlPlaneImage: ${TYGER_SERVER_IMAGE}
+dataPlaneImage: ${TYGER_DATA_PLANE_SERVER_IMAGE}
+bufferSidecarImage: ${BUFFER_SIDECAR_IMAGE}

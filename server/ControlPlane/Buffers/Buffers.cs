@@ -169,6 +169,9 @@ public class BufferOptions
 {
     [Required]
     public string BufferSidecarImage { get; set; } = null!;
+
+    public string PrimarySigningCertificatePath { get; init; } = null!;
+    public string SecondarySigningCertificatePath { get; init; } = null!;
 }
 
 public class CloudBufferStorageOptions
@@ -179,9 +182,6 @@ public class CloudBufferStorageOptions
 
 public class LocalBufferStorageOptions
 {
-    [Required, MinLength(1)]
-    public string SigningCertificatePath { get; init; } = null!;
-
     [Required]
     public Uri DataPlaneEndpoint { get; init; } = null!;
 }

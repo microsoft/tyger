@@ -3,6 +3,8 @@
 
 using System.Collections.Immutable;
 using System.ComponentModel.DataAnnotations;
+using System.Formats.Tar;
+using System.Security.Cryptography.X509Certificates;
 using System.Text.RegularExpressions;
 using System.Web;
 using Docker.DotNet;
@@ -24,7 +26,8 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
     private readonly DockerClient _client;
     private readonly ILogger<DockerRunCreator> _logger;
-    private readonly string _bufferSidecarImage;
+
+    private readonly BufferOptions _bufferOptions;
     private readonly DockerOptions _dockerSecretOptions;
     private readonly string? _dataPlaneSocketPath;
 
@@ -42,7 +45,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
     {
         _client = client;
         _logger = logger;
-        _bufferSidecarImage = bufferOptions.Value.BufferSidecarImage;
+        _bufferOptions = bufferOptions.Value;
         _dockerSecretOptions = dockerSecretOptions.Value;
 
         if (localBufferStorageOptions.Value?.DataPlaneEndpoint is { } localDpEndpoint)
@@ -186,11 +189,11 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                     "--listen",
                     $"unix://{relaySocketPath}",
                     "--primary-cert",
-                    _dockerSecretOptions.PrimarySigningPublicCertificatePath,
+                    "/primary-signing-cert.pem",
                 ]);
-                if (!string.IsNullOrEmpty(_dockerSecretOptions.SecondarySigningPublicCertificatePath))
+                if (!string.IsNullOrEmpty(_bufferOptions.SecondarySigningCertificatePath))
                 {
-                    args.AddRange(["--secondary-cert", _dockerSecretOptions.SecondarySigningPublicCertificatePath]);
+                    args.AddRange(["--secondary-cert", "/secondary-signing-cert.pem"]);
                 }
 
                 var unqualifiedBufferId = BufferManager.GetUnqualifiedBufferId(run.Job.Buffers![bufferParameterName]);
@@ -213,7 +216,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
             var sidecarContainerParameters = new CreateContainerParameters
             {
-                Image = _bufferSidecarImage,
+                Image = _bufferOptions.BufferSidecarImage,
                 Name = $"tyger-run-{run.Id}-sidecar-{bufferParameterName}",
                 Labels = sidecarLabels,
                 Cmd = args,
@@ -265,25 +268,6 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                     // use the same ownership as the data plane socket
                     Stat(_dataPlaneSocketPath, out var stat);
                     sidecarContainerParameters.User = $"{stat.Uid}:{stat.Gid}";
-                }
-
-                sidecarContainerParameters.HostConfig.Mounts.Add(new()
-                {
-                    Source = _dockerSecretOptions.PrimarySigningPublicCertificatePath,
-                    Target = _dockerSecretOptions.PrimarySigningPublicCertificatePath,
-                    Type = "bind",
-                    ReadOnly = true,
-                });
-
-                if (!string.IsNullOrEmpty(_dockerSecretOptions.SecondarySigningPublicCertificatePath))
-                {
-                    sidecarContainerParameters.HostConfig.Mounts.Add(new()
-                    {
-                        Source = _dockerSecretOptions.SecondarySigningPublicCertificatePath,
-                        Target = _dockerSecretOptions.SecondarySigningPublicCertificatePath,
-                        Type = "bind",
-                        ReadOnly = true,
-                    });
                 }
             }
             else if (accessUri.Scheme is "http+unix" or "https+unix")
@@ -434,6 +418,67 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
         var systemInfo = await _client.System.GetSystemInfoAsync(cancellationToken);
         _supportsGpu = systemInfo.Runtimes?.ContainsKey("nvidia") == true;
+
+        await AddPublicSigningCertsToBufferSidecarImage(cancellationToken);
+    }
+
+    private async Task AddPublicSigningCertsToBufferSidecarImage(CancellationToken cancellationToken)
+    {
+        var tarStream = new MemoryStream();
+        using (var tw = new TarWriter(tarStream, leaveOpen: true))
+        {
+            var entry = new PaxTarEntry(TarEntryType.RegularFile, "primary-signing-cert.pem")
+            {
+                DataStream = GetPublicPemStream(_bufferOptions.PrimarySigningCertificatePath),
+                Mode = (UnixFileMode)0x1FF,
+                ModificationTime = DateTimeOffset.UnixEpoch,
+            };
+            tw.WriteEntry(entry);
+
+            if (!string.IsNullOrEmpty(_bufferOptions.SecondarySigningCertificatePath))
+            {
+                entry = new PaxTarEntry(TarEntryType.RegularFile, "secondary-signing-cert.pem")
+                {
+                    DataStream = GetPublicPemStream(_bufferOptions.SecondarySigningCertificatePath),
+                    Mode = (UnixFileMode)0x1FF,
+                    ModificationTime = DateTimeOffset.UnixEpoch,
+                };
+                tw.WriteEntry(entry);
+            }
+        }
+
+        tarStream.Position = 0;
+
+        var createResp = await _client.Containers.CreateContainerAsync(new CreateContainerParameters
+        {
+            Image = _bufferOptions.BufferSidecarImage,
+        }, cancellationToken);
+
+        try
+        {
+            await _client.Containers.ExtractArchiveToContainerAsync(createResp.ID, new() { Path = "/" }, tarStream, cancellationToken);
+            var commitResponse = await _client.Images.CommitContainerChangesAsync(new() { ContainerID = createResp.ID }, cancellationToken);
+            _bufferOptions.BufferSidecarImage = commitResponse.ID;
+        }
+        finally
+        {
+            await _client.Containers.RemoveContainerAsync(createResp.ID, new() { Force = true }, cancellationToken);
+        }
+    }
+
+    private static MemoryStream GetPublicPemStream(string path)
+    {
+        var primaryCert = X509Certificate2.CreateFromPemFile(path);
+
+        var encodedPem = primaryCert.ExportCertificatePem();
+        var pemStream = new MemoryStream();
+        using (var sw = new StreamWriter(pemStream, leaveOpen: true))
+        {
+            sw.Write(encodedPem);
+        }
+
+        pemStream.Position = 0;
+        return pemStream;
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;

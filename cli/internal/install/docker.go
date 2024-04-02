@@ -1,20 +1,28 @@
 package install
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base32"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
+	"os"
+	"os/user"
+	"path"
 	"time"
 
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
+	"github.com/psanford/memfs"
 	"github.com/rs/zerolog/log"
 )
 
@@ -36,6 +44,43 @@ func InstallTygerInDocker(ctx context.Context) error {
 		return fmt.Errorf("error creating database container: %w", err)
 	}
 
+	if err := createDataPlaneContainer(ctx, dockerClient, config); err != nil {
+		return fmt.Errorf("error creating data plane container: %w", err)
+	}
+
+	if err := createControlPlaneContainer(ctx, dockerClient, config); err != nil {
+		return fmt.Errorf("error creating control plane container: %w", err)
+	}
+
+	return nil
+}
+
+func createControlPlaneContainer(ctx context.Context, dockerClient *client.Client, config *DockerEnvironmentConfig) error {
+	if err := ensureVolumeCreated(ctx, dockerClient, runLogsDockerVolumeName(config)); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func pullImage(ctx context.Context, dockerClient *client.Client, containerImage string, always bool) error {
+	if !always {
+		_, _, err := dockerClient.ImageInspectWithRaw(ctx, containerImage)
+		if err == nil {
+			return nil
+		}
+	}
+
+	reader, err := dockerClient.ImagePull(ctx, containerImage, image.PullOptions{})
+	if err != nil {
+		return fmt.Errorf("error pulling image: %w", err)
+	}
+
+	defer reader.Close()
+	log.Info().Msgf("Pulling image %s", containerImage)
+	io.Copy(io.Discard, reader)
+	log.Info().Msgf("Done pulling image %s", containerImage)
+
 	return nil
 }
 
@@ -48,7 +93,11 @@ func UninstallTygerInDocker(ctx context.Context) error {
 	}
 
 	if err := removeContainer(ctx, dockerClient, databaseDockerContainerName(config)); err != nil {
-		return fmt.Errorf("error creating database container: %w", err)
+		return fmt.Errorf("error removing database container: %w", err)
+	}
+
+	if err := removeContainer(ctx, dockerClient, dataPlaneDockerContainerName(config)); err != nil {
+		return fmt.Errorf("error removing data plane container: %w", err)
 	}
 
 	return nil
@@ -59,8 +108,13 @@ func createDatabaseContainer(ctx context.Context, dockerClient *client.Client, c
 		return err
 	}
 
+	image := config.PostgresImage
+	if image == "" {
+		image = defaultPostgresImage
+	}
+
 	desiredContainerConfig := container.Config{
-		Image: defaultPostgresImage,
+		Image: image,
 		Cmd: []string{
 			"-c", "listen_addresses=", // only unix socket
 		},
@@ -101,7 +155,142 @@ func createDatabaseContainer(ctx context.Context, dockerClient *client.Client, c
 	return nil
 }
 
-func createContainer(ctx context.Context, dockerClient *client.Client, containerName string, desiredContainerConfig *container.Config, desiredHostConfig *container.HostConfig, desiredNetworkingConfig *network.NetworkingConfig) error {
+func createDataPlaneContainer(ctx context.Context, dockerClient *client.Client, config *DockerEnvironmentConfig) error {
+	if err := ensureVolumeCreated(ctx, dockerClient, buffersDockerVolumeName(config)); err != nil {
+		return err
+	}
+
+	image := config.DataPlaneImage
+	if image == "" {
+		image = "eminence.azurecr.io/tyger-data-plane-server:dev"
+	}
+
+	primaryPublicCertificatePath := "/app/tyger-data-plane-public-primary.pem"
+	secondaryPublicCertificatePath := "/app/tyger-data-plane-public-secondary.pem"
+	if config.DataPlaneSecondarySigningCertificate == "" {
+		secondaryPublicCertificatePath = ""
+	}
+
+	currentUser, err := user.Current()
+	if err != nil {
+		return fmt.Errorf("error getting current user: %w", err)
+	}
+
+	desiredContainerConfig := container.Config{
+		Image: image,
+		User:  currentUser.Uid,
+		Env: []string{
+			"Urls=http://unix:/opt/tyger/data-plane/tyger.data.sock",
+			"Auth__Enabled=false",
+			"DataDirectory=/app/data",
+			"PrimarySigningPublicCertificatePath=" + primaryPublicCertificatePath,
+			"SecondarySigningPublicCertificatePath=" + secondaryPublicCertificatePath,
+		},
+		Healthcheck: &container.HealthConfig{
+			Test: []string{
+				"CMD",
+				"/app/bin/curl",
+				"--fail",
+				"--unix", "/opt/tyger/data-plane/tyger.data.sock",
+				"http://local/healthcheck",
+			},
+			StartInterval: 2 * time.Second,
+			Interval:      10 * time.Second,
+		},
+	}
+
+	desiredHostConfig := container.HostConfig{
+		Mounts: []mount.Mount{
+			{
+				Type:   "volume",
+				Source: buffersDockerVolumeName(config),
+				Target: "/app/data",
+			},
+			{
+				Type:   "bind",
+				Source: "/opt/tyger/data-plane",
+				Target: "/opt/tyger/data-plane",
+			},
+		},
+		NetworkMode: "none",
+		RestartPolicy: container.RestartPolicy{
+			Name: container.RestartPolicyUnlessStopped,
+		},
+	}
+	desiredNetworkingConfig := network.NetworkingConfig{}
+
+	postCreateAction := func(containerName string) error {
+		tarFs := memfs.New()
+
+		publicPemBytes, err := getPublicCertificatePemBytes(config.DataPlanePrimarySigningCertificate)
+		if err != nil {
+			return err
+		}
+
+		tarFs.WriteFile(path.Base(primaryPublicCertificatePath), publicPemBytes, 0777)
+
+		if config.DataPlaneSecondarySigningCertificate != "" {
+			publicPemBytes, err = getPublicCertificatePemBytes(config.DataPlaneSecondarySigningCertificate)
+			if err != nil {
+				return err
+			}
+
+			tarFs.WriteFile(path.Base(secondaryPublicCertificatePath), publicPemBytes, 0777)
+		}
+
+		buf := &bytes.Buffer{}
+		tw := tar.NewWriter(buf)
+		tw.AddFS(tarFs)
+		tw.Close()
+
+		return dockerClient.CopyToContainer(ctx, containerName, "/app", buf, types.CopyToContainerOptions{})
+	}
+
+	if err := createContainer(
+		ctx,
+		dockerClient,
+		dataPlaneDockerContainerName(config),
+		&desiredContainerConfig, &desiredHostConfig, &desiredNetworkingConfig,
+		postCreateAction); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func getPublicCertificatePemBytes(pemPath string) ([]byte, error) {
+	pemBytes, err := os.ReadFile(pemPath)
+	if err != nil {
+		return nil, fmt.Errorf("error reading certificate at '%s': %w", pemPath, err)
+	}
+
+	var publicBlock *pem.Block
+	for {
+		// Decode a block
+		var block *pem.Block
+		block, pemBytes = pem.Decode(pemBytes)
+		if block == nil {
+			return nil, fmt.Errorf("no certificate block found in %s", pemPath)
+		}
+
+		if block.Type == "CERTIFICATE" {
+			publicBlock = block
+			break
+		}
+	}
+
+	return pem.EncodeToMemory(publicBlock), nil
+}
+
+func createContainer(
+	ctx context.Context,
+	dockerClient *client.Client,
+	containerName string,
+	desiredContainerConfig *container.Config,
+	desiredHostConfig *container.HostConfig,
+	desiredNetworkingConfig *network.NetworkingConfig,
+	postCreateActions ...func(containerName string) error,
+) error {
 	configHash := computeContainerConfigHash(desiredContainerConfig, desiredHostConfig, desiredNetworkingConfig)
 	desiredContainerConfig.Labels = map[string]string{
 		containerConfigHashLabel: configHash,
@@ -117,7 +306,7 @@ func createContainer(ctx context.Context, dockerClient *client.Client, container
 		containerExists = false
 	}
 
-	if containerExists && existingContainer.Config.Labels[containerConfigHashLabel] != configHash {
+	if containerExists && (existingContainer.Config.Labels[containerConfigHashLabel] != configHash || !existingContainer.State.Running) {
 		if err := removeContainer(ctx, dockerClient, containerName); err != nil {
 			return fmt.Errorf("error removing existing container: %w", err)
 		}
@@ -127,21 +316,20 @@ func createContainer(ctx context.Context, dockerClient *client.Client, container
 
 	if !containerExists {
 		containerImage := desiredContainerConfig.Image
-		if _, _, err := dockerClient.ImageInspectWithRaw(ctx, containerImage); err != nil {
-			reader, err := dockerClient.ImagePull(ctx, containerImage, image.PullOptions{})
-			if err != nil {
-				return fmt.Errorf("error pulling image: %w", err)
-			}
-			defer reader.Close()
-			log.Info().Msgf("Pulling image %s", containerImage)
-			io.Copy(io.Discard, reader)
-			log.Info().Msgf("Done pulling image %s", containerImage)
+		if err := pullImage(ctx, dockerClient, containerImage, false); err != nil {
+			return fmt.Errorf("error pulling image: %w", err)
 		}
 
 		resp, err := dockerClient.ContainerCreate(ctx, desiredContainerConfig, desiredHostConfig, desiredNetworkingConfig, nil, containerName)
 
 		if err != nil {
 			return fmt.Errorf("error creating container: %w", err)
+		}
+
+		for _, a := range postCreateActions {
+			if err := a(containerName); err != nil {
+				return fmt.Errorf("error running post-create action: %w", err)
+			}
 		}
 
 		if err := dockerClient.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
@@ -223,6 +411,22 @@ func databaseDockerContainerName(config *DockerEnvironmentConfig) string {
 	return fmt.Sprintf("tyger-%s-db", config.EnvironmentName)
 }
 
+func dataPlaneDockerContainerName(config *DockerEnvironmentConfig) string {
+	return fmt.Sprintf("tyger-%s-data-plane", config.EnvironmentName)
+}
+
+func controlPlaneDockerContainerName(config *DockerEnvironmentConfig) string {
+	return fmt.Sprintf("tyger-%s-control-plane", config.EnvironmentName)
+}
+
 func databaseDockerVolumeName(config *DockerEnvironmentConfig) string {
 	return fmt.Sprintf("tyger-%s-db", config.EnvironmentName)
+}
+
+func buffersDockerVolumeName(config *DockerEnvironmentConfig) string {
+	return fmt.Sprintf("tyger-%s-buffers", config.EnvironmentName)
+}
+
+func runLogsDockerVolumeName(config *DockerEnvironmentConfig) string {
+	return fmt.Sprintf("tyger-%s-run-logs", config.EnvironmentName)
 }

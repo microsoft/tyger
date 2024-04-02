@@ -20,6 +20,9 @@ else ifeq ($(TYGER_ENVIRONMENT_TYPE),docker)
 include Makefile.docker
 endif
 
+get-config:
+	echo '${ENVIRONMENT_CONFIG_JSON}' | yq -P
+
 open-docker-window:
 	code /workspaces/tyger-docker
 
@@ -40,22 +43,6 @@ build-go:
 	go build -v ./...
 
 build: build-csharp build-go
-
-build-server:
-	cd ${CONTROL_PLANE_SERVER_PATH}
-	dotnet build --no-restore
-
-run: set-localsettings
-	cd ${CONTROL_PLANE_SERVER_PATH}
-	dotnet run -v m --no-restore
-
-local-docker-run: local-docker-set-localsettings
-	cd ${CONTROL_PLANE_SERVER_PATH}
-	dotnet run -v m --no-restore
-
-local-docker-data-plane-run: local-docker-set-data-plane-localsettings
-	cd ${DATA_PLANE_SERVER_PATH}
-	dotnet run -v m --no-restore
 
 unit-test:
 	find . -name *csproj | xargs -L 1 dotnet test --no-restore -v q

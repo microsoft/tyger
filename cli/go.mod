@@ -39,6 +39,7 @@ require (
 	github.com/mattn/go-ieproxy v0.0.11
 	github.com/mittwald/go-helm-client v0.12.9
 	github.com/pkg/errors v0.9.1
+	github.com/psanford/memfs v0.0.0-20230130182539-4dbf7e3e865e
 	github.com/spf13/cobra v1.8.0
 	github.com/stretchr/testify v1.9.0
 	go.opentelemetry.io/otel v1.24.0
