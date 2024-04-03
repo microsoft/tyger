@@ -52,7 +52,7 @@ set-data-plane-localsettings:
 		}
 	EOF
 
-up: download-buffer-service-cert install-cli docker-build-tyger-server docker-build-buffer-sidecar
+up: download-buffer-service-cert install-cli docker-build-tyger-server docker-build-buffer-sidecar docker-build-test
 	tyger api install -f <(scripts/get-config.sh --docker)
 
 down: install-cli

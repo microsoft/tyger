@@ -210,6 +210,10 @@ func UninstallTygerInDocker(ctx context.Context) error {
 		return fmt.Errorf("error removing data plane container: %w", err)
 	}
 
+	if err := removeContainer(ctx, dockerClient, controlPlaneDockerContainerName(config)); err != nil {
+		return fmt.Errorf("error removing control plane container: %w", err)
+	}
+
 	return nil
 }
 
