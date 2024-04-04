@@ -6,7 +6,7 @@ ENVIRONMENT_CONFIG_JSON = $(shell scripts/get-config.sh --docker -o json | jq -c
 set-localsettings: ensure-data-plane-cert
 	run_secrets_path="/opt/tyger/control-plane/run-secrets/"
 	ephemeral_buffers_path="/opt/tyger/control-plane/ephemeral-buffers/"
-	logs_path="/opt/tyger/dev/volumes/run_logs"
+	logs_path="/docker-volumes/run-logs"
 
 	jq <<- EOF > ${CONTROL_PLANE_SERVER_PATH}/appsettings.local.json
 		{
@@ -18,7 +18,7 @@ set-localsettings: ensure-data-plane-cert
 			"compute": {
 				"docker": {
 					"runSecretsPath": "$${run_secrets_path}",
-					"ephemeralBuffersPath": "$${ephemeral_buffers_path}",
+					"ephemeralBuffersPath": "$${ephemeral_buffers_path}"
 				}
 			},
 			"logArchive": {
@@ -27,7 +27,7 @@ set-localsettings: ensure-data-plane-cert
 				}
 			},
 			"buffers": {
-				"primarySigningCertificatePath": "$${HOME}/tyger_local_data_plane_cert_latest.pem",
+				"primarySigningPrivateKeyPath": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.signingKeys.primary.private')",
 				"bufferSidecarImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.bufferSidecarImage')",
 				"localStorage": {
 					"dataPlaneEndpoint": "http+unix:///opt/tyger/data-plane/tyger.data.sock"
@@ -46,8 +46,8 @@ set-data-plane-localsettings:
 		{
 			"urls": "http://unix:/opt/tyger/data-plane/tyger.data.sock",
 			"logging": { "Console": {"FormatterName": "simple" } },
-			"dataDirectory": "/opt/tyger/dev/volumes/buffers/",
-			"PrimarySigningPublicKeyPath": "$$(scripts/get-config.sh --docker -e .signingKeys.primary.private)"
+			"dataDirectory": "/docker-volumes/buffers",
+			"PrimarySigningPublicKeyPath": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.signingKeys.primary.public')"
 		}
 	EOF
 
@@ -58,8 +58,10 @@ down: install-cli
 	tyger api uninstall -f <(scripts/get-config.sh --docker)
 
 ensure-data-plane-cert: install-cli
-	cert_path_public=$${HOME}/tyger_local_signing_key_public.pem
-	cert_path_private=$${HOME}/tyger_local_signing_key_private.pem
+	primaryKeys=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.signingKeys.primary')
+
+	cert_path_public=$$(echo $${primaryKeys} | jq -r '.public')
+	cert_path_private=$$(echo $${primaryKeys} | jq -r '.private')
 
 	if [[ ! -f "$${cert_path_public}" ]]; then
 		tyger api generate-signing-key --public $${cert_path_public} --private $${cert_path_private}
