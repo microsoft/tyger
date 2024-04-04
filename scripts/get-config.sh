@@ -103,13 +103,20 @@ else
     BUFFER_SIDECAR_IMAGE="${repo_fqdn}/buffer-sidecar:${EXPLICIT_IMAGE_TAG}"
     WORKER_WAITER_IMAGE="${repo_fqdn}/worker-waiter:${EXPLICIT_IMAGE_TAG}"
   else
-    TYGER_SERVER_IMAGE="$(docker inspect "${repo_fqdn}/tyger-server:dev-amd64" 2>/dev/null | jq -r --arg repo "${repo_fqdn}/tyger-server" '.[0].RepoDigests[] | select (startswith($repo))' 2>/dev/null || true)"
-    BUFFER_SIDECAR_IMAGE="$(docker inspect "${repo_fqdn}/buffer-sidecar:dev-amd64" 2>/dev/null | jq -r --arg repo "${repo_fqdn}/buffer-sidecar" '.[0].RepoDigests[] | select (startswith($repo))' 2>/dev/null || true)"
 
     if [[ "$docker" == true ]]; then
-      TYGER_DATA_PLANE_SERVER_IMAGE="$(docker inspect "${repo_fqdn}/tyger-data-plane-server:dev-amd64" 2>/dev/null | jq -r --arg repo "${repo_fqdn}/tyger-data-plane-server" '.[0].RepoDigests[] | select (startswith($repo))' 2>/dev/null || true)"
+      arch=$(dpkg --print-architecture)
     else
-      WORKER_WAITER_IMAGE="$(docker inspect "${repo_fqdn}/worker-waiter:dev-amd64" 2>/dev/null | jq -r --arg repo "${repo_fqdn}/worker-waiter" '.[0].RepoDigests[] | select (startswith($repo))' 2>/dev/null || true)"
+      arch="amd64"
+    fi
+
+    TYGER_SERVER_IMAGE="$(docker inspect "${repo_fqdn}/tyger-server:dev-${arch}" 2>/dev/null | jq -r --arg repo "${repo_fqdn}/tyger-server" '.[0].RepoDigests[] | select (startswith($repo))' 2>/dev/null || true)"
+    BUFFER_SIDECAR_IMAGE="$(docker inspect "${repo_fqdn}/buffer-sidecar:dev-${arch}" 2>/dev/null | jq -r --arg repo "${repo_fqdn}/buffer-sidecar" '.[0].RepoDigests[] | select (startswith($repo))' 2>/dev/null || true)"
+
+    if [[ "$docker" == true ]]; then
+      TYGER_DATA_PLANE_SERVER_IMAGE="$(docker inspect "${repo_fqdn}/tyger-data-plane-server:dev-${arch}" 2>/dev/null | jq -r --arg repo "${repo_fqdn}/tyger-data-plane-server" '.[0].RepoDigests[] | select (startswith($repo))' 2>/dev/null || true)"
+    else
+      WORKER_WAITER_IMAGE="$(docker inspect "${repo_fqdn}/worker-waiter:dev-${arch}" 2>/dev/null | jq -r --arg repo "${repo_fqdn}/worker-waiter" '.[0].RepoDigests[] | select (startswith($repo))' 2>/dev/null || true)"
     fi
   fi
 

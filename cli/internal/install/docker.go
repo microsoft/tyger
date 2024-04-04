@@ -174,7 +174,7 @@ func createControlPlaneContainer(ctx context.Context, dockerClient *client.Clien
 		return fmt.Errorf("error statting docker socket: %w", err)
 	}
 
-	if dockerSocketGroupId != 0 && (dockerSocketPerms&0060 == 0060) {
+	if dockerSocketPerms&0060 == 0060 {
 		desiredHostConfig.GroupAdd = append(desiredHostConfig.GroupAdd, strconv.Itoa(dockerSocketGroupId))
 	}
 
