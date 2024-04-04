@@ -14,7 +14,7 @@ builder.AddConfigurationSources();
 builder.ConfigureLogging();
 builder.Services.AddEndpointsApiExplorer();
 builder.AddDataPlane();
-builder.EnsureUnixDomainSocketsDeleted();
+builder.ConfigureUnixDomainSockets();
 
 var app = builder.Build();
 

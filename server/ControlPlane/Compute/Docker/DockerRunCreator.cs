@@ -16,7 +16,7 @@ using Tyger.ControlPlane.Database;
 using Tyger.ControlPlane.Model;
 using Tyger.ControlPlane.Runs;
 using Tyger.ControlPlane.ServiceMetadata;
-using static Tyger.ControlPlane.Compute.Docker.Interop;
+using static Tyger.Common.Unix.Interop;
 
 namespace Tyger.ControlPlane.Compute.Docker;
 
@@ -430,7 +430,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             var entry = new PaxTarEntry(TarEntryType.RegularFile, "primary-signing-cert.pem")
             {
                 DataStream = GetPublicPemStream(_bufferOptions.PrimarySigningCertificatePath),
-                Mode = (UnixFileMode)0x1FF,
+                Mode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.OtherRead | UnixFileMode.OtherWrite,
                 ModificationTime = DateTimeOffset.UnixEpoch,
             };
             tw.WriteEntry(entry);
@@ -440,7 +440,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                 entry = new PaxTarEntry(TarEntryType.RegularFile, "secondary-signing-cert.pem")
                 {
                     DataStream = GetPublicPemStream(_bufferOptions.SecondarySigningCertificatePath),
-                    Mode = (UnixFileMode)0x1FF,
+                    Mode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.OtherRead | UnixFileMode.OtherWrite,
                     ModificationTime = DateTimeOffset.UnixEpoch,
                 };
                 tw.WriteEntry(entry);

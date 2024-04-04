@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"os/user"
 	"regexp"
+	"strconv"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/postgresql/armpostgresqlflexibleservers/v4"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage"
@@ -327,6 +329,43 @@ func quickValidateApiConfig(success *bool, environmentConfig *CloudEnvironmentCo
 
 func QuickValidateDockerEnvironmentConfig(config *DockerEnvironmentConfig) bool {
 	success := true
+
+	if _, err := strconv.Atoi(config.UserId); err != nil {
+		if config.UserId == "" {
+			currentUser, err := user.Current()
+			if err != nil {
+				validationError(&success, "Unable to determine the current user for the `userId` field")
+			} else {
+				config.UserId = currentUser.Uid
+			}
+		} else {
+			u, err := user.Lookup(config.UserId)
+			if err != nil {
+				validationError(&success, "The `userId` field must be a valid user ID or name")
+			} else {
+				config.UserId = u.Uid
+			}
+		}
+	}
+
+	if _, err := strconv.Atoi(config.AllowedGroupId); err != nil {
+		if config.AllowedGroupId == "" {
+			currentUser, err := user.Current()
+			if err != nil {
+				validationError(&success, "Unable to determine the current user for the `userId` field")
+			} else {
+				config.AllowedGroupId = currentUser.Gid
+			}
+		} else {
+			g, err := user.LookupGroup(config.AllowedGroupId)
+			if err != nil {
+				validationError(&success, "The `groupId` field must be a valid group ID or name")
+			} else {
+				config.AllowedGroupId = g.Gid
+			}
+		}
+	}
+
 	return success
 }
 

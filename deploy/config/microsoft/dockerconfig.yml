@@ -1,7 +1,6 @@
 kind: docker
-environmentName: local
 
-dataPlanePrimarySigningCertificate: /opt/tyger/secrets/tyger_local_buffer_service_cert_latest.pem
+dataPlanePrimarySigningCertificate: ${HOME}/tyger_local_data_plane_cert_latest.pem
 
 controlPlaneImage: ${TYGER_SERVER_IMAGE}
 dataPlaneImage: ${TYGER_DATA_PLANE_SERVER_IMAGE}

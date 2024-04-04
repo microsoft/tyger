@@ -5,7 +5,9 @@ package install
 
 import (
 	_ "embed"
+	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"text/template"
 )
@@ -153,7 +155,8 @@ type HelmChartConfig struct {
 type DockerEnvironmentConfig struct {
 	EnvironmentConfigCommon
 
-	EnvironmentName string `json:"environmentName"`
+	UserId         string `json:"userId"`
+	AllowedGroupId string `json:"groupId"`
 
 	PostgresImage      string `json:"postgresImage"`
 	ControlPlaneImage  string `json:"controlPlaneImage"`
@@ -168,6 +171,26 @@ type DockerEnvironmentConfig struct {
 }
 
 func (*DockerEnvironmentConfig) _environmentConfig() {
+}
+
+func (c *DockerEnvironmentConfig) GetGroupIdInt() int {
+	id, err := strconv.Atoi(c.AllowedGroupId)
+	if err != nil {
+		// this should have been caught by validation
+		panic(fmt.Sprintf("Invalid group ID: %s", c.AllowedGroupId))
+	}
+
+	return id
+}
+
+func (c *DockerEnvironmentConfig) GetUserIdInt() int {
+	id, err := strconv.Atoi(c.UserId)
+	if err != nil {
+		// this should have been caught by validation
+		panic(fmt.Sprintf("Invalid user ID: %s", c.UserId))
+	}
+
+	return id
 }
 
 type ConfigTemplateValues struct {

@@ -19,3 +19,5 @@ fi
 make -f "$(dirname "$0")/../Makefile" restore || true
 
 make install-cli || true
+
+make az-login-from-host &> /dev/null || true

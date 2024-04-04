@@ -3,7 +3,7 @@
 
 ENVIRONMENT_CONFIG_JSON = $(shell scripts/get-config.sh --docker -o json | jq -c)
 
-set-localsettings: download-buffer-service-cert
+set-localsettings: download-data-plane-cert
 	run_secrets_path="/opt/tyger/control-plane/run-secrets/"
 	ephemeral_buffers_path="/opt/tyger/control-plane/ephemeral-buffers/"
 	logs_path="/opt/tyger/dev/volumes/run_logs"
@@ -19,7 +19,6 @@ set-localsettings: download-buffer-service-cert
 				"docker": {
 					"runSecretsPath": "$${run_secrets_path}",
 					"ephemeralBuffersPath": "$${ephemeral_buffers_path}",
-					"primarySigningPublicCertificatePath": "/opt/tyger/secrets/tyger_local_buffer_service_cert_$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version')_public.pem"
 				}
 			},
 			"logArchive": {
@@ -28,7 +27,7 @@ set-localsettings: download-buffer-service-cert
 				}
 			},
 			"buffers": {
-				"primarySigningCertificatePath": "/opt/tyger/secrets/tyger_local_buffer_service_cert_$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version').pem",
+				"primarySigningCertificatePath": "$${HOME}/tyger_local_data_plane_cert_latest.pem",
 				"bufferSidecarImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.bufferSidecarImage')",
 				"localStorage": {
 					"dataPlaneEndpoint": "http+unix:///opt/tyger/data-plane/tyger.data.sock"
@@ -48,26 +47,24 @@ set-data-plane-localsettings:
 			"urls": "http://unix:/opt/tyger/data-plane/tyger.data.sock",
 			"logging": { "Console": {"FormatterName": "simple" } },
 			"dataDirectory": "/opt/tyger/dev/volumes/buffers/",
-			"PrimarySigningPublicCertificatePath": "/opt/tyger/secrets/tyger_local_buffer_service_cert_$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version')_public.pem"
+			"PrimarySigningPublicCertificatePath": "$${HOME}/tyger_local_data_plane_cert_latest.pem"
 		}
 	EOF
 
-up: download-buffer-service-cert install-cli docker-build-tyger-server docker-build-buffer-sidecar docker-build-test
+up: download-data-plane-cert install-cli docker-build-tyger-server docker-build-buffer-sidecar docker-build-test
 	tyger api install -f <(scripts/get-config.sh --docker)
 
 down: install-cli
 	tyger api uninstall -f <(scripts/get-config.sh --docker)
 
-download-buffer-service-cert:
-	mkdir -p /opt/tyger/secrets
-	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version')
-	cert_path=/opt/tyger/secrets/tyger_local_buffer_service_cert_$${cert_version}.pem
-	public_cert_path=/opt/tyger/secrets/tyger_local_buffer_service_cert_$${cert_version}_public.pem
+download-data-plane-cert:
+	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localDataPlaneServiceCertSecret.version')
+	cert_path=$${HOME}/tyger_local_data_plane_cert_$${cert_version}.pem
 
 	subscription=$$(echo '${DEVELOPER_CONFIG_JSON}' | yq '.subscriptionId')
 	vault_name=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.keyVault')
-	cert_name=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.name')
-	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localBufferServiceCertSecret.version')
+	cert_name=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localDataPlaneServiceCertSecret.name')
+	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localDataPlaneServiceCertSecret.version')
 
 	if [[ ! -f "$${cert_path}" ]]; then
 		rm -f "$${cert_path}"
@@ -75,15 +72,9 @@ download-buffer-service-cert:
 		az keyvault secret download --vault-name "$${vault_name}" --name "$${cert_name}" --version "$${cert_version}" --file "$${cert_path}" --subscription "$${subscription}"
 		chmod 600 "$${cert_path}"
 	fi
-	if [[ ! -f "$${public_cert_path}" ]]; then
-		az keyvault certificate download --encoding pem --vault-name "$${vault_name}" --name "$${cert_name}" --version "$${cert_version}" --file "$${public_cert_path}" --subscription "$${subscription}"
-	fi
 
-	public_cert_latest_path=/opt/tyger/secrets/tyger_local_buffer_service_cert_latest_public.pem
-	cert_latest_path=/opt/tyger/secrets/tyger_local_buffer_service_cert_latest.pem
-
+	cert_latest_path=$${HOME}/tyger_local_data_plane_cert_latest.pem
 	ln -sf "$${cert_path}" "$${cert_latest_path}"
-	ln -sf "$${public_cert_path}" "$${public_cert_latest_path}"
 
 run: set-localsettings
 	cd server/ControlPlane

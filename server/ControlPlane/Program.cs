@@ -52,7 +52,7 @@ void RunServer()
     builder.AddAuth();
     builder.AddBuffers();
     builder.AddOpenApi();
-    builder.EnsureUnixDomainSocketsDeleted();
+    builder.ConfigureUnixDomainSockets();
 
     var app = builder.Build();
 
