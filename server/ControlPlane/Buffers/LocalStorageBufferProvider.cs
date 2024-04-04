@@ -81,12 +81,13 @@ public sealed class LocalStorageBufferProvider : IBufferProvider, IHealthCheck, 
             _dataPlaneClient.BaseAddress = _baseUrl;
         }
 
-        if (string.IsNullOrEmpty(bufferOptions.Value.PrimarySigningCertificatePath))
+        if (string.IsNullOrEmpty(bufferOptions.Value.PrimarySigningPrivateKeyPath))
         {
-            throw new InvalidOperationException("A value for buffers::primarySigningCertificatePath must be provided.");
+            throw new InvalidOperationException("A value for buffers::primarySigningPrivateKeyPath must be provided.");
         }
 
-        _signData = DigitalSignature.CreateSingingFunc(bufferOptions.Value.PrimarySigningCertificatePath);
+        _signData = DigitalSignature.CreateSingingFunc(
+            DigitalSignature.CreateAsymmetricAlgorithmFromPem(bufferOptions.Value.PrimarySigningPrivateKeyPath));
     }
 
     public async Task<bool> BufferExists(string id, CancellationToken cancellationToken)

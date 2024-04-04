@@ -11,6 +11,7 @@ using Docker.DotNet;
 using Docker.DotNet.Models;
 using k8s.Models;
 using Microsoft.Extensions.Options;
+using Tyger.Common.Buffers;
 using Tyger.ControlPlane.Buffers;
 using Tyger.ControlPlane.Database;
 using Tyger.ControlPlane.Model;
@@ -189,11 +190,11 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                     "--listen",
                     $"unix://{relaySocketPath}",
                     "--primary-cert",
-                    "/primary-signing-cert.pem",
+                    "/primary-signing-key-public.pem",
                 ]);
-                if (!string.IsNullOrEmpty(_bufferOptions.SecondarySigningCertificatePath))
+                if (!string.IsNullOrEmpty(_bufferOptions.SecondarySigningPrivateKeyPath))
                 {
-                    args.AddRange(["--secondary-cert", "/secondary-signing-cert.pem"]);
+                    args.AddRange(["--secondary-cert", "/secondary-signing-key-public.pem"]);
                 }
 
                 var unqualifiedBufferId = BufferManager.GetUnqualifiedBufferId(run.Job.Buffers![bufferParameterName]);
@@ -419,27 +420,27 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         var systemInfo = await _client.System.GetSystemInfoAsync(cancellationToken);
         _supportsGpu = systemInfo.Runtimes?.ContainsKey("nvidia") == true;
 
-        await AddPublicSigningCertsToBufferSidecarImage(cancellationToken);
+        await AddPublicSigningKeyToBufferSidecarImage(cancellationToken);
     }
 
-    private async Task AddPublicSigningCertsToBufferSidecarImage(CancellationToken cancellationToken)
+    private async Task AddPublicSigningKeyToBufferSidecarImage(CancellationToken cancellationToken)
     {
         var tarStream = new MemoryStream();
         using (var tw = new TarWriter(tarStream, leaveOpen: true))
         {
-            var entry = new PaxTarEntry(TarEntryType.RegularFile, "primary-signing-cert.pem")
+            var entry = new PaxTarEntry(TarEntryType.RegularFile, "primary-signing-key-public.pem")
             {
-                DataStream = GetPublicPemStream(_bufferOptions.PrimarySigningCertificatePath),
+                DataStream = GetPublicPemStream(_bufferOptions.PrimarySigningPrivateKeyPath),
                 Mode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.OtherRead | UnixFileMode.OtherWrite,
                 ModificationTime = DateTimeOffset.UnixEpoch,
             };
             tw.WriteEntry(entry);
 
-            if (!string.IsNullOrEmpty(_bufferOptions.SecondarySigningCertificatePath))
+            if (!string.IsNullOrEmpty(_bufferOptions.SecondarySigningPrivateKeyPath))
             {
-                entry = new PaxTarEntry(TarEntryType.RegularFile, "secondary-signing-cert.pem")
+                entry = new PaxTarEntry(TarEntryType.RegularFile, "secondary-signing-key-public.pem")
                 {
-                    DataStream = GetPublicPemStream(_bufferOptions.SecondarySigningCertificatePath),
+                    DataStream = GetPublicPemStream(_bufferOptions.SecondarySigningPrivateKeyPath),
                     Mode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.OtherRead | UnixFileMode.OtherWrite,
                     ModificationTime = DateTimeOffset.UnixEpoch,
                 };
@@ -468,13 +469,12 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
     private static MemoryStream GetPublicPemStream(string path)
     {
-        var primaryCert = X509Certificate2.CreateFromPemFile(path);
+        var key = DigitalSignature.CreateAsymmetricAlgorithmFromPem(path).ExportSubjectPublicKeyInfoPem();
 
-        var encodedPem = primaryCert.ExportCertificatePem();
         var pemStream = new MemoryStream();
         using (var sw = new StreamWriter(pemStream, leaveOpen: true))
         {
-            sw.Write(encodedPem);
+            sw.Write(key);
         }
 
         pemStream.Position = 0;
@@ -485,5 +485,4 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
     [GeneratedRegex(@"\$\(([^)]+)\)|\$\$([^)]+)")]
     private static partial Regex EnvironmentVariableExpansionRegex();
-
 }

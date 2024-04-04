@@ -15,7 +15,8 @@ public class DockerEphemeralBufferProvider : IEphemeralBufferProvider
     public DockerEphemeralBufferProvider(IOptions<DockerOptions> dockerOptions, IOptions<BufferOptions> bufferOptions)
     {
         _ephemeralBuffersDir = dockerOptions.Value.EphemeralBuffersPath;
-        _signData = DigitalSignature.CreateSingingFunc(bufferOptions.Value.PrimarySigningCertificatePath);
+        _signData = DigitalSignature.CreateSingingFunc(
+            DigitalSignature.CreateAsymmetricAlgorithmFromPem(bufferOptions.Value.PrimarySigningPrivateKeyPath));
     }
 
     public Uri CreateBufferAccessUrl(string id, bool writeable)

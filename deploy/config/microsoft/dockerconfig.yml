@@ -1,6 +1,9 @@
 kind: docker
 
-dataPlanePrimarySigningCertificate: ${HOME}/tyger_local_data_plane_cert_latest.pem
+signingKeys:
+  primary:
+    public: ${HOME}/tyger_local_signing_key_public.pem
+    private: ${HOME}/tyger_local_signing_key_private.pem
 
 controlPlaneImage: ${TYGER_SERVER_IMAGE}
 dataPlaneImage: ${TYGER_DATA_PLANE_SERVER_IMAGE}

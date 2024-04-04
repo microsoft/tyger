@@ -2,7 +2,6 @@
 // Licensed under the MIT License.
 
 using System.Security.Cryptography;
-using System.Security.Cryptography.X509Certificates;
 
 namespace Tyger.Common.Buffers;
 
@@ -11,47 +10,55 @@ public delegate bool ValidateSignatureFunc(byte[] data, byte[] signature);
 
 public static class DigitalSignature
 {
-    public static SignDataFunc CreateSingingFunc(string certificatePath)
+    public static AsymmetricAlgorithm CreateAsymmetricAlgorithmFromPem(string pemFilePath)
     {
-        var cert = X509Certificate2.CreateFromPemFile(certificatePath);
+        string pemText = File.ReadAllText(pemFilePath);
 
-        if (cert.GetECDsaPrivateKey() is { } ecdsaKey)
+        try
         {
-            return (data) => ecdsaKey.SignData(data, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
+            var ecdsa = ECDsa.Create();
+            ecdsa.ImportFromPem(pemText);
+            return ecdsa;
         }
-        else if (cert.GetRSAPrivateKey() is { } rsaKey)
+        catch (Exception)
         {
-            return (data) => rsaKey.SignData(data, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-        }
-        else
-        {
-            throw new InvalidOperationException("No valid private key found for certificate with thumbprint " + cert.Thumbprint);
+            try
+            {
+                var rsa = RSA.Create();
+                rsa.ImportFromPem(pemText);
+                return rsa;
+            }
+            catch (Exception e)
+            {
+                throw new InvalidOperationException("The PEM file does not contain a valid ECDSA or RSA key.", e);
+            }
         }
     }
 
-    public static ValidateSignatureFunc CreateValidationFunc(string primaryCertificatePath, string? secondaryCertificatePath)
+    public static SignDataFunc CreateSingingFunc(AsymmetricAlgorithm asymmetricAlgorithm)
     {
-        static Func<byte[], byte[], bool> GetHashValidator(string certificatePath)
+        return asymmetricAlgorithm switch
         {
-            ReadOnlySpan<char> certContents = File.ReadAllText(certificatePath);
-            var cert = X509Certificate2.CreateFromPem(certContents);
+            ECDsa ecdsa => (data) => ecdsa.SignData(data, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence),
+            RSA rsa => (data) => rsa.SignData(data, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1),
+            _ => throw new InvalidOperationException("The provided AsymmetricAlgorithm is not supported.")
+        };
+    }
 
-            if (cert.GetECDsaPublicKey() is { } ecdsaKey)
+    public static ValidateSignatureFunc CreateValidationFunc(AsymmetricAlgorithm primaryKey, AsymmetricAlgorithm? secondaryKey)
+    {
+        static Func<byte[], byte[], bool> GetHashValidator(AsymmetricAlgorithm asymmetricAlgorithm)
+        {
+            return asymmetricAlgorithm switch
             {
-                return (data, signature) => ecdsaKey.VerifyHash(data, signature, DSASignatureFormat.Rfc3279DerSequence);
-            }
-            else if (cert.GetRSAPublicKey() is { } rsaKey)
-            {
-                return (data, signature) => rsaKey.VerifyHash(data, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-            }
-            else
-            {
-                throw new InvalidOperationException("No valid public key found for certificate with thumbprint " + cert.Thumbprint);
-            }
+                ECDsa ecdsa => (hash, sig) => ecdsa.VerifyHash(hash, sig, DSASignatureFormat.Rfc3279DerSequence),
+                RSA rsa => (hash, sig) => rsa.VerifyHash(hash, sig, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1),
+                _ => throw new InvalidOperationException("The provided AsymmetricAlgorithm is not supported.")
+            };
         }
 
-        var primaryValidator = GetHashValidator(primaryCertificatePath);
-        var secondaryValidator = string.IsNullOrEmpty(secondaryCertificatePath) ? null : GetHashValidator(secondaryCertificatePath);
+        var primaryValidator = GetHashValidator(primaryKey);
+        var secondaryValidator = secondaryKey == null ? null : GetHashValidator(secondaryKey);
 
         return (data, signature) =>
         {

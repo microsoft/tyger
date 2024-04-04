@@ -36,7 +36,11 @@ public class DataPlaneStorageHandler : IHealthCheck
         Directory.CreateDirectory(_metadataDir);
         Directory.CreateDirectory(_stagingDir);
 
-        _validateSignature = DigitalSignature.CreateValidationFunc(bufferOptions.Value.PrimarySigningPublicCertificatePath, bufferOptions.Value.SecondarySigningPublicCertificatePath);
+        _validateSignature = DigitalSignature.CreateValidationFunc(
+            DigitalSignature.CreateAsymmetricAlgorithmFromPem(bufferOptions.Value.PrimarySigningPublicKeyPath),
+            string.IsNullOrEmpty(bufferOptions.Value.SecondarySigningPublicKeyPath)
+                ? null
+                : DigitalSignature.CreateAsymmetricAlgorithmFromPem(bufferOptions.Value.SecondarySigningPublicKeyPath));
     }
 
     internal void HandleHeadContainer(string containerId, HttpContext context)

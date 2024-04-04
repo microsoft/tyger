@@ -170,8 +170,8 @@ public class BufferOptions
     [Required]
     public string BufferSidecarImage { get; set; } = null!;
 
-    public string PrimarySigningCertificatePath { get; init; } = null!;
-    public string SecondarySigningCertificatePath { get; init; } = null!;
+    public string PrimarySigningPrivateKeyPath { get; init; } = null!;
+    public string SecondarySigningPrivateKeyPath { get; init; } = null!;
 }
 
 public class CloudBufferStorageOptions

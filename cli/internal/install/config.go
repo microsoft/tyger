@@ -164,10 +164,16 @@ type DockerEnvironmentConfig struct {
 	BufferSidecarImage string `json:"bufferSidecarImage"`
 	GatewayImage       string `json:"gatewayImage"`
 
-	DataPlanePrimarySigningCertificate   string `json:"dataPlanePrimarySigningCertificate"`
-	DataPlaneSecondarySigningCertificate string `json:"dataPlaneSecondarySigningCertificate"`
+	SigningKeys DataPlaneSigningKeys `json:"signingKeys"`
+}
 
-	UseGateway bool `json:"useGateway"`
+type DataPlaneSigningKeys struct {
+	Primary   *KeyPair `json:"primary"`
+	Secondary *KeyPair `json:"secondary"`
+}
+type KeyPair struct {
+	PublicKey  string `json:"public"`
+	PrivateKey string `json:"private"`
 }
 
 func (*DockerEnvironmentConfig) _environmentConfig() {

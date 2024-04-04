@@ -98,7 +98,7 @@ func createControlPlaneContainer(ctx context.Context, dockerClient *client.Clien
 
 	primaryPublicCertificatePath := "/app/tyger-data-plane-primary.pem"
 	secondaryPublicCertificatePath := "/app/tyger-data-plane-secondary.pem"
-	if config.DataPlaneSecondarySigningCertificate == "" {
+	if config.SigningKeys.Secondary == nil {
 		secondaryPublicCertificatePath = ""
 	}
 
@@ -114,8 +114,8 @@ func createControlPlaneContainer(ctx context.Context, dockerClient *client.Clien
 			"LogArchive__LocalStorage__LogsDirectory=/app/logs",
 			"Buffers__BufferSidecarImage=" + config.BufferSidecarImage,
 			"Buffers__LocalStorage__DataPlaneEndpoint=http+unix:///opt/tyger/data-plane/tyger.data.sock",
-			"Buffers__PrimarySigningCertificatePath=" + primaryPublicCertificatePath,
-			"Buffers__SecondarySigningCertificatePath=" + secondaryPublicCertificatePath,
+			"Buffers__PrimarySigningPrivateKeyPath=" + primaryPublicCertificatePath,
+			"Buffers__SecondarySigningPrivateKeyPath=" + secondaryPublicCertificatePath,
 			"Database__ConnectionString=Host=/opt/tyger/database; Username=tyger-server",
 			"Database__AutoMigrate=true",
 			"Database__TygerServerRoleName=tyger-server",
@@ -183,15 +183,15 @@ func createControlPlaneContainer(ctx context.Context, dockerClient *client.Clien
 	postCreateAction := func(containerName string) error {
 		tarFs := memfs.New()
 
-		primaryPemBytes, err := os.ReadFile(config.DataPlanePrimarySigningCertificate)
+		primaryPemBytes, err := os.ReadFile(config.SigningKeys.Primary.PrivateKey)
 		if err != nil {
 			return err
 		}
 
 		tarFs.WriteFile(path.Base(primaryPublicCertificatePath), primaryPemBytes, 0777)
 
-		if config.DataPlaneSecondarySigningCertificate != "" {
-			secondaryPemBytes, err := os.ReadFile(config.DataPlaneSecondarySigningCertificate)
+		if config.SigningKeys.Secondary != nil {
+			secondaryPemBytes, err := os.ReadFile(config.SigningKeys.Primary.PrivateKey)
 			if err != nil {
 				return err
 			}
@@ -345,7 +345,7 @@ func createDataPlaneContainer(ctx context.Context, dockerClient *client.Client, 
 
 	primaryPublicCertificatePath := "/app/tyger-data-plane-public-primary.pem"
 	secondaryPublicCertificatePath := "/app/tyger-data-plane-public-secondary.pem"
-	if config.DataPlaneSecondarySigningCertificate == "" {
+	if config.SigningKeys.Secondary == nil {
 		secondaryPublicCertificatePath = ""
 	}
 
@@ -356,8 +356,8 @@ func createDataPlaneContainer(ctx context.Context, dockerClient *client.Client, 
 			"Urls=http://unix:/opt/tyger/data-plane/tyger.data.sock",
 			"SocketPermissions=666",
 			"DataDirectory=/app/data",
-			"PrimarySigningPublicCertificatePath=" + primaryPublicCertificatePath,
-			"SecondarySigningPublicCertificatePath=" + secondaryPublicCertificatePath,
+			"PrimarySigningPublicKeyPath=" + primaryPublicCertificatePath,
+			"SecondarySigningPublicKeyPath=" + secondaryPublicCertificatePath,
 		},
 		Healthcheck: &container.HealthConfig{
 			Test: []string{
@@ -395,17 +395,17 @@ func createDataPlaneContainer(ctx context.Context, dockerClient *client.Client, 
 	postCreateAction := func(containerName string) error {
 		tarFs := memfs.New()
 
-		publicPemBytes, err := getPublicCertificatePemBytes(config.DataPlanePrimarySigningCertificate)
+		publicPemBytes, err := os.ReadFile(config.SigningKeys.Primary.PublicKey)
 		if err != nil {
-			return err
+			return fmt.Errorf("error reading primary public key: %w", err)
 		}
 
 		tarFs.WriteFile(path.Base(primaryPublicCertificatePath), publicPemBytes, 0777)
 
-		if config.DataPlaneSecondarySigningCertificate != "" {
-			publicPemBytes, err = getPublicCertificatePemBytes(config.DataPlaneSecondarySigningCertificate)
+		if config.SigningKeys.Secondary != nil {
+			publicPemBytes, err = os.ReadFile(config.SigningKeys.Secondary.PublicKey)
 			if err != nil {
-				return err
+				return fmt.Errorf("error reading secondary public key: %w", err)
 			}
 
 			tarFs.WriteFile(path.Base(secondaryPublicCertificatePath), publicPemBytes, 0777)

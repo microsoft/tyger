@@ -72,9 +72,9 @@ public class StorageOptions
     public string DataDirectory { get; init; } = null!;
 
     [Required, MinLength(1)]
-    public string PrimarySigningPublicCertificatePath { get; init; } = null!;
+    public string PrimarySigningPublicKeyPath { get; init; } = null!;
 
-    public string? SecondarySigningPublicCertificatePath { get; init; }
+    public string? SecondarySigningPublicKeyPath { get; init; }
 }
 
 internal struct BlobMetadata

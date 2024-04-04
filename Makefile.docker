@@ -3,7 +3,7 @@
 
 ENVIRONMENT_CONFIG_JSON = $(shell scripts/get-config.sh --docker -o json | jq -c)
 
-set-localsettings: download-data-plane-cert
+set-localsettings: ensure-data-plane-cert
 	run_secrets_path="/opt/tyger/control-plane/run-secrets/"
 	ephemeral_buffers_path="/opt/tyger/control-plane/ephemeral-buffers/"
 	logs_path="/opt/tyger/dev/volumes/run_logs"
@@ -47,34 +47,23 @@ set-data-plane-localsettings:
 			"urls": "http://unix:/opt/tyger/data-plane/tyger.data.sock",
 			"logging": { "Console": {"FormatterName": "simple" } },
 			"dataDirectory": "/opt/tyger/dev/volumes/buffers/",
-			"PrimarySigningPublicCertificatePath": "$${HOME}/tyger_local_data_plane_cert_latest.pem"
+			"PrimarySigningPublicKeyPath": "$$(scripts/get-config.sh --docker -e .signingKeys.primary.private)"
 		}
 	EOF
 
-up: download-data-plane-cert install-cli docker-build-tyger-server docker-build-buffer-sidecar docker-build-test
+up: ensure-data-plane-cert install-cli docker-build-tyger-server docker-build-buffer-sidecar docker-build-test
 	tyger api install -f <(scripts/get-config.sh --docker)
 
 down: install-cli
 	tyger api uninstall -f <(scripts/get-config.sh --docker)
 
-download-data-plane-cert:
-	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localDataPlaneServiceCertSecret.version')
-	cert_path=$${HOME}/tyger_local_data_plane_cert_$${cert_version}.pem
+ensure-data-plane-cert: install-cli
+	cert_path_public=$${HOME}/tyger_local_signing_key_public.pem
+	cert_path_private=$${HOME}/tyger_local_signing_key_private.pem
 
-	subscription=$$(echo '${DEVELOPER_CONFIG_JSON}' | yq '.subscriptionId')
-	vault_name=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.keyVault')
-	cert_name=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localDataPlaneServiceCertSecret.name')
-	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.localDataPlaneServiceCertSecret.version')
-
-	if [[ ! -f "$${cert_path}" ]]; then
-		rm -f "$${cert_path}"
-
-		az keyvault secret download --vault-name "$${vault_name}" --name "$${cert_name}" --version "$${cert_version}" --file "$${cert_path}" --subscription "$${subscription}"
-		chmod 600 "$${cert_path}"
+	if [[ ! -f "$${cert_path_public}" ]]; then
+		tyger api generate-signing-key --public $${cert_path_public} --private $${cert_path_private}
 	fi
-
-	cert_latest_path=$${HOME}/tyger_local_data_plane_cert_latest.pem
-	ln -sf "$${cert_path}" "$${cert_latest_path}"
 
 run: set-localsettings
 	cd server/ControlPlane

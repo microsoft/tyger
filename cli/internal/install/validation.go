@@ -366,6 +366,26 @@ func QuickValidateDockerEnvironmentConfig(config *DockerEnvironmentConfig) bool 
 		}
 	}
 
+	if config.SigningKeys.Primary == nil {
+		validationError(&success, "The `signingKeys.primary` field is required")
+	} else {
+		if config.SigningKeys.Primary.PublicKey == "" {
+			validationError(&success, "The `signingKeys.primary.publicKey` field is required to be the path to a public key file PEM file")
+		}
+		if config.SigningKeys.Primary.PrivateKey == "" {
+			validationError(&success, "The `signingKeys.primary.privateKey` field is required to be the path to a private key PEM file")
+		}
+	}
+
+	if config.SigningKeys.Secondary != nil {
+		if config.SigningKeys.Secondary.PublicKey == "" {
+			validationError(&success, "The `signingKeys.secondary.publicKey` field is required to be the path to a public key PEM file")
+		}
+		if config.SigningKeys.Secondary.PrivateKey == "" {
+			validationError(&success, "The `signingKeys.secondary.privateKey` field is required to be the path to a private key PEM file")
+		}
+	}
+
 	return success
 }
 
