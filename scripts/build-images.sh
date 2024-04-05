@@ -148,7 +148,6 @@ function build_and_push() {
   fi
 
   docker manifest push "${manifest_name}" --purge > /dev/null
-  docker tag "${container_registry_fqdn}/${repo}:${image_tag}-$(dpkg --print-architecture)" "$manifest_name"
 }
 
 if [[ -n "${test_connectivity:-}" ]]; then

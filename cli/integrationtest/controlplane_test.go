@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -1430,7 +1431,7 @@ func getTestConnectivityImage(t *testing.T) string {
 	var tag string
 	switch c.ControlPlaneUrl.Scheme {
 	case "http+unix", "https+unix":
-		tag = "dev"
+		tag = "dev-" + runtime.GOARCH
 	default:
 		tag = "dev-amd64"
 	}
