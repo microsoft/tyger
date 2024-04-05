@@ -16,6 +16,7 @@ import (
 	"strconv"
 
 	"github.com/microsoft/tyger/cli/internal/install"
+	"github.com/microsoft/tyger/cli/internal/install/dockerinstall"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -68,7 +69,7 @@ func newApiInstallCommand() *cobra.Command {
 				}
 
 			case *install.DockerEnvironmentConfig:
-				if err := install.InstallTygerInDocker(ctx); err != nil {
+				if err := dockerinstall.InstallTygerInDocker(ctx); err != nil {
 					if err != install.ErrAlreadyLoggedError {
 						log.Fatal().Err(err).Send()
 					}
@@ -115,7 +116,7 @@ func newApiUninstallCommand() *cobra.Command {
 				}
 
 			case *install.DockerEnvironmentConfig:
-				if err := install.UninstallTygerInDocker(ctx); err != nil {
+				if err := dockerinstall.UninstallTygerInDocker(ctx); err != nil {
 					if err != install.ErrAlreadyLoggedError {
 						log.Fatal().Err(err).Send()
 					}

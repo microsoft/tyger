@@ -3,7 +3,6 @@
 
 using System.ComponentModel.DataAnnotations;
 using Docker.DotNet;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Tyger.ControlPlane.Buffers;
 using Tyger.ControlPlane.Database;
 using Tyger.ControlPlane.Logging;
@@ -16,7 +15,10 @@ public static class Docker
 {
     public static void AddDocker(this IHostApplicationBuilder builder)
     {
-        builder.Services.AddOptions<DockerOptions>().BindConfiguration("compute:docker").ValidateDataAnnotations().ValidateOnStart();
+        if (builder is WebApplicationBuilder)
+        {
+            builder.Services.AddOptions<DockerOptions>().BindConfiguration("compute:docker").ValidateDataAnnotations().ValidateOnStart();
+        }
 
         builder.Services.AddSingleton(sp => new DockerClientConfiguration().CreateClient());
 

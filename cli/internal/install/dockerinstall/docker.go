@@ -1,4 +1,4 @@
-package install
+package dockerinstall
 
 import (
 	"archive/tar"
@@ -24,6 +24,7 @@ import (
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/psanford/memfs"
 	"github.com/rs/zerolog/log"
 )
@@ -43,7 +44,7 @@ const (
 )
 
 func InstallTygerInDocker(ctx context.Context) error {
-	config := GetDockerEnvironmentConfigFromContext(ctx)
+	config := install.GetDockerEnvironmentConfigFromContext(ctx)
 
 	if err := ensureDirectoryExists("/opt/tyger", config); err != nil {
 		return err
@@ -62,6 +63,10 @@ func InstallTygerInDocker(ctx context.Context) error {
 		return fmt.Errorf("error creating data plane container: %w", err)
 	}
 
+	if err := runMigrationRunnerInDockerfunc(ctx, dockerClient, config); err != nil {
+		return fmt.Errorf("error running migration runner: %w", err)
+	}
+
 	if err := createControlPlaneContainer(ctx, dockerClient, config); err != nil {
 		return fmt.Errorf("error creating control plane container: %w", err)
 	}
@@ -69,7 +74,7 @@ func InstallTygerInDocker(ctx context.Context) error {
 	return nil
 }
 
-func ensureDirectoryExists(path string, config *DockerEnvironmentConfig) error {
+func ensureDirectoryExists(path string, config *install.DockerEnvironmentConfig) error {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		if err := os.MkdirAll(path, 0755); err != nil {
 			return fmt.Errorf("error creating directory %s: %w", path, err)
@@ -81,7 +86,7 @@ func ensureDirectoryExists(path string, config *DockerEnvironmentConfig) error {
 	}
 }
 
-func createControlPlaneContainer(ctx context.Context, dockerClient *client.Client, config *DockerEnvironmentConfig) error {
+func createControlPlaneContainer(ctx context.Context, dockerClient *client.Client, config *install.DockerEnvironmentConfig) error {
 	if err := ensureVolumeCreated(ctx, dockerClient, runLogsDockerVolumeName); err != nil {
 		return err
 	}
@@ -117,7 +122,6 @@ func createControlPlaneContainer(ctx context.Context, dockerClient *client.Clien
 			"Buffers__PrimarySigningPrivateKeyPath=" + primaryPublicCertificatePath,
 			"Buffers__SecondarySigningPrivateKeyPath=" + secondaryPublicCertificatePath,
 			"Database__ConnectionString=Host=/opt/tyger/database; Username=tyger-server",
-			"Database__AutoMigrate=true",
 			"Database__TygerServerRoleName=tyger-server",
 		},
 		Healthcheck: &container.HealthConfig{
@@ -212,6 +216,7 @@ func createControlPlaneContainer(ctx context.Context, dockerClient *client.Clien
 		dockerClient,
 		controlPlaneDockerContainerName,
 		&desiredContainerConfig, &desiredHostConfig, &desiredNetworkingConfig,
+		true,
 		postCreateAction); err != nil {
 		return err
 	}
@@ -221,6 +226,83 @@ func createControlPlaneContainer(ctx context.Context, dockerClient *client.Clien
 	}
 
 	return nil
+}
+
+func runMigrationRunnerInDockerfunc(ctx context.Context, dockerClient *client.Client, config *install.DockerEnvironmentConfig) error {
+	desiredContainerConfig := container.Config{
+		Image: config.ControlPlaneImage,
+		User:  fmt.Sprintf("%d:%d", config.GetUserIdInt(), config.GetGroupIdInt()),
+		Env: []string{
+			"Urls=http://unix:/opt/tyger/control-plane/tyger.sock",
+			"Database__ConnectionString=Host=/opt/tyger/database; Username=tyger-server",
+			"Database__AutoMigrate=true",
+			"Database__TygerServerRoleName=tyger-server",
+			"Compute__Docker__Enabled=true",
+		},
+		Cmd: []string{"database", "init"},
+	}
+
+	desiredHostConfig := container.HostConfig{
+		Mounts: []mount.Mount{
+			{
+				Type:   "bind",
+				Source: "/opt/tyger/",
+				Target: "/opt/tyger/",
+			},
+		},
+		NetworkMode: "none",
+		RestartPolicy: container.RestartPolicy{
+			Name: container.RestartPolicyDisabled,
+		},
+	}
+
+	containerName := "tyger-migration-runner"
+	if err := createContainer(ctx, dockerClient, containerName, &desiredContainerConfig, &desiredHostConfig, &network.NetworkingConfig{}, false); err != nil {
+		return fmt.Errorf("error creating migration runner container: %w", err)
+	}
+
+	defer func() {
+		if err := dockerClient.ContainerRemove(ctx, containerName, container.RemoveOptions{Force: true}); err != nil {
+			panic(err)
+		}
+	}()
+
+	if err := dockerClient.ContainerStart(ctx, containerName, container.StartOptions{}); err != nil {
+		return err
+	}
+
+	// Wait for the container to finish
+	statusCh, errCh := dockerClient.ContainerWait(ctx, containerName, container.WaitConditionNotRunning)
+	select {
+	case err := <-errCh:
+		if err != nil {
+			return err
+		}
+	case waitReponse := <-statusCh:
+		if waitReponse.StatusCode == 0 {
+			return nil
+		}
+	}
+
+	out, err := dockerClient.ContainerLogs(ctx, containerName, container.LogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+	})
+
+	if err != nil {
+		return err
+	}
+
+	defer out.Close()
+
+	// Read the output
+	stdOutput, errOutput := &bytes.Buffer{}, &bytes.Buffer{}
+	_, err = stdcopy.StdCopy(stdOutput, errOutput, out)
+	if err != nil {
+		return err
+	}
+
+	return fmt.Errorf("migration runner failed: %s", errOutput.String())
 }
 
 func UninstallTygerInDocker(ctx context.Context) error {
@@ -273,7 +355,7 @@ func UninstallTygerInDocker(ctx context.Context) error {
 	return nil
 }
 
-func createDatabaseContainer(ctx context.Context, dockerClient *client.Client, config *DockerEnvironmentConfig) error {
+func createDatabaseContainer(ctx context.Context, dockerClient *client.Client, config *install.DockerEnvironmentConfig) error {
 	if err := ensureVolumeCreated(ctx, dockerClient, databaseDockerVolumeName); err != nil {
 		return err
 	}
@@ -322,14 +404,14 @@ func createDatabaseContainer(ctx context.Context, dockerClient *client.Client, c
 	}
 	desiredNetworkingConfig := network.NetworkingConfig{}
 
-	if err := createContainer(ctx, dockerClient, databaseDockerContainerName, &desiredContainerConfig, &desiredHostConfig, &desiredNetworkingConfig); err != nil {
+	if err := createContainer(ctx, dockerClient, databaseDockerContainerName, &desiredContainerConfig, &desiredHostConfig, &desiredNetworkingConfig, true); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func createDataPlaneContainer(ctx context.Context, dockerClient *client.Client, config *DockerEnvironmentConfig) error {
+func createDataPlaneContainer(ctx context.Context, dockerClient *client.Client, config *install.DockerEnvironmentConfig) error {
 	if err := ensureVolumeCreated(ctx, dockerClient, buffersDockerVolumeName); err != nil {
 		return err
 	}
@@ -424,6 +506,7 @@ func createDataPlaneContainer(ctx context.Context, dockerClient *client.Client, 
 		dockerClient,
 		dataPlaneDockerContainerName,
 		&desiredContainerConfig, &desiredHostConfig, &desiredNetworkingConfig,
+		true,
 		postCreateAction); err != nil {
 		return err
 	}
@@ -462,6 +545,7 @@ func createContainer(
 	desiredContainerConfig *container.Config,
 	desiredHostConfig *container.HostConfig,
 	desiredNetworkingConfig *network.NetworkingConfig,
+	waitForHealthy bool,
 	postCreateActions ...func(containerName string) error,
 ) error {
 	configHash := computeContainerConfigHash(desiredContainerConfig, desiredHostConfig, desiredNetworkingConfig)
@@ -510,20 +594,22 @@ func createContainer(
 		}
 	}
 
-	waitStartTime := time.Now()
+	if waitForHealthy {
+		waitStartTime := time.Now()
 
-	for {
-		c, err := dockerClient.ContainerInspect(ctx, containerName)
-		if err != nil {
-			return fmt.Errorf("error inspecting container: %w", err)
-		}
+		for {
+			c, err := dockerClient.ContainerInspect(ctx, containerName)
+			if err != nil {
+				return fmt.Errorf("error inspecting container: %w", err)
+			}
 
-		if c.State.Health.Status == "healthy" {
-			break
-		}
+			if c.State.Health.Status == "healthy" {
+				break
+			}
 
-		if time.Since(waitStartTime) > 60*time.Second {
-			return fmt.Errorf("timed out waiting for container to become healthy. Current status: %s", c.State.Health.Status)
+			if time.Since(waitStartTime) > 60*time.Second {
+				return fmt.Errorf("timed out waiting for container to become healthy. Current status: %s", c.State.Health.Status)
+			}
 		}
 	}
 
