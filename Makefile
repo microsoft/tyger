@@ -65,7 +65,7 @@ _docker-build:
 	tag=$${EXPLICIT_IMAGE_TAG:-dev}
 
 	registry=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
-	scripts/build-images.sh $$target_arg --push --push-force --tag "$$tag" --registry "$${registry}"
+	scripts/build-images.sh $$target_arg ${DOCKER_BUILD_ARCH_FLAGS} ${DOCKER_BUILD_PUSH_FLAGS} --tag "$$tag" --registry "$${registry}"
 
 docker-build-test:
 	$(MAKE) _docker-build DOCKER_BUILD_TARGET=test-connectivity
@@ -84,7 +84,7 @@ docker-build: docker-build-test docker-build-tyger-server docker-build-buffer-si
 publish-official-images:
 	registry=$$(scripts/get-config.sh --dev -e .officialContainerRegistry.fqdn)
 	tag=$$(git describe --tags)
-	scripts/build-images.sh --push --push-force --tyger-server --worker-waiter --buffer-sidecar --helm --tag "$${tag}" --registry "$${registry}"
+	scripts/build-images.sh --push --push-force --arch amd64 --arch arm64 --tyger-server --worker-waiter --buffer-sidecar --helm --tag "$${tag}" --registry "$${registry}"
 
 integration-test-no-up-prereqs:
 

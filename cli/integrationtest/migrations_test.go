@@ -12,12 +12,12 @@ import (
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/golang-jwt/jwt/v5"
 	koanfyaml "github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/v2"
 	"github.com/microsoft/tyger/cli/internal/install"
-	"github.com/go-viper/mapstructure/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
@@ -41,6 +41,7 @@ func TestMigrations(t *testing.T) {
 		DecoderConfig: &mapstructure.DecoderConfig{
 			WeaklyTypedInput: true,
 			ErrorUnused:      true,
+			Squash:           true,
 			Result:           &config,
 		},
 	}))

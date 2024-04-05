@@ -9,6 +9,8 @@ HELM_RELEASE=tyger
 TYGER_URI = https://$(shell echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.domainName')
 INSTALL_CLOUD=false
 AUTO_MIGRATE=false
+DOCKER_BUILD_ARCH_FLAGS = --arch amd64
+DOCKER_BUILD_PUSH_FLAGS = --push --push-force
 
 ensure-environment: check-az-login install-cli
 	tyger cloud install -f <(scripts/get-config.sh)

@@ -102,22 +102,17 @@ else
     TYGER_DATA_PLANE_SERVER_IMAGE="${repo_fqdn}/tyger-data-plane-server:${EXPLICIT_IMAGE_TAG}"
     BUFFER_SIDECAR_IMAGE="${repo_fqdn}/buffer-sidecar:${EXPLICIT_IMAGE_TAG}"
     WORKER_WAITER_IMAGE="${repo_fqdn}/worker-waiter:${EXPLICIT_IMAGE_TAG}"
+  elif [[ "$docker" == true ]]; then
+    arch=$(dpkg --print-architecture)
+    TYGER_SERVER_IMAGE=$(docker inspect "${repo_fqdn}/tyger-server:dev-${arch}" | jq -r '.[0].Id')
+    BUFFER_SIDECAR_IMAGE=$(docker inspect "${repo_fqdn}/buffer-sidecar:dev-${arch}" | jq -r '.[0].Id')
+    TYGER_DATA_PLANE_SERVER_IMAGE=$(docker inspect "${repo_fqdn}/tyger-data-plane-server:dev-${arch}" | jq -r '.[0].Id')
   else
-
-    if [[ "$docker" == true ]]; then
-      arch=$(dpkg --print-architecture)
-    else
-      arch="amd64"
-    fi
+    arch="amd64"
 
     TYGER_SERVER_IMAGE="$(docker inspect "${repo_fqdn}/tyger-server:dev-${arch}" 2>/dev/null | jq -r --arg repo "${repo_fqdn}/tyger-server" '.[0].RepoDigests[] | select (startswith($repo))' 2>/dev/null || true)"
     BUFFER_SIDECAR_IMAGE="$(docker inspect "${repo_fqdn}/buffer-sidecar:dev-${arch}" 2>/dev/null | jq -r --arg repo "${repo_fqdn}/buffer-sidecar" '.[0].RepoDigests[] | select (startswith($repo))' 2>/dev/null || true)"
-
-    if [[ "$docker" == true ]]; then
-      TYGER_DATA_PLANE_SERVER_IMAGE="$(docker inspect "${repo_fqdn}/tyger-data-plane-server:dev-${arch}" 2>/dev/null | jq -r --arg repo "${repo_fqdn}/tyger-data-plane-server" '.[0].RepoDigests[] | select (startswith($repo))' 2>/dev/null || true)"
-    else
-      WORKER_WAITER_IMAGE="$(docker inspect "${repo_fqdn}/worker-waiter:dev-${arch}" 2>/dev/null | jq -r --arg repo "${repo_fqdn}/worker-waiter" '.[0].RepoDigests[] | select (startswith($repo))' 2>/dev/null || true)"
-    fi
+    WORKER_WAITER_IMAGE="$(docker inspect "${repo_fqdn}/worker-waiter:dev-${arch}" 2>/dev/null | jq -r --arg repo "${repo_fqdn}/worker-waiter" '.[0].RepoDigests[] | select (startswith($repo))' 2>/dev/null || true)"
   fi
 
   export TYGER_SERVER_IMAGE

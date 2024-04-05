@@ -2,6 +2,8 @@
 # Licensed under the MIT License.
 
 ENVIRONMENT_CONFIG_JSON = $(shell scripts/get-config.sh --docker -o json | jq -c)
+DOCKER_BUILD_ARCH_FLAGS = --arch $$(dpkg --print-architecture)
+DOCKER_BUILD_PUSH_FLAGS = 
 
 set-localsettings: ensure-data-plane-cert
 	run_secrets_path="/opt/tyger/control-plane/run-secrets/"

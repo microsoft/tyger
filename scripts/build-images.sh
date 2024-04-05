@@ -19,6 +19,7 @@ Options:
   --worker-waiter                  Build (and optionally push) the worker-waiter image
   --buffer-sidecar                 Build (and optionally push) the buffer-sidecar image
   --helm                           Package and push the Tyger Helm chart
+  --arch amd64|arm64               The architecture to build for. Can be specified multiple times.
   --push                           Push runtime images (requires --tag or --use-git-hash-as-tag)
   --push-force                     Force runtime images, will overwrite images with same tag (requires --tag or --use-git-hash-as-tag)
   --tag <tag>                      Tag for runtime images
@@ -55,6 +56,17 @@ while [[ $# -gt 0 ]]; do
     helm=1
     shift
     ;;
+  --arch)
+    if [[ "$2" == "amd64" ]]; then
+      amd64=1
+    elif [[ "$2" == "arm64" ]]; then
+      arm64=1
+    else
+      echo "ERROR: unknown architecture \"$2\""
+      exit 1
+    fi
+    shift 2
+    ;;
   --push)
     push=1
     shift
@@ -83,6 +95,12 @@ while [[ $# -gt 0 ]]; do
     ;;
   esac
 done
+
+# if nether amd64 nor arm64 is specified, build for both
+if [[ -z "${amd64:-}" && -z "${arm64:-}" ]]; then
+  amd64=true
+  arm64=true
+fi
 
 export DOCKER_BUILDKIT=1
 
@@ -121,20 +139,25 @@ function build_and_push_platform() {
 }
 
 function build_and_push() {
-  platform=amd64
-  image_tag_with_platform=$"${image_tag}-${platform}"
-  build_and_push_platform
+  if [[ -n "${amd64:-}" ]]; then
+    platform=amd64
+    image_tag_with_platform=$"${image_tag}-${platform}"
+    build_and_push_platform
+  fi
 
-  platform=arm64
-  image_tag_with_platform=$"${image_tag}-${platform}"
-  build_and_push_platform
+  if [[ -n "${arm64:-}" ]]; then
+    platform=arm64
+    image_tag_with_platform=$"${image_tag}-${platform}"
+    build_and_push_platform
+  fi
 
-  if [[ -z "${push:-}" ]]; then
+  # if not pushing or not building for both platforms, skip  creating a manifest
+  if [[ -z "${push:-}" || (-z "${amd64:-}" && -z "${arm64:-}") ]]; then
     return 0
   fi
 
   manifest_name="${container_registry_fqdn}/${repo}:${image_tag}"
-  docker manifest create --amend "${manifest_name}" "${container_registry_fqdn}/${repo}:${image_tag}-amd64" "${container_registry_fqdn}/${repo}:${image_tag}-arm64" > /dev/null
+  docker manifest create --amend "${manifest_name}" "${container_registry_fqdn}/${repo}:${image_tag}-amd64" "${container_registry_fqdn}/${repo}:${image_tag}-arm64" >/dev/null
 
   # Push manigest
   if [[ -z "${force:-}" ]]; then
@@ -147,7 +170,7 @@ function build_and_push() {
     fi
   fi
 
-  docker manifest push "${manifest_name}" --purge > /dev/null
+  docker manifest push "${manifest_name}" --purge >/dev/null
 }
 
 if [[ -n "${test_connectivity:-}" ]]; then
