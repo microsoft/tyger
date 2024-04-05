@@ -189,12 +189,12 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                     write ? "write" : "read",
                     "--listen",
                     $"unix://{relaySocketPath}",
-                    "--primary-cert",
+                    "--primary-public-signing-key",
                     "/primary-signing-key-public.pem",
                 ]);
                 if (!string.IsNullOrEmpty(_bufferOptions.SecondarySigningPrivateKeyPath))
                 {
-                    args.AddRange(["--secondary-cert", "/secondary-signing-key-public.pem"]);
+                    args.AddRange(["--secondary-public-signing-key", "/secondary-signing-key-public.pem"]);
                 }
 
                 var unqualifiedBufferId = BufferManager.GetUnqualifiedBufferId(run.Job.Buffers![bufferParameterName]);
@@ -416,6 +416,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         Directory.CreateDirectory(_dockerSecretOptions.RunSecretsPath);
+        Directory.CreateDirectory(_dockerSecretOptions.EphemeralBuffersPath);
 
         var systemInfo = await _client.System.GetSystemInfoAsync(cancellationToken);
         _supportsGpu = systemInfo.Runtimes?.ContainsKey("nvidia") == true;

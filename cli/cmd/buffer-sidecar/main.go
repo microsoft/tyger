@@ -57,8 +57,8 @@ func newRootCommand() *cobra.Command {
 
 	listenAddress := ""
 	outputFilePath := ""
-	primaryCertPath := ""
-	secondaryCertPath := ""
+	primarySigningPublicKeyPath := ""
+	secondarySigningPublicKeyPath := ""
 	bufferId := ""
 	createListener := func() (net.Listener, error) {
 		u, err := url.Parse(listenAddress)
@@ -94,7 +94,7 @@ func newRootCommand() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx, cancel := context.WithCancel(cmd.Context())
 			impl := func() error {
-				validateSignatureFunc, err := dataplane.CreateSignatureValidationFunc(primaryCertPath, secondaryCertPath)
+				validateSignatureFunc, err := dataplane.CreateSignatureValidationFunc(primarySigningPublicKeyPath, secondarySigningPublicKeyPath)
 				if err != nil {
 					return err
 				}
@@ -141,9 +141,9 @@ func newRootCommand() *cobra.Command {
 	relayReadCommand.MarkFlagRequired("listen")
 	relayReadCommand.Flags().StringVarP(&bufferId, "buffer", "b", bufferId, "The buffer ID")
 	relayReadCommand.MarkFlagRequired("buffer")
-	relayReadCommand.Flags().StringVarP(&primaryCertPath, "primary-cert", "p", primaryCertPath, "The path to the primary signing certificate public key file")
+	relayReadCommand.Flags().StringVarP(&primarySigningPublicKeyPath, "primary-public-signing-key", "p", primarySigningPublicKeyPath, "The path to the primary signing public key file")
 	relayReadCommand.MarkFlagRequired("primary-cert")
-	relayReadCommand.Flags().StringVarP(&secondaryCertPath, "secondary-cert", "s", secondaryCertPath, "The path to the secondary signing certificate public key file")
+	relayReadCommand.Flags().StringVarP(&secondarySigningPublicKeyPath, "secondary-public-signing-key", "s", secondarySigningPublicKeyPath, "The path to the secondary signing public key file")
 	relayCommand.AddCommand(relayReadCommand)
 
 	inputFilePath := ""
@@ -152,7 +152,7 @@ func newRootCommand() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx, cancel := context.WithCancel(cmd.Context())
 			impl := func() error {
-				validateSignatureFunc, err := dataplane.CreateSignatureValidationFunc(primaryCertPath, secondaryCertPath)
+				validateSignatureFunc, err := dataplane.CreateSignatureValidationFunc(primarySigningPublicKeyPath, secondarySigningPublicKeyPath)
 				if err != nil {
 					return err
 				}
@@ -199,9 +199,9 @@ func newRootCommand() *cobra.Command {
 	relayWriteCommand.MarkFlagRequired("listen")
 	relayWriteCommand.Flags().StringVarP(&bufferId, "buffer", "b", bufferId, "The buffer ID")
 	relayWriteCommand.MarkFlagRequired("buffer")
-	relayWriteCommand.Flags().StringVarP(&primaryCertPath, "primary-cert", "p", primaryCertPath, "The path to the primary signing certificate public key file")
+	relayWriteCommand.Flags().StringVarP(&primarySigningPublicKeyPath, "primary-public-signing-key", "p", primarySigningPublicKeyPath, "The path to the primary signing public key file")
 	relayWriteCommand.MarkFlagRequired("primary-cert")
-	relayWriteCommand.Flags().StringVarP(&secondaryCertPath, "secondary-cert", "s", secondaryCertPath, "The path to the secondary signing certificate public key file")
+	relayWriteCommand.Flags().StringVarP(&secondarySigningPublicKeyPath, "secondary-public-signing-key", "s", secondarySigningPublicKeyPath, "The path to the secondary signing public key file")
 
 	relayCommand.AddCommand(relayWriteCommand)
 

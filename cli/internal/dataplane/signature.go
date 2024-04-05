@@ -16,21 +16,22 @@ import (
 
 type ValidateSignatureFunc func(data []byte, signature []byte) bool
 
-func CreateSignatureValidationFunc(primaryPublicPem, secondaryPublicPem string) (ValidateSignatureFunc, error) {
+func CreateSignatureValidationFunc(primarySigningPublicKeyPath, secondarySigningPublicKeyPath string) (ValidateSignatureFunc, error) {
 	type ValidateSignatureFuncFromHash func(sha256Hash [32]byte, signature []byte) bool
 	createSingle := func(certPath string) (ValidateSignatureFuncFromHash, error) {
-		certBytes, err := os.ReadFile(certPath)
+		pemBytes, err := os.ReadFile(certPath)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read certificate at %s: %w", certPath, err)
+			return nil, fmt.Errorf("failed to public key pem file at %s: %w", certPath, err)
 		}
 
-		block, _ := pem.Decode(certBytes)
-		cert, err := x509.ParseCertificate(block.Bytes)
+		blockPub, _ := pem.Decode(pemBytes)
+
+		pub, err := x509.ParsePKIXPublicKey(blockPub.Bytes)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse  certificate at %s: %w", certPath, err)
+			return nil, fmt.Errorf("failed to decode public key from pem file at %s: %w", certPath, err)
 		}
 
-		switch key := cert.PublicKey.(type) {
+		switch key := pub.(type) {
 		case *rsa.PublicKey:
 			return func(sha256Hash [32]byte, signature []byte) bool {
 				return rsa.VerifyPKCS1v15(key, crypto.SHA256, sha256Hash[:], signature) == nil
@@ -44,20 +45,20 @@ func CreateSignatureValidationFunc(primaryPublicPem, secondaryPublicPem string) 
 		}
 	}
 
-	if primaryPublicPem == "" {
+	if primarySigningPublicKeyPath == "" {
 		return nil, fmt.Errorf("a primary public key file is required")
 	}
 
-	primary, err := createSingle(primaryPublicPem)
+	primary, err := createSingle(primarySigningPublicKeyPath)
 	if err != nil {
 		return nil, err
 	}
 
 	var secondary ValidateSignatureFuncFromHash
 
-	if secondaryPublicPem != "" {
+	if secondarySigningPublicKeyPath != "" {
 		var err error
-		secondary, err = createSingle(secondaryPublicPem)
+		secondary, err = createSingle(secondarySigningPublicKeyPath)
 		if err != nil {
 			return nil, err
 		}
