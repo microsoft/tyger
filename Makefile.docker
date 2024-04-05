@@ -79,3 +79,6 @@ run-data-plane: set-data-plane-localsettings
 
 login:
 	tyger login --local
+
+connect-db:
+	docker exec -it tyger-db psql -U tyger-server tyger-server
