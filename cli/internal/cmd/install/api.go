@@ -16,6 +16,7 @@ import (
 	"strconv"
 
 	"github.com/microsoft/tyger/cli/internal/install"
+	"github.com/microsoft/tyger/cli/internal/install/cloudinstall"
 	"github.com/microsoft/tyger/cli/internal/install/dockerinstall"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -55,20 +56,20 @@ func newApiInstallCommand() *cobra.Command {
 			log.Info().Msg("Starting Tyger API install")
 
 			switch t := install.GetEnvironmentConfigFromContext(ctx).(type) {
-			case *install.CloudEnvironmentConfig:
+			case *cloudinstall.CloudEnvironmentConfig:
 				ctx, err := loginAndValidateSubscription(ctx)
 				if err != nil {
 					log.Fatal().Err(err).Send()
 				}
 
-				if err := install.InstallTygerInCloud(ctx); err != nil {
+				if err := cloudinstall.InstallTygerInCloud(ctx); err != nil {
 					if err != install.ErrAlreadyLoggedError {
 						log.Fatal().Err(err).Send()
 					}
 					os.Exit(1)
 				}
 
-			case *install.DockerEnvironmentConfig:
+			case *dockerinstall.DockerEnvironmentConfig:
 				if err := dockerinstall.InstallTygerInDocker(ctx); err != nil {
 					if err != install.ErrAlreadyLoggedError {
 						log.Fatal().Err(err).Send()
@@ -102,20 +103,20 @@ func newApiUninstallCommand() *cobra.Command {
 			log.Info().Msg("Starting Tyger API uninstall")
 
 			switch t := install.GetEnvironmentConfigFromContext(ctx).(type) {
-			case *install.CloudEnvironmentConfig:
+			case *cloudinstall.CloudEnvironmentConfig:
 				ctx, err := loginAndValidateSubscription(ctx)
 				if err != nil {
 					log.Fatal().Err(err).Send()
 				}
 
-				if err := install.UninstallTygerFromCloud(ctx); err != nil {
+				if err := cloudinstall.UninstallTygerFromCloud(ctx); err != nil {
 					if err != install.ErrAlreadyLoggedError {
 						log.Fatal().Err(err).Send()
 					}
 					os.Exit(1)
 				}
 
-			case *install.DockerEnvironmentConfig:
+			case *dockerinstall.DockerEnvironmentConfig:
 				if err := dockerinstall.UninstallTygerInDocker(ctx); err != nil {
 					if err != install.ErrAlreadyLoggedError {
 						log.Fatal().Err(err).Send()
@@ -183,7 +184,7 @@ func NewMigrationApplyCommand() *cobra.Command {
 				log.Fatal().Err(err).Send()
 			}
 
-			if err := install.ApplyMigrations(ctx, targetVersion, latest, offline, wait); err != nil {
+			if err := cloudinstall.ApplyMigrations(ctx, targetVersion, latest, offline, wait); err != nil {
 				log.Fatal().Err(err).Send()
 			}
 		},
@@ -222,7 +223,7 @@ func NewMigrationLogsCommand() *cobra.Command {
 				log.Fatal().Msg("The ID argument must be an integer")
 			}
 
-			if err := install.GetMigrationLogs(ctx, id, os.Stdout); err != nil {
+			if err := cloudinstall.GetMigrationLogs(ctx, id, os.Stdout); err != nil {
 				log.Fatal().Err(err).Send()
 			}
 		},
@@ -253,7 +254,7 @@ func NewMigrationsListCommand() *cobra.Command {
 				log.Fatal().Err(err).Send()
 			}
 
-			versions, err := install.ListDatabaseVersions(ctx, all)
+			versions, err := cloudinstall.ListDatabaseVersions(ctx, all)
 			if err != nil {
 				log.Fatal().Err(err).Msg("Failed to exec into pod")
 			}

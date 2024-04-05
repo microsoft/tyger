@@ -24,7 +24,6 @@ import (
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
-	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/psanford/memfs"
 	"github.com/rs/zerolog/log"
 )
@@ -44,7 +43,7 @@ const (
 )
 
 func InstallTygerInDocker(ctx context.Context) error {
-	config := install.GetDockerEnvironmentConfigFromContext(ctx)
+	config := GetDockerEnvironmentConfigFromContext(ctx)
 
 	if err := ensureDirectoryExists("/opt/tyger", config); err != nil {
 		return err
@@ -74,7 +73,7 @@ func InstallTygerInDocker(ctx context.Context) error {
 	return nil
 }
 
-func ensureDirectoryExists(path string, config *install.DockerEnvironmentConfig) error {
+func ensureDirectoryExists(path string, config *DockerEnvironmentConfig) error {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		if err := os.MkdirAll(path, 0755); err != nil {
 			return fmt.Errorf("error creating directory %s: %w", path, err)
@@ -86,7 +85,7 @@ func ensureDirectoryExists(path string, config *install.DockerEnvironmentConfig)
 	}
 }
 
-func createControlPlaneContainer(ctx context.Context, dockerClient *client.Client, config *install.DockerEnvironmentConfig) error {
+func createControlPlaneContainer(ctx context.Context, dockerClient *client.Client, config *DockerEnvironmentConfig) error {
 	if err := ensureVolumeCreated(ctx, dockerClient, runLogsDockerVolumeName); err != nil {
 		return err
 	}
@@ -228,7 +227,7 @@ func createControlPlaneContainer(ctx context.Context, dockerClient *client.Clien
 	return nil
 }
 
-func runMigrationRunnerInDockerfunc(ctx context.Context, dockerClient *client.Client, config *install.DockerEnvironmentConfig) error {
+func runMigrationRunnerInDockerfunc(ctx context.Context, dockerClient *client.Client, config *DockerEnvironmentConfig) error {
 	desiredContainerConfig := container.Config{
 		Image: config.ControlPlaneImage,
 		User:  fmt.Sprintf("%d:%d", config.GetUserIdInt(), config.GetGroupIdInt()),
@@ -355,7 +354,7 @@ func UninstallTygerInDocker(ctx context.Context) error {
 	return nil
 }
 
-func createDatabaseContainer(ctx context.Context, dockerClient *client.Client, config *install.DockerEnvironmentConfig) error {
+func createDatabaseContainer(ctx context.Context, dockerClient *client.Client, config *DockerEnvironmentConfig) error {
 	if err := ensureVolumeCreated(ctx, dockerClient, databaseDockerVolumeName); err != nil {
 		return err
 	}
@@ -411,7 +410,7 @@ func createDatabaseContainer(ctx context.Context, dockerClient *client.Client, c
 	return nil
 }
 
-func createDataPlaneContainer(ctx context.Context, dockerClient *client.Client, config *install.DockerEnvironmentConfig) error {
+func createDataPlaneContainer(ctx context.Context, dockerClient *client.Client, config *DockerEnvironmentConfig) error {
 	if err := ensureVolumeCreated(ctx, dockerClient, buffersDockerVolumeName); err != nil {
 		return err
 	}

@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-package install
+package cloudinstall
 
 import (
 	"context"
@@ -15,6 +15,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
 	"github.com/IGLOU-EU/go-wildcard/v2"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/rs/zerolog/log"
 )
 
@@ -200,7 +201,7 @@ func checkRbac(ctx context.Context, config *CloudEnvironmentConfig, cred azcore.
 	}
 
 	if hasErr {
-		return ErrAlreadyLoggedError
+		return install.ErrAlreadyLoggedError
 	}
 
 	return nil
@@ -239,7 +240,7 @@ func checkAccess(scope, permission string, roleAssignments []armauthorization.Ro
 	}
 
 	log.Error().Str("permission", permission).Str("scope", scope).Msg("Missing required permission")
-	return ErrAlreadyLoggedError
+	return install.ErrAlreadyLoggedError
 }
 
 func permissionMatches(required, actual string) bool {

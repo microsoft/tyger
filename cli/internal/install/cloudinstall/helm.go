@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-package install
+package cloudinstall
 
 import (
 	"bufio"
@@ -21,6 +21,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage"
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/microsoft/tyger/cli/internal/client"
+	"github.com/microsoft/tyger/cli/internal/install"
 	helmclient "github.com/mittwald/go-helm-client"
 	"github.com/rs/zerolog/log"
 	"helm.sh/helm/v3/pkg/release"
@@ -45,12 +46,12 @@ var (
 	containerImageTag string = "v0.1.0-49-g5526c35"
 )
 
-func installTraefik(ctx context.Context, restConfigPromise *Promise[*rest.Config]) (any, error) {
+func installTraefik(ctx context.Context, restConfigPromise *install.Promise[*rest.Config]) (any, error) {
 	config := GetCloudEnvironmentConfigFromContext(ctx)
 
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
-		return nil, errDependencyFailed
+		return nil, install.ErrDependencyFailed
 	}
 
 	log.Info().Msg("Installing Traefik")
@@ -111,12 +112,12 @@ func installTraefik(ctx context.Context, restConfigPromise *Promise[*rest.Config
 	return nil, nil
 }
 
-func installCertManager(ctx context.Context, restConfigPromise *Promise[*rest.Config]) (any, error) {
+func installCertManager(ctx context.Context, restConfigPromise *install.Promise[*rest.Config]) (any, error) {
 	config := GetCloudEnvironmentConfigFromContext(ctx)
 
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
-		return nil, errDependencyFailed
+		return nil, install.ErrDependencyFailed
 	}
 
 	log.Info().Msg("Installing cert-manager")
@@ -145,12 +146,12 @@ func installCertManager(ctx context.Context, restConfigPromise *Promise[*rest.Co
 	return nil, nil
 }
 
-func installNvidiaDevicePlugin(ctx context.Context, restConfigPromise *Promise[*rest.Config]) (any, error) {
+func installNvidiaDevicePlugin(ctx context.Context, restConfigPromise *install.Promise[*rest.Config]) (any, error) {
 	config := GetCloudEnvironmentConfigFromContext(ctx)
 
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
-		return nil, errDependencyFailed
+		return nil, install.ErrDependencyFailed
 	}
 
 	log.Info().Msg("Installing nvidia-device-plugin")
@@ -250,7 +251,7 @@ func InstallTygerInCloud(ctx context.Context) error {
 		}
 
 		if exit {
-			return ErrAlreadyLoggedError
+			return install.ErrAlreadyLoggedError
 		}
 
 		time.Sleep(time.Second)

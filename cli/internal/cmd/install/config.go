@@ -23,7 +23,7 @@ import (
 	"github.com/eiannone/keyboard"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/ipinfo/go/v2/ipinfo"
-	"github.com/microsoft/tyger/cli/internal/install"
+	"github.com/microsoft/tyger/cli/internal/install/cloudinstall"
 
 	"github.com/spf13/cobra"
 
@@ -102,9 +102,9 @@ func newConfigCreateCommand() *cobra.Command {
 				return fmt.Errorf("failed to get current external IP address: %w", err)
 			}
 
-			templateValues := install.ConfigTemplateValues{
-				KubernetesVersion:    install.DefaultKubernetesVersion,
-				PostgresMajorVersion: install.DefaultPostgresMajorVersion,
+			templateValues := cloudinstall.ConfigTemplateValues{
+				KubernetesVersion:    cloudinstall.DefaultKubernetesVersion,
+				PostgresMajorVersion: cloudinstall.DefaultPostgresMajorVersion,
 				CurrentIpAddress:     ip.IP.String(),
 			}
 
@@ -118,12 +118,12 @@ func newConfigCreateCommand() *cobra.Command {
 				var principal ExtendedPrincipal
 				for {
 
-					cred, err = install.NewMiAwareAzureCLICredential(nil)
+					cred, err = cloudinstall.NewMiAwareAzureCLICredential(nil)
 					if err == nil {
 						principal, err = getCurrentPrincipal(ctx, cred)
 					}
 					if err != nil {
-						if err == install.ErrNotLoggedIn {
+						if err == cloudinstall.ErrNotLoggedIn {
 							fmt.Printf("You are not logged in to Azure. Please run `az login` in another terminal window.\nPress any key to continue when ready...\n\n")
 							getSingleKey()
 							continue
@@ -153,7 +153,7 @@ func newConfigCreateCommand() *cobra.Command {
 				return err
 			}
 
-			tenantCred, err := install.NewMiAwareAzureCLICredential(
+			tenantCred, err := cloudinstall.NewMiAwareAzureCLICredential(
 				&azidentity.AzureCLICredentialOptions{
 					TenantID: templateValues.TenantId,
 				})
@@ -168,7 +168,7 @@ func newConfigCreateCommand() *cobra.Command {
 			}
 
 			switch principal.Kind {
-			case install.PrincipalKindUser:
+			case cloudinstall.PrincipalKindUser:
 				templateValues.PrincipalKind = principal.Kind
 				templateValues.PrincipalDisplay = principal.Upn
 
@@ -177,7 +177,7 @@ func newConfigCreateCommand() *cobra.Command {
 				} else {
 					templateValues.PrincipalId = principal.ObjectId
 				}
-			case install.PrincipalKindServicePrincipal:
+			case cloudinstall.PrincipalKindServicePrincipal:
 				templateValues.PrincipalKind = principal.Kind
 				templateValues.PrincipalId = principal.ObjectId
 				templateValues.PrincipalDisplay = principal.Display
@@ -199,12 +199,12 @@ func newConfigCreateCommand() *cobra.Command {
 				break
 			}
 
-			templateValues.EnvironmentName, err = prompt("Give this environment a name:", "", "", install.ResourceNameRegex)
+			templateValues.EnvironmentName, err = prompt("Give this environment a name:", "", "", cloudinstall.ResourceNameRegex)
 			if err != nil {
 				return err
 			}
 
-			templateValues.ResourceGroup, err = prompt("Enter a name for a resource group:", templateValues.EnvironmentName, "", install.ResourceNameRegex)
+			templateValues.ResourceGroup, err = prompt("Enter a name for a resource group:", templateValues.EnvironmentName, "", cloudinstall.ResourceNameRegex)
 			if err != nil {
 				return err
 			}
@@ -214,17 +214,17 @@ func newConfigCreateCommand() *cobra.Command {
 				return err
 			}
 
-			templateValues.DatabaseServerName, err = prompt("Give the database server a name:", fmt.Sprintf("%s-tyger", templateValues.EnvironmentName), "", install.DatabaseServerNameRegex)
+			templateValues.DatabaseServerName, err = prompt("Give the database server a name:", fmt.Sprintf("%s-tyger", templateValues.EnvironmentName), "", cloudinstall.DatabaseServerNameRegex)
 			if err != nil {
 				return err
 			}
 
-			templateValues.BufferStorageAccountName, err = prompt("Give the buffer storage account a name:", fmt.Sprintf("%s%sbuf", templateValues.EnvironmentName, templateValues.DefaultLocation), "", install.StorageAccountNameRegex)
+			templateValues.BufferStorageAccountName, err = prompt("Give the buffer storage account a name:", fmt.Sprintf("%s%sbuf", templateValues.EnvironmentName, templateValues.DefaultLocation), "", cloudinstall.StorageAccountNameRegex)
 			if err != nil {
 				return err
 			}
 
-			templateValues.LogsStorageAccountName, err = prompt("Give the logs storage account a name:", fmt.Sprintf("%stygerlogs", templateValues.EnvironmentName), "", install.StorageAccountNameRegex)
+			templateValues.LogsStorageAccountName, err = prompt("Give the logs storage account a name:", fmt.Sprintf("%stygerlogs", templateValues.EnvironmentName), "", cloudinstall.StorageAccountNameRegex)
 			if err != nil {
 				return err
 			}
@@ -243,8 +243,8 @@ func newConfigCreateCommand() *cobra.Command {
 			}
 
 			suggestedDomainName := fmt.Sprintf("%s-tyger", templateValues.EnvironmentName)
-			domainSuffix := install.GetDomainNameSuffix(templateValues.DefaultLocation)
-			domainLabel, err := prompt("Choose a domain name for the Tyger service:", suggestedDomainName, domainSuffix, install.SubdomainRegex)
+			domainSuffix := cloudinstall.GetDomainNameSuffix(templateValues.DefaultLocation)
+			domainLabel, err := prompt("Choose a domain name for the Tyger service:", suggestedDomainName, domainSuffix, cloudinstall.SubdomainRegex)
 			if err != nil {
 				return err
 			}
@@ -287,7 +287,7 @@ func newConfigCreateCommand() *cobra.Command {
 				return fmt.Errorf("failed to open config file for writing: %w", err)
 			}
 			defer f.Close()
-			err = install.RenderConfig(templateValues, f)
+			err = cloudinstall.RenderConfig(templateValues, f)
 			if err != nil {
 				return fmt.Errorf("failed to write config file: %w", err)
 			}
@@ -377,7 +377,7 @@ func chooseSubscription(cred azcore.TokenCredential) (string, error) {
 func getCurrentPrincipal(ctx context.Context, cred azcore.TokenCredential) (principal ExtendedPrincipal, err error) {
 	tokenResponse, err := cred.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{cloud.AzurePublic.Services[cloud.ResourceManager].Audience}})
 	if err != nil {
-		return principal, install.ErrNotLoggedIn
+		return principal, cloudinstall.ErrNotLoggedIn
 	}
 
 	claims := jwt.MapClaims{}
@@ -387,7 +387,7 @@ func getCurrentPrincipal(ctx context.Context, cred azcore.TokenCredential) (prin
 	}
 	principal.ObjectId = claims["oid"].(string)
 
-	principals, err := install.ObjectsIdToPrincipals(ctx, cred, []string{principal.ObjectId})
+	principals, err := cloudinstall.ObjectsIdToPrincipals(ctx, cred, []string{principal.ObjectId})
 	if err != nil {
 		return principal, err
 	}
@@ -399,8 +399,8 @@ func getCurrentPrincipal(ctx context.Context, cred azcore.TokenCredential) (prin
 	principal.Kind = principals[0].Kind
 
 	switch principals[0].Kind {
-	case install.PrincipalKindUser:
-		principal.Upn, err = install.GetUserPrincipalName(ctx, cred, principals[0].ObjectId)
+	case cloudinstall.PrincipalKindUser:
+		principal.Upn, err = cloudinstall.GetUserPrincipalName(ctx, cred, principals[0].ObjectId)
 		if err != nil {
 			return principal, err
 		}
@@ -410,8 +410,8 @@ func getCurrentPrincipal(ctx context.Context, cred azcore.TokenCredential) (prin
 		} else {
 			principal.IsFromCurrentTenant = true
 		}
-	case install.PrincipalKindServicePrincipal:
-		principal.Display, err = install.GetServicePrincipalDisplayName(ctx, cred, principals[0].ObjectId)
+	case cloudinstall.PrincipalKindServicePrincipal:
+		principal.Display, err = cloudinstall.GetServicePrincipalDisplayName(ctx, cred, principals[0].ObjectId)
 		if err != nil {
 			return principal, err
 		}
@@ -540,7 +540,7 @@ func getSingleKey() {
 }
 
 type ExtendedPrincipal struct {
-	install.Principal
+	cloudinstall.Principal
 	Upn                 string
 	Display             string
 	IsFromCurrentTenant bool

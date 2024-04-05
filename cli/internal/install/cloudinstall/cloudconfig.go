@@ -1,13 +1,8 @@
-// Copyright (c) Microsoft Corporation.
-// Licensed under the MIT License.
-
-package install
+package cloudinstall
 
 import (
 	_ "embed"
-	"fmt"
 	"io"
-	"strconv"
 	"strings"
 	"text/template"
 )
@@ -15,31 +10,16 @@ import (
 //go:embed config.tpl
 var configTemplate string
 
-type EnvironmentKind string
-
 const (
-	EnvironmentKindCloud  EnvironmentKind = "azureCloud"
-	EnvironmentKindDocker EnvironmentKind = "docker"
+	EnvironmentKindCloud = "azureCloud"
 )
 
-type EnvironmentConfigCommon struct {
-	Kind EnvironmentKind `json:"kind"`
-}
-
-type EnvironmentConfig interface {
-	_environmentConfig()
-}
-
 type CloudEnvironmentConfig struct {
-	EnvironmentConfigCommon
+	Kind            string       `json:"kind"`
 	EnvironmentName string       `json:"environmentName"`
 	Cloud           *CloudConfig `json:"cloud"`
 	Api             *ApiConfig   `json:"api"`
 }
-
-func (c *CloudEnvironmentConfig) _environmentConfig() {}
-
-var _ EnvironmentConfig = &CloudEnvironmentConfig{}
 
 type CloudConfig struct {
 	TenantID              string              `json:"tenantId"`
@@ -61,6 +41,19 @@ type ComputeConfig struct {
 type NamedAzureResource struct {
 	ResourceGroup string `json:"resourceGroup"`
 	Name          string `json:"name"`
+}
+
+type PrincipalKind string
+
+const (
+	PrincipalKindUser             PrincipalKind = "User"
+	PrincipalKindGroup            PrincipalKind = "Group"
+	PrincipalKindServicePrincipal PrincipalKind = "ServicePrincipal"
+)
+
+type Principal struct {
+	ObjectId string        `json:"objectId"`
+	Kind     PrincipalKind `json:"kind"`
 }
 
 type AksPrincipal struct {
@@ -150,53 +143,6 @@ type HelmChartConfig struct {
 	Version     string         `json:"version"`
 	ChartRef    string         `json:"chartRef"`
 	Values      map[string]any `json:"values"`
-}
-
-type DockerEnvironmentConfig struct {
-	EnvironmentConfigCommon
-
-	UserId         string `json:"userId"`
-	AllowedGroupId string `json:"groupId"`
-
-	PostgresImage      string `json:"postgresImage"`
-	ControlPlaneImage  string `json:"controlPlaneImage"`
-	DataPlaneImage     string `json:"dataPlaneImage"`
-	BufferSidecarImage string `json:"bufferSidecarImage"`
-	GatewayImage       string `json:"gatewayImage"`
-
-	SigningKeys DataPlaneSigningKeys `json:"signingKeys"`
-}
-
-type DataPlaneSigningKeys struct {
-	Primary   *KeyPair `json:"primary"`
-	Secondary *KeyPair `json:"secondary"`
-}
-type KeyPair struct {
-	PublicKey  string `json:"public"`
-	PrivateKey string `json:"private"`
-}
-
-func (*DockerEnvironmentConfig) _environmentConfig() {
-}
-
-func (c *DockerEnvironmentConfig) GetGroupIdInt() int {
-	id, err := strconv.Atoi(c.AllowedGroupId)
-	if err != nil {
-		// this should have been caught by validation
-		panic(fmt.Sprintf("Invalid group ID: %s", c.AllowedGroupId))
-	}
-
-	return id
-}
-
-func (c *DockerEnvironmentConfig) GetUserIdInt() int {
-	id, err := strconv.Atoi(c.UserId)
-	if err != nil {
-		// this should have been caught by validation
-		panic(fmt.Sprintf("Invalid user ID: %s", c.UserId))
-	}
-
-	return id
 }
 
 type ConfigTemplateValues struct {

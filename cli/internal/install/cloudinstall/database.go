@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-package install
+package cloudinstall
 
 import (
 	"context"
@@ -23,6 +23,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
 	"github.com/docker/docker/pkg/namesgenerator"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/rs/zerolog/log"
 )
 
@@ -41,7 +42,7 @@ const (
 	dbConfiguredTagValue = "1" // bump this when we change the database configuration logic
 )
 
-func createDatabase(ctx context.Context, tygerServerManagedIdentityPromise, migrationRunnerManagedIdentityPromise *Promise[*armmsi.Identity]) (any, error) {
+func createDatabase(ctx context.Context, tygerServerManagedIdentityPromise, migrationRunnerManagedIdentityPromise *install.Promise[*armmsi.Identity]) (any, error) {
 	config := GetCloudEnvironmentConfigFromContext(ctx)
 	databaseConfig := *config.Cloud.DatabaseConfig
 	cred := GetAzureCredentialFromContext(ctx)
@@ -179,7 +180,7 @@ func createDatabase(ctx context.Context, tygerServerManagedIdentityPromise, migr
 		}
 	}
 
-	promiseGroup := &PromiseGroup{}
+	promiseGroup := &install.PromiseGroup{}
 
 	for name := range desiredFirewallRules {
 		nameSnapshot := name
@@ -190,7 +191,7 @@ func createDatabase(ctx context.Context, tygerServerManagedIdentityPromise, migr
 			continue
 		}
 
-		NewPromise(ctx, promiseGroup, func(ctx context.Context) (any, error) {
+		install.NewPromise(ctx, promiseGroup, func(ctx context.Context) (any, error) {
 			log.Info().Msgf("Creating or updating PostgreSQL server firewall rule '%s'", nameSnapshot)
 			_, err = retryableAsyncOperation(ctx, func(ctx context.Context) (*runtime.Poller[armpostgresqlflexibleservers.FirewallRulesClientCreateOrUpdateResponse], error) {
 				return firewallClient.BeginCreateOrUpdate(ctx, config.Cloud.ResourceGroup, serverName, nameSnapshot, desiredRule, nil)
@@ -205,7 +206,7 @@ func createDatabase(ctx context.Context, tygerServerManagedIdentityPromise, migr
 	for name := range existingFirewallRules {
 		nameSnapshot := name
 		if _, ok := desiredFirewallRules[nameSnapshot]; !ok {
-			NewPromise(ctx, promiseGroup, func(ctx context.Context) (any, error) {
+			install.NewPromise(ctx, promiseGroup, func(ctx context.Context) (any, error) {
 				log.Info().Msgf("Deleting PostgreSQL server firewall rule '%s'", nameSnapshot)
 				_, err = retryableAsyncOperation(ctx, func(ctx context.Context) (*runtime.Poller[armpostgresqlflexibleservers.FirewallRulesClientDeleteResponse], error) {
 					return firewallClient.BeginDelete(ctx, config.Cloud.ResourceGroup, serverName, nameSnapshot, nil)
@@ -220,7 +221,7 @@ func createDatabase(ctx context.Context, tygerServerManagedIdentityPromise, migr
 
 	// wait for the tasks to complete
 	for _, p := range *promiseGroup {
-		if err := p.AwaitErr(); err != nil && err != errDependencyFailed {
+		if err := p.AwaitErr(); err != nil && err != install.ErrDependencyFailed {
 			return nil, err
 		}
 	}
@@ -233,14 +234,14 @@ func createDatabase(ctx context.Context, tygerServerManagedIdentityPromise, migr
 
 	migrationRunnerManagedIdentity, err := migrationRunnerManagedIdentityPromise.Await()
 	if err != nil {
-		return nil, errDependencyFailed
+		return nil, install.ErrDependencyFailed
 	}
 
 	currentPrincipalDisplayName, err := createDatabaseAdmins(ctx, config, serverName, cred, migrationRunnerManagedIdentity)
 
 	tygerServerManagedIdentity, err := tygerServerManagedIdentityPromise.Await()
 	if err != nil {
-		return nil, errDependencyFailed
+		return nil, install.ErrDependencyFailed
 	}
 
 	if err := createRoles(ctx, cred, config, existingServer, currentPrincipalDisplayName, tygerServerManagedIdentity, migrationRunnerManagedIdentity); err != nil {

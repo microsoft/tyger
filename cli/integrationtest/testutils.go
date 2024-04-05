@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/microsoft/tyger/cli/internal/install"
+	"github.com/microsoft/tyger/cli/internal/install/cloudinstall"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
 )
@@ -129,8 +129,8 @@ func runTygerSucceeds(t *testing.T, args ...string) string {
 	return runCommandSucceeds(t, "tyger", args...)
 }
 
-func getConfig(t *testing.T) install.CloudEnvironmentConfig {
-	config := install.CloudEnvironmentConfig{}
+func getConfig(t *testing.T) cloudinstall.CloudEnvironmentConfig {
+	config := cloudinstall.CloudEnvironmentConfig{}
 	require.NoError(t, yaml.UnmarshalStrict([]byte(runCommandSucceeds(t, "../../scripts/get-config.sh")), &config))
 	return config
 }

@@ -20,6 +20,8 @@ import (
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/v2"
 	"github.com/microsoft/tyger/cli/internal/install"
+	"github.com/microsoft/tyger/cli/internal/install/cloudinstall"
+	"github.com/microsoft/tyger/cli/internal/install/dockerinstall"
 	"github.com/rs/zerolog/log"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 )
@@ -52,17 +54,17 @@ func commonPrerun(ctx context.Context, flags *commonFlags) context.Context {
 		koanfConfig.Set(k, v)
 	}
 
-	var config install.EnvironmentConfig
+	var config any
 
 	environmentKind := koanfConfig.Get("kind")
 
 	switch environmentKind {
-	case nil, string(install.EnvironmentKindCloud):
-		config = &install.CloudEnvironmentConfig{}
-	case string(install.EnvironmentKindDocker):
-		config = &install.DockerEnvironmentConfig{}
+	case nil, cloudinstall.EnvironmentKindCloud:
+		config = &cloudinstall.CloudEnvironmentConfig{}
+	case dockerinstall.EnvironmentKindDocker:
+		config = &dockerinstall.DockerEnvironmentConfig{}
 	default:
-		log.Fatal().Msgf("The `kind` field must be one of `%s` or `%s`. Given value: `%s`", install.EnvironmentKindCloud, install.EnvironmentKindDocker, environmentKind)
+		log.Fatal().Msgf("The `kind` field must be one of `%s` or `%s`. Given value: `%s`", cloudinstall.EnvironmentKindCloud, dockerinstall.EnvironmentKindDocker, environmentKind)
 	}
 
 	err := koanfConfig.UnmarshalWithConf("", &config, koanf.UnmarshalConf{
@@ -90,9 +92,17 @@ func commonPrerun(ctx context.Context, flags *commonFlags) context.Context {
 		log.Warn().Msg("Canceling...")
 	}()
 
-	if !install.QuickValidateEnvironmentConfig(config) {
-		os.Exit(1)
+	switch t := config.(type) {
+	case *cloudinstall.CloudEnvironmentConfig:
+		if !cloudinstall.QuickValidateCloudEnvironmentConfig(t) {
+			os.Exit(1)
+		}
+	case *dockerinstall.DockerEnvironmentConfig:
+		if !dockerinstall.QuickValidateDockerEnvironmentConfig(t) {
+			os.Exit(1)
+		}
 	}
+
 	return ctx
 }
 
@@ -106,8 +116,8 @@ func getDefaultConfigPath() string {
 }
 
 func loginAndValidateSubscription(ctx context.Context) (context.Context, error) {
-	config := install.GetCloudEnvironmentConfigFromContext(ctx)
-	cred, err := install.NewMiAwareAzureCLICredential(
+	config := cloudinstall.GetCloudEnvironmentConfigFromContext(ctx)
+	cred, err := cloudinstall.NewMiAwareAzureCLICredential(
 		&azidentity.AzureCLICredentialOptions{
 			TenantID: config.Cloud.TenantID,
 		})
@@ -120,11 +130,11 @@ func loginAndValidateSubscription(ctx context.Context) (context.Context, error) 
 		return ctx, fmt.Errorf("please log in with the Azure CLI with the command `az login --tenant %s`", config.Cloud.TenantID)
 	}
 
-	ctx = install.SetAzureCredentialOnContext(ctx, cred)
+	ctx = cloudinstall.SetAzureCredentialOnContext(ctx, cred)
 
 	// Get the subscription ID if we are given the name.
 	if _, err := uuid.Parse(config.Cloud.SubscriptionID); err != nil {
-		config.Cloud.SubscriptionID, err = install.GetSubscriptionId(ctx, config.Cloud.SubscriptionID, cred)
+		config.Cloud.SubscriptionID, err = cloudinstall.GetSubscriptionId(ctx, config.Cloud.SubscriptionID, cred)
 		if err != nil {
 			return ctx, fmt.Errorf("failed to get subscription ID: %w", err)
 		}

@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-package install
+package cloudinstall
 
 import (
 	"bytes"
@@ -18,19 +18,6 @@ import (
 	"github.com/microsoft/tyger/cli/internal/client"
 	"github.com/rs/zerolog/log"
 )
-
-type PrincipalKind string
-
-const (
-	PrincipalKindUser             PrincipalKind = "User"
-	PrincipalKindGroup            PrincipalKind = "Group"
-	PrincipalKindServicePrincipal PrincipalKind = "ServicePrincipal"
-)
-
-type Principal struct {
-	ObjectId string        `json:"objectId"`
-	Kind     PrincipalKind `json:"kind"`
-}
 
 var errNotFound = fmt.Errorf("not found")
 

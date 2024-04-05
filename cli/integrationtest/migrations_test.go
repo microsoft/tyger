@@ -18,6 +18,7 @@ import (
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/v2"
 	"github.com/microsoft/tyger/cli/internal/install"
+	"github.com/microsoft/tyger/cli/internal/install/cloudinstall"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
@@ -32,7 +33,7 @@ func TestMigrations(t *testing.T) {
 	configPath := fmt.Sprintf("%s/environment-config.yaml", tempDir)
 	require.NoError(t, os.WriteFile(configPath, []byte(environmentConfig), 0644))
 
-	config := install.CloudEnvironmentConfig{}
+	config := cloudinstall.CloudEnvironmentConfig{}
 
 	koanfConfig := koanf.New(".")
 	require.NoError(t, koanfConfig.Load(file.Provider(configPath), koanfyaml.Parser()))
@@ -49,17 +50,17 @@ func TestMigrations(t *testing.T) {
 	ctx := context.Background()
 
 	ctx = install.SetEnvironmentConfigOnContext(ctx, &config)
-	cred, err := install.NewMiAwareAzureCLICredential(
+	cred, err := cloudinstall.NewMiAwareAzureCLICredential(
 		&azidentity.AzureCLICredentialOptions{
 			TenantID: config.Cloud.TenantID,
 		})
-	ctx = install.SetAzureCredentialOnContext(ctx, cred)
+	ctx = cloudinstall.SetAzureCredentialOnContext(ctx, cred)
 
-	restConfig, err := install.GetUserRESTConfig(ctx)
+	restConfig, err := cloudinstall.GetUserRESTConfig(ctx)
 	require.NoError(t, err)
 
 	// this is a try run to get the Helm values
-	_, helmValuesYaml, err := install.InstallTygerHelmChart(ctx, restConfig, true)
+	_, helmValuesYaml, err := cloudinstall.InstallTygerHelmChart(ctx, restConfig, true)
 	require.NoError(t, err)
 
 	helmValues := make(map[string]any)
@@ -79,7 +80,7 @@ func TestMigrations(t *testing.T) {
 	port := helmValues["database"].(map[string]any)["port"].(float64)
 	databaseName := helmValues["database"].(map[string]any)["databaseName"].(string)
 
-	temporaryDatabaseName := fmt.Sprintf("tygertest%s", install.RandomAlphanumString(8))
+	temporaryDatabaseName := fmt.Sprintf("tygertest%s", cloudinstall.RandomAlphanumString(8))
 
 	createPsqlCommandBuilder := func() *CmdBuilder {
 		return NewCmdBuilder("psql",

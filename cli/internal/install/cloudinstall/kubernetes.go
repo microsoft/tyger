@@ -1,13 +1,14 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-package install
+package cloudinstall
 
 import (
 	"bytes"
 	"context"
 	"fmt"
 
+	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/rs/zerolog/log"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -24,10 +25,10 @@ const (
 	DefaultTygerReleaseName = TygerNamespace
 )
 
-func createTygerNamespace(ctx context.Context, restConfigPromise *Promise[*rest.Config]) (any, error) {
+func createTygerNamespace(ctx context.Context, restConfigPromise *install.Promise[*rest.Config]) (any, error) {
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
-		return nil, errDependencyFailed
+		return nil, install.ErrDependencyFailed
 	}
 
 	clientset := kubernetes.NewForConfigOrDie(restConfig)
@@ -40,15 +41,15 @@ func createTygerNamespace(ctx context.Context, restConfigPromise *Promise[*rest.
 	return nil, fmt.Errorf("failed to create 'tyger' namespace: %w", err)
 }
 
-func createTygerClusterRBAC(ctx context.Context, restConfigPromise *Promise[*rest.Config], createTygerNamespacePromise *Promise[any]) (any, error) {
+func createTygerClusterRBAC(ctx context.Context, restConfigPromise *install.Promise[*rest.Config], createTygerNamespacePromise *install.Promise[any]) (any, error) {
 	config := GetCloudEnvironmentConfigFromContext(ctx)
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
-		return nil, errDependencyFailed
+		return nil, install.ErrDependencyFailed
 	}
 
 	if _, err := createTygerNamespacePromise.Await(); err != nil {
-		return nil, errDependencyFailed
+		return nil, install.ErrDependencyFailed
 	}
 
 	clientset, err := kubernetes.NewForConfig(restConfig)

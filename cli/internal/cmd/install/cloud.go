@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"github.com/microsoft/tyger/cli/internal/install"
+	"github.com/microsoft/tyger/cli/internal/install/cloudinstall"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -55,7 +56,7 @@ func newCloudInstallCommand() *cobra.Command {
 				log.Fatal().Err(err).Send()
 			}
 
-			if err := install.InstallCloud(ctx); err != nil {
+			if err := cloudinstall.InstallCloud(ctx); err != nil {
 				if err != install.ErrAlreadyLoggedError {
 					log.Fatal().Err(err).Send()
 				}
@@ -88,7 +89,7 @@ func newCloudUninstallCommand() *cobra.Command {
 				log.Fatal().Err(err).Send()
 			}
 
-			if err := install.UninstallCloud(ctx); err != nil {
+			if err := cloudinstall.UninstallCloud(ctx); err != nil {
 				if err != install.ErrAlreadyLoggedError {
 					log.Fatal().Err(err).Send()
 				}
@@ -110,7 +111,7 @@ func addCommonFlags(cmd *cobra.Command, flags *commonFlags) {
 
 func CheckCloudEnvironmentConfig(ctx context.Context) {
 	config := install.GetEnvironmentConfigFromContext(ctx)
-	if _, ok := config.(*install.CloudEnvironmentConfig); !ok {
-		log.Fatal().Msgf("This command is only supported on configurations where the `kind` field is `%s`.", install.EnvironmentKindCloud)
+	if _, ok := config.(*cloudinstall.CloudEnvironmentConfig); !ok {
+		log.Fatal().Msgf("This command is only supported on configurations where the `kind` field is `%s`.", cloudinstall.EnvironmentKindCloud)
 	}
 }

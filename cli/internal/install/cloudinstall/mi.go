@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-package install
+package cloudinstall
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v4"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
+	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/rs/zerolog/log"
 )
 
@@ -55,20 +56,20 @@ func createManagedIdentity(ctx context.Context, name string) (*armmsi.Identity, 
 
 func createFederatedIdentityCredential(
 	ctx context.Context,
-	managedIdentityPromise *Promise[*armmsi.Identity],
-	clusterPromise *Promise[*armcontainerservice.ManagedCluster],
+	managedIdentityPromise *install.Promise[*armmsi.Identity],
+	clusterPromise *install.Promise[*armcontainerservice.ManagedCluster],
 ) (any, error) {
 	config := GetCloudEnvironmentConfigFromContext(ctx)
 	cred := GetAzureCredentialFromContext(ctx)
 
 	cluster, err := clusterPromise.Await()
 	if err != nil {
-		return nil, errDependencyFailed
+		return nil, install.ErrDependencyFailed
 	}
 
 	mi, err := managedIdentityPromise.Await()
 	if err != nil {
-		return nil, errDependencyFailed
+		return nil, install.ErrDependencyFailed
 	}
 
 	log.Info().Msgf("Creating or updating federated identity credential '%s'", *mi.Name)

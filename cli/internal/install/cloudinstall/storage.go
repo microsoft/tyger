@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-package install
+package cloudinstall
 
 import (
 	"context"
@@ -9,14 +9,15 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage"
+	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/rs/zerolog/log"
 	"k8s.io/client-go/rest"
 )
 
 func CreateStorageAccount(ctx context.Context,
 	storageAccountConfig *StorageAccountConfig,
-	restConfigPromise *Promise[*rest.Config],
-	managedIdentityPromise *Promise[*armmsi.Identity],
+	restConfigPromise *install.Promise[*rest.Config],
+	managedIdentityPromise *install.Promise[*armmsi.Identity],
 ) (any, error) {
 	config := GetCloudEnvironmentConfigFromContext(ctx)
 	cred := GetAzureCredentialFromContext(ctx)
@@ -62,7 +63,7 @@ func CreateStorageAccount(ctx context.Context,
 
 	managedIdentity, err := managedIdentityPromise.Await()
 	if err != nil {
-		return nil, errDependencyFailed
+		return nil, install.ErrDependencyFailed
 	}
 
 	log.Info().Msgf("Assigning RBAC role to storage account '%s'", storageAccountConfig.Name)

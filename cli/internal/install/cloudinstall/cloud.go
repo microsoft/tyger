@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-package install
+package cloudinstall
 
 import (
 	"context"
@@ -15,6 +15,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armsubscriptions"
 	"github.com/fatih/color"
+	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/rs/zerolog/log"
 )
 
@@ -22,32 +23,27 @@ const (
 	TagKey = "tyger-environment"
 )
 
-var (
-	ErrAlreadyLoggedError = errors.New("already logged error")
-	errDependencyFailed   = errors.New("dependency failed")
-)
-
 func InstallCloud(ctx context.Context) (err error) {
 	config := GetCloudEnvironmentConfigFromContext(ctx)
 
 	if err := ensureResourceGroupCreated(ctx); err != nil {
 		logError(err, "")
-		return ErrAlreadyLoggedError
+		return install.ErrAlreadyLoggedError
 	}
 
 	if err := preflightCheck(ctx); err != nil {
-		if err != ErrAlreadyLoggedError {
+		if err != install.ErrAlreadyLoggedError {
 			logError(err, "")
-			return ErrAlreadyLoggedError
+			return install.ErrAlreadyLoggedError
 		}
 		return err
 	}
 
 	allPromises := createPromises(ctx, config)
 	for _, p := range allPromises {
-		if promiseErr := p.AwaitErr(); promiseErr != nil && promiseErr != errDependencyFailed {
+		if promiseErr := p.AwaitErr(); promiseErr != nil && promiseErr != install.ErrDependencyFailed {
 			logError(promiseErr, "")
-			err = ErrAlreadyLoggedError
+			err = install.ErrAlreadyLoggedError
 		}
 	}
 
@@ -126,10 +122,10 @@ deleteOneByOne:
 		return fmt.Errorf("failed to create providers client: %w", err)
 	}
 
-	pg := PromiseGroup{}
+	pg := install.PromiseGroup{}
 	for _, res := range resourcesFromThisEnvironment {
 		resourceId := *res.ID
-		NewPromise(ctx, &pg, func(ctx context.Context) (any, error) {
+		install.NewPromise(ctx, &pg, func(ctx context.Context) (any, error) {
 			log.Info().Msgf("Deleting resource '%s'", resourceId)
 
 			apiVersion, err := GetDefaultApiVersionForResource(ctx, resourceId, providersClient)
@@ -151,9 +147,9 @@ deleteOneByOne:
 	}
 
 	for _, p := range pg {
-		if promiseErr := p.AwaitErr(); promiseErr != nil && promiseErr != errDependencyFailed {
+		if promiseErr := p.AwaitErr(); promiseErr != nil && promiseErr != install.ErrDependencyFailed {
 			logError(promiseErr, "")
-			err = ErrAlreadyLoggedError
+			err = install.ErrAlreadyLoggedError
 		}
 	}
 
@@ -240,20 +236,20 @@ func logError(err error, msg string) {
 	}
 }
 
-func createPromises(ctx context.Context, config *CloudEnvironmentConfig) PromiseGroup {
-	group := &PromiseGroup{}
+func createPromises(ctx context.Context, config *CloudEnvironmentConfig) install.PromiseGroup {
+	group := &install.PromiseGroup{}
 
-	var createApiHostClusterPromise *Promise[*armcontainerservice.ManagedCluster]
+	var createApiHostClusterPromise *install.Promise[*armcontainerservice.ManagedCluster]
 
-	tygerServerManagedIdentityPromise := NewPromise(ctx, group, createTygerServerManagedIdentity)
-	migrationRunnerManagedIdentityPromise := NewPromise(ctx, group, createMigrationRunnerManagedIdentity)
+	tygerServerManagedIdentityPromise := install.NewPromise(ctx, group, createTygerServerManagedIdentity)
+	migrationRunnerManagedIdentityPromise := install.NewPromise(ctx, group, createMigrationRunnerManagedIdentity)
 
-	NewPromise(ctx, group, func(ctx context.Context) (any, error) {
+	install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
 		return createDatabase(ctx, tygerServerManagedIdentityPromise, migrationRunnerManagedIdentityPromise)
 	})
 
 	for _, clusterConfig := range config.Cloud.Compute.Clusters {
-		createClusterPromise := NewPromise(
+		createClusterPromise := install.NewPromise(
 			ctx,
 			group,
 			func(ctx context.Context) (*armcontainerservice.ManagedCluster, error) {
@@ -261,44 +257,44 @@ func createPromises(ctx context.Context, config *CloudEnvironmentConfig) Promise
 			})
 		if clusterConfig.ApiHost {
 			createApiHostClusterPromise = createClusterPromise
-			NewPromise(ctx, group, func(ctx context.Context) (any, error) {
+			install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
 				return createFederatedIdentityCredential(ctx, tygerServerManagedIdentityPromise, createClusterPromise)
 			})
-			NewPromise(ctx, group, func(ctx context.Context) (any, error) {
+			install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
 				return createFederatedIdentityCredential(ctx, migrationRunnerManagedIdentityPromise, createClusterPromise)
 			})
 		}
 	}
 
-	getAdminCredsPromise := NewPromiseAfter(ctx, group, getAdminRESTConfig, createApiHostClusterPromise)
+	getAdminCredsPromise := install.NewPromiseAfter(ctx, group, getAdminRESTConfig, createApiHostClusterPromise)
 
-	createTygerNamespacePromise := NewPromise(ctx, group, func(ctx context.Context) (any, error) {
+	createTygerNamespacePromise := install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
 		return createTygerNamespace(ctx, getAdminCredsPromise)
 	})
 
-	NewPromise(ctx, group, func(ctx context.Context) (any, error) {
+	install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
 		return createTygerClusterRBAC(ctx, getAdminCredsPromise, createTygerNamespacePromise)
 	})
 
-	NewPromise(ctx, group, func(ctx context.Context) (any, error) {
+	install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
 		return CreateStorageAccount(ctx, config.Cloud.Storage.Logs, getAdminCredsPromise, tygerServerManagedIdentityPromise)
 	})
 
 	for _, buf := range config.Cloud.Storage.Buffers {
-		NewPromise(ctx, group, func(ctx context.Context) (any, error) {
+		install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
 			return CreateStorageAccount(ctx, buf, getAdminCredsPromise, tygerServerManagedIdentityPromise)
 		})
 	}
 
-	NewPromise(ctx, group, func(ctx context.Context) (any, error) {
+	install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
 		return installTraefik(ctx, getAdminCredsPromise)
 	})
 
-	NewPromise(ctx, group, func(ctx context.Context) (any, error) {
+	install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
 		return installCertManager(ctx, getAdminCredsPromise)
 	})
 
-	NewPromise(ctx, group, func(ctx context.Context) (any, error) {
+	install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
 		return installNvidiaDevicePlugin(ctx, getAdminCredsPromise)
 	})
 
