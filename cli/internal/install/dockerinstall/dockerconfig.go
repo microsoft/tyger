@@ -33,9 +33,6 @@ type KeyPair struct {
 	PrivateKey string `json:"private"`
 }
 
-func (*DockerEnvironmentConfig) _environmentConfig() {
-}
-
 func (c *DockerEnvironmentConfig) GetGroupIdInt() int {
 	id, err := strconv.Atoi(c.AllowedGroupId)
 	if err != nil {

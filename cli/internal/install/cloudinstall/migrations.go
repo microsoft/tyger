@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/rs/zerolog/log"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -21,18 +22,12 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-type DatabaseVersion struct {
-	Id          int    `json:"id"`
-	Description string `json:"description"`
-	State       string `json:"state"`
-}
-
 const (
 	migrationRunnerLabelKey = "tyger-migration"
 	commandHostLabelKey     = "tyger-command-host"
 )
 
-func ListDatabaseVersions(ctx context.Context, allVersions bool) ([]DatabaseVersion, error) {
+func ListDatabaseVersions(ctx context.Context, allVersions bool) ([]install.DatabaseVersion, error) {
 	restConfig, err := GetUserRESTConfig(ctx)
 	if err != nil {
 		return nil, err
@@ -117,7 +112,7 @@ func ListDatabaseVersions(ctx context.Context, allVersions bool) ([]DatabaseVers
 	return getDatabaseVersionsFromPod(ctx, pod.Name, allVersions)
 }
 
-func getDatabaseVersionsFromPod(ctx context.Context, podName string, allVersions bool) ([]DatabaseVersion, error) {
+func getDatabaseVersionsFromPod(ctx context.Context, podName string, allVersions bool) ([]install.DatabaseVersion, error) {
 	stdout, stderr, err := PodExec(ctx, podName, "/app/bin/tyger-server", "database", "list-versions")
 	if err != nil {
 		errorLog := ""
@@ -128,7 +123,7 @@ func getDatabaseVersionsFromPod(ctx context.Context, podName string, allVersions
 		return nil, fmt.Errorf("failed to exec into pod: %w. stderr: %s", err, errorLog)
 	}
 
-	versions := []DatabaseVersion{}
+	versions := []install.DatabaseVersion{}
 
 	if err := json.Unmarshal(stdout.Bytes(), &versions); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal versions: %w", err)

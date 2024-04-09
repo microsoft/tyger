@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"encoding/base32"
 	"encoding/json"
-	"encoding/pem"
 	"fmt"
 	"io"
 	"os"
@@ -62,8 +61,8 @@ func InstallTygerInDocker(ctx context.Context) error {
 		return fmt.Errorf("error creating data plane container: %w", err)
 	}
 
-	if err := runMigrationRunnerInDockerfunc(ctx, dockerClient, config); err != nil {
-		return fmt.Errorf("error running migration runner: %w", err)
+	if err := initializeDatabase(ctx, dockerClient, config); err != nil {
+		return fmt.Errorf("error initializing database: %w", err)
 	}
 
 	if err := createControlPlaneContainer(ctx, dockerClient, config); err != nil {
@@ -71,6 +70,35 @@ func InstallTygerInDocker(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func initializeDatabase(ctx context.Context, dockerClient *client.Client, config *DockerEnvironmentConfig) error {
+	containerName := "tyger-migration-runner"
+	if err := startMigrationRunner(ctx, dockerClient, config, containerName, []string{"database", "init"}); err != nil {
+		return fmt.Errorf("error starting running migration runner: %w", err)
+	}
+
+	defer func() {
+		if err := removeContainer(ctx, dockerClient, containerName); err != nil {
+			log.Error().Err(err).Msg("error removing migration runner container")
+		}
+	}()
+
+	exitCode, err := waitForContainerToComplete(ctx, dockerClient, containerName)
+	if err != nil {
+		return fmt.Errorf("error waiting for migration runner to complete: %w", err)
+	}
+
+	if exitCode == 0 {
+		return nil
+	}
+
+	stdOut, stdErr := &bytes.Buffer{}, &bytes.Buffer{}
+	if err := getContainerLogs(ctx, dockerClient, containerName, stdOut, stdErr); err != nil {
+		return fmt.Errorf("error getting container logs: %w", err)
+	}
+
+	return fmt.Errorf("migration runner failed with exit code %d: %s", exitCode, stdErr.String())
 }
 
 func ensureDirectoryExists(path string, config *DockerEnvironmentConfig) error {
@@ -227,7 +255,7 @@ func createControlPlaneContainer(ctx context.Context, dockerClient *client.Clien
 	return nil
 }
 
-func runMigrationRunnerInDockerfunc(ctx context.Context, dockerClient *client.Client, config *DockerEnvironmentConfig) error {
+func startMigrationRunner(ctx context.Context, dockerClient *client.Client, config *DockerEnvironmentConfig, containerName string, args []string) error {
 	desiredContainerConfig := container.Config{
 		Image: config.ControlPlaneImage,
 		User:  fmt.Sprintf("%d:%d", config.GetUserIdInt(), config.GetGroupIdInt()),
@@ -238,7 +266,7 @@ func runMigrationRunnerInDockerfunc(ctx context.Context, dockerClient *client.Cl
 			"Database__TygerServerRoleName=tyger-server",
 			"Compute__Docker__Enabled=true",
 		},
-		Cmd: []string{"database", "init"},
+		Cmd: args,
 	}
 
 	desiredHostConfig := container.HostConfig{
@@ -255,34 +283,28 @@ func runMigrationRunnerInDockerfunc(ctx context.Context, dockerClient *client.Cl
 		},
 	}
 
-	containerName := "tyger-migration-runner"
 	if err := createContainer(ctx, dockerClient, containerName, &desiredContainerConfig, &desiredHostConfig, &network.NetworkingConfig{}, false); err != nil {
 		return fmt.Errorf("error creating migration runner container: %w", err)
 	}
-
-	defer func() {
-		if err := dockerClient.ContainerRemove(ctx, containerName, container.RemoveOptions{Force: true}); err != nil {
-			panic(err)
-		}
-	}()
 
 	if err := dockerClient.ContainerStart(ctx, containerName, container.StartOptions{}); err != nil {
 		return err
 	}
 
-	// Wait for the container to finish
+	return nil
+}
+
+func waitForContainerToComplete(ctx context.Context, dockerClient *client.Client, containerName string) (int, error) {
 	statusCh, errCh := dockerClient.ContainerWait(ctx, containerName, container.WaitConditionNotRunning)
 	select {
 	case err := <-errCh:
-		if err != nil {
-			return err
-		}
+		return 0, err
 	case waitReponse := <-statusCh:
-		if waitReponse.StatusCode == 0 {
-			return nil
-		}
+		return int(waitReponse.StatusCode), nil
 	}
+}
 
+func getContainerLogs(ctx context.Context, dockerClient *client.Client, containerName string, dstout io.Writer, dsterr io.Writer) error {
 	out, err := dockerClient.ContainerLogs(ctx, containerName, container.LogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
@@ -295,13 +317,8 @@ func runMigrationRunnerInDockerfunc(ctx context.Context, dockerClient *client.Cl
 	defer out.Close()
 
 	// Read the output
-	stdOutput, errOutput := &bytes.Buffer{}, &bytes.Buffer{}
-	_, err = stdcopy.StdCopy(stdOutput, errOutput, out)
-	if err != nil {
-		return err
-	}
-
-	return fmt.Errorf("migration runner failed: %s", errOutput.String())
+	_, err = stdcopy.StdCopy(dstout, dsterr, out)
+	return err
 }
 
 func UninstallTygerInDocker(ctx context.Context) error {
@@ -511,30 +528,6 @@ func createDataPlaneContainer(ctx context.Context, dockerClient *client.Client, 
 	}
 
 	return nil
-}
-
-func getPublicCertificatePemBytes(pemPath string) ([]byte, error) {
-	pemBytes, err := os.ReadFile(pemPath)
-	if err != nil {
-		return nil, fmt.Errorf("error reading certificate at '%s': %w", pemPath, err)
-	}
-
-	var publicBlock *pem.Block
-	for {
-		// Decode a block
-		var block *pem.Block
-		block, pemBytes = pem.Decode(pemBytes)
-		if block == nil {
-			return nil, fmt.Errorf("no certificate block found in %s", pemPath)
-		}
-
-		if block.Type == "CERTIFICATE" {
-			publicBlock = block
-			break
-		}
-	}
-
-	return pem.EncodeToMemory(publicBlock), nil
 }
 
 func createContainer(

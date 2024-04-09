@@ -201,9 +201,6 @@ func NewMigrationApplyCommand() *cobra.Command {
 
 func NewMigrationLogsCommand() *cobra.Command {
 	flags := commonFlags{}
-	targetVersion := 0
-	latest := false
-	wait := false
 	cmd := &cobra.Command{
 		Use:                   "logs ID",
 		Short:                 "Get the logs of a database migration",
@@ -229,10 +226,6 @@ func NewMigrationLogsCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().IntVar(&targetVersion, "target-version", targetVersion, "The target version to migrate to")
-	cmd.Flags().BoolVar(&latest, "latest", latest, "Migrate to the latest version")
-	cmd.Flags().BoolVar(&wait, "wait", wait, "Wait for the migration to complete")
-
 	addCommonFlags(cmd, &flags)
 	return cmd
 }
@@ -249,15 +242,29 @@ func NewMigrationsListCommand() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx := commonPrerun(cmd.Context(), &flags)
 
-			ctx, err := loginAndValidateSubscription(ctx)
-			if err != nil {
-				log.Fatal().Err(err).Send()
+			var versions []install.DatabaseVersion
+			switch t := install.GetEnvironmentConfigFromContext(ctx).(type) {
+			case *cloudinstall.CloudEnvironmentConfig:
+				ctx, err := loginAndValidateSubscription(ctx)
+				if err != nil {
+					log.Fatal().Err(err).Send()
+				}
+
+				versions, err = cloudinstall.ListDatabaseVersions(ctx, all)
+				if err != nil {
+					log.Fatal().Err(err).Msg("Failed list database versions")
+				}
+
+			case *dockerinstall.DockerEnvironmentConfig:
+				var err error
+				versions, err = dockerinstall.ListDatabaseVersions(ctx, all)
+				if err != nil {
+					log.Fatal().Err(err).Msg("Failed list database versions")
+				}
+			default:
+				panic(fmt.Sprintf("unexpected environment config type: %T", t))
 			}
 
-			versions, err := cloudinstall.ListDatabaseVersions(ctx, all)
-			if err != nil {
-				log.Fatal().Err(err).Msg("Failed to exec into pod")
-			}
 			encoder := json.NewEncoder(os.Stdout)
 			encoder.SetIndent("", "  ")
 
