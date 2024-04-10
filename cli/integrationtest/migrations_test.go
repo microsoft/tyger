@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
@@ -24,9 +25,9 @@ import (
 	"github.com/microsoft/tyger/cli/internal/install/cloudinstall"
 )
 
-func TestMigrations(t *testing.T) {
+func TestCloudMigrations(t *testing.T) {
 	t.Parallel()
-	skipIfUsingUnixSocket(t) // TODO: use better skip condition
+	skipIfUsingUnixSocket(t)
 
 	environmentConfig := runCommandSucceeds(t, "../../scripts/get-config.sh")
 	tempDir := t.TempDir()
@@ -98,6 +99,12 @@ func TestMigrations(t *testing.T) {
 		Arg("--command").Arg(fmt.Sprintf("CREATE DATABASE %s", temporaryDatabaseName)).
 		RunSucceeds(t)
 
+	defer func() {
+		createPsqlCommandBuilder().
+			Arg("--command").Arg(fmt.Sprintf("DROP DATABASE %s", temporaryDatabaseName)).
+			RunSucceeds(t)
+	}()
+
 	tygerMigrationApplyArgs := []string{
 		"api", "migrations", "apply", "--latest", "--offline", "--wait",
 		"-f", configPath,
@@ -117,10 +124,36 @@ func TestMigrations(t *testing.T) {
 		"--set", fmt.Sprintf("api.helm.tyger.values.database.databaseName=%s", temporaryDatabaseName))
 
 	assert.Contains(t, logs, "Migration 2 complete")
+}
 
+func TestDockerMigrations(t *testing.T) {
+	t.Parallel()
+	skipUnlessUsingUnixSocket(t)
+
+	lowercaseTestName := strings.ToLower(t.Name())
+
+	environmentConfig := runCommandSucceeds(t, "../../scripts/get-config.sh", "--docker")
+
+	configMap := make(map[string]any)
+	require.NoError(t, yaml.Unmarshal([]byte(environmentConfig), &configMap))
+	configMap["environmentName"] = lowercaseTestName
+	configMap["installationPath"] = fmt.Sprintf("/tmp/tyger/%s", lowercaseTestName)
+	configMap["initialDatabaseVersion"] = 1
+
+	updatedEnvironmentConfigBytes, err := yaml.Marshal(configMap)
+	require.NoError(t, err)
+
+	tempDir := t.TempDir()
+	configPath := fmt.Sprintf("%s/environment-config.yaml", tempDir)
+	require.NoError(t, os.WriteFile(configPath, updatedEnvironmentConfigBytes, 0644))
+
+	runTygerSucceeds(t, "api", "install", "-f", configPath)
 	defer func() {
-		createPsqlCommandBuilder().
-			Arg("--command").Arg(fmt.Sprintf("DROP DATABASE %s", temporaryDatabaseName)).
-			RunSucceeds(t)
+		runTygerSucceeds(t, "api", "uninstall", "-f", configPath, "--delete-data")
 	}()
+
+	runTygerSucceeds(t, "api", "migrations", "apply", "--latest", "--offline", "--wait", "-f", configPath)
+
+	logs := runTygerSucceeds(t, "api", "migrations", "logs", "2", "-f", configPath)
+	assert.Contains(t, logs, "Migration 2 complete")
 }

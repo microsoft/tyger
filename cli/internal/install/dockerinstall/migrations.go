@@ -194,6 +194,40 @@ func (i *Installer) GetMigrationLogs(ctx context.Context, id int, destination io
 	return nil
 }
 
+func (i *Installer) initializeDatabase(ctx context.Context) error {
+	containerName := i.resourceName("database-init")
+	args := []string{"database", "init"}
+	if i.Config.InitialDatabaseVersion != nil {
+		args = append(args, "--target-version", strconv.Itoa(*i.Config.InitialDatabaseVersion))
+	}
+
+	if err := i.startMigrationRunner(ctx, containerName, args, nil); err != nil {
+		return fmt.Errorf("error starting running migration runner: %w", err)
+	}
+
+	defer func() {
+		if err := i.removeContainer(ctx, containerName); err != nil {
+			log.Error().Err(err).Msg("error removing migration runner container")
+		}
+	}()
+
+	exitCode, err := i.waitForContainerToComplete(ctx, containerName)
+	if err != nil {
+		return fmt.Errorf("error waiting for migration runner to complete: %w", err)
+	}
+
+	if exitCode == 0 {
+		return nil
+	}
+
+	stdOut, stdErr := &bytes.Buffer{}, &bytes.Buffer{}
+	if err := i.getContainerLogs(ctx, containerName, stdOut, stdErr); err != nil {
+		return fmt.Errorf("error getting container logs: %w", err)
+	}
+
+	return fmt.Errorf("migration runner failed with exit code %d: %s", exitCode, stdErr.String())
+}
+
 func (i *Installer) startMigrationRunner(ctx context.Context, containerName string, args []string, labels map[string]string) error {
 	containerSpec := containerSpec{
 		ContainerConfig: &container.Config{

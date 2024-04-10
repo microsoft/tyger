@@ -26,6 +26,8 @@ type DockerEnvironmentConfig struct {
 	GatewayImage       string `json:"gatewayImage"`
 
 	SigningKeys DataPlaneSigningKeys `json:"signingKeys"`
+
+	InitialDatabaseVersion *int `json:"initialDatabaseVersion"`
 }
 
 type DataPlaneSigningKeys struct {

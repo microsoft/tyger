@@ -11,7 +11,6 @@ import (
 	"path"
 	"testing"
 
-	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/stretchr/testify/require"
 )
 
@@ -56,7 +55,7 @@ func TestHttpProxy(t *testing.T) {
 	bufferId := runTygerSucceeds(t, "buffer", "create")
 	NewTygerCmdBuilder("buffer", "write", bufferId).Stdin("Hello").RunSucceeds(t)
 
-	config := getConfig(t)
+	config := getCloudConfig(t)
 	tygerUri := fmt.Sprintf("https://%s", config.Api.DomainName)
 	devConfig := getDevConfig(t)
 	testAppUri := devConfig["testAppUri"].(string)
@@ -167,10 +166,4 @@ func (s *ComposeSession) Cleanup() {
 	s.CommandSucceeds("kill")
 	s.CommandSucceeds("down")
 	s.CommandSucceeds("rm")
-}
-
-func skipIfUsingUnixSocket(t *testing.T) {
-	if tygerClient, _ := controlplane.GetClientFromCache(); tygerClient != nil && tygerClient.ControlPlaneUrl != nil && tygerClient.ControlPlaneUrl.Scheme == "http+unix" {
-		t.Skip("Skipping test because the control plane is using a local Unix socket")
-	}
 }

@@ -101,35 +101,6 @@ func (i *Installer) InstallTyger(ctx context.Context) error {
 	return nil
 }
 
-func (i *Installer) initializeDatabase(ctx context.Context) error {
-	containerName := i.resourceName("database-init")
-	if err := i.startMigrationRunner(ctx, containerName, []string{"database", "init"}, nil); err != nil {
-		return fmt.Errorf("error starting running migration runner: %w", err)
-	}
-
-	defer func() {
-		if err := i.removeContainer(ctx, containerName); err != nil {
-			log.Error().Err(err).Msg("error removing migration runner container")
-		}
-	}()
-
-	exitCode, err := i.waitForContainerToComplete(ctx, containerName)
-	if err != nil {
-		return fmt.Errorf("error waiting for migration runner to complete: %w", err)
-	}
-
-	if exitCode == 0 {
-		return nil
-	}
-
-	stdOut, stdErr := &bytes.Buffer{}, &bytes.Buffer{}
-	if err := i.getContainerLogs(ctx, containerName, stdOut, stdErr); err != nil {
-		return fmt.Errorf("error getting container logs: %w", err)
-	}
-
-	return fmt.Errorf("migration runner failed with exit code %d: %s", exitCode, stdErr.String())
-}
-
 func (i *Installer) ensureDirectoryExists(path string) error {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		if err := os.MkdirAll(path, 0755); err != nil {

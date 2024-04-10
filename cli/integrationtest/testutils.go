@@ -10,11 +10,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os/exec"
 	"testing"
 	"time"
 
+	"github.com/microsoft/tyger/cli/internal/controlplane"
+	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/install/cloudinstall"
+	"github.com/microsoft/tyger/cli/internal/install/dockerinstall"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
 )
@@ -129,9 +133,15 @@ func runTygerSucceeds(t *testing.T, args ...string) string {
 	return runCommandSucceeds(t, "tyger", args...)
 }
 
-func getConfig(t *testing.T) cloudinstall.CloudEnvironmentConfig {
+func getCloudConfig(t *testing.T) cloudinstall.CloudEnvironmentConfig {
 	config := cloudinstall.CloudEnvironmentConfig{}
 	require.NoError(t, yaml.UnmarshalStrict([]byte(runCommandSucceeds(t, "../../scripts/get-config.sh")), &config))
+	return config
+}
+
+func getDockerConfig(t *testing.T) dockerinstall.DockerEnvironmentConfig {
+	config := dockerinstall.DockerEnvironmentConfig{}
+	require.NoError(t, yaml.UnmarshalStrict([]byte(runCommandSucceeds(t, "../../scripts/get-config.sh", "--docker")), &config))
 	return config
 }
 
@@ -139,4 +149,69 @@ func getDevConfig(t *testing.T) map[string]any {
 	config := make(map[string]any)
 	require.NoError(t, yaml.UnmarshalStrict([]byte(runCommandSucceeds(t, "../../scripts/get-config.sh", "--dev")), &config))
 	return config
+}
+
+func getServiceMetadata(t *testing.T) model.ServiceMetadata {
+	t.Helper()
+	metadata := model.ServiceMetadata{}
+	_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, "v1/metadata", nil, &metadata)
+	require.NoError(t, err)
+	return metadata
+}
+
+func hasCapability(t *testing.T, capability string) bool {
+	t.Helper()
+	metadata := getServiceMetadata(t)
+	for _, capabilityString := range metadata.Capabilities {
+		if capabilityString == capability {
+			return true
+		}
+	}
+
+	return false
+}
+
+func supportsNodePools(t *testing.T) bool {
+	return hasCapability(t, "NodePools")
+}
+
+func skipIfNodePoolsNotSupported(t *testing.T) {
+	if !supportsNodePools(t) {
+		t.Skip("NodePools capability not supported")
+	}
+}
+
+func skipIfGpuNotSupported(t *testing.T) {
+	if !hasCapability(t, "Gpu") {
+		t.Skip("Gpu capability not supported")
+	}
+}
+
+func supportsDistributedRuns(t *testing.T) bool {
+	return hasCapability(t, "DistributedRuns")
+}
+
+func skipIfDistributedRunsNotSupported(t *testing.T) {
+	if !supportsDistributedRuns(t) {
+		t.Skip("DistributedRuns capability not supported")
+	}
+}
+
+func isUsingUnixSocket() bool {
+	if tygerClient, _ := controlplane.GetClientFromCache(); tygerClient != nil && tygerClient.ControlPlaneUrl != nil && tygerClient.ControlPlaneUrl.Scheme == "http+unix" {
+		return true
+	}
+	return false
+}
+
+func skipIfUsingUnixSocket(t *testing.T) {
+	if isUsingUnixSocket() {
+		t.Skip("Skipping test because the control plane is using a local Unix socket")
+	}
+}
+
+func skipUnlessUsingUnixSocket(t *testing.T) {
+	if !isUsingUnixSocket() {
+		t.Skip("Skipping test because the control plane is using a local Unix socket")
+	}
 }

@@ -63,52 +63,6 @@ func init() {
 	}
 }
 
-func getServiceMetadata(t *testing.T) model.ServiceMetadata {
-	t.Helper()
-	metadata := model.ServiceMetadata{}
-	_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, "v1/metadata", nil, &metadata)
-	require.NoError(t, err)
-	return metadata
-}
-
-func hasCapability(t *testing.T, capability string) bool {
-	t.Helper()
-	metadata := getServiceMetadata(t)
-	for _, capabilityString := range metadata.Capabilities {
-		if capabilityString == capability {
-			return true
-		}
-	}
-
-	return false
-}
-
-func supportsNodePools(t *testing.T) bool {
-	return hasCapability(t, "NodePools")
-}
-
-func skipIfNodePoolsNotSupported(t *testing.T) {
-	if !supportsNodePools(t) {
-		t.Skip("NodePools capability not supported")
-	}
-}
-
-func skipIfGpuNotSupported(t *testing.T) {
-	if !hasCapability(t, "Gpu") {
-		t.Skip("Gpu capability not supported")
-	}
-}
-
-func supportsDistributedRuns(t *testing.T) bool {
-	return hasCapability(t, "DistributedRuns")
-}
-
-func skipIfDistributedRunsNotSupported(t *testing.T) {
-	if !supportsDistributedRuns(t) {
-		t.Skip("DistributedRuns capability not supported")
-	}
-}
-
 func TestEndToEnd(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
