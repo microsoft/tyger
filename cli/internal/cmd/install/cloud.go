@@ -41,9 +41,10 @@ func newCloudInstallCommand() *cobra.Command {
 		Args:                  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx, installer := commonPrerun(cmd.Context(), &flags)
+			cloudInstaller := CheckCloudInstaller(installer)
 
 			log.Info().Msg("Starting cloud install")
-			if err := installer.InstallCloud(ctx); err != nil {
+			if err := cloudInstaller.InstallCloud(ctx); err != nil {
 				if err != install.ErrAlreadyLoggedError {
 					log.Fatal().Err(err).Send()
 				}
@@ -67,10 +68,11 @@ func newCloudUninstallCommand() *cobra.Command {
 		Args:                  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx, installer := commonPrerun(cmd.Context(), &flags)
+			cloudInstaller := CheckCloudInstaller(installer)
 
 			log.Info().Msg("Starting cloud uninstall")
 
-			if err := installer.UninstallCloud(ctx); err != nil {
+			if err := cloudInstaller.UninstallCloud(ctx); err != nil {
 				if err != install.ErrAlreadyLoggedError {
 					log.Fatal().Err(err).Send()
 				}

@@ -21,7 +21,7 @@ import (
 
 var errNotFound = fmt.Errorf("not found")
 
-func (i *Installer) GetGraphToken(ctx context.Context, cred azcore.TokenCredential) (azcore.AccessToken, error) {
+func GetGraphToken(ctx context.Context, cred azcore.TokenCredential) (azcore.AccessToken, error) {
 	tokenResponse, err := cred.GetToken(ctx, policy.TokenRequestOptions{
 		Scopes: []string{"https://graph.microsoft.com"},
 	})

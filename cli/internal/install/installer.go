@@ -12,6 +12,8 @@ var (
 )
 
 type Installer interface {
+	QuickValidateConfig() bool
+
 	InstallTyger(ctx context.Context) error
 	UninstallTyger(ctx context.Context) error
 

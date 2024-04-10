@@ -7,61 +7,61 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func QuickValidateDockerEnvironmentConfig(config *DockerEnvironmentConfig) bool {
+func (i *Installer) QuickValidateConfig() bool {
 	success := true
 
-	if _, err := strconv.Atoi(config.UserId); err != nil {
-		if config.UserId == "" {
+	if _, err := strconv.Atoi(i.Config.UserId); err != nil {
+		if i.Config.UserId == "" {
 			currentUser, err := user.Current()
 			if err != nil {
 				validationError(&success, "Unable to determine the current user for the `userId` field")
 			} else {
-				config.UserId = currentUser.Uid
+				i.Config.UserId = currentUser.Uid
 			}
 		} else {
-			u, err := user.Lookup(config.UserId)
+			u, err := user.Lookup(i.Config.UserId)
 			if err != nil {
 				validationError(&success, "The `userId` field must be a valid user ID or name")
 			} else {
-				config.UserId = u.Uid
+				i.Config.UserId = u.Uid
 			}
 		}
 	}
 
-	if _, err := strconv.Atoi(config.AllowedGroupId); err != nil {
-		if config.AllowedGroupId == "" {
+	if _, err := strconv.Atoi(i.Config.AllowedGroupId); err != nil {
+		if i.Config.AllowedGroupId == "" {
 			currentUser, err := user.Current()
 			if err != nil {
 				validationError(&success, "Unable to determine the current user for the `userId` field")
 			} else {
-				config.AllowedGroupId = currentUser.Gid
+				i.Config.AllowedGroupId = currentUser.Gid
 			}
 		} else {
-			g, err := user.LookupGroup(config.AllowedGroupId)
+			g, err := user.LookupGroup(i.Config.AllowedGroupId)
 			if err != nil {
 				validationError(&success, "The `groupId` field must be a valid group ID or name")
 			} else {
-				config.AllowedGroupId = g.Gid
+				i.Config.AllowedGroupId = g.Gid
 			}
 		}
 	}
 
-	if config.SigningKeys.Primary == nil {
+	if i.Config.SigningKeys.Primary == nil {
 		validationError(&success, "The `signingKeys.primary` field is required")
 	} else {
-		if config.SigningKeys.Primary.PublicKey == "" {
+		if i.Config.SigningKeys.Primary.PublicKey == "" {
 			validationError(&success, "The `signingKeys.primary.publicKey` field is required to be the path to a public key file PEM file")
 		}
-		if config.SigningKeys.Primary.PrivateKey == "" {
+		if i.Config.SigningKeys.Primary.PrivateKey == "" {
 			validationError(&success, "The `signingKeys.primary.privateKey` field is required to be the path to a private key PEM file")
 		}
 	}
 
-	if config.SigningKeys.Secondary != nil {
-		if config.SigningKeys.Secondary.PublicKey == "" {
+	if i.Config.SigningKeys.Secondary != nil {
+		if i.Config.SigningKeys.Secondary.PublicKey == "" {
 			validationError(&success, "The `signingKeys.secondary.publicKey` field is required to be the path to a public key PEM file")
 		}
-		if config.SigningKeys.Secondary.PrivateKey == "" {
+		if i.Config.SigningKeys.Secondary.PrivateKey == "" {
 			validationError(&success, "The `signingKeys.secondary.privateKey` field is required to be the path to a private key PEM file")
 		}
 	}

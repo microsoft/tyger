@@ -73,7 +73,12 @@ func commonPrerun(ctx context.Context, flags *commonFlags) (context.Context, ins
 		}
 		config = c
 	case dockerinstall.EnvironmentKindDocker:
-		config = &dockerinstall.DockerEnvironmentConfig{}
+		i, err := dockerinstall.NewInstaller(&dockerinstall.DockerEnvironmentConfig{})
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to create docker installer")
+		}
+		installer = i
+		config = i.Config
 	default:
 		log.Fatal().Msgf("The `kind` field must be one of `%s` or `%s`. Given value: `%s`", cloudinstall.EnvironmentKindCloud, dockerinstall.EnvironmentKindDocker, environmentKind)
 	}
@@ -92,8 +97,6 @@ func commonPrerun(ctx context.Context, flags *commonFlags) (context.Context, ins
 		log.Fatal().Err(err).Msg("Failed to parse config file")
 	}
 
-	ctx = install.SetEnvironmentConfigOnContext(ctx, config)
-
 	var stopFunc context.CancelFunc
 	ctx, stopFunc = signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 
@@ -103,21 +106,16 @@ func commonPrerun(ctx context.Context, flags *commonFlags) (context.Context, ins
 		log.Warn().Msg("Canceling...")
 	}()
 
-	switch t := config.(type) {
-	case *cloudinstall.CloudEnvironmentConfig:
-		if !cloudinstall.QuickValidateCloudEnvironmentConfig(t) {
-			os.Exit(1)
-		}
+	if !installer.QuickValidateConfig() {
+		os.Exit(1)
+	}
 
+	if cloudInstaller, ok := installer.(*cloudinstall.Installer); ok {
 		if !flags.skipLoginAndValidateSubscription {
-			ctx, err = loginAndValidateSubscription(ctx)
+			ctx, err = loginAndValidateSubscription(ctx, cloudInstaller)
 			if err != nil {
 				log.Fatal().Err(err).Send()
 			}
-		}
-	case *dockerinstall.DockerEnvironmentConfig:
-		if !dockerinstall.QuickValidateDockerEnvironmentConfig(t) {
-			os.Exit(1)
 		}
 	}
 
@@ -133,11 +131,10 @@ func getDefaultConfigPath() string {
 	return defaultPath
 }
 
-func loginAndValidateSubscription(ctx context.Context) (context.Context, error) {
-	config := cloudinstall.GetCloudEnvironmentConfigFromContext(ctx)
+func loginAndValidateSubscription(ctx context.Context, cloudInstaller *cloudinstall.Installer) (context.Context, error) {
 	cred, err := cloudinstall.NewMiAwareAzureCLICredential(
 		&azidentity.AzureCLICredentialOptions{
-			TenantID: config.Cloud.TenantID,
+			TenantID: cloudInstaller.Config.Cloud.TenantID,
 		})
 
 	if err == nil {
@@ -145,14 +142,14 @@ func loginAndValidateSubscription(ctx context.Context) (context.Context, error) 
 	}
 
 	if err != nil {
-		return ctx, fmt.Errorf("please log in with the Azure CLI with the command `az login --tenant %s`", config.Cloud.TenantID)
+		return ctx, fmt.Errorf("please log in with the Azure CLI with the command `az login --tenant %s`", cloudInstaller.Config.Cloud.TenantID)
 	}
 
-	ctx = cloudinstall.SetAzureCredentialOnContext(ctx, cred)
+	cloudInstaller.Credential = cred
 
 	// Get the subscription ID if we are given the name.
-	if _, err := uuid.Parse(config.Cloud.SubscriptionID); err != nil {
-		config.Cloud.SubscriptionID, err = cloudinstall.GetSubscriptionId(ctx, config.Cloud.SubscriptionID, cred)
+	if _, err := uuid.Parse(cloudInstaller.Config.Cloud.SubscriptionID); err != nil {
+		cloudInstaller.Config.Cloud.SubscriptionID, err = cloudinstall.GetSubscriptionId(ctx, cloudInstaller.Config.Cloud.SubscriptionID, cred)
 		if err != nil {
 			return ctx, fmt.Errorf("failed to get subscription ID: %w", err)
 		}

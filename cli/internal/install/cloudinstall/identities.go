@@ -10,13 +10,12 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 )
 
-func InstallIdentities(ctx context.Context, cred azcore.TokenCredential) error {
+func (i *Installer) InstallIdentities(ctx context.Context, cred azcore.TokenCredential) error {
 	const permissionScopeId = "6291652f-fd9d-4a31-aa5f-87306c599bb6"
-	config := GetCloudEnvironmentConfigFromContext(ctx)
 
 	serverApp := aadApp{
 		DisplayName:    "Tyger API",
-		IdentifierUris: []string{config.Api.Auth.ApiAppUri},
+		IdentifierUris: []string{i.Config.Api.Auth.ApiAppUri},
 		SignInAudience: "AzureADMyOrg",
 		Api: aadAppApi{
 			RequestedAccessTokenVersion: 1,
@@ -40,7 +39,7 @@ func InstallIdentities(ctx context.Context, cred azcore.TokenCredential) error {
 		return fmt.Errorf("failed to create or update server app: %w", err)
 	}
 
-	serverApp, err = GetAppByUri(ctx, cred, config.Api.Auth.ApiAppUri)
+	serverApp, err = GetAppByUri(ctx, cred, i.Config.Api.Auth.ApiAppUri)
 	if err != nil {
 		return fmt.Errorf("failed to get server app: %w", err)
 	}
@@ -56,7 +55,7 @@ func InstallIdentities(ctx context.Context, cred azcore.TokenCredential) error {
 
 	cliApp := aadApp{
 		DisplayName:    "Tyger CLI",
-		IdentifierUris: []string{config.Api.Auth.CliAppUri},
+		IdentifierUris: []string{i.Config.Api.Auth.CliAppUri},
 		RequiredResourceAccess: []aadAppRequiredResourceAccess{
 			{
 				ResourceAppId: serverObjectId,
@@ -81,7 +80,7 @@ func InstallIdentities(ctx context.Context, cred azcore.TokenCredential) error {
 		return fmt.Errorf("failed to create or update CLI app: %w", err)
 	}
 
-	cliApp, err = GetAppByUri(ctx, cred, config.Api.Auth.CliAppUri)
+	cliApp, err = GetAppByUri(ctx, cred, i.Config.Api.Auth.CliAppUri)
 	if err != nil {
 		return fmt.Errorf("failed to get CLI app: %w", err)
 	}

@@ -5,34 +5,34 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strconv"
 
-	"github.com/docker/docker/client"
 	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/rs/zerolog/log"
 )
 
-func ListDatabaseVersions(ctx context.Context, allVersions bool) ([]install.DatabaseVersion, error) {
-	config := GetDockerEnvironmentConfigFromContext(ctx)
-	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	if err != nil {
-		return nil, fmt.Errorf("error creating docker client: %w", err)
-	}
+func (i *Installer) ListDatabaseVersions(ctx context.Context, allVersions bool) ([]install.DatabaseVersion, error) {
+	containerName := "tyger-migration-list-versions"
 
-	containerName := "tyger-migration-runner"
-
-	if err := startMigrationRunner(ctx, dockerClient, config, containerName, []string{"database", "list-versions"}); err != nil {
+	if err := i.startMigrationRunner(ctx, containerName, []string{"database", "list-versions"}); err != nil {
 		return nil, err
 	}
 
-	exitCode, err := waitForContainerToComplete(ctx, dockerClient, containerName)
+	defer func() {
+		if err := i.removeContainer(ctx, containerName); err != nil {
+			log.Error().Err(err).Msg("Failed to delete container")
+		}
+	}()
+
+	exitCode, err := i.waitForContainerToComplete(ctx, containerName)
 
 	if err != nil {
 		return nil, err
 	}
 
 	stdOut, stdErr := &bytes.Buffer{}, &bytes.Buffer{}
-	if err := getContainerLogs(ctx, dockerClient, containerName, stdOut, stdErr); err != nil {
+	if err := i.getContainerLogs(ctx, containerName, stdOut, stdErr); err != nil {
 		return nil, fmt.Errorf("error getting container logs: %w", err)
 	}
 
@@ -58,14 +58,8 @@ func ListDatabaseVersions(ctx context.Context, allVersions bool) ([]install.Data
 	return versions, nil
 }
 
-func ApplyMigrations(ctx context.Context, targetVersion int, latest, offline, waitForCompletion bool) error {
-	config := GetDockerEnvironmentConfigFromContext(ctx)
-	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	if err != nil {
-		return fmt.Errorf("error creating docker client: %w", err)
-	}
-
-	versions, err := ListDatabaseVersions(ctx, true)
+func (i *Installer) ApplyMigrations(ctx context.Context, targetVersion int, latest, offline, waitForCompletion bool) error {
+	versions, err := i.ListDatabaseVersions(ctx, true)
 	if err != nil {
 		return err
 	}
@@ -106,7 +100,7 @@ func ApplyMigrations(ctx context.Context, targetVersion int, latest, offline, wa
 		args = append(args, "--offline")
 	}
 
-	if err := startMigrationRunner(ctx, dockerClient, config, containerName, args); err != nil {
+	if err := i.startMigrationRunner(ctx, containerName, args); err != nil {
 		return err
 	}
 
@@ -117,7 +111,7 @@ func ApplyMigrations(ctx context.Context, targetVersion int, latest, offline, wa
 
 	log.Info().Msg("Waiting for migrations to complete...")
 
-	exitCode, err := waitForContainerToComplete(ctx, dockerClient, containerName)
+	exitCode, err := i.waitForContainerToComplete(ctx, containerName)
 	if err != nil {
 		return err
 	}
@@ -128,4 +122,8 @@ func ApplyMigrations(ctx context.Context, targetVersion int, latest, offline, wa
 
 	log.Info().Msg("Migrations applied successfully")
 	return nil
+}
+
+func (i *Installer) GetMigrationLogs(ctx context.Context, id int, destination io.Writer) error {
+	panic("not implemented")
 }

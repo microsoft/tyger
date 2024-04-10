@@ -41,8 +41,7 @@ func createTygerNamespace(ctx context.Context, restConfigPromise *install.Promis
 	return nil, fmt.Errorf("failed to create 'tyger' namespace: %w", err)
 }
 
-func createTygerClusterRBAC(ctx context.Context, restConfigPromise *install.Promise[*rest.Config], createTygerNamespacePromise *install.Promise[any]) (any, error) {
-	config := GetCloudEnvironmentConfigFromContext(ctx)
+func (i *Installer) createTygerClusterRBAC(ctx context.Context, restConfigPromise *install.Promise[*rest.Config], createTygerNamespacePromise *install.Promise[any]) (any, error) {
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
 		return nil, install.ErrDependencyFailed
@@ -86,7 +85,7 @@ func createTygerClusterRBAC(ctx context.Context, restConfigPromise *install.Prom
 		Subjects: make([]rbacv1.Subject, 0),
 	}
 
-	for _, principal := range config.Cloud.Compute.ManagementPrincipals {
+	for _, principal := range i.Config.Cloud.Compute.ManagementPrincipals {
 		subject := rbacv1.Subject{
 			Name: principal.Id,
 		}
@@ -172,8 +171,8 @@ func createTygerClusterRBAC(ctx context.Context, restConfigPromise *install.Prom
 	return nil, nil
 }
 
-func PodExec(ctx context.Context, podName string, command ...string) (stdout *bytes.Buffer, stderr *bytes.Buffer, err error) {
-	restConfig, err := GetUserRESTConfig(ctx)
+func (i *Installer) PodExec(ctx context.Context, podName string, command ...string) (stdout *bytes.Buffer, stderr *bytes.Buffer, err error) {
+	restConfig, err := i.GetUserRESTConfig(ctx)
 	if err != nil {
 		return nil, nil, err
 	}

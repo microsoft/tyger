@@ -14,23 +14,21 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-func CreateStorageAccount(ctx context.Context,
+func (i *Installer) CreateStorageAccount(ctx context.Context,
 	storageAccountConfig *StorageAccountConfig,
 	restConfigPromise *install.Promise[*rest.Config],
 	managedIdentityPromise *install.Promise[*armmsi.Identity],
 ) (any, error) {
-	config := GetCloudEnvironmentConfigFromContext(ctx)
-	cred := GetAzureCredentialFromContext(ctx)
 
-	storageClient, err := armstorage.NewAccountsClient(config.Cloud.SubscriptionID, cred, nil)
+	storageClient, err := armstorage.NewAccountsClient(i.Config.Cloud.SubscriptionID, i.Credential, nil)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create storage client")
 	}
 
 	var tags map[string]*string
-	if resp, err := storageClient.GetProperties(ctx, config.Cloud.ResourceGroup, storageAccountConfig.Name, nil); err == nil {
+	if resp, err := storageClient.GetProperties(ctx, i.Config.Cloud.ResourceGroup, storageAccountConfig.Name, nil); err == nil {
 		if existingTag, ok := resp.Tags[TagKey]; ok {
-			if *existingTag != config.EnvironmentName {
+			if *existingTag != i.Config.EnvironmentName {
 				return nil, fmt.Errorf("storage account '%s' is already in use by enrironment '%s'", storageAccountConfig.Name, *existingTag)
 			}
 			tags = resp.Tags
@@ -40,7 +38,7 @@ func CreateStorageAccount(ctx context.Context,
 	if tags == nil {
 		tags = make(map[string]*string)
 	}
-	tags[TagKey] = &config.EnvironmentName
+	tags[TagKey] = &i.Config.EnvironmentName
 
 	parameters := armstorage.AccountCreateParameters{
 		Tags:       tags,
@@ -51,7 +49,7 @@ func CreateStorageAccount(ctx context.Context,
 	}
 
 	log.Info().Msgf("Creating or updating storage account '%s'", storageAccountConfig.Name)
-	poller, err := storageClient.BeginCreate(ctx, config.Cloud.ResourceGroup, storageAccountConfig.Name, parameters, nil)
+	poller, err := storageClient.BeginCreate(ctx, i.Config.Cloud.ResourceGroup, storageAccountConfig.Name, parameters, nil)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create storage account")
 	}
@@ -68,12 +66,12 @@ func CreateStorageAccount(ctx context.Context,
 
 	log.Info().Msgf("Assigning RBAC role to storage account '%s'", storageAccountConfig.Name)
 
-	if err := assignRbacRole(ctx, *managedIdentity.Properties.PrincipalID, *res.ID, "Storage Blob Data Contributor", config.Cloud.SubscriptionID, cred); err != nil {
+	if err := assignRbacRole(ctx, *managedIdentity.Properties.PrincipalID, *res.ID, "Storage Blob Data Contributor", i.Config.Cloud.SubscriptionID, i.Credential); err != nil {
 		return nil, fmt.Errorf("failed to assign storage RBAC role: %w", err)
 	}
 
-	if localId := config.Cloud.Compute.GetApiHostCluster().LocalDevelopmentIdentityId; localId != "" {
-		if err := assignRbacRole(ctx, localId, *res.ID, "Storage Blob Data Contributor", config.Cloud.SubscriptionID, cred); err != nil {
+	if localId := i.Config.Cloud.Compute.GetApiHostCluster().LocalDevelopmentIdentityId; localId != "" {
+		if err := assignRbacRole(ctx, localId, *res.ID, "Storage Blob Data Contributor", i.Config.Cloud.SubscriptionID, i.Credential); err != nil {
 			return nil, fmt.Errorf("failed to assign storage RBAC role: %w", err)
 		}
 	}

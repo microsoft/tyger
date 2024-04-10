@@ -25,11 +25,8 @@ import (
 
 const DefaultKubernetesVersion = "1.27" // LTS
 
-func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (*armcontainerservice.ManagedCluster, error) {
-	config := GetCloudEnvironmentConfigFromContext(ctx)
-	cred := GetAzureCredentialFromContext(ctx)
-
-	clustersClient, err := armcontainerservice.NewManagedClustersClient(config.Cloud.SubscriptionID, cred, nil)
+func (i *Installer) createCluster(ctx context.Context, clusterConfig *ClusterConfig) (*armcontainerservice.ManagedCluster, error) {
+	clustersClient, err := armcontainerservice.NewManagedClustersClient(i.Config.Cloud.SubscriptionID, i.Credential, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create clusters client: %w", err)
 	}
@@ -38,11 +35,11 @@ func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (*armconta
 	var tags map[string]*string
 
 	var clusterAlreadyExists bool
-	existingCluster, err := clustersClient.Get(ctx, config.Cloud.ResourceGroup, clusterConfig.Name, nil)
+	existingCluster, err := clustersClient.Get(ctx, i.Config.Cloud.ResourceGroup, clusterConfig.Name, nil)
 	if err == nil {
 		clusterAlreadyExists = true
 		if existingTag, ok := existingCluster.Tags[TagKey]; ok {
-			if *existingTag != config.EnvironmentName {
+			if *existingTag != i.Config.EnvironmentName {
 				return nil, fmt.Errorf("cluster '%s' is already in use by enrironment '%s'", *existingCluster.Name, *existingTag)
 			}
 			tags = existingCluster.Tags
@@ -59,7 +56,7 @@ func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (*armconta
 	if tags == nil {
 		tags = make(map[string]*string)
 	}
-	tags[TagKey] = &config.EnvironmentName
+	tags[TagKey] = &i.Config.EnvironmentName
 
 	cluster := armcontainerservice.ManagedCluster{
 		Tags:     tags,
@@ -68,7 +65,7 @@ func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (*armconta
 			Type: Ptr(armcontainerservice.ResourceIdentityTypeSystemAssigned),
 		},
 		Properties: &armcontainerservice.ManagedClusterProperties{
-			DNSPrefix:         Ptr(getClusterDnsPrefix(config.EnvironmentName, clusterConfig.Name, config.Cloud.SubscriptionID)),
+			DNSPrefix:         Ptr(getClusterDnsPrefix(i.Config.EnvironmentName, clusterConfig.Name, i.Config.Cloud.SubscriptionID)),
 			KubernetesVersion: &clusterConfig.KubernetesVersion,
 			EnableRBAC:        Ptr(true),
 			AADProfile: &armcontainerservice.ManagedClusterAADProfile{
@@ -86,8 +83,8 @@ func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (*armconta
 		},
 	}
 
-	if workspace := config.Cloud.LogAnalyticsWorkspace; workspace != nil {
-		oic, err := armoperationalinsights.NewWorkspacesClient(config.Cloud.SubscriptionID, cred, nil)
+	if workspace := i.Config.Cloud.LogAnalyticsWorkspace; workspace != nil {
+		oic, err := armoperationalinsights.NewWorkspacesClient(i.Config.Cloud.SubscriptionID, i.Credential, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create operational insights client: %w", err)
 		}
@@ -173,7 +170,7 @@ func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (*armconta
 			log.Info().Msgf("Creating cluster '%s'", clusterConfig.Name)
 		}
 
-		poller, err = clustersClient.BeginCreateOrUpdate(ctx, config.Cloud.ResourceGroup, clusterConfig.Name, cluster, nil)
+		poller, err = clustersClient.BeginCreateOrUpdate(ctx, i.Config.Cloud.ResourceGroup, clusterConfig.Name, cluster, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create cluster: %w", err)
 		}
@@ -189,7 +186,7 @@ func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (*armconta
 
 	var kubeletObjectId string
 	for ; ; time.Sleep(10 * time.Second) {
-		getResp, err := clustersClient.Get(ctx, config.Cloud.ResourceGroup, clusterConfig.Name, nil)
+		getResp, err := clustersClient.Get(ctx, i.Config.Cloud.ResourceGroup, clusterConfig.Name, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -202,14 +199,14 @@ func createCluster(ctx context.Context, clusterConfig *ClusterConfig) (*armconta
 		}
 	}
 
-	for _, containerRegistry := range config.Cloud.Compute.PrivateContainerRegistries {
+	for _, containerRegistry := range i.Config.Cloud.Compute.PrivateContainerRegistries {
 		log.Info().Msgf("Attaching ACR '%s' to cluster '%s'", containerRegistry, clusterConfig.Name)
-		containerRegistryId, err := getContainerRegistryId(ctx, containerRegistry, config.Cloud.SubscriptionID, cred)
+		containerRegistryId, err := getContainerRegistryId(ctx, containerRegistry, i.Config.Cloud.SubscriptionID, i.Credential)
 		if err != nil {
 			return nil, err
 		}
 
-		if err := attachAcr(ctx, kubeletObjectId, containerRegistryId, config.Cloud.SubscriptionID, cred); err != nil {
+		if err := attachAcr(ctx, kubeletObjectId, containerRegistryId, i.Config.Cloud.SubscriptionID, i.Credential); err != nil {
 			return nil, fmt.Errorf("failed to attach ACR: %w", err)
 		}
 	}
@@ -357,16 +354,13 @@ func getContainerRegistryId(ctx context.Context, name string, subscriptionId str
 	return "", fmt.Errorf("container registry '%s' not found in subscription", name)
 }
 
-func onDeleteCluster(ctx context.Context, clusterConfig *ClusterConfig) error {
-	config := GetCloudEnvironmentConfigFromContext(ctx)
-	cred := GetAzureCredentialFromContext(ctx)
-
-	clustersClient, err := armcontainerservice.NewManagedClustersClient(config.Cloud.SubscriptionID, cred, nil)
+func (i *Installer) onDeleteCluster(ctx context.Context, clusterConfig *ClusterConfig) error {
+	clustersClient, err := armcontainerservice.NewManagedClustersClient(i.Config.Cloud.SubscriptionID, i.Credential, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create clusters client: %w", err)
 	}
 
-	clusterResponse, err := clustersClient.Get(ctx, config.Cloud.ResourceGroup, clusterConfig.Name, nil)
+	clusterResponse, err := clustersClient.Get(ctx, i.Config.Cloud.ResourceGroup, clusterConfig.Name, nil)
 	if err != nil {
 		var respErr *azcore.ResponseError
 		if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
@@ -386,9 +380,9 @@ func onDeleteCluster(ctx context.Context, clusterConfig *ClusterConfig) error {
 
 	kubeletObjectId := *kubeletIdentity.ObjectID
 
-	for _, containerRegistry := range config.Cloud.Compute.PrivateContainerRegistries {
+	for _, containerRegistry := range i.Config.Cloud.Compute.PrivateContainerRegistries {
 		log.Info().Msgf("Detaching ACR '%s' from cluster '%s'", containerRegistry, clusterConfig.Name)
-		containerRegistryId, err := getContainerRegistryId(ctx, containerRegistry, config.Cloud.SubscriptionID, cred)
+		containerRegistryId, err := getContainerRegistryId(ctx, containerRegistry, i.Config.Cloud.SubscriptionID, i.Credential)
 		if err != nil {
 			var respErr *azcore.ResponseError
 			if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
@@ -397,7 +391,7 @@ func onDeleteCluster(ctx context.Context, clusterConfig *ClusterConfig) error {
 			return err
 		}
 
-		if err := detachAcr(ctx, kubeletObjectId, containerRegistryId, config.Cloud.SubscriptionID, cred); err != nil {
+		if err := detachAcr(ctx, kubeletObjectId, containerRegistryId, i.Config.Cloud.SubscriptionID, i.Credential); err != nil {
 			return fmt.Errorf("failed to detatch ACR: %w", err)
 		}
 	}

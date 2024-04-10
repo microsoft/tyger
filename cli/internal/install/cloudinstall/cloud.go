@@ -23,15 +23,13 @@ const (
 	TagKey = "tyger-environment"
 )
 
-func InstallCloud(ctx context.Context) (err error) {
-	config := GetCloudEnvironmentConfigFromContext(ctx)
-
-	if err := ensureResourceGroupCreated(ctx); err != nil {
+func (i *Installer) InstallCloud(ctx context.Context) (err error) {
+	if err := i.ensureResourceGroupCreated(ctx); err != nil {
 		logError(err, "")
 		return install.ErrAlreadyLoggedError
 	}
 
-	if err := preflightCheck(ctx); err != nil {
+	if err := i.preflightCheck(ctx); err != nil {
 		if err != install.ErrAlreadyLoggedError {
 			logError(err, "")
 			return install.ErrAlreadyLoggedError
@@ -39,7 +37,7 @@ func InstallCloud(ctx context.Context) (err error) {
 		return err
 	}
 
-	allPromises := createPromises(ctx, config)
+	allPromises := i.createPromises(ctx)
 	for _, p := range allPromises {
 		if promiseErr := p.AwaitErr(); promiseErr != nil && promiseErr != install.ErrDependencyFailed {
 			logError(promiseErr, "")
@@ -50,24 +48,21 @@ func InstallCloud(ctx context.Context) (err error) {
 	return err
 }
 
-func UninstallCloud(ctx context.Context) (err error) {
-	config := GetCloudEnvironmentConfigFromContext(ctx)
-	for _, c := range config.Cloud.Compute.Clusters {
-		if err := onDeleteCluster(ctx, c); err != nil {
+func (i *Installer) UninstallCloud(ctx context.Context) (err error) {
+	for _, c := range i.Config.Cloud.Compute.Clusters {
+		if err := i.onDeleteCluster(ctx, c); err != nil {
 			return err
 		}
 	}
 
-	cred := GetAzureCredentialFromContext(ctx)
-
 	// See if all the resources in the resource group are from this environment
 
-	resourcesClient, err := armresources.NewClient(config.Cloud.SubscriptionID, cred, nil)
+	resourcesClient, err := armresources.NewClient(i.Config.Cloud.SubscriptionID, i.Credential, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create resources client: %w", err)
 	}
 
-	pager := resourcesClient.NewListByResourceGroupPager(config.Cloud.ResourceGroup, nil)
+	pager := resourcesClient.NewListByResourceGroupPager(i.Config.Cloud.ResourceGroup, nil)
 	resourcesFromThisEnvironment := make([]*armresources.GenericResourceExpanded, 0)
 	resourceGroupContainsOtherResources := false
 	for pager.More() {
@@ -75,13 +70,13 @@ func UninstallCloud(ctx context.Context) (err error) {
 		if err != nil {
 			var respErr *azcore.ResponseError
 			if errors.As(err, &respErr) && respErr.ErrorCode == "ResourceGroupNotFound" {
-				log.Debug().Msgf("Resource group '%s' not found", config.Cloud.ResourceGroup)
+				log.Debug().Msgf("Resource group '%s' not found", i.Config.Cloud.ResourceGroup)
 				return nil
 			}
 			return fmt.Errorf("failed to list resources: %w", err)
 		}
 		for _, res := range page.ResourceListResult.Value {
-			if envName, ok := res.Tags[TagKey]; ok && *envName == config.EnvironmentName {
+			if envName, ok := res.Tags[TagKey]; ok && *envName == i.Config.EnvironmentName {
 				resourcesFromThisEnvironment = append(resourcesFromThisEnvironment, res)
 			} else {
 				resourceGroupContainsOtherResources = true
@@ -90,12 +85,12 @@ func UninstallCloud(ctx context.Context) (err error) {
 	}
 
 	if !resourceGroupContainsOtherResources {
-		log.Info().Msgf("Deleting resource group '%s'", config.Cloud.ResourceGroup)
-		c, err := armresources.NewResourceGroupsClient(config.Cloud.SubscriptionID, cred, nil)
+		log.Info().Msgf("Deleting resource group '%s'", i.Config.Cloud.ResourceGroup)
+		c, err := armresources.NewResourceGroupsClient(i.Config.Cloud.SubscriptionID, i.Credential, nil)
 		if err != nil {
 			return fmt.Errorf("failed to create resource groups client: %w", err)
 		}
-		poller, err := c.BeginDelete(ctx, config.Cloud.ResourceGroup, nil)
+		poller, err := c.BeginDelete(ctx, i.Config.Cloud.ResourceGroup, nil)
 		if err != nil {
 			var respErr *azcore.ResponseError
 			if errors.As(err, &respErr) && respErr.ErrorCode == "AuthorizationFailed" {
@@ -113,11 +108,11 @@ func UninstallCloud(ctx context.Context) (err error) {
 		return nil
 	}
 
-	log.Info().Msgf("Resource group '%s' contains resources that are not part of this environment", config.Cloud.ResourceGroup)
+	log.Info().Msgf("Resource group '%s' contains resources that are not part of this environment", i.Config.Cloud.ResourceGroup)
 
 deleteOneByOne:
 
-	providersClient, err := armresources.NewProvidersClient(config.Cloud.SubscriptionID, cred, nil)
+	providersClient, err := armresources.NewProvidersClient(i.Config.Cloud.SubscriptionID, i.Credential, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create providers client: %w", err)
 	}
@@ -191,16 +186,13 @@ func getProviderNamespaceAndResourceType(resourceID string) (string, string, err
 	return "", "", fmt.Errorf("provider namespace not found in resource ID")
 }
 
-func ensureResourceGroupCreated(ctx context.Context) error {
-	config := GetCloudEnvironmentConfigFromContext(ctx)
-	cred := GetAzureCredentialFromContext(ctx)
-
-	c, err := armresources.NewResourceGroupsClient(config.Cloud.SubscriptionID, cred, nil)
+func (i *Installer) ensureResourceGroupCreated(ctx context.Context) error {
+	c, err := armresources.NewResourceGroupsClient(i.Config.Cloud.SubscriptionID, i.Credential, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create resource groups client: %w", err)
 	}
 
-	resp, err := c.CheckExistence(ctx, config.Cloud.ResourceGroup, nil)
+	resp, err := c.CheckExistence(ctx, i.Config.Cloud.ResourceGroup, nil)
 	if err != nil {
 		return fmt.Errorf("failed to check resource group existence: %w", err)
 	}
@@ -209,10 +201,10 @@ func ensureResourceGroupCreated(ctx context.Context) error {
 		return nil
 	}
 
-	log.Debug().Msgf("Creating resource group '%s'", config.Cloud.ResourceGroup)
-	_, err = c.CreateOrUpdate(ctx, config.Cloud.ResourceGroup,
+	log.Debug().Msgf("Creating resource group '%s'", i.Config.Cloud.ResourceGroup)
+	_, err = c.CreateOrUpdate(ctx, i.Config.Cloud.ResourceGroup,
 		armresources.ResourceGroup{
-			Location: Ptr(config.Cloud.DefaultLocation),
+			Location: Ptr(i.Config.Cloud.DefaultLocation),
 		}, nil)
 
 	if err != nil {
@@ -236,66 +228,66 @@ func logError(err error, msg string) {
 	}
 }
 
-func createPromises(ctx context.Context, config *CloudEnvironmentConfig) install.PromiseGroup {
+func (i *Installer) createPromises(ctx context.Context) install.PromiseGroup {
 	group := &install.PromiseGroup{}
 
 	var createApiHostClusterPromise *install.Promise[*armcontainerservice.ManagedCluster]
 
-	tygerServerManagedIdentityPromise := install.NewPromise(ctx, group, createTygerServerManagedIdentity)
-	migrationRunnerManagedIdentityPromise := install.NewPromise(ctx, group, createMigrationRunnerManagedIdentity)
+	tygerServerManagedIdentityPromise := install.NewPromise(ctx, group, i.createTygerServerManagedIdentity)
+	migrationRunnerManagedIdentityPromise := install.NewPromise(ctx, group, i.createMigrationRunnerManagedIdentity)
 
 	install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
-		return createDatabase(ctx, tygerServerManagedIdentityPromise, migrationRunnerManagedIdentityPromise)
+		return i.createDatabase(ctx, tygerServerManagedIdentityPromise, migrationRunnerManagedIdentityPromise)
 	})
 
-	for _, clusterConfig := range config.Cloud.Compute.Clusters {
+	for _, clusterConfig := range i.Config.Cloud.Compute.Clusters {
 		createClusterPromise := install.NewPromise(
 			ctx,
 			group,
 			func(ctx context.Context) (*armcontainerservice.ManagedCluster, error) {
-				return createCluster(ctx, clusterConfig)
+				return i.createCluster(ctx, clusterConfig)
 			})
 		if clusterConfig.ApiHost {
 			createApiHostClusterPromise = createClusterPromise
 			install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
-				return createFederatedIdentityCredential(ctx, tygerServerManagedIdentityPromise, createClusterPromise)
+				return i.createFederatedIdentityCredential(ctx, tygerServerManagedIdentityPromise, createClusterPromise)
 			})
 			install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
-				return createFederatedIdentityCredential(ctx, migrationRunnerManagedIdentityPromise, createClusterPromise)
+				return i.createFederatedIdentityCredential(ctx, migrationRunnerManagedIdentityPromise, createClusterPromise)
 			})
 		}
 	}
 
-	getAdminCredsPromise := install.NewPromiseAfter(ctx, group, getAdminRESTConfig, createApiHostClusterPromise)
+	getAdminCredsPromise := install.NewPromiseAfter(ctx, group, i.getAdminRESTConfig, createApiHostClusterPromise)
 
 	createTygerNamespacePromise := install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
 		return createTygerNamespace(ctx, getAdminCredsPromise)
 	})
 
 	install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
-		return createTygerClusterRBAC(ctx, getAdminCredsPromise, createTygerNamespacePromise)
+		return i.createTygerClusterRBAC(ctx, getAdminCredsPromise, createTygerNamespacePromise)
 	})
 
 	install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
-		return CreateStorageAccount(ctx, config.Cloud.Storage.Logs, getAdminCredsPromise, tygerServerManagedIdentityPromise)
+		return i.CreateStorageAccount(ctx, i.Config.Cloud.Storage.Logs, getAdminCredsPromise, tygerServerManagedIdentityPromise)
 	})
 
-	for _, buf := range config.Cloud.Storage.Buffers {
+	for _, buf := range i.Config.Cloud.Storage.Buffers {
 		install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
-			return CreateStorageAccount(ctx, buf, getAdminCredsPromise, tygerServerManagedIdentityPromise)
+			return i.CreateStorageAccount(ctx, buf, getAdminCredsPromise, tygerServerManagedIdentityPromise)
 		})
 	}
 
 	install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
-		return installTraefik(ctx, getAdminCredsPromise)
+		return i.installTraefik(ctx, getAdminCredsPromise)
 	})
 
 	install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
-		return installCertManager(ctx, getAdminCredsPromise)
+		return i.installCertManager(ctx, getAdminCredsPromise)
 	})
 
 	install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
-		return installNvidiaDevicePlugin(ctx, getAdminCredsPromise)
+		return i.installNvidiaDevicePlugin(ctx, getAdminCredsPromise)
 	})
 
 	return *group

@@ -46,15 +46,14 @@ func newIdentitiesInstallCommand() *cobra.Command {
 
 			cloudInstaller := CheckCloudInstaller(installer)
 
-			config := cloudInstaller.Config
-			cred, err := cloudinstall.NewMiAwareAzureCLICredential(&azidentity.AzureCLICredentialOptions{TenantID: config.Api.Auth.TenantID})
+			cred, err := cloudinstall.NewMiAwareAzureCLICredential(&azidentity.AzureCLICredentialOptions{TenantID: cloudInstaller.Config.Api.Auth.TenantID})
 			if err != nil {
 				return err
 			}
 			for {
-				ctx = cloudinstall.SetAzureCredentialOnContext(ctx, cred)
+				cloudInstaller.Credential = cred
 				if _, err := cloudinstall.GetGraphToken(ctx, cred); err != nil {
-					fmt.Printf("Run 'az login --tenant %s --allow-no-subscriptions' from another terminal window.\nPress any key when ready...\n\n", config.Api.Auth.TenantID)
+					fmt.Printf("Run 'az login --tenant %s --allow-no-subscriptions' from another terminal window.\nPress any key when ready...\n\n", cloudInstaller.Config.Api.Auth.TenantID)
 					getSingleKey()
 					continue
 				}
@@ -63,7 +62,7 @@ func newIdentitiesInstallCommand() *cobra.Command {
 
 			log.Info().Msg("Starting identities install")
 
-			if err := cloudinstall.InstallIdentities(ctx, cred); err != nil {
+			if err := cloudInstaller.InstallIdentities(ctx, cred); err != nil {
 				if err != install.ErrAlreadyLoggedError {
 					log.Fatal().Err(err).Send()
 				}

@@ -33,7 +33,7 @@ func (i *Installer) ListDatabaseVersions(ctx context.Context, allVersions bool) 
 		return nil, err
 	}
 
-	job, err := getMigrationRunnerJobDefinition(ctx, restConfig)
+	job, err := i.getMigrationRunnerJobDefinition(ctx, restConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -109,11 +109,11 @@ func (i *Installer) ListDatabaseVersions(ctx context.Context, allVersions bool) 
 
 	log.Debug().Msg("Invoking command in pod")
 
-	return getDatabaseVersionsFromPod(ctx, pod.Name, allVersions)
+	return i.getDatabaseVersionsFromPod(ctx, pod.Name, allVersions)
 }
 
-func getDatabaseVersionsFromPod(ctx context.Context, podName string, allVersions bool) ([]install.DatabaseVersion, error) {
-	stdout, stderr, err := PodExec(ctx, podName, "/app/bin/tyger-server", "database", "list-versions")
+func (i *Installer) getDatabaseVersionsFromPod(ctx context.Context, podName string, allVersions bool) ([]install.DatabaseVersion, error) {
+	stdout, stderr, err := i.PodExec(ctx, podName, "/app/bin/tyger-server", "database", "list-versions")
 	if err != nil {
 		errorLog := ""
 		if stderr != nil {
@@ -208,7 +208,7 @@ func (i *Installer) ApplyMigrations(ctx context.Context, targetVersion int, late
 		}
 	}
 
-	job, err := getMigrationRunnerJobDefinition(ctx, restConfig)
+	job, err := i.getMigrationRunnerJobDefinition(ctx, restConfig)
 	if err != nil {
 		return err
 	}
