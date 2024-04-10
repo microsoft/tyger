@@ -1,6 +1,7 @@
 package dockerinstall
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -8,14 +9,21 @@ import (
 	"io"
 	"strconv"
 
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/mount"
+	"github.com/docker/docker/client"
 	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/rs/zerolog/log"
+)
+
+const (
+	migrationRangeLabel = "tyger-migration-range"
 )
 
 func (i *Installer) ListDatabaseVersions(ctx context.Context, allVersions bool) ([]install.DatabaseVersion, error) {
 	containerName := "tyger-migration-list-versions"
 
-	if err := i.startMigrationRunner(ctx, containerName, []string{"database", "list-versions"}); err != nil {
+	if err := i.startMigrationRunner(ctx, containerName, []string{"database", "list-versions"}, nil); err != nil {
 		return nil, err
 	}
 
@@ -64,7 +72,7 @@ func (i *Installer) ApplyMigrations(ctx context.Context, targetVersion int, late
 		return err
 	}
 
-	current := -1
+	current := 0
 	for i := len(versions) - 1; i >= 0; i-- {
 		if versions[i].State == "complete" {
 			current = versions[i].Id
@@ -94,13 +102,17 @@ func (i *Installer) ApplyMigrations(ctx context.Context, targetVersion int, late
 		return nil
 	}
 
-	containerName := "tyger-migration-runner"
+	containerName := migrationRunnerContainerName
 	args := []string{"database", "migrate", "--target-version", strconv.Itoa(targetVersion)}
 	if offline {
 		args = append(args, "--offline")
 	}
 
-	if err := i.startMigrationRunner(ctx, containerName, args); err != nil {
+	labels := map[string]string{
+		migrationRangeLabel: fmt.Sprintf("%d-%d", current+1, targetVersion),
+	}
+
+	if err := i.startMigrationRunner(ctx, containerName, args, labels); err != nil {
 		return err
 	}
 
@@ -125,5 +137,98 @@ func (i *Installer) ApplyMigrations(ctx context.Context, targetVersion int, late
 }
 
 func (i *Installer) GetMigrationLogs(ctx context.Context, id int, destination io.Writer) error {
-	panic("not implemented")
+	logsNotAvailableErr := fmt.Errorf("logs for migration %d are not available", id)
+	migrationContainer, err := i.client.ContainerInspect(ctx, migrationRunnerContainerName)
+	if err != nil {
+		if client.IsErrNotFound(err) {
+			return logsNotAvailableErr
+		}
+
+		return err
+	}
+
+	rangeString := migrationContainer.Config.Labels[migrationRangeLabel]
+	var start, end int
+	if _, err := fmt.Sscanf(rangeString, "%d-%d", &start, &end); err != nil {
+		return logsNotAvailableErr
+	}
+
+	if id < start || id > end {
+		return logsNotAvailableErr
+	}
+
+	logs := &bytes.Buffer{}
+	if err := i.getContainerLogs(ctx, migrationRunnerContainerName, io.Discard, logs); err != nil {
+		return logsNotAvailableErr
+	}
+
+	scanner := bufio.NewScanner(logs)
+	for scanner.Scan() {
+		var parsed map[string]any
+		err := json.Unmarshal(scanner.Bytes(), &parsed)
+		if err != nil {
+			fmt.Fprintln(destination, scanner.Text())
+			continue
+		}
+
+		scope := parsed["migrationVersionScope"]
+		if scope == nil {
+			fmt.Fprintln(destination, scanner.Text())
+			continue
+		}
+		scopeId := int(scope.(float64))
+		if scopeId < id {
+			continue
+		}
+		if scopeId == id {
+			fmt.Fprintln(destination, scanner.Text())
+			continue
+		}
+		if scopeId > id {
+			break
+		}
+	}
+
+	return nil
+}
+
+func (i *Installer) startMigrationRunner(ctx context.Context, containerName string, args []string, labels map[string]string) error {
+	containerSpec := containerSpec{
+		ContainerConfig: &container.Config{
+			Image: i.Config.ControlPlaneImage,
+			User:  fmt.Sprintf("%d:%d", i.Config.GetUserIdInt(), i.Config.GetGroupIdInt()),
+			Env: []string{
+				"Urls=http://unix:/opt/tyger/control-plane/tyger.sock",
+				"Database__ConnectionString=Host=/opt/tyger/database; Username=tyger-server",
+				"Database__AutoMigrate=true",
+				"Database__TygerServerRoleName=tyger-server",
+				"Compute__Docker__Enabled=true",
+			},
+			Cmd:    args,
+			Labels: labels,
+		},
+		HostConfig: &container.HostConfig{
+			Mounts: []mount.Mount{
+				{
+					Type:   "bind",
+					Source: "/opt/tyger/",
+					Target: "/opt/tyger/",
+				},
+			},
+			NetworkMode: "none",
+			RestartPolicy: container.RestartPolicy{
+				Name: container.RestartPolicyDisabled,
+			},
+		},
+	}
+
+	if err := i.createContainer(ctx, containerName, &containerSpec, false); err != nil {
+		return fmt.Errorf("error creating migration runner container: %w", err)
+	}
+
+	if err := i.client.ContainerStart(ctx, containerName, container.StartOptions{}); err != nil {
+		return err
+	}
+
+	return nil
 }

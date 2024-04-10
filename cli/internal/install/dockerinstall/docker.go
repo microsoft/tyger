@@ -30,16 +30,33 @@ import (
 const (
 	defaultPostgresImage = "postgres"
 
-	containerConfigHashLabel = "tyger-container-config-hash"
+	containerSpecHashLabel = "tyger-container-spec-hash"
 
-	databaseDockerContainerName     = "tyger-db"
-	dataPlaneDockerContainerName    = "tyger-data-plane"
-	controlPlaneDockerContainerName = "tyger-control-plane"
+	databaseContainerName        = "tyger-db"
+	dataPlaneContainerName       = "tyger-data-plane"
+	controlPlaneContainerName    = "tyger-control-plane"
+	migrationRunnerContainerName = "tyger-migration-runner"
 
-	databaseDockerVolumeName = "tyger-db"
-	buffersDockerVolumeName  = "tyger-buffers"
-	runLogsDockerVolumeName  = "tyger-run-logs"
+	databaseVolumeName = "tyger-db"
+	buffersVolumeName  = "tyger-buffers"
+	runLogsVolumeName  = "tyger-run-logs"
 )
+
+type containerSpec struct {
+	ContainerConfig  *container.Config         `json:"containerConfig"`
+	HostConfig       *container.HostConfig     `json:"hostConfig"`
+	NetworkingConfig *network.NetworkingConfig `json:"networkingConfig"`
+}
+
+func (s *containerSpec) computeHash() string {
+	desiredBytes, err := json.Marshal(s)
+	if err != nil {
+		panic(err)
+	}
+
+	hashBytes := sha256.Sum256(desiredBytes)
+	return base32.StdEncoding.EncodeToString(hashBytes[:])
+}
 
 type Installer struct {
 	Config *DockerEnvironmentConfig
@@ -82,8 +99,8 @@ func (i *Installer) InstallTyger(ctx context.Context) error {
 }
 
 func (i *Installer) initializeDatabase(ctx context.Context) error {
-	containerName := "tyger-migration-runner"
-	if err := i.startMigrationRunner(ctx, containerName, []string{"database", "init"}); err != nil {
+	containerName := "tyger-database-init"
+	if err := i.startMigrationRunner(ctx, containerName, []string{"database", "init"}, nil); err != nil {
 		return fmt.Errorf("error starting running migration runner: %w", err)
 	}
 
@@ -123,7 +140,7 @@ func (i *Installer) ensureDirectoryExists(path string) error {
 }
 
 func (i *Installer) createControlPlaneContainer(ctx context.Context) error {
-	if err := i.ensureVolumeCreated(ctx, runLogsDockerVolumeName); err != nil {
+	if err := i.ensureVolumeCreated(ctx, runLogsVolumeName); err != nil {
 		return err
 	}
 
@@ -143,67 +160,68 @@ func (i *Installer) createControlPlaneContainer(ctx context.Context) error {
 		secondaryPublicCertificatePath = ""
 	}
 
-	desiredContainerConfig := container.Config{
-		Image: image,
-		User:  fmt.Sprintf("%d:%d", i.Config.GetUserIdInt(), i.Config.GetGroupIdInt()),
-		Env: []string{
-			"Urls=http://unix:/opt/tyger/control-plane/tyger.sock",
-			"SocketPermissions=660",
-			"Auth__Enabled=false",
-			"Compute__Docker__RunSecretsPath=/opt/tyger/control-plane/run-secrets/",
-			"Compute__Docker__EphemeralBuffersPath=/opt/tyger/control-plane/ephemeral-buffers/",
-			"LogArchive__LocalStorage__LogsDirectory=/app/logs",
-			"Buffers__BufferSidecarImage=" + i.Config.BufferSidecarImage,
-			"Buffers__LocalStorage__DataPlaneEndpoint=http+unix:///opt/tyger/data-plane/tyger.data.sock",
-			"Buffers__PrimarySigningPrivateKeyPath=" + primaryPublicCertificatePath,
-			"Buffers__SecondarySigningPrivateKeyPath=" + secondaryPublicCertificatePath,
-			"Database__ConnectionString=Host=/opt/tyger/database; Username=tyger-server",
-			"Database__TygerServerRoleName=tyger-server",
-		},
-		Healthcheck: &container.HealthConfig{
-			Test: []string{
-				"CMD",
-				"/app/bin/curl",
-				"--fail",
-				"--unix", "/opt/tyger/control-plane/tyger.sock",
-				"http://local/healthcheck",
+	containerSpec := containerSpec{
+		ContainerConfig: &container.Config{
+			Image: image,
+			User:  fmt.Sprintf("%d:%d", i.Config.GetUserIdInt(), i.Config.GetGroupIdInt()),
+			Env: []string{
+				"Urls=http://unix:/opt/tyger/control-plane/tyger.sock",
+				"SocketPermissions=660",
+				"Auth__Enabled=false",
+				"Compute__Docker__RunSecretsPath=/opt/tyger/control-plane/run-secrets/",
+				"Compute__Docker__EphemeralBuffersPath=/opt/tyger/control-plane/ephemeral-buffers/",
+				"LogArchive__LocalStorage__LogsDirectory=/app/logs",
+				"Buffers__BufferSidecarImage=" + i.Config.BufferSidecarImage,
+				"Buffers__LocalStorage__DataPlaneEndpoint=http+unix:///opt/tyger/data-plane/tyger.data.sock",
+				"Buffers__PrimarySigningPrivateKeyPath=" + primaryPublicCertificatePath,
+				"Buffers__SecondarySigningPrivateKeyPath=" + secondaryPublicCertificatePath,
+				"Database__ConnectionString=Host=/opt/tyger/database; Username=tyger-server",
+				"Database__TygerServerRoleName=tyger-server",
 			},
-			StartInterval: 2 * time.Second,
-			Interval:      10 * time.Second,
-		},
-	}
-
-	desiredHostConfig := container.HostConfig{
-		Mounts: []mount.Mount{
-			{
-				Type:   "volume",
-				Source: runLogsDockerVolumeName,
-				Target: "/app/logs",
-			},
-			{
-				Type:   "bind",
-				Source: "/opt/tyger/control-plane",
-				Target: "/opt/tyger/control-plane",
-			},
-			{
-				Type:   "bind",
-				Source: "/opt/tyger/data-plane",
-				Target: "/opt/tyger/data-plane",
-			},
-			{
-				Type:   "bind",
-				Source: "/opt/tyger/database",
-				Target: "/opt/tyger/database",
-			},
-			{
-				Type:   "bind",
-				Source: "/var/run/docker.sock",
-				Target: "/var/run/docker.sock",
+			Healthcheck: &container.HealthConfig{
+				Test: []string{
+					"CMD",
+					"/app/bin/curl",
+					"--fail",
+					"--unix", "/opt/tyger/control-plane/tyger.sock",
+					"http://local/healthcheck",
+				},
+				StartInterval: 2 * time.Second,
+				Interval:      10 * time.Second,
 			},
 		},
-		NetworkMode: "none",
-		RestartPolicy: container.RestartPolicy{
-			Name: container.RestartPolicyUnlessStopped,
+		HostConfig: &container.HostConfig{
+			Mounts: []mount.Mount{
+				{
+					Type:   "volume",
+					Source: runLogsVolumeName,
+					Target: "/app/logs",
+				},
+				{
+					Type:   "bind",
+					Source: "/opt/tyger/control-plane",
+					Target: "/opt/tyger/control-plane",
+				},
+				{
+					Type:   "bind",
+					Source: "/opt/tyger/data-plane",
+					Target: "/opt/tyger/data-plane",
+				},
+				{
+					Type:   "bind",
+					Source: "/opt/tyger/database",
+					Target: "/opt/tyger/database",
+				},
+				{
+					Type:   "bind",
+					Source: "/var/run/docker.sock",
+					Target: "/var/run/docker.sock",
+				},
+			},
+			NetworkMode: "none",
+			RestartPolicy: container.RestartPolicy{
+				Name: container.RestartPolicyUnlessStopped,
+			},
 		},
 	}
 
@@ -215,10 +233,8 @@ func (i *Installer) createControlPlaneContainer(ctx context.Context) error {
 	}
 
 	if dockerSocketPerms&0060 == 0060 {
-		desiredHostConfig.GroupAdd = append(desiredHostConfig.GroupAdd, strconv.Itoa(dockerSocketGroupId))
+		containerSpec.HostConfig.GroupAdd = append(containerSpec.HostConfig.GroupAdd, strconv.Itoa(dockerSocketGroupId))
 	}
-
-	desiredNetworkingConfig := network.NetworkingConfig{}
 
 	postCreateAction := func(containerName string) error {
 		tarFs := memfs.New()
@@ -249,8 +265,8 @@ func (i *Installer) createControlPlaneContainer(ctx context.Context) error {
 
 	if err := i.createContainer(
 		ctx,
-		controlPlaneDockerContainerName,
-		&desiredContainerConfig, &desiredHostConfig, &desiredNetworkingConfig,
+		controlPlaneContainerName,
+		&containerSpec,
 		true,
 		postCreateAction); err != nil {
 		return err
@@ -258,45 +274,6 @@ func (i *Installer) createControlPlaneContainer(ctx context.Context) error {
 
 	if err := os.Symlink("/opt/tyger/control-plane/tyger.sock", "/opt/tyger/api.sock"); err != nil && !os.IsExist(err) {
 		return fmt.Errorf("error creating symlink: %w", err)
-	}
-
-	return nil
-}
-
-func (i *Installer) startMigrationRunner(ctx context.Context, containerName string, args []string) error {
-	desiredContainerConfig := container.Config{
-		Image: i.Config.ControlPlaneImage,
-		User:  fmt.Sprintf("%d:%d", i.Config.GetUserIdInt(), i.Config.GetGroupIdInt()),
-		Env: []string{
-			"Urls=http://unix:/opt/tyger/control-plane/tyger.sock",
-			"Database__ConnectionString=Host=/opt/tyger/database; Username=tyger-server",
-			"Database__AutoMigrate=true",
-			"Database__TygerServerRoleName=tyger-server",
-			"Compute__Docker__Enabled=true",
-		},
-		Cmd: args,
-	}
-
-	desiredHostConfig := container.HostConfig{
-		Mounts: []mount.Mount{
-			{
-				Type:   "bind",
-				Source: "/opt/tyger/",
-				Target: "/opt/tyger/",
-			},
-		},
-		NetworkMode: "none",
-		RestartPolicy: container.RestartPolicy{
-			Name: container.RestartPolicyDisabled,
-		},
-	}
-
-	if err := i.createContainer(ctx, containerName, &desiredContainerConfig, &desiredHostConfig, &network.NetworkingConfig{}, false); err != nil {
-		return fmt.Errorf("error creating migration runner container: %w", err)
-	}
-
-	if err := i.client.ContainerStart(ctx, containerName, container.StartOptions{}); err != nil {
-		return err
 	}
 
 	return nil
@@ -335,15 +312,19 @@ func (i *Installer) UninstallTyger(ctx context.Context) error {
 		return fmt.Errorf("error creating docker client: %w", err)
 	}
 
-	if err := i.removeContainer(ctx, databaseDockerContainerName); err != nil {
+	if err := i.removeContainer(ctx, databaseContainerName); err != nil {
 		return fmt.Errorf("error removing database container: %w", err)
 	}
 
-	if err := i.removeContainer(ctx, dataPlaneDockerContainerName); err != nil {
+	if err := i.removeContainer(ctx, dataPlaneContainerName); err != nil {
 		return fmt.Errorf("error removing data plane container: %w", err)
 	}
 
-	if err := i.removeContainer(ctx, controlPlaneDockerContainerName); err != nil {
+	if err := i.removeContainer(ctx, controlPlaneContainerName); err != nil {
+		return fmt.Errorf("error removing control plane container: %w", err)
+	}
+
+	if err := i.removeContainer(ctx, migrationRunnerContainerName); err != nil {
 		return fmt.Errorf("error removing control plane container: %w", err)
 	}
 
@@ -380,7 +361,7 @@ func (i *Installer) UninstallTyger(ctx context.Context) error {
 }
 
 func (i *Installer) createDatabaseContainer(ctx context.Context) error {
-	if err := i.ensureVolumeCreated(ctx, databaseDockerVolumeName); err != nil {
+	if err := i.ensureVolumeCreated(ctx, databaseVolumeName); err != nil {
 		return err
 	}
 
@@ -393,42 +374,43 @@ func (i *Installer) createDatabaseContainer(ctx context.Context) error {
 		image = defaultPostgresImage
 	}
 
-	desiredContainerConfig := container.Config{
-		Image: image,
-		Cmd: []string{
-			"-c", "listen_addresses=", // only unix socket
-		},
-		Env: []string{
-			"POSTGRES_HOST_AUTH_METHOD=trust",
-			"POSTGRES_USER=tyger-server",
-		},
-		Healthcheck: &container.HealthConfig{
-			Test:          []string{"CMD", "pg_isready", "-U", "tyger-server"},
-			StartInterval: 2 * time.Second,
-			Interval:      10 * time.Second,
-		},
-	}
-	desiredHostConfig := container.HostConfig{
-		Mounts: []mount.Mount{
-			{
-				Type:   "volume",
-				Source: databaseDockerVolumeName,
-				Target: "/var/lib/postgresql/data",
+	containerSpec := containerSpec{
+		ContainerConfig: &container.Config{
+			Image: image,
+			Cmd: []string{
+				"-c", "listen_addresses=", // only unix socket
 			},
-			{
-				Type:   "bind",
-				Source: "/opt/tyger/database",
-				Target: "/var/run/postgresql/",
+			Env: []string{
+				"POSTGRES_HOST_AUTH_METHOD=trust",
+				"POSTGRES_USER=tyger-server",
+			},
+			Healthcheck: &container.HealthConfig{
+				Test:          []string{"CMD", "pg_isready", "-U", "tyger-server"},
+				StartInterval: 2 * time.Second,
+				Interval:      10 * time.Second,
 			},
 		},
-		NetworkMode: "none",
-		RestartPolicy: container.RestartPolicy{
-			Name: container.RestartPolicyUnlessStopped,
+		HostConfig: &container.HostConfig{
+			Mounts: []mount.Mount{
+				{
+					Type:   "volume",
+					Source: databaseVolumeName,
+					Target: "/var/lib/postgresql/data",
+				},
+				{
+					Type:   "bind",
+					Source: "/opt/tyger/database",
+					Target: "/var/run/postgresql/",
+				},
+			},
+			NetworkMode: "none",
+			RestartPolicy: container.RestartPolicy{
+				Name: container.RestartPolicyUnlessStopped,
+			},
 		},
 	}
-	desiredNetworkingConfig := network.NetworkingConfig{}
 
-	if err := i.createContainer(ctx, databaseDockerContainerName, &desiredContainerConfig, &desiredHostConfig, &desiredNetworkingConfig, true); err != nil {
+	if err := i.createContainer(ctx, databaseContainerName, &containerSpec, true); err != nil {
 		return err
 	}
 
@@ -436,7 +418,7 @@ func (i *Installer) createDatabaseContainer(ctx context.Context) error {
 }
 
 func (i *Installer) createDataPlaneContainer(ctx context.Context) error {
-	if err := i.ensureVolumeCreated(ctx, buffersDockerVolumeName); err != nil {
+	if err := i.ensureVolumeCreated(ctx, buffersVolumeName); err != nil {
 		return err
 	}
 
@@ -455,48 +437,48 @@ func (i *Installer) createDataPlaneContainer(ctx context.Context) error {
 		secondaryPublicCertificatePath = ""
 	}
 
-	desiredContainerConfig := container.Config{
-		Image: image,
-		User:  i.Config.UserId,
-		Env: []string{
-			"Urls=http://unix:/opt/tyger/data-plane/tyger.data.sock",
-			"SocketPermissions=666",
-			"DataDirectory=/app/data",
-			"PrimarySigningPublicKeyPath=" + primaryPublicCertificatePath,
-			"SecondarySigningPublicKeyPath=" + secondaryPublicCertificatePath,
-		},
-		Healthcheck: &container.HealthConfig{
-			Test: []string{
-				"CMD",
-				"/app/bin/curl",
-				"--fail",
-				"--unix", "/opt/tyger/data-plane/tyger.data.sock",
-				"http://local/healthcheck",
+	spec := containerSpec{
+		ContainerConfig: &container.Config{
+			Image: image,
+			User:  i.Config.UserId,
+			Env: []string{
+				"Urls=http://unix:/opt/tyger/data-plane/tyger.data.sock",
+				"SocketPermissions=666",
+				"DataDirectory=/app/data",
+				"PrimarySigningPublicKeyPath=" + primaryPublicCertificatePath,
+				"SecondarySigningPublicKeyPath=" + secondaryPublicCertificatePath,
 			},
-			StartInterval: 2 * time.Second,
-			Interval:      10 * time.Second,
+			Healthcheck: &container.HealthConfig{
+				Test: []string{
+					"CMD",
+					"/app/bin/curl",
+					"--fail",
+					"--unix", "/opt/tyger/data-plane/tyger.data.sock",
+					"http://local/healthcheck",
+				},
+				StartInterval: 2 * time.Second,
+				Interval:      10 * time.Second,
+			},
+		},
+		HostConfig: &container.HostConfig{
+			Mounts: []mount.Mount{
+				{
+					Type:   "volume",
+					Source: buffersVolumeName,
+					Target: "/app/data",
+				},
+				{
+					Type:   "bind",
+					Source: "/opt/tyger/data-plane",
+					Target: "/opt/tyger/data-plane",
+				},
+			},
+			NetworkMode: "none",
+			RestartPolicy: container.RestartPolicy{
+				Name: container.RestartPolicyUnlessStopped,
+			},
 		},
 	}
-
-	desiredHostConfig := container.HostConfig{
-		Mounts: []mount.Mount{
-			{
-				Type:   "volume",
-				Source: buffersDockerVolumeName,
-				Target: "/app/data",
-			},
-			{
-				Type:   "bind",
-				Source: "/opt/tyger/data-plane",
-				Target: "/opt/tyger/data-plane",
-			},
-		},
-		NetworkMode: "none",
-		RestartPolicy: container.RestartPolicy{
-			Name: container.RestartPolicyUnlessStopped,
-		},
-	}
-	desiredNetworkingConfig := network.NetworkingConfig{}
 
 	postCreateAction := func(containerName string) error {
 		tarFs := memfs.New()
@@ -527,8 +509,8 @@ func (i *Installer) createDataPlaneContainer(ctx context.Context) error {
 
 	if err := i.createContainer(
 		ctx,
-		dataPlaneDockerContainerName,
-		&desiredContainerConfig, &desiredHostConfig, &desiredNetworkingConfig,
+		dataPlaneContainerName,
+		&spec,
 		true,
 		postCreateAction); err != nil {
 		return err
@@ -540,16 +522,16 @@ func (i *Installer) createDataPlaneContainer(ctx context.Context) error {
 func (i *Installer) createContainer(
 	ctx context.Context,
 	containerName string,
-	desiredContainerConfig *container.Config,
-	desiredHostConfig *container.HostConfig,
-	desiredNetworkingConfig *network.NetworkingConfig,
+	containerSpec *containerSpec,
 	waitForHealthy bool,
 	postCreateActions ...func(containerName string) error,
 ) error {
-	configHash := i.computeContainerConfigHash(desiredContainerConfig, desiredHostConfig, desiredNetworkingConfig)
-	desiredContainerConfig.Labels = map[string]string{
-		containerConfigHashLabel: configHash,
+	specHash := containerSpec.computeHash()
+	if containerSpec.ContainerConfig.Labels == nil {
+		containerSpec.ContainerConfig.Labels = make(map[string]string)
 	}
+
+	containerSpec.ContainerConfig.Labels[containerSpecHashLabel] = specHash
 
 	containerExists := true
 	existingContainer, err := i.client.ContainerInspect(ctx, containerName)
@@ -561,7 +543,7 @@ func (i *Installer) createContainer(
 		containerExists = false
 	}
 
-	if containerExists && (existingContainer.Config.Labels[containerConfigHashLabel] != configHash || !existingContainer.State.Running) {
+	if containerExists && (existingContainer.Config.Labels[containerSpecHashLabel] != specHash || !existingContainer.State.Running) {
 		if err := i.removeContainer(ctx, containerName); err != nil {
 			return fmt.Errorf("error removing existing container: %w", err)
 		}
@@ -570,12 +552,12 @@ func (i *Installer) createContainer(
 	}
 
 	if !containerExists {
-		containerImage := desiredContainerConfig.Image
+		containerImage := containerSpec.ContainerConfig.Image
 		if err := i.pullImage(ctx, containerImage, false); err != nil {
 			return fmt.Errorf("error pulling image: %w", err)
 		}
 
-		resp, err := i.client.ContainerCreate(ctx, desiredContainerConfig, desiredHostConfig, desiredNetworkingConfig, nil, containerName)
+		resp, err := i.client.ContainerCreate(ctx, containerSpec.ContainerConfig, containerSpec.HostConfig, containerSpec.NetworkingConfig, nil, containerName)
 
 		if err != nil {
 			return fmt.Errorf("error creating container: %w", err)
@@ -633,26 +615,6 @@ func (i *Installer) pullImage(ctx context.Context, containerImage string, always
 	log.Info().Msgf("Done pulling image %s", containerImage)
 
 	return nil
-}
-
-func (i *Installer) computeContainerConfigHash(desiredConfig *container.Config, desiredHostConfig *container.HostConfig, desiredNetworkingConfig *network.NetworkingConfig) string {
-	combinedDesiredConfig := struct {
-		Config  *container.Config
-		Host    *container.HostConfig
-		Network *network.NetworkingConfig
-	}{
-		Config:  desiredConfig,
-		Host:    desiredHostConfig,
-		Network: desiredNetworkingConfig,
-	}
-
-	desiredBytes, err := json.Marshal(combinedDesiredConfig)
-	if err != nil {
-		panic(err)
-	}
-
-	hashBytes := sha256.Sum256(desiredBytes)
-	return base32.StdEncoding.EncodeToString(hashBytes[:])
 }
 
 func (i *Installer) removeContainer(ctx context.Context, containerName string) error {
