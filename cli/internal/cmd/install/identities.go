@@ -32,16 +32,21 @@ func NewIdentitiesCommand(parentCommand *cobra.Command) *cobra.Command {
 }
 
 func newIdentitiesInstallCommand() *cobra.Command {
-	flags := commonFlags{}
+	flags := commonFlags{
+		skipLoginAndValidateSubscription: true,
+	}
+
 	cmd := &cobra.Command{
 		Use:                   "install",
 		Short:                 "Install Entra ID identities",
 		Long:                  "Install Entra ID identities",
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := commonPrerun(cmd.Context(), &flags)
+			ctx, installer := commonPrerun(cmd.Context(), &flags)
 
-			config := cloudinstall.GetCloudEnvironmentConfigFromContext(ctx)
+			cloudInstaller := CheckCloudInstaller(installer)
+
+			config := cloudInstaller.Config
 			cred, err := cloudinstall.NewMiAwareAzureCLICredential(&azidentity.AzureCLICredentialOptions{TenantID: config.Api.Auth.TenantID})
 			if err != nil {
 				return err

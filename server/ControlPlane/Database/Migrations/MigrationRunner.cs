@@ -80,75 +80,78 @@ public class MigrationRunner : IHostedService
 
         foreach ((var version, var migrator) in migrations)
         {
-            if (!offline)
+            using (_logger.BeginScope(new Dictionary<string, object> { ["migrationVersionScope"] = (int)version }))
             {
-                for (int i = 0; ; i++)
+                if (!offline)
                 {
-                    var allReady = true;
-                    try
+                    for (int i = 0; ; i++)
                     {
-                        await foreach ((var replicaUri, var replicaDatabaseVersion) in _replicaDatabaseVersionProvider.GetDatabaseVersionsOfReplicas(cancellationToken))
+                        var allReady = true;
+                        try
                         {
-                            if (replicaDatabaseVersion != version)
+                            await foreach ((var replicaUri, var replicaDatabaseVersion) in _replicaDatabaseVersionProvider.GetDatabaseVersionsOfReplicas(cancellationToken))
                             {
-                                _logger.WaitingForReplicaToUseRequiredVersion(replicaUri.ToString(), (int)version, (int)replicaDatabaseVersion);
-                                allReady = false;
+                                if (replicaDatabaseVersion != version)
+                                {
+                                    _logger.WaitingForReplicaToUseRequiredVersion(replicaUri.ToString(), (int)version, (int)replicaDatabaseVersion);
+                                    allReady = false;
+                                }
                             }
                         }
-                    }
-                    catch (Exception e) when (!cancellationToken.IsCancellationRequested && i < 50)
-                    {
-                        _logger.ErrorValidatingCurrentDatabaseVersionsOnReplicas(e);
-                        allReady = false;
-                    }
+                        catch (Exception e) when (!cancellationToken.IsCancellationRequested && i < 50)
+                        {
+                            _logger.ErrorValidatingCurrentDatabaseVersionsOnReplicas(e);
+                            allReady = false;
+                        }
 
-                    if (allReady)
-                    {
-                        break;
-                    }
+                        if (allReady)
+                        {
+                            break;
+                        }
 
-                    await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
+                        await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
+                    }
                 }
-            }
 
-            _logger.ApplyingMigration((int)version);
-            string migrationState = MigrationStateStarted;
-            if (!databaseIsEmpty)
-            {
-                await AddToMigrationTable(version, migrationState, cancellationToken);
-            }
-
-            var migrationLogger = _loggerFactory.CreateLogger(migrator.GetType());
-
-            try
-            {
-                await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
-                    await migrator.Apply(_dataSource, migrationLogger, cancellationToken),
-                    cancellationToken);
-
-                await GrantAccess(cancellationToken);
-
-                migrationState = MigrationStateComplete;
-                databaseIsEmpty = false;
-                _logger.MigrationComplete((int)version);
-            }
-            catch (Exception e)
-            {
-                migrationState = MigrationStateFailed;
-                _logger.MigrationFailed((int)version, e);
-                throw;
-            }
-            finally
-            {
+                _logger.ApplyingMigration((int)version);
+                string migrationState = MigrationStateStarted;
                 if (!databaseIsEmpty)
                 {
-                    try
+                    await AddToMigrationTable(version, migrationState, cancellationToken);
+                }
+
+                var migrationLogger = _loggerFactory.CreateLogger(migrator.GetType());
+
+                try
+                {
+                    await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
+                        await migrator.Apply(_dataSource, migrationLogger, cancellationToken),
+                        cancellationToken);
+
+                    await GrantAccess(cancellationToken);
+
+                    migrationState = MigrationStateComplete;
+                    databaseIsEmpty = false;
+                    _logger.MigrationComplete((int)version);
+                }
+                catch (Exception e)
+                {
+                    migrationState = MigrationStateFailed;
+                    _logger.MigrationFailed((int)version, e);
+                    throw;
+                }
+                finally
+                {
+                    if (!databaseIsEmpty)
                     {
-                        await AddToMigrationTable(version, migrationState, cancellationToken);
-                    }
-                    catch (Exception e) when (migrationState == MigrationStateFailed)
-                    {
-                        _logger.FailedToUpdateMigrationsTable(e);
+                        try
+                        {
+                            await AddToMigrationTable(version, migrationState, cancellationToken);
+                        }
+                        catch (Exception e) when (migrationState == MigrationStateFailed)
+                        {
+                            _logger.FailedToUpdateMigrationsTable(e);
+                        }
                     }
                 }
             }

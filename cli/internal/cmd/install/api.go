@@ -16,8 +16,6 @@ import (
 	"strconv"
 
 	"github.com/microsoft/tyger/cli/internal/install"
-	"github.com/microsoft/tyger/cli/internal/install/cloudinstall"
-	"github.com/microsoft/tyger/cli/internal/install/dockerinstall"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -51,34 +49,16 @@ func newApiInstallCommand() *cobra.Command {
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
-			ctx := commonPrerun(cmd.Context(), &flags)
+			ctx, installer := commonPrerun(cmd.Context(), &flags)
 
 			log.Info().Msg("Starting Tyger API install")
 
-			switch t := install.GetEnvironmentConfigFromContext(ctx).(type) {
-			case *cloudinstall.CloudEnvironmentConfig:
-				ctx, err := loginAndValidateSubscription(ctx)
-				if err != nil {
+			err := installer.InstallTyger(ctx)
+			if err != nil {
+				if err != install.ErrAlreadyLoggedError {
 					log.Fatal().Err(err).Send()
 				}
-
-				if err := cloudinstall.InstallTygerInCloud(ctx); err != nil {
-					if err != install.ErrAlreadyLoggedError {
-						log.Fatal().Err(err).Send()
-					}
-					os.Exit(1)
-				}
-
-			case *dockerinstall.DockerEnvironmentConfig:
-				if err := dockerinstall.InstallTygerInDocker(ctx); err != nil {
-					if err != install.ErrAlreadyLoggedError {
-						log.Fatal().Err(err).Send()
-					}
-					os.Exit(1)
-				}
-
-			default:
-				panic(fmt.Sprintf("unexpected environment config type: %T", t))
+				os.Exit(1)
 			}
 
 			log.Info().Msg("Install complete")
@@ -98,34 +78,15 @@ func newApiUninstallCommand() *cobra.Command {
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
-			ctx := commonPrerun(cmd.Context(), &flags)
+			ctx, installer := commonPrerun(cmd.Context(), &flags)
 
 			log.Info().Msg("Starting Tyger API uninstall")
 
-			switch t := install.GetEnvironmentConfigFromContext(ctx).(type) {
-			case *cloudinstall.CloudEnvironmentConfig:
-				ctx, err := loginAndValidateSubscription(ctx)
-				if err != nil {
+			if err := installer.UninstallTyger(ctx); err != nil {
+				if err != install.ErrAlreadyLoggedError {
 					log.Fatal().Err(err).Send()
 				}
-
-				if err := cloudinstall.UninstallTygerFromCloud(ctx); err != nil {
-					if err != install.ErrAlreadyLoggedError {
-						log.Fatal().Err(err).Send()
-					}
-					os.Exit(1)
-				}
-
-			case *dockerinstall.DockerEnvironmentConfig:
-				if err := dockerinstall.UninstallTygerInDocker(ctx); err != nil {
-					if err != install.ErrAlreadyLoggedError {
-						log.Fatal().Err(err).Send()
-					}
-					os.Exit(1)
-				}
-
-			default:
-				panic(fmt.Sprintf("unexpected environment config type: %T", t))
+				os.Exit(1)
 			}
 
 			log.Info().Msg("Uninstall complete")
@@ -177,14 +138,8 @@ func NewMigrationApplyCommand() *cobra.Command {
 				log.Fatal().Msg("Only one of --latest or --target-version can be specified")
 			}
 
-			ctx := commonPrerun(cmd.Context(), &flags)
-
-			ctx, err := loginAndValidateSubscription(ctx)
-			if err != nil {
-				log.Fatal().Err(err).Send()
-			}
-
-			if err := cloudinstall.ApplyMigrations(ctx, targetVersion, latest, offline, wait); err != nil {
+			ctx, installer := commonPrerun(cmd.Context(), &flags)
+			if err := installer.ApplyMigrations(ctx, targetVersion, latest, offline, wait); err != nil {
 				log.Fatal().Err(err).Send()
 			}
 		},
@@ -208,19 +163,14 @@ func NewMigrationLogsCommand() *cobra.Command {
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			ctx := commonPrerun(cmd.Context(), &flags)
-
-			ctx, err := loginAndValidateSubscription(ctx)
-			if err != nil {
-				log.Fatal().Err(err).Send()
-			}
+			ctx, installer := commonPrerun(cmd.Context(), &flags)
 
 			id, err := strconv.Atoi(args[0])
 			if err != nil {
 				log.Fatal().Msg("The ID argument must be an integer")
 			}
 
-			if err := cloudinstall.GetMigrationLogs(ctx, id, os.Stdout); err != nil {
+			if err := installer.GetMigrationLogs(ctx, id, os.Stdout); err != nil {
 				log.Fatal().Err(err).Send()
 			}
 		},
@@ -240,29 +190,11 @@ func NewMigrationsListCommand() *cobra.Command {
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
-			ctx := commonPrerun(cmd.Context(), &flags)
+			ctx, installer := commonPrerun(cmd.Context(), &flags)
 
-			var versions []install.DatabaseVersion
-			switch t := install.GetEnvironmentConfigFromContext(ctx).(type) {
-			case *cloudinstall.CloudEnvironmentConfig:
-				ctx, err := loginAndValidateSubscription(ctx)
-				if err != nil {
-					log.Fatal().Err(err).Send()
-				}
-
-				versions, err = cloudinstall.ListDatabaseVersions(ctx, all)
-				if err != nil {
-					log.Fatal().Err(err).Msg("Failed list database versions")
-				}
-
-			case *dockerinstall.DockerEnvironmentConfig:
-				var err error
-				versions, err = dockerinstall.ListDatabaseVersions(ctx, all)
-				if err != nil {
-					log.Fatal().Err(err).Msg("Failed list database versions")
-				}
-			default:
-				panic(fmt.Sprintf("unexpected environment config type: %T", t))
+			versions, err := installer.ListDatabaseVersions(ctx, all)
+			if err != nil {
+				log.Fatal().Err(err).Msg("Failed list database versions")
 			}
 
 			encoder := json.NewEncoder(os.Stdout)

@@ -27,8 +27,8 @@ const (
 	commandHostLabelKey     = "tyger-command-host"
 )
 
-func ListDatabaseVersions(ctx context.Context, allVersions bool) ([]install.DatabaseVersion, error) {
-	restConfig, err := GetUserRESTConfig(ctx)
+func (i *Installer) ListDatabaseVersions(ctx context.Context, allVersions bool) ([]install.DatabaseVersion, error) {
+	restConfig, err := i.GetUserRESTConfig(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -142,8 +142,8 @@ func getDatabaseVersionsFromPod(ctx context.Context, podName string, allVersions
 	return versions, nil
 }
 
-func ApplyMigrations(ctx context.Context, targetVersion int, latest, offline, waitForCompletion bool) error {
-	versions, err := ListDatabaseVersions(ctx, true)
+func (i *Installer) ApplyMigrations(ctx context.Context, targetVersion int, latest, offline, waitForCompletion bool) error {
+	versions, err := i.ListDatabaseVersions(ctx, true)
 	if err != nil {
 		return err
 	}
@@ -185,7 +185,7 @@ func ApplyMigrations(ctx context.Context, targetVersion int, latest, offline, wa
 		}
 	}
 
-	restConfig, err := GetUserRESTConfig(ctx)
+	restConfig, err := i.GetUserRESTConfig(ctx)
 	if err != nil {
 		return err
 	}
@@ -281,8 +281,8 @@ func ApplyMigrations(ctx context.Context, targetVersion int, latest, offline, wa
 	return nil
 }
 
-func GetMigrationLogs(ctx context.Context, id int, destination io.Writer) error {
-	restConfig, err := GetUserRESTConfig(ctx)
+func (i *Installer) GetMigrationLogs(ctx context.Context, id int, destination io.Writer) error {
+	restConfig, err := i.GetUserRESTConfig(ctx)
 	if err != nil {
 		return err
 	}

@@ -26,7 +26,13 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 )
 
-func commonPrerun(ctx context.Context, flags *commonFlags) context.Context {
+type commonFlags struct {
+	configPath                       string
+	setOverrides                     map[string]string
+	skipLoginAndValidateSubscription bool
+}
+
+func commonPrerun(ctx context.Context, flags *commonFlags) (context.Context, install.Installer) {
 	utilruntime.ErrorHandlers = []func(error){
 		func(err error) {
 			log.Debug().Err(err).Msg("Kubernetes client runtime error")
@@ -55,12 +61,17 @@ func commonPrerun(ctx context.Context, flags *commonFlags) context.Context {
 	}
 
 	var config any
+	var installer install.Installer
 
 	environmentKind := koanfConfig.Get("kind")
 
 	switch environmentKind {
 	case nil, cloudinstall.EnvironmentKindCloud:
-		config = &cloudinstall.CloudEnvironmentConfig{}
+		c := &cloudinstall.CloudEnvironmentConfig{}
+		installer = &cloudinstall.Installer{
+			Config: c,
+		}
+		config = c
 	case dockerinstall.EnvironmentKindDocker:
 		config = &dockerinstall.DockerEnvironmentConfig{}
 	default:
@@ -97,13 +108,20 @@ func commonPrerun(ctx context.Context, flags *commonFlags) context.Context {
 		if !cloudinstall.QuickValidateCloudEnvironmentConfig(t) {
 			os.Exit(1)
 		}
+
+		if !flags.skipLoginAndValidateSubscription {
+			ctx, err = loginAndValidateSubscription(ctx)
+			if err != nil {
+				log.Fatal().Err(err).Send()
+			}
+		}
 	case *dockerinstall.DockerEnvironmentConfig:
 		if !dockerinstall.QuickValidateDockerEnvironmentConfig(t) {
 			os.Exit(1)
 		}
 	}
 
-	return ctx
+	return ctx, installer
 }
 
 func getDefaultConfigPath() string {

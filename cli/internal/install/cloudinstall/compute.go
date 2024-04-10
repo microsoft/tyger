@@ -405,16 +405,13 @@ func onDeleteCluster(ctx context.Context, clusterConfig *ClusterConfig) error {
 	return nil
 }
 
-func getAdminRESTConfig(ctx context.Context) (*rest.Config, error) {
-	config := GetCloudEnvironmentConfigFromContext(ctx)
-	cred := GetAzureCredentialFromContext(ctx)
-
-	clustersClient, err := armcontainerservice.NewManagedClustersClient(config.Cloud.SubscriptionID, cred, nil)
+func (i *Installer) getAdminRESTConfig(ctx context.Context) (*rest.Config, error) {
+	clustersClient, err := armcontainerservice.NewManagedClustersClient(i.Config.Cloud.SubscriptionID, i.Credential, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create clusters client: %w", err)
 	}
 
-	credResp, err := clustersClient.ListClusterAdminCredentials(ctx, config.Cloud.ResourceGroup, config.Cloud.Compute.GetApiHostCluster().Name, nil)
+	credResp, err := clustersClient.ListClusterAdminCredentials(ctx, i.Config.Cloud.ResourceGroup, i.Config.Cloud.Compute.GetApiHostCluster().Name, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -422,16 +419,13 @@ func getAdminRESTConfig(ctx context.Context) (*rest.Config, error) {
 	return clientcmd.RESTConfigFromKubeConfig(credResp.Kubeconfigs[0].Value)
 }
 
-func GetUserRESTConfig(ctx context.Context) (*rest.Config, error) {
-	config := GetCloudEnvironmentConfigFromContext(ctx)
-	cred := GetAzureCredentialFromContext(ctx)
-
-	clustersClient, err := armcontainerservice.NewManagedClustersClient(config.Cloud.SubscriptionID, cred, nil)
+func (i *Installer) GetUserRESTConfig(ctx context.Context) (*rest.Config, error) {
+	clustersClient, err := armcontainerservice.NewManagedClustersClient(i.Config.Cloud.SubscriptionID, i.Credential, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create clusters client: %w", err)
 	}
 
-	credResp, err := clustersClient.ListClusterUserCredentials(ctx, config.Cloud.ResourceGroup, config.Cloud.Compute.GetApiHostCluster().Name, nil)
+	credResp, err := clustersClient.ListClusterUserCredentials(ctx, i.Config.Cloud.ResourceGroup, i.Config.Cloud.Compute.GetApiHostCluster().Name, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -456,7 +450,7 @@ func GetUserRESTConfig(ctx context.Context) (*rest.Config, error) {
 	}
 
 	// Use the token provider to get a new token
-	cliAccessToken, err := cred.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{serverId}})
+	cliAccessToken, err := i.Credential.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{serverId}})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get token: %w", err)
 	}

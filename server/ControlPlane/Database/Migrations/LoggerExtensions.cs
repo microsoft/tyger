@@ -43,5 +43,4 @@ public static partial class LoggerExtensions
 
     [LoggerMessage(13, LogLevel.Information, "Using most recent database version")]
     public static partial void UsingMostRecentDatabaseVersion(this ILogger logger);
-
 }

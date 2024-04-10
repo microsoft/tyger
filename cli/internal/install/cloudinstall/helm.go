@@ -207,7 +207,7 @@ func installNvidiaDevicePlugin(ctx context.Context, restConfigPromise *install.P
 	return nil, nil
 }
 
-func InstallTygerInCloud(ctx context.Context) error {
+func (i *Installer) InstallTyger(ctx context.Context) error {
 	restConfig, err := GetUserRESTConfig(ctx)
 	if err != nil {
 		return err
@@ -615,8 +615,8 @@ func GetChartSpec(
 	return chartSpec, nil
 }
 
-func UninstallTygerFromCloud(ctx context.Context) error {
-	restConfig, err := GetUserRESTConfig(ctx)
+func (i *Installer) UninstallTyger(ctx context.Context) error {
+	restConfig, err := i.GetUserRESTConfig(ctx)
 	if err != nil {
 		return err
 	}
