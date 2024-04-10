@@ -23,6 +23,7 @@ import (
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/psanford/memfs"
 	"github.com/rs/zerolog/log"
 )
@@ -82,20 +83,41 @@ func (i *Installer) InstallTyger(ctx context.Context) error {
 		return err
 	}
 
-	if err := i.createDatabaseContainer(ctx); err != nil {
-		return fmt.Errorf("error creating database container: %w", err)
-	}
+	pg := &install.PromiseGroup{}
 
-	if err := i.createDataPlaneContainer(ctx); err != nil {
-		return fmt.Errorf("error creating data plane container: %w", err)
-	}
+	dbPromise := install.NewPromise(ctx, pg, func(ctx context.Context) (any, error) {
+		if err := i.createDatabaseContainer(ctx); err != nil {
+			return nil, fmt.Errorf("error creating database container: %w", err)
+		}
+		return nil, nil
+	})
 
-	if err := i.initializeDatabase(ctx); err != nil {
-		return fmt.Errorf("error initializing database: %w", err)
-	}
+	dataPlanePromise := install.NewPromiseAfter(ctx, pg, func(ctx context.Context) (any, error) {
 
-	if err := i.createControlPlaneContainer(ctx); err != nil {
-		return fmt.Errorf("error creating control plane container: %w", err)
+		if err := i.createDataPlaneContainer(ctx); err != nil {
+			return nil, fmt.Errorf("error creating data plane container: %w", err)
+		}
+		return nil, nil
+	})
+
+	migrationRunnerPromise := install.NewPromiseAfter(ctx, pg, func(ctx context.Context) (any, error) {
+		if err := i.initializeDatabase(ctx); err != nil {
+			return nil, fmt.Errorf("error initializing database: %w", err)
+		}
+		return nil, nil
+	}, dbPromise)
+
+	install.NewPromiseAfter(ctx, pg, func(ctx context.Context) (any, error) {
+		if err := i.createControlPlaneContainer(ctx); err != nil {
+			return nil, fmt.Errorf("error creating control plane container: %w", err)
+		}
+		return nil, nil
+	}, migrationRunnerPromise, dataPlanePromise)
+
+	for _, p := range *pg {
+		if promiseErr := p.AwaitErr(); promiseErr != nil && promiseErr != install.ErrDependencyFailed {
+			return promiseErr
+		}
 	}
 
 	return nil
