@@ -91,7 +91,7 @@ public class MigrationRunner : IHostedService
                         {
                             await foreach ((var replicaUri, var replicaDatabaseVersion) in _replicaDatabaseVersionProvider.GetDatabaseVersionsOfReplicas(cancellationToken))
                             {
-                                if (replicaDatabaseVersion != version)
+                                if (replicaDatabaseVersion < version)
                                 {
                                     _logger.WaitingForReplicaToUseRequiredVersion(replicaUri.ToString(), (int)version, (int)replicaDatabaseVersion);
                                     allReady = false;

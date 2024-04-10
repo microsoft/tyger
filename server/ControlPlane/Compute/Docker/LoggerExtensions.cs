@@ -17,4 +17,10 @@ public static partial class LoggerExtensions
 
     [LoggerMessage(3, LogLevel.Warning, "Failed to remove ephemeral buffer socket {path}")]
     public static partial void FailedToRemoveEphemeralBufferSocket(this ILogger logger, string path, Exception exception);
+
+    [LoggerMessage(4, LogLevel.Warning, "Error reading replica database version")]
+    public static partial void ErrorReadingReplicaDatabaseVersion(this ILogger logger, Exception exception);
+
+    [LoggerMessage(5, LogLevel.Warning, "Error reponse {status} reading replica database version")]
+    public static partial void ErrorResponseReadingReplicaDatabaseVersion(this ILogger logger, int status);
 }
