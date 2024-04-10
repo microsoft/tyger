@@ -12,8 +12,12 @@ const (
 type DockerEnvironmentConfig struct {
 	Kind string `json:"kind"`
 
+	EnvironmentName string `json:"environmentName"`
+
 	UserId         string `json:"userId"`
 	AllowedGroupId string `json:"groupId"`
+
+	InstallationPath string `json:"installationPath"`
 
 	PostgresImage      string `json:"postgresImage"`
 	ControlPlaneImage  string `json:"controlPlaneImage"`

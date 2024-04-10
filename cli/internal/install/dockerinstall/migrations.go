@@ -17,11 +17,13 @@ import (
 )
 
 const (
-	migrationRangeLabel = "tyger-migration-range"
+	migrationRangeLabel                  = "tyger-migration-range"
+	migrationRunnerContainerSuffix       = "tyger-migration-runner"
+	migrationListVersionsContainerSuffix = "tyger-migration-list-versions"
 )
 
 func (i *Installer) ListDatabaseVersions(ctx context.Context, allVersions bool) ([]install.DatabaseVersion, error) {
-	containerName := "tyger-migration-list-versions"
+	containerName := i.resourceName("tyger-migration-list-versions")
 
 	if err := i.startMigrationRunner(ctx, containerName, []string{"database", "list-versions"}, nil); err != nil {
 		return nil, err
@@ -102,7 +104,7 @@ func (i *Installer) ApplyMigrations(ctx context.Context, targetVersion int, late
 		return nil
 	}
 
-	containerName := migrationRunnerContainerName
+	containerName := i.resourceName(migrationRunnerContainerSuffix)
 	args := []string{"database", "migrate", "--target-version", strconv.Itoa(targetVersion)}
 	if offline {
 		args = append(args, "--offline")
@@ -138,7 +140,7 @@ func (i *Installer) ApplyMigrations(ctx context.Context, targetVersion int, late
 
 func (i *Installer) GetMigrationLogs(ctx context.Context, id int, destination io.Writer) error {
 	logsNotAvailableErr := fmt.Errorf("logs for migration %d are not available", id)
-	migrationContainer, err := i.client.ContainerInspect(ctx, migrationRunnerContainerName)
+	migrationContainer, err := i.client.ContainerInspect(ctx, i.resourceName(migrationRunnerContainerSuffix))
 	if err != nil {
 		if client.IsErrNotFound(err) {
 			return logsNotAvailableErr
@@ -158,7 +160,7 @@ func (i *Installer) GetMigrationLogs(ctx context.Context, id int, destination io
 	}
 
 	logs := &bytes.Buffer{}
-	if err := i.getContainerLogs(ctx, migrationRunnerContainerName, io.Discard, logs); err != nil {
+	if err := i.getContainerLogs(ctx, i.resourceName(migrationRunnerContainerSuffix), io.Discard, logs); err != nil {
 		return logsNotAvailableErr
 	}
 
@@ -198,8 +200,8 @@ func (i *Installer) startMigrationRunner(ctx context.Context, containerName stri
 			Image: i.Config.ControlPlaneImage,
 			User:  fmt.Sprintf("%d:%d", i.Config.GetUserIdInt(), i.Config.GetGroupIdInt()),
 			Env: []string{
-				"Urls=http://unix:/opt/tyger/control-plane/tyger.sock",
-				"Database__ConnectionString=Host=/opt/tyger/database; Username=tyger-server",
+				fmt.Sprintf("Urls=http://unix:%s/control-plane/tyger.sock", i.Config.InstallationPath),
+				fmt.Sprintf("Database__ConnectionString=Host=%s/database; Username=tyger-server", i.Config.InstallationPath),
 				"Database__AutoMigrate=true",
 				"Database__TygerServerRoleName=tyger-server",
 				"Compute__Docker__Enabled=true",
@@ -211,8 +213,8 @@ func (i *Installer) startMigrationRunner(ctx context.Context, containerName stri
 			Mounts: []mount.Mount{
 				{
 					Type:   "bind",
-					Source: "/opt/tyger/",
-					Target: "/opt/tyger/",
+					Source: i.Config.InstallationPath,
+					Target: i.Config.InstallationPath,
 				},
 			},
 			NetworkMode: "none",

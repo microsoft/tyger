@@ -2,13 +2,32 @@ package dockerinstall
 
 import (
 	"os/user"
+	"regexp"
 	"strconv"
 
 	"github.com/rs/zerolog/log"
 )
 
+var (
+	NameRegex = regexp.MustCompile(`^[a-z][a-z\-0-9]{1,23}$`)
+
+	DefaultEnvironmentName = "local"
+)
+
 func (i *Installer) QuickValidateConfig() bool {
 	success := true
+
+	if i.Config.EnvironmentName == "" {
+		i.Config.EnvironmentName = DefaultEnvironmentName
+	} else if !NameRegex.MatchString(i.Config.EnvironmentName) {
+		validationError(&success, "The `environmentName` field must match the pattern "+NameRegex.String())
+	}
+
+	if i.Config.InstallationPath == "" {
+		i.Config.InstallationPath = "/opt/tyger"
+	} else if i.Config.InstallationPath[len(i.Config.InstallationPath)-1] == '/' {
+		i.Config.InstallationPath = i.Config.InstallationPath[:len(i.Config.InstallationPath)-1]
+	}
 
 	if _, err := strconv.Atoi(i.Config.UserId); err != nil {
 		if i.Config.UserId == "" {

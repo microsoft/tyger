@@ -28,18 +28,17 @@ import (
 )
 
 const (
-	defaultPostgresImage = "postgres"
+	defaultPostgresImage = "postgres:16.2"
 
 	containerSpecHashLabel = "tyger-container-spec-hash"
 
-	databaseContainerName        = "tyger-db"
-	dataPlaneContainerName       = "tyger-data-plane"
-	controlPlaneContainerName    = "tyger-control-plane"
-	migrationRunnerContainerName = "tyger-migration-runner"
+	databaseContainerSuffix     = "db"
+	dataPlaneContainerSuffix    = "data-plane"
+	controlPlaneContainerSuffix = "control-plane"
 
-	databaseVolumeName = "tyger-db"
-	buffersVolumeName  = "tyger-buffers"
-	runLogsVolumeName  = "tyger-run-logs"
+	databaseVolumeSuffix = "db"
+	buffersVolumeSuffix  = "buffers"
+	runLogsVolumeSuffix  = "run-logs"
 )
 
 type containerSpec struct {
@@ -74,8 +73,12 @@ func NewInstaller(config *DockerEnvironmentConfig) (*Installer, error) {
 	}, nil
 }
 
+func (i *Installer) resourceName(suffix string) string {
+	return fmt.Sprintf("tyger-%s-%s", i.Config.EnvironmentName, suffix)
+}
+
 func (i *Installer) InstallTyger(ctx context.Context) error {
-	if err := i.ensureDirectoryExists("/opt/tyger"); err != nil {
+	if err := i.ensureDirectoryExists(i.Config.InstallationPath); err != nil {
 		return err
 	}
 
@@ -99,7 +102,7 @@ func (i *Installer) InstallTyger(ctx context.Context) error {
 }
 
 func (i *Installer) initializeDatabase(ctx context.Context) error {
-	containerName := "tyger-database-init"
+	containerName := i.resourceName("database-init")
 	if err := i.startMigrationRunner(ctx, containerName, []string{"database", "init"}, nil); err != nil {
 		return fmt.Errorf("error starting running migration runner: %w", err)
 	}
@@ -140,11 +143,11 @@ func (i *Installer) ensureDirectoryExists(path string) error {
 }
 
 func (i *Installer) createControlPlaneContainer(ctx context.Context) error {
-	if err := i.ensureVolumeCreated(ctx, runLogsVolumeName); err != nil {
+	if err := i.ensureVolumeCreated(ctx, i.resourceName(runLogsVolumeSuffix)); err != nil {
 		return err
 	}
 
-	if err := i.ensureDirectoryExists("/opt/tyger/control-plane"); err != nil {
+	if err := i.ensureDirectoryExists(fmt.Sprintf("%s/control-plane", i.Config.InstallationPath)); err != nil {
 		return err
 	}
 
@@ -165,17 +168,17 @@ func (i *Installer) createControlPlaneContainer(ctx context.Context) error {
 			Image: image,
 			User:  fmt.Sprintf("%d:%d", i.Config.GetUserIdInt(), i.Config.GetGroupIdInt()),
 			Env: []string{
-				"Urls=http://unix:/opt/tyger/control-plane/tyger.sock",
+				fmt.Sprintf("Urls=http://unix:%s/control-plane/tyger.sock", i.Config.InstallationPath),
 				"SocketPermissions=660",
 				"Auth__Enabled=false",
-				"Compute__Docker__RunSecretsPath=/opt/tyger/control-plane/run-secrets/",
-				"Compute__Docker__EphemeralBuffersPath=/opt/tyger/control-plane/ephemeral-buffers/",
+				fmt.Sprintf("Compute__Docker__RunSecretsPath=%s/control-plane/run-secrets/", i.Config.InstallationPath),
+				fmt.Sprintf("Compute__Docker__EphemeralBuffersPath=%s/control-plane/ephemeral-buffers/", i.Config.InstallationPath),
 				"LogArchive__LocalStorage__LogsDirectory=/app/logs",
 				"Buffers__BufferSidecarImage=" + i.Config.BufferSidecarImage,
-				"Buffers__LocalStorage__DataPlaneEndpoint=http+unix:///opt/tyger/data-plane/tyger.data.sock",
+				fmt.Sprintf("Buffers__LocalStorage__DataPlaneEndpoint=http+unix://%s/data-plane/tyger.data.sock", i.Config.InstallationPath),
 				"Buffers__PrimarySigningPrivateKeyPath=" + primaryPublicCertificatePath,
 				"Buffers__SecondarySigningPrivateKeyPath=" + secondaryPublicCertificatePath,
-				"Database__ConnectionString=Host=/opt/tyger/database; Username=tyger-server",
+				fmt.Sprintf("Database__ConnectionString=Host=%s/database; Username=tyger-server", i.Config.InstallationPath),
 				"Database__TygerServerRoleName=tyger-server",
 			},
 			Healthcheck: &container.HealthConfig{
@@ -183,7 +186,7 @@ func (i *Installer) createControlPlaneContainer(ctx context.Context) error {
 					"CMD",
 					"/app/bin/curl",
 					"--fail",
-					"--unix", "/opt/tyger/control-plane/tyger.sock",
+					"--unix", fmt.Sprintf("%s/control-plane/tyger.sock", i.Config.InstallationPath),
 					"http://local/healthcheck",
 				},
 				StartInterval: 2 * time.Second,
@@ -194,23 +197,23 @@ func (i *Installer) createControlPlaneContainer(ctx context.Context) error {
 			Mounts: []mount.Mount{
 				{
 					Type:   "volume",
-					Source: runLogsVolumeName,
+					Source: i.resourceName(runLogsVolumeSuffix),
 					Target: "/app/logs",
 				},
 				{
 					Type:   "bind",
-					Source: "/opt/tyger/control-plane",
-					Target: "/opt/tyger/control-plane",
+					Source: fmt.Sprintf("%s/control-plane", i.Config.InstallationPath),
+					Target: fmt.Sprintf("%s/control-plane", i.Config.InstallationPath),
 				},
 				{
 					Type:   "bind",
-					Source: "/opt/tyger/data-plane",
-					Target: "/opt/tyger/data-plane",
+					Source: fmt.Sprintf("%s/data-plane", i.Config.InstallationPath),
+					Target: fmt.Sprintf("%s/data-plane", i.Config.InstallationPath),
 				},
 				{
 					Type:   "bind",
-					Source: "/opt/tyger/database",
-					Target: "/opt/tyger/database",
+					Source: fmt.Sprintf("%s/database", i.Config.InstallationPath),
+					Target: fmt.Sprintf("%s/database", i.Config.InstallationPath),
 				},
 				{
 					Type:   "bind",
@@ -265,14 +268,14 @@ func (i *Installer) createControlPlaneContainer(ctx context.Context) error {
 
 	if err := i.createContainer(
 		ctx,
-		controlPlaneContainerName,
+		i.resourceName(controlPlaneContainerSuffix),
 		&containerSpec,
 		true,
 		postCreateAction); err != nil {
 		return err
 	}
 
-	if err := os.Symlink("/opt/tyger/control-plane/tyger.sock", "/opt/tyger/api.sock"); err != nil && !os.IsExist(err) {
+	if err := os.Symlink(fmt.Sprintf("%s/control-plane/tyger.sock", i.Config.InstallationPath), fmt.Sprintf("%s/api.sock", i.Config.InstallationPath)); err != nil && !os.IsExist(err) {
 		return fmt.Errorf("error creating symlink: %w", err)
 	}
 
@@ -312,19 +315,19 @@ func (i *Installer) UninstallTyger(ctx context.Context, deleteData bool) error {
 		return fmt.Errorf("error creating docker client: %w", err)
 	}
 
-	if err := i.removeContainer(ctx, databaseContainerName); err != nil {
+	if err := i.removeContainer(ctx, i.resourceName(databaseContainerSuffix)); err != nil {
 		return fmt.Errorf("error removing database container: %w", err)
 	}
 
-	if err := i.removeContainer(ctx, dataPlaneContainerName); err != nil {
+	if err := i.removeContainer(ctx, i.resourceName(dataPlaneContainerSuffix)); err != nil {
 		return fmt.Errorf("error removing data plane container: %w", err)
 	}
 
-	if err := i.removeContainer(ctx, controlPlaneContainerName); err != nil {
+	if err := i.removeContainer(ctx, i.resourceName(controlPlaneContainerSuffix)); err != nil {
 		return fmt.Errorf("error removing control plane container: %w", err)
 	}
 
-	if err := i.removeContainer(ctx, migrationRunnerContainerName); err != nil {
+	if err := i.removeContainer(ctx, i.resourceName(migrationRunnerContainerSuffix)); err != nil {
 		return fmt.Errorf("error removing control plane container: %w", err)
 	}
 
@@ -345,28 +348,28 @@ func (i *Installer) UninstallTyger(ctx context.Context, deleteData bool) error {
 		}
 	}
 
-	entries, err := os.ReadDir("/opt/tyger")
+	entries, err := os.ReadDir(i.Config.InstallationPath)
 	if err != nil {
-		return fmt.Errorf("error reading /opt/tyger: %w", err)
+		return fmt.Errorf("error reading %s: %w", i.Config.InstallationPath, err)
 	}
 
 	for _, entry := range entries {
-		path := path.Join("/opt/tyger", entry.Name())
+		path := path.Join(i.Config.InstallationPath, entry.Name())
 		if err := os.RemoveAll(path); err != nil {
 			return fmt.Errorf("error removing %s: %w", path, err)
 		}
 	}
 
 	if deleteData {
-		if err := i.client.VolumeRemove(ctx, databaseVolumeName, true); err != nil {
+		if err := i.client.VolumeRemove(ctx, i.resourceName(databaseVolumeSuffix), true); err != nil {
 			return fmt.Errorf("error removing database volume: %w", err)
 		}
 
-		if err := i.client.VolumeRemove(ctx, buffersVolumeName, true); err != nil {
+		if err := i.client.VolumeRemove(ctx, i.resourceName(buffersVolumeSuffix), true); err != nil {
 			return fmt.Errorf("error removing buffers volume: %w", err)
 		}
 
-		if err := i.client.VolumeRemove(ctx, runLogsVolumeName, true); err != nil {
+		if err := i.client.VolumeRemove(ctx, i.resourceName(runLogsVolumeSuffix), true); err != nil {
 			return fmt.Errorf("error removing run logs volume: %w", err)
 		}
 	}
@@ -375,11 +378,11 @@ func (i *Installer) UninstallTyger(ctx context.Context, deleteData bool) error {
 }
 
 func (i *Installer) createDatabaseContainer(ctx context.Context) error {
-	if err := i.ensureVolumeCreated(ctx, databaseVolumeName); err != nil {
+	if err := i.ensureVolumeCreated(ctx, i.resourceName(databaseVolumeSuffix)); err != nil {
 		return err
 	}
 
-	if err := i.ensureDirectoryExists("/opt/tyger/database"); err != nil {
+	if err := i.ensureDirectoryExists(fmt.Sprintf("%s/database", i.Config.InstallationPath)); err != nil {
 		return err
 	}
 
@@ -408,12 +411,12 @@ func (i *Installer) createDatabaseContainer(ctx context.Context) error {
 			Mounts: []mount.Mount{
 				{
 					Type:   "volume",
-					Source: databaseVolumeName,
+					Source: i.resourceName(databaseVolumeSuffix),
 					Target: "/var/lib/postgresql/data",
 				},
 				{
 					Type:   "bind",
-					Source: "/opt/tyger/database",
+					Source: fmt.Sprintf("%s/database", i.Config.InstallationPath),
 					Target: "/var/run/postgresql/",
 				},
 			},
@@ -424,7 +427,7 @@ func (i *Installer) createDatabaseContainer(ctx context.Context) error {
 		},
 	}
 
-	if err := i.createContainer(ctx, databaseContainerName, &containerSpec, true); err != nil {
+	if err := i.createContainer(ctx, i.resourceName(databaseContainerSuffix), &containerSpec, true); err != nil {
 		return err
 	}
 
@@ -432,11 +435,11 @@ func (i *Installer) createDatabaseContainer(ctx context.Context) error {
 }
 
 func (i *Installer) createDataPlaneContainer(ctx context.Context) error {
-	if err := i.ensureVolumeCreated(ctx, buffersVolumeName); err != nil {
+	if err := i.ensureVolumeCreated(ctx, i.resourceName(buffersVolumeSuffix)); err != nil {
 		return err
 	}
 
-	if err := i.ensureDirectoryExists("/opt/tyger/data-plane"); err != nil {
+	if err := i.ensureDirectoryExists(fmt.Sprintf("%s/data-plane", i.Config.InstallationPath)); err != nil {
 		return err
 	}
 
@@ -456,7 +459,7 @@ func (i *Installer) createDataPlaneContainer(ctx context.Context) error {
 			Image: image,
 			User:  i.Config.UserId,
 			Env: []string{
-				"Urls=http://unix:/opt/tyger/data-plane/tyger.data.sock",
+				fmt.Sprintf("Urls=http://unix:%s/data-plane/tyger.data.sock", i.Config.InstallationPath),
 				"SocketPermissions=666",
 				"DataDirectory=/app/data",
 				"PrimarySigningPublicKeyPath=" + primaryPublicCertificatePath,
@@ -467,7 +470,7 @@ func (i *Installer) createDataPlaneContainer(ctx context.Context) error {
 					"CMD",
 					"/app/bin/curl",
 					"--fail",
-					"--unix", "/opt/tyger/data-plane/tyger.data.sock",
+					"--unix", fmt.Sprintf("%s/data-plane/tyger.data.sock", i.Config.InstallationPath),
 					"http://local/healthcheck",
 				},
 				StartInterval: 2 * time.Second,
@@ -478,13 +481,13 @@ func (i *Installer) createDataPlaneContainer(ctx context.Context) error {
 			Mounts: []mount.Mount{
 				{
 					Type:   "volume",
-					Source: buffersVolumeName,
+					Source: i.resourceName(buffersVolumeSuffix),
 					Target: "/app/data",
 				},
 				{
 					Type:   "bind",
-					Source: "/opt/tyger/data-plane",
-					Target: "/opt/tyger/data-plane",
+					Source: fmt.Sprintf("%s/data-plane", i.Config.InstallationPath),
+					Target: fmt.Sprintf("%s/data-plane", i.Config.InstallationPath),
 				},
 			},
 			NetworkMode: "none",
@@ -523,7 +526,7 @@ func (i *Installer) createDataPlaneContainer(ctx context.Context) error {
 
 	if err := i.createContainer(
 		ctx,
-		dataPlaneContainerName,
+		i.resourceName(dataPlaneContainerSuffix),
 		&spec,
 		true,
 		postCreateAction); err != nil {

@@ -1,5 +1,9 @@
 kind: docker
 
+environmentName: foo
+
+installationPath: /tmp/tyger
+
 signingKeys:
   primary:
     public: ${HOME}/tyger_local_signing_key_public.pem
