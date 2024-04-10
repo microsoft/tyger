@@ -5,100 +5,122 @@
 
 package integrationtest
 
-// func TestMigrations(t *testing.T) {
-// 	t.Parallel()
-// 	skipIfUsingUnixSocket(t) // TODO: use better skip condition
+import (
+	"context"
+	"fmt"
+	"os"
+	"testing"
 
-// 	environmentConfig := runCommandSucceeds(t, "../../scripts/get-config.sh")
-// 	tempDir := t.TempDir()
-// 	configPath := fmt.Sprintf("%s/environment-config.yaml", tempDir)
-// 	require.NoError(t, os.WriteFile(configPath, []byte(environmentConfig), 0644))
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/go-viper/mapstructure/v2"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/knadh/koanf/providers/file"
+	"github.com/knadh/koanf/v2"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/yaml"
 
-// 	config := cloudinstall.CloudEnvironmentConfig{}
+	koanfyaml "github.com/knadh/koanf/parsers/yaml"
+	"github.com/microsoft/tyger/cli/internal/install/cloudinstall"
+)
 
-// 	koanfConfig := koanf.New(".")
-// 	require.NoError(t, koanfConfig.Load(file.Provider(configPath), koanfyaml.Parser()))
-// 	require.NoError(t, koanfConfig.UnmarshalWithConf("", &config, koanf.UnmarshalConf{
-// 		Tag: "json",
-// 		DecoderConfig: &mapstructure.DecoderConfig{
-// 			WeaklyTypedInput: true,
-// 			ErrorUnused:      true,
-// 			Squash:           true,
-// 			Result:           &config,
-// 		},
-// 	}))
+func TestMigrations(t *testing.T) {
+	t.Parallel()
+	skipIfUsingUnixSocket(t) // TODO: use better skip condition
 
-// 	ctx := context.Background()
+	environmentConfig := runCommandSucceeds(t, "../../scripts/get-config.sh")
+	tempDir := t.TempDir()
+	configPath := fmt.Sprintf("%s/environment-config.yaml", tempDir)
+	require.NoError(t, os.WriteFile(configPath, []byte(environmentConfig), 0644))
 
-// 	ctx = install.SetEnvironmentConfigOnContext(ctx, &config)
-// 	cred, err := cloudinstall.NewMiAwareAzureCLICredential(
-// 		&azidentity.AzureCLICredentialOptions{
-// 			TenantID: config.Cloud.TenantID,
-// 		})
-// 	ctx = cloudinstall.SetAzureCredentialOnContext(ctx, cred)
+	config := cloudinstall.CloudEnvironmentConfig{}
 
-// 	restConfig, err := cloudinstall.GetUserRESTConfig(ctx)
-// 	require.NoError(t, err)
+	koanfConfig := koanf.New(".")
+	require.NoError(t, koanfConfig.Load(file.Provider(configPath), koanfyaml.Parser()))
+	require.NoError(t, koanfConfig.UnmarshalWithConf("", &config, koanf.UnmarshalConf{
+		Tag: "json",
+		DecoderConfig: &mapstructure.DecoderConfig{
+			WeaklyTypedInput: true,
+			ErrorUnused:      true,
+			Squash:           true,
+			Result:           &config,
+		},
+	}))
 
-// 	// this is a try run to get the Helm values
-// 	_, helmValuesYaml, err := cloudinstall.InstallTygerHelmChart(ctx, restConfig, true)
-// 	require.NoError(t, err)
+	ctx := context.Background()
 
-// 	helmValues := make(map[string]any)
-// 	require.NoError(t, yaml.Unmarshal([]byte(helmValuesYaml), &helmValues))
+	cred, err := cloudinstall.NewMiAwareAzureCLICredential(
+		&azidentity.AzureCLICredentialOptions{
+			TenantID: config.Cloud.TenantID,
+		})
 
-// 	username := runCommandSucceeds(t, "az", "account", "show", "--query", "user.name", "-o", "tsv")
-// 	password := runCommandSucceeds(t, "az", "account", "get-access-token", "--resource-type", "oss-rdbms", "--query", "accessToken", "-o", "tsv")
-// 	if username == "systemAssignedIdentity" || username == "userAssignedIdentity" {
-// 		// Need to get the managed identity app id from the token
-// 		claims := jwt.MapClaims{}
-// 		_, _, err = jwt.NewParser().ParseUnverified(password, claims)
-// 		require.NoError(t, err)
-// 		username = claims["appid"].(string)
-// 	}
+	installer := cloudinstall.Installer{
+		Config:     &config,
+		Credential: cred,
+	}
 
-// 	host := helmValues["database"].(map[string]any)["host"].(string)
-// 	port := helmValues["database"].(map[string]any)["port"].(float64)
-// 	databaseName := helmValues["database"].(map[string]any)["databaseName"].(string)
+	restConfig, err := installer.GetUserRESTConfig(ctx)
+	require.NoError(t, err)
 
-// 	temporaryDatabaseName := fmt.Sprintf("tygertest%s", cloudinstall.RandomAlphanumString(8))
+	// this is a try run to get the Helm values
+	_, helmValuesYaml, err := installer.InstallTygerHelmChart(ctx, restConfig, true)
+	require.NoError(t, err)
 
-// 	createPsqlCommandBuilder := func() *CmdBuilder {
-// 		return NewCmdBuilder("psql",
-// 			"--host", host,
-// 			"--port", fmt.Sprintf("%d", int(port)),
-// 			"--username", username,
-// 			"--dbname", databaseName).
-// 			Env("PGPASSWORD", password)
-// 	}
+	helmValues := make(map[string]any)
+	require.NoError(t, yaml.Unmarshal([]byte(helmValuesYaml), &helmValues))
 
-// 	createPsqlCommandBuilder().
-// 		Arg("--command").Arg(fmt.Sprintf("CREATE DATABASE %s", temporaryDatabaseName)).
-// 		RunSucceeds(t)
+	username := runCommandSucceeds(t, "az", "account", "show", "--query", "user.name", "-o", "tsv")
+	password := runCommandSucceeds(t, "az", "account", "get-access-token", "--resource-type", "oss-rdbms", "--query", "accessToken", "-o", "tsv")
+	if username == "systemAssignedIdentity" || username == "userAssignedIdentity" {
+		// Need to get the managed identity app id from the token
+		claims := jwt.MapClaims{}
+		_, _, err = jwt.NewParser().ParseUnverified(password, claims)
+		require.NoError(t, err)
+		username = claims["appid"].(string)
+	}
 
-// 	tygerMigrationApplyArgs := []string{
-// 		"api", "migrations", "apply", "--latest", "--offline", "--wait",
-// 		"-f", configPath,
-// 		"--set", fmt.Sprintf("api.helm.tyger.values.database.databaseName=%s", temporaryDatabaseName),
-// 	}
+	host := helmValues["database"].(map[string]any)["host"].(string)
+	port := helmValues["database"].(map[string]any)["port"].(float64)
+	databaseName := helmValues["database"].(map[string]any)["databaseName"].(string)
 
-// 	runTygerSucceeds(t, tygerMigrationApplyArgs...)
+	temporaryDatabaseName := fmt.Sprintf("tygertest%s", cloudinstall.RandomAlphanumString(8))
 
-// 	logs := runTygerSucceeds(t, "api", "migrations", "logs", "1",
-// 		"-f", configPath,
-// 		"--set", fmt.Sprintf("api.helm.tyger.values.database.databaseName=%s", temporaryDatabaseName))
+	createPsqlCommandBuilder := func() *CmdBuilder {
+		return NewCmdBuilder("psql",
+			"--host", host,
+			"--port", fmt.Sprintf("%d", int(port)),
+			"--username", username,
+			"--dbname", databaseName).
+			Env("PGPASSWORD", password)
+	}
 
-// 	assert.Contains(t, logs, "Migration 1 complete")
+	createPsqlCommandBuilder().
+		Arg("--command").Arg(fmt.Sprintf("CREATE DATABASE %s", temporaryDatabaseName)).
+		RunSucceeds(t)
 
-// 	logs = runTygerSucceeds(t, "api", "migrations", "logs", "2",
-// 		"-f", configPath,
-// 		"--set", fmt.Sprintf("api.helm.tyger.values.database.databaseName=%s", temporaryDatabaseName))
+	tygerMigrationApplyArgs := []string{
+		"api", "migrations", "apply", "--latest", "--offline", "--wait",
+		"-f", configPath,
+		"--set", fmt.Sprintf("api.helm.tyger.values.database.databaseName=%s", temporaryDatabaseName),
+	}
 
-// 	assert.Contains(t, logs, "Migration 2 complete")
+	runTygerSucceeds(t, tygerMigrationApplyArgs...)
 
-// 	defer func() {
-// 		createPsqlCommandBuilder().
-// 			Arg("--command").Arg(fmt.Sprintf("DROP DATABASE %s", temporaryDatabaseName)).
-// 			RunSucceeds(t)
-// 	}()
-// }
+	logs := runTygerSucceeds(t, "api", "migrations", "logs", "1",
+		"-f", configPath,
+		"--set", fmt.Sprintf("api.helm.tyger.values.database.databaseName=%s", temporaryDatabaseName))
+
+	assert.Contains(t, logs, "Migration 1 complete")
+
+	logs = runTygerSucceeds(t, "api", "migrations", "logs", "2",
+		"-f", configPath,
+		"--set", fmt.Sprintf("api.helm.tyger.values.database.databaseName=%s", temporaryDatabaseName))
+
+	assert.Contains(t, logs, "Migration 2 complete")
+
+	defer func() {
+		createPsqlCommandBuilder().
+			Arg("--command").Arg(fmt.Sprintf("DROP DATABASE %s", temporaryDatabaseName)).
+			RunSucceeds(t)
+	}()
+}
