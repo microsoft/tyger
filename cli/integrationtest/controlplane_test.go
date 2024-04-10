@@ -230,6 +230,42 @@ timeoutSeconds: 600`, BasicImage)
 	require.Equal("Hello: Bonjour", execStdOut)
 }
 
+func TestEndToEndExecWithEphemeralBuffers(t *testing.T) {
+	t.Parallel()
+	skipIfEphemeralBuffersNotSupported(t)
+	require := require.New(t)
+
+	runSpec := fmt.Sprintf(`
+job:
+  codespec:
+    image: %s
+    buffers:
+      inputs: ["input"]
+      outputs: ["output"]
+    command:
+      - "sh"
+      - "-c"
+      - |
+        set -euo pipefail
+        inp=$(cat "$INPUT_PIPE")
+        echo -n "${inp}: Bonjour" > "$OUTPUT_PIPE"
+
+  buffers:
+    input: _
+    output: _
+timeoutSeconds: 600`, BasicImage)
+
+	tempDir := t.TempDir()
+	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
+	require.NoError(os.WriteFile(runSpecPath, []byte(runSpec), 0644))
+
+	execStdOut := NewTygerCmdBuilder("run", "exec", "--file", runSpecPath, "--log-level", "trace").
+		Stdin("Hello").
+		RunSucceeds(t)
+
+	require.Equal("Hello: Bonjour", execStdOut)
+}
+
 func TestCodespecBufferTagsWithYamlSpec(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)

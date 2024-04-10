@@ -58,7 +58,9 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         }
     }
 
-    public Capabilities GetCapabilities() => _supportsGpu ? Capabilities.Gpu : Capabilities.None;
+    public Capabilities GetCapabilities() =>
+        Capabilities.EphemeralBuffers |
+        (_supportsGpu ? Capabilities.Gpu : Capabilities.None);
 
     public async Task<Run> CreateRun(Run newRun, CancellationToken cancellationToken)
     {

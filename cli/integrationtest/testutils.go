@@ -175,6 +175,16 @@ func supportsNodePools(t *testing.T) bool {
 	return hasCapability(t, "NodePools")
 }
 
+func supportsEphemeralBuffers(t *testing.T) bool {
+	return hasCapability(t, "EphemeralBuffers")
+}
+
+func skipIfEphemeralBuffersNotSupported(t *testing.T) {
+	if !supportsEphemeralBuffers(t) {
+		t.Skip("EphemeralBuffers capability not supported")
+	}
+}
+
 func skipIfNodePoolsNotSupported(t *testing.T) {
 	if !supportsNodePools(t) {
 		t.Skip("NodePools capability not supported")

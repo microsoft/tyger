@@ -36,6 +36,7 @@ public enum Capabilities
     Gpu = 1 << 0,
     NodePools = 1 << 1,
     DistributedRuns = 1 << 2,
+    EphemeralBuffers = 1 << 3,
 }
 
 public interface ICapabilitiesContributor
