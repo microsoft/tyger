@@ -71,6 +71,7 @@ func newApiInstallCommand() *cobra.Command {
 
 func newApiUninstallCommand() *cobra.Command {
 	flags := commonFlags{}
+	deleteData := false
 	cmd := cobra.Command{
 		Use:                   "uninstall",
 		Short:                 "Uninstall the Typer API",
@@ -82,7 +83,7 @@ func newApiUninstallCommand() *cobra.Command {
 
 			log.Info().Msg("Starting Tyger API uninstall")
 
-			if err := installer.UninstallTyger(ctx); err != nil {
+			if err := installer.UninstallTyger(ctx, deleteData); err != nil {
 				if err != install.ErrAlreadyLoggedError {
 					log.Fatal().Err(err).Send()
 				}
@@ -94,6 +95,7 @@ func newApiUninstallCommand() *cobra.Command {
 	}
 
 	addCommonFlags(&cmd, &flags)
+	cmd.Flags().BoolVar(&deleteData, "delete-data", deleteData, "Permanently delete data (Docker only)")
 	return &cmd
 }
 

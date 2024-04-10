@@ -306,7 +306,7 @@ func (i *Installer) getContainerLogs(ctx context.Context, containerName string, 
 	return err
 }
 
-func (i *Installer) UninstallTyger(ctx context.Context) error {
+func (i *Installer) UninstallTyger(ctx context.Context, deleteData bool) error {
 	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return fmt.Errorf("error creating docker client: %w", err)
@@ -354,6 +354,20 @@ func (i *Installer) UninstallTyger(ctx context.Context) error {
 		path := path.Join("/opt/tyger", entry.Name())
 		if err := os.RemoveAll(path); err != nil {
 			return fmt.Errorf("error removing %s: %w", path, err)
+		}
+	}
+
+	if deleteData {
+		if err := i.client.VolumeRemove(ctx, databaseVolumeName, true); err != nil {
+			return fmt.Errorf("error removing database volume: %w", err)
+		}
+
+		if err := i.client.VolumeRemove(ctx, buffersVolumeName, true); err != nil {
+			return fmt.Errorf("error removing buffers volume: %w", err)
+		}
+
+		if err := i.client.VolumeRemove(ctx, runLogsVolumeName, true); err != nil {
+			return fmt.Errorf("error removing run logs volume: %w", err)
 		}
 	}
 

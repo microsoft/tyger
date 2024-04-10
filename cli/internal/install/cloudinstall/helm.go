@@ -605,7 +605,7 @@ func GetChartSpec(
 	return chartSpec, nil
 }
 
-func (i *Installer) UninstallTyger(ctx context.Context) error {
+func (i *Installer) UninstallTyger(ctx context.Context, _ bool) error {
 	restConfig, err := i.GetUserRESTConfig(ctx)
 	if err != nil {
 		return err

@@ -15,7 +15,7 @@ type Installer interface {
 	QuickValidateConfig() bool
 
 	InstallTyger(ctx context.Context) error
-	UninstallTyger(ctx context.Context) error
+	UninstallTyger(ctx context.Context, deleteData bool) error
 
 	ListDatabaseVersions(ctx context.Context, all bool) ([]DatabaseVersion, error)
 	ApplyMigrations(ctx context.Context, targetVersion int, latest bool, offline bool, wait bool) error
