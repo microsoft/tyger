@@ -9,6 +9,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -129,15 +131,21 @@ func TestCloudMigrations(t *testing.T) {
 func TestDockerMigrations(t *testing.T) {
 	t.Parallel()
 	skipUnlessUsingUnixSocket(t)
+	skipIfUsingSsh(t)
 
 	lowercaseTestName := strings.ToLower(t.Name())
 
 	environmentConfig := runCommandSucceeds(t, "../../scripts/get-config.sh", "--docker")
 
+	intallationPath := fmt.Sprintf("/tmp/tyger/%s", lowercaseTestName)
+	defer func() {
+		os.RemoveAll(intallationPath)
+	}()
+
 	configMap := make(map[string]any)
 	require.NoError(t, yaml.Unmarshal([]byte(environmentConfig), &configMap))
 	configMap["environmentName"] = lowercaseTestName
-	configMap["installationPath"] = fmt.Sprintf("/tmp/tyger/%s", lowercaseTestName)
+	configMap["installationPath"] = intallationPath
 	configMap["initialDatabaseVersion"] = 1
 
 	updatedEnvironmentConfigBytes, err := yaml.Marshal(configMap)
@@ -147,10 +155,16 @@ func TestDockerMigrations(t *testing.T) {
 	configPath := fmt.Sprintf("%s/environment-config.yaml", tempDir)
 	require.NoError(t, os.WriteFile(configPath, updatedEnvironmentConfigBytes, 0644))
 
-	runTygerSucceeds(t, "api", "install", "-f", configPath)
+	tygerPath, err := exec.LookPath("tyger")
+	require.NoError(t, err)
+	tygerPath, err = filepath.Abs(tygerPath)
+	require.NoError(t, err)
+
 	defer func() {
-		runTygerSucceeds(t, "api", "uninstall", "-f", configPath, "--delete-data")
+		runCommandSucceeds(t, "sudo", tygerPath, "api", "uninstall", "-f", configPath, "--delete-data")
 	}()
+
+	runCommandSucceeds(t, "sudo", tygerPath, "api", "install", "-f", configPath)
 
 	runTygerSucceeds(t, "api", "migrations", "apply", "--latest", "--offline", "--wait", "-f", configPath)
 

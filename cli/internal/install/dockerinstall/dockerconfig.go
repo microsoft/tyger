@@ -15,7 +15,7 @@ type DockerEnvironmentConfig struct {
 	EnvironmentName string `json:"environmentName"`
 
 	UserId         string `json:"userId"`
-	AllowedGroupId string `json:"groupId"`
+	AllowedGroupId string `json:"allowedGroupId"`
 
 	InstallationPath string `json:"installationPath"`
 

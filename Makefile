@@ -101,11 +101,13 @@ integration-test: up integration-test-no-up-prereqs
 	$(MAKE) integration-test-no-up-prereqs integration-test-no-up
 
 test: up unit-test integration-test
+	$(MAKE) variant-test
+
+test-no-up: unit-test integration-test-no-up
+	$(MAKE) variant-test
 
 full:
 	$(MAKE) test INSTALL_CLOUD=true
-
-test-no-up: unit-test integration-test-no-up
 
 get-tyger-uri:
 	echo ${TYGER_URI}

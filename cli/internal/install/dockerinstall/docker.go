@@ -150,10 +150,20 @@ func (i *Installer) createControlPlaneContainer(ctx context.Context) error {
 
 	image := i.Config.ControlPlaneImage
 
-	primaryPublicCertificatePath := "/app/tyger-data-plane-primary.pem"
-	secondaryPublicCertificatePath := "/app/tyger-data-plane-secondary.pem"
-	if i.Config.SigningKeys.Secondary == nil {
-		secondaryPublicCertificatePath = ""
+	primaryPublicKeyHash, err := fileHash(i.Config.SigningKeys.Primary.PublicKey)
+	if err != nil {
+		return fmt.Errorf("error hashing primary public key: %w", err)
+	}
+
+	primaryPublicCertificatePath := fmt.Sprintf("/app/tyger-data-plane-primary-%s.pem", primaryPublicKeyHash)
+	secondaryPublicCertificatePath := ""
+	if i.Config.SigningKeys.Secondary != nil {
+		secondaryPublicKeyHash, err := fileHash(i.Config.SigningKeys.Secondary.PublicKey)
+		if err != nil {
+			return fmt.Errorf("error hashing secondary public key: %w", err)
+		}
+
+		secondaryPublicCertificatePath = fmt.Sprintf("/app/tyger-data-plane-secondary-%s.pem", secondaryPublicKeyHash)
 	}
 
 	containerSpec := containerSpec{
@@ -273,6 +283,22 @@ func (i *Installer) createControlPlaneContainer(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func fileHash(path string) (string, error) {
+	hash := sha256.New()
+	f, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("error opening file: %w", err)
+	}
+
+	defer f.Close()
+
+	if _, err := io.Copy(hash, f); err != nil {
+		return "", fmt.Errorf("error hashing file: %w", err)
+	}
+
+	return base32.StdEncoding.EncodeToString(hash.Sum(nil)), nil
 }
 
 func (i *Installer) waitForContainerToComplete(ctx context.Context, containerName string) (int, error) {
@@ -441,10 +467,20 @@ func (i *Installer) createDataPlaneContainer(ctx context.Context) error {
 		image = "eminence.azurecr.io/tyger-data-plane-server:dev"
 	}
 
-	primaryPublicCertificatePath := "/app/tyger-data-plane-public-primary.pem"
-	secondaryPublicCertificatePath := "/app/tyger-data-plane-public-secondary.pem"
-	if i.Config.SigningKeys.Secondary == nil {
-		secondaryPublicCertificatePath = ""
+	primaryPublicKeyHash, err := fileHash(i.Config.SigningKeys.Primary.PublicKey)
+	if err != nil {
+		return fmt.Errorf("error hashing primary public key: %w", err)
+	}
+
+	primaryPublicCertificatePath := fmt.Sprintf("/app/tyger-data-plane-public-primary-%s.pem", primaryPublicKeyHash)
+	secondaryPublicCertificatePath := ""
+	if i.Config.SigningKeys.Secondary != nil {
+		secondaryPublicKeyHash, err := fileHash(i.Config.SigningKeys.Secondary.PublicKey)
+		if err != nil {
+			return fmt.Errorf("error hashing secondary public key: %w", err)
+		}
+
+		secondaryPublicCertificatePath = fmt.Sprintf("/app/tyger-data-plane-public-secondary-%s.pem", secondaryPublicKeyHash)
 	}
 
 	spec := containerSpec{
