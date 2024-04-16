@@ -104,9 +104,9 @@ else
     WORKER_WAITER_IMAGE="${repo_fqdn}/worker-waiter:${EXPLICIT_IMAGE_TAG}"
   elif [[ "$docker" == true ]]; then
     arch=$(dpkg --print-architecture)
-    TYGER_SERVER_IMAGE=$(docker inspect "${repo_fqdn}/tyger-server:dev-${arch}" | jq -r '.[0].Id')
-    BUFFER_SIDECAR_IMAGE=$(docker inspect "${repo_fqdn}/buffer-sidecar:dev-${arch}" | jq -r '.[0].Id')
-    TYGER_DATA_PLANE_SERVER_IMAGE=$(docker inspect "${repo_fqdn}/tyger-data-plane-server:dev-${arch}" | jq -r '.[0].Id')
+    TYGER_SERVER_IMAGE=$(docker inspect "${repo_fqdn}/tyger-server:dev-${arch}" 2>/dev/null | jq -r '.[0].Id' 2>/dev/null || true)
+    BUFFER_SIDECAR_IMAGE=$(docker inspect "${repo_fqdn}/buffer-sidecar:dev-${arch}" 2>/dev/null | jq -r '.[0].Id' 2>/dev/null || true)
+    TYGER_DATA_PLANE_SERVER_IMAGE=$(docker inspect "${repo_fqdn}/tyger-data-plane-server:dev-${arch}" 2>/dev/null | jq -r '.[0].Id' 2>/dev/null || true)
   else
     arch="amd64"
 
