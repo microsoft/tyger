@@ -112,7 +112,7 @@ func newBufferSetCommand() *cobra.Command {
 				headers.Add("If-Match", etag)
 			}
 
-			_, err := controlplane.InvokeRequestWithHeaders(cmd.Context(), http.MethodPut, fmt.Sprintf("v1/buffers/%s/tags", args[0]), Tags(tagEntries), &buffer, headers)
+			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPut, fmt.Sprintf("v1/buffers/%s/tags", args[0]), Tags(tagEntries), &buffer, controlplane.WithHeaders(headers))
 			if err != nil {
 				return err
 			}

@@ -6,13 +6,11 @@ package cmd
 import (
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 
-	"github.com/microsoft/tyger/cli/internal/client"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -205,31 +203,24 @@ func newLoginStatusCommand() *cobra.Command {
 				return fmt.Errorf("run `tyger login` to login to a server: %v", err)
 			}
 
-			var urlString = tygerClient.ControlPlaneUrl.String()
-			if tygerClient.ControlPlaneUrl.Scheme == "http+unix" {
-				urlString = "unix://" + strings.Split(tygerClient.ControlPlaneUrl.Path, ":")[0]
+			service, proxy, principal, err := controlplane.GetLoginInfoFromCache()
+			if err != nil {
+				return fmt.Errorf("run `tyger login` to login to a server: %v", err)
 			}
 
-			var proxyString string
-			req, _ := http.NewRequest(http.MethodGet, tygerClient.ControlPlaneUrl.String(), nil)
-			proxy, _ := client.GetHttpTransport(tygerClient.ControlPlaneClient.HTTPClient).Proxy(req)
-			if proxy != nil {
-				proxyString = proxy.String()
-				if sshParams, err := client.DecodeSshUrlFromHost(proxy.Host); err == nil {
-					urlString = sshParams.String()
-					proxyString = ""
-				}
+			if service.Scheme == "http+unix" {
+				service.Scheme = "unix"
+				service.Path = strings.TrimSuffix(service.Path, ":")
 			}
 
-			principal := tygerClient.Principal
 			if principal == "" {
-				fmt.Printf("You are logged in to %s", urlString)
+				fmt.Printf("You are logged in to %s", service.String())
 			} else {
-				fmt.Printf("You are logged in to %s as %s", urlString, principal)
+				fmt.Printf("You are logged in to %s as %s", service.String(), principal)
 			}
 
-			if proxyString != "" {
-				fmt.Printf(" using proxy server %s", proxyString)
+			if proxy != nil {
+				fmt.Printf(" using proxy server %s", proxy.String())
 			}
 			fmt.Println()
 

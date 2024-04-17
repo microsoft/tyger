@@ -109,13 +109,17 @@ func TestGetProxyFuncExplicitProxyWithoutScheme(t *testing.T) {
 }
 
 func TestGetProxyFuncWithDataPlaneProxy(t *testing.T) {
+	cpClient, err := NewClient(&ClientOptions{ProxyString: "none"})
+	require.NoError(t, err)
+
+	dpProxy := "http://111.222.333.444:5555"
+	dpClient, err := NewClient(&ClientOptions{ProxyString: dpProxy})
+	require.NoError(t, err)
 
 	controlPlaneUrl, err := url.Parse("https://example.com")
 	require.NoError(t, err)
-	dataPlaneProxy, err := url.Parse("http://111.222.333.444:5555")
-	require.NoError(t, err)
 
-	tygerClient := NewTygerClient(controlPlaneUrl, func(ctx context.Context) (string, error) { return "", nil }, dataPlaneProxy, "me")
+	tygerClient := NewTygerClient(controlPlaneUrl, func(ctx context.Context) (string, error) { return "", nil }, "me", cpClient, dpClient)
 
 	dataPlaneUrl, err := url.Parse("https://dataplane.example.com")
 	require.NoError(t, err)
@@ -124,9 +128,8 @@ func TestGetProxyFuncWithDataPlaneProxy(t *testing.T) {
 		URL: dataPlaneUrl,
 	}
 
-	proxyURL, err := GetHttpTransport(tygerClient.DataPlaneClient.HTTPClient).Proxy(req)
+	proxyURL, err := tygerClient.DataPlaneClient.Proxy(req)
 	require.NoError(t, err)
 	require.NotNil(t, proxyURL)
-	require.Equal(t, dataPlaneProxy.String(), proxyURL.String())
-
+	require.Equal(t, dpProxy, proxyURL.String())
 }

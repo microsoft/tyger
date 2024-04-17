@@ -694,10 +694,12 @@ func getLogs(ctx context.Context, runId string, timestamps bool, tailLines int, 
 		if len(queryString) > 0 {
 			queryString = "?" + queryString
 		}
-		resp, err := controlplane.InvokeRequest(ctx, http.MethodGet, fmt.Sprintf("v1/runs/%s/logs%s", runId, queryString), nil, nil)
+		resp, err := controlplane.InvokeRequest(ctx, http.MethodGet, fmt.Sprintf("v1/runs/%s/logs%s", runId, queryString), nil, nil, controlplane.WithLeaveResponseOpen())
 		if err != nil {
 			return err
 		}
+
+		defer resp.Body.Close()
 
 		if !follow {
 			_, err = io.Copy(outputSink, resp.Body)
@@ -751,13 +753,15 @@ func watchRun(ctx context.Context, runId int64) (<-chan model.Run, <-chan error)
 	go func() {
 		defer close(runEventChan)
 
-		resp, err := controlplane.InvokeRequest(ctx, http.MethodGet, fmt.Sprintf("v1/runs/%d?watch=true", runId), nil, nil)
-		if resp != nil && resp.StatusCode == http.StatusNotFound {
-			errChan <- errNotFound
-			return
-		}
+		resp, err := controlplane.InvokeRequest(ctx, http.MethodGet, fmt.Sprintf("v1/runs/%d?watch=true", runId), nil, nil, controlplane.WithLeaveResponseOpen())
 		if err != nil {
 			errChan <- err
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == http.StatusNotFound {
+			errChan <- errNotFound
 			return
 		}
 

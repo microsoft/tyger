@@ -4,37 +4,60 @@
 package cmd
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"os"
+	"strings"
 
-	"github.com/loft-sh/devpod/pkg/stdio"
 	"github.com/microsoft/tyger/cli/internal/client"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
-	"github.com/microsoft/tyger/cli/internal/proxy"
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
 
 func NewStdioProxyCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:    "stdio-proxy",
-		Short:  "Start a proxy to the stdin/stdout of a container",
+		Short:  "An HTTP proxy to tyger using standard IO for the HTTP request/response streams.",
 		Hidden: true,
 		Args:   cobra.ExactArgs(0),
 		Run: func(cmd *cobra.Command, args []string) {
-			server := http.Server{
-				Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					// The HTTP server implementation will cancel r.Context() as the input reaches EOF.
-					// Normally, this means the network connection has been closed, but in this case it just
-					// means that it's the last HTTP request coming over stdin.
-					// There may be a better way to handle this, but will just call handle with a new context
-					proxy.HandleUDSProxyRequest(cmd.Context(), w, r)
-				}),
+			bufIn := bufio.NewReader(os.Stdin)
+			req, err := http.ReadRequest(bufIn)
+			if err != nil {
+				log.Fatal().Err(err).Msg("Failed to read request")
 			}
 
-			listener := stdio.NewStdioListener(os.Stdin, os.Stdout, true)
-			server.Serve(listener)
+			if req.URL.Scheme != "http+unix" {
+				log.Fatal().Msg("Unsupported URL scheme")
+			}
+
+			tokens := strings.Split(req.URL.Path, ":")
+			socketPath := tokens[0]
+
+			req.Host = ""
+			req.URL.Host = ""
+			req.URL.Path = tokens[1]
+			req.Header.Add("Connection", "Close")
+
+			conn, err := net.Dial("unix", socketPath)
+			if err != nil {
+				log.Fatal().Err(err).Msg("Failed to connect to socket")
+			}
+
+			defer conn.Close()
+
+			if err := req.Write(conn); err != nil {
+				log.Fatal().Err(err).Msg("Failed to write request")
+			}
+
+			if _, err := io.Copy(os.Stdout, conn); err != nil {
+				log.Fatal().Err(err).Msg("Failed to copy response")
+			}
 		},
 	}
 
@@ -60,7 +83,12 @@ func newStdioProxyLoginCommand() *cobra.Command {
 				return err
 			}
 
-			resp, err := client.NewRetryableClient().Get(parsedServerUrl.JoinPath("v1/metadata").String())
+			c, err := client.NewClient(&client.ClientOptions{ProxyString: "none"})
+			if err != nil {
+				return err
+			}
+
+			resp, err := c.Get(parsedServerUrl.JoinPath("v1/metadata").String())
 			if err != nil {
 				return err
 			}
@@ -69,7 +97,7 @@ func newStdioProxyLoginCommand() *cobra.Command {
 				return errors.New("unexpected status code")
 			}
 
-			fmt.Println(parsedServerUrl.String())
+			fmt.Print(parsedServerUrl.String())
 
 			return nil
 		},

@@ -49,13 +49,16 @@
       ]
     },
     {
-      "name": "docker-gateway",
+      "name": "CLI Docker",
       "type": "go",
       "request": "launch",
       "mode": "auto",
-      "program": "cli/cmd/docker-gateway",
+      "program": "cli/cmd/tyger",
       "cwd": "${workspaceFolder}",
-      "args": [],
+      "args": ["buffer", "read", "oql6b2s5ljruzjw36hrmg3ojni"],
+      "env": {
+        "TYGER_CACHE_FILE": "/home/vscode/.cache/tyger/.tyger-docker"
+      },
       "substitutePath": [
         {
           "from": "/workspaces/tyger-docker",

@@ -54,7 +54,7 @@ func RunProxy(ctx context.Context, tygerClient *client.TygerClient, options *Pro
 		tygerClient:           tygerClient,
 		targetControlPlaneUri: controlPlaneTargetUri,
 		options:               options,
-		nextProxyFunc:         client.GetHttpTransport(tygerClient.DataPlaneClient.HTTPClient).Proxy,
+		nextProxyFunc:         tygerClient.DataPlaneClient.Proxy,
 	}
 
 	r := chi.NewRouter()

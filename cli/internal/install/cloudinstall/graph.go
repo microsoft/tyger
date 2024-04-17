@@ -192,7 +192,7 @@ func executeGraphCall(ctx context.Context, cred azcore.TokenCredential, method, 
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", tokenResponse.Token))
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := client.DefaultRetryableClient().Do(req)
+	resp, err := client.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("graph call failed: %w", err)
 	}

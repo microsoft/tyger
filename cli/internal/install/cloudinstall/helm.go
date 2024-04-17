@@ -215,7 +215,7 @@ func (i *Installer) InstallTyger(ctx context.Context) error {
 	baseEndpoint := fmt.Sprintf("https://%s", i.Config.Api.DomainName)
 	healthCheckEndpoint := fmt.Sprintf("%s/healthcheck", baseEndpoint)
 
-	client := client.NewRetryableClient()
+	client := client.DefaultClient
 	client.RetryMax = 0 // we do own own retrying here
 
 	for i := 0; ; i++ {

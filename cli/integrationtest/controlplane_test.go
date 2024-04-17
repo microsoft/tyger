@@ -932,15 +932,14 @@ func TestGetLogsFromPod(t *testing.T) {
 	waitForRunStarted(t, runId)
 
 	// block until we get the first line
-	resp, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, fmt.Sprintf("v1/runs/%s/logs?follow=true", runId), nil, nil)
+	resp, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, fmt.Sprintf("v1/runs/%s/logs?follow=true", runId), nil, nil, controlplane.WithLeaveResponseOpen())
 	require.Nil(t, err)
+	defer resp.Body.Close()
 	reader := bufio.NewReader(resp.Body)
 	for i := 0; i < 5; i++ {
 		_, err = reader.ReadString('\n')
 		require.Nil(t, err)
 	}
-
-	require.Nil(t, resp.Body.Close())
 
 	logs := runTygerSucceeds(t, "run", "logs", runId)
 	require.Equal(t, "1\n2\n3\n4\n5", logs)

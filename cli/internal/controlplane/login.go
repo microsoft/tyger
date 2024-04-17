@@ -36,6 +36,7 @@ const (
 	servicePrincipalScope               = ".default"
 	discardTokenIfExpiringWithinSeconds = 10 * 60
 	LocalUriSentinel                    = "local"
+	sshConcurrencyLimit                 = 8
 )
 
 type LoginConfig struct {
@@ -93,8 +94,18 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 		DisableTlsCertificateValidation: options.DisableTlsCertificateValidation,
 	}
 
+	defaultClientOptions := client.ClientOptions{
+		ProxyString:                     options.Proxy,
+		DisableTlsCertificateValidation: options.DisableTlsCertificateValidation,
+	}
+
+	if err := client.SetDefaultNetworkClientSettings(&defaultClientOptions); err != nil {
+		return nil, err
+	}
+
+	var tygerClient *client.TygerClient
 	if normalizedServerUri.Scheme == "ssh" {
-		sshParams, err := client.ParseSshUrl(normalizedServerUri.String())
+		sshParams, err := client.ParseSshUrl(normalizedServerUri)
 		if err != nil {
 			return nil, fmt.Errorf("invalid ssh URL: %w", err)
 		}
@@ -115,35 +126,38 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 			return nil, fmt.Errorf("failed to establish a remote tyger connection: %w. stderr: %s", err, errb.String())
 		}
 
-		innerServiceUri, err := NormalizeServerUri(strings.TrimSpace(outb.String()))
+		socketUrl, err := NormalizeServerUri(outb.String())
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to parse socket URL: %w", err)
 		}
 
-		si.ServerUri = innerServiceUri.String()
-		si.parsedServerUri = innerServiceUri
+		if socketUrl.Scheme != "http+unix" {
+			panic(fmt.Sprintf("unexpected scheme: %s", socketUrl.Scheme))
+		}
 
-		si.parsedProxy = &url.URL{Scheme: "ssh", Host: client.EncodeSshUrlToHost(sshParams)}
-		si.Proxy = si.parsedProxy.String()
+		sshParams.SocketPath = strings.Split(socketUrl.Path, ":")[0]
+		si.parsedServerUri = sshParams.URL()
+		si.ServerUri = si.parsedServerUri.String()
+
+		sshCommandTransport := client.NewCommandTransport(sshConcurrencyLimit, "ssh", sshParams.FormatCmdLine()...)
+
+		tygerClientOptions := defaultClientOptions // clone
+		tygerClientOptions.ProxyString = "none"
+		tygerClientOptions.OverrideUnixhandler = client.MiddlewareFromTransport(sshCommandTransport)
+		controlPlaneClient, err := client.NewControlPlaneClient(&tygerClientOptions)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create control plane client: %w", err)
+		}
+
+		dataPlaneClient, err := client.NewDataPlaneClient(&tygerClientOptions)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create data plane client: %w", err)
+		}
+
+		tygerClient = client.NewTygerClient(socketUrl, si.GetAccessToken, si.Principal, controlPlaneClient, dataPlaneClient)
 	} else {
 		if err := validateServiceInfo(si); err != nil {
 			return nil, err
-		}
-
-		switch si.Proxy {
-		case "auto", "automatic", "":
-			switch normalizedServerUri.Scheme {
-			case "http", "http+unix":
-				si.Proxy = "none"
-			}
-		}
-
-		if err := client.PrepareDefaultHttpTransport(options.Proxy); err != nil {
-			return nil, err
-		}
-
-		if si.DisableTlsCertificateValidation {
-			client.DisableTlsCertificateValidation()
 		}
 
 		serviceMetadata, err := getServiceMetadata(ctx, options.ServerUri)
@@ -192,13 +206,33 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 				}
 			}
 		}
+
+		cpClient, err := client.NewControlPlaneClient(&defaultClientOptions)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create control plane client: %w", err)
+		}
+
+		dpOptions := defaultClientOptions
+		if si.DataPlaneProxy != "" {
+			dpOptions.ProxyString = si.DataPlaneProxy
+		}
+
+		dpClient, err := client.NewDataPlaneClient(&dpOptions)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create data plane client: %w", err)
+		}
+
+		tygerClient = client.NewTygerClient(si.parsedServerUri, si.GetAccessToken, si.Principal, cpClient, dpClient)
 	}
 
 	if options.Persisted {
 		err = si.persist()
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	return client.NewTygerClient(si.parsedServerUri, si.GetAccessToken, si.parsedDataPlaneProxy, si.Principal), err
+	return tygerClient, nil
 }
 
 func NormalizeServerUri(uri string) (*url.URL, error) {
@@ -356,37 +390,74 @@ func persistCacheContents(path string, bytes []byte) error {
 	return err
 }
 
+func GetLoginInfoFromCache() (service *url.URL, proxy *url.URL, principal string, err error) {
+	si, err := readCachedServiceInfo()
+	if err != nil {
+		return nil, nil, "", err
+	}
+
+	return si.parsedServerUri, si.parsedProxy, si.Principal, nil
+}
+
 func GetClientFromCache() (*client.TygerClient, error) {
-	path, err := GetCachePath()
+	si, err := readCachedServiceInfo()
 	if err != nil {
 		return nil, err
 	}
 
-	bytes, err := readCachedContents(path)
+	defaultClientOptions := client.ClientOptions{
+		ProxyString:                     si.Proxy,
+		DisableTlsCertificateValidation: si.DisableTlsCertificateValidation,
+	}
 
-	if err != nil {
+	if err := client.SetDefaultNetworkClientSettings(&defaultClientOptions); err != nil {
 		return nil, err
 	}
 
-	si := serviceInfo{}
-	err = yaml.Unmarshal(bytes, &si)
-	if err != nil {
-		return nil, err
-	}
+	if si.parsedServerUri.Scheme == "ssh" {
+		sshParams, err := client.ParseSshUrl(si.parsedServerUri)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ssh URL: %w", err)
+		}
 
-	if err := validateServiceInfo(&si); err != nil {
-		return nil, err
-	}
+		_ = sshParams
 
-	if err := client.PrepareDefaultHttpTransport(si.Proxy); err != nil {
-		return nil, err
-	}
+		sshCommandTransport := client.NewCommandTransport(sshConcurrencyLimit, "ssh", sshParams.FormatCmdLine()...)
 
-	if si.DisableTlsCertificateValidation {
-		client.DisableTlsCertificateValidation()
-	}
+		tygerClientOptions := defaultClientOptions
+		tygerClientOptions.ProxyString = "none"
+		tygerClientOptions.OverrideUnixhandler = client.MiddlewareFromTransport(sshCommandTransport)
+		cpClient, err := client.NewClient(&tygerClientOptions)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create control plane client: %w", err)
+		}
 
-	return client.NewTygerClient(si.parsedServerUri, si.GetAccessToken, si.parsedDataPlaneProxy, si.Principal), err
+		dpClient, err := client.NewDataPlaneClient(&tygerClientOptions)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create data plane client: %w", err)
+		}
+
+		endpoint := url.URL{Scheme: "http+unix", Path: fmt.Sprintf("%s:", sshParams.SocketPath)}
+
+		return client.NewTygerClient(&endpoint, si.GetAccessToken, si.Principal, cpClient, dpClient), nil
+	} else {
+		controlPlaneClient, err := client.NewClient(&defaultClientOptions)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create control plane client: %w", err)
+		}
+
+		dpOptions := defaultClientOptions
+		if si.DataPlaneProxy != "" {
+			dpOptions.ProxyString = si.DataPlaneProxy
+		}
+
+		dpClient, err := client.NewDataPlaneClient(&dpOptions)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create data plane client: %w", err)
+		}
+
+		return client.NewTygerClient(si.parsedServerUri, si.GetAccessToken, si.Principal, controlPlaneClient, dpClient), nil
+	}
 }
 
 func validateServiceInfo(si *serviceInfo) error {
@@ -420,10 +491,13 @@ func validateServiceInfo(si *serviceInfo) error {
 	return nil
 }
 
-func readCachedContents(path string) ([]byte, error) {
-	var bytes []byte
-	var err error
+func readCachedServiceInfo() (*serviceInfo, error) {
+	path, err := GetCachePath()
+	if err != nil {
+		return nil, err
+	}
 
+	var bytes []byte
 	// If the file is not readable due to a permission error,
 	// it could be because another process is holding the file open.
 	// In that case, we retry over a short period of time.
@@ -438,7 +512,21 @@ func readCachedContents(path string) ([]byte, error) {
 		}
 	}
 
-	return bytes, err
+	if err != nil {
+		return nil, err
+	}
+
+	si := serviceInfo{}
+	err = yaml.Unmarshal(bytes, &si)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := validateServiceInfo(&si); err != nil {
+		return nil, err
+	}
+
+	return &si, nil
 }
 
 func getServiceMetadata(ctx context.Context, serverUri string) (*model.ServiceMetadata, error) {
@@ -447,7 +535,7 @@ func getServiceMetadata(ctx context.Context, serverUri string) (*model.ServiceMe
 		return nil, fmt.Errorf("unable to create request: %w", err)
 	}
 
-	resp, err := client.DefaultRetryableClient().Do(req)
+	resp, err := client.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -467,7 +555,7 @@ func (si *serviceInfo) performServicePrincipalLogin(ctx context.Context) (authRe
 			return authResult, fmt.Errorf("error creating credential: %w", err)
 		}
 
-		client, err := confidential.New(si.Authority, si.Principal, cred, confidential.WithHTTPClient(client.DefaultRetryableClient().StandardClient()))
+		client, err := confidential.New(si.Authority, si.Principal, cred, confidential.WithHTTPClient(client.DefaultClient.StandardClient()))
 		if err != nil {
 			return authResult, err
 		}
@@ -513,7 +601,7 @@ func (si *serviceInfo) performUserLogin(ctx context.Context, useDeviceCode bool)
 		si.ClientAppUri,
 		public.WithAuthority(si.Authority),
 		public.WithCache(si),
-		public.WithHTTPClient(client.DefaultRetryableClient().StandardClient()),
+		public.WithHTTPClient(client.DefaultClient.StandardClient()),
 	)
 	if err != nil {
 		return

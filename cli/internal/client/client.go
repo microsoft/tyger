@@ -6,8 +6,8 @@ package client
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -15,6 +15,7 @@ import (
 
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/mattn/go-ieproxy"
+	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -28,55 +29,126 @@ const (
 
 var (
 	underlyingHttpTransport = http.DefaultTransport.(*http.Transport)
-	defaultRoundTripper     = http.DefaultTransport
-	defaultRetryableClient  *retryablehttp.Client
+	DefaultClient           *Client
+	DefaultRetryableClient  *retryablehttp.Client
 )
 
-func init() {
-	registerHttpUnixProtocolHandler(underlyingHttpTransport)
+type roundTripFunc func(req *http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+type TransportMiddleware func(next http.RoundTripper) http.RoundTripper
+
+type Client struct {
+	*retryablehttp.Client
+	transport               http.RoundTripper
+	underlyingHttpTransport *http.Transport
 }
 
-type TygerClient struct {
-	ControlPlaneUrl    *url.URL
-	ControlPlaneClient *retryablehttp.Client
-	GetAccessToken     AccessTokenFunc
-	DataPlaneClient    *retryablehttp.Client
-	Principal          string
+func (c *Client) Proxy(req *http.Request) (*url.URL, error) {
+	return c.underlyingHttpTransport.Proxy(req)
+}
+
+type ClientOptions struct {
+	ProxyString                     string
+	OverrideUnixhandler             TransportMiddleware
+	DisableTlsCertificateValidation bool
+}
+
+func NewClient(opts *ClientOptions) (*Client, error) {
+	if opts == nil {
+		opts = &ClientOptions{}
+	}
+
+	proxyFunc, err := ParseProxy(opts.ProxyString)
+	if err != nil {
+		return nil, err
+	}
+
+	transport := &http.Transport{
+		MaxIdleConnsPerHost:   1000,
+		ResponseHeaderTimeout: 60 * time.Second,
+		Proxy:                 proxyFunc,
+		DialContext:           (&net.Dialer{}).DialContext,
+	}
+
+	if opts.DisableTlsCertificateValidation {
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	}
+
+	var roundTripper http.RoundTripper = transport
+
+	unixHandler := opts.OverrideUnixhandler
+	if unixHandler == nil {
+		unixHandler = unixRoundTripMiddleware
+		transport.DialContext = unixDialContextMiddleware((&net.Dialer{}).DialContext)
+	}
+
+	roundTripper = unixHandler(roundTripper)
+
+	if log.Logger.GetLevel() <= zerolog.DebugLevel {
+		roundTripper = &loggingTransport{RoundTripper: roundTripper}
+	}
+
+	retryableClient := retryablehttp.NewClient()
+	retryableClient.RetryMax = 6
+
+	retryableClient.Logger = nil
+	retryableClient.ErrorHandler = func(resp *http.Response, err error, numTries int) (*http.Response, error) {
+		return resp, err
+	}
+	retryableClient.CheckRetry = createCheckRetryFunc(retryableClient)
+
+	retryableClient.HTTPClient = &http.Client{
+		Transport: roundTripper,
+	}
+
+	return &Client{
+		transport:               roundTripper,
+		underlyingHttpTransport: transport,
+		Client:                  retryableClient,
+	}, nil
+}
+
+func NewControlPlaneClient(opts *ClientOptions) (*Client, error) {
+	return NewClient(opts)
+}
+
+func NewDataPlaneClient(opts *ClientOptions) (*Client, error) {
+	c, err := NewClient(opts)
+	if err != nil {
+		return nil, err
+	}
+
+	c.Client.HTTPClient.Timeout = 100 * time.Second
+	return c, nil
+}
+
+func SetDefaultNetworkClientSettings(opts *ClientOptions) error {
+	client, err := NewClient(opts)
+	if err != nil {
+		return err
+	}
+
+	DefaultClient = client
+	DefaultRetryableClient = client.Client
+	http.DefaultClient = client.Client.HTTPClient
+	http.DefaultClient.Transport = client.transport
+	http.DefaultTransport = client.transport
+	return nil
 }
 
 type AccessTokenFunc func(ctx context.Context) (string, error)
 
-func NewTygerClient(controlPlaneUrl *url.URL, getAccessToken AccessTokenFunc, dataPlaneProxy *url.URL, principal string) *TygerClient {
-	controlPlaneClient := DefaultRetryableClient()
-	dataPlaneClient := NewRetryableClient()
-	dataPlaneClient.HTTPClient = &http.Client{
-		Timeout:   100 * time.Second,
-		Transport: dataPlaneClient.HTTPClient.Transport,
-	}
+type TygerClient struct {
+	ControlPlaneUrl    *url.URL
+	ControlPlaneClient *Client
+	GetAccessToken     AccessTokenFunc
+	DataPlaneClient    *Client
+	Principal          string
+}
 
-	if dataPlaneProxy != nil {
-		dataPlaneRoundtripper := dataPlaneClient.HTTPClient.Transport
-		var dataPlaneHttpTransport *http.Transport
-		switch t := dataPlaneRoundtripper.(type) {
-		case nil:
-			dataPlaneRoundtripper = underlyingHttpTransport.Clone()
-			dataPlaneHttpTransport = dataPlaneRoundtripper.(*http.Transport)
-		case *http.Transport:
-			dataPlaneRoundtripper = t.Clone()
-			dataPlaneHttpTransport = dataPlaneRoundtripper.(*http.Transport)
-		case *loggingTransport:
-			dataPlaneRoundtripper = t.Clone()
-			dataPlaneHttpTransport = dataPlaneRoundtripper.(*loggingTransport).transport
-		default:
-			panic(fmt.Sprintf("unexpected roundtripper type %T", t))
-		}
-
-		// Alt protocol registrations are not cloned in Clone() so we need to re-register them
-		registerHttpUnixProtocolHandler(dataPlaneHttpTransport)
-		dataPlaneHttpTransport.Proxy = httpCheckProxyFunc(http.ProxyURL(dataPlaneProxy))
-		dataPlaneClient.HTTPClient.Transport = dataPlaneRoundtripper
-	}
-
+func NewTygerClient(controlPlaneUrl *url.URL, getAccessToken AccessTokenFunc, principal string, controlPlaneClient *Client, dataPlaneClient *Client) *TygerClient {
 	return &TygerClient{
 		ControlPlaneUrl:    controlPlaneUrl,
 		ControlPlaneClient: controlPlaneClient,
@@ -86,78 +158,10 @@ func NewTygerClient(controlPlaneUrl *url.URL, getAccessToken AccessTokenFunc, da
 	}
 }
 
-func DefaultRetryableClient() *retryablehttp.Client {
-	if defaultRetryableClient == nil {
-		defaultRetryableClient = NewRetryableClient()
-	}
-
-	return defaultRetryableClient
-}
-
-func NewRetryableClient() *retryablehttp.Client {
-	client := retryablehttp.NewClient()
-	client.RetryMax = 6
-
-	client.Logger = nil
-	client.ErrorHandler = func(resp *http.Response, err error, numTries int) (*http.Response, error) {
-		return resp, err
-	}
-	client.CheckRetry = createCheckRetryFunc(client)
-
-	client.HTTPClient = &http.Client{
-		Transport: defaultRoundTripper,
-	}
-
-	return client
-}
-
-func PrepareDefaultHttpTransport(proxyString string) error {
-	proxyFunc, err := ParseProxy(proxyString)
-	if err != nil {
-		return err
-	}
-
-	underlyingHttpTransport.Proxy = proxyFunc
-	if strings.HasPrefix(proxyString, "ssh://") {
-		underlyingHttpTransport.MaxConnsPerHost = 16
-	}
-
-	underlyingHttpTransport.MaxIdleConnsPerHost = 1000
-	underlyingHttpTransport.ResponseHeaderTimeout = 60 * time.Second
-
-	if log.Logger.GetLevel() <= zerolog.DebugLevel {
-		defaultRoundTripper = &loggingTransport{transport: underlyingHttpTransport}
-		http.DefaultClient.Transport = defaultRoundTripper
-	}
-
-	return nil
-}
-
-func DisableTlsCertificateValidation() {
-	underlyingHttpTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-}
-
-func GetHttpTransport(client *http.Client) *http.Transport {
-	switch t := client.Transport.(type) {
-	case nil:
-		return underlyingHttpTransport
-	case *http.Transport:
-		return t
-	case *loggingTransport:
-		return t.transport
-	default:
-		panic(fmt.Sprintf("unexpected transport type %T", t))
-	}
-}
+type HttpTransportOption func(*http.Transport)
 
 type loggingTransport struct {
-	transport *http.Transport
-}
-
-func (t *loggingTransport) Clone() *loggingTransport {
-	return &loggingTransport{
-		transport: t.transport.Clone(),
-	}
+	http.RoundTripper
 }
 
 func (t *loggingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -179,7 +183,7 @@ func (t *loggingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 
 	logger.Trace().Msg("Sending request")
 
-	resp, err := t.transport.RoundTrip(req)
+	resp, err := t.RoundTripper.RoundTrip(req)
 
 	if err != nil {
 		logger.Trace().Err(err).Msg("Error sending request")
@@ -283,4 +287,20 @@ func RedactUrl(u *url.URL) *url.URL {
 	clone := *u
 	clone.RawQuery = q.Encode()
 	return &clone
+}
+
+func CloneRetryableClient(c *retryablehttp.Client) *retryablehttp.Client {
+	innerClient := *c.HTTPClient
+	return &retryablehttp.Client{
+		HTTPClient:      &innerClient,
+		Logger:          c.Logger,
+		RetryWaitMin:    c.RetryWaitMin,
+		RetryWaitMax:    c.RetryWaitMax,
+		RetryMax:        c.RetryMax,
+		RequestLogHook:  c.RequestLogHook,
+		ResponseLogHook: c.ResponseLogHook,
+		CheckRetry:      c.CheckRetry,
+		Backoff:         c.Backoff,
+		ErrorHandler:    c.ErrorHandler,
+	}
 }

@@ -75,9 +75,9 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 	if writeOptions.httpClient == nil {
 		tygerClient, _ := controlplane.GetClientFromCache()
 		if tygerClient != nil {
-			writeOptions.httpClient = tygerClient.DataPlaneClient
+			writeOptions.httpClient = tygerClient.DataPlaneClient.Client
 		} else {
-			writeOptions.httpClient = client.DefaultRetryableClient()
+			writeOptions.httpClient = client.DefaultClient.Client
 		}
 	}
 
@@ -100,7 +100,7 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 	}
 
 	outputChannel := make(chan BufferBlob, writeOptions.dop)
-	errorChannel := make(chan error, 1)
+	errorChannel := make(chan error, writeOptions.dop+1)
 
 	wg := sync.WaitGroup{}
 	wg.Add(writeOptions.dop)
@@ -114,7 +114,6 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 		go func() {
 			defer wg.Done()
 			for bb := range outputChannel {
-
 				blobUrl := container.GetBlobUri(bb.BlobNumber)
 				ctx := log.Ctx(ctx).With().Int64("blobNumber", bb.BlobNumber).Logger().WithContext(ctx)
 				var body any = bb.Contents
@@ -154,6 +153,8 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 
 		previousHashChannel <- EncodedHashChainInitialValue
 
+		failed := false
+
 		for {
 
 			buffer := pool.Get(writeOptions.blockSize)
@@ -165,11 +166,20 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 			if bytesRead > 0 {
 				currentHashChannel := make(chan string, 1)
 
-				outputChannel <- BufferBlob{
+				blob := BufferBlob{
 					BlobNumber:             blobNumber,
 					Contents:               buffer[:bytesRead],
 					PreviousCumulativeHash: previousHashChannel,
 					CurrentCumulativeHash:  currentHashChannel,
+				}
+				select {
+				case outputChannel <- blob:
+				case <-ctx.Done():
+					failed = true
+				}
+
+				if failed {
+					break
 				}
 
 				previousHashChannel = currentHashChannel
@@ -182,17 +192,21 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 
 			if err != nil {
 				errorChannel <- fmt.Errorf("error reading from input: %w", err)
+				failed = true
+				break
 			}
 		}
 
-		currentHashChannel := make(chan string, 1)
-
-		outputChannel <- BufferBlob{
-			BlobNumber:             blobNumber,
-			Contents:               []byte{},
-			PreviousCumulativeHash: previousHashChannel,
-			CurrentCumulativeHash:  currentHashChannel,
+		if !failed {
+			currentHashChannel := make(chan string, 1)
+			outputChannel <- BufferBlob{
+				BlobNumber:             blobNumber,
+				Contents:               []byte{},
+				PreviousCumulativeHash: previousHashChannel,
+				CurrentCumulativeHash:  currentHashChannel,
+			}
 		}
+
 		close(outputChannel)
 
 		wg.Wait()
@@ -200,6 +214,7 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 	}()
 
 	for err := range errorChannel {
+		cancel()
 		if ctx.Err() != nil {
 			// this means the context was cancelled or timed out
 			// use a new context to write the end metadata
@@ -234,6 +249,8 @@ func writeStartMetadata(ctx context.Context, httpClient *retryablehttp.Client, c
 	if err != nil {
 		return fmt.Errorf("failed to send HEAD request: %w", err)
 	}
+
+	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusOK {
 		return fmt.Errorf("buffer cannot be overwritten")

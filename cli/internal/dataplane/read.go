@@ -67,9 +67,9 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 	if readOptions.httpClient == nil {
 		tygerClient, _ := controlplane.GetClientFromCache()
 		if tygerClient != nil {
-			readOptions.httpClient = tygerClient.DataPlaneClient
+			readOptions.httpClient = tygerClient.DataPlaneClient.Client
 		} else {
-			readOptions.httpClient = client.DefaultRetryableClient()
+			readOptions.httpClient = client.DefaultRetryableClient
 		}
 	}
 
@@ -92,7 +92,7 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 		return err
 	}
 
-	errorChannel := make(chan error, 1)
+	errorChannel := make(chan error, readOptions.dop*2)
 
 	waitForBlobs := atomic.Bool{}
 	waitForBlobs.Store(true)
@@ -120,14 +120,24 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 	finalBlobNumber := atomic.Int64{}
 	finalBlobNumber.Store(-1)
 
+	wg := sync.WaitGroup{}
 	for i := 0; i < readOptions.dop; i++ {
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			c := make(chan BufferBlob, 5)
 			for {
 				lock.Lock()
 				blobNumber := nextBlobNumber
 				nextBlobNumber++
-				responseChannel <- c
+				select {
+				case responseChannel <- c:
+				case <-ctx.Done():
+					lock.Unlock()
+					errorChannel <- ctx.Err()
+					return
+				}
+
 				lock.Unlock()
 
 				blobUri := container.GetBlobUri(blobNumber)
@@ -214,8 +224,12 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 	select {
 	case <-doneChan:
 		metrics.Stop()
+		wg.Wait()
 		return nil
 	case err := <-errorChannel:
+		cancel()
+		// discard rest of errors
+		wg.Wait()
 		return err
 	}
 }
@@ -416,6 +430,9 @@ func handleReadResponse(ctx context.Context, resp *http.Response) (*readData, er
 		if err != nil {
 			// return the buffer to the pool
 			pool.Put(buf)
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, ctxErr
+			}
 			return nil, &responseBodyReadError{reason: err}
 		}
 

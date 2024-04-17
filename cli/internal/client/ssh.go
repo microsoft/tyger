@@ -18,11 +18,7 @@ type SshParams struct {
 	CliPath    string
 }
 
-func ParseSshUrl(sshUrl string) (*SshParams, error) {
-	u, err := url.Parse(sshUrl)
-	if err != nil {
-		return nil, err
-	}
+func ParseSshUrl(u *url.URL) (*SshParams, error) {
 	if u.Scheme != "ssh" {
 		return nil, fmt.Errorf("expected scheme ssh, got %q", u.Scheme)
 	}
@@ -57,7 +53,7 @@ func ParseSshUrl(sshUrl string) (*SshParams, error) {
 		return nil, errors.Errorf("extra fragment after the host: %q", u.Fragment)
 	}
 
-	return &sp, err
+	return &sp, nil
 }
 
 func (sp *SshParams) String() string {
@@ -86,7 +82,7 @@ func (sp *SshParams) URL() *url.URL {
 	return &u
 }
 
-func (sp *SshParams) FormatArgs(add ...string) []string {
+func (sp *SshParams) FormatCmdLine(add ...string) []string {
 	args := []string{sp.Host}
 
 	if sp.User != "" {
@@ -117,5 +113,5 @@ func (sp *SshParams) FormatLoginArgs(add ...string) []string {
 	}
 
 	args = append(args, add...)
-	return sp.FormatArgs(args...)
+	return sp.FormatCmdLine(args...)
 }

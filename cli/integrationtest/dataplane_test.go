@@ -24,7 +24,9 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
+	"github.com/microsoft/tyger/cli/internal/client"
 	"github.com/microsoft/tyger/cli/internal/cmd"
+	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/dataplane"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -184,7 +186,7 @@ func TestMissingContainer(t *testing.T) {
 	bufferName := runTygerSucceeds(t, "buffer", "create")
 	readSasUri := runTygerSucceeds(t, "buffer", "access", bufferName)
 
-	client := newInterceptingHttpClient(func(req *http.Request, inner http.RoundTripper) (*http.Response, error) {
+	client := newInterceptingHttpClient(t, func(req *http.Request, inner http.RoundTripper) (*http.Response, error) {
 		resp, err := inner.RoundTrip(req)
 		if err != nil {
 			return resp, err
@@ -210,7 +212,7 @@ func TestInvalidHashChain(t *testing.T) {
 
 	inputReader := strings.NewReader("Hello")
 
-	httpClient := newInterceptingHttpClient(func(req *http.Request, inner http.RoundTripper) (*http.Response, error) {
+	httpClient := newInterceptingHttpClient(t, func(req *http.Request, inner http.RoundTripper) (*http.Response, error) {
 		req.Header.Set(dataplane.HashChainHeader, "invalid")
 		return inner.RoundTrip(req)
 	})
@@ -230,7 +232,7 @@ func TestMd5HashMismatchOnWrite(t *testing.T) {
 	inputBufferId := runTygerSucceeds(t, "buffer", "create")
 	writeSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
 	inputReader := strings.NewReader("Hello")
-	httpClient := newInterceptingHttpClient(func(req *http.Request, inner http.RoundTripper) (*http.Response, error) {
+	httpClient := newInterceptingHttpClient(t, func(req *http.Request, inner http.RoundTripper) (*http.Response, error) {
 		md5Hash := md5.Sum([]byte("invalid"))
 		encodedMD5Hash := base64.StdEncoding.EncodeToString(md5Hash[:])
 		req.Header.Set(dataplane.ContentMD5Header, encodedMD5Hash)
@@ -249,7 +251,7 @@ func TestMd5HashMismatchOnWriteRetryAndRecover(t *testing.T) {
 	inputReader := strings.NewReader("Hello")
 
 	failedUris := make(map[string]any)
-	httpClient := newInterceptingHttpClient(func(req *http.Request, inner http.RoundTripper) (*http.Response, error) {
+	httpClient := newInterceptingHttpClient(t, func(req *http.Request, inner http.RoundTripper) (*http.Response, error) {
 		if _, ok := failedUris[req.URL.String()]; ok {
 			return inner.RoundTrip(req)
 		}
@@ -275,7 +277,7 @@ func TestMd5HashMismatchOnRead(t *testing.T) {
 
 	require.NoError(t, dataplane.Write(context.Background(), writeSasUri, inputReader))
 
-	httpClient := newInterceptingHttpClient(func(req *http.Request, inner http.RoundTripper) (*http.Response, error) {
+	httpClient := newInterceptingHttpClient(t, func(req *http.Request, inner http.RoundTripper) (*http.Response, error) {
 		resp, err := inner.RoundTrip(req)
 		if err != nil {
 			return resp, err
@@ -300,7 +302,7 @@ func TestMd5HashMismatchOnReadRetryAndRecover(t *testing.T) {
 	require.NoError(t, dataplane.Write(context.Background(), writeSasUri, inputReader))
 
 	failedUris := make(map[string]any)
-	httpClient := newInterceptingHttpClient(func(req *http.Request, inner http.RoundTripper) (*http.Response, error) {
+	httpClient := newInterceptingHttpClient(t, func(req *http.Request, inner http.RoundTripper) (*http.Response, error) {
 		resp, err := inner.RoundTrip(req)
 		if err != nil {
 			return resp, err
@@ -379,27 +381,26 @@ func TestBufferDoubleWriteFailure(t *testing.T) {
 	require.NotEqual(t, 0, exitError.ExitCode(), "Second call to buffer write had unexpected exit code")
 }
 
-func newInterceptingHttpClient(roundtrip func(req *http.Request, inner http.RoundTripper) (*http.Response, error)) *retryablehttp.Client {
-	client := retryablehttp.NewClient()
-	client.Logger = nil
-	client.HTTPClient = &http.Client{
-		Transport: &httpInterceptorRountripper{inner: http.DefaultTransport, interceptor: roundtrip},
-	}
+func newInterceptingHttpClient(t *testing.T, roundtrip func(req *http.Request, inner http.RoundTripper) (*http.Response, error)) *retryablehttp.Client {
+	tygerClient, err := controlplane.GetClientFromCache()
+	require.NoError(t, err)
 
-	return client
+	c := client.CloneRetryableClient(tygerClient.DataPlaneClient.Client)
+	c.HTTPClient.Transport = &httpInterceptorRountripper{RoundTripper: c.HTTPClient.Transport, interceptor: roundtrip}
+	return c
 }
 
 type httpInterceptorRountripper struct {
-	inner       http.RoundTripper
+	http.RoundTripper
 	interceptor func(req *http.Request, inner http.RoundTripper) (*http.Response, error)
 }
 
 func (i *httpInterceptorRountripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	if i.interceptor != nil {
-		return i.interceptor(req, i.inner)
+		return i.interceptor(req, i.RoundTripper)
 	}
 
-	return i.inner.RoundTrip(req)
+	return i.RoundTripper.RoundTrip(req)
 }
 
 type infiniteReader struct {

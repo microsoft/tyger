@@ -68,7 +68,7 @@ func NewCommonRootCommand(commit string) *cobra.Command {
 
 			cmd.SetContext(ctx)
 
-			if err := client.PrepareDefaultHttpTransport(proxy); err != nil {
+			if err := client.SetDefaultNetworkClientSettings(&client.ClientOptions{ProxyString: proxy}); err != nil {
 				log.Fatal().Err(err).Send()
 			}
 		},
