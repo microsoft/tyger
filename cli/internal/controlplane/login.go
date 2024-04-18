@@ -139,11 +139,9 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 		si.parsedServerUri = sshParams.URL()
 		si.ServerUri = si.parsedServerUri.String()
 
-		sshCommandTransport := client.NewCommandTransport(sshConcurrencyLimit, "ssh", sshParams.FormatCmdLine()...)
-
 		tygerClientOptions := defaultClientOptions // clone
 		tygerClientOptions.ProxyString = "none"
-		tygerClientOptions.OverrideUnixhandler = client.MiddlewareFromTransport(sshCommandTransport)
+		tygerClientOptions.CreateTransport = client.MakeCommandTransport(sshConcurrencyLimit, "ssh", sshParams.FormatCmdLine()...)
 		controlPlaneClient, err := client.NewControlPlaneClient(&tygerClientOptions)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create control plane client: %w", err)
@@ -420,13 +418,9 @@ func GetClientFromCache() (*client.TygerClient, error) {
 			return nil, fmt.Errorf("invalid ssh URL: %w", err)
 		}
 
-		_ = sshParams
-
-		sshCommandTransport := client.NewCommandTransport(sshConcurrencyLimit, "ssh", sshParams.FormatCmdLine()...)
-
 		tygerClientOptions := defaultClientOptions
 		tygerClientOptions.ProxyString = "none"
-		tygerClientOptions.OverrideUnixhandler = client.MiddlewareFromTransport(sshCommandTransport)
+		tygerClientOptions.CreateTransport = client.MakeCommandTransport(sshConcurrencyLimit, "ssh", sshParams.FormatCmdLine()...)
 		cpClient, err := client.NewClient(&tygerClientOptions)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create control plane client: %w", err)

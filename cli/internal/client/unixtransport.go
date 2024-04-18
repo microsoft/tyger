@@ -13,21 +13,19 @@ import (
 	"strings"
 )
 
-// Inspired by github.com/peterbourgon/unixtransport
-
 var (
 	errNotSocketHost = errors.New("not a socket path host")
 	encoding         = base32.StdEncoding.WithPadding(base32.NoPadding)
 )
 
-func unixDialContextMiddleware(next dialContextFunc) dialContextFunc {
+func makeUnixDialer(next dialContextFunc) dialContextFunc {
 	return func(ctx context.Context, network, address string) (net.Conn, error) {
 		host, _, err := net.SplitHostPort(address)
 		if err != nil {
 			host = address
 		}
 
-		if socketPath, err := DecodeUnixPathFromHost(host); err == nil {
+		if socketPath, err := decodeUnixPathFromHost(host); err == nil {
 			network, address = "unix", socketPath
 		}
 
@@ -35,7 +33,7 @@ func unixDialContextMiddleware(next dialContextFunc) dialContextFunc {
 	}
 }
 
-func unixRoundTripMiddleware(next http.RoundTripper) http.RoundTripper {
+func makeUnixTransport(next http.RoundTripper) http.RoundTripper {
 	return roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		if req.URL == nil {
 			return nil, fmt.Errorf("unix transport: no request URL")
@@ -69,18 +67,18 @@ func unixRoundTripMiddleware(next http.RoundTripper) http.RoundTripper {
 		req = req.Clone(req.Context())
 
 		req.URL.Scheme = scheme
-		req.URL.Host = EncodeUnixPathToHost(socketPath)
+		req.URL.Host = encodeUnixPathToHost(socketPath)
 		req.URL.Path = requestPath
 
 		return next.RoundTrip(req)
 	})
 }
 
-func EncodeUnixPathToHost(socketPath string) string {
+func encodeUnixPathToHost(socketPath string) string {
 	return fmt.Sprintf("!unix!%s", encoding.EncodeToString([]byte(socketPath)))
 }
 
-func DecodeUnixPathFromHost(host string) (string, error) {
+func decodeUnixPathFromHost(host string) (string, error) {
 	if strings.HasPrefix(host, "!unix!") {
 		if res, err := encoding.DecodeString(host[6:]); err == nil {
 			return string(res), nil
@@ -89,5 +87,3 @@ func DecodeUnixPathFromHost(host string) (string, error) {
 
 	return "", errNotSocketHost
 }
-
-type dialContextFunc func(ctx context.Context, network, address string) (net.Conn, error)

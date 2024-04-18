@@ -13,20 +13,28 @@ import (
 )
 
 type CommandTransport struct {
+	next    http.RoundTripper
 	sem     *semaphore.Weighted
 	command string
 	args    []string
 }
 
-func NewCommandTransport(concurrenyLimit int, command string, args ...string) *CommandTransport {
-	return &CommandTransport{
-		sem:     semaphore.NewWeighted(int64(concurrenyLimit)),
-		command: command,
-		args:    args,
+func MakeCommandTransport(concurrenyLimit int, command string, args ...string) MakeRoundTripper {
+	return func(next http.RoundTripper) http.RoundTripper {
+		return &CommandTransport{
+			next:    next,
+			sem:     semaphore.NewWeighted(int64(concurrenyLimit)),
+			command: command,
+			args:    args,
+		}
 	}
 }
 
 func (c *CommandTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.URL.Scheme != "http+unix" {
+		return c.next.RoundTrip(req)
+	}
+
 	cmd := exec.CommandContext(req.Context(), c.command, c.args...)
 
 	inPipe, err := cmd.StdinPipe()
@@ -51,7 +59,6 @@ func (c *CommandTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	}
 
 	cleanedUp := atomic.Bool{}
-
 	cleanup := func() {
 		if cleanedUp.Swap(true) {
 			return
@@ -89,10 +96,4 @@ type cleanupOnCloseReader struct {
 func (m *cleanupOnCloseReader) Close() error {
 	m.cleanup()
 	return m.ReadCloser.Close()
-}
-
-func MiddlewareFromTransport(transport http.RoundTripper) TransportMiddleware {
-	return func(next http.RoundTripper) http.RoundTripper {
-		return transport
-	}
 }

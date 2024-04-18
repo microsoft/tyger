@@ -23,8 +23,6 @@ import (
 const (
 	DefaultControlPlaneUnixSocketPath = "/opt/tyger/api.sock"
 	DefaultControlPlaneUnixSocketUrl  = "http+unix://" + DefaultControlPlaneUnixSocketPath + ":"
-
-	DefaultDockerGatewayUrl = "http://localhost:6777"
 )
 
 var (
@@ -33,11 +31,15 @@ var (
 	DefaultRetryableClient  *retryablehttp.Client
 )
 
+type MakeRoundTripper func(next http.RoundTripper) http.RoundTripper
+
+type MakeDialer func(next dialContextFunc) dialContextFunc
+
+type dialContextFunc func(ctx context.Context, network, address string) (net.Conn, error)
+
 type roundTripFunc func(req *http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
-
-type TransportMiddleware func(next http.RoundTripper) http.RoundTripper
 
 type Client struct {
 	*retryablehttp.Client
@@ -51,7 +53,8 @@ func (c *Client) Proxy(req *http.Request) (*url.URL, error) {
 
 type ClientOptions struct {
 	ProxyString                     string
-	OverrideUnixhandler             TransportMiddleware
+	CreateTransport                 MakeRoundTripper
+	CreateDialer                    MakeDialer
 	DisableTlsCertificateValidation bool
 }
 
@@ -78,13 +81,17 @@ func NewClient(opts *ClientOptions) (*Client, error) {
 
 	var roundTripper http.RoundTripper = transport
 
-	unixHandler := opts.OverrideUnixhandler
-	if unixHandler == nil {
-		unixHandler = unixRoundTripMiddleware
-		transport.DialContext = unixDialContextMiddleware((&net.Dialer{}).DialContext)
+	if opts.CreateTransport == nil {
+		opts.CreateTransport = makeUnixTransport
 	}
 
-	roundTripper = unixHandler(roundTripper)
+	roundTripper = opts.CreateTransport(roundTripper)
+
+	if opts.CreateDialer == nil {
+		opts.CreateDialer = makeUnixDialer
+	}
+
+	transport.DialContext = opts.CreateDialer(transport.DialContext)
 
 	if log.Logger.GetLevel() <= zerolog.DebugLevel {
 		roundTripper = &loggingTransport{RoundTripper: roundTripper}
