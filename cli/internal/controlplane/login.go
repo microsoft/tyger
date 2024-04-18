@@ -403,6 +403,10 @@ func GetClientFromCache() (*client.TygerClient, error) {
 		return nil, err
 	}
 
+	if si.parsedServerUri == nil {
+		return nil, errors.New("not logged in")
+	}
+
 	defaultClientOptions := client.ClientOptions{
 		ProxyString:                     si.Proxy,
 		DisableTlsCertificateValidation: si.DisableTlsCertificateValidation,
