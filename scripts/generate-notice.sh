@@ -23,7 +23,11 @@ expected_notice_metadata_path="/tmp/expected-notice-metadata.txt"
 
 this_script_relative_path=$(realpath --relative-to="$repo_root" "$0")
 
-sha256sum "$go_sum_relative_path" "$csharp_package_lock_relative_path" "$this_script_relative_path" "$notice_relative_path" > "$expected_notice_metadata_path"
+generate_expected_notice_metadata() {
+    sha256sum "$go_sum_relative_path" "$csharp_package_lock_relative_path" "$this_script_relative_path" "$notice_relative_path" > "$expected_notice_metadata_path"
+}
+
+generate_expected_notice_metadata
 
 if cmp -s "$notice_metadata_path" "$expected_notice_metadata_path"; then
     echo "NOTICE.txt is up to date"
@@ -105,5 +109,7 @@ for lib in $(jq -r '.libraries | to_entries | map(select(.value.type == "package
 
     } >>"$notice_path"
 done
+
+generate_expected_notice_metadata
 
 mv "$expected_notice_metadata_path" "$notice_metadata_path"
