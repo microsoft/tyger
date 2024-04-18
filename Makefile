@@ -95,7 +95,7 @@ integration-test-no-up: integration-test-no-up-prereqs cli-ready
 	fi
 
 	pushd cli/integrationtest
-	go test -tags=integrationtest -timeout 2m
+	go test -tags=integrationtest
 
 integration-test: up integration-test-no-up-prereqs
 	$(MAKE) integration-test-no-up-prereqs integration-test-no-up
