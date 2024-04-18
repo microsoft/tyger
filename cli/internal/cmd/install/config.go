@@ -46,35 +46,14 @@ func NewConfigCommand(parentCommand *cobra.Command) *cobra.Command {
 	}
 
 	installCmd.AddCommand(newConfigCreateCommand())
-	installCmd.AddCommand(newConfigGetPathCommand())
 
 	return installCmd
 }
 
-func newConfigGetPathCommand() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:                   "get-path",
-		Short:                 "Get the path to the tyger configuration file",
-		Long:                  "Get the path to the tyger configuration file",
-		DisableFlagsInUseLine: true,
-		Args:                  cobra.NoArgs,
-		RunE: func(*cobra.Command, []string) error {
-			configPath := getDefaultConfigPath()
-			if _, err := os.Stat(configPath); err == nil {
-				fmt.Println(configPath)
-				return nil
-			}
-
-			return errors.New("no config file exists. Run `tyger config create` to create one")
-		},
-	}
-
-	return cmd
-}
-
 func newConfigCreateCommand() *cobra.Command {
+	configPath := ""
 	cmd := &cobra.Command{
-		Use:                   "create",
+		Use:                   "create -f FILE.yml",
 		Short:                 "Create a new config file",
 		Long:                  "Create a new config file",
 		DisableFlagsInUseLine: true,
@@ -83,7 +62,6 @@ func newConfigCreateCommand() *cobra.Command {
 				return errors.New("please install the Azure CLI (az) first")
 			}
 
-			configPath := getDefaultConfigPath()
 			if _, err := os.Stat(configPath); err == nil {
 				input := confirmation.New(fmt.Sprintf("A config file already exists at %s and will be overwritten. Continue?", configPath), confirmation.Yes)
 				input.WrapMode = promptkit.WordWrap
@@ -296,6 +274,9 @@ func newConfigCreateCommand() *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.Flags().StringVarP(&configPath, "file", "f", "config.yml", "The path to the config file to create")
+	cmd.MarkFlagRequired("file")
 
 	return cmd
 }

@@ -37,7 +37,7 @@ func newIdentitiesInstallCommand() *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:                   "install",
+		Use:                   "install -f CONFIG.yml",
 		Short:                 "Install Entra ID identities",
 		Long:                  "Install Entra ID identities",
 		DisableFlagsInUseLine: true,

@@ -34,7 +34,7 @@ func NewCloudCommand(parentCommand *cobra.Command) *cobra.Command {
 func newCloudInstallCommand() *cobra.Command {
 	flags := commonFlags{}
 	cmd := cobra.Command{
-		Use:                   "install",
+		Use:                   "install -f CONFIG.yml",
 		Short:                 "Install cloud infrastructure",
 		Long:                  "Install cloud infrastructure",
 		DisableFlagsInUseLine: true,
@@ -61,7 +61,7 @@ func newCloudInstallCommand() *cobra.Command {
 func newCloudUninstallCommand() *cobra.Command {
 	flags := commonFlags{}
 	cmd := cobra.Command{
-		Use:                   "uninstall",
+		Use:                   "uninstall -f CONFIG.yml",
 		Short:                 "Uninstall cloud infrastructure",
 		Long:                  "Uninstall cloud infrastructure",
 		DisableFlagsInUseLine: true,
@@ -88,7 +88,8 @@ func newCloudUninstallCommand() *cobra.Command {
 }
 
 func addCommonFlags(cmd *cobra.Command, flags *commonFlags) {
-	cmd.Flags().StringVarP(&flags.configPath, "file", "f", "", "path to config file")
+	cmd.Flags().StringVarP(&flags.configPath, "file", "f", "", "path to the installation configuration YAML file")
+	cmd.MarkFlagRequired("file")
 	cmd.Flags().StringToStringVar(&flags.setOverrides, "set", nil, "override config values (e.g. --set cloud.subscriptionID=1234 --set cloud.resourceGroup=mygroup)")
 }
 

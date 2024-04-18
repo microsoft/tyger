@@ -42,21 +42,18 @@ First, ensure you're logged into the Azure CLI using `az login`.
 Next, generate the file with:
 
 ```bash
-tyger config create
+tyger config create -f config-path.yml
 ```
 
-This command runs an interactive wizard, resulting in a config file saved
-on your system. You can retrieve its path with:
-
-```bash
-tyger config get-path
-```
+This command runs an interactive wizard, resulting in a config file saved at the
+specified location.
 
 Review and adjust the file's contents as needed.
 
 The installation configuration file typically looks like this:
 
 ```yaml
+kind: azureCloud
 environmentName: demo
 
 cloud:
@@ -163,13 +160,12 @@ api:
 ```
 
 All of the installation commands (`tyger cloud install`, `tyger api install`,
-etc.) allow you to give a path the the config file (`--file|-f PATH`) instead of
-the default given by `tyger config get-path`. Additionally, the commands allow
-configuration values to be overridden on the command-line with `--set`. For
-example:
+etc.) require you to give a path the the config file (`--file|-f PATH`).
+Additionally, the commands allow configuration values to be overridden on the
+command-line with `--set`. For example:
 
 ```bash
-tyger api install \
+tyger api install -f config.yml \
   --set api.helm.tyger.chartRef=oci://tyger.azurecr.io/helm/tyger \
   --set api.helm.tyger.version=v0.4.0
 ```
@@ -180,7 +176,7 @@ To create and configure the necessary cloud components for Tyger (Azure
 Kubernetes Service, storage accounts, etc.), run:
 
 ```bash
-tyger cloud install
+tyger cloud install -f config.yml
 ```
 
 If later on you need to make changes to your cloud resources, you can update the
@@ -192,7 +188,7 @@ Execute the following to install Entra ID applications for the `tyger` CLI and
 the Tyger API. These are needed for OAuth authentication:
 
 ```bash
-tyger identities install
+tyger identities install -f config.yml
 ```
 
 This command is idempotent and can be run multiple times. You will receive errors if
@@ -207,7 +203,7 @@ you can use an existing one or create a new one on your own.
 The last step is to install the Tyger API, which can be done by running:
 
 ```bash
-tyger api install
+tyger api install -f config.yml
 ```
 
 This command installs the Tyger API from the Helm chart in the
@@ -239,7 +235,7 @@ tyger run list
 To uninstall the Tyger API, run:
 
 ```bash
-tyger api uninstall
+tyger api uninstall -f config.yml
 ```
 
 Note: This does **not** delete any database data or buffers.
@@ -247,7 +243,7 @@ Note: This does **not** delete any database data or buffers.
 To uninstall all cloud resources, run:
 
 ```bash
-tyger cloud uninstall
+tyger cloud uninstall -f config.yml
 ```
 
 ::: danger Warning

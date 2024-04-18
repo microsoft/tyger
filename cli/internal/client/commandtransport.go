@@ -31,7 +31,7 @@ func MakeCommandTransport(concurrenyLimit int, command string, args ...string) M
 }
 
 func (c *CommandTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if req.URL.Scheme != "http+unix" {
+	if req.URL == nil || req.URL.Scheme != "http+unix" {
 		return c.next.RoundTrip(req)
 	}
 

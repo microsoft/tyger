@@ -36,7 +36,7 @@ func makeUnixDialer(next dialContextFunc) dialContextFunc {
 func makeUnixTransport(next http.RoundTripper) http.RoundTripper {
 	return roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		if req.URL == nil {
-			return nil, fmt.Errorf("unix transport: no request URL")
+			return next.RoundTrip(req)
 		}
 
 		var scheme string
@@ -46,7 +46,7 @@ func makeUnixTransport(next http.RoundTripper) http.RoundTripper {
 		case "https+unix":
 			scheme = "https"
 		default:
-			return nil, fmt.Errorf("unix transport: missing '+unix' suffix in scheme %s", req.URL.Scheme)
+			return next.RoundTrip(req)
 		}
 
 		parts := strings.SplitN(req.URL.Path, ":", 2)

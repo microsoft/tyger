@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path"
 	"syscall"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
@@ -40,17 +39,10 @@ func commonPrerun(ctx context.Context, flags *commonFlags) (context.Context, ins
 	}
 
 	koanfConfig := koanf.New(".")
-	if flags.configPath == "" {
-		flags.configPath = getDefaultConfigPath()
-	}
 
 	if err := koanfConfig.Load(file.Provider(flags.configPath), yaml.Parser()); err != nil {
 		if os.IsNotExist(err) {
-			if flags.configPath != "" {
-				log.Fatal().Err(err).Msgf("Config file not found at %s", flags.configPath)
-			} else {
-				log.Fatal().Err(err).Msgf("Config file not found at %s", getDefaultConfigPath())
-			}
+			log.Fatal().Err(err).Msgf("Config file not found at %s", flags.configPath)
 		} else {
 			log.Fatal().Err(err).Msg("Error reading config file")
 		}
@@ -67,7 +59,9 @@ func commonPrerun(ctx context.Context, flags *commonFlags) (context.Context, ins
 
 	switch environmentKind {
 	case nil, cloudinstall.EnvironmentKindCloud:
-		c := &cloudinstall.CloudEnvironmentConfig{}
+		c := &cloudinstall.CloudEnvironmentConfig{
+			Kind: cloudinstall.EnvironmentKindCloud,
+		}
 		installer = &cloudinstall.Installer{
 			Config: c,
 		}
@@ -120,15 +114,6 @@ func commonPrerun(ctx context.Context, flags *commonFlags) (context.Context, ins
 	}
 
 	return ctx, installer
-}
-
-func getDefaultConfigPath() string {
-	userConfigDir, err := os.UserConfigDir()
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to get user config dir")
-	}
-	defaultPath := path.Join(userConfigDir, "tyger", "config.yml")
-	return defaultPath
 }
 
 func loginAndValidateSubscription(ctx context.Context, cloudInstaller *cloudinstall.Installer) (context.Context, error) {

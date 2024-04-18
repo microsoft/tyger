@@ -43,7 +43,7 @@ func NewApiCommand(parentCommand *cobra.Command) *cobra.Command {
 func newApiInstallCommand() *cobra.Command {
 	flags := commonFlags{}
 	cmd := cobra.Command{
-		Use:                   "install",
+		Use:                   "install -f CONFIG.yml",
 		Short:                 "Install the Typer API",
 		Long:                  "Install the Typer API",
 		DisableFlagsInUseLine: true,
@@ -73,7 +73,7 @@ func newApiUninstallCommand() *cobra.Command {
 	flags := commonFlags{}
 	deleteData := false
 	cmd := cobra.Command{
-		Use:                   "uninstall",
+		Use:                   "uninstall -f CONFIG.yml",
 		Short:                 "Uninstall the Typer API",
 		Long:                  "Uninstall the Typer API",
 		DisableFlagsInUseLine: true,
@@ -126,7 +126,7 @@ func NewMigrationApplyCommand() *cobra.Command {
 	wait := false
 	offline := false
 	cmd := &cobra.Command{
-		Use:                   "apply",
+		Use:                   "apply -f CONFIG.yml",
 		Short:                 "Apply tyger database migrations",
 		Long:                  "Apply tyger database migrations",
 		DisableFlagsInUseLine: true,
@@ -159,7 +159,7 @@ func NewMigrationApplyCommand() *cobra.Command {
 func NewMigrationLogsCommand() *cobra.Command {
 	flags := commonFlags{}
 	cmd := &cobra.Command{
-		Use:                   "logs ID",
+		Use:                   "logs ID -f CONFIG.yml",
 		Short:                 "Get the logs of a database migration",
 		Long:                  "Get the logs of a database migration",
 		DisableFlagsInUseLine: true,
@@ -186,7 +186,7 @@ func NewMigrationsListCommand() *cobra.Command {
 	flags := commonFlags{}
 	all := false
 	cmd := &cobra.Command{
-		Use:                   "list",
+		Use:                   "list -f CONFIG.yml",
 		Short:                 "List the tyger API database migrations",
 		Long:                  "List the tyger API database migrations",
 		DisableFlagsInUseLine: true,

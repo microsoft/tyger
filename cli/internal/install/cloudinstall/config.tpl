@@ -1,3 +1,4 @@
+kind: azureCloud
 environmentName: {{ .EnvironmentName }}
 
 cloud:

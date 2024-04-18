@@ -22,7 +22,7 @@ However, it is strongly recommended to:
 To check available migrations, execute:
 
 ```bash
-tyger api migration list [--all]
+tyger api migration list [--all] -f config.yml
 ```
 
 This command shows the current database version and lists pending migrations.
@@ -35,7 +35,8 @@ To apply migrations, use:
 
 ```bash
 tyger api migration apply
-    --target-version ID | --latest
+    --target-version ID | --latest \
+    -f config.yml \
     --wait
 ```
 
@@ -48,7 +49,7 @@ completion. Use `--wait` to make the command wait for all migrations to complete
 To get the logs from the application of a migration, run:
 
 ```bash
-tyger api migration log ID
+tyger api migration log ID -f config.yml
 ```
 
 Migrations are designed to be idempotent. Retrying a migration should not cause
