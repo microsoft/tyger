@@ -24,7 +24,6 @@ import (
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/public"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/hashicorp/go-retryablehttp"
 	"github.com/microsoft/tyger/cli/internal/client"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"sigs.k8s.io/yaml"
@@ -79,6 +78,23 @@ type serviceInfo struct {
 }
 
 func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error) {
+	if options.ServerUri == LocalUriSentinel {
+		optionsClone := options
+		optionsClone.ServerUri = client.DefaultControlPlaneUnixSocketUrl
+		c, errUnix := Login(ctx, optionsClone)
+		if errUnix == nil {
+			return c, nil
+		}
+
+		optionsClone.ServerUri = "docker://"
+		c, errDocker := Login(ctx, optionsClone)
+		if errDocker == nil {
+			return c, nil
+		}
+
+		return nil, errUnix
+	}
+
 	normalizedServerUri, err := NormalizeServerUri(options.ServerUri)
 	if err != nil {
 		return nil, err
@@ -277,10 +293,6 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 }
 
 func NormalizeServerUri(uri string) (*url.URL, error) {
-	if uri == LocalUriSentinel {
-		return url.Parse(client.DefaultControlPlaneUnixSocketUrl)
-	}
-
 	uri = strings.TrimRight(uri, "/")
 	parsedUrl, err := url.Parse(uri)
 	if err != nil || !parsedUrl.IsAbs() {
@@ -593,12 +605,14 @@ func readCachedServiceInfo() (*serviceInfo, error) {
 }
 
 func getServiceMetadata(ctx context.Context, serverUri string) (*model.ServiceMetadata, error) {
-	req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/v1/metadata", serverUri), nil)
+	// Not using a retryable client because when doing `tyger login --local` we first try to use the unix socket
+	// before trying the docker gateway and we don't want to wait for retries.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/v1/metadata", serverUri), nil)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create request: %w", err)
 	}
 
-	resp, err := client.DefaultClient.Do(req)
+	resp, err := client.DefaultClient.HTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

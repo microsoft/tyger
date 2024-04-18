@@ -50,7 +50,7 @@ func (sp *DockerParams) String() string {
 
 func (p *DockerParams) URL() *url.URL {
 	u := url.URL{
-		Scheme: "ssh",
+		Scheme: "docker",
 		Host:   p.ContainerName,
 		Path:   p.SocketPath,
 	}
