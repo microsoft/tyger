@@ -107,6 +107,7 @@ else
     TYGER_SERVER_IMAGE=$(docker inspect "${repo_fqdn}/tyger-server:dev-${arch}" 2>/dev/null | jq -r '.[0].Id' 2>/dev/null || true)
     BUFFER_SIDECAR_IMAGE=$(docker inspect "${repo_fqdn}/buffer-sidecar:dev-${arch}" 2>/dev/null | jq -r '.[0].Id' 2>/dev/null || true)
     TYGER_DATA_PLANE_SERVER_IMAGE=$(docker inspect "${repo_fqdn}/tyger-data-plane-server:dev-${arch}" 2>/dev/null | jq -r '.[0].Id' 2>/dev/null || true)
+    GATEWAY_IMAGE=$(docker inspect "${repo_fqdn}/tyger-cli:dev-${arch}" 2>/dev/null | jq -r '.[0].Id' 2>/dev/null || true)
   else
     arch="amd64"
 
@@ -120,6 +121,7 @@ else
 
   if [[ "$docker" == true ]]; then
     export TYGER_DATA_PLANE_SERVER_IMAGE
+    export GATEWAY_IMAGE
   else
     export WORKER_WAITER_IMAGE
   fi

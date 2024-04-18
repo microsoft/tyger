@@ -207,34 +207,34 @@ func skipIfDistributedRunsNotSupported(t *testing.T) {
 	}
 }
 
-func isUsingUnixSocket() bool {
-	if s, _, _, _ := controlplane.GetLoginInfoFromCache(); s.Scheme == "http+unix" || s.Scheme == "ssh" {
+func isUsingUnixSocketDirectlyOrIndirectly() bool {
+	if s, _, _, _ := controlplane.GetLoginInfoFromCache(); s.Scheme == "http+unix" || s.Scheme == "ssh" || s.Scheme == "docker" {
 		return true
 	}
 	return false
 }
 
-func isUsingSsh() bool {
-	if s, _, _, _ := controlplane.GetLoginInfoFromCache(); s.Scheme == "ssh" {
+func isUsingUnixSocketDirectly() bool {
+	if s, _, _, _ := controlplane.GetLoginInfoFromCache(); s.Scheme == "http+unix" {
 		return true
 	}
 	return false
 }
 
 func skipIfUsingUnixSocket(t *testing.T) {
-	if isUsingUnixSocket() {
+	if isUsingUnixSocketDirectlyOrIndirectly() {
 		t.Skip("Skipping test because the control plane is using a local Unix socket")
 	}
 }
 
 func skipUnlessUsingUnixSocket(t *testing.T) {
-	if !isUsingUnixSocket() {
-		t.Skip("Skipping test because the control plane is using a local Unix socket")
+	if !isUsingUnixSocketDirectlyOrIndirectly() {
+		t.Skip("Skipping test because the control plane is not using a local Unix socket")
 	}
 }
 
-func skipIfUsingSsh(t *testing.T) {
-	if isUsingSsh() {
-		t.Skip("Skipping test because the control plane is using an SSH connection")
+func skipIfNotUsingUnixSocketDirectly(t *testing.T) {
+	if !isUsingUnixSocketDirectly() {
+		t.Skip("Skipping test because the control plane is not using a local Unix socket directly")
 	}
 }

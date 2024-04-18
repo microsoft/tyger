@@ -37,6 +37,7 @@ const (
 	discardTokenIfExpiringWithinSeconds = 10 * 60
 	LocalUriSentinel                    = "local"
 	sshConcurrencyLimit                 = 8
+	dockerConcurrencyLimit              = 6
 )
 
 type LoginConfig struct {
@@ -104,7 +105,49 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 	}
 
 	var tygerClient *client.TygerClient
-	if normalizedServerUri.Scheme == "ssh" {
+	if normalizedServerUri.Scheme == "docker" {
+		dockerParams, err := client.ParseDockerUrl(normalizedServerUri)
+		if err != nil {
+			return nil, fmt.Errorf("invalid Docker URL: %w", err)
+		}
+
+		loginCommand := exec.CommandContext(ctx, "docker", dockerParams.FormatLoginArgs()...)
+		var outb, errb bytes.Buffer
+		loginCommand.Stdout = &outb
+		loginCommand.Stderr = &errb
+		if err := loginCommand.Run(); err != nil {
+			return nil, fmt.Errorf("failed to establish a tyger connection: %w. stderr: %s", err, errb.String())
+		}
+
+		socketUrl, err := NormalizeServerUri(outb.String())
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse socket URL: %w", err)
+		}
+
+		if socketUrl.Scheme != "http+unix" {
+			panic(fmt.Sprintf("unexpected scheme: %s", socketUrl.Scheme))
+		}
+
+		dockerParams.SocketPath = strings.Split(socketUrl.Path, ":")[0]
+		si.parsedServerUri = dockerParams.URL()
+		si.ServerUri = si.parsedServerUri.String()
+
+		tygerClientOptions := defaultClientOptions // clone
+		tygerClientOptions.ProxyString = "none"
+		tygerClientOptions.CreateTransport = client.MakeCommandTransport(dockerConcurrencyLimit, "docker", dockerParams.FormatCmdLine()...)
+		controlPlaneClient, err := client.NewControlPlaneClient(&tygerClientOptions)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create control plane client: %w", err)
+		}
+
+		dataPlaneClient, err := client.NewDataPlaneClient(&tygerClientOptions)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create data plane client: %w", err)
+		}
+
+		tygerClient = client.NewTygerClient(socketUrl, si.GetAccessToken, si.Principal, controlPlaneClient, dataPlaneClient)
+
+	} else if normalizedServerUri.Scheme == "ssh" {
 		sshParams, err := client.ParseSshUrl(normalizedServerUri)
 		if err != nil {
 			return nil, fmt.Errorf("invalid ssh URL: %w", err)
@@ -416,7 +459,29 @@ func GetClientFromCache() (*client.TygerClient, error) {
 		return nil, err
 	}
 
-	if si.parsedServerUri.Scheme == "ssh" {
+	if si.parsedServerUri.Scheme == "docker" {
+		dockerParams, err := client.ParseDockerUrl(si.parsedServerUri)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ssh URL: %w", err)
+		}
+
+		tygerClientOptions := defaultClientOptions
+		tygerClientOptions.ProxyString = "none"
+		tygerClientOptions.CreateTransport = client.MakeCommandTransport(dockerConcurrencyLimit, "docker", dockerParams.FormatCmdLine()...)
+		cpClient, err := client.NewClient(&tygerClientOptions)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create control plane client: %w", err)
+		}
+
+		dpClient, err := client.NewDataPlaneClient(&tygerClientOptions)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create data plane client: %w", err)
+		}
+
+		endpoint := url.URL{Scheme: "http+unix", Path: fmt.Sprintf("%s:", dockerParams.SocketPath)}
+
+		return client.NewTygerClient(&endpoint, si.GetAccessToken, si.Principal, cpClient, dpClient), nil
+	} else if si.parsedServerUri.Scheme == "ssh" {
 		sshParams, err := client.ParseSshUrl(si.parsedServerUri)
 		if err != nil {
 			return nil, fmt.Errorf("invalid ssh URL: %w", err)

@@ -100,6 +100,14 @@ func (i *Installer) QuickValidateConfig() bool {
 	if i.Config.BufferSidecarImage == "" {
 		i.Config.BufferSidecarImage = defaultImage("buffer-sidecar")
 	}
+	if i.Config.GatewayImage == "" {
+		i.Config.GatewayImage = defaultImage("tyger-cli")
+	}
+
+	if i.Config.UseGateway == nil {
+		useGateway := defaultUseGateway()
+		i.Config.UseGateway = &useGateway
+	}
 
 	return success
 }

@@ -213,8 +213,8 @@ if [[ -n "${buffer_sidecar:-}" ]]; then
 
   build_and_push
 
-  target="docker-gateway"
-  repo="docker-gateway"
+  target="tyger-cli"
+  repo="tyger-cli"
 
   build_and_push
 fi

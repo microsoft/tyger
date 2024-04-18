@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/microsoft/tyger/cli/internal/client"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
@@ -62,6 +63,7 @@ func NewStdioProxyCommand() *cobra.Command {
 	}
 
 	cmd.AddCommand(newStdioProxyLoginCommand())
+	cmd.AddCommand(newStdioProxySleepCommand())
 	return cmd
 }
 
@@ -105,5 +107,22 @@ func newStdioProxyLoginCommand() *cobra.Command {
 
 	cmd.Flags().StringVar(&serverUrl, "server-url", serverUrl, "The URL of the Tyger server to connect to")
 	cmd.Flags().BoolVar(&preflight, "preflight", preflight, "Do nothing")
+	return cmd
+}
+
+func newStdioProxySleepCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:    "sleep",
+		Short:  "Sleep forever",
+		Hidden: true,
+		Args:   cobra.NoArgs,
+		Run: func(cmd *cobra.Command, args []string) {
+			for {
+				time.Sleep(time.Hour)
+			}
+
+		},
+	}
+
 	return cmd
 }

@@ -85,3 +85,10 @@ connect-db:
 
 variant-test:
 	scripts/run-ssh-tests.sh
+
+	TYGER_CACHE_FILE=$(mktemp)
+	export TYGER_CACHE_FILE
+
+	tyger login docker://
+	tyger login status
+	$(MAKE) integration-test-no-up

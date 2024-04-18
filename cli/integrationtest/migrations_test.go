@@ -131,7 +131,7 @@ func TestCloudMigrations(t *testing.T) {
 func TestDockerMigrations(t *testing.T) {
 	t.Parallel()
 	skipUnlessUsingUnixSocket(t)
-	skipIfUsingSsh(t)
+	skipIfNotUsingUnixSocketDirectly(t)
 
 	lowercaseTestName := strings.ToLower(t.Name())
 

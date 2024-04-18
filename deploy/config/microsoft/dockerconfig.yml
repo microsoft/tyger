@@ -8,3 +8,6 @@ signingKeys:
 controlPlaneImage: ${TYGER_SERVER_IMAGE}
 dataPlaneImage: ${TYGER_DATA_PLANE_SERVER_IMAGE}
 bufferSidecarImage: ${BUFFER_SIDECAR_IMAGE}
+
+useGateway: true
+gatewayImage: ${GATEWAY_IMAGE}

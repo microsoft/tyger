@@ -34,6 +34,7 @@ const (
 	databaseContainerSuffix     = "db"
 	dataPlaneContainerSuffix    = "data-plane"
 	controlPlaneContainerSuffix = "control-plane"
+	gatewayContainerSuffix      = "gateway"
 
 	databaseVolumeSuffix = "db"
 	buffersVolumeSuffix  = "buffers"
@@ -111,6 +112,15 @@ func (i *Installer) InstallTyger(ctx context.Context) error {
 		}
 		return nil, nil
 	}, migrationRunnerPromise, dataPlanePromise)
+
+	if i.Config.UseGateway != nil && *i.Config.UseGateway {
+		install.NewPromise(ctx, pg, func(ctx context.Context) (any, error) {
+			if err := i.createGatewayContainer(ctx); err != nil {
+				return nil, fmt.Errorf("error creating gateway container: %w", err)
+			}
+			return nil, nil
+		})
+	}
 
 	for _, p := range *pg {
 		if promiseErr := p.AwaitErr(); promiseErr != nil && promiseErr != install.ErrDependencyFailed {
@@ -348,6 +358,10 @@ func (i *Installer) UninstallTyger(ctx context.Context, deleteData bool) error {
 		return fmt.Errorf("error removing control plane container: %w", err)
 	}
 
+	if err := i.removeContainer(ctx, i.resourceName(gatewayContainerSuffix)); err != nil {
+		return fmt.Errorf("error removing gateway container: %w", err)
+	}
+
 	runContainers, err := dockerClient.ContainerList(
 		ctx,
 		container.ListOptions{
@@ -458,9 +472,6 @@ func (i *Installer) createDataPlaneContainer(ctx context.Context) error {
 	}
 
 	image := i.Config.DataPlaneImage
-	if image == "" {
-		image = "eminence.azurecr.io/tyger-data-plane-server:dev"
-	}
 
 	primaryPublicKeyHash, err := fileHash(i.Config.SigningKeys.Primary.PublicKey)
 	if err != nil {
@@ -554,6 +565,37 @@ func (i *Installer) createDataPlaneContainer(ctx context.Context) error {
 		&spec,
 		true,
 		postCreateAction); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (i *Installer) createGatewayContainer(ctx context.Context) error {
+	image := i.Config.GatewayImage
+
+	spec := containerSpec{
+		ContainerConfig: &container.Config{
+			Image: image,
+			User:  i.Config.UserId,
+			Cmd:   []string{"stdio-proxy", "sleep"},
+		},
+		HostConfig: &container.HostConfig{
+			Mounts: []mount.Mount{
+				{
+					Type:   "bind",
+					Source: i.Config.InstallationPath,
+					Target: i.Config.InstallationPath,
+				},
+			},
+			NetworkMode: "none",
+			RestartPolicy: container.RestartPolicy{
+				Name: container.RestartPolicyUnlessStopped,
+			},
+		},
+	}
+
+	if err := i.createContainer(ctx, i.resourceName(gatewayContainerSuffix), &spec, false); err != nil {
 		return err
 	}
 
