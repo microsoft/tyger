@@ -88,12 +88,7 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 		return readRelay(ctx, httpClient, container, outputWriter)
 	}
 
-	if err := readBufferStart(ctx, httpClient, container); err != nil {
-		return err
-	}
-
 	errorChannel := make(chan error, readOptions.dop*2)
-
 	waitForBlobs := atomic.Bool{}
 	waitForBlobs.Store(true)
 
@@ -106,6 +101,10 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 		// All blobs should have been written successfully by now.
 		waitForBlobs.Store(false)
 	}()
+
+	if err := readBufferStart(ctx, httpClient, container); err != nil {
+		return err
+	}
 
 	metrics := TransferMetrics{
 		Context:   ctx,
@@ -228,7 +227,6 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 		return nil
 	case err := <-errorChannel:
 		cancel()
-		// discard rest of errors
 		wg.Wait()
 		return err
 	}

@@ -91,5 +91,3 @@ func DecodeUnixPathFromHost(host string) (string, error) {
 }
 
 type dialContextFunc func(ctx context.Context, network, address string) (net.Conn, error)
-
-var defaultDialContextFunc = (&net.Dialer{}).DialContext

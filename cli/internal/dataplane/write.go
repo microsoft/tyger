@@ -35,9 +35,10 @@ var (
 )
 
 type writeOptions struct {
-	dop        int
-	blockSize  int
-	httpClient *retryablehttp.Client
+	dop                     int
+	blockSize               int
+	httpClient              *retryablehttp.Client
+	metadataEndWriteTimeout time.Duration
 }
 
 type WriteOption func(o *writeOptions)
@@ -60,12 +61,19 @@ func WithWriteHttpClient(httpClient *retryablehttp.Client) WriteOption {
 	}
 }
 
+func WithWriteMetadataEndWriteTimeout(timeout time.Duration) WriteOption {
+	return func(o *writeOptions) {
+		o.metadataEndWriteTimeout = timeout
+	}
+}
+
 // If invalidHashChain is set to true, the value of the hash chain attached to the blob will
 // always be the Inital Value. This should only be set for testing.
 func Write(ctx context.Context, uri string, inputReader io.Reader, options ...WriteOption) error {
 	writeOptions := &writeOptions{
-		dop:       DefaultWriteDop,
-		blockSize: DefaultBlockSize,
+		dop:                     DefaultWriteDop,
+		blockSize:               DefaultBlockSize,
+		metadataEndWriteTimeout: 3 * time.Second,
 	}
 	for _, o := range options {
 		o(writeOptions)
@@ -218,7 +226,7 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 		if ctx.Err() != nil {
 			// this means the context was cancelled or timed out
 			// use a new context to write the end metadata
-			newCtx, cancel := context.WithTimeout(&MergedContext{Context: context.Background(), valueSource: ctx}, 3*time.Second)
+			newCtx, cancel := context.WithTimeout(&MergedContext{Context: context.Background(), valueSource: ctx}, writeOptions.metadataEndWriteTimeout)
 			defer cancel()
 			ctx = newCtx
 		}

@@ -327,17 +327,30 @@ func TestMd5HashMismatchOnReadRetryAndRecover(t *testing.T) {
 func TestCancellationOnWrite(t *testing.T) {
 	t.Parallel()
 
-	inputBufferId := runTygerSucceeds(t, "buffer", "create")
+	inputBufferId := runTygerSucceeds(t, "buffer", "create", "--tag", fmt.Sprintf("test=%s", t.Name()))
 	writeSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
 	inputReader := &infiniteReader{}
+
 	errorChan := make(chan error, 1)
 	go func() {
 		errorChan <- dataplane.Read(context.Background(), writeSasUri, io.Discard)
 	}()
-	writeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+
+	writeCtx, cancel := context.WithCancel(context.Background())
+
+	// cancel as soon as we have written the start metadata
+	writeClient := newInterceptingHttpClient(t, func(req *http.Request, inner http.RoundTripper) (*http.Response, error) {
+		if strings.Contains(req.URL.Path, dataplane.StartMetadataBlobName) || strings.Contains(req.URL.Path, dataplane.EndMetadataBlobName) {
+			return inner.RoundTrip(req)
+		}
+
+		cancel()
+		return nil, writeCtx.Err()
+	})
+
 	defer cancel()
-	err := dataplane.Write(writeCtx, writeSasUri, inputReader)
-	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	err := dataplane.Write(writeCtx, writeSasUri, inputReader, dataplane.WithWriteHttpClient(writeClient), dataplane.WithWriteMetadataEndWriteTimeout(time.Minute))
+	assert.ErrorIs(t, err, context.Canceled)
 
 	assert.ErrorContains(t, <-errorChan, "the buffer is in a permanently failed state")
 }
