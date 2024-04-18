@@ -1,10 +1,12 @@
 package dockerinstall
 
 import (
+	"fmt"
 	"os/user"
 	"regexp"
 	"strconv"
 
+	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/rs/zerolog/log"
 )
 
@@ -12,6 +14,7 @@ var (
 	NameRegex = regexp.MustCompile(`^[a-z][a-z\-0-9]{1,23}$`)
 
 	DefaultEnvironmentName = "local"
+	DefaultPostgresImage   = "postgres:16.2"
 )
 
 func (i *Installer) QuickValidateConfig() bool {
@@ -85,7 +88,24 @@ func (i *Installer) QuickValidateConfig() bool {
 		}
 	}
 
+	if i.Config.PostgresImage == "" {
+		i.Config.PostgresImage = DefaultPostgresImage
+	}
+	if i.Config.ControlPlaneImage == "" {
+		i.Config.ControlPlaneImage = defaultImage("tyger-server")
+	}
+	if i.Config.DataPlaneImage == "" {
+		i.Config.DataPlaneImage = defaultImage("tyger-data-plane-server")
+	}
+	if i.Config.BufferSidecarImage == "" {
+		i.Config.BufferSidecarImage = defaultImage("buffer-sidecar")
+	}
+
 	return success
+}
+
+func defaultImage(repo string) string {
+	return fmt.Sprintf("%s/%s:%s", install.ContainerRegistry, repo, install.ContainerImageTag)
 }
 
 func validationError(success *bool, format string, args ...any) {

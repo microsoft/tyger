@@ -38,14 +38,6 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-var (
-	// Set during build but we provide defaults so that there is some value when debugging.
-	// We will need to update these from time to time. Alternatively, you can set the registry
-	// values using the --set command-line arugment.
-	containerRegistry string = "tyger.azurecr.io"
-	containerImageTag string = "v0.1.0-49-g5526c35"
-)
-
 func (i *Installer) installTraefik(ctx context.Context, restConfigPromise *install.Promise[*rest.Config]) (any, error) {
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
@@ -324,11 +316,11 @@ func (i *Installer) InstallTyger(ctx context.Context) error {
 }
 
 func (i *Installer) InstallTygerHelmChart(ctx context.Context, restConfig *rest.Config, dryRun bool) (manifest string, valuesYaml string, err error) {
-	if containerRegistry == "" {
+	if install.ContainerRegistry == "" {
 		panic("officialContainerRegistry not set during build")
 	}
 
-	if containerImageTag == "" {
+	if install.ContainerImageTag == "" {
 		panic("officialContainerImageTag not set during build")
 	}
 
@@ -396,12 +388,12 @@ func (i *Installer) InstallTygerHelmChart(ctx context.Context, restConfig *rest.
 	helmConfig := HelmChartConfig{
 		Namespace:   TygerNamespace,
 		ReleaseName: DefaultTygerReleaseName,
-		ChartRef:    fmt.Sprintf("oci://%s/helm/tyger", containerRegistry),
-		Version:     containerImageTag,
+		ChartRef:    fmt.Sprintf("oci://%s/helm/tyger", install.ContainerRegistry),
+		Version:     install.ContainerImageTag,
 		Values: map[string]any{
-			"image":              fmt.Sprintf("%s/tyger-server:%s", containerRegistry, containerImageTag),
-			"bufferSidecarImage": fmt.Sprintf("%s/buffer-sidecar:%s", containerRegistry, containerImageTag),
-			"workerWaiterImage":  fmt.Sprintf("%s/worker-waiter:%s", containerRegistry, containerImageTag),
+			"image":              fmt.Sprintf("%s/tyger-server:%s", install.ContainerRegistry, install.ContainerImageTag),
+			"bufferSidecarImage": fmt.Sprintf("%s/buffer-sidecar:%s", install.ContainerRegistry, install.ContainerImageTag),
+			"workerWaiterImage":  fmt.Sprintf("%s/worker-waiter:%s", install.ContainerRegistry, install.ContainerImageTag),
 			"hostname":           i.Config.Api.DomainName,
 			"identity": map[string]any{
 				"tygerServer": map[string]any{

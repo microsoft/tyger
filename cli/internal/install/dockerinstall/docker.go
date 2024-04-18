@@ -29,8 +29,6 @@ import (
 )
 
 const (
-	defaultPostgresImage = "postgres:16.2"
-
 	containerSpecHashLabel = "tyger-container-spec-hash"
 
 	databaseContainerSuffix     = "db"
@@ -406,9 +404,6 @@ func (i *Installer) createDatabaseContainer(ctx context.Context) error {
 	}
 
 	image := i.Config.PostgresImage
-	if image == "" {
-		image = defaultPostgresImage
-	}
 
 	containerSpec := containerSpec{
 		ContainerConfig: &container.Config{

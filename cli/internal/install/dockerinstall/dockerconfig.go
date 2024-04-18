@@ -23,7 +23,6 @@ type DockerEnvironmentConfig struct {
 	ControlPlaneImage  string `json:"controlPlaneImage"`
 	DataPlaneImage     string `json:"dataPlaneImage"`
 	BufferSidecarImage string `json:"bufferSidecarImage"`
-	GatewayImage       string `json:"gatewayImage"`
 
 	SigningKeys DataPlaneSigningKeys `json:"signingKeys"`
 
