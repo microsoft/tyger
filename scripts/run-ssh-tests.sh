@@ -24,7 +24,7 @@ cleanup() {
 
 trap cleanup SIGINT SIGTERM EXIT
 
-docker rm -f $container_name &> /dev/null
+docker rm -f $container_name &>/dev/null
 docker create \
     -p $ssh_port:22 \
     -e "SSH_USERS=$ssh_user:$(id -u):4000" \
@@ -33,11 +33,22 @@ docker create \
     --name $container_name \
     quay.io/panubo/sshd:1.6.0 >/dev/null
 
-pub_key_file=$(mktemp)
-ssh-add -L >"$pub_key_file"
-docker cp "$pub_key_file" "$container_name:/etc/authorized_keys/$ssh_user" > /dev/null
+if [[ -z  $(ssh-add -L > /dev/null || true) ]]; then
+    priv_key_file=$(mktemp -u)
+    pub_key_file="$priv_key_file.pub"
 
-docker cp "$(which tyger)" "$container_name:/usr/bin/" > /dev/null
+    ssh-keygen -t ed25519 -f "$priv_key_file" -N "" >/dev/null
+    chmod 600 "$priv_key_file"
+    docker cp "$pub_key_file" "$container_name:/etc/authorized_keys/$ssh_user" >/dev/null
+
+    config_identity_line="IdentityFile $priv_key_file"
+else
+    pub_key_file=$(mktemp)
+    ssh-add -L >"$pub_key_file"
+    docker cp "$pub_key_file" "$container_name:/etc/authorized_keys/$ssh_user" >/dev/null
+fi
+
+docker cp "$(which tyger)" "$container_name:/usr/bin/" >/dev/null
 
 docker start $container_name >/dev/null
 
@@ -47,21 +58,21 @@ Host $ssh_host
   Port $ssh_port
   User $ssh_user
   NoHostAuthenticationForLocalhost yes
-  ControlMaster     auto
-  ControlPath       ~/.ssh/control-%C
-  ControlPersist    yes
+  ControlMaster auto
+  ControlPath  ~/.ssh/control-%C
+  ControlPersist  yes
+  ${config_identity_line:-}
 $end_marker"
 
 cleanup_ssh_config
 echo "$host_config" >>~/.ssh/config
 
-
 max_attempts=30
 attempts=0
-until ssh $ssh_host true &> /dev/null || [ $attempts -eq $max_attempts ]; do
+until ssh $ssh_host true &>/dev/null || [ $attempts -eq $max_attempts ]; do
     echo "Waiting for SSH server to be ready..."
     sleep 1
-    attempts="$((attempts+1))"
+    attempts="$((attempts + 1))"
 done
 
 if [ $attempts -eq $max_attempts ]; then
