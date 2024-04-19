@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-
 namespace Tyger.ControlPlane.Compute.Docker;
 
 public static partial class LoggerExtensions

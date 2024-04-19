@@ -2,9 +2,8 @@
 // Licensed under the MIT License.
 
 using System.Net.Sockets;
-using Tyger.Common.Unix;
 
-namespace Tyger.Common.UnixDomainSockets;
+namespace Tyger.Common.Unix;
 
 public static class UnixDomainSockets
 {
