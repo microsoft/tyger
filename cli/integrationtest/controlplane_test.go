@@ -1418,14 +1418,17 @@ func getTestConnectivityImage(t *testing.T) string {
 	c, err := controlplane.GetClientFromCache()
 	require.NoError(t, err)
 	var tag string
+	var format string
 	switch c.ControlPlaneUrl.Scheme {
 	case "http+unix", "https+unix":
 		tag = "dev-" + runtime.GOARCH
+		format = "{{ .Id }}"
 	default:
 		tag = "dev-amd64"
+		format = "{{ index .RepoDigests 0 }}"
 	}
 
 	image := fmt.Sprintf("%s/testconnectivity:%s", containerRegistryFqdn, tag)
 
-	return runCommandSucceeds(t, "docker", "inspect", image, "--format", "{{ index .RepoDigests 0 }}")
+	return runCommandSucceeds(t, "docker", "inspect", image, "--format", format)
 }
