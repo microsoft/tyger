@@ -10,6 +10,15 @@ Runs](distributed-runs.md).
 
 :::
 
+::: warning Note
+
+When Tyger is running in a local Docker environment, container images used by
+runs need to be pulled in advance using `docker pull`. This is a security
+measure to prevent using Tyger to introduce untrusted container images onto the
+system.
+
+:::
+
 ## Creating runs with `exec`
 
 `tyger run exec` is a the easiest way to create and execute a run. It allows

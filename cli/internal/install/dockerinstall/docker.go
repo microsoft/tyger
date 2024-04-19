@@ -84,7 +84,7 @@ func (i *Installer) resourceName(suffix string) string {
 
 func (i *Installer) InstallTyger(ctx context.Context) error {
 	if runtime.GOOS == "windows" {
-		log.Error().Msg("Installing Tyger in Docker on Windows must be done from a WSL2 shell. Once installed, other commands can be run from within Windows.")
+		log.Error().Msg("Installing Tyger in Docker on Windows must be done from a WSL shell. Once installed, other commands can be run from within Windows.")
 		return install.ErrAlreadyLoggedError
 	}
 

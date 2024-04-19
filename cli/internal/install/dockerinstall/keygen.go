@@ -24,7 +24,7 @@ func GenerateSigningKeyPair(publicPath, privatePath string) error {
 		return fmt.Errorf("error encoding public key: %w", err)
 	}
 
-	publicFile, err := os.Create(publicPath)
+	publicFile, err := os.OpenFile(publicPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return fmt.Errorf("error creating public key file: %w", err)
 	}
@@ -39,7 +39,7 @@ func GenerateSigningKeyPair(publicPath, privatePath string) error {
 		return fmt.Errorf("error encoding private key: %w", err)
 	}
 
-	privateFile, err := os.Create(privatePath)
+	privateFile, err := os.OpenFile(privatePath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return fmt.Errorf("error creating private key file: %w", err)
 	}

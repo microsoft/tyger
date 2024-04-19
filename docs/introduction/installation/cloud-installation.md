@@ -1,6 +1,6 @@
-# Installation
+# Azure cloud installation
 
-To use Tyger, you need an Azure subscription and the [Azure
+To use Tyger with Azure, you need an Azure subscription and the [Azure
 CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) installed.
 
 The steps for installing Tyger are:
@@ -46,7 +46,7 @@ tyger config create -f config-path.yml
 ```
 
 This command runs an interactive wizard, resulting in a config file saved at the
-specified location.
+specified location. We recommend keeping this file under version control.
 
 Review and adjust the file's contents as needed.
 
