@@ -4,18 +4,13 @@
 package install
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
-	"crypto/x509"
 	"encoding/json"
-	"encoding/pem"
 	"errors"
-	"fmt"
 	"os"
 	"strconv"
 
 	"github.com/microsoft/tyger/cli/internal/install"
+	"github.com/microsoft/tyger/cli/internal/install/dockerinstall"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -218,12 +213,12 @@ func NewGenerateSingingKeyCommand() *cobra.Command {
 	privateFile := ""
 	cmd := &cobra.Command{
 		Use:                   "generate-signing-key --public FILE.pem --private FILE.pem",
-		Short:                 "Generate a new signing key",
-		Long:                  "Generate a new signing key",
+		Short:                 "Generate a new signing key pair",
+		Long:                  "Generate a new signing key pair",
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
-			if err := generateSigningKey(publicFile, privateFile); err != nil {
+			if err := dockerinstall.GenerateSigningKeyPair(publicFile, privateFile); err != nil {
 				log.Fatal().Err(err).Send()
 			}
 		},
@@ -234,43 +229,4 @@ func NewGenerateSingingKeyCommand() *cobra.Command {
 	cmd.Flags().StringVar(&privateFile, "private", privateFile, "The file to write the private key to")
 	cmd.MarkFlagRequired("private")
 	return cmd
-}
-
-func generateSigningKey(publicPath, privatePath string) error {
-	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return fmt.Errorf("error generating private key: %w", err)
-	}
-
-	publicKeyEncoded, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
-	if err != nil {
-		return fmt.Errorf("error encoding public key: %w", err)
-	}
-
-	publicFile, err := os.Create(publicPath)
-	if err != nil {
-		return fmt.Errorf("error creating public key file: %w", err)
-	}
-	defer publicFile.Close()
-
-	if err := pem.Encode(publicFile, &pem.Block{Type: "PUBLIC KEY", Bytes: publicKeyEncoded}); err != nil {
-		return fmt.Errorf("error encoding public key to PEM file: %w", err)
-	}
-
-	privateKeyEncoded, err := x509.MarshalPKCS8PrivateKey(privateKey)
-	if err != nil {
-		return fmt.Errorf("error encoding private key: %w", err)
-	}
-
-	privateFile, err := os.Create(privatePath)
-	if err != nil {
-		return fmt.Errorf("error creating private key file: %w", err)
-	}
-	defer privateFile.Close()
-
-	if err := pem.Encode(privateFile, &pem.Block{Type: "PRIVATE KEY", Bytes: privateKeyEncoded}); err != nil {
-		return fmt.Errorf("error encoding private key to PEM file: %w", err)
-	}
-
-	return nil
 }

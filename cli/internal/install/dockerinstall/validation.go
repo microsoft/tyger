@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 
+	"github.com/a8m/envsubst"
 	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/rs/zerolog/log"
 )
@@ -73,18 +74,42 @@ func (i *Installer) QuickValidateConfig() bool {
 	} else {
 		if i.Config.SigningKeys.Primary.PublicKey == "" {
 			validationError(&success, "The `signingKeys.primary.publicKey` field is required to be the path to a public key file PEM file")
+		} else {
+			if expanded, err := envsubst.StringRestricted(i.Config.SigningKeys.Primary.PublicKey, true, false); err != nil {
+				validationError(&success, fmt.Sprintf("Error expanding `signingKeys.primary.publicKey`: %s", err))
+			} else {
+				i.Config.SigningKeys.Primary.PublicKey = expanded
+			}
 		}
 		if i.Config.SigningKeys.Primary.PrivateKey == "" {
 			validationError(&success, "The `signingKeys.primary.privateKey` field is required to be the path to a private key PEM file")
+		} else {
+			if expanded, err := envsubst.StringRestricted(i.Config.SigningKeys.Primary.PrivateKey, true, false); err != nil {
+				validationError(&success, fmt.Sprintf("Error expanding `signingKeys.primary.privateKey`: %s", err))
+			} else {
+				i.Config.SigningKeys.Primary.PrivateKey = expanded
+			}
 		}
 	}
 
 	if i.Config.SigningKeys.Secondary != nil {
 		if i.Config.SigningKeys.Secondary.PublicKey == "" {
 			validationError(&success, "The `signingKeys.secondary.publicKey` field is required to be the path to a public key PEM file")
+		} else {
+			if expanded, err := envsubst.StringRestricted(i.Config.SigningKeys.Secondary.PublicKey, true, false); err != nil {
+				validationError(&success, fmt.Sprintf("Error expanding `signingKeys.secondary.publicKey`: %s", err))
+			} else {
+				i.Config.SigningKeys.Secondary.PublicKey = expanded
+			}
 		}
 		if i.Config.SigningKeys.Secondary.PrivateKey == "" {
 			validationError(&success, "The `signingKeys.secondary.privateKey` field is required to be the path to a private key PEM file")
+		} else {
+			if expanded, err := envsubst.StringRestricted(i.Config.SigningKeys.Secondary.PrivateKey, true, false); err != nil {
+				validationError(&success, fmt.Sprintf("Error expanding `signingKeys.secondary.privateKey`: %s", err))
+			} else {
+				i.Config.SigningKeys.Secondary.PrivateKey = expanded
+			}
 		}
 	}
 

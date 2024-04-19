@@ -69,8 +69,8 @@ func (c *DockerEnvironmentConfig) GetUserIdInt() int {
 }
 
 type ConfigTemplateValues struct {
-	PrimarySigningPublicKeyPath  string
-	PrimarySigningPrivateKeyPath string
+	PublicSigningKeyPath  string
+	PrivateSigningKeyPath string
 }
 
 func RenderConfig(templateValues ConfigTemplateValues, writer io.Writer) error {

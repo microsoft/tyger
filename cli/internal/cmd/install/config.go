@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -20,12 +21,12 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armsubscriptions"
+	"github.com/a8m/envsubst"
 	"github.com/eiannone/keyboard"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/ipinfo/go/v2/ipinfo"
 	"github.com/microsoft/tyger/cli/internal/install/cloudinstall"
 	"github.com/microsoft/tyger/cli/internal/install/dockerinstall"
-	"github.com/thediveo/enumflag"
 
 	"github.com/spf13/cobra"
 
@@ -54,18 +55,6 @@ func NewConfigCommand(parentCommand *cobra.Command) *cobra.Command {
 
 func newConfigCreateCommand() *cobra.Command {
 	configPath := ""
-	type kindEnum int
-	const (
-		azureCloudKind kindEnum = iota
-		dockerKind
-	)
-
-	var kinds = map[kindEnum][]string{
-		azureCloudKind: {cloudinstall.EnvironmentKindCloud},
-		dockerKind:     {dockerinstall.EnvironmentKindDocker},
-	}
-
-	var kind kindEnum
 
 	cmd := &cobra.Command{
 		Use:                   "create -f FILE.yml",
@@ -73,32 +62,170 @@ func newConfigCreateCommand() *cobra.Command {
 		Long:                  "Create a new config file",
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return generateCloudConfig(cmd.Context(), configPath)
+			if _, err := os.Stat(configPath); err == nil {
+				input := confirmation.New(fmt.Sprintf("A config file already exists at %s and will be overwritten. Continue?", configPath), confirmation.Yes)
+				input.WrapMode = promptkit.WordWrap
+				ready, err := input.RunPrompt()
+				if err != nil {
+					return err
+				}
+				if !ready {
+					os.Exit(1)
+				}
+
+				fmt.Println()
+			}
+
+			if err := os.MkdirAll(path.Dir(configPath), 0775); err != nil {
+				return fmt.Errorf("failed to create config directory: %w", err)
+			}
+
+			f, err := os.OpenFile(configPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+			if err != nil {
+				return fmt.Errorf("failed to open config file for writing: %w", err)
+			}
+			defer f.Close()
+
+			options := []IdAndName{
+				{cloudinstall.EnvironmentKindCloud, "Azure cloud"},
+				{dockerinstall.EnvironmentKindDocker, "Docker"},
+			}
+
+			s := selection.New(
+				"Do you want to create a Tyger environment in the Azure cloud or on your local system using Docker?",
+				options)
+			s.Filter = nil
+			s.WrapMode = promptkit.WordWrap
+
+			res, err := s.RunPrompt()
+			if err != nil {
+				return err
+			}
+
+			fmt.Println()
+
+			switch res.id {
+			case cloudinstall.EnvironmentKindCloud:
+				if err := generateCloudConfig(cmd.Context(), f); err != nil {
+					return err
+				}
+			case dockerinstall.EnvironmentKindDocker:
+				if err := generateDockerConfig(f); err != nil {
+					return err
+				}
+			default:
+				panic(fmt.Sprintf("unexpected environment kind: %s", res.id))
+			}
+
+			fmt.Println("Config file written to", configPath)
+			return nil
 		},
 	}
 
-	cmd.Flags().VarP(enumflag.New(&kind, "kind", kinds, enumflag.EnumCaseInsensitive), "kind", "k", "The kind of environment to create a config for. Can be 'azureCloud' or 'docker'.")
 	cmd.Flags().StringVarP(&configPath, "file", "f", "config.yml", "The path to the config file to create")
 	cmd.MarkFlagRequired("file")
 
 	return cmd
 }
 
-func generateCloudConfig(ctx context.Context, configPath string) error {
-	if _, err := exec.LookPath("az"); err != nil {
-		return errors.New("please install the Azure CLI (az) first")
+func generateDockerConfig(configFile *os.File) error {
+	templateValues := dockerinstall.ConfigTemplateValues{}
+	c := confirmation.New("Tyger requires a cryptographic key pair to secure the data plane API. Do you want to generate a new key pair?", confirmation.Yes)
+	c.WrapMode = promptkit.WordWrap
+	shouldGenerateKey, err := c.RunPrompt()
+	if err != nil {
+		return err
 	}
 
-	if _, err := os.Stat(configPath); err == nil {
-		input := confirmation.New(fmt.Sprintf("A config file already exists at %s and will be overwritten. Continue?", configPath), confirmation.Yes)
-		input.WrapMode = promptkit.WordWrap
-		ready, err := input.RunPrompt()
-		if err != nil {
-			return err
+	fmt.Println()
+
+	privateKeyPath := "${HOME}/tyger-signing.pem"
+	var expandedPrivateKeyPath string
+PromptPrivateKey:
+	privateKeyPath, err = prompt("Enter the path of the private key file. This must not be in a source code repository. Environment variables (${VAR}) will be expanded when reading the file.", privateKeyPath, "", nil)
+	if err != nil {
+		return err
+	}
+
+	expandedPrivateKeyPath, err = envsubst.String(privateKeyPath)
+	if err != nil {
+		return fmt.Errorf("failed to expand environment variables: %w", err)
+	}
+
+	if _, err := os.Stat(expandedPrivateKeyPath); err != nil {
+		if !shouldGenerateKey {
+			fmt.Printf("Failed to stat file at '%s'. Please enter a valid path.\n\n", expandedPrivateKeyPath)
+			goto PromptPrivateKey
 		}
-		if !ready {
-			os.Exit(1)
+	} else {
+		if shouldGenerateKey {
+			c := confirmation.New("Do you want to overwrite the existing file?", confirmation.Yes)
+			c.WrapMode = promptkit.WordWrap
+			overwrite, err := c.RunPrompt()
+			if err != nil {
+				return err
+			}
+
+			fmt.Println()
+
+			if !overwrite {
+				goto PromptPrivateKey
+			}
 		}
+	}
+
+	baseName := strings.TrimSuffix(privateKeyPath, filepath.Ext(privateKeyPath))
+	publicKeyPath := fmt.Sprintf("%s-public%s", baseName, filepath.Ext(privateKeyPath))
+	var expandedPublicKeyPath string
+PromptPublicKey:
+
+	publicKeyPath, err = prompt("Enter the path of the public key file. This must not be in a source code repository. Environment variables (${VAR}) will be expanded when reading the file.", publicKeyPath, "", nil)
+	if err != nil {
+		return err
+	}
+
+	expandedPublicKeyPath, err = envsubst.StringRestricted(publicKeyPath, true, false)
+	if err != nil {
+		return fmt.Errorf("failed to expand environment variables: %w", err)
+	}
+
+	if _, err := os.Stat(expandedPublicKeyPath); err != nil {
+		if !shouldGenerateKey {
+			fmt.Printf("Failed to stat file at '%s'. Please enter a valid path.\n\n", expandedPublicKeyPath)
+			goto PromptPublicKey
+		}
+	} else {
+		if shouldGenerateKey {
+			c := confirmation.New("Do you want to overwrite the existing file?", confirmation.Yes)
+			c.WrapMode = promptkit.WordWrap
+			overwrite, err := c.RunPrompt()
+			if err != nil {
+				return err
+			}
+
+			fmt.Println()
+
+			if !overwrite {
+				goto PromptPublicKey
+			}
+		}
+	}
+
+	templateValues.PrivateSigningKeyPath = privateKeyPath
+	templateValues.PublicSigningKeyPath = publicKeyPath
+
+	if shouldGenerateKey {
+		if err := dockerinstall.GenerateSigningKeyPair(expandedPublicKeyPath, expandedPrivateKeyPath); err != nil {
+			return fmt.Errorf("failed to generate key pair: %w", err)
+		}
+	}
+
+	return dockerinstall.RenderConfig(templateValues, configFile)
+}
+
+func generateCloudConfig(ctx context.Context, configFile *os.File) error {
+	if _, err := exec.LookPath("az"); err != nil {
+		return errors.New("please install the Azure CLI (az) first")
 	}
 
 	ipInfoClient := ipinfo.NewClient(nil, nil, "")
@@ -113,7 +240,7 @@ func generateCloudConfig(ctx context.Context, configPath string) error {
 		CurrentIpAddress:     ip.IP.String(),
 	}
 
-	fmt.Printf("\nFirst, let's collect settings for the Azure subscription to use. This is where cloud resources will be deployed.\n\n")
+	fmt.Printf("\nLet's collect settings for the Azure subscription to use. This is where cloud resources will be deployed.\n\n")
 
 	var cred azcore.TokenCredential
 
@@ -280,21 +407,11 @@ func generateCloudConfig(ctx context.Context, configPath string) error {
 		}
 	}
 
-	if err := os.MkdirAll(path.Dir(configPath), 0775); err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
-	}
-
-	f, err := os.OpenFile(configPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to open config file for writing: %w", err)
-	}
-	defer f.Close()
-	err = cloudinstall.RenderConfig(templateValues, f)
+	err = cloudinstall.RenderConfig(templateValues, configFile)
 	if err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 
-	fmt.Println("Config file written to", configPath)
 	return nil
 }
 
@@ -507,13 +624,16 @@ func prompt(question, initialValue string, suffix string, validationRegex *regex
 	input := textinput.New(question)
 	input.WrapMode = promptkit.WordWrap
 	input.InitialValue = initialValue
-	input.Validate = func(s string) error {
-		if validationRegex.MatchString(s) {
-			return nil
-		}
+	if validationRegex != nil {
+		input.Validate = func(s string) error {
+			if validationRegex.MatchString(s) {
+				return nil
+			}
 
-		return fmt.Errorf("must match the regex %s", validationRegex.String())
+			return fmt.Errorf("must match the regex %s", validationRegex.String())
+		}
 	}
+
 	input.ExtendedTemplateFuncs = template.FuncMap{
 		"Suffix": func() string {
 			return suffix
