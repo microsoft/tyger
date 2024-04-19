@@ -1,9 +1,16 @@
 package dockerinstall
 
 import (
+	_ "embed"
 	"fmt"
+	"io"
 	"strconv"
+	"strings"
+	"text/template"
 )
+
+//go:embed config.tpl
+var configTemplate string
 
 const (
 	EnvironmentKindDocker = "docker"
@@ -59,4 +66,19 @@ func (c *DockerEnvironmentConfig) GetUserIdInt() int {
 	}
 
 	return id
+}
+
+type ConfigTemplateValues struct {
+	PrimarySigningPublicKeyPath  string
+	PrimarySigningPrivateKeyPath string
+}
+
+func RenderConfig(templateValues ConfigTemplateValues, writer io.Writer) error {
+	funcs := map[string]any{
+		"contains": strings.Contains,
+	}
+
+	t := template.Must(template.New("config").Funcs(funcs).Parse(configTemplate))
+
+	return t.Execute(writer, templateValues)
 }

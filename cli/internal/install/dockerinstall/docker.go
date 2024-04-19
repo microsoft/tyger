@@ -261,7 +261,7 @@ func (i *Installer) createControlPlaneContainer(ctx context.Context) error {
 		tarFs.WriteFile(path.Base(primaryPublicCertificatePath), primaryPemBytes, 0777)
 
 		if i.Config.SigningKeys.Secondary != nil {
-			secondaryPemBytes, err := os.ReadFile(i.Config.SigningKeys.Primary.PrivateKey)
+			secondaryPemBytes, err := os.ReadFile(i.Config.SigningKeys.Secondary.PrivateKey)
 			if err != nil {
 				return err
 			}
