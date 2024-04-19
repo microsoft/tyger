@@ -13,6 +13,3 @@ pemCertSecret:
 pkcs12CertSecret:
   name: tyger-test-client-cert-pkcs12
   version: f8b1b7dde7034217bf12ce4ea772b470
-localDataPlaneServiceCertSecret:
-  name: tyger-local-buffer-service-cert
-  version: 3a2b9983673442bfb51f8bb4958972f8

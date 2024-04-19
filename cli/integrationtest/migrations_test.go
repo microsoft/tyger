@@ -137,15 +137,15 @@ func TestDockerMigrations(t *testing.T) {
 
 	environmentConfig := runCommandSucceeds(t, "../../scripts/get-config.sh", "--docker")
 
-	intallationPath := fmt.Sprintf("/tmp/tyger/%s", lowercaseTestName)
+	installationPath := fmt.Sprintf("/tmp/tyger/%s", lowercaseTestName)
 	defer func() {
-		os.RemoveAll(intallationPath)
+		os.RemoveAll(installationPath)
 	}()
 
 	configMap := make(map[string]any)
 	require.NoError(t, yaml.Unmarshal([]byte(environmentConfig), &configMap))
 	configMap["environmentName"] = lowercaseTestName
-	configMap["installationPath"] = intallationPath
+	configMap["installationPath"] = installationPath
 	configMap["initialDatabaseVersion"] = 1
 
 	updatedEnvironmentConfigBytes, err := yaml.Marshal(configMap)

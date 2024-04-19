@@ -13,6 +13,8 @@ import (
 	"strings"
 )
 
+// support for using HTTP over unix sockets
+
 var (
 	errNotSocketHost = errors.New("not a socket path host")
 	encoding         = base32.StdEncoding.WithPadding(base32.NoPadding)

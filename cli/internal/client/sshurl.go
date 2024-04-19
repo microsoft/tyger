@@ -10,6 +10,8 @@ import (
 	"github.com/pkg/errors"
 )
 
+// Parses and formats ssh:// URLs
+
 type SshParams struct {
 	Host       string
 	Port       string

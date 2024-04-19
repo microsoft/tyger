@@ -57,7 +57,8 @@ echo "Paul" | tyger run exec -f hello.yml > result.txt
 ```
 
 
-Instead of specifying `input: _` and `output: _` in the config file, you could instead specify them as command-line arguments:
+Instead of specifying `input: _` and `output: _` in the config file, you could
+instead specify them as command-line arguments:
 
 ``` bash
 echo "Paul" | tyger run exec -f hello.yml -b input=_ -b output=_ > result.txt

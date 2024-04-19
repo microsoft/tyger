@@ -15,6 +15,9 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
+// An HTTP RoundTripper that uses a command to make requests. The request is written
+// to the command's stdin, and the response is read from the command's stdout.
+
 type CommandTransport struct {
 	next    http.RoundTripper
 	sem     *semaphore.Weighted
@@ -22,11 +25,11 @@ type CommandTransport struct {
 	args    []string
 }
 
-func MakeCommandTransport(concurrenyLimit int, command string, args ...string) MakeRoundTripper {
+func MakeCommandTransport(concurrencyLimit int, command string, args ...string) MakeRoundTripper {
 	return func(next http.RoundTripper) http.RoundTripper {
 		return &CommandTransport{
 			next:    next,
-			sem:     semaphore.NewWeighted(int64(concurrenyLimit)),
+			sem:     semaphore.NewWeighted(int64(concurrencyLimit)),
 			command: command,
 			args:    args,
 		}

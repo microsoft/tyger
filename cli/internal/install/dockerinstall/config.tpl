@@ -16,7 +16,7 @@ signingKeys:
     private: {{ .PrivateSigningKeyPath }}
 
   # Optionally specify a secondary key pair.
-  # The primary key will always be used for sigining requests.
+  # The primary key will always be used for signing requests.
   # Signature validation will accept payloads signed with either the
   # primary or secondary key.
   # secondary:

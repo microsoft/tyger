@@ -10,6 +10,8 @@ import (
 	"github.com/pkg/errors"
 )
 
+// Parses and formats docker:// URLs
+
 type DockerParams struct {
 	ContainerName string
 	SocketPath    string

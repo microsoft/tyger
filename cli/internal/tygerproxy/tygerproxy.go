@@ -22,10 +22,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/hashicorp/go-cleanhttp"
+	pool "github.com/libp2p/go-buffer-pool"
 	"github.com/microsoft/tyger/cli/internal/client"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
-	"github.com/microsoft/tyger/cli/internal/proxy"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -217,7 +217,7 @@ func (h *proxyHandler) forwardControlPlaneRequest(w http.ResponseWriter, r *http
 	copyHeaders(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
 
-	if err := proxy.CopyResponse(w, resp); err != nil {
+	if err := copyResponse(w, resp); err != nil {
 		log.Ctx(r.Context()).Error().Err(err).Msg("error copying response")
 	}
 }
@@ -405,4 +405,35 @@ func transfer(destination io.WriteCloser, source io.ReadCloser, wg *sync.WaitGro
 	defer destination.Close()
 	defer source.Close()
 	io.Copy(destination, source)
+}
+
+func copyResponse(w http.ResponseWriter, resp *http.Response) error {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		// The ResponseWriter doesn't support flushing, fallback to simple copy
+		_, err := io.Copy(w, resp.Body)
+		return err
+	}
+
+	// Copy with flushing whenever there is data so that a trickle of data does not get buffered
+	// and result in high latency
+
+	buf := pool.Get(32 * 1024)
+	defer func() {
+		pool.Put(buf)
+	}()
+
+	for {
+		n, err := resp.Body.Read(buf)
+		if n > 0 {
+			w.Write(buf[:n])
+			flusher.Flush()
+		}
+		if err != nil {
+			if err != io.EOF {
+				return err
+			}
+			return nil
+		}
+	}
 }

@@ -43,7 +43,6 @@ networks:
 
 func TestHttpProxy(t *testing.T) {
 	t.Parallel()
-
 	skipIfUsingUnixSocket(t)
 
 	s := NewComposeSession(t)
