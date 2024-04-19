@@ -20,39 +20,13 @@ env:
 
 jobs:
 
-  # If this is running a Dependabot PR or PR from a fork, it we won't have access to secrets
-  # nor will be be able to obtain a federated token to access Azure resources.
-  # Therefore, in those cases, we use hosted runners with managed identity to access Azure resources.
-  # We only want to use those when necessary since they are a lot slower to come up, so this job
-  # determines what we should pass in to `runs-on` for jobs that access Azure resources.
-  # Also, this repo is configured to require approvals for all workflowd external contributors, and we
-  # should inspect the code in the PR before approving the run.
-  test-azure-needs-hosted-runner:
-    runs-on: ubuntu-latest
-    outputs:
-      AZURE_RUNS_ON_JSON: ${{ steps.set-vars.outputs.AZURE_RUNS_ON_JSON }}
-      AZURE_RUNS_ON_WINDOWS_JSON: ${{ steps.set-vars.outputs.AZURE_RUNS_ON_WINDOWS_JSON }}
-    steps:
-      - id: set-vars
-        run: |
-          if [[ -n "${CAN_ACCESS_SECRETS:-}" ]]; then
-            AZURE_RUNS_ON_JSON='"ubuntu-latest"'
-            AZURE_RUNS_ON_WINDOWS_JSON='"windows-latest"'
-          else
-            AZURE_RUNS_ON_JSON='["self-hosted", "1ES.Pool=tyger-gh-1es"]'
-            AZURE_RUNS_ON_WINDOWS_JSON='["self-hosted", "1ES.Pool=tyger-gh-1es-windows"]'
-          fi
-
-          echo "AZURE_RUNS_ON_JSON=$AZURE_RUNS_ON_JSON" >> "$GITHUB_OUTPUT"
-          echo "AZURE_RUNS_ON_WINDOWS_JSON=$AZURE_RUNS_ON_WINDOWS_JSON" >> "$GITHUB_OUTPUT"
-
-  unit-tests-and-format:
+  verify-docker:
     runs-on: ubuntu-latest
     defaults:
       run:
         shell: bash
     env:
-      TYGER_MIN_NODE_COUNT: "1"
+      TYGER_ENVIRONMENT_TYPE: docker
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -68,444 +42,497 @@ jobs:
         with:
           global-json-file: server/global.json
 
-      - name: Build and Verify format
+      - name: "Build and test"
         run: |
           set -euo pipefail
-          make restore
-          make verify-format
-          make install-cli
-
-      - name: Run unit tests
-        run: |
-          set -euo pipefail
-          make unit-test
-
-      - name: Generate NOTICE.txt
-        run: |
-          set -euo pipefail
-
-          scripts/generate-notice.sh
-          if [[ `git status --porcelain` ]]; then
-            git diff
-            echo "ERROR: NOTICE.txt needs to be regenerated using scripts/generate-notice.sh"
-            exit 1
-          fi
-
-      - name: Check copyright headers
-        run: |
-          set -euo pipefail
-
-          scripts/add-copyright-headers.sh
-          if [[ `git status --porcelain` ]]; then
-            git diff
-            echo "ERROR: update copyright headers using scripts/add-cpopyright-headers.sh"
-            exit 1
-          fi
-
-  build-images:
-    needs:
-      - test-azure-needs-hosted-runner
-      - get-config
-
-    runs-on: ${{ fromJson(needs.test-azure-needs-hosted-runner.outputs.AZURE_RUNS_ON_JSON)}}
-
-    env:
-      EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}
-    steps:
-
-      - name: Checkout
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - name: Log in to Azure
-        uses: ./.github/actions/login-azure
-
-      - name: build images
-        run: |
-          set -eo pipefail
-          make -j 4 docker-build
-
-  get-config:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash
-    outputs:
-      IMAGE_TAG: ${{ steps.tag.outputs.IMAGE_TAG }}
-      TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
-      TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
-      DEVELOPER_CONFIG_BASE64: ${{ steps.set-variables.outputs.DEVELOPER_CONFIG_BASE64 }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - name: Generate tag
-        id: tag
-        run: |
-          echo "IMAGE_TAG=$(date +'%Y%m%d%H%M%S')-$GITHUB_SHA" >> "$GITHUB_OUTPUT"
-
-      - name: Set variables
-        id: set-variables
-        run: |
-          set -eo pipefail
-
-          event_name="${{ github.event_name }}"
-          if [ "$event_name" == "pull_request" ]; then
-            environment_name="tyger-gpr${{ github.event.pull_request.number }}"
-          else
-            environment_name="tygerwestus2"
-          fi
-
-          export TYGER_ENVIRONMENT_NAME="${environment_name}"
-
-          tyger_uri=$(make -s get-tyger-uri)
-          echo "TYGER_URI=$tyger_uri" >> "$GITHUB_OUTPUT"
-
-          echo "TYGER_ENVIRONMENT_NAME=$environment_name" >> "$GITHUB_OUTPUT"
-          echo "TYGER_ENVIRONMENT_NAME=$environment_name" >> "$GITHUB_ENV"
-
-          # GitHub Actions thinks this holds a secret, which prevents us from using
-          # it as an output variable. So we base64 encode it as a workaround.
-          # There is no secret in this value.
-
-          developer_config_base64=$(scripts/get-config.sh --dev -o json | jq -c | base64 -w 0)
-          echo "DEVELOPER_CONFIG_BASE64=$developer_config_base64" >> "$GITHUB_OUTPUT"
-          echo "DEVELOPER_CONFIG_BASE64=$developer_config_base64" >> "$GITHUB_ENV"
-
-  up:
-    needs:
-      - test-azure-needs-hosted-runner
-      - get-config
-    runs-on: ${{ fromJson(needs.test-azure-needs-hosted-runner.outputs.AZURE_RUNS_ON_JSON)}}
-    defaults:
-      run:
-        shell: bash
-    env:
-      TYGER_MIN_NODE_COUNT: "1"
-      DO_NOT_BUILD_IMAGES: "true"
-      EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}
-      TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
-
-    steps:
-
-      - name: Checkout
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - name: Log in to Azure
-        uses: ./.github/actions/login-azure
-
-      - uses: actions/setup-go@v4
-        with:
-          go-version-file: cli/go.mod
-          cache-dependency-path: cli/go.sum
-
-      - name: up
-        run: |
-          set -euo pipefail
-          make -s up INSTALL_CLOUD=true
-          make -s migrate
-
-  restore-scale-to-zero:
-    needs:
-      - test-azure-needs-hosted-runner
-      - up
-      - get-config
-    runs-on: ${{ fromJson(needs.test-azure-needs-hosted-runner.outputs.AZURE_RUNS_ON_JSON)}}
-    defaults:
-      run:
-        shell: bash
-    env:
-      TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - name: Log in to Azure
-        uses: ./.github/actions/login-azure
-
-      - uses: actions/setup-go@v4
-        with:
-          go-version-file: cli/go.mod
-          cache-dependency-path: cli/go.sum
-
-      - name: restore-scale-to-zero
-        run: |
-          set -euo pipefail
-          make -s ensure-environment
-
-  integration-tests:
-    needs:
-      - test-azure-needs-hosted-runner
-      - get-config
-      - up
-    runs-on: ${{ fromJson(needs.test-azure-needs-hosted-runner.outputs.AZURE_RUNS_ON_JSON)}}
-    env:
-      TYGER_MIN_NODE_COUNT: "1"
-      DO_NOT_BUILD_IMAGES: "true"
-      EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}
-      TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - name: Log in to Azure
-        uses: ./.github/actions/login-azure
-
-      - uses: actions/setup-go@v4
-        with:
-          go-version-file: cli/go.mod
-          cache-dependency-path: cli/go.sum
-
-      - name: Deploy and test
-        run: |
-          set -euo pipefail
-          make -s integration-test-no-up
-
-  publish-official-images:
-    needs:
-      - test-azure-needs-hosted-runner
-    runs-on: ${{ fromJson(needs.test-azure-needs-hosted-runner.outputs.AZURE_RUNS_ON_JSON)}}
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - name: Log in to Azure
-        uses: ./.github/actions/login-azure
-
-      - name: Publish official images
-        run: |
-          set -euo pipefail
-          make publish-official-images
-
-  build-windows-binaries:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - uses: actions/setup-go@v4
-        with:
-          go-version-file: cli/go.mod
-          # use a different cache key for windows builds
-          cache-dependency-path: |
-            cli/go.sum
-            cli/go.mod
-
-      - name: Build Windows Binaries
-        run: |
-          set -eo pipefail
-
-          export CGO_ENABLED=1
-          export GOOS=windows
-          export GOARCH=amd64
-
-          make install-cli
-
-          destination="${GITHUB_WORKSPACE}/windows-cli-tools"
-          mkdir -p "$destination"
-          cp -a "$(go env GOPATH)/bin/$(go env GOOS)_$(go env GOARCH)/." "$destination"
-
-      - name: Archive windows-cli-tools
-        uses: actions/upload-artifact@v3
-        with:
-          name: windows-cli-tools
-          path: windows-cli-tools
-
-  windows-smoke-tests:
-    needs:
-      - test-azure-needs-hosted-runner
-      - get-config
-      - build-windows-binaries
-      - up
-    runs-on: ${{ fromJson(needs.test-azure-needs-hosted-runner.outputs.AZURE_RUNS_ON_WINDOWS_JSON)}}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - name: Download artifacts
-        uses: actions/download-artifact@v3
-        with:
-          name: windows-cli-tools
-          path: windows-cli-tools
-
-      - name: Log in to Azure
-        uses: ./.github/actions/login-azure
-
-      - name: Run smoke tests
-        env:
-          DEVELOPER_CONFIG_BASE64: ${{ needs.get-config.outputs.DEVELOPER_CONFIG_BASE64 }}
-          TYGER_URI: ${{ needs.get-config.outputs.TYGER_URI }}
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          Set-StrictMode -Version Latest
-
-          $env:PATH = "$env:GITHUB_WORKSPACE\windows-cli-tools;" + $env:PATH
-
-          $developerConfig = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($env:DEVELOPER_CONFIG_BASE64)) | ConvertFrom-Json
-
-          $servicePrincipal = $developerConfig.testAppUri
-          $keyVaultName = $developerConfig.keyVault
-          $certificateName = $developerConfig.pkcs12CertSecret.name
-          $certificateVersion = $developerConfig.pkcs12CertSecret.version
-
-          # Run tests
-          .\scripts\Test-CertificateLoginOnWindows.ps1 `
-            -ServerUri $env:TYGER_URI `
-            -ServicePrincipal $servicePrincipal `
-            -KeyVaultName $keyVaultName `
-            -CertificateName $certificateName `
-            -CertificateVersion $certificateVersion
-
-  codeql:
-    runs-on: ubuntu-latest
-    if: github.repository == 'microsoft/tyger'
-    defaults:
-      run:
-        shell: bash
-    permissions:
-      actions: read
-      contents: read
-      security-events: write
-
-    strategy:
-      fail-fast: false
-      matrix:
-        language: [ 'csharp', 'go' ]
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - uses: actions/setup-go@v4
-        if: matrix.language == 'go'
-        with:
-          go-version-file: cli/go.mod
-          cache-dependency-path: cli/go.sum
-
-      - uses: actions/setup-dotnet@v3
-        with:
-          global-json-file: server/global.json
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v2
-        with:
-          languages: ${{ matrix.language }}
-
-      - name: "Build"
-        run: |
-          set -euo pipefail
-          make -s build-${{ matrix.language }}
-
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v2
-        with:
-          category: "/language:${{matrix.language}}"
-
-  publishDocs:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'microsoft/tyger'
-    needs:
-      - unit-tests-and-format
-      - integration-tests
-      - get-config
-      - windows-smoke-tests
-
-    runs-on: ubuntu-latest
-
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-
-    # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-
-    # Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
-    # However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
-    concurrency:
-      group: "pages"
-      cancel-in-progress: false
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - name: Build static page
-        run: |
-            cd docs
-            npm install
-            npm run docs:build
-      - name: Setup Pages
-        uses: actions/configure-pages@v3
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v2
-        with:
-          # Upload entire repository
-          path: 'docs/.vitepress/dist'
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v2
-
-  release:
-    if: startsWith(github.ref, 'refs/tags/')
-    needs:
-      - unit-tests-and-format
-      - integration-tests
-      - get-config
-      - windows-smoke-tests
-    env:
-      DEVELOPER_CONFIG_BASE64: ${{ needs.get-config.outputs.DEVELOPER_CONFIG_BASE64 }}
-    permissions:
-      contents: write
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - uses: actions/setup-go@v4
-        with:
-          go-version-file: cli/go.mod
-          cache-dependency-path: cli/go.sum
-
-      - name: get container registry
-        run: |
-          set -euo pipefail
-          official_container_registry=$(echo "$DEVELOPER_CONFIG_BASE64" | base64 -d | jq -r '.officialContainerRegistry.fqdn')
-          echo "OFFICIAL_CONTAINER_REGISTRY=$(echo $official_container_registry)" >> $GITHUB_ENV
-
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v5
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          version: v1.21.2
-          workdir: cli
-          args: release --clean
+          make -s -j 4
+
+  # # If this is running a Dependabot PR or PR from a fork, it we won't have access to secrets
+  # # nor will be be able to obtain a federated token to access Azure resources.
+  # # Therefore, in those cases, we use hosted runners with managed identity to access Azure resources.
+  # # We only want to use those when necessary since they are a lot slower to come up, so this job
+  # # determines what we should pass in to `runs-on` for jobs that access Azure resources.
+  # # Also, this repo is configured to require approvals for all workflowd external contributors, and we
+  # # should inspect the code in the PR before approving the run.
+  # test-azure-needs-hosted-runner:
+  #   runs-on: ubuntu-latest
+  #   outputs:
+  #     AZURE_RUNS_ON_JSON: ${{ steps.set-vars.outputs.AZURE_RUNS_ON_JSON }}
+  #     AZURE_RUNS_ON_WINDOWS_JSON: ${{ steps.set-vars.outputs.AZURE_RUNS_ON_WINDOWS_JSON }}
+  #   steps:
+  #     - id: set-vars
+  #       run: |
+  #         if [[ -n "${CAN_ACCESS_SECRETS:-}" ]]; then
+  #           AZURE_RUNS_ON_JSON='"ubuntu-latest"'
+  #           AZURE_RUNS_ON_WINDOWS_JSON='"windows-latest"'
+  #         else
+  #           AZURE_RUNS_ON_JSON='["self-hosted", "1ES.Pool=tyger-gh-1es"]'
+  #           AZURE_RUNS_ON_WINDOWS_JSON='["self-hosted", "1ES.Pool=tyger-gh-1es-windows"]'
+  #         fi
+
+  #         echo "AZURE_RUNS_ON_JSON=$AZURE_RUNS_ON_JSON" >> "$GITHUB_OUTPUT"
+  #         echo "AZURE_RUNS_ON_WINDOWS_JSON=$AZURE_RUNS_ON_WINDOWS_JSON" >> "$GITHUB_OUTPUT"
+
+  # unit-tests-and-format:
+  #   runs-on: ubuntu-latest
+  #   defaults:
+  #     run:
+  #       shell: bash
+  #   env:
+  #     TYGER_MIN_NODE_COUNT: "1"
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v3
+  #       with:
+  #         fetch-depth: 0
+
+  #     - uses: actions/setup-go@v4
+  #       with:
+  #         go-version-file: cli/go.mod
+  #         cache-dependency-path: cli/go.sum
+
+  #     - uses: actions/setup-dotnet@v3
+  #       with:
+  #         global-json-file: server/global.json
+
+  #     - name: Build and Verify format
+  #       run: |
+  #         set -euo pipefail
+  #         make restore
+  #         make verify-format
+  #         make install-cli
+
+  #     - name: Run unit tests
+  #       run: |
+  #         set -euo pipefail
+  #         make unit-test
+
+  #     - name: Generate NOTICE.txt
+  #       run: |
+  #         set -euo pipefail
+
+  #         scripts/generate-notice.sh
+  #         if [[ `git status --porcelain` ]]; then
+  #           git diff
+  #           echo "ERROR: NOTICE.txt needs to be regenerated using scripts/generate-notice.sh"
+  #           exit 1
+  #         fi
+
+  #     - name: Check copyright headers
+  #       run: |
+  #         set -euo pipefail
+
+  #         scripts/add-copyright-headers.sh
+  #         if [[ `git status --porcelain` ]]; then
+  #           git diff
+  #           echo "ERROR: update copyright headers using scripts/add-cpopyright-headers.sh"
+  #           exit 1
+  #         fi
+
+  # build-images:
+  #   needs:
+  #     - test-azure-needs-hosted-runner
+  #     - get-config
+
+  #   runs-on: ${{ fromJson(needs.test-azure-needs-hosted-runner.outputs.AZURE_RUNS_ON_JSON)}}
+
+  #   env:
+  #     EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}
+  #   steps:
+
+  #     - name: Checkout
+  #       uses: actions/checkout@v3
+  #       with:
+  #         fetch-depth: 0
+
+  #     - name: Log in to Azure
+  #       uses: ./.github/actions/login-azure
+
+  #     - name: build images
+  #       run: |
+  #         set -eo pipefail
+  #         make -j 4 docker-build
+
+  # get-config:
+  #   runs-on: ubuntu-latest
+  #   defaults:
+  #     run:
+  #       shell: bash
+  #   outputs:
+  #     IMAGE_TAG: ${{ steps.tag.outputs.IMAGE_TAG }}
+  #     TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
+  #     TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
+  #     DEVELOPER_CONFIG_BASE64: ${{ steps.set-variables.outputs.DEVELOPER_CONFIG_BASE64 }}
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v3
+  #       with:
+  #         fetch-depth: 0
+
+  #     - name: Generate tag
+  #       id: tag
+  #       run: |
+  #         echo "IMAGE_TAG=$(date +'%Y%m%d%H%M%S')-$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+  #     - name: Set variables
+  #       id: set-variables
+  #       run: |
+  #         set -eo pipefail
+
+  #         event_name="${{ github.event_name }}"
+  #         if [ "$event_name" == "pull_request" ]; then
+  #           environment_name="tyger-gpr${{ github.event.pull_request.number }}"
+  #         else
+  #           environment_name="tygerwestus2"
+  #         fi
+
+  #         export TYGER_ENVIRONMENT_NAME="${environment_name}"
+
+  #         tyger_uri=$(make -s get-tyger-uri)
+  #         echo "TYGER_URI=$tyger_uri" >> "$GITHUB_OUTPUT"
+
+  #         echo "TYGER_ENVIRONMENT_NAME=$environment_name" >> "$GITHUB_OUTPUT"
+  #         echo "TYGER_ENVIRONMENT_NAME=$environment_name" >> "$GITHUB_ENV"
+
+  #         # GitHub Actions thinks this holds a secret, which prevents us from using
+  #         # it as an output variable. So we base64 encode it as a workaround.
+  #         # There is no secret in this value.
+
+  #         developer_config_base64=$(scripts/get-config.sh --dev -o json | jq -c | base64 -w 0)
+  #         echo "DEVELOPER_CONFIG_BASE64=$developer_config_base64" >> "$GITHUB_OUTPUT"
+  #         echo "DEVELOPER_CONFIG_BASE64=$developer_config_base64" >> "$GITHUB_ENV"
+
+  # up:
+  #   needs:
+  #     - test-azure-needs-hosted-runner
+  #     - get-config
+  #   runs-on: ${{ fromJson(needs.test-azure-needs-hosted-runner.outputs.AZURE_RUNS_ON_JSON)}}
+  #   defaults:
+  #     run:
+  #       shell: bash
+  #   env:
+  #     TYGER_MIN_NODE_COUNT: "1"
+  #     DO_NOT_BUILD_IMAGES: "true"
+  #     EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}
+  #     TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
+
+  #   steps:
+
+  #     - name: Checkout
+  #       uses: actions/checkout@v3
+  #       with:
+  #         fetch-depth: 0
+
+  #     - name: Log in to Azure
+  #       uses: ./.github/actions/login-azure
+
+  #     - uses: actions/setup-go@v4
+  #       with:
+  #         go-version-file: cli/go.mod
+  #         cache-dependency-path: cli/go.sum
+
+  #     - name: up
+  #       run: |
+  #         set -euo pipefail
+  #         make -s up INSTALL_CLOUD=true
+  #         make -s migrate
+
+  # restore-scale-to-zero:
+  #   needs:
+  #     - test-azure-needs-hosted-runner
+  #     - up
+  #     - get-config
+  #   runs-on: ${{ fromJson(needs.test-azure-needs-hosted-runner.outputs.AZURE_RUNS_ON_JSON)}}
+  #   defaults:
+  #     run:
+  #       shell: bash
+  #   env:
+  #     TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v3
+  #       with:
+  #         fetch-depth: 0
+
+  #     - name: Log in to Azure
+  #       uses: ./.github/actions/login-azure
+
+  #     - uses: actions/setup-go@v4
+  #       with:
+  #         go-version-file: cli/go.mod
+  #         cache-dependency-path: cli/go.sum
+
+  #     - name: restore-scale-to-zero
+  #       run: |
+  #         set -euo pipefail
+  #         make -s ensure-environment
+
+  # integration-tests:
+  #   needs:
+  #     - test-azure-needs-hosted-runner
+  #     - get-config
+  #     - up
+  #   runs-on: ${{ fromJson(needs.test-azure-needs-hosted-runner.outputs.AZURE_RUNS_ON_JSON)}}
+  #   env:
+  #     TYGER_MIN_NODE_COUNT: "1"
+  #     DO_NOT_BUILD_IMAGES: "true"
+  #     EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}
+  #     TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v3
+  #       with:
+  #         fetch-depth: 0
+
+  #     - name: Log in to Azure
+  #       uses: ./.github/actions/login-azure
+
+  #     - uses: actions/setup-go@v4
+  #       with:
+  #         go-version-file: cli/go.mod
+  #         cache-dependency-path: cli/go.sum
+
+  #     - name: Deploy and test
+  #       run: |
+  #         set -euo pipefail
+  #         make -s integration-test-no-up
+
+  # publish-official-images:
+  #   needs:
+  #     - test-azure-needs-hosted-runner
+  #   runs-on: ${{ fromJson(needs.test-azure-needs-hosted-runner.outputs.AZURE_RUNS_ON_JSON)}}
+  #   defaults:
+  #     run:
+  #       shell: bash
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v3
+  #       with:
+  #         fetch-depth: 0
+
+  #     - name: Log in to Azure
+  #       uses: ./.github/actions/login-azure
+
+  #     - name: Publish official images
+  #       run: |
+  #         set -euo pipefail
+  #         make publish-official-images
+
+  # build-windows-binaries:
+  #   runs-on: ubuntu-latest
+  #   defaults:
+  #     run:
+  #       shell: bash
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v3
+  #       with:
+  #         fetch-depth: 0
+
+  #     - uses: actions/setup-go@v4
+  #       with:
+  #         go-version-file: cli/go.mod
+  #         # use a different cache key for windows builds
+  #         cache-dependency-path: |
+  #           cli/go.sum
+  #           cli/go.mod
+
+  #     - name: Build Windows Binaries
+  #       run: |
+  #         set -eo pipefail
+
+  #         export CGO_ENABLED=1
+  #         export GOOS=windows
+  #         export GOARCH=amd64
+
+  #         make install-cli
+
+  #         destination="${GITHUB_WORKSPACE}/windows-cli-tools"
+  #         mkdir -p "$destination"
+  #         cp -a "$(go env GOPATH)/bin/$(go env GOOS)_$(go env GOARCH)/." "$destination"
+
+  #     - name: Archive windows-cli-tools
+  #       uses: actions/upload-artifact@v3
+  #       with:
+  #         name: windows-cli-tools
+  #         path: windows-cli-tools
+
+  # windows-smoke-tests:
+  #   needs:
+  #     - test-azure-needs-hosted-runner
+  #     - get-config
+  #     - build-windows-binaries
+  #     - up
+  #   runs-on: ${{ fromJson(needs.test-azure-needs-hosted-runner.outputs.AZURE_RUNS_ON_WINDOWS_JSON)}}
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v3
+  #       with:
+  #         fetch-depth: 0
+
+  #     - name: Download artifacts
+  #       uses: actions/download-artifact@v3
+  #       with:
+  #         name: windows-cli-tools
+  #         path: windows-cli-tools
+
+  #     - name: Log in to Azure
+  #       uses: ./.github/actions/login-azure
+
+  #     - name: Run smoke tests
+  #       env:
+  #         DEVELOPER_CONFIG_BASE64: ${{ needs.get-config.outputs.DEVELOPER_CONFIG_BASE64 }}
+  #         TYGER_URI: ${{ needs.get-config.outputs.TYGER_URI }}
+  #       shell: pwsh
+  #       run: |
+  #         $ErrorActionPreference = "Stop"
+  #         Set-StrictMode -Version Latest
+
+  #         $env:PATH = "$env:GITHUB_WORKSPACE\windows-cli-tools;" + $env:PATH
+
+  #         $developerConfig = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($env:DEVELOPER_CONFIG_BASE64)) | ConvertFrom-Json
+
+  #         $servicePrincipal = $developerConfig.testAppUri
+  #         $keyVaultName = $developerConfig.keyVault
+  #         $certificateName = $developerConfig.pkcs12CertSecret.name
+  #         $certificateVersion = $developerConfig.pkcs12CertSecret.version
+
+  #         # Run tests
+  #         .\scripts\Test-CertificateLoginOnWindows.ps1 `
+  #           -ServerUri $env:TYGER_URI `
+  #           -ServicePrincipal $servicePrincipal `
+  #           -KeyVaultName $keyVaultName `
+  #           -CertificateName $certificateName `
+  #           -CertificateVersion $certificateVersion
+
+  # codeql:
+  #   runs-on: ubuntu-latest
+  #   if: github.repository == 'microsoft/tyger'
+  #   defaults:
+  #     run:
+  #       shell: bash
+  #   permissions:
+  #     actions: read
+  #     contents: read
+  #     security-events: write
+
+  #   strategy:
+  #     fail-fast: false
+  #     matrix:
+  #       language: [ 'csharp', 'go' ]
+
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v3
+  #       with:
+  #         fetch-depth: 0
+
+  #     - uses: actions/setup-go@v4
+  #       if: matrix.language == 'go'
+  #       with:
+  #         go-version-file: cli/go.mod
+  #         cache-dependency-path: cli/go.sum
+
+  #     - uses: actions/setup-dotnet@v3
+  #       with:
+  #         global-json-file: server/global.json
+
+  #     - name: Initialize CodeQL
+  #       uses: github/codeql-action/init@v2
+  #       with:
+  #         languages: ${{ matrix.language }}
+
+  #     - name: "Build"
+  #       run: |
+  #         set -euo pipefail
+  #         make -s build-${{ matrix.language }}
+
+  #     - name: Perform CodeQL Analysis
+  #       uses: github/codeql-action/analyze@v2
+  #       with:
+  #         category: "/language:${{matrix.language}}"
+
+  # publishDocs:
+  #   if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'microsoft/tyger'
+  #   needs:
+  #     - unit-tests-and-format
+  #     - integration-tests
+  #     - get-config
+  #     - windows-smoke-tests
+
+  #   runs-on: ubuntu-latest
+
+  #   environment:
+  #     name: github-pages
+  #     url: ${{ steps.deployment.outputs.page_url }}
+
+  #   # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+  #   permissions:
+  #     contents: read
+  #     pages: write
+  #     id-token: write
+
+  #   # Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
+  #   # However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
+  #   concurrency:
+  #     group: "pages"
+  #     cancel-in-progress: false
+
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v3
+  #       with:
+  #         fetch-depth: 0
+
+  #     - name: Build static page
+  #       run: |
+  #           cd docs
+  #           npm install
+  #           npm run docs:build
+  #     - name: Setup Pages
+  #       uses: actions/configure-pages@v3
+  #     - name: Upload artifact
+  #       uses: actions/upload-pages-artifact@v2
+  #       with:
+  #         # Upload entire repository
+  #         path: 'docs/.vitepress/dist'
+  #     - name: Deploy to GitHub Pages
+  #       id: deployment
+  #       uses: actions/deploy-pages@v2
+
+  # release:
+  #   if: startsWith(github.ref, 'refs/tags/')
+  #   needs:
+  #     - unit-tests-and-format
+  #     - integration-tests
+  #     - get-config
+  #     - windows-smoke-tests
+  #   env:
+  #     DEVELOPER_CONFIG_BASE64: ${{ needs.get-config.outputs.DEVELOPER_CONFIG_BASE64 }}
+  #   permissions:
+  #     contents: write
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v3
+  #       with:
+  #         fetch-depth: 0
+
+  #     - uses: actions/setup-go@v4
+  #       with:
+  #         go-version-file: cli/go.mod
+  #         cache-dependency-path: cli/go.sum
+
+  #     - name: get container registry
+  #       run: |
+  #         set -euo pipefail
+  #         official_container_registry=$(echo "$DEVELOPER_CONFIG_BASE64" | base64 -d | jq -r '.officialContainerRegistry.fqdn')
+  #         echo "OFFICIAL_CONTAINER_REGISTRY=$(echo $official_container_registry)" >> $GITHUB_ENV
+
+  #     - name: Run GoReleaser
+  #       uses: goreleaser/goreleaser-action@v5
+  #       env:
+  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #       with:
+  #         version: v1.21.2
+  #         workdir: cli
+  #         args: release --clean
