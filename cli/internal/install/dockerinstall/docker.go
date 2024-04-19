@@ -16,6 +16,7 @@ import (
 	"path"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types"
@@ -649,6 +650,20 @@ func (i *Installer) createContainer(
 			return fmt.Errorf("error pulling image: %w", err)
 		}
 
+		if containerSpec.ContainerConfig.Healthcheck != nil &&
+			(containerSpec.ContainerConfig.Healthcheck.StartInterval != 0 || containerSpec.ContainerConfig.Healthcheck.StartPeriod != 0) {
+			// these properties are not supported in older versions of the docker API
+			r, err := i.client.Ping(ctx)
+			if err != nil {
+				return fmt.Errorf("error pinging server: %w", err)
+			}
+
+			if r.APIVersion != "" && compareVersions(r.APIVersion, "1.44") < 0 {
+				containerSpec.ContainerConfig.Healthcheck.StartPeriod = 0
+				containerSpec.ContainerConfig.Healthcheck.StartInterval = 0
+			}
+		}
+
 		resp, err := i.client.ContainerCreate(ctx, containerSpec.ContainerConfig, containerSpec.HostConfig, containerSpec.NetworkingConfig, nil, containerName)
 
 		if err != nil {
@@ -810,4 +825,42 @@ func (i *Installer) statDockerSocket(ctx context.Context) (userId int, groupId i
 	}
 
 	return userId, groupId, permissions, nil
+}
+
+// -1 if v1 < v2, 0 if v1 == v2, 1 if v1 > v2
+func compareVersions(v1, v2 string) int {
+	parts1 := strings.Split(v1, ".")
+	parts2 := strings.Split(v2, ".")
+
+	maxLen := len(parts1)
+	if len(parts2) > maxLen {
+		maxLen = len(parts2)
+	}
+
+	for i := 0; i < maxLen; i++ {
+		var num1, num2 int
+		var err error
+
+		if i < len(parts1) {
+			num1, err = strconv.Atoi(parts1[i])
+			if err != nil {
+				panic(fmt.Sprintf("Invalid version number in %s: %s\n", v1, parts1[i]))
+			}
+		}
+
+		if i < len(parts2) {
+			num2, err = strconv.Atoi(parts2[i])
+			if err != nil {
+				panic(fmt.Sprintf("Invalid version number in %s: %s\n", v2, parts2[i]))
+			}
+		}
+
+		if num1 < num2 {
+			return -1
+		} else if num1 > num2 {
+			return 1
+		}
+	}
+
+	return 0
 }
