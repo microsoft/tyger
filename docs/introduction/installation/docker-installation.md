@@ -45,11 +45,14 @@ The installation configuration file typically looks like this:
 kind: docker
 
 # Optionally specify the user id that the services will run as
-# userId:
+userId:
 
 # Optionally specify the user group ID that will be allowed
 # to access the Tyger API
-# allowedGroupId:
+allowedGroupId:
+
+# The port on which the data plane API will listen
+dataPlanePort: 46339
 
 # Specify asymmetric signing keys for the data plane service.
 # These can be generated with `tyger api generate-signing-key`
@@ -73,6 +76,7 @@ signingKeys:
 # bufferSidecarImage:
 # gatewayImage:
 # gatewayImage:
+
 ```
 
 All of the installation commands (`tyger api install`, `tyger api uninstall`,

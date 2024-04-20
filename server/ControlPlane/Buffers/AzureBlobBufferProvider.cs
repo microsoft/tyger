@@ -32,7 +32,7 @@ public sealed class AzureBlobBufferProvider : IBufferProvider, IHealthCheck, IHo
         await _serviceClient.CreateBlobContainerAsync(id, cancellationToken: cancellationToken);
     }
 
-    public Uri CreateBufferAccessUrl(string id, bool writeable)
+    public Uri CreateBufferAccessUrl(string id, bool writeable, bool preferTcp)
     {
         var permissions = BlobContainerSasPermissions.Read;
         if (writeable)

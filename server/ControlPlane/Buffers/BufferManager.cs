@@ -88,7 +88,7 @@ public sealed partial class BufferManager
         return await _repository.GetBuffers(tags, limit, continuationToken, cancellationToken);
     }
 
-    internal async Task<BufferAccess?> CreateBufferAccessUrl(string id, bool writeable, CancellationToken cancellationToken)
+    internal async Task<BufferAccess?> CreateBufferAccessUrl(string id, bool writeable, bool preferTcp, CancellationToken cancellationToken)
     {
         var match = BufferIdRegex().Match(id);
         if (!match.Success)
@@ -114,7 +114,7 @@ public sealed partial class BufferManager
             return null;
         }
 
-        return new BufferAccess(_bufferProvider.CreateBufferAccessUrl(id, writeable));
+        return new BufferAccess(_bufferProvider.CreateBufferAccessUrl(id, writeable, preferTcp));
     }
 
     public string GetUnqualifiedBufferId(string id)

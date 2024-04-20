@@ -24,6 +24,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	koanfyaml "github.com/knadh/koanf/parsers/yaml"
+	"github.com/microsoft/tyger/cli/internal/cmd/install"
 	"github.com/microsoft/tyger/cli/internal/install/cloudinstall"
 )
 
@@ -147,6 +148,9 @@ func TestDockerMigrations(t *testing.T) {
 	configMap["environmentName"] = lowercaseTestName
 	configMap["installationPath"] = installationPath
 	configMap["initialDatabaseVersion"] = 1
+	p, err := install.GetFreePort()
+	require.NoError(t, err)
+	configMap["dataPlanePort"] = p
 
 	updatedEnvironmentConfigBytes, err := yaml.Marshal(configMap)
 	require.NoError(t, err)

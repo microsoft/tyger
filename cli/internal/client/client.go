@@ -147,7 +147,17 @@ func SetDefaultNetworkClientSettings(opts *ClientOptions) error {
 
 type AccessTokenFunc func(ctx context.Context) (string, error)
 
+type TygerConnectionType int
+
+const (
+	TygerConnectionTypeTcp TygerConnectionType = iota
+	TygerConnectionTypeUnix
+	TygerConnectionTypeSsh
+	TygerConnectionTypeDocker
+)
+
 type TygerClient struct {
+	ConnectionType     TygerConnectionType
 	ControlPlaneUrl    *url.URL
 	ControlPlaneClient *Client
 	GetAccessToken     AccessTokenFunc
@@ -155,8 +165,9 @@ type TygerClient struct {
 	Principal          string
 }
 
-func NewTygerClient(controlPlaneUrl *url.URL, getAccessToken AccessTokenFunc, principal string, controlPlaneClient *Client, dataPlaneClient *Client) *TygerClient {
+func NewTygerClient(connectionType TygerConnectionType, controlPlaneUrl *url.URL, getAccessToken AccessTokenFunc, principal string, controlPlaneClient *Client, dataPlaneClient *Client) *TygerClient {
 	return &TygerClient{
+		ConnectionType:     connectionType,
 		ControlPlaneUrl:    controlPlaneUrl,
 		ControlPlaneClient: controlPlaneClient,
 		DataPlaneClient:    dataPlaneClient,

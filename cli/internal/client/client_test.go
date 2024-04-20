@@ -119,7 +119,7 @@ func TestGetProxyFuncWithDataPlaneProxy(t *testing.T) {
 	controlPlaneUrl, err := url.Parse("https://example.com")
 	require.NoError(t, err)
 
-	tygerClient := NewTygerClient(controlPlaneUrl, func(ctx context.Context) (string, error) { return "", nil }, "me", cpClient, dpClient)
+	tygerClient := NewTygerClient(TygerConnectionTypeTcp, controlPlaneUrl, func(ctx context.Context) (string, error) { return "", nil }, "me", cpClient, dpClient)
 
 	dataPlaneUrl, err := url.Parse("https://dataplane.example.com")
 	require.NoError(t, err)

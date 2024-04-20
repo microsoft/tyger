@@ -12,6 +12,7 @@ public sealed class LocalStorageBufferProvider : IBufferProvider, IHealthCheck, 
 {
     private readonly LocalBufferStorageOptions _storageOptions;
     private readonly Uri _baseUrl;
+    private readonly Uri _baseTcpUrl;
     private readonly HttpClient _dataPlaneClient;
     private readonly SignDataFunc _signData;
 
@@ -76,6 +77,14 @@ public sealed class LocalStorageBufferProvider : IBufferProvider, IHealthCheck, 
 
         _baseUrl = new Uri(baseUrl);
 
+        var tcpUrl = _storageOptions.TcpDataPlaneEndpoint.ToString();
+        if (!tcpUrl.EndsWith('/'))
+        {
+            tcpUrl += '/';
+        }
+
+        _baseTcpUrl = new Uri(tcpUrl);
+
         if (_dataPlaneClient.BaseAddress == null)
         {
             _dataPlaneClient.BaseAddress = _baseUrl;
@@ -118,11 +127,11 @@ public sealed class LocalStorageBufferProvider : IBufferProvider, IHealthCheck, 
         resp.EnsureSuccessStatusCode();
     }
 
-    public Uri CreateBufferAccessUrl(string id, bool writeable)
+    public Uri CreateBufferAccessUrl(string id, bool writeable, bool preferTcp)
     {
         var action = writeable ? SasAction.Create | SasAction.Read : SasAction.Read;
         var queryString = LocalSasHandler.GetSasQueryString(id, SasResourceType.Blob, action, _signData);
-        return new Uri(_baseUrl, $"v1/containers/{id}{queryString}");
+        return new Uri(preferTcp ? _baseTcpUrl : _baseUrl, $"v1/containers/{id}{queryString}");
     }
 
     public void Dispose() => _dataPlaneClient.Dispose();

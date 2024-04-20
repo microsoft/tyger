@@ -161,7 +161,7 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 			return nil, fmt.Errorf("unable to create data plane client: %w", err)
 		}
 
-		tygerClient = client.NewTygerClient(socketUrl, si.GetAccessToken, si.Principal, controlPlaneClient, dataPlaneClient)
+		tygerClient = client.NewTygerClient(client.TygerConnectionTypeDocker, socketUrl, si.GetAccessToken, si.Principal, controlPlaneClient, dataPlaneClient)
 
 	} else if normalizedServerUri.Scheme == "ssh" {
 		sshParams, err := client.ParseSshUrl(normalizedServerUri)
@@ -211,7 +211,7 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 			return nil, fmt.Errorf("unable to create data plane client: %w", err)
 		}
 
-		tygerClient = client.NewTygerClient(socketUrl, si.GetAccessToken, si.Principal, controlPlaneClient, dataPlaneClient)
+		tygerClient = client.NewTygerClient(client.TygerConnectionTypeSsh, socketUrl, si.GetAccessToken, si.Principal, controlPlaneClient, dataPlaneClient)
 	} else {
 		if err := validateServiceInfo(si); err != nil {
 			return nil, err
@@ -279,7 +279,17 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 			return nil, fmt.Errorf("unable to create data plane client: %w", err)
 		}
 
-		tygerClient = client.NewTygerClient(si.parsedServerUri, si.GetAccessToken, si.Principal, cpClient, dpClient)
+		var connectionType client.TygerConnectionType
+		switch si.parsedServerUri.Scheme {
+		case "http+unix", "https+unix":
+			connectionType = client.TygerConnectionTypeUnix
+		case "http", "https":
+			connectionType = client.TygerConnectionTypeTcp
+		default:
+			panic(fmt.Sprintf("unhandled scheme: %s", si.parsedServerUri.Scheme))
+		}
+
+		tygerClient = client.NewTygerClient(connectionType, si.parsedServerUri, si.GetAccessToken, si.Principal, cpClient, dpClient)
 	}
 
 	if options.Persisted {
@@ -492,7 +502,7 @@ func GetClientFromCache() (*client.TygerClient, error) {
 
 		endpoint := url.URL{Scheme: "http+unix", Path: fmt.Sprintf("%s:", dockerParams.SocketPath)}
 
-		return client.NewTygerClient(&endpoint, si.GetAccessToken, si.Principal, cpClient, dpClient), nil
+		return client.NewTygerClient(client.TygerConnectionTypeDocker, &endpoint, si.GetAccessToken, si.Principal, cpClient, dpClient), nil
 	} else if si.parsedServerUri.Scheme == "ssh" {
 		sshParams, err := client.ParseSshUrl(si.parsedServerUri)
 		if err != nil {
@@ -514,7 +524,7 @@ func GetClientFromCache() (*client.TygerClient, error) {
 
 		endpoint := url.URL{Scheme: "http+unix", Path: fmt.Sprintf("%s:", sshParams.SocketPath)}
 
-		return client.NewTygerClient(&endpoint, si.GetAccessToken, si.Principal, cpClient, dpClient), nil
+		return client.NewTygerClient(client.TygerConnectionTypeSsh, &endpoint, si.GetAccessToken, si.Principal, cpClient, dpClient), nil
 	} else {
 		controlPlaneClient, err := client.NewClient(&defaultClientOptions)
 		if err != nil {
@@ -531,7 +541,17 @@ func GetClientFromCache() (*client.TygerClient, error) {
 			return nil, fmt.Errorf("unable to create data plane client: %w", err)
 		}
 
-		return client.NewTygerClient(si.parsedServerUri, si.GetAccessToken, si.Principal, controlPlaneClient, dpClient), nil
+		var connectionType client.TygerConnectionType
+		switch si.parsedServerUri.Scheme {
+		case "http+unix", "https+unix":
+			connectionType = client.TygerConnectionTypeUnix
+		case "http", "https":
+			connectionType = client.TygerConnectionTypeTcp
+		default:
+			panic(fmt.Sprintf("unhandled scheme: %s", si.parsedServerUri.Scheme))
+		}
+
+		return client.NewTygerClient(connectionType, si.parsedServerUri, si.GetAccessToken, si.Principal, controlPlaneClient, dpClient), nil
 	}
 }
 

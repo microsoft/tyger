@@ -124,7 +124,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                     var newBufferId = $"run-{run.Id}-{bufferId}";
                     newRun.Job.Buffers[bufferParameterName] = newBufferId;
                     (var write, _) = bufferMap[bufferParameterName];
-                    var accessUri = await BufferManager.CreateBufferAccessUrl(newBufferId, write, cancellationToken);
+                    var accessUri = await BufferManager.CreateBufferAccessUrl(newBufferId, write, false, cancellationToken);
                     bufferMap[bufferParameterName] = (write, accessUri!.Uri);
                 }
             }

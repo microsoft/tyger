@@ -7,6 +7,9 @@ userId:
 # to access the Tyger API
 allowedGroupId:
 
+# The port on which the data plane API will listen
+dataPlanePort: {{ .DataPlanePort }}
+
 # Specify asymmetric signing keys for the data plane service.
 # These can be generated with `tyger api generate-signing-key`
 # These files must not be stored in a source code repository.

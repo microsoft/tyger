@@ -1,5 +1,7 @@
 kind: docker
 
+dataPlanePort: 46339
+
 signingKeys:
   primary:
     public: ${HOME}/tyger_local_signing_key_public.pem

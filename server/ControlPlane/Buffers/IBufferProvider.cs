@@ -8,7 +8,7 @@ public interface IBufferProvider
     Task CreateBuffer(string id, CancellationToken cancellationToken);
     Task<bool> BufferExists(string id, CancellationToken cancellationToken);
 
-    Uri CreateBufferAccessUrl(string id, bool writeable);
+    Uri CreateBufferAccessUrl(string id, bool writeable, bool preferTcp);
 }
 
 public interface IEphemeralBufferProvider

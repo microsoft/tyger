@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -675,8 +676,21 @@ func TestOpenApiSpecIsAsExpected(t *testing.T) {
 	require.Nil(t, err)
 
 	if a, e := strings.TrimSpace(string(actualBytes)), strings.TrimSpace(string(expectedBytes)); a != e {
-		t.Errorf("Result not as expected. To update, run `curl %s > %s`\n\nDiff:%v",
-			swaggerUri,
+		var curlCommand string
+		if client.ControlPlaneUrl.Scheme == "http+unix" {
+			u := url.URL{
+				Scheme: "http",
+				Host:   "localhost",
+				Path:   strings.Split(swaggerUri, ":")[2],
+			}
+
+			curlCommand = fmt.Sprintf("curl --unix %s %s ", strings.Split(client.ControlPlaneUrl.Path, ":")[0], u.String())
+		} else {
+			curlCommand = fmt.Sprintf("curl %s ", client.ControlPlaneUrl)
+		}
+
+		t.Errorf("Result not as expected. To update, run `%s > %s`\n\nDiff:%v",
+			curlCommand,
 			expectedFilePath,
 			diff.LineDiff(e, a))
 	}

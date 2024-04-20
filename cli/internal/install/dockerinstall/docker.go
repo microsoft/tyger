@@ -197,6 +197,7 @@ func (i *Installer) createControlPlaneContainer(ctx context.Context) error {
 				"LogArchive__LocalStorage__LogsDirectory=/app/logs",
 				"Buffers__BufferSidecarImage=" + i.Config.BufferSidecarImage,
 				fmt.Sprintf("Buffers__LocalStorage__DataPlaneEndpoint=http+unix://%s/data-plane/tyger.data.sock", i.Config.InstallationPath),
+				fmt.Sprintf("Buffers__LocalStorage__TcpDataPlaneEndpoint=http://localhost:%d", i.Config.DataPlanePort),
 				"Buffers__PrimarySigningPrivateKeyPath=" + primaryPublicCertificatePath,
 				"Buffers__SecondarySigningPrivateKeyPath=" + secondaryPublicCertificatePath,
 				fmt.Sprintf("Database__ConnectionString=Host=%s/database; Username=tyger-server", i.Config.InstallationPath),
@@ -504,7 +505,7 @@ func (i *Installer) createDataPlaneContainer(ctx context.Context) error {
 			Image: image,
 			User:  i.Config.UserId,
 			Env: []string{
-				fmt.Sprintf("Urls=http://unix:%s/data-plane/tyger.data.sock", i.Config.InstallationPath),
+				fmt.Sprintf("Urls=http://unix:%s/data-plane/tyger.data.sock;http://localhost:%d", i.Config.InstallationPath, i.Config.DataPlanePort),
 				"SocketPermissions=666",
 				"DataDirectory=/app/data",
 				"PrimarySigningPublicKeyPath=" + primaryPublicCertificatePath,
@@ -535,7 +536,7 @@ func (i *Installer) createDataPlaneContainer(ctx context.Context) error {
 					Target: fmt.Sprintf("%s/data-plane", i.Config.InstallationPath),
 				},
 			},
-			NetworkMode: "none",
+			NetworkMode: "host",
 			RestartPolicy: container.RestartPolicy{
 				Name: container.RestartPolicyUnlessStopped,
 			},

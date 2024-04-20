@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"net"
 	"os"
 	"os/exec"
 	"path"
@@ -130,6 +131,7 @@ func newConfigCreateCommand() *cobra.Command {
 
 func generateDockerConfig(configFile *os.File) error {
 	templateValues := dockerinstall.ConfigTemplateValues{}
+
 	c := confirmation.New("Tyger requires a cryptographic key pair to secure the data plane API. Do you want to generate a new key pair?", confirmation.Yes)
 	c.WrapMode = promptkit.WordWrap
 	shouldGenerateKey, err := c.RunPrompt()
@@ -218,6 +220,22 @@ PromptPublicKey:
 		if err := dockerinstall.GenerateSigningKeyPair(expandedPublicKeyPath, expandedPrivateKeyPath); err != nil {
 			return fmt.Errorf("failed to generate key pair: %w", err)
 		}
+	}
+
+	portString := ""
+	port, err := GetFreePort()
+	if err == nil {
+		portString = strconv.Itoa(port)
+	}
+
+	portString, err = prompt("Enter the port on which the data plane API will listen:", portString, "", regexp.MustCompile(`^\d+$`))
+	if err != nil {
+		return err
+	}
+
+	templateValues.DataPlanePort, err = strconv.Atoi(portString)
+	if err != nil {
+		return err
 	}
 
 	return dockerinstall.RenderConfig(templateValues, configFile)
@@ -674,4 +692,16 @@ func (p ExtendedPrincipal) String() string {
 	}
 
 	return p.ObjectId
+}
+
+func GetFreePort() (port int, err error) {
+	var a *net.TCPAddr
+	if a, err = net.ResolveTCPAddr("tcp", "localhost:0"); err == nil {
+		var l *net.TCPListener
+		if l, err = net.ListenTCP("tcp", a); err == nil {
+			defer l.Close()
+			return l.Addr().(*net.TCPAddr).Port, nil
+		}
+	}
+	return
 }

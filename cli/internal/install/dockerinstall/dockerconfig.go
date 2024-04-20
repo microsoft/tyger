@@ -24,6 +24,8 @@ type DockerEnvironmentConfig struct {
 
 	EnvironmentName string `json:"environmentName"`
 
+	DataPlanePort int `json:"dataPlanePort"`
+
 	UserId         string `json:"userId"`
 	AllowedGroupId string `json:"allowedGroupId"`
 
@@ -74,6 +76,7 @@ func (c *DockerEnvironmentConfig) GetUserIdInt() int {
 type ConfigTemplateValues struct {
 	PublicSigningKeyPath  string
 	PrivateSigningKeyPath string
+	DataPlanePort         int
 }
 
 func RenderConfig(templateValues ConfigTemplateValues, writer io.Writer) error {

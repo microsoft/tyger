@@ -149,9 +149,9 @@ public static class Buffers
             .Produces<ErrorBody>(StatusCodes.Status404NotFound)
             .Produces<ErrorBody>(StatusCodes.Status412PreconditionFailed);
 
-        app.MapPost("/v1/buffers/{id}/access", async (BufferManager manager, string id, bool? writeable, CancellationToken cancellationToken) =>
+        app.MapPost("/v1/buffers/{id}/access", async (BufferManager manager, string id, bool? writeable, bool? preferTcp, CancellationToken cancellationToken) =>
             {
-                var bufferAccess = await manager.CreateBufferAccessUrl(id, writeable == true, cancellationToken);
+                var bufferAccess = await manager.CreateBufferAccessUrl(id, writeable == true, preferTcp == true, cancellationToken);
                 if (bufferAccess is null)
                 {
                     return Responses.NotFound();
@@ -184,6 +184,9 @@ public class LocalBufferStorageOptions
 {
     [Required]
     public Uri DataPlaneEndpoint { get; init; } = null!;
+
+    [Required]
+    public Uri TcpDataPlaneEndpoint { get; init; } = null!;
 }
 
 public class BufferStorageAccountOptions
