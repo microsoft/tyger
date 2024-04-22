@@ -3,6 +3,7 @@
 
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using Tyger.Common.Buffers;
@@ -11,7 +12,7 @@ namespace Tyger.DataPlane;
 
 #pragma warning disable CA5351 // Do Not Use Broken Cryptographic Algorithms. We are using MD5 for compatibility with Azure Blob Storage
 
-public class DataPlaneStorageHandler : IHealthCheck
+public partial class DataPlaneStorageHandler : IHealthCheck
 {
     private static readonly FileStreamOptions s_fileStreamOptions = CreateFileStreamOptions();
 
@@ -79,6 +80,13 @@ public class DataPlaneStorageHandler : IHealthCheck
                 return;
         }
 
+        if (!ContainerNameRegex().IsMatch(containerId))
+        {
+            context.Response.Headers[ErrorCodeHeaderName] = "InvalidContainerName";
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            return;
+        }
+
         Directory.CreateDirectory(Path.Combine(_metadataDir, containerId));
         Directory.CreateDirectory(Path.Combine(_dataDir, containerId));
 
@@ -97,6 +105,20 @@ public class DataPlaneStorageHandler : IHealthCheck
                 context.Response.Headers[ErrorCodeHeaderName] = "AuthorizationPermissionMismatch";
                 context.Response.StatusCode = StatusCodes.Status403Forbidden;
                 return;
+        }
+
+        if (!ContainerNameRegex().IsMatch(containerId))
+        {
+            context.Response.Headers[ErrorCodeHeaderName] = "InvalidContainerName";
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            return;
+        }
+
+        if (!BlobRelativePathRegex().IsMatch(blobRelativePath))
+        {
+            context.Response.Headers[ErrorCodeHeaderName] = "InvalidBlobName";
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            return;
         }
 
         if (!Directory.Exists(Path.Combine(_dataDir, containerId)))
@@ -214,6 +236,20 @@ public class DataPlaneStorageHandler : IHealthCheck
                 return;
         }
 
+        if (!ContainerNameRegex().IsMatch(containerId))
+        {
+            context.Response.Headers[ErrorCodeHeaderName] = "InvalidContainerName";
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            return;
+        }
+
+        if (!BlobRelativePathRegex().IsMatch(blobRelativePath))
+        {
+            context.Response.Headers[ErrorCodeHeaderName] = "InvalidBlobName";
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            return;
+        }
+
         if (!Directory.Exists(Path.Combine(_dataDir, containerId)))
         {
             context.Response.Headers["x-ms-error-code"] = "ContainerNotFound";
@@ -277,4 +313,10 @@ public class DataPlaneStorageHandler : IHealthCheck
 
         return options;
     }
+
+    [GeneratedRegex(@"^[a-zA-Z0-9]{3,63}$")]
+    private static partial Regex ContainerNameRegex();
+
+    [GeneratedRegex(@"^(\.?[a-zA-Z0-9_]+.?)+(/(\.?[a-zA-Z0-9_]+.?)+)*$")]
+    private static partial Regex BlobRelativePathRegex();
 }
