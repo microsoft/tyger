@@ -85,10 +85,10 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 		tygerClient, _ := controlplane.GetClientFromCache()
 		if tygerClient != nil {
 			writeOptions.httpClient = tygerClient.DataPlaneClient.Client
+			writeOptions.connectionType = tygerClient.ConnectionType
 		} else {
 			writeOptions.httpClient = client.DefaultClient.Client
 		}
-		writeOptions.connectionType = tygerClient.ConnectionType
 	}
 
 	httpClient := writeOptions.httpClient

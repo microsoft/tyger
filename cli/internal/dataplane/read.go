@@ -69,10 +69,10 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 		tygerClient, _ := controlplane.GetClientFromCache()
 		if tygerClient != nil {
 			readOptions.httpClient = tygerClient.DataPlaneClient.Client
+			readOptions.connectionType = tygerClient.ConnectionType
 		} else {
 			readOptions.httpClient = client.DefaultRetryableClient
 		}
-		readOptions.connectionType = tygerClient.ConnectionType
 	}
 
 	httpClient := readOptions.httpClient

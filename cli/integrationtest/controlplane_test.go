@@ -267,6 +267,69 @@ timeoutSeconds: 600`, BasicImage)
 	require.Equal("Hello: Bonjour", execStdOut)
 }
 
+func TestEndToEndExecWithLargeEphemeralBuffers(t *testing.T) {
+	t.Parallel()
+	skipIfEphemeralBuffersNotSupported(t)
+	require := require.New(t)
+
+	runSpec := fmt.Sprintf(`
+job:
+  codespec:
+    image: %s
+    buffers:
+      inputs: ["input"]
+      outputs: ["output"]
+    command:
+      - "sh"
+      - "-c"
+      - |
+        set -euo pipefail
+        cat "$INPUT_PIPE" > "$OUTPUT_PIPE"
+
+  buffers:
+    input: _
+    output: _
+timeoutSeconds: 600`, BasicImage)
+
+	tempDir := t.TempDir()
+	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
+	require.NoError(os.WriteFile(runSpecPath, []byte(runSpec), 0644))
+
+	genCmd := exec.Command("tyger", "buffer", "gen", "1G")
+	genPipe, err := genCmd.StdoutPipe()
+	require.NoError(err)
+
+	execCmd := exec.Command("tyger", "run", "exec", "--file", runSpecPath)
+	execCmd.Stdin = genPipe
+
+	stdErr := &bytes.Buffer{}
+	execCmd.Stderr = stdErr
+
+	execOutPipe, err := execCmd.StdoutPipe()
+	require.NoError(err)
+
+	genCmd.Start()
+	execCmd.Start()
+
+	outByteCount := 0
+	for {
+		buf := make([]byte, 64*1024)
+		n, err := execOutPipe.Read(buf)
+		outByteCount += n
+		if err == io.EOF {
+			break
+		}
+		require.NoError(err)
+	}
+
+	execErr := execCmd.Wait()
+	t.Log(stdErr.String())
+	require.NoError(execErr)
+	require.NoError(genCmd.Wait())
+
+	require.Equal(1*1024*1024*1024, outByteCount)
+}
+
 func TestCodespecBufferTagsWithYamlSpec(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
