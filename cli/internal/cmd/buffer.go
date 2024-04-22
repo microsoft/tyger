@@ -189,17 +189,20 @@ func newBufferAccessCommand() *cobra.Command {
 
 func getBufferAccessUri(ctx context.Context, bufferId string, writable bool) (string, error) {
 	bufferAccess := model.BufferAccess{}
-	preferTcp := false
+
+	queryOptions := url.Values{}
+	queryOptions.Add("writeable", strconv.FormatBool(writable))
+
 	tygerClient, err := controlplane.GetClientFromCache()
 	if err == nil {
 		// We're ignoring the error here and will let InvokeRequest handle it
 		switch tygerClient.ConnectionType {
-		case client.TygerConnectionTypeDocker, client.TygerConnectionTypeTcp:
-			preferTcp = true
+		case client.TygerConnectionTypeDocker:
+			queryOptions.Add("preferTcp", "true")
 		}
 	}
 
-	uri := fmt.Sprintf("v1/buffers/%s/access?writeable=%t&preferTcp=%t", bufferId, writable, preferTcp)
+	uri := fmt.Sprintf("v1/buffers/%s/access?%s", bufferId, queryOptions.Encode())
 	_, err = controlplane.InvokeRequest(ctx, http.MethodPost, uri, nil, &bufferAccess)
 
 	return bufferAccess.Uri, err
