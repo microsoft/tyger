@@ -46,6 +46,14 @@
         "gopls": {
           "build.buildFlags": ["-tags=integrationtest"]
         },
+        "go.delveConfig": {
+          "substitutePath": [
+            {
+              "from": "/workspaces/tyger-docker",
+              "to": "/workspaces/tyger"
+            }
+          ]
+        },
 
         "shellcheck.customArgs": ["-x"],
         "shellcheck.useWorkspaceRootAsCwd": true,

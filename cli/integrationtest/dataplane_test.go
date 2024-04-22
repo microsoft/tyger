@@ -25,7 +25,6 @@ import (
 
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/microsoft/tyger/cli/internal/client"
-	"github.com/microsoft/tyger/cli/internal/cmd"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/dataplane"
 	"github.com/stretchr/testify/assert"
@@ -63,7 +62,7 @@ func TestReadingWhileWriting(t *testing.T) {
 	}()
 
 	inputHasher := sha256.New()
-	assert.NoError(t, cmd.Gen(int64(size), io.MultiWriter(inputWriter, inputHasher)), "failed to copy data to writer process")
+	assert.NoError(t, dataplane.Gen(int64(size), io.MultiWriter(inputWriter, inputHasher)), "failed to copy data to writer process")
 	inputWriter.Close()
 
 	assert.NoError(t, <-writeCommandErrChan, "write command failed")
@@ -146,7 +145,7 @@ func TestNamedPipes(t *testing.T) {
 
 				h := sha256.New()
 				mw := io.MultiWriter(inputPipe, h)
-				cmd.Gen(int64(tc.size), mw)
+				dataplane.Gen(int64(tc.size), mw)
 				inputHash <- h.Sum(nil)
 			}()
 

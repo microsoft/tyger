@@ -389,37 +389,12 @@ The SIZE argument must be a number with an optional unit (e.g. 10MB). 1KB and 1K
 
 			remainingBytes := int64(parsedBytes)
 
-			return Gen(remainingBytes, outputFile)
+			return dataplane.Gen(remainingBytes, outputFile)
 		},
 	}
 
 	cmd.Flags().StringVarP(&outputFilePath, "output", "o", outputFilePath, "The file write to. If not specified, data is written to standard out.")
 	return cmd
-}
-
-func Gen(byteCount int64, outputWriter io.Writer) error {
-	diff := int('~') - int('!')
-	buf := make([]byte, 300*diff)
-	for i := range buf {
-		buf[i] = byte('!' + i%diff)
-	}
-
-	for byteCount > 0 {
-		var count int64
-		if byteCount > int64(len(buf)) {
-			count = int64(len(buf))
-		} else {
-			count = byteCount
-		}
-
-		_, err := outputWriter.Write(buf[:count])
-		if err != nil {
-			return err
-		}
-
-		byteCount -= count
-	}
-	return nil
 }
 
 func newBufferListCommand() *cobra.Command {

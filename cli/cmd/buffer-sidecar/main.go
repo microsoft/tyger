@@ -142,7 +142,7 @@ func newRootCommand() *cobra.Command {
 	relayReadCommand.Flags().StringVarP(&bufferId, "buffer", "b", bufferId, "The buffer ID")
 	relayReadCommand.MarkFlagRequired("buffer")
 	relayReadCommand.Flags().StringVarP(&primarySigningPublicKeyPath, "primary-public-signing-key", "p", primarySigningPublicKeyPath, "The path to the primary signing public key file")
-	relayReadCommand.MarkFlagRequired("primary-cert")
+	relayReadCommand.MarkFlagRequired("primary-public-signing-key")
 	relayReadCommand.Flags().StringVarP(&secondarySigningPublicKeyPath, "secondary-public-signing-key", "s", secondarySigningPublicKeyPath, "The path to the secondary signing public key file")
 	relayCommand.AddCommand(relayReadCommand)
 
@@ -200,7 +200,7 @@ func newRootCommand() *cobra.Command {
 	relayWriteCommand.Flags().StringVarP(&bufferId, "buffer", "b", bufferId, "The buffer ID")
 	relayWriteCommand.MarkFlagRequired("buffer")
 	relayWriteCommand.Flags().StringVarP(&primarySigningPublicKeyPath, "primary-public-signing-key", "p", primarySigningPublicKeyPath, "The path to the primary signing public key file")
-	relayWriteCommand.MarkFlagRequired("primary-cert")
+	relayWriteCommand.MarkFlagRequired("primary-public-signing-key")
 	relayWriteCommand.Flags().StringVarP(&secondarySigningPublicKeyPath, "secondary-public-signing-key", "s", secondarySigningPublicKeyPath, "The path to the secondary signing public key file")
 
 	relayCommand.AddCommand(relayWriteCommand)

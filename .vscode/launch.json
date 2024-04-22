@@ -55,10 +55,36 @@
       "mode": "auto",
       "program": "cli/cmd/tyger",
       "cwd": "${workspaceFolder}",
-      "args": ["login", "status"],
+      "args": ["buffer", "write", "http+unix:///tmp/xyz?relay=true"],
       "env": {
         "TYGER_CACHE_FILE": "/home/vscode/.cache/tyger/.tyger-docker"
       },
+      "substitutePath": [
+        {
+          "from": "/workspaces/tyger-docker",
+          "to": "/workspaces/tyger"
+        }
+      ]
+    },
+    {
+      "name": "buffer-sidecar",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "cli/cmd/buffer-sidecar",
+      "cwd": "${workspaceFolder}",
+      "args": [
+        "relay",
+        "read",
+        "-b",
+        "x",
+        "-o",
+        "i",
+        "--listen",
+        "unix:///tmp/xyz",
+        "--tombstone",
+        "/tmp/ssss"
+      ],
       "substitutePath": [
         {
           "from": "/workspaces/tyger-docker",

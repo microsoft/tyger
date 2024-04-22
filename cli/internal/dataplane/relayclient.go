@@ -32,14 +32,24 @@ func relayWrite(ctx context.Context, httpClient *retryablehttp.Client, container
 		Container: container,
 	}
 
+	pipeReader, pipeWriter := io.Pipe()
+
+	originalInputReader := inputReader
+	go func() {
+		err := copyToPipe(pipeWriter, originalInputReader)
+		pipeWriter.CloseWithError(err)
+	}()
+
+	inputReader = pipeReader
+
 	metrics.Start()
 
-	request, err := retryablehttp.NewRequestWithContext(ctx, http.MethodPut, containerUri, &ReaderWithMetrics{transferMetrics: &metrics, reader: inputReader})
+	request, err := http.NewRequestWithContext(ctx, http.MethodPut, containerUri, &ReaderWithMetrics{transferMetrics: &metrics, reader: inputReader})
 	if err != nil {
 		return fmt.Errorf("error creating request: %w", err)
 	}
 
-	resp, err := httpClient.Do(request)
+	resp, err := httpClient.HTTPClient.Do(request)
 	if err != nil {
 		return fmt.Errorf("error writing to relay: %w", client.RedactHttpError(err))
 	}
@@ -95,13 +105,13 @@ func readRelay(ctx context.Context, httpClient *retryablehttp.Client, container 
 
 func pingRelay(ctx context.Context, uri string, httpClient *retryablehttp.Client) error {
 	log.Ctx(ctx).Info().Msg("Attempting to connect to relay server...")
-	headRequest, err := retryablehttp.NewRequestWithContext(ctx, http.MethodHead, uri, nil)
+	headRequest, err := http.NewRequestWithContext(ctx, http.MethodHead, uri, nil)
 	if err != nil {
 		return fmt.Errorf("error creating request: %w", err)
 	}
 
 	for retryCount := 0; ; retryCount++ {
-		resp, err := httpClient.Do(headRequest)
+		resp, err := httpClient.HTTPClient.Do(headRequest)
 		if err == nil && resp.StatusCode == http.StatusOK {
 			log.Ctx(ctx).Info().Msg("Connection to relay server established.")
 			return nil

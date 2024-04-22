@@ -55,8 +55,7 @@ func RelayReadServer(
 				w.WriteHeader(http.StatusAccepted)
 				return
 			}
-
-			_, err := io.Copy(outputWriter, r.Body)
+			err := copyToPipe(outputWriter, r.Body)
 			if err != nil {
 				log.Error().Err(err).Msg("transfer failed")
 				w.WriteHeader(http.StatusInternalServerError)
