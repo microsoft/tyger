@@ -39,6 +39,7 @@ type writeOptions struct {
 	blockSize               int
 	httpClient              *retryablehttp.Client
 	metadataEndWriteTimeout time.Duration
+	connectionType          client.TygerConnectionType
 }
 
 type WriteOption func(o *writeOptions)
@@ -87,6 +88,7 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 		} else {
 			writeOptions.httpClient = client.DefaultClient.Client
 		}
+		writeOptions.connectionType = tygerClient.ConnectionType
 	}
 
 	httpClient := writeOptions.httpClient
@@ -100,7 +102,7 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 	}
 
 	if container.SupportsRelay() {
-		return relayWrite(ctx, httpClient, container, inputReader)
+		return relayWrite(ctx, httpClient, writeOptions.connectionType, container, inputReader)
 	}
 
 	if err := writeStartMetadata(ctx, httpClient, container); err != nil {

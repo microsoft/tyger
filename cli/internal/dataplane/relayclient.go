@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"syscall"
 	"time"
@@ -18,9 +19,10 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func relayWrite(ctx context.Context, httpClient *retryablehttp.Client, container *Container, inputReader io.Reader) error {
-	containerUri := container.String()
-	if err := pingRelay(ctx, containerUri, httpClient); err != nil {
+func relayWrite(ctx context.Context, httpClient *retryablehttp.Client, connectionType client.TygerConnectionType, container *Container, inputReader io.Reader) error {
+	var err error
+	container, err = pingRelay(ctx, container, httpClient, connectionType)
+	if err != nil {
 		return err
 	}
 
@@ -44,7 +46,7 @@ func relayWrite(ctx context.Context, httpClient *retryablehttp.Client, container
 
 	metrics.Start()
 
-	request, err := http.NewRequestWithContext(ctx, http.MethodPut, containerUri, &ReaderWithMetrics{transferMetrics: &metrics, reader: inputReader})
+	request, err := http.NewRequestWithContext(ctx, http.MethodPut, container.String(), &ReaderWithMetrics{transferMetrics: &metrics, reader: inputReader})
 	if err != nil {
 		return fmt.Errorf("error creating request: %w", err)
 	}
@@ -62,16 +64,17 @@ func relayWrite(ctx context.Context, httpClient *retryablehttp.Client, container
 	return err
 }
 
-func readRelay(ctx context.Context, httpClient *retryablehttp.Client, container *Container, outputWriter io.Writer) error {
-	containerUri := container.String()
-	if err := pingRelay(ctx, containerUri, httpClient); err != nil {
+func readRelay(ctx context.Context, httpClient *retryablehttp.Client, connectionType client.TygerConnectionType, container *Container, outputWriter io.Writer) error {
+	var err error
+	container, err = pingRelay(ctx, container, httpClient, connectionType)
+	if err != nil {
 		return err
 	}
 
 	httpClient = client.CloneRetryableClient(httpClient)
 	httpClient.HTTPClient.Timeout = 0
 
-	request, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, containerUri, nil)
+	request, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, container.String(), nil)
 	if err != nil {
 		return fmt.Errorf("error creating request: %w", err)
 	}
@@ -103,29 +106,43 @@ func readRelay(ctx context.Context, httpClient *retryablehttp.Client, container 
 	return client.RedactHttpError(err)
 }
 
-func pingRelay(ctx context.Context, uri string, httpClient *retryablehttp.Client) error {
+func pingRelay(ctx context.Context, containerUrl *Container, httpClient *retryablehttp.Client, connectionType client.TygerConnectionType) (*Container, error) {
 	log.Ctx(ctx).Info().Msg("Attempting to connect to relay server...")
-	headRequest, err := http.NewRequestWithContext(ctx, http.MethodHead, uri, nil)
+	headRequest, err := http.NewRequestWithContext(ctx, http.MethodHead, containerUrl.String(), nil)
 	if err != nil {
-		return fmt.Errorf("error creating request: %w", err)
+		return containerUrl, fmt.Errorf("error creating request: %w", err)
 	}
 
 	for retryCount := 0; ; retryCount++ {
 		resp, err := httpClient.HTTPClient.Do(headRequest)
 		if err == nil && resp.StatusCode == http.StatusOK {
 			log.Ctx(ctx).Info().Msg("Connection to relay server established.")
-			return nil
+
+			secondaryEndpoint := resp.Header.Get("x-ms-secondary-endpoint")
+			if secondaryEndpoint != "" && connectionType == client.TygerConnectionTypeDocker {
+				secondaryUrl, err := url.Parse(secondaryEndpoint)
+				if err != nil {
+					return containerUrl, fmt.Errorf("error parsing secondary endpoint: %w", err)
+				}
+
+				log.Info().Msg("Upgrading to secondary relay server endpoint for improved performance.")
+
+				secondaryUrl.RawQuery = containerUrl.RawQuery
+				return &Container{URL: secondaryUrl}, nil
+			}
+
+			return containerUrl, nil
 		}
 
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("buffer relay server does not exist: %w", client.RedactHttpError(err))
+				return containerUrl, fmt.Errorf("buffer relay server does not exist: %w", client.RedactHttpError(err))
 			}
 
 			if errors.Is(err, syscall.ECONNREFUSED) {
 				log.Ctx(ctx).Debug().Msg("Waiting for relay server to be ready.")
 			} else {
-				return fmt.Errorf("error connecting to relay server: %w", client.RedactHttpError(err))
+				return containerUrl, fmt.Errorf("error connecting to relay server: %w", client.RedactHttpError(err))
 			}
 		} else {
 			log.Ctx(ctx).Debug().Int("status", resp.StatusCode).Msg("Waiting for relay server to be ready.")

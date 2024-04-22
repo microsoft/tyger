@@ -62,7 +62,7 @@ func newRootCommand() *cobra.Command {
 	primarySigningPublicKeyPath := ""
 	secondarySigningPublicKeyPath := ""
 	bufferId := ""
-	createListener := func() (net.Listener, error) {
+	createListeners := func() (net.Listener, net.Listener, error) {
 		u, err := url.Parse(listenAddress)
 		if err != nil {
 			log.Fatal().Err(err).Msg("Failed to parse listen address")
@@ -76,7 +76,7 @@ func newRootCommand() *cobra.Command {
 			listener, err = net.Listen(u.Scheme, tempPath)
 			if err == nil {
 				if err := os.Rename(tempPath, u.Path); err != nil {
-					return nil, fmt.Errorf("failed to move socket: %w", err)
+					return nil, nil, fmt.Errorf("failed to move socket: %w", err)
 				}
 			}
 		default:
@@ -84,11 +84,22 @@ func newRootCommand() *cobra.Command {
 		}
 
 		if err != nil {
-			return nil, fmt.Errorf("failed to create listener: %w", err)
+			return nil, nil, fmt.Errorf("failed to create listener: %w", err)
 		}
 
 		log.Info().Str("address", listenAddress).Msg("Listening for connections")
-		return listener, nil
+
+		var secondaryListener net.Listener
+		if u.Scheme == "unix" {
+			secondaryListener, err = net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to create secondary listener: %w", err)
+			}
+
+			log.Info().Str("address", secondaryListener.Addr().String()).Msg("Listening for connections")
+		}
+
+		return listener, secondaryListener, nil
 	}
 
 	relayInputCommand := &cobra.Command{
@@ -124,12 +135,12 @@ func newRootCommand() *cobra.Command {
 					outputWriter = os.Stdout
 				}
 
-				listener, err := createListener()
+				listener, secondaryListener, err := createListeners()
 				if err != nil {
 					return err
 				}
 
-				return dataplane.RelayInputServer(ctx, listener, bufferId, outputWriter, validateSignatureFunc)
+				return dataplane.RelayInputServer(ctx, listener, secondaryListener, bufferId, outputWriter, validateSignatureFunc)
 			}
 
 			if err := impl(); err != nil {
@@ -183,12 +194,12 @@ func newRootCommand() *cobra.Command {
 					}
 				}()
 
-				listener, err := createListener()
+				primaryListener, secondaryListener, err := createListeners()
 				if err != nil {
 					return err
 				}
 
-				return dataplane.RelayOutputServer(ctx, listener, bufferId, readerChan, errorChan, validateSignatureFunc)
+				return dataplane.RelayOutputServer(ctx, primaryListener, secondaryListener, bufferId, readerChan, errorChan, validateSignatureFunc)
 			}
 
 			if err := impl(); err != nil {

@@ -38,8 +38,9 @@ var (
 )
 
 type readOptions struct {
-	dop        int
-	httpClient *retryablehttp.Client
+	dop            int
+	httpClient     *retryablehttp.Client
+	connectionType client.TygerConnectionType
 }
 
 type ReadOption func(o *readOptions)
@@ -71,6 +72,7 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 		} else {
 			readOptions.httpClient = client.DefaultRetryableClient
 		}
+		readOptions.connectionType = tygerClient.ConnectionType
 	}
 
 	httpClient := readOptions.httpClient
@@ -85,7 +87,7 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 	}
 
 	if container.SupportsRelay() {
-		return readRelay(ctx, httpClient, container, outputWriter)
+		return readRelay(ctx, httpClient, readOptions.connectionType, container, outputWriter)
 	}
 
 	errorChannel := make(chan error, readOptions.dop*2)
