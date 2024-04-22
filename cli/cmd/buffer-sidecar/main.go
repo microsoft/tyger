@@ -46,8 +46,10 @@ func newRootCommand() *cobra.Command {
 		return tryOpenFileUntilContainerExits(namespace, podName, containerName, tombstoneFile, filePath, flag, perm)
 	}
 
-	readCommand := cmd.NewBufferReadCommand(openFileFunc)
+	intputCommand := cmd.NewBufferReadCommand(openFileFunc)
+	intputCommand.Use = "input"
 	writeCommand := cmd.NewBufferWriteCommand(openFileFunc)
+	writeCommand.Use = "output"
 
 	relayCommand := &cobra.Command{
 		Use: "relay",
@@ -89,8 +91,8 @@ func newRootCommand() *cobra.Command {
 		return listener, nil
 	}
 
-	relayReadCommand := &cobra.Command{
-		Use: "read",
+	relayInputCommand := &cobra.Command{
+		Use: "input",
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx, cancel := context.WithCancel(cmd.Context())
 			impl := func() error {
@@ -127,7 +129,7 @@ func newRootCommand() *cobra.Command {
 					return err
 				}
 
-				return dataplane.RelayReadServer(ctx, listener, bufferId, outputWriter, validateSignatureFunc)
+				return dataplane.RelayInputServer(ctx, listener, bufferId, outputWriter, validateSignatureFunc)
 			}
 
 			if err := impl(); err != nil {
@@ -136,19 +138,19 @@ func newRootCommand() *cobra.Command {
 		},
 	}
 
-	relayReadCommand.Flags().StringVarP(&outputFilePath, "output", "o", outputFilePath, "The file write to. If not specified, data is written to standard out.")
-	relayReadCommand.Flags().StringVarP(&listenAddress, "listen", "l", listenAddress, "The address to listen on.")
-	relayReadCommand.MarkFlagRequired("listen")
-	relayReadCommand.Flags().StringVarP(&bufferId, "buffer", "b", bufferId, "The buffer ID")
-	relayReadCommand.MarkFlagRequired("buffer")
-	relayReadCommand.Flags().StringVarP(&primarySigningPublicKeyPath, "primary-public-signing-key", "p", primarySigningPublicKeyPath, "The path to the primary signing public key file")
-	relayReadCommand.MarkFlagRequired("primary-public-signing-key")
-	relayReadCommand.Flags().StringVarP(&secondarySigningPublicKeyPath, "secondary-public-signing-key", "s", secondarySigningPublicKeyPath, "The path to the secondary signing public key file")
-	relayCommand.AddCommand(relayReadCommand)
+	relayInputCommand.Flags().StringVarP(&outputFilePath, "output", "o", outputFilePath, "The file write to. If not specified, data is written to standard out.")
+	relayInputCommand.Flags().StringVarP(&listenAddress, "listen", "l", listenAddress, "The address to listen on.")
+	relayInputCommand.MarkFlagRequired("listen")
+	relayInputCommand.Flags().StringVarP(&bufferId, "buffer", "b", bufferId, "The buffer ID")
+	relayInputCommand.MarkFlagRequired("buffer")
+	relayInputCommand.Flags().StringVarP(&primarySigningPublicKeyPath, "primary-public-signing-key", "p", primarySigningPublicKeyPath, "The path to the primary signing public key file")
+	relayInputCommand.MarkFlagRequired("primary-public-signing-key")
+	relayInputCommand.Flags().StringVarP(&secondarySigningPublicKeyPath, "secondary-public-signing-key", "s", secondarySigningPublicKeyPath, "The path to the secondary signing public key file")
+	relayCommand.AddCommand(relayInputCommand)
 
 	inputFilePath := ""
-	relayWriteCommand := &cobra.Command{
-		Use: "write",
+	relayOutputCommand := &cobra.Command{
+		Use: "output",
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx, cancel := context.WithCancel(cmd.Context())
 			impl := func() error {
@@ -186,7 +188,7 @@ func newRootCommand() *cobra.Command {
 					return err
 				}
 
-				return dataplane.RelayWriteServer(ctx, listener, bufferId, readerChan, errorChan, validateSignatureFunc)
+				return dataplane.RelayOutputServer(ctx, listener, bufferId, readerChan, errorChan, validateSignatureFunc)
 			}
 
 			if err := impl(); err != nil {
@@ -194,18 +196,18 @@ func newRootCommand() *cobra.Command {
 			}
 		},
 	}
-	relayWriteCommand.Flags().StringVarP(&inputFilePath, "input", "i", inputFilePath, "The file to read from. If not specified, data is read from standard in.")
-	relayWriteCommand.Flags().StringVarP(&listenAddress, "listen", "l", listenAddress, "The address to listen on.")
-	relayWriteCommand.MarkFlagRequired("listen")
-	relayWriteCommand.Flags().StringVarP(&bufferId, "buffer", "b", bufferId, "The buffer ID")
-	relayWriteCommand.MarkFlagRequired("buffer")
-	relayWriteCommand.Flags().StringVarP(&primarySigningPublicKeyPath, "primary-public-signing-key", "p", primarySigningPublicKeyPath, "The path to the primary signing public key file")
-	relayWriteCommand.MarkFlagRequired("primary-public-signing-key")
-	relayWriteCommand.Flags().StringVarP(&secondarySigningPublicKeyPath, "secondary-public-signing-key", "s", secondarySigningPublicKeyPath, "The path to the secondary signing public key file")
+	relayOutputCommand.Flags().StringVarP(&inputFilePath, "input", "i", inputFilePath, "The file to read from. If not specified, data is read from standard in.")
+	relayOutputCommand.Flags().StringVarP(&listenAddress, "listen", "l", listenAddress, "The address to listen on.")
+	relayOutputCommand.MarkFlagRequired("listen")
+	relayOutputCommand.Flags().StringVarP(&bufferId, "buffer", "b", bufferId, "The buffer ID")
+	relayOutputCommand.MarkFlagRequired("buffer")
+	relayOutputCommand.Flags().StringVarP(&primarySigningPublicKeyPath, "primary-public-signing-key", "p", primarySigningPublicKeyPath, "The path to the primary signing public key file")
+	relayOutputCommand.MarkFlagRequired("primary-public-signing-key")
+	relayOutputCommand.Flags().StringVarP(&secondarySigningPublicKeyPath, "secondary-public-signing-key", "s", secondarySigningPublicKeyPath, "The path to the secondary signing public key file")
 
-	relayCommand.AddCommand(relayWriteCommand)
+	relayCommand.AddCommand(relayOutputCommand)
 
-	commands := []*cobra.Command{readCommand, writeCommand, relayReadCommand, relayWriteCommand}
+	commands := []*cobra.Command{intputCommand, writeCommand, relayInputCommand, relayOutputCommand}
 	for _, command := range commands {
 		command.Flags().StringVar(&namespace, "namespace", "", "The namespace of the pod to watch")
 		command.Flags().StringVar(&podName, "pod", "", "The name of the pod to watch")

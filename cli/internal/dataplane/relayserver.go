@@ -25,7 +25,7 @@ const (
 	errorCodeHeaderName = "x-ms-error-code"
 )
 
-func RelayReadServer(
+func RelayInputServer(
 	ctx context.Context,
 	listener net.Listener,
 	bufferId string,
@@ -69,7 +69,7 @@ func RelayReadServer(
 	return relayServer(ctx, listener, addRoutes)
 }
 
-func RelayWriteServer(
+func RelayOutputServer(
 	ctx context.Context,
 	listener net.Listener,
 	containerId string,

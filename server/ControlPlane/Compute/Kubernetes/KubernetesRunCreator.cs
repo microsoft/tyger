@@ -306,7 +306,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
                 Image = _bufferOptions.BufferSidecarImage,
                 Args = new[]
                 {
-                    write ? "write" : "read",
+                    write ? "output" : "input",
                     $"{SecretMountPath}/{bufferName}",
                     write ? "--input" : "--output",
                     $"{FifoMountPath}/{bufferName}",

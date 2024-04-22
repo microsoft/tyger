@@ -187,7 +187,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
                 args.AddRange([
                     "relay",
-                    write ? "write" : "read",
+                    write ? "output" : "input",
                     "--listen",
                     $"unix://{relaySocketPath}",
                     "--primary-public-signing-key",
@@ -204,7 +204,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             }
             else
             {
-                args.AddRange([write ? "write" : "read", containerAccessFilePath,]);
+                args.AddRange([write ? "output" : "input", containerAccessFilePath,]);
             }
 
             args.AddRange([
@@ -271,6 +271,8 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                     Stat(_dataPlaneSocketPath, out var stat);
                     sidecarContainerParameters.User = $"{stat.Uid}:{stat.Gid}";
                 }
+
+                sidecarContainerParameters.HostConfig.NetworkMode = "host";
             }
             else if (accessUri.Scheme is "http+unix" or "https+unix")
             {

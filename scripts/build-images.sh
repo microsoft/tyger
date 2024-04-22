@@ -152,7 +152,7 @@ function build_and_push() {
   fi
 
   # if not pushing or not building for both platforms, skip  creating a manifest
-  if [[ -z "${push:-}" || (-z "${amd64:-}" && -z "${arm64:-}") ]]; then
+  if [[ -z "${push:-}" || -z "${amd64:-}" || -z "${arm64:-}" ]]; then
     return 0
   fi
 
