@@ -154,7 +154,7 @@ jobs:
 
           event_name="${{ github.event_name }}"
           if [ "$event_name" == "pull_request" ]; then
-            # Reuse environment names so that we are not creating new Let's Encrypt certificate requests for eah PR
+            # Reuse environment names so that we are not creating new Let's Encrypt certificate requests for each PR
             environment_name="tyger-gpr$(( (${{ github.event.pull_request.number }} % 15) + 38 ))"
           else
             environment_name="tygerwestus2"
