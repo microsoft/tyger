@@ -35,6 +35,13 @@ runs:
         Start-Process msiexec.exe -Wait -ArgumentList '/x {DEFB65A7-FD02-4710-B01E-6C9387982CA9} /quiet'
         $ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest -Uri https://azcliprod.blob.core.windows.net/msi/azure-cli-2.58.0-x64.msi -OutFile .\AzureCLI.msi; Start-Process msiexec.exe -Wait -ArgumentList '/I AzureCLI.msi /quiet'; Remove-Item .\AzureCLI.msi
 
+    # Populate the token cache as a workaround. See https://github.com/Azure/login/issues/372#issuecomment-2056289617
+    - name: prefetch tokens
+      shell: bash
+      run: |
+          az account get-access-token --scope https://storage.azure.com/.default --output none
+          az account get-access-token --scope https://vault.azure.net/.default --output none
+
     - name: Log in to Azure
       if: ${{ env.CAN_ACCESS_SECRETS }}
       uses: azure/login@v1
