@@ -6,6 +6,35 @@ runs:
   using: composite
   steps:
 
+    # Workaround for regression in MSAL: https://github.com/Azure/login/issues/372#issuecomment-2056289617
+    - name: downgrade Azure CLI (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get remove -y azure-cli
+        sudo apt-get update
+        sudo apt-get install apt-transport-https ca-certificates curl gnupg lsb-release
+        sudo mkdir -p /etc/apt/keyrings
+        curl -sLS https://packages.microsoft.com/keys/microsoft.asc |
+            sudo gpg --dearmor -o /etc/apt/keyrings/microsoft.gpg
+        sudo chmod go+r /etc/apt/keyrings/microsoft.gpg
+        AZ_DIST=$(lsb_release -cs)
+        echo "Types: deb
+        URIs: https://packages.microsoft.com/repos/azure-cli/
+        Suites: ${AZ_DIST}
+        Components: main
+        Architectures: $(dpkg --print-architecture)
+        Signed-by: /etc/apt/keyrings/microsoft.gpg" | sudo tee /etc/apt/sources.list.d/azure-cli.sources
+        AZ_VER=2.58.0
+        sudo apt-get update && sudo apt-get install azure-cli=${AZ_VER}-1~${AZ_DIST}
+
+    - name: downgrade Azure CLI (Linux)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        Start-Process msiexec.exe -Wait -ArgumentList '/x {DEFB65A7-FD02-4710-B01E-6C9387982CA9} /quiet'
+        $ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest -Uri https://azcliprod.blob.core.windows.net/msi/azure-cli-2.58.0-x64.msi -OutFile .\AzureCLI.msi; Start-Process msiexec.exe -Wait -ArgumentList '/I AzureCLI.msi /quiet'; Remove-Item .\AzureCLI.msi
+
     - name: Log in to Azure
       if: ${{ env.CAN_ACCESS_SECRETS }}
       uses: azure/login@v1
@@ -19,3 +48,10 @@ runs:
       shell: bash
       run: |
         az login --identity --username $AZURE_CLIENT_ID
+
+    # Populate the token cache as a workaround. See https://github.com/Azure/login/issues/372#issuecomment-2056289617
+    - name: prefetch tokens
+      shell: bash
+      run: |
+          az account get-access-token --scope https://storage.azure.com/.default --output none
+          az account get-access-token --scope https://vault.azure.net/.default --output none
