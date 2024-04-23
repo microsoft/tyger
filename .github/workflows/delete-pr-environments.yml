@@ -24,13 +24,13 @@ jobs:
       run:
         shell: bash
     steps:
-      - name: Log in to Azure
-        uses: ./.github/actions/login-azure
-
       - name: Checkout
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
+
+      - name: Log in to Azure
+        uses: ./.github/actions/login-azure
 
       - uses: actions/setup-go@v4
         with:
@@ -47,13 +47,22 @@ jobs:
               echo "Found active PR $pr"
           done
 
+          # Creating a new array to store modified numbers
+          declare -a active_pr_environment_ids
+
+          for pr_number in "${active_prs[@]}"; do
+              # Reuse environment names so that we are not creating new Let's Encrypt certificate requests for each PR
+              new_value=$(( (pr_number % 15) + 38 ))
+              active_pr_environment_ids+=("$new_value")
+          done
+
           prefix='tyger-gpr'
           resource_groups=$(az group list --query "[?starts_with(name, '${prefix}')]" | jq ".[] | select(.name | test(\"^${prefix}[0-9]+$\")) | .name" -r)
 
           for rg_name in $resource_groups; do
               deployed_id="${rg_name#"$prefix"}"
 
-              if [[ ! " ${active_prs[*]} " =~ ${deployed_id} ]]; then
+              if [[ ! " ${active_pr_environment_ids[*]} " =~ ${deployed_id} ]]; then
                   echo "deleting $rg_name"
                   TYGER_ENVIRONMENT_NAME="$rg_name" make remove-environment
               else
