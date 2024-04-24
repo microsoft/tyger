@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -34,6 +35,7 @@ func RelayInputServer(
 	validateSignatureFunc ValidateSignatureFunc,
 ) error {
 	addRoutes := func(r *chi.Mux, complete context.CancelFunc) {
+		writing := atomic.Bool{}
 		r.Put("/", func(w http.ResponseWriter, r *http.Request) {
 			if err := ValidateSas(bufferId, SasActionCreate, r.URL.Query(), validateSignatureFunc); err != nil {
 				switch err {
@@ -48,6 +50,12 @@ func RelayInputServer(
 				default:
 					panic(fmt.Sprintf("unexpected error: %v", err))
 				}
+			}
+
+			if writing.Swap(true) {
+				log.Error().Msg("concurrent writes are not supported")
+				w.WriteHeader(http.StatusBadRequest)
+				return
 			}
 
 			defer complete()
@@ -80,6 +88,7 @@ func RelayOutputServer(
 	validateSignatureFunc ValidateSignatureFunc,
 ) error {
 	addRoutes := func(r *chi.Mux, complete context.CancelFunc) {
+		reading := atomic.Bool{}
 		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 			if err := ValidateSas(containerId, SasActionRead, r.URL.Query(), validateSignatureFunc); err != nil {
 				switch err {
@@ -106,6 +115,11 @@ func RelayOutputServer(
 			}
 
 			defer inputReader.Close()
+			if reading.Swap(true) {
+				log.Error().Msg("concurrent reads are not supported")
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
 			defer complete()
 
 			_, err := io.Copy(w, inputReader)
