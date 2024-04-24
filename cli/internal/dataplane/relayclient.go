@@ -115,27 +115,42 @@ func pingRelay(ctx context.Context, containerUrl *Container, httpClient *retryab
 
 	for retryCount := 0; ; retryCount++ {
 		resp, err := httpClient.HTTPClient.Do(headRequest)
-		if err == nil && resp.StatusCode == http.StatusOK {
-			log.Ctx(ctx).Info().Msg("Connection to relay server established.")
+		if err == nil {
+			if resp.StatusCode == http.StatusOK {
+				log.Ctx(ctx).Info().Msg("Connection to relay server established.")
 
-			secondaryEndpoint := resp.Header.Get("x-ms-secondary-endpoint")
-			if secondaryEndpoint != "" && connectionType == client.TygerConnectionTypeDocker {
-				secondaryUrl, err := url.Parse(secondaryEndpoint)
-				if err != nil {
-					return containerUrl, fmt.Errorf("error parsing secondary endpoint: %w", err)
+				secondaryEndpoint := resp.Header.Get("x-ms-secondary-endpoint")
+				if secondaryEndpoint != "" && connectionType == client.TygerConnectionTypeDocker {
+					secondaryUrl, err := url.Parse(secondaryEndpoint)
+					if err != nil {
+						return containerUrl, fmt.Errorf("error parsing secondary endpoint: %w", err)
+					}
+
+					log.Info().Msg("Upgrading to secondary relay server endpoint for improved performance.")
+
+					secondaryUrl.RawQuery = containerUrl.RawQuery
+					return &Container{URL: secondaryUrl}, nil
 				}
 
-				log.Info().Msg("Upgrading to secondary relay server endpoint for improved performance.")
-
-				secondaryUrl.RawQuery = containerUrl.RawQuery
-				return &Container{URL: secondaryUrl}, nil
+				return containerUrl, nil
 			}
 
-			return containerUrl, nil
-		}
+			if resp.StatusCode == http.StatusBadGateway && (connectionType == client.TygerConnectionTypeDocker || connectionType == client.TygerConnectionTypeSsh) {
+				// stdio-proxy returns this status code for connection errors to the underlying service
+				errorHeader := resp.Header.Get("x-ms-error")
+				switch errorHeader {
+				case "ENOENT":
+					return containerUrl, fmt.Errorf("buffer relay server does not exist")
+				case "ECONNREFUSED":
+					log.Ctx(ctx).Debug().Msg("Waiting for relay server to be ready.")
+				default:
+					return containerUrl, fmt.Errorf("error connecting to relay server: %s: %s", resp.Status, errorHeader)
+				}
+			}
 
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
+			log.Ctx(ctx).Debug().Int("status", resp.StatusCode).Msg("Waiting for relay server to be ready.")
+		} else {
+			if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENOENT) {
 				return containerUrl, fmt.Errorf("buffer relay server does not exist: %w", client.RedactHttpError(err))
 			}
 
@@ -144,8 +159,6 @@ func pingRelay(ctx context.Context, containerUrl *Container, httpClient *retryab
 			} else {
 				return containerUrl, fmt.Errorf("error connecting to relay server: %w", client.RedactHttpError(err))
 			}
-		} else {
-			log.Ctx(ctx).Debug().Int("status", resp.StatusCode).Msg("Waiting for relay server to be ready.")
 		}
 
 		switch {

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/microsoft/tyger/cli/internal/client"
@@ -47,13 +48,17 @@ func NewStdioProxyCommand() *cobra.Command {
 
 			conn, err := net.Dial("unix", socketPath)
 			if err != nil {
-				log.Fatal().Err(err).Msg("Failed to connect to socket")
+				log.Error().Err(err).Msg("Failed to connect to server")
+				writeResponseForError(err)
+				return
 			}
 
 			defer conn.Close()
 
 			if err := req.Write(conn); err != nil {
 				log.Fatal().Err(err).Msg("Failed to write request")
+				writeResponseForError(err)
+				return
 			}
 
 			if _, err := io.Copy(os.Stdout, conn); err != nil {
@@ -65,6 +70,29 @@ func NewStdioProxyCommand() *cobra.Command {
 	cmd.AddCommand(newStdioProxyLoginCommand())
 	cmd.AddCommand(newStdioProxySleepCommand())
 	return cmd
+}
+
+func writeResponseForError(err error) {
+	log.Error().Err(err).Send()
+	resp := http.Response{
+		StatusCode: http.StatusBadGateway,
+		Header:     http.Header{},
+	}
+
+	errorCode := ""
+	if os.IsNotExist(err) || errors.Is(err, syscall.ENOENT) {
+		errorCode = "ENOENT"
+	} else if errors.Is(err, syscall.ECONNREFUSED) {
+		errorCode = "ECONNREFUSED"
+	} else {
+		errorCode = err.Error()
+	}
+
+	resp.Header.Add("x-ms-error", errorCode)
+
+	if err := resp.Write(os.Stdout); err != nil {
+		log.Fatal().Err(err).Msg("Failed to write response")
+	}
 }
 
 func newStdioProxyLoginCommand() *cobra.Command {
