@@ -123,7 +123,7 @@ func newConfigCreateCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&configPath, "file", "f", "config.yml", "The path to the config file to create")
+	cmd.Flags().StringVarP(&configPath, "file", "f", "", "The path to the config file to create")
 	cmd.MarkFlagRequired("file")
 
 	return cmd
