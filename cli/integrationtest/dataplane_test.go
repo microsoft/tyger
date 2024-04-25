@@ -19,6 +19,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -301,12 +302,15 @@ func TestMd5HashMismatchOnReadRetryAndRecover(t *testing.T) {
 	require.NoError(t, dataplane.Write(context.Background(), writeSasUri, inputReader))
 
 	failedUris := make(map[string]any)
+	mutex := sync.Mutex{}
 	httpClient := newInterceptingHttpClient(t, func(req *http.Request, inner http.RoundTripper) (*http.Response, error) {
 		resp, err := inner.RoundTrip(req)
 		if err != nil {
 			return resp, err
 		}
 
+		mutex.Lock()
+		defer mutex.Unlock()
 		if _, ok := failedUris[req.URL.String()]; ok {
 			return resp, err
 		}
