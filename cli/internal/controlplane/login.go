@@ -198,15 +198,18 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 		si.parsedServerUri = sshParams.URL()
 		si.ServerUri = si.parsedServerUri.String()
 
-		tygerClientOptions := defaultClientOptions // clone
-		tygerClientOptions.ProxyString = "none"
-		tygerClientOptions.CreateTransport = client.MakeCommandTransport(sshConcurrencyLimit, "ssh", sshParams.FormatCmdLine()...)
-		controlPlaneClient, err := client.NewControlPlaneClient(&tygerClientOptions)
+		controlPlaneOptions := defaultClientOptions // clone
+		controlPlaneOptions.ProxyString = "none"
+		controlPlaneOptions.CreateTransport = client.MakeCommandTransport(sshConcurrencyLimit, "ssh", sshParams.FormatCmdLine()...)
+		controlPlaneClient, err := client.NewControlPlaneClient(&controlPlaneOptions)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create control plane client: %w", err)
 		}
 
-		dataPlaneClient, err := client.NewDataPlaneClient(&tygerClientOptions)
+		dataPlaneOptions := controlPlaneOptions // clone
+		dataPlaneOptions.CreateTransport = client.MakeCommandTransport(sshConcurrencyLimit, "ssh", sshParams.FormatDataPlaneCmdLine()...)
+
+		dataPlaneClient, err := client.NewDataPlaneClient(&dataPlaneOptions)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create data plane client: %w", err)
 		}
@@ -509,15 +512,19 @@ func GetClientFromCache() (*client.TygerClient, error) {
 			return nil, fmt.Errorf("invalid ssh URL: %w", err)
 		}
 
-		tygerClientOptions := defaultClientOptions
-		tygerClientOptions.ProxyString = "none"
-		tygerClientOptions.CreateTransport = client.MakeCommandTransport(sshConcurrencyLimit, "ssh", sshParams.FormatCmdLine()...)
-		cpClient, err := client.NewClient(&tygerClientOptions)
+		controlPlaneOptions := defaultClientOptions
+		controlPlaneOptions.ProxyString = "none"
+		controlPlaneOptions.CreateTransport = client.MakeCommandTransport(sshConcurrencyLimit, "ssh", sshParams.FormatCmdLine()...)
+
+		dataPlaneClientOptions := controlPlaneOptions // clone
+		dataPlaneClientOptions.CreateTransport = client.MakeCommandTransport(sshConcurrencyLimit, "ssh", sshParams.FormatDataPlaneCmdLine()...)
+
+		cpClient, err := client.NewClient(&controlPlaneOptions)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create control plane client: %w", err)
 		}
 
-		dpClient, err := client.NewDataPlaneClient(&tygerClientOptions)
+		dpClient, err := client.NewDataPlaneClient(&dataPlaneClientOptions)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create data plane client: %w", err)
 		}

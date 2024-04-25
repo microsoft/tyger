@@ -13,6 +13,22 @@ ssh_host=tygersshhost
 start_marker="# START OF TYGER TESTING SECTION"
 end_marker="# END OF TYGER TESTING SECTION"
 
+while [[ $# -gt 0 ]]; do
+    key="$1"
+
+    case $key in
+    --start-only)
+        start_only=1
+        shift
+        ;;
+    *)
+        echo "ERROR: unknown option \"$key\""
+        usage
+        exit 1
+        ;;
+    esac
+done
+
 cleanup_ssh_config() {
     if [[ -f ~/.ssh/config ]]; then
         sed -i "/$start_marker/,/$end_marker/d" ~/.ssh/config
@@ -25,7 +41,9 @@ cleanup() {
     docker rm -f $container_name >/dev/null
 }
 
-trap cleanup SIGINT SIGTERM EXIT
+if [[ -z ${start_only:-} ]]; then
+    trap cleanup SIGINT SIGTERM EXIT
+fi
 
 docker rm -f $container_name &>/dev/null
 docker create \
@@ -36,7 +54,7 @@ docker create \
     --name $container_name \
     quay.io/panubo/sshd:1.6.0 >/dev/null
 
-if [[ -z  $(ssh-add -L > /dev/null || true) ]]; then
+if [[ -z $(ssh-add -L >/dev/null || true) ]]; then
     priv_key_file=$(mktemp -u)
     pub_key_file="$priv_key_file.pub"
 
@@ -92,4 +110,6 @@ export TYGER_CACHE_FILE
 tyger login ssh://$ssh_host
 tyger login status
 
-make -f "$(dirname "$0")/../Makefile" integration-test-no-up
+if [[ -z ${start_only:-} ]]; then
+    make -f "$(dirname "$0")/../Makefile" integration-test-no-up
+fi

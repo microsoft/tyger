@@ -43,25 +43,37 @@ func relayWrite(ctx context.Context, httpClient *retryablehttp.Client, connectio
 	}()
 
 	inputReader = pipeReader
+	inputReader = &ReaderWithMetrics{transferMetrics: &metrics, reader: inputReader}
+
+	partiallyBufferedReader := NewPartiallyBufferedReader(inputReader, 64*1024)
 
 	metrics.Start()
 
-	request, err := http.NewRequestWithContext(ctx, http.MethodPut, container.String(), &ReaderWithMetrics{transferMetrics: &metrics, reader: inputReader})
+	request, err := http.NewRequestWithContext(ctx, http.MethodPut, container.String(), partiallyBufferedReader)
 	if err != nil {
 		return fmt.Errorf("error creating request: %w", err)
 	}
 
-	resp, err := httpClient.HTTPClient.Do(request)
-	if err != nil {
-		return fmt.Errorf("error writing to relay: %w", client.RedactHttpError(err))
-	}
-	io.Copy(io.Discard, resp.Body)
-	if resp.StatusCode != http.StatusAccepted {
-		return fmt.Errorf("error writing to relay: %s", resp.Status)
-	}
+	for retryCount := 0; ; retryCount++ {
+		resp, err := httpClient.HTTPClient.Do(request)
+		if err != nil {
+			if rewindErr := partiallyBufferedReader.Rewind(); rewindErr != nil || retryCount > 10 {
+				return fmt.Errorf("error writing to relay: %w", client.RedactHttpError(err))
+			} else {
+				log.Ctx(ctx).Warn().Err(err).Msg("retryable error writing to relay")
+				time.Sleep(time.Second)
+				continue
+			}
+		}
 
-	metrics.Stop()
-	return err
+		io.Copy(io.Discard, resp.Body)
+		if resp.StatusCode != http.StatusAccepted {
+			return fmt.Errorf("error writing to relay: %s", resp.Status)
+		}
+
+		metrics.Stop()
+		return err
+	}
 }
 
 func readRelay(ctx context.Context, httpClient *retryablehttp.Client, connectionType client.TygerConnectionType, container *Container, outputWriter io.Writer) error {
@@ -113,9 +125,12 @@ func pingRelay(ctx context.Context, containerUrl *Container, httpClient *retryab
 		return containerUrl, fmt.Errorf("error creating request: %w", err)
 	}
 
+	unknownErrCount := 0
 	for retryCount := 0; ; retryCount++ {
 		resp, err := httpClient.HTTPClient.Do(headRequest)
 		if err == nil {
+			io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
 				log.Ctx(ctx).Info().Msg("Connection to relay server established.")
 
@@ -147,17 +162,19 @@ func pingRelay(ctx context.Context, containerUrl *Container, httpClient *retryab
 					return containerUrl, fmt.Errorf("error connecting to relay server: %s: %s", resp.Status, errorHeader)
 				}
 			}
-
-			log.Ctx(ctx).Debug().Int("status", resp.StatusCode).Msg("Waiting for relay server to be ready.")
 		} else {
 			if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENOENT) {
 				return containerUrl, fmt.Errorf("buffer relay server does not exist: %w", client.RedactHttpError(err))
 			}
-
 			if errors.Is(err, syscall.ECONNREFUSED) {
 				log.Ctx(ctx).Debug().Msg("Waiting for relay server to be ready.")
 			} else {
-				return containerUrl, fmt.Errorf("error connecting to relay server: %w", client.RedactHttpError(err))
+				unknownErrCount++
+				if unknownErrCount > 10 {
+					return containerUrl, fmt.Errorf("error connecting to relay server: %w", client.RedactHttpError(err))
+				}
+
+				log.Ctx(ctx).Warn().Err(err).Msg("retryable error connecting to relay server")
 			}
 		}
 
@@ -185,4 +202,62 @@ func (c *ReaderWithMetrics) Read(p []byte) (n int, err error) {
 		c.transferMetrics.Update(uint64(n))
 	}
 	return n, err
+}
+
+// An io.Reader that stores the first N bytes read from the underlying reader as they
+// are read so that it can be rewound and read again, if <= N bytes were read.
+type PartiallyBufferedReader struct {
+	io.Reader
+	buffer            []byte
+	returnFirstBuffer []byte
+}
+
+func NewPartiallyBufferedReader(r io.Reader, capacity int) *PartiallyBufferedReader {
+	buf := make([]byte, 0, capacity)
+	return &PartiallyBufferedReader{
+		Reader: r,
+		buffer: buf,
+	}
+}
+
+func (r *PartiallyBufferedReader) Read(p []byte) (n int, err error) {
+	if len(r.returnFirstBuffer) != 0 {
+		n = min(len(p), len(r.returnFirstBuffer))
+		copy(p, r.returnFirstBuffer[:n])
+		r.returnFirstBuffer = r.returnFirstBuffer[n:]
+
+		return n, nil
+	}
+
+	n, err = r.Reader.Read(p)
+
+	if r.buffer == nil {
+		return n, err
+	}
+
+	if len(r.buffer)+n <= cap(r.buffer) {
+		r.buffer = r.buffer[:len(r.buffer)+n]
+		copy(r.buffer[len(r.buffer)-n:], p[:n])
+	} else {
+		r.buffer = nil
+	}
+
+	return n, err
+}
+
+func (r *PartiallyBufferedReader) Rewind() error {
+	if r.buffer == nil {
+		return errors.New("cannot rewind reader")
+	}
+
+	r.returnFirstBuffer = r.buffer
+
+	return nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

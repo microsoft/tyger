@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 )
 
@@ -85,6 +86,10 @@ func (sp *SshParams) URL() *url.URL {
 }
 
 func (sp *SshParams) FormatCmdLine(add ...string) []string {
+	return sp.formatCmdLine(false, add...)
+}
+
+func (sp *SshParams) formatCmdLine(dataPlane bool, add ...string) []string {
 	args := []string{sp.Host}
 
 	if sp.User != "" {
@@ -93,6 +98,14 @@ func (sp *SshParams) FormatCmdLine(add ...string) []string {
 	if sp.Port != "" {
 		args = append(args, "-p", sp.Port)
 	}
+
+	if dataPlane {
+		// create a dedicated control socket for this process
+		args = append(args, "-o", "ControlMaster=auto")
+		args = append(args, "-o", fmt.Sprintf("ControlPath=/tmp/%s", uuid.New().String()))
+		args = append(args, "-o", "ControlPersist=2m")
+	}
+
 	args = append(args, "--")
 
 	if sp.CliPath != "" {
@@ -116,4 +129,8 @@ func (sp *SshParams) FormatLoginArgs(add ...string) []string {
 
 	args = append(args, add...)
 	return sp.FormatCmdLine(args...)
+}
+
+func (sp *SshParams) FormatDataPlaneCmdLine(add ...string) []string {
+	return sp.formatCmdLine(true, add...)
 }
