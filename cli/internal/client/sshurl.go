@@ -6,6 +6,7 @@ package client
 import (
 	"fmt"
 	"net/url"
+	"runtime"
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -99,7 +100,7 @@ func (sp *SshParams) formatCmdLine(dataPlane bool, add ...string) []string {
 		args = append(args, "-p", sp.Port)
 	}
 
-	if dataPlane {
+	if dataPlane && runtime.GOOS != "windows" {
 		// create a dedicated control socket for this process
 		args = append(args, "-o", "ControlMaster=auto")
 		args = append(args, "-o", fmt.Sprintf("ControlPath=/tmp/%s", uuid.New().String()))
