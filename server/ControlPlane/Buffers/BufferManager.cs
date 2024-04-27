@@ -103,7 +103,14 @@ public sealed partial class BufferManager
             var runIdGroup = match.Groups["RUNID"];
             if (runIdGroup.Success)
             {
-                return new BufferAccess(_ephemeralBufferProvider.CreateBufferAccessUrl(id, writeable));
+                var portGroup = match.Groups["PORT"];
+                int? port = null;
+                if (portGroup.Success && int.TryParse(portGroup.Value, out var p))
+                {
+                    port = p;
+                }
+
+                return new BufferAccess(_ephemeralBufferProvider.CreateBufferAccessUrl(id, port, writeable, preferTcp));
             }
 
             return new BufferAccess(new Uri("temporary", UriKind.Relative));
@@ -128,6 +135,6 @@ public sealed partial class BufferManager
         return match.Groups["BUFFERID"].Value;
     }
 
-    [GeneratedRegex(@"^(?<TEMP>(run-(?<RUNID>\d+)-)?temp-)?(?<BUFFERID>\w+)$")]
+    [GeneratedRegex(@"^(?<TEMP>(run-(?<RUNID>\d+)-)?temp-)?(?<BUFFERID>\w+)(-(?<PORT>\d+))?$")]
     private static partial Regex BufferIdRegex();
 }

@@ -28,8 +28,7 @@ const (
 
 func RelayInputServer(
 	ctx context.Context,
-	primaryListener net.Listener,
-	secondaryListener net.Listener,
+	listeners []net.Listener,
 	bufferId string,
 	outputWriter io.Writer,
 	validateSignatureFunc ValidateSignatureFunc,
@@ -75,13 +74,12 @@ func RelayInputServer(
 		})
 	}
 
-	return relayServer(ctx, primaryListener, secondaryListener, addRoutes)
+	return relayServer(ctx, listeners, addRoutes)
 }
 
 func RelayOutputServer(
 	ctx context.Context,
-	primaryListener net.Listener,
-	secondaryListener net.Listener,
+	listeners []net.Listener,
 	containerId string,
 	inputReaderChan <-chan io.ReadCloser,
 	errorChan <-chan error,
@@ -131,18 +129,15 @@ func RelayOutputServer(
 		})
 	}
 
-	return relayServer(ctx, primaryListener, secondaryListener, addRoutes)
+	return relayServer(ctx, listeners, addRoutes)
 }
 
-func relayServer(ctx context.Context, primaryListener net.Listener, secondaryListener net.Listener, addHandlers func(mux *chi.Mux, transferComplete context.CancelFunc)) error {
+func relayServer(ctx context.Context, listeners []net.Listener, addHandlers func(mux *chi.Mux, transferComplete context.CancelFunc)) error {
 	ctx, cancel := context.WithCancel(ctx)
 
 	r := chi.NewRouter()
 	r.Use(createRequestLoggerMiddleware())
 	r.Head("/", func(w http.ResponseWriter, r *http.Request) {
-		if secondaryListener != nil {
-			w.Header().Set("x-ms-secondary-endpoint", fmt.Sprintf("http://%s", secondaryListener.Addr()))
-		}
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -156,16 +151,9 @@ func relayServer(ctx context.Context, primaryListener net.Listener, secondaryLis
 	}
 
 	errChan := make(chan error, 1)
-	go func() {
-		err := server.Serve(primaryListener)
-		if err != nil && err != http.ErrServerClosed {
-			errChan <- err
-		}
-	}()
-
-	if secondaryListener != nil {
+	for _, listener := range listeners {
 		go func() {
-			err := server.Serve(secondaryListener)
+			err := server.Serve(listener)
 			if err != nil && err != http.ErrServerClosed {
 				errChan <- err
 			}

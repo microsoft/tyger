@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"syscall"
 	"time"
@@ -20,9 +19,7 @@ import (
 )
 
 func relayWrite(ctx context.Context, httpClient *retryablehttp.Client, connectionType client.TygerConnectionType, container *Container, inputReader io.Reader) error {
-	var err error
-	container, err = pingRelay(ctx, container, httpClient, connectionType)
-	if err != nil {
+	if err := pingRelay(ctx, container, httpClient, connectionType); err != nil {
 		return err
 	}
 
@@ -77,9 +74,7 @@ func relayWrite(ctx context.Context, httpClient *retryablehttp.Client, connectio
 }
 
 func readRelay(ctx context.Context, httpClient *retryablehttp.Client, connectionType client.TygerConnectionType, container *Container, outputWriter io.Writer) error {
-	var err error
-	container, err = pingRelay(ctx, container, httpClient, connectionType)
-	if err != nil {
+	if err := pingRelay(ctx, container, httpClient, connectionType); err != nil {
 		return err
 	}
 
@@ -118,11 +113,11 @@ func readRelay(ctx context.Context, httpClient *retryablehttp.Client, connection
 	return client.RedactHttpError(err)
 }
 
-func pingRelay(ctx context.Context, containerUrl *Container, httpClient *retryablehttp.Client, connectionType client.TygerConnectionType) (*Container, error) {
+func pingRelay(ctx context.Context, containerUrl *Container, httpClient *retryablehttp.Client, connectionType client.TygerConnectionType) error {
 	log.Ctx(ctx).Info().Msg("Attempting to connect to relay server...")
 	headRequest, err := http.NewRequestWithContext(ctx, http.MethodHead, containerUrl.String(), nil)
 	if err != nil {
-		return containerUrl, fmt.Errorf("error creating request: %w", err)
+		return fmt.Errorf("error creating request: %w", err)
 	}
 
 	unknownErrCount := 0
@@ -134,20 +129,7 @@ func pingRelay(ctx context.Context, containerUrl *Container, httpClient *retryab
 			if resp.StatusCode == http.StatusOK {
 				log.Ctx(ctx).Info().Msg("Connection to relay server established.")
 
-				secondaryEndpoint := resp.Header.Get("x-ms-secondary-endpoint")
-				if secondaryEndpoint != "" && connectionType == client.TygerConnectionTypeDocker {
-					secondaryUrl, err := url.Parse(secondaryEndpoint)
-					if err != nil {
-						return containerUrl, fmt.Errorf("error parsing secondary endpoint: %w", err)
-					}
-
-					log.Info().Msg("Upgrading to secondary relay server endpoint for improved performance.")
-
-					secondaryUrl.RawQuery = containerUrl.RawQuery
-					return &Container{URL: secondaryUrl}, nil
-				}
-
-				return containerUrl, nil
+				return nil
 			}
 
 			if resp.StatusCode == http.StatusBadGateway && (connectionType == client.TygerConnectionTypeDocker || connectionType == client.TygerConnectionTypeSsh) {
@@ -155,23 +137,23 @@ func pingRelay(ctx context.Context, containerUrl *Container, httpClient *retryab
 				errorHeader := resp.Header.Get("x-ms-error")
 				switch errorHeader {
 				case "ENOENT":
-					return containerUrl, fmt.Errorf("buffer relay server does not exist")
+					return fmt.Errorf("buffer relay server does not exist")
 				case "ECONNREFUSED":
 					log.Ctx(ctx).Debug().Msg("Waiting for relay server to be ready.")
 				default:
-					return containerUrl, fmt.Errorf("error connecting to relay server: %s: %s", resp.Status, errorHeader)
+					return fmt.Errorf("error connecting to relay server: %s: %s", resp.Status, errorHeader)
 				}
 			}
 		} else {
 			if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENOENT) {
-				return containerUrl, fmt.Errorf("buffer relay server does not exist: %w", client.RedactHttpError(err))
+				return fmt.Errorf("buffer relay server does not exist: %w", client.RedactHttpError(err))
 			}
 			if errors.Is(err, syscall.ECONNREFUSED) {
 				log.Ctx(ctx).Debug().Msg("Waiting for relay server to be ready.")
 			} else {
 				unknownErrCount++
 				if unknownErrCount > 10 {
-					return containerUrl, fmt.Errorf("error connecting to relay server: %w", client.RedactHttpError(err))
+					return fmt.Errorf("error connecting to relay server: %w", client.RedactHttpError(err))
 				}
 
 				log.Ctx(ctx).Warn().Err(err).Msg("retryable error connecting to relay server")

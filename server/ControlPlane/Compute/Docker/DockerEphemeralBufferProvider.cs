@@ -19,11 +19,16 @@ public class DockerEphemeralBufferProvider : IEphemeralBufferProvider
             DigitalSignature.CreateAsymmetricAlgorithmFromPem(bufferOptions.Value.PrimarySigningPrivateKeyPath));
     }
 
-    public Uri CreateBufferAccessUrl(string id, bool writeable)
+    public Uri CreateBufferAccessUrl(string id, int? port, bool writeable, bool preferTcp)
     {
         var action = writeable ? SasAction.Create | SasAction.Read : SasAction.Read;
         var queryString = LocalSasHandler.GetSasQueryString(id, SasResourceType.Blob, action, _signData);
         queryString = queryString.Add("relay", "true");
+        if (preferTcp && port.HasValue)
+        {
+            return new Uri($"http://localhost:{port}{queryString}");
+        }
+
         return new Uri($"http+unix://{Path.Combine(_ephemeralBuffersDir, id)}.sock:{queryString}");
     }
 }

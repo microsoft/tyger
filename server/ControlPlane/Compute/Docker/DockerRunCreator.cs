@@ -28,7 +28,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
     private readonly ILogger<DockerRunCreator> _logger;
 
     private readonly BufferOptions _bufferOptions;
-    private readonly DockerOptions _dockerSecretOptions;
+    private readonly DockerOptions _dockerOptions;
     private readonly string? _dataPlaneSocketPath;
 
     private bool _supportsGpu;
@@ -38,7 +38,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         IRepository repository,
         BufferManager bufferManager,
         IOptions<BufferOptions> bufferOptions,
-        IOptions<DockerOptions> dockerSecretOptions,
+        IOptions<DockerOptions> dockerOptions,
         IOptions<LocalBufferStorageOptions> localBufferStorageOptions,
         ILogger<DockerRunCreator> logger)
     : base(repository, bufferManager)
@@ -46,7 +46,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         _client = client;
         _logger = logger;
         _bufferOptions = bufferOptions.Value;
-        _dockerSecretOptions = dockerSecretOptions.Value;
+        _dockerOptions = dockerOptions.Value;
 
         if (localBufferStorageOptions.Value?.DataPlaneEndpoint is { } localDpEndpoint)
         {
@@ -135,7 +135,8 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         var relativeAccessFilesPath = Path.Combine(relativeSecretsPath, "access-files");
         var relativeTombstonePath = Path.Combine(relativeSecretsPath, "tombstone");
 
-        var absoluteSecretsBase = _dockerSecretOptions.RunSecretsPath;
+        var absoluteSecretsBase = _dockerOptions.RunSecretsPath;
+
         var absoluteContainerSecretsBase = "/run/secrets";
 
         var env = jobCodespec.Env ?? [];
@@ -190,6 +191,8 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                     write ? "output" : "input",
                     "--listen",
                     $"unix://{relaySocketPath}",
+                    "--listen",
+                    $"http://0.0.0.0:8080",
                     "--primary-public-signing-key",
                     "/primary-signing-key-public.pem",
                 ]);
@@ -222,6 +225,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                 Name = $"tyger-run-{run.Id}-sidecar-{bufferParameterName}",
                 Labels = sidecarLabels,
                 Cmd = args,
+                ExposedPorts = isRelay ? new Dictionary<string, EmptyStruct> { ["8080/tcp"] = default } : null,
                 HostConfig = new()
                 {
                     Mounts =
@@ -248,6 +252,10 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                             ReadOnly = true,
                         }
                     ],
+                    PortBindings = isRelay ? new Dictionary<string, IList<PortBinding>>()
+                    {
+                        ["8080/tcp"] = [new() { HostIP = "127.0.0.1" }],
+                    } : null,
                 },
             };
 
@@ -271,8 +279,6 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                     Stat(_dataPlaneSocketPath, out var stat);
                     sidecarContainerParameters.User = $"{stat.Uid}:{stat.Gid}";
                 }
-
-                sidecarContainerParameters.HostConfig.NetworkMode = "host";
             }
             else if (accessUri.Scheme is "http+unix" or "https+unix")
             {
@@ -298,10 +304,27 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                 }
             }
 
+            AdjustMountsForWsl(sidecarContainerParameters);
+
             async Task StartSidecar()
             {
                 var createResponse = await _client.Containers.CreateContainerAsync(sidecarContainerParameters, cancellationToken);
                 await _client.Containers.StartContainerAsync(createResponse.ID, null, cancellationToken);
+                if (isRelay)
+                {
+                    // Get the host port that has been assigned to to this container and append it to the buffer ID.
+                    // It will be null if the container has already exited
+                    var container = await _client.Containers.InspectContainerAsync(createResponse.ID, cancellationToken);
+                    IList<PortBinding>? portBindings = container.NetworkSettings.Ports["8080/tcp"];
+                    if (portBindings is { Count: > 0 })
+                    {
+                        var hostPort = portBindings[0].HostPort;
+                        lock (newRun.Job.Buffers!)
+                        {
+                            newRun.Job.Buffers[bufferParameterName] = $"{newRun.Job.Buffers[bufferParameterName]}-{hostPort}";
+                        }
+                    }
+                }
             }
 
             startContainersTasks.Add(StartSidecar());
@@ -337,6 +360,8 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                 ]
             }
         };
+
+        AdjustMountsForWsl(mainContainerParameters);
 
         var createResponse = await _client.Containers.CreateContainerAsync(mainContainerParameters, cancellationToken);
         var containerId = createResponse.ID;
@@ -418,8 +443,8 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        Directory.CreateDirectory(_dockerSecretOptions.RunSecretsPath);
-        Directory.CreateDirectory(_dockerSecretOptions.EphemeralBuffersPath);
+        Directory.CreateDirectory(_dockerOptions.RunSecretsPath);
+        Directory.CreateDirectory(_dockerOptions.EphemeralBuffersPath);
 
         var systemInfo = await _client.System.GetSystemInfoAsync(cancellationToken);
         _supportsGpu = systemInfo.Runtimes?.ContainsKey("nvidia") == true;
@@ -469,6 +494,40 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         {
             await _client.Containers.RemoveContainerAsync(createResp.ID, new() { Force = true }, cancellationToken);
         }
+    }
+
+    /// <summary>
+    /// If a container is launched from WSL, as is the case when we install the control plane on Windows,
+    /// bind mounts will sourced from the WSL filesystem.
+    /// However, when this container launches another container, the bind mount will no longer
+    /// be based on the WSL filesystem, but an internal Docker desktop filesystem. To avoid this,
+    /// we need to prepend the path with \\wsl$\distroName and use Windows-style paths.
+    /// </summary>
+    public void AdjustMountsForWsl(CreateContainerParameters containerParameters)
+    {
+        if (string.IsNullOrEmpty(_dockerOptions.WslDistroName))
+        {
+            return;
+        }
+
+        if (containerParameters.HostConfig?.Mounts is { } mounts)
+        {
+            foreach (var mount in mounts)
+            {
+                mount.Source = ToWslHostPath(mount.Source);
+            }
+        }
+    }
+
+    private string ToWslHostPath(string hostPath)
+    {
+        if (string.IsNullOrEmpty(_dockerOptions.WslDistroName))
+        {
+            return hostPath;
+        }
+
+        hostPath = hostPath.Replace('/', '\\');
+        return @$"\\wsl$\{_dockerOptions.WslDistroName}{hostPath.Replace('/', '\\')}";
     }
 
     private static MemoryStream GetPublicPemStream(string path)

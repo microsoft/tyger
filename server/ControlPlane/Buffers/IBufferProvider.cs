@@ -13,5 +13,5 @@ public interface IBufferProvider
 
 public interface IEphemeralBufferProvider
 {
-    Uri CreateBufferAccessUrl(string id, bool writeable);
+    Uri CreateBufferAccessUrl(string id, int? port, bool writeable, bool preferTcp);
 }

@@ -28,6 +28,7 @@ import (
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/docker/go-connections/nat"
 	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/psanford/memfs"
 	"github.com/rs/zerolog/log"
@@ -194,6 +195,7 @@ func (i *Installer) createControlPlaneContainer(ctx context.Context) error {
 				"Auth__Enabled=false",
 				fmt.Sprintf("Compute__Docker__RunSecretsPath=%s/control-plane/run-secrets/", i.Config.InstallationPath),
 				fmt.Sprintf("Compute__Docker__EphemeralBuffersPath=%s/control-plane/ephemeral-buffers/", i.Config.InstallationPath),
+				fmt.Sprintf("Compute__Docker__WslDistroName=%s", os.Getenv("WSL_DISTRO_NAME")),
 				"LogArchive__LocalStorage__LogsDirectory=/app/logs",
 				"Buffers__BufferSidecarImage=" + i.Config.BufferSidecarImage,
 				fmt.Sprintf("Buffers__LocalStorage__DataPlaneEndpoint=http+unix://%s/data-plane/tyger.data.sock", i.Config.InstallationPath),
@@ -505,7 +507,7 @@ func (i *Installer) createDataPlaneContainer(ctx context.Context) error {
 			Image: image,
 			User:  i.Config.UserId,
 			Env: []string{
-				fmt.Sprintf("Urls=http://unix:%s/data-plane/tyger.data.sock;http://localhost:%d", i.Config.InstallationPath, i.Config.DataPlanePort),
+				fmt.Sprintf("Urls=http://unix:%s/data-plane/tyger.data.sock;http://0.0.0.0:8080", i.Config.InstallationPath),
 				"SocketPermissions=666",
 				"DataDirectory=/app/data",
 				"PrimarySigningPublicKeyPath=" + primaryPublicCertificatePath,
@@ -522,6 +524,9 @@ func (i *Installer) createDataPlaneContainer(ctx context.Context) error {
 				StartInterval: 2 * time.Second,
 				Interval:      10 * time.Second,
 			},
+			ExposedPorts: nat.PortSet{
+				"8080/tcp": struct{}{},
+			},
 		},
 		HostConfig: &container.HostConfig{
 			Mounts: []mount.Mount{
@@ -536,7 +541,14 @@ func (i *Installer) createDataPlaneContainer(ctx context.Context) error {
 					Target: fmt.Sprintf("%s/data-plane", i.Config.InstallationPath),
 				},
 			},
-			NetworkMode: "host",
+			PortBindings: nat.PortMap{
+				"8080/tcp": []nat.PortBinding{
+					{
+						HostIP:   "127.0.0.1",
+						HostPort: strconv.Itoa(i.Config.DataPlanePort),
+					},
+				},
+			},
 			RestartPolicy: container.RestartPolicy{
 				Name: container.RestartPolicyUnlessStopped,
 			},

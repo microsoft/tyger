@@ -8,7 +8,7 @@ namespace Tyger.ControlPlane.Compute.Kubernetes;
 
 public class KubernetesEphemeralBufferProvider : IEphemeralBufferProvider
 {
-    public Uri CreateBufferAccessUrl(string id, bool writeable)
+    public Uri CreateBufferAccessUrl(string id, int? port, bool writeable, bool preferTcp)
     {
         throw new ValidationException("Ephemeral buffers are not supported.");
     }

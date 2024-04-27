@@ -44,4 +44,6 @@ public class DockerOptions
 
     [Required]
     public required string EphemeralBuffersPath { get; set; }
+
+    public string? WslDistroName { get; set; }
 }

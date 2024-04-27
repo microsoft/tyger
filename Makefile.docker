@@ -81,7 +81,7 @@ login:
 	tyger login --local
 
 connect-db:
-	docker exec -it tyger-db psql -U tyger-server tyger-server
+	docker exec -it tyger-local-db psql -U tyger-server tyger-server
 
 variant-test:
 	scripts/run-ssh-tests.sh

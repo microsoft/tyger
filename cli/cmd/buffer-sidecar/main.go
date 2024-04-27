@@ -57,12 +57,12 @@ func newRootCommand() *cobra.Command {
 
 	rootCommand.AddCommand(relayCommand)
 
-	listenAddress := ""
+	listenAddresses := make([]string, 0)
 	outputFilePath := ""
 	primarySigningPublicKeyPath := ""
 	secondarySigningPublicKeyPath := ""
 	bufferId := ""
-	createListeners := func() (net.Listener, net.Listener, error) {
+	createListener := func(listenAddress string) (net.Listener, error) {
 		u, err := url.Parse(listenAddress)
 		if err != nil {
 			log.Fatal().Err(err).Msg("Failed to parse listen address")
@@ -76,30 +76,22 @@ func newRootCommand() *cobra.Command {
 			listener, err = net.Listen(u.Scheme, tempPath)
 			if err == nil {
 				if err := os.Rename(tempPath, u.Path); err != nil {
-					return nil, nil, fmt.Errorf("failed to move socket: %w", err)
+					return nil, fmt.Errorf("failed to move socket: %w", err)
 				}
 			}
+		case "http":
+			listener, err = net.Listen("tcp", u.Host)
 		default:
-			listener, err = net.Listen(u.Scheme, u.Host)
+			return nil, fmt.Errorf("unsupported scheme: %s", u.Scheme)
 		}
 
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create listener: %w", err)
+			return nil, fmt.Errorf("failed to create listener: %w", err)
 		}
 
 		log.Info().Str("address", listenAddress).Msg("Listening for connections")
 
-		var secondaryListener net.Listener
-		if u.Scheme == "unix" {
-			secondaryListener, err = net.Listen("tcp", "127.0.0.1:0")
-			if err != nil {
-				return nil, nil, fmt.Errorf("failed to create secondary listener: %w", err)
-			}
-
-			log.Info().Str("address", secondaryListener.Addr().String()).Msg("Listening for connections")
-		}
-
-		return listener, secondaryListener, nil
+		return listener, nil
 	}
 
 	relayInputCommand := &cobra.Command{
@@ -135,12 +127,17 @@ func newRootCommand() *cobra.Command {
 					outputWriter = os.Stdout
 				}
 
-				listener, secondaryListener, err := createListeners()
-				if err != nil {
-					return err
+				listeners := make([]net.Listener, 0, len(listenAddresses))
+				for _, listenAddress := range listenAddresses {
+					listener, err := createListener(listenAddress)
+					if err != nil {
+						return err
+					}
+
+					listeners = append(listeners, listener)
 				}
 
-				return dataplane.RelayInputServer(ctx, listener, secondaryListener, bufferId, outputWriter, validateSignatureFunc)
+				return dataplane.RelayInputServer(ctx, listeners, bufferId, outputWriter, validateSignatureFunc)
 			}
 
 			if err := impl(); err != nil {
@@ -150,7 +147,7 @@ func newRootCommand() *cobra.Command {
 	}
 
 	relayInputCommand.Flags().StringVarP(&outputFilePath, "output", "o", outputFilePath, "The file write to. If not specified, data is written to standard out.")
-	relayInputCommand.Flags().StringVarP(&listenAddress, "listen", "l", listenAddress, "The address to listen on.")
+	relayInputCommand.Flags().StringSliceVarP(&listenAddresses, "listen", "l", listenAddresses, "The address to listen on. Can be specified multiple times.")
 	relayInputCommand.MarkFlagRequired("listen")
 	relayInputCommand.Flags().StringVarP(&bufferId, "buffer", "b", bufferId, "The buffer ID")
 	relayInputCommand.MarkFlagRequired("buffer")
@@ -194,12 +191,17 @@ func newRootCommand() *cobra.Command {
 					}
 				}()
 
-				primaryListener, secondaryListener, err := createListeners()
-				if err != nil {
-					return err
+				listeners := make([]net.Listener, 0, len(listenAddresses))
+				for _, listenAddress := range listenAddresses {
+					listener, err := createListener(listenAddress)
+					if err != nil {
+						return err
+					}
+
+					listeners = append(listeners, listener)
 				}
 
-				return dataplane.RelayOutputServer(ctx, primaryListener, secondaryListener, bufferId, readerChan, errorChan, validateSignatureFunc)
+				return dataplane.RelayOutputServer(ctx, listeners, bufferId, readerChan, errorChan, validateSignatureFunc)
 			}
 
 			if err := impl(); err != nil {
@@ -208,7 +210,7 @@ func newRootCommand() *cobra.Command {
 		},
 	}
 	relayOutputCommand.Flags().StringVarP(&inputFilePath, "input", "i", inputFilePath, "The file to read from. If not specified, data is read from standard in.")
-	relayOutputCommand.Flags().StringVarP(&listenAddress, "listen", "l", listenAddress, "The address to listen on.")
+	relayOutputCommand.Flags().StringSliceVarP(&listenAddresses, "listen", "l", listenAddresses, "The address to listen on. Can be specified multiple times.")
 	relayOutputCommand.MarkFlagRequired("listen")
 	relayOutputCommand.Flags().StringVarP(&bufferId, "buffer", "b", bufferId, "The buffer ID")
 	relayOutputCommand.MarkFlagRequired("buffer")

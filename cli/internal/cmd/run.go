@@ -618,7 +618,7 @@ func newRunCancelCommand() *cobra.Command {
 			} else if *run.Status == model.Canceling {
 				fmt.Println("Cancel issued for job", args[0])
 			} else if *run.Status == model.Canceled {
-				fmt.Println("Job", args[0], "has already been canceled")
+				fmt.Println("Job", args[0], "has been canceled")
 			} else {
 				if run.StatusReason != "" {
 					return fmt.Errorf("unable to cancel job %s because its status is %s (%s)", args[0], run.Status.String(), run.StatusReason)
