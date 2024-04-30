@@ -113,7 +113,7 @@ func newStdioProxyLoginCommand() *cobra.Command {
 				return err
 			}
 
-			c, err := client.NewClient(&client.ClientOptions{ProxyString: "none"})
+			c, err := client.NewClient(&client.ClientOptions{ProxyString: "none", DisableRetries: true})
 			if err != nil {
 				return err
 			}

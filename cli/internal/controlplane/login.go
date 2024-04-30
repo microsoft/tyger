@@ -148,15 +148,17 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 		si.parsedServerUri = dockerParams.URL()
 		si.ServerUri = si.parsedServerUri.String()
 
-		tygerClientOptions := defaultClientOptions // clone
-		tygerClientOptions.ProxyString = "none"
-		tygerClientOptions.CreateTransport = client.MakeCommandTransport(dockerConcurrencyLimit, "docker", dockerParams.FormatCmdLine()...)
-		controlPlaneClient, err := client.NewControlPlaneClient(&tygerClientOptions)
+		controlPlaneClientOptions := defaultClientOptions // clone
+		controlPlaneClientOptions.ProxyString = "none"
+		controlPlaneClientOptions.CreateTransport = client.MakeCommandTransport(dockerConcurrencyLimit, "docker", dockerParams.FormatCmdLine()...)
+		controlPlaneClient, err := client.NewControlPlaneClient(&controlPlaneClientOptions)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create control plane client: %w", err)
 		}
 
-		dataPlaneClient, err := client.NewDataPlaneClient(&tygerClientOptions)
+		dataPlaneClientOptions := controlPlaneClientOptions
+		dataPlaneClientOptions.DisableRetries = true
+		dataPlaneClient, err := client.NewDataPlaneClient(&dataPlaneClientOptions)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create data plane client: %w", err)
 		}
@@ -267,29 +269,33 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 			}
 		}
 
-		cpClient, err := client.NewControlPlaneClient(&defaultClientOptions)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create control plane client: %w", err)
-		}
+		controlPlaneOptions := defaultClientOptions
 
-		dpOptions := defaultClientOptions
+		dataPlaneOptions := defaultClientOptions
 		if si.DataPlaneProxy != "" {
-			dpOptions.ProxyString = si.DataPlaneProxy
-		}
-
-		dpClient, err := client.NewDataPlaneClient(&dpOptions)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create data plane client: %w", err)
+			dataPlaneOptions.ProxyString = si.DataPlaneProxy
 		}
 
 		var connectionType client.TygerConnectionType
 		switch si.parsedServerUri.Scheme {
 		case "http+unix", "https+unix":
 			connectionType = client.TygerConnectionTypeUnix
+			controlPlaneOptions.DisableRetries = true
+			dataPlaneOptions.DisableRetries = true
 		case "http", "https":
 			connectionType = client.TygerConnectionTypeTcp
 		default:
 			panic(fmt.Sprintf("unhandled scheme: %s", si.parsedServerUri.Scheme))
+		}
+
+		cpClient, err := client.NewControlPlaneClient(&controlPlaneOptions)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create control plane client: %w", err)
+		}
+
+		dpClient, err := client.NewDataPlaneClient(&controlPlaneOptions)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create data plane client: %w", err)
 		}
 
 		tygerClient = client.NewTygerClient(connectionType, si.parsedServerUri, si.GetAccessToken, si.Principal, cpClient, dpClient)
@@ -490,15 +496,18 @@ func GetClientFromCache() (*client.TygerClient, error) {
 			return nil, fmt.Errorf("invalid ssh URL: %w", err)
 		}
 
-		tygerClientOptions := defaultClientOptions
-		tygerClientOptions.ProxyString = "none"
-		tygerClientOptions.CreateTransport = client.MakeCommandTransport(dockerConcurrencyLimit, "docker", dockerParams.FormatCmdLine()...)
-		cpClient, err := client.NewClient(&tygerClientOptions)
+		controlPlaneClientOptions := defaultClientOptions
+		controlPlaneClientOptions.ProxyString = "none"
+		controlPlaneClientOptions.CreateTransport = client.MakeCommandTransport(dockerConcurrencyLimit, "docker", dockerParams.FormatCmdLine()...)
+		cpClient, err := client.NewClient(&controlPlaneClientOptions)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create control plane client: %w", err)
 		}
 
-		dpClient, err := client.NewDataPlaneClient(&tygerClientOptions)
+		dataPlaneClientOptions := controlPlaneClientOptions // clone
+		dataPlaneClientOptions.DisableRetries = true
+
+		dpClient, err := client.NewDataPlaneClient(&dataPlaneClientOptions)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create data plane client: %w", err)
 		}
@@ -533,29 +542,34 @@ func GetClientFromCache() (*client.TygerClient, error) {
 
 		return client.NewTygerClient(client.TygerConnectionTypeSsh, &endpoint, si.GetAccessToken, si.Principal, cpClient, dpClient), nil
 	} else {
-		controlPlaneClient, err := client.NewClient(&defaultClientOptions)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create control plane client: %w", err)
-		}
 
-		dpOptions := defaultClientOptions
+		controlPlaneOptions := defaultClientOptions
+
+		dataPlaneOptions := defaultClientOptions
 		if si.DataPlaneProxy != "" {
-			dpOptions.ProxyString = si.DataPlaneProxy
-		}
-
-		dpClient, err := client.NewDataPlaneClient(&dpOptions)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create data plane client: %w", err)
+			dataPlaneOptions.ProxyString = si.DataPlaneProxy
 		}
 
 		var connectionType client.TygerConnectionType
 		switch si.parsedServerUri.Scheme {
 		case "http+unix", "https+unix":
 			connectionType = client.TygerConnectionTypeUnix
+			controlPlaneOptions.DisableRetries = true
+			dataPlaneOptions.DisableRetries = true
 		case "http", "https":
 			connectionType = client.TygerConnectionTypeTcp
 		default:
 			panic(fmt.Sprintf("unhandled scheme: %s", si.parsedServerUri.Scheme))
+		}
+
+		controlPlaneClient, err := client.NewClient(&controlPlaneOptions)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create control plane client: %w", err)
+		}
+
+		dpClient, err := client.NewDataPlaneClient(&dataPlaneOptions)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create data plane client: %w", err)
 		}
 
 		return client.NewTygerClient(connectionType, si.parsedServerUri, si.GetAccessToken, si.Principal, controlPlaneClient, dpClient), nil

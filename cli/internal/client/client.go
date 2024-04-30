@@ -55,6 +55,7 @@ type ClientOptions struct {
 	ProxyString                     string
 	CreateTransport                 MakeRoundTripper
 	CreateDialer                    MakeDialer
+	DisableRetries                  bool
 	DisableTlsCertificateValidation bool
 }
 
@@ -98,7 +99,11 @@ func NewClient(opts *ClientOptions) (*Client, error) {
 	}
 
 	retryableClient := retryablehttp.NewClient()
-	retryableClient.RetryMax = 6
+	if opts.DisableRetries {
+		retryableClient.RetryMax = 0
+	} else {
+		retryableClient.RetryMax = 6
+	}
 
 	retryableClient.Logger = nil
 	retryableClient.ErrorHandler = func(resp *http.Response, err error, numTries int) (*http.Response, error) {
