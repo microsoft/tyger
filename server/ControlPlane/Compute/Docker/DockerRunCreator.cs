@@ -22,9 +22,12 @@ namespace Tyger.ControlPlane.Compute.Docker;
 
 public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedService, ICapabilitiesContributor
 {
+    private const string ContainerNameLabelKey = "tyger-run-container-name";
     public const string EphemeralBufferSocketPathLabelKey = "tyger-ephemeral-buffer-socket-path";
+    public const string EphemeralBufferIdLabelKey = "tyger-ephemeral-buffer-id";
 
     private readonly DockerClient _client;
+    private readonly DockerEphemeralBufferProvider _ephemeralBufferProvider;
     private readonly ILogger<DockerRunCreator> _logger;
 
     private readonly BufferOptions _bufferOptions;
@@ -37,6 +40,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         DockerClient client,
         IRepository repository,
         BufferManager bufferManager,
+        DockerEphemeralBufferProvider ephemeralBufferProvider,
         IOptions<BufferOptions> bufferOptions,
         IOptions<DockerOptions> dockerOptions,
         IOptions<LocalBufferStorageOptions> localBufferStorageOptions,
@@ -44,6 +48,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
     : base(repository, bufferManager)
     {
         _client = client;
+        _ephemeralBufferProvider = ephemeralBufferProvider;
         _logger = logger;
         _bufferOptions = bufferOptions.Value;
         _dockerOptions = dockerOptions.Value;
@@ -124,8 +129,10 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                     var newBufferId = $"run-{run.Id}-{bufferId}";
                     newRun.Job.Buffers[bufferParameterName] = newBufferId;
                     (var write, _) = bufferMap[bufferParameterName];
-                    var accessUri = await BufferManager.CreateBufferAccessUrl(newBufferId, write, false, cancellationToken);
-                    bufferMap[bufferParameterName] = (write, accessUri!.Uri);
+                    var unqualifiedBufferId = BufferManager.GetUnqualifiedBufferId(newBufferId);
+                    var sasQueryString = _ephemeralBufferProvider.GetSasQueryString(unqualifiedBufferId, write);
+                    var accessUri = new Uri($"http+unix://{_dockerOptions.EphemeralBuffersPath}/{bufferId}.sock:{sasQueryString}");
+                    bufferMap[bufferParameterName] = (write, accessUri);
                 }
             }
         }
@@ -156,7 +163,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
         foreach ((var bufferParameterName, (bool write, Uri accessUri)) in bufferMap)
         {
-            var sidecarLabels = labels.Add("tyger-run-container-name", $"{bufferParameterName}-buffer-sidecar");
+            var sidecarLabels = labels.Add(ContainerNameLabelKey, $"{bufferParameterName}-buffer-sidecar");
 
             var pipeName = bufferParameterName + ".pipe";
             var pipePath = Path.Combine(absoluteSecretsBase, relativePipesPath, pipeName);
@@ -177,6 +184,9 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             string? relaySocketPath = null;
             if (isRelay)
             {
+                var unqualifiedBufferId = BufferManager.GetUnqualifiedBufferId(run.Job.Buffers![bufferParameterName]);
+                sidecarLabels = sidecarLabels.Add(EphemeralBufferIdLabelKey, unqualifiedBufferId);
+
                 if (accessUri.Scheme != "http+unix")
                 {
                     throw new InvalidOperationException("Relay is only supported for http+unix URIs");
@@ -192,7 +202,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                     "--listen",
                     $"unix://{relaySocketPath}",
                     "--listen",
-                    $"http://0.0.0.0:8080",
+                    $"http://:8080",
                     "--primary-public-signing-key",
                     "/primary-signing-key-public.pem",
                 ]);
@@ -200,8 +210,6 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                 {
                     args.AddRange(["--secondary-public-signing-key", "/secondary-signing-key-public.pem"]);
                 }
-
-                var unqualifiedBufferId = BufferManager.GetUnqualifiedBufferId(run.Job.Buffers![bufferParameterName]);
 
                 args.AddRange(["--buffer", unqualifiedBufferId]);
             }
@@ -293,14 +301,16 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
                 foreach (var sock in unixSocketsForBuffers)
                 {
-                    Stat(sock, out var stat);
-                    var uid = stat.Uid.ToString();
-                    if (sidecarContainerParameters.User is { Length: > 0 } && sidecarContainerParameters.User != uid)
+                    if (Stat(sock, out var stat) == 0)
                     {
-                        throw new InvalidOperationException("All data plane sockets must have the same owner");
-                    }
+                        var uid = stat.Uid.ToString();
+                        if (sidecarContainerParameters.User is { Length: > 0 } && sidecarContainerParameters.User != uid)
+                        {
+                            throw new InvalidOperationException("All data plane sockets must have the same owner");
+                        }
 
-                    sidecarContainerParameters.User = uid;
+                        sidecarContainerParameters.User = uid;
+                    }
                 }
             }
 
@@ -310,21 +320,6 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             {
                 var createResponse = await _client.Containers.CreateContainerAsync(sidecarContainerParameters, cancellationToken);
                 await _client.Containers.StartContainerAsync(createResponse.ID, null, cancellationToken);
-                if (isRelay)
-                {
-                    // Get the host port that has been assigned to to this container and append it to the buffer ID.
-                    // It will be null if the container has already exited
-                    var container = await _client.Containers.InspectContainerAsync(createResponse.ID, cancellationToken);
-                    IList<PortBinding>? portBindings = container.NetworkSettings.Ports["8080/tcp"];
-                    if (portBindings is { Count: > 0 })
-                    {
-                        var hostPort = portBindings[0].HostPort;
-                        lock (newRun.Job.Buffers!)
-                        {
-                            newRun.Job.Buffers[bufferParameterName] = $"{newRun.Job.Buffers[bufferParameterName]}-{hostPort}";
-                        }
-                    }
-                }
             }
 
             startContainersTasks.Add(StartSidecar());
@@ -338,7 +333,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             Env = env.Select(e => $"{e.Key}={e.Value}").ToList(),
             Cmd = jobCodespec.Args?.Select(a => ExpandVariables(a, env))?.ToList(),
             Entrypoint = jobCodespec.Command is { Length: > 0 } ? jobCodespec.Command.Select(a => ExpandVariables(a, env)).ToList() : null,
-            Labels = bufferMap.Count == 0 ? labels : labels.Add("tyger-run-container-name", $"main"),
+            Labels = bufferMap.Count == 0 ? labels : labels.Add(ContainerNameLabelKey, $"main"),
             HostConfig = new()
             {
                 DeviceRequests = needsGpu ? [

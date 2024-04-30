@@ -88,7 +88,7 @@ public sealed partial class BufferManager
         return await _repository.GetBuffers(tags, limit, continuationToken, cancellationToken);
     }
 
-    internal async Task<BufferAccess?> CreateBufferAccessUrl(string id, bool writeable, bool preferTcp, CancellationToken cancellationToken)
+    internal async Task<BufferAccess?> CreateBufferAccessUrl(string id, bool writeable, bool preferTcp, bool fromDocker, CancellationToken cancellationToken)
     {
         var match = BufferIdRegex().Match(id);
         if (!match.Success)
@@ -103,14 +103,8 @@ public sealed partial class BufferManager
             var runIdGroup = match.Groups["RUNID"];
             if (runIdGroup.Success)
             {
-                var portGroup = match.Groups["PORT"];
-                int? port = null;
-                if (portGroup.Success && int.TryParse(portGroup.Value, out var p))
-                {
-                    port = p;
-                }
-
-                return new BufferAccess(_ephemeralBufferProvider.CreateBufferAccessUrl(id, port, writeable, preferTcp));
+                var url = await _ephemeralBufferProvider.CreateBufferAccessUrl(id, writeable, preferTcp, fromDocker, cancellationToken);
+                return url == null ? null : new BufferAccess(url);
             }
 
             return new BufferAccess(new Uri("temporary", UriKind.Relative));
@@ -135,6 +129,6 @@ public sealed partial class BufferManager
         return match.Groups["BUFFERID"].Value;
     }
 
-    [GeneratedRegex(@"^(?<TEMP>(run-(?<RUNID>\d+)-)?temp-)?(?<BUFFERID>\w+)(-(?<PORT>\d+))?$")]
+    [GeneratedRegex(@"^(?<TEMP>(run-(?<RUNID>\d+)-)?temp-)?(?<BUFFERID>\w+)$")]
     private static partial Regex BufferIdRegex();
 }

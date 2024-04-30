@@ -13,5 +13,5 @@ public interface IBufferProvider
 
 public interface IEphemeralBufferProvider
 {
-    Uri CreateBufferAccessUrl(string id, int? port, bool writeable, bool preferTcp);
+    Task<Uri?> CreateBufferAccessUrl(string id, bool writeable, bool preferTcp, bool fromDocker, CancellationToken cancellationToken);
 }

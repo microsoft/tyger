@@ -45,6 +45,8 @@ const (
 	databaseVolumeSuffix = "db"
 	buffersVolumeSuffix  = "buffers"
 	runLogsVolumeSuffix  = "run-logs"
+
+	dockerSocketPath = "/var/run/docker.sock"
 )
 
 type containerSpec struct {
@@ -241,8 +243,8 @@ func (i *Installer) createControlPlaneContainer(ctx context.Context) error {
 				},
 				{
 					Type:   "bind",
-					Source: "/var/run/docker.sock",
-					Target: "/var/run/docker.sock",
+					Source: dockerSocketPath,
+					Target: dockerSocketPath,
 				},
 			},
 			NetworkMode: "none",
@@ -632,6 +634,7 @@ func (i *Installer) createContainer(
 	waitForHealthy bool,
 	postCreateActions ...func(containerName string) error,
 ) error {
+	adjustBindMountsForWsl(containerSpec)
 	specHash := containerSpec.computeHash()
 	if containerSpec.ContainerConfig.Labels == nil {
 		containerSpec.ContainerConfig.Labels = make(map[string]string)
@@ -774,7 +777,7 @@ func (i *Installer) statDockerSocket(ctx context.Context) (userId int, groupId i
 	// Define the container configuration
 	containerConfig := &container.Config{
 		Image: "mcr.microsoft.com/cbl-mariner/base/core:2.0",
-		Cmd:   []string{"stat", "-c", "%u %g %a", "/var/run/docker.sock"},
+		Cmd:   []string{"stat", "-c", "%u %g %a", dockerSocketPath},
 		Tty:   false, // not interactive
 	}
 
@@ -876,4 +879,30 @@ func compareVersions(v1, v2 string) int {
 	}
 
 	return 0
+}
+
+// Ensures that the source path of bind mounts are rooted in the right WSL filesystem.
+func adjustBindMountsForWsl(containerSpec *containerSpec) {
+	if containerSpec.HostConfig == nil || containerSpec.HostConfig.Mounts == nil {
+		return
+	}
+
+	for i := range containerSpec.HostConfig.Mounts {
+		mount := &containerSpec.HostConfig.Mounts[i]
+		if mount.Type != "bind" || mount.Source == dockerSocketPath {
+			continue
+		}
+
+		mount.Source = toWslHostPath(mount.Source)
+	}
+}
+
+func toWslHostPath(hostPath string) string {
+	distroName := os.Getenv("WSL_DISTRO_NAME")
+	if distroName == "" {
+		return hostPath
+	}
+
+	hostPath = strings.ReplaceAll(hostPath, "/", "\\")
+	return fmt.Sprintf(`\\wsl$\%s%s`, distroName, hostPath)
 }

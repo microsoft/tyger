@@ -33,7 +33,8 @@ public static class Docker
         builder.Services.AddSingleton<DockerRunSweeper>();
         builder.Services.AddSingleton<IRunSweeper>(sp => sp.GetRequiredService<DockerRunSweeper>());
         builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<DockerRunSweeper>());
-        builder.Services.AddSingleton<IEphemeralBufferProvider, DockerEphemeralBufferProvider>();
+        builder.Services.AddSingleton<DockerEphemeralBufferProvider>();
+        builder.Services.AddSingleton<IEphemeralBufferProvider>(sp => sp.GetRequiredService<DockerEphemeralBufferProvider>());
     }
 }
 

@@ -149,9 +149,9 @@ public static class Buffers
             .Produces<ErrorBody>(StatusCodes.Status404NotFound)
             .Produces<ErrorBody>(StatusCodes.Status412PreconditionFailed);
 
-        app.MapPost("/v1/buffers/{id}/access", async (BufferManager manager, string id, bool? writeable, bool? preferTcp, CancellationToken cancellationToken) =>
+        app.MapPost("/v1/buffers/{id}/access", async (BufferManager manager, string id, bool? writeable, bool? preferTcp, bool? fromDocker, CancellationToken cancellationToken) =>
             {
-                var bufferAccess = await manager.CreateBufferAccessUrl(id, writeable == true, preferTcp == true, cancellationToken);
+                var bufferAccess = await manager.CreateBufferAccessUrl(id, writeable == true, preferTcp == true, fromDocker == true, cancellationToken);
                 if (bufferAccess is null)
                 {
                     return Responses.NotFound();

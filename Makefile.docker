@@ -7,7 +7,7 @@ DOCKER_BUILD_PUSH_FLAGS =
 
 set-localsettings: ensure-data-plane-cert
 	run_secrets_path="/opt/tyger/control-plane/run-secrets/"
-	ephemeral_buffers_path="/opt/tyger/control-plane/ephemeral-buffers/"
+	ephemeral_buffers_path="/opt/tyger/control-plane/ephemeral-buffers"
 	logs_path="/docker-volumes/run-logs"
 
 	jq <<- EOF > ${CONTROL_PLANE_SERVER_PATH}/appsettings.local.json
@@ -20,7 +20,8 @@ set-localsettings: ensure-data-plane-cert
 			"compute": {
 				"docker": {
 					"runSecretsPath": "$${run_secrets_path}",
-					"ephemeralBuffersPath": "$${ephemeral_buffers_path}"
+					"ephemeralBuffersPath": "$${ephemeral_buffers_path}",
+					"wslDistroName": "$${WSL_DISTRO_NAME}"
 				}
 			},
 			"logArchive": {
@@ -32,7 +33,8 @@ set-localsettings: ensure-data-plane-cert
 				"primarySigningPrivateKeyPath": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.signingKeys.primary.private')",
 				"bufferSidecarImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.bufferSidecarImage')",
 				"localStorage": {
-					"dataPlaneEndpoint": "http+unix:///opt/tyger/data-plane/tyger.data.sock"
+					"dataPlaneEndpoint": "http+unix:///opt/tyger/data-plane/tyger.data.sock",
+					"tcpDataPlaneEndpoint": "http://localhost:$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.dataPlanePort')"
 				}
 			},
 			"database": {

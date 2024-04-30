@@ -29,6 +29,19 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+wsl_host_path() {
+    if [[ -z "${WSL_DISTRO_NAME:-}" ]]; then
+        echo "$1"
+        return
+    fi
+
+    # replace / with \
+    path=${1//\//\\}
+
+    # shellcheck disable=SC2028
+    echo "\\\\wsl$\\${WSL_DISTRO_NAME}${path}"
+}
+
 cleanup_ssh_config() {
     if [[ -f ~/.ssh/config ]]; then
         sed -i "/$start_marker/,/$end_marker/d" ~/.ssh/config
@@ -50,7 +63,7 @@ docker create \
     -p $ssh_port:22 \
     -e "SSH_USERS=$ssh_user:$(id -u):4000" \
     -e "SSH_GROUPS=tygerusers:4000" \
-    -v /opt/tyger:/opt/tyger \
+    -v "$(wsl_host_path "/opt/tyger"):/opt/tyger" \
     --name $container_name \
     quay.io/panubo/sshd:1.6.0 >/dev/null
 
