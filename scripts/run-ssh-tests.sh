@@ -86,12 +86,21 @@ docker cp "$(which tyger)" "$container_name:/usr/bin/" >/dev/null
 
 docker start $container_name >/dev/null
 
+if [[ -n "${TYGER_ACCESSING_FROM_DOCKER}" ]]; then
+    ssh_connection_host=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $container_name)
+    ssh_connection_port=22
+else
+    ssh_connection_host="localhost"
+    ssh_connection_port=$ssh_port
+fi
+
+
 host_config="$start_marker
 Host $ssh_host
-  HostName localhost
-  Port $ssh_port
+  HostName $ssh_connection_host
+  Port $ssh_connection_port
   User $ssh_user
-  NoHostAuthenticationForLocalhost yes
+  StrictHostKeyChecking no
   ControlMaster auto
   ControlPath  ~/.ssh/control-%C
   ControlPersist  yes

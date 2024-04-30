@@ -82,6 +82,8 @@
     }
   },
 
+  "runArgs": ["--network=host"],
+
   "mounts": [
     // Bind mount docker socket under an alias to support docker-from-docker
     "source=/var/run/docker.sock,target=/var/run/docker-host.sock,type=bind",
@@ -100,7 +102,7 @@
     "DOCKER_BUIKDKIT": "1",
     "DEVCONTAINER_HOST_HOME": "${localEnv:HOME}",
     "WSL_DISTRO_NAME": "${localEnv:WSL_DISTRO_NAME}",
-    "TYGER_DATA_PLANE_URLS_FROM_DOCKER": "1"
+    "TYGER_ACCESSING_FROM_DOCKER": "1"
   },
 
   "forwardPorts": [

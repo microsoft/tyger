@@ -199,7 +199,7 @@ func getBufferAccessUri(ctx context.Context, bufferId string, writable bool) (st
 		switch tygerClient.ConnectionType {
 		case client.TygerConnectionTypeDocker:
 			queryOptions.Add("preferTcp", "true")
-			if os.Getenv("TYGER_DATA_PLANE_URLS_FROM_DOCKER") == "1" {
+			if os.Getenv("TYGER_ACCESSING_FROM_DOCKER") == "1" {
 				queryOptions.Add("fromDocker", "true")
 			}
 		}
