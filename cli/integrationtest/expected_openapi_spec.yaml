@@ -123,6 +123,10 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: fromDocker
+          in: query
+          schema:
+            type: boolean
       responses:
         '201':
           description: Created
