@@ -87,10 +87,10 @@ func (sp *SshParams) URL() *url.URL {
 }
 
 func (sp *SshParams) FormatCmdLine(add ...string) []string {
-	return sp.formatCmdLine(false, add...)
+	return sp.formatCmdLine(nil, add...)
 }
 
-func (sp *SshParams) formatCmdLine(dataPlane bool, add ...string) []string {
+func (sp *SshParams) formatCmdLine(sshArgs []string, cmdArgs ...string) []string {
 	args := []string{sp.Host}
 
 	if sp.User != "" {
@@ -100,12 +100,7 @@ func (sp *SshParams) formatCmdLine(dataPlane bool, add ...string) []string {
 		args = append(args, "-p", sp.Port)
 	}
 
-	if dataPlane && runtime.GOOS != "windows" {
-		// create a dedicated control socket for this process
-		args = append(args, "-o", "ControlMaster=auto")
-		args = append(args, "-o", fmt.Sprintf("ControlPath=/tmp/%s", uuid.New().String()))
-		args = append(args, "-o", "ControlPersist=2m")
-	}
+	args = append(args, sshArgs...)
 
 	args = append(args, "--")
 
@@ -117,11 +112,16 @@ func (sp *SshParams) formatCmdLine(dataPlane bool, add ...string) []string {
 
 	args = append(args, "stdio-proxy")
 
-	args = append(args, add...)
+	args = append(args, cmdArgs...)
 	return args
 }
 
 func (sp *SshParams) FormatLoginArgs(add ...string) []string {
+	// Disable stdin and disable pseudo-terminal allocation.
+	// On Windows, we can get a hang when the remote process exits quickly because
+	// the SSH process is waiting for Enter to be pressed.
+
+	sshArgs := []string{"-nT"}
 	args := []string{"login"}
 
 	if sp.SocketPath != "" {
@@ -129,9 +129,19 @@ func (sp *SshParams) FormatLoginArgs(add ...string) []string {
 	}
 
 	args = append(args, add...)
-	return sp.FormatCmdLine(args...)
+	return sp.formatCmdLine(sshArgs, args...)
 }
 
 func (sp *SshParams) FormatDataPlaneCmdLine(add ...string) []string {
-	return sp.formatCmdLine(true, add...)
+	var sshArgs []string
+	if runtime.GOOS != "windows" {
+		// create a dedicated control socket for this process
+		sshArgs = []string{
+			"-o", "ControlMaster=auto",
+			"-o", fmt.Sprintf("ControlPath=/tmp/%s", uuid.New().String()),
+			"-o", "ControlPersist=2m",
+		}
+	}
+
+	return sp.formatCmdLine(sshArgs, add...)
 }

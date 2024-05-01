@@ -171,6 +171,7 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 			return nil, fmt.Errorf("invalid ssh URL: %w", err)
 		}
 
+		// Give the user a chance accept remote host key if necessary
 		preFlightCommand := exec.CommandContext(ctx, "ssh", sshParams.FormatLoginArgs("--preflight")...)
 		preFlightCommand.Stdin = os.Stdin
 		preFlightCommand.Stdout = os.Stdout
