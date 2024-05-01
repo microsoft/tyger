@@ -47,6 +47,8 @@ const (
 	runLogsVolumeSuffix  = "run-logs"
 
 	dockerSocketPath = "/var/run/docker.sock"
+
+	marinerImage = "mcr.microsoft.com/cbl-mariner/base/core:2.0"
 )
 
 type containerSpec struct {
@@ -104,8 +106,7 @@ func (i *Installer) InstallTyger(ctx context.Context) error {
 		return nil, nil
 	})
 
-	dataPlanePromise := install.NewPromiseAfter(ctx, pg, func(ctx context.Context) (any, error) {
-
+	dataPlanePromise := install.NewPromise(ctx, pg, func(ctx context.Context) (any, error) {
 		if err := i.createDataPlaneContainer(ctx); err != nil {
 			return nil, fmt.Errorf("error creating data plane container: %w", err)
 		}
@@ -119,8 +120,10 @@ func (i *Installer) InstallTyger(ctx context.Context) error {
 		return nil, nil
 	}, dbPromise)
 
+	checkGpuPromise := install.NewPromise(ctx, pg, i.checkGpuAvailability)
+
 	install.NewPromiseAfter(ctx, pg, func(ctx context.Context) (any, error) {
-		if err := i.createControlPlaneContainer(ctx); err != nil {
+		if err := i.createControlPlaneContainer(ctx, checkGpuPromise); err != nil {
 			return nil, fmt.Errorf("error creating control plane container: %w", err)
 		}
 		return nil, nil
@@ -156,7 +159,7 @@ func (i *Installer) ensureDirectoryExists(path string) error {
 	}
 }
 
-func (i *Installer) createControlPlaneContainer(ctx context.Context) error {
+func (i *Installer) createControlPlaneContainer(ctx context.Context, checkGpuPromise *install.Promise[bool]) error {
 	if err := i.ensureVolumeCreated(ctx, i.resourceName(runLogsVolumeSuffix)); err != nil {
 		return err
 	}
@@ -187,6 +190,11 @@ func (i *Installer) createControlPlaneContainer(ctx context.Context) error {
 		secondaryPublicCertificatePath = fmt.Sprintf("/app/tyger-data-plane-secondary-%s.pem", secondaryPublicKeyHash)
 	}
 
+	gpuAvailable, err := checkGpuPromise.Await()
+	if err != nil {
+		return install.ErrDependencyFailed
+	}
+
 	containerSpec := containerSpec{
 		ContainerConfig: &container.Config{
 			Image: image,
@@ -197,6 +205,7 @@ func (i *Installer) createControlPlaneContainer(ctx context.Context) error {
 				"Auth__Enabled=false",
 				fmt.Sprintf("Compute__Docker__RunSecretsPath=%s/control-plane/run-secrets/", i.Config.InstallationPath),
 				fmt.Sprintf("Compute__Docker__EphemeralBuffersPath=%s/control-plane/ephemeral-buffers/", i.Config.InstallationPath),
+				fmt.Sprintf("Compute__Docker__GpuSupport=%t", gpuAvailable),
 				fmt.Sprintf("Compute__Docker__WslDistroName=%s", os.Getenv("WSL_DISTRO_NAME")),
 				"LogArchive__LocalStorage__LogsDirectory=/app/logs",
 				"Buffers__BufferSidecarImage=" + i.Config.BufferSidecarImage,
@@ -773,12 +782,73 @@ func (i *Installer) ensureVolumeCreated(ctx context.Context, volumeName string) 
 	return nil
 }
 
+func (i *Installer) checkGpuAvailability(ctx context.Context) (bool, error) {
+	info, err := i.client.Info(ctx)
+	if err != nil {
+		return false, fmt.Errorf("error getting docker info: %w", err)
+	}
+
+	if _, ok := info.Runtimes["nvidia"]; !ok {
+		return false, nil
+	}
+
+	// The NVIDIA runtime is available, but we need to check if it is working
+	// and that there are GPUs available
+
+	containerConfig := &container.Config{
+		Image: marinerImage,
+		Cmd:   []string{"bash", "-c", "[[ $(nvidia-smi -L | wc -l) > 0 ]]"},
+		Tty:   false,
+	}
+
+	hostConfig := &container.HostConfig{
+		Resources: container.Resources{
+			DeviceRequests: []container.DeviceRequest{
+				{
+					Count:        -1,
+					Capabilities: [][]string{{"gpu"}},
+				},
+			},
+		},
+	}
+
+	if err := i.pullImage(ctx, containerConfig.Image, false); err != nil {
+		return false, fmt.Errorf("error pulling image: %w", err)
+	}
+
+	resp, err := i.client.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, "")
+	if err != nil {
+		return false, fmt.Errorf("error creating container: %w", err)
+	}
+
+	defer func() {
+		if err := i.client.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true}); err != nil {
+			panic(err)
+		}
+	}()
+
+	if err := i.client.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+		// this will return an error if the nvidia runtime is not available
+		log.Warn().Err(err).Msg("Error starting container with GPU")
+		return false, nil
+	}
+
+	// Wait for the container to finish
+	statusCh, errCh := i.client.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
+	select {
+	case err := <-errCh:
+		return false, err
+	case r := <-statusCh:
+		return r.StatusCode == 0, nil
+	}
+}
+
 func (i *Installer) statDockerSocket(ctx context.Context) (userId int, groupId int, permissions int, err error) {
 	// Define the container configuration
 	containerConfig := &container.Config{
-		Image: "mcr.microsoft.com/cbl-mariner/base/core:2.0",
+		Image: marinerImage,
 		Cmd:   []string{"stat", "-c", "%u %g %a", dockerSocketPath},
-		Tty:   false, // not interactive
+		Tty:   false,
 	}
 
 	// Define the host configuration (volume mounts)

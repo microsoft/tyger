@@ -46,5 +46,7 @@ public class DockerOptions
     [Required]
     public required string EphemeralBuffersPath { get; set; }
 
+    public bool GpuSupport { get; set; }
+
     public string? WslDistroName { get; set; }
 }

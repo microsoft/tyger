@@ -34,8 +34,6 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
     private readonly DockerOptions _dockerOptions;
     private readonly string? _dataPlaneSocketPath;
 
-    private bool _supportsGpu;
-
     public DockerRunCreator(
         DockerClient client,
         IRepository repository,
@@ -64,7 +62,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
     public Capabilities GetCapabilities() =>
         Capabilities.EphemeralBuffers |
-        (_supportsGpu ? Capabilities.Gpu : Capabilities.None);
+        (_dockerOptions.GpuSupport ? Capabilities.Gpu : Capabilities.None);
 
     public async Task<Run> CreateRun(Run newRun, CancellationToken cancellationToken)
     {
@@ -91,7 +89,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         if (jobCodespec.Resources?.Gpu is ResourceQuantity q && q.ToDecimal() != 0)
         {
             needsGpu = true;
-            if (!_supportsGpu)
+            if (!_dockerOptions.GpuSupport)
             {
                 throw new ValidationException("The Docker engine does not have the NVIDIA runtime installed, which is required for GPU support.");
             }
@@ -440,9 +438,6 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
     {
         Directory.CreateDirectory(_dockerOptions.RunSecretsPath);
         Directory.CreateDirectory(_dockerOptions.EphemeralBuffersPath);
-
-        var systemInfo = await _client.System.GetSystemInfoAsync(cancellationToken);
-        _supportsGpu = systemInfo.Runtimes?.ContainsKey("nvidia") == true;
 
         await AddPublicSigningKeyToBufferSidecarImage(cancellationToken);
     }
