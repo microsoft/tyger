@@ -15,7 +15,7 @@ Usage: $0 [options]
 Options:
   -r, --registry                   The FQDN of container registry to push to.
   --test-connectivity              Build (and optionally push) the testconnectivity image
-  --tyger-server     Build (and optionally push) the tyger-server image
+  --tyger-server                   Build (and optionally push) the tyger-server image
   --worker-waiter                  Build (and optionally push) the worker-waiter image
   --buffer-sidecar                 Build (and optionally push) the buffer-sidecar image
   --helm                           Package and push the Tyger Helm chart

@@ -27,13 +27,13 @@ const (
 	commandHostLabelKey     = "tyger-command-host"
 )
 
-func (i *Installer) ListDatabaseVersions(ctx context.Context, allVersions bool) ([]install.DatabaseVersion, error) {
-	restConfig, err := i.GetUserRESTConfig(ctx)
+func (inst *Installer) ListDatabaseVersions(ctx context.Context, allVersions bool) ([]install.DatabaseVersion, error) {
+	restConfig, err := inst.GetUserRESTConfig(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	job, err := i.getMigrationRunnerJobDefinition(ctx, restConfig)
+	job, err := inst.getMigrationRunnerJobDefinition(ctx, restConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -109,11 +109,11 @@ func (i *Installer) ListDatabaseVersions(ctx context.Context, allVersions bool) 
 
 	log.Debug().Msg("Invoking command in pod")
 
-	return i.getDatabaseVersionsFromPod(ctx, pod.Name, allVersions)
+	return inst.getDatabaseVersionsFromPod(ctx, pod.Name, allVersions)
 }
 
-func (i *Installer) getDatabaseVersionsFromPod(ctx context.Context, podName string, allVersions bool) ([]install.DatabaseVersion, error) {
-	stdout, stderr, err := i.PodExec(ctx, podName, "/app/bin/tyger-server", "database", "list-versions")
+func (inst *Installer) getDatabaseVersionsFromPod(ctx context.Context, podName string, allVersions bool) ([]install.DatabaseVersion, error) {
+	stdout, stderr, err := inst.PodExec(ctx, podName, "/app/bin/tyger-server", "database", "list-versions")
 	if err != nil {
 		errorLog := ""
 		if stderr != nil {
@@ -142,8 +142,8 @@ func (i *Installer) getDatabaseVersionsFromPod(ctx context.Context, podName stri
 	return versions, nil
 }
 
-func (i *Installer) ApplyMigrations(ctx context.Context, targetVersion int, latest, offline, waitForCompletion bool) error {
-	versions, err := i.ListDatabaseVersions(ctx, true)
+func (inst *Installer) ApplyMigrations(ctx context.Context, targetVersion int, latest, offline, waitForCompletion bool) error {
+	versions, err := inst.ListDatabaseVersions(ctx, true)
 	if err != nil {
 		return err
 	}
@@ -185,7 +185,7 @@ func (i *Installer) ApplyMigrations(ctx context.Context, targetVersion int, late
 		}
 	}
 
-	restConfig, err := i.GetUserRESTConfig(ctx)
+	restConfig, err := inst.GetUserRESTConfig(ctx)
 	if err != nil {
 		return err
 	}
@@ -208,7 +208,7 @@ func (i *Installer) ApplyMigrations(ctx context.Context, targetVersion int, late
 		}
 	}
 
-	job, err := i.getMigrationRunnerJobDefinition(ctx, restConfig)
+	job, err := inst.getMigrationRunnerJobDefinition(ctx, restConfig)
 	if err != nil {
 		return err
 	}
@@ -281,8 +281,8 @@ func (i *Installer) ApplyMigrations(ctx context.Context, targetVersion int, late
 	return nil
 }
 
-func (i *Installer) GetMigrationLogs(ctx context.Context, id int, destination io.Writer) error {
-	restConfig, err := i.GetUserRESTConfig(ctx)
+func (inst *Installer) GetMigrationLogs(ctx context.Context, id int, destination io.Writer) error {
+	restConfig, err := inst.GetUserRESTConfig(ctx)
 	if err != nil {
 		return err
 	}

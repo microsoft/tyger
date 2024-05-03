@@ -25,27 +25,27 @@ const (
 	migrationListVersionsContainerSuffix = "tyger-migration-list-versions"
 )
 
-func (i *Installer) ListDatabaseVersions(ctx context.Context, allVersions bool) ([]install.DatabaseVersion, error) {
-	containerName := i.resourceName("tyger-migration-list-versions")
+func (inst *Installer) ListDatabaseVersions(ctx context.Context, allVersions bool) ([]install.DatabaseVersion, error) {
+	containerName := inst.resourceName("tyger-migration-list-versions")
 
-	if err := i.startMigrationRunner(ctx, containerName, []string{"database", "list-versions"}, nil); err != nil {
+	if err := inst.startMigrationRunner(ctx, containerName, []string{"database", "list-versions"}, nil); err != nil {
 		return nil, err
 	}
 
 	defer func() {
-		if err := i.removeContainer(ctx, containerName); err != nil {
+		if err := inst.removeContainer(ctx, containerName); err != nil {
 			log.Error().Err(err).Msg("Failed to delete container")
 		}
 	}()
 
-	exitCode, err := i.waitForContainerToComplete(ctx, containerName)
+	exitCode, err := inst.waitForContainerToComplete(ctx, containerName)
 
 	if err != nil {
 		return nil, err
 	}
 
 	stdOut, stdErr := &bytes.Buffer{}, &bytes.Buffer{}
-	if err := i.getContainerLogs(ctx, containerName, stdOut, stdErr); err != nil {
+	if err := inst.getContainerLogs(ctx, containerName, stdOut, stdErr); err != nil {
 		return nil, fmt.Errorf("error getting container logs: %w", err)
 	}
 
@@ -71,8 +71,8 @@ func (i *Installer) ListDatabaseVersions(ctx context.Context, allVersions bool) 
 	return versions, nil
 }
 
-func (i *Installer) ApplyMigrations(ctx context.Context, targetVersion int, latest, offline, waitForCompletion bool) error {
-	versions, err := i.ListDatabaseVersions(ctx, true)
+func (inst *Installer) ApplyMigrations(ctx context.Context, targetVersion int, latest, offline, waitForCompletion bool) error {
+	versions, err := inst.ListDatabaseVersions(ctx, true)
 	if err != nil {
 		return err
 	}
@@ -107,7 +107,7 @@ func (i *Installer) ApplyMigrations(ctx context.Context, targetVersion int, late
 		return nil
 	}
 
-	containerName := i.resourceName(migrationRunnerContainerSuffix)
+	containerName := inst.resourceName(migrationRunnerContainerSuffix)
 	args := []string{"database", "migrate", "--target-version", strconv.Itoa(targetVersion)}
 	if offline {
 		args = append(args, "--offline")
@@ -117,7 +117,7 @@ func (i *Installer) ApplyMigrations(ctx context.Context, targetVersion int, late
 		migrationRangeLabel: fmt.Sprintf("%d-%d", current+1, targetVersion),
 	}
 
-	if err := i.startMigrationRunner(ctx, containerName, args, labels); err != nil {
+	if err := inst.startMigrationRunner(ctx, containerName, args, labels); err != nil {
 		return err
 	}
 
@@ -128,7 +128,7 @@ func (i *Installer) ApplyMigrations(ctx context.Context, targetVersion int, late
 
 	log.Info().Msg("Waiting for migrations to complete...")
 
-	exitCode, err := i.waitForContainerToComplete(ctx, containerName)
+	exitCode, err := inst.waitForContainerToComplete(ctx, containerName)
 	if err != nil {
 		return err
 	}
@@ -141,9 +141,9 @@ func (i *Installer) ApplyMigrations(ctx context.Context, targetVersion int, late
 	return nil
 }
 
-func (i *Installer) GetMigrationLogs(ctx context.Context, id int, destination io.Writer) error {
+func (inst *Installer) GetMigrationLogs(ctx context.Context, id int, destination io.Writer) error {
 	logsNotAvailableErr := fmt.Errorf("logs for migration %d are not available", id)
-	migrationContainer, err := i.client.ContainerInspect(ctx, i.resourceName(migrationRunnerContainerSuffix))
+	migrationContainer, err := inst.client.ContainerInspect(ctx, inst.resourceName(migrationRunnerContainerSuffix))
 	if err != nil {
 		if client.IsErrNotFound(err) {
 			return logsNotAvailableErr
@@ -163,7 +163,7 @@ func (i *Installer) GetMigrationLogs(ctx context.Context, id int, destination io
 	}
 
 	logs := &bytes.Buffer{}
-	if err := i.getContainerLogs(ctx, i.resourceName(migrationRunnerContainerSuffix), io.Discard, logs); err != nil {
+	if err := inst.getContainerLogs(ctx, inst.resourceName(migrationRunnerContainerSuffix), io.Discard, logs); err != nil {
 		return logsNotAvailableErr
 	}
 
@@ -197,24 +197,24 @@ func (i *Installer) GetMigrationLogs(ctx context.Context, id int, destination io
 	return nil
 }
 
-func (i *Installer) initializeDatabase(ctx context.Context) error {
-	containerName := i.resourceName("database-init")
+func (inst *Installer) initializeDatabase(ctx context.Context) error {
+	containerName := inst.resourceName("database-init")
 	args := []string{"database", "init"}
-	if i.Config.InitialDatabaseVersion != nil {
-		args = append(args, "--target-version", strconv.Itoa(*i.Config.InitialDatabaseVersion))
+	if inst.Config.InitialDatabaseVersion != nil {
+		args = append(args, "--target-version", strconv.Itoa(*inst.Config.InitialDatabaseVersion))
 	}
 
-	if err := i.startMigrationRunner(ctx, containerName, args, nil); err != nil {
+	if err := inst.startMigrationRunner(ctx, containerName, args, nil); err != nil {
 		return fmt.Errorf("error starting running migration runner: %w", err)
 	}
 
 	defer func() {
-		if err := i.removeContainer(ctx, containerName); err != nil {
+		if err := inst.removeContainer(ctx, containerName); err != nil {
 			log.Error().Err(err).Msg("error removing migration runner container")
 		}
 	}()
 
-	exitCode, err := i.waitForContainerToComplete(ctx, containerName)
+	exitCode, err := inst.waitForContainerToComplete(ctx, containerName)
 	if err != nil {
 		return fmt.Errorf("error waiting for migration runner to complete: %w", err)
 	}
@@ -224,21 +224,21 @@ func (i *Installer) initializeDatabase(ctx context.Context) error {
 	}
 
 	stdOut, stdErr := &bytes.Buffer{}, &bytes.Buffer{}
-	if err := i.getContainerLogs(ctx, containerName, stdOut, stdErr); err != nil {
+	if err := inst.getContainerLogs(ctx, containerName, stdOut, stdErr); err != nil {
 		return fmt.Errorf("error getting container logs: %w", err)
 	}
 
 	return fmt.Errorf("migration runner failed with exit code %d: %s", exitCode, stdErr.String())
 }
 
-func (i *Installer) startMigrationRunner(ctx context.Context, containerName string, args []string, labels map[string]string) error {
+func (inst *Installer) startMigrationRunner(ctx context.Context, containerName string, args []string, labels map[string]string) error {
 	containerSpec := containerSpec{
 		ContainerConfig: &container.Config{
-			Image: i.Config.ControlPlaneImage,
-			User:  fmt.Sprintf("%d:%d", i.Config.GetUserIdInt(), i.Config.GetGroupIdInt()),
+			Image: inst.Config.ControlPlaneImage,
+			User:  fmt.Sprintf("%d:%d", inst.Config.GetUserIdInt(), inst.Config.GetGroupIdInt()),
 			Env: []string{
-				fmt.Sprintf("Urls=http://unix:%s/control-plane/tyger.sock", i.Config.InstallationPath),
-				fmt.Sprintf("Database__ConnectionString=Host=%s/database; Username=tyger-server", i.Config.InstallationPath),
+				fmt.Sprintf("Urls=http://unix:%s/control-plane/tyger.sock", inst.Config.InstallationPath),
+				fmt.Sprintf("Database__ConnectionString=Host=%s/database; Username=tyger-server", inst.Config.InstallationPath),
 				"Database__AutoMigrate=true",
 				"Database__TygerServerRoleName=tyger-server",
 				"Compute__Docker__Enabled=true",
@@ -250,8 +250,8 @@ func (i *Installer) startMigrationRunner(ctx context.Context, containerName stri
 			Mounts: []mount.Mount{
 				{
 					Type:   "bind",
-					Source: i.Config.InstallationPath,
-					Target: i.Config.InstallationPath,
+					Source: inst.Config.InstallationPath,
+					Target: inst.Config.InstallationPath,
 				},
 			},
 			NetworkMode: "none",
@@ -261,11 +261,11 @@ func (i *Installer) startMigrationRunner(ctx context.Context, containerName stri
 		},
 	}
 
-	if err := i.createContainer(ctx, containerName, &containerSpec, false); err != nil {
+	if err := inst.createContainer(ctx, containerName, &containerSpec, false); err != nil {
 		return fmt.Errorf("error creating migration runner container: %w", err)
 	}
 
-	if err := i.client.ContainerStart(ctx, containerName, container.StartOptions{}); err != nil {
+	if err := inst.client.ContainerStart(ctx, containerName, container.StartOptions{}); err != nil {
 		return err
 	}
 

@@ -21,120 +21,120 @@ var (
 	DefaultPostgresImage   = "postgres:16.2"
 )
 
-func (i *Installer) QuickValidateConfig() bool {
+func (inst *Installer) QuickValidateConfig() bool {
 	success := true
 
-	if i.Config.EnvironmentName == "" {
-		i.Config.EnvironmentName = DefaultEnvironmentName
-	} else if !NameRegex.MatchString(i.Config.EnvironmentName) {
+	if inst.Config.EnvironmentName == "" {
+		inst.Config.EnvironmentName = DefaultEnvironmentName
+	} else if !NameRegex.MatchString(inst.Config.EnvironmentName) {
 		validationError(&success, "The `environmentName` field must match the pattern "+NameRegex.String())
 	}
 
-	if i.Config.InstallationPath == "" {
-		i.Config.InstallationPath = "/opt/tyger"
-	} else if i.Config.InstallationPath[len(i.Config.InstallationPath)-1] == '/' {
-		i.Config.InstallationPath = i.Config.InstallationPath[:len(i.Config.InstallationPath)-1]
+	if inst.Config.InstallationPath == "" {
+		inst.Config.InstallationPath = "/opt/tyger"
+	} else if inst.Config.InstallationPath[len(inst.Config.InstallationPath)-1] == '/' {
+		inst.Config.InstallationPath = inst.Config.InstallationPath[:len(inst.Config.InstallationPath)-1]
 	}
 
-	if _, err := strconv.Atoi(i.Config.UserId); err != nil {
-		if i.Config.UserId == "" {
+	if _, err := strconv.Atoi(inst.Config.UserId); err != nil {
+		if inst.Config.UserId == "" {
 			currentUser, err := user.Current()
 			if err != nil {
 				validationError(&success, "Unable to determine the current user for the `userId` field")
 			} else {
-				i.Config.UserId = currentUser.Uid
+				inst.Config.UserId = currentUser.Uid
 			}
 		} else {
-			u, err := user.Lookup(i.Config.UserId)
+			u, err := user.Lookup(inst.Config.UserId)
 			if err != nil {
 				validationError(&success, "The `userId` field must be a valid user ID or name")
 			} else {
-				i.Config.UserId = u.Uid
+				inst.Config.UserId = u.Uid
 			}
 		}
 	}
 
-	if _, err := strconv.Atoi(i.Config.AllowedGroupId); err != nil {
-		if i.Config.AllowedGroupId == "" {
+	if _, err := strconv.Atoi(inst.Config.AllowedGroupId); err != nil {
+		if inst.Config.AllowedGroupId == "" {
 			currentUser, err := user.Current()
 			if err != nil {
 				validationError(&success, "Unable to determine the current user for the `userId` field")
 			} else {
-				i.Config.AllowedGroupId = currentUser.Gid
+				inst.Config.AllowedGroupId = currentUser.Gid
 			}
 		} else {
-			g, err := user.LookupGroup(i.Config.AllowedGroupId)
+			g, err := user.LookupGroup(inst.Config.AllowedGroupId)
 			if err != nil {
 				validationError(&success, "The `groupId` field must be a valid group ID or name")
 			} else {
-				i.Config.AllowedGroupId = g.Gid
+				inst.Config.AllowedGroupId = g.Gid
 			}
 		}
 	}
 
-	if i.Config.SigningKeys.Primary == nil {
+	if inst.Config.SigningKeys.Primary == nil {
 		validationError(&success, "The `signingKeys.primary` field is required")
 	} else {
-		if i.Config.SigningKeys.Primary.PublicKey == "" {
+		if inst.Config.SigningKeys.Primary.PublicKey == "" {
 			validationError(&success, "The `signingKeys.primary.publicKey` field is required to be the path to a public key file PEM file")
 		} else {
-			if expanded, err := envsubst.StringRestricted(i.Config.SigningKeys.Primary.PublicKey, true, false); err != nil {
+			if expanded, err := envsubst.StringRestricted(inst.Config.SigningKeys.Primary.PublicKey, true, false); err != nil {
 				validationError(&success, fmt.Sprintf("Error expanding `signingKeys.primary.publicKey`: %s", err))
 			} else {
-				i.Config.SigningKeys.Primary.PublicKey = expanded
+				inst.Config.SigningKeys.Primary.PublicKey = expanded
 			}
 		}
-		if i.Config.SigningKeys.Primary.PrivateKey == "" {
+		if inst.Config.SigningKeys.Primary.PrivateKey == "" {
 			validationError(&success, "The `signingKeys.primary.privateKey` field is required to be the path to a private key PEM file")
 		} else {
-			if expanded, err := envsubst.StringRestricted(i.Config.SigningKeys.Primary.PrivateKey, true, false); err != nil {
+			if expanded, err := envsubst.StringRestricted(inst.Config.SigningKeys.Primary.PrivateKey, true, false); err != nil {
 				validationError(&success, fmt.Sprintf("Error expanding `signingKeys.primary.privateKey`: %s", err))
 			} else {
-				i.Config.SigningKeys.Primary.PrivateKey = expanded
+				inst.Config.SigningKeys.Primary.PrivateKey = expanded
 			}
 		}
 	}
 
-	if i.Config.SigningKeys.Secondary != nil {
-		if i.Config.SigningKeys.Secondary.PublicKey == "" {
+	if inst.Config.SigningKeys.Secondary != nil {
+		if inst.Config.SigningKeys.Secondary.PublicKey == "" {
 			validationError(&success, "The `signingKeys.secondary.publicKey` field is required to be the path to a public key PEM file")
 		} else {
-			if expanded, err := envsubst.StringRestricted(i.Config.SigningKeys.Secondary.PublicKey, true, false); err != nil {
+			if expanded, err := envsubst.StringRestricted(inst.Config.SigningKeys.Secondary.PublicKey, true, false); err != nil {
 				validationError(&success, fmt.Sprintf("Error expanding `signingKeys.secondary.publicKey`: %s", err))
 			} else {
-				i.Config.SigningKeys.Secondary.PublicKey = expanded
+				inst.Config.SigningKeys.Secondary.PublicKey = expanded
 			}
 		}
-		if i.Config.SigningKeys.Secondary.PrivateKey == "" {
+		if inst.Config.SigningKeys.Secondary.PrivateKey == "" {
 			validationError(&success, "The `signingKeys.secondary.privateKey` field is required to be the path to a private key PEM file")
 		} else {
-			if expanded, err := envsubst.StringRestricted(i.Config.SigningKeys.Secondary.PrivateKey, true, false); err != nil {
+			if expanded, err := envsubst.StringRestricted(inst.Config.SigningKeys.Secondary.PrivateKey, true, false); err != nil {
 				validationError(&success, fmt.Sprintf("Error expanding `signingKeys.secondary.privateKey`: %s", err))
 			} else {
-				i.Config.SigningKeys.Secondary.PrivateKey = expanded
+				inst.Config.SigningKeys.Secondary.PrivateKey = expanded
 			}
 		}
 	}
 
-	if i.Config.PostgresImage == "" {
-		i.Config.PostgresImage = DefaultPostgresImage
+	if inst.Config.PostgresImage == "" {
+		inst.Config.PostgresImage = DefaultPostgresImage
 	}
-	if i.Config.ControlPlaneImage == "" {
-		i.Config.ControlPlaneImage = defaultImage("tyger-server")
+	if inst.Config.ControlPlaneImage == "" {
+		inst.Config.ControlPlaneImage = defaultImage("tyger-server")
 	}
-	if i.Config.DataPlaneImage == "" {
-		i.Config.DataPlaneImage = defaultImage("tyger-data-plane-server")
+	if inst.Config.DataPlaneImage == "" {
+		inst.Config.DataPlaneImage = defaultImage("tyger-data-plane-server")
 	}
-	if i.Config.BufferSidecarImage == "" {
-		i.Config.BufferSidecarImage = defaultImage("buffer-sidecar")
+	if inst.Config.BufferSidecarImage == "" {
+		inst.Config.BufferSidecarImage = defaultImage("buffer-sidecar")
 	}
-	if i.Config.GatewayImage == "" {
-		i.Config.GatewayImage = defaultImage("tyger-cli")
+	if inst.Config.GatewayImage == "" {
+		inst.Config.GatewayImage = defaultImage("tyger-cli")
 	}
 
-	if i.Config.UseGateway == nil {
+	if inst.Config.UseGateway == nil {
 		useGateway := defaultUseGateway()
-		i.Config.UseGateway = &useGateway
+		inst.Config.UseGateway = &useGateway
 	}
 
 	return success

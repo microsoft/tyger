@@ -113,6 +113,7 @@ func newRootCommand() *cobra.Command {
 							log.Warn().Msg("OpenFile operation canceled. Will discard input")
 							outputWriter = io.Discard
 							go func() {
+								// give some time for a client to connect and pass in the data that will be discarded instead of just closing the listner.
 								time.Sleep(time.Minute)
 								cancel()
 							}()
@@ -179,6 +180,7 @@ func newRootCommand() *cobra.Command {
 							log.Warn().Msg("OpenFile operation canceled. Will return an empty response body.")
 							readerChan <- io.NopCloser(bytes.NewReader([]byte{}))
 							go func() {
+								// give some time for a client to connect and observe the empty reponse instead of just closing the listener
 								time.Sleep(time.Minute)
 								cancel()
 							}()

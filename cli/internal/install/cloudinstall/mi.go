@@ -21,26 +21,26 @@ const (
 	migrationRunnerManagedIdentityName = "tyger-migration-runner"
 )
 
-func (i *Installer) createTygerServerManagedIdentity(ctx context.Context) (*armmsi.Identity, error) {
-	return i.createManagedIdentity(ctx, tygerServerManagedIdentityName)
+func (inst *Installer) createTygerServerManagedIdentity(ctx context.Context) (*armmsi.Identity, error) {
+	return inst.createManagedIdentity(ctx, tygerServerManagedIdentityName)
 }
 
-func (i *Installer) createMigrationRunnerManagedIdentity(ctx context.Context) (*armmsi.Identity, error) {
-	return i.createManagedIdentity(ctx, migrationRunnerManagedIdentityName)
+func (inst *Installer) createMigrationRunnerManagedIdentity(ctx context.Context) (*armmsi.Identity, error) {
+	return inst.createManagedIdentity(ctx, migrationRunnerManagedIdentityName)
 }
 
-func (i *Installer) createManagedIdentity(ctx context.Context, name string) (*armmsi.Identity, error) {
+func (inst *Installer) createManagedIdentity(ctx context.Context, name string) (*armmsi.Identity, error) {
 	log.Info().Msgf("Creating or updating managed identity '%s'", name)
 
-	identitiesClient, err := armmsi.NewUserAssignedIdentitiesClient(i.Config.Cloud.SubscriptionID, i.Credential, nil)
+	identitiesClient, err := armmsi.NewUserAssignedIdentitiesClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create managed identities client: %w", err)
 	}
 
-	resp, err := identitiesClient.CreateOrUpdate(ctx, i.Config.Cloud.ResourceGroup, name, armmsi.Identity{
-		Location: &i.Config.Cloud.DefaultLocation,
+	resp, err := identitiesClient.CreateOrUpdate(ctx, inst.Config.Cloud.ResourceGroup, name, armmsi.Identity{
+		Location: &inst.Config.Cloud.DefaultLocation,
 		Tags: map[string]*string{
-			TagKey: &i.Config.EnvironmentName,
+			TagKey: &inst.Config.EnvironmentName,
 		},
 	}, nil)
 
@@ -51,7 +51,7 @@ func (i *Installer) createManagedIdentity(ctx context.Context, name string) (*ar
 	return &resp.Identity, nil
 }
 
-func (i *Installer) createFederatedIdentityCredential(
+func (inst *Installer) createFederatedIdentityCredential(
 	ctx context.Context,
 	managedIdentityPromise *install.Promise[*armmsi.Identity],
 	clusterPromise *install.Promise[*armcontainerservice.ManagedCluster],
@@ -80,12 +80,12 @@ func (i *Installer) createFederatedIdentityCredential(
 		},
 	}
 
-	client, err := armmsi.NewFederatedIdentityCredentialsClient(i.Config.Cloud.SubscriptionID, i.Credential, nil)
+	client, err := armmsi.NewFederatedIdentityCredentialsClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create federated identity credentials client: %w", err)
 	}
 
-	existingCred, err := client.Get(ctx, i.Config.Cloud.ResourceGroup, *mi.Name, *mi.Name, nil)
+	existingCred, err := client.Get(ctx, inst.Config.Cloud.ResourceGroup, *mi.Name, *mi.Name, nil)
 	if err != nil {
 		var respErr *azcore.ResponseError
 		if !errors.As(err, &respErr) || respErr.StatusCode != http.StatusNotFound {
@@ -101,7 +101,7 @@ func (i *Installer) createFederatedIdentityCredential(
 		}
 	}
 
-	_, err = client.CreateOrUpdate(ctx, i.Config.Cloud.ResourceGroup, *mi.Name, *mi.Name, desiredCred, nil)
+	_, err = client.CreateOrUpdate(ctx, inst.Config.Cloud.ResourceGroup, *mi.Name, *mi.Name, desiredCred, nil)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create federated identity credential: %w", err)

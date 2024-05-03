@@ -38,7 +38,7 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-func (i *Installer) installTraefik(ctx context.Context, restConfigPromise *install.Promise[*rest.Config]) (any, error) {
+func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *install.Promise[*rest.Config]) (any, error) {
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
 		return nil, install.ErrDependencyFailed
@@ -65,14 +65,14 @@ func (i *Installer) installTraefik(ctx context.Context, restConfigPromise *insta
 			},
 			"service": map[string]any{
 				"annotations": map[string]any{
-					"service.beta.kubernetes.io/azure-dns-label-name": strings.Split(i.Config.Api.DomainName, ".")[0],
+					"service.beta.kubernetes.io/azure-dns-label-name": strings.Split(inst.Config.Api.DomainName, ".")[0],
 				},
 			},
 		}}
 
 	var overrides *HelmChartConfig
-	if i.Config.Api.Helm != nil && i.Config.Api.Helm.Traefik != nil {
-		overrides = i.Config.Api.Helm.Traefik
+	if inst.Config.Api.Helm != nil && inst.Config.Api.Helm.Traefik != nil {
+		overrides = inst.Config.Api.Helm.Traefik
 	}
 
 	startTime := time.Now().Add(-10 * time.Second)
@@ -102,7 +102,7 @@ func (i *Installer) installTraefik(ctx context.Context, restConfigPromise *insta
 	return nil, nil
 }
 
-func (i *Installer) installCertManager(ctx context.Context, restConfigPromise *install.Promise[*rest.Config]) (any, error) {
+func (inst *Installer) installCertManager(ctx context.Context, restConfigPromise *install.Promise[*rest.Config]) (any, error) {
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
 		return nil, install.ErrDependencyFailed
@@ -123,8 +123,8 @@ func (i *Installer) installCertManager(ctx context.Context, restConfigPromise *i
 	}
 
 	var overrides *HelmChartConfig
-	if i.Config.Api.Helm != nil && i.Config.Api.Helm.CertManager != nil {
-		overrides = i.Config.Api.Helm.CertManager
+	if inst.Config.Api.Helm != nil && inst.Config.Api.Helm.CertManager != nil {
+		overrides = inst.Config.Api.Helm.CertManager
 	}
 
 	if _, _, err := installHelmChart(ctx, restConfig, &certManagerConfig, overrides, false); err != nil {
@@ -134,7 +134,7 @@ func (i *Installer) installCertManager(ctx context.Context, restConfigPromise *i
 	return nil, nil
 }
 
-func (i *Installer) installNvidiaDevicePlugin(ctx context.Context, restConfigPromise *install.Promise[*rest.Config]) (any, error) {
+func (inst *Installer) installNvidiaDevicePlugin(ctx context.Context, restConfigPromise *install.Promise[*rest.Config]) (any, error) {
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
 		return nil, install.ErrDependencyFailed
@@ -182,8 +182,8 @@ func (i *Installer) installNvidiaDevicePlugin(ctx context.Context, restConfigPro
 	}
 
 	var overrides *HelmChartConfig
-	if i.Config.Api.Helm != nil && i.Config.Api.Helm.NvidiaDevicePlugin != nil {
-		overrides = i.Config.Api.Helm.NvidiaDevicePlugin
+	if inst.Config.Api.Helm != nil && inst.Config.Api.Helm.NvidiaDevicePlugin != nil {
+		overrides = inst.Config.Api.Helm.NvidiaDevicePlugin
 	}
 
 	if _, _, err := installHelmChart(ctx, restConfig, &nvdpConfig, overrides, false); err != nil {
@@ -193,18 +193,18 @@ func (i *Installer) installNvidiaDevicePlugin(ctx context.Context, restConfigPro
 	return nil, nil
 }
 
-func (i *Installer) InstallTyger(ctx context.Context) error {
-	restConfig, err := i.GetUserRESTConfig(ctx)
+func (inst *Installer) InstallTyger(ctx context.Context) error {
+	restConfig, err := inst.GetUserRESTConfig(ctx)
 	if err != nil {
 		return err
 	}
 
-	manifest, _, err := i.InstallTygerHelmChart(ctx, restConfig, false)
+	manifest, _, err := inst.InstallTygerHelmChart(ctx, restConfig, false)
 	if err != nil {
 		return err
 	}
 
-	baseEndpoint := fmt.Sprintf("https://%s", i.Config.Api.DomainName)
+	baseEndpoint := fmt.Sprintf("https://%s", inst.Config.Api.DomainName)
 	healthCheckEndpoint := fmt.Sprintf("%s/healthcheck", baseEndpoint)
 
 	client := client.DefaultClient
@@ -315,7 +315,7 @@ func (i *Installer) InstallTyger(ctx context.Context) error {
 	return nil
 }
 
-func (i *Installer) InstallTygerHelmChart(ctx context.Context, restConfig *rest.Config, dryRun bool) (manifest string, valuesYaml string, err error) {
+func (inst *Installer) InstallTygerHelmChart(ctx context.Context, restConfig *rest.Config, dryRun bool) (manifest string, valuesYaml string, err error) {
 	if install.ContainerRegistry == "" {
 		panic("officialContainerRegistry not set during build")
 	}
@@ -324,34 +324,34 @@ func (i *Installer) InstallTygerHelmChart(ctx context.Context, restConfig *rest.
 		panic("officialContainerImageTag not set during build")
 	}
 
-	clustersConfigJson, err := json.Marshal(i.Config.Cloud.Compute.Clusters)
+	clustersConfigJson, err := json.Marshal(inst.Config.Cloud.Compute.Clusters)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to marshal cluster configuration: %w", err)
 	}
 
-	identitiesClient, err := armmsi.NewUserAssignedIdentitiesClient(i.Config.Cloud.SubscriptionID, i.Credential, nil)
+	identitiesClient, err := armmsi.NewUserAssignedIdentitiesClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to create managed identities client: %w", err)
 	}
 
-	tygerServerIdentity, err := identitiesClient.Get(ctx, i.Config.Cloud.ResourceGroup, tygerServerManagedIdentityName, nil)
+	tygerServerIdentity, err := identitiesClient.Get(ctx, inst.Config.Cloud.ResourceGroup, tygerServerManagedIdentityName, nil)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to get managed identity: %w", err)
 	}
 
-	migrationRunnerIdentity, err := identitiesClient.Get(ctx, i.Config.Cloud.ResourceGroup, migrationRunnerManagedIdentityName, nil)
+	migrationRunnerIdentity, err := identitiesClient.Get(ctx, inst.Config.Cloud.ResourceGroup, migrationRunnerManagedIdentityName, nil)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to get managed identity: %w", err)
 	}
 
-	storageClient, err := armstorage.NewAccountsClient(i.Config.Cloud.SubscriptionID, i.Credential, nil)
+	storageClient, err := armstorage.NewAccountsClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to create storage client: %w", err)
 	}
 
 	buffersStorageAccountValues := make([]map[string]any, 0)
-	for _, accountConfig := range i.Config.Cloud.Storage.Buffers {
-		acc, err := storageClient.GetProperties(ctx, i.Config.Cloud.ResourceGroup, accountConfig.Name, nil)
+	for _, accountConfig := range inst.Config.Cloud.Storage.Buffers {
+		acc, err := storageClient.GetProperties(ctx, inst.Config.Cloud.ResourceGroup, accountConfig.Name, nil)
 		if err != nil {
 			return "", "", fmt.Errorf("failed to get buffer storage account properties: %w", err)
 		}
@@ -365,22 +365,22 @@ func (i *Installer) InstallTygerHelmChart(ctx context.Context, restConfig *rest.
 		buffersStorageAccountValues = append(buffersStorageAccountValues, accountValues)
 	}
 
-	logArchiveAccount, err := storageClient.GetProperties(ctx, i.Config.Cloud.ResourceGroup, i.Config.Cloud.Storage.Logs.Name, nil)
+	logArchiveAccount, err := storageClient.GetProperties(ctx, inst.Config.Cloud.ResourceGroup, inst.Config.Cloud.Storage.Logs.Name, nil)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to get logs storage account properties: %w", err)
 	}
 
-	dbServersClient, err := armpostgresqlflexibleservers.NewServersClient(i.Config.Cloud.SubscriptionID, i.Credential, nil)
+	dbServersClient, err := armpostgresqlflexibleservers.NewServersClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to create PostgreSQL server client: %w", err)
 	}
 
-	dbServerName, err := i.getDatabaseServerName(ctx, false)
+	dbServerName, err := inst.getDatabaseServerName(ctx, false)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to get database server name: %w", err)
 	}
 
-	dbServer, err := dbServersClient.Get(ctx, i.Config.Cloud.ResourceGroup, dbServerName, nil)
+	dbServer, err := dbServersClient.Get(ctx, inst.Config.Cloud.ResourceGroup, dbServerName, nil)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to get PostgreSQL server: %w", err)
 	}
@@ -394,7 +394,7 @@ func (i *Installer) InstallTygerHelmChart(ctx context.Context, restConfig *rest.
 			"image":              fmt.Sprintf("%s/tyger-server:%s", install.ContainerRegistry, install.ContainerImageTag),
 			"bufferSidecarImage": fmt.Sprintf("%s/buffer-sidecar:%s", install.ContainerRegistry, install.ContainerImageTag),
 			"workerWaiterImage":  fmt.Sprintf("%s/worker-waiter:%s", install.ContainerRegistry, install.ContainerImageTag),
-			"hostname":           i.Config.Api.DomainName,
+			"hostname":           inst.Config.Api.DomainName,
 			"identity": map[string]any{
 				"tygerServer": map[string]any{
 					"name":     tygerServerIdentity.Name,
@@ -407,9 +407,9 @@ func (i *Installer) InstallTygerHelmChart(ctx context.Context, restConfig *rest.
 			},
 			"security": map[string]any{
 				"enabled":   true,
-				"authority": cloud.AzurePublic.ActiveDirectoryAuthorityHost + i.Config.Api.Auth.TenantID,
-				"audience":  i.Config.Api.Auth.ApiAppUri,
-				"cliAppUri": i.Config.Api.Auth.CliAppUri,
+				"authority": cloud.AzurePublic.ActiveDirectoryAuthorityHost + inst.Config.Api.Auth.TenantID,
+				"audience":  inst.Config.Api.Auth.ApiAppUri,
+				"cliAppUri": inst.Config.Api.Auth.CliAppUri,
 			},
 			"tls": map[string]any{
 				"letsEncrypt": map[string]any{
@@ -432,8 +432,8 @@ func (i *Installer) InstallTygerHelmChart(ctx context.Context, restConfig *rest.
 	}
 
 	var overrides *HelmChartConfig
-	if i.Config.Api.Helm != nil && i.Config.Api.Helm.Tyger != nil {
-		overrides = i.Config.Api.Helm.Tyger
+	if inst.Config.Api.Helm != nil && inst.Config.Api.Helm.Tyger != nil {
+		overrides = inst.Config.Api.Helm.Tyger
 	}
 
 	adjustSpec := func(cs *helmclient.ChartSpec, c helmclient.Client) error {
@@ -448,9 +448,9 @@ func (i *Installer) InstallTygerHelmChart(ctx context.Context, restConfig *rest.
 	return manifest, valuesYaml, nil
 }
 
-func (i *Installer) getMigrationRunnerJobDefinition(ctx context.Context, restConfig *rest.Config) (*batchv1.Job, error) {
+func (inst *Installer) getMigrationRunnerJobDefinition(ctx context.Context, restConfig *rest.Config) (*batchv1.Job, error) {
 	dryRun := true
-	manifest, _, err := i.InstallTygerHelmChart(ctx, restConfig, dryRun)
+	manifest, _, err := inst.InstallTygerHelmChart(ctx, restConfig, dryRun)
 	if err != nil {
 		return nil, err
 	}
@@ -597,8 +597,8 @@ func GetChartSpec(
 	return chartSpec, nil
 }
 
-func (i *Installer) UninstallTyger(ctx context.Context, _ bool) error {
-	restConfig, err := i.GetUserRESTConfig(ctx)
+func (inst *Installer) UninstallTyger(ctx context.Context, _ bool) error {
+	restConfig, err := inst.GetUserRESTConfig(ctx)
 	if err != nil {
 		return err
 	}

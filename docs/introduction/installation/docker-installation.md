@@ -26,8 +26,6 @@ You should now be able to run `tyger --version`.
 We will now generate an installation configuration file, which will be used for
 subsequent installation steps.
 
-First, ensure you're logged into the Azure CLI using `az login`.
-
 Next, generate the file with:
 
 ```bash
@@ -124,7 +122,7 @@ Note: This does **not** delete any database data or buffers. To **permanently**
 delete all data along with the API, run:
 
 ```bash
-tyger cloud uninstall -f config.yml --delete-data
+tyger api uninstall -f config.yml --delete-data
 ```
 
 ## Security and remote access

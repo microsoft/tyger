@@ -18,20 +18,20 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func (i *Installer) preflightCheck(ctx context.Context) error {
-	if err := i.checkRPsRegistered(ctx); err != nil {
+func (inst *Installer) preflightCheck(ctx context.Context) error {
+	if err := inst.checkRPsRegistered(ctx); err != nil {
 		return err
 	}
 
-	if err := i.checkRbac(ctx); err != nil {
+	if err := inst.checkRbac(ctx); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (i *Installer) checkRPsRegistered(ctx context.Context) error {
-	providersClient, err := armresources.NewProvidersClient(i.Config.Cloud.SubscriptionID, i.Credential, nil)
+func (inst *Installer) checkRPsRegistered(ctx context.Context) error {
+	providersClient, err := armresources.NewProvidersClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create providers client: %w", err)
 	}
@@ -41,12 +41,12 @@ func (i *Installer) checkRPsRegistered(ctx context.Context) error {
 		"Microsoft.ContainerService",
 	}
 
-	if i.Config.Cloud.LogAnalyticsWorkspace != nil {
+	if inst.Config.Cloud.LogAnalyticsWorkspace != nil {
 		requiredProviders = append(requiredProviders, "Microsoft.OperationsManagement", "Microsoft.OperationalInsights")
 	}
 
 	for _, p := range requiredProviders {
-		if err := i.checkRPRegistered(ctx, providersClient, p); err != nil {
+		if err := inst.checkRPRegistered(ctx, providersClient, p); err != nil {
 			return err
 		}
 	}
@@ -54,7 +54,7 @@ func (i *Installer) checkRPsRegistered(ctx context.Context) error {
 	return nil
 }
 
-func (i *Installer) checkRPRegistered(ctx context.Context, providersClient *armresources.ProvidersClient, providerNamespace string) error {
+func (inst *Installer) checkRPRegistered(ctx context.Context, providersClient *armresources.ProvidersClient, providerNamespace string) error {
 	rp, err := providersClient.Get(ctx, providerNamespace, nil)
 	if err != nil {
 		return fmt.Errorf("failed to get %s provider: %w", providerNamespace, err)
@@ -71,8 +71,8 @@ func (i *Installer) checkRPRegistered(ctx context.Context, providersClient *armr
 	return nil
 }
 
-func (i *Installer) checkRbac(ctx context.Context) error {
-	tokenResponse, err := i.Credential.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{cloud.AzurePublic.Services[cloud.ResourceManager].Audience}})
+func (inst *Installer) checkRbac(ctx context.Context) error {
+	tokenResponse, err := inst.Credential.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{cloud.AzurePublic.Services[cloud.ResourceManager].Audience}})
 	if err != nil {
 		return err
 	}
@@ -84,7 +84,7 @@ func (i *Installer) checkRbac(ctx context.Context) error {
 	}
 	principalId := claims["oid"].(string)
 
-	assignmentClient, err := armauthorization.NewRoleAssignmentsClient(i.Config.Cloud.SubscriptionID, i.Credential, nil)
+	assignmentClient, err := armauthorization.NewRoleAssignmentsClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create role assignment client: %w", err)
 	}
@@ -105,14 +105,14 @@ func (i *Installer) checkRbac(ctx context.Context) error {
 		}
 	}
 
-	roleDefsClient, err := armauthorization.NewRoleDefinitionsClient(i.Credential, nil)
+	roleDefsClient, err := armauthorization.NewRoleDefinitionsClient(inst.Credential, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create role definitions client: %w", err)
 	}
 
 	roleDefs := make(map[string]armauthorization.RoleDefinition)
 
-	roleDefsPager := roleDefsClient.NewListPager(fmt.Sprintf("/subscriptions/%s", i.Config.Cloud.SubscriptionID), nil)
+	roleDefsPager := roleDefsClient.NewListPager(fmt.Sprintf("/subscriptions/%s", inst.Config.Cloud.SubscriptionID), nil)
 	for roleDefsPager.More() {
 		page, err := roleDefsPager.NextPage(ctx)
 		if err != nil {
@@ -132,11 +132,11 @@ func (i *Installer) checkRbac(ctx context.Context) error {
 	}
 
 	storageScopes := []string{
-		fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s", i.Config.Cloud.SubscriptionID, i.Config.Cloud.ResourceGroup, i.Config.Cloud.Storage.Logs.Name),
+		fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s", inst.Config.Cloud.SubscriptionID, inst.Config.Cloud.ResourceGroup, inst.Config.Cloud.Storage.Logs.Name),
 	}
 
-	for _, bufferAccount := range i.Config.Cloud.Storage.Buffers {
-		storageScopes = append(storageScopes, fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s", i.Config.Cloud.SubscriptionID, i.Config.Cloud.ResourceGroup, bufferAccount.Name))
+	for _, bufferAccount := range inst.Config.Cloud.Storage.Buffers {
+		storageScopes = append(storageScopes, fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s", inst.Config.Cloud.SubscriptionID, inst.Config.Cloud.ResourceGroup, bufferAccount.Name))
 	}
 
 	for _, scope := range storageScopes {
@@ -155,8 +155,8 @@ func (i *Installer) checkRbac(ctx context.Context) error {
 	}
 
 	aksScopes := make([]string, 0)
-	for _, c := range i.Config.Cloud.Compute.Clusters {
-		aksScopes = append(aksScopes, fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ContainerService/managedClusters/%s", i.Config.Cloud.SubscriptionID, i.Config.Cloud.ResourceGroup, c.Name))
+	for _, c := range inst.Config.Cloud.Compute.Clusters {
+		aksScopes = append(aksScopes, fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ContainerService/managedClusters/%s", inst.Config.Cloud.SubscriptionID, inst.Config.Cloud.ResourceGroup, c.Name))
 	}
 
 	for _, scope := range aksScopes {
@@ -168,8 +168,8 @@ func (i *Installer) checkRbac(ctx context.Context) error {
 	}
 
 	// Attached container registries
-	for _, acr := range i.Config.Cloud.Compute.PrivateContainerRegistries {
-		id, err := getContainerRegistryId(ctx, acr, i.Config.Cloud.SubscriptionID, i.Credential)
+	for _, acr := range inst.Config.Cloud.Compute.PrivateContainerRegistries {
+		id, err := getContainerRegistryId(ctx, acr, inst.Config.Cloud.SubscriptionID, inst.Credential)
 		if err != nil {
 			return err
 		}
@@ -180,8 +180,8 @@ func (i *Installer) checkRbac(ctx context.Context) error {
 	}
 
 	// Log Analytics
-	if i.Config.Cloud.LogAnalyticsWorkspace != nil {
-		scope := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.OperationalInsights/workspaces/%s", i.Config.Cloud.SubscriptionID, i.Config.Cloud.LogAnalyticsWorkspace.ResourceGroup, i.Config.Cloud.LogAnalyticsWorkspace.Name)
+	if inst.Config.Cloud.LogAnalyticsWorkspace != nil {
+		scope := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.OperationalInsights/workspaces/%s", inst.Config.Cloud.SubscriptionID, inst.Config.Cloud.LogAnalyticsWorkspace.ResourceGroup, inst.Config.Cloud.LogAnalyticsWorkspace.Name)
 		laRequiredActions := []string{
 			"Microsoft.ManagedIdentity/userAssignedIdentities/assign/action",
 			"Microsoft.OperationalInsights/workspaces/read",

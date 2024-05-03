@@ -21,23 +21,23 @@ var (
 	DatabaseServerNameRegex = regexp.MustCompile(`^([a-z0-9](?:[a-z0-9\-]{1,61}[a-z0-9])?)?$`)
 )
 
-func (i *Installer) QuickValidateConfig() bool {
+func (inst *Installer) QuickValidateConfig() bool {
 	success := true
 
-	if i.Config.EnvironmentName == "" {
+	if inst.Config.EnvironmentName == "" {
 		validationError(&success, "The `environmentName` field is required")
-	} else if !ResourceNameRegex.MatchString(i.Config.EnvironmentName) {
+	} else if !ResourceNameRegex.MatchString(inst.Config.EnvironmentName) {
 		validationError(&success, "The `environmentName` field must match the pattern "+ResourceNameRegex.String())
 	}
 
-	i.quickValidateCloudConfig(&success)
-	i.quickValidateApiConfig(&success)
+	inst.quickValidateCloudConfig(&success)
+	inst.quickValidateApiConfig(&success)
 
 	return success
 }
 
-func (i *Installer) quickValidateCloudConfig(success *bool) {
-	cloudConfig := i.Config.Cloud
+func (inst *Installer) quickValidateCloudConfig(success *bool) {
+	cloudConfig := inst.Config.Cloud
 	if cloudConfig == nil {
 		validationError(success, "The `cloud` field is required")
 		return
@@ -52,7 +52,7 @@ func (i *Installer) quickValidateCloudConfig(success *bool) {
 	}
 
 	if cloudConfig.ResourceGroup == "" {
-		cloudConfig.ResourceGroup = i.Config.EnvironmentName
+		cloudConfig.ResourceGroup = inst.Config.EnvironmentName
 	} else if !ResourceNameRegex.MatchString(cloudConfig.ResourceGroup) {
 		validationError(success, "The `cloud.resourceGroup` field must match the pattern "+ResourceNameRegex.String())
 	}
@@ -270,17 +270,17 @@ func GetDomainNameRegex(location string) *regexp.Regexp {
 	return regexp.MustCompile(fmt.Sprintf(`^[a-zA-Z]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?%s$`, regexp.QuoteMeta(GetDomainNameSuffix(location))))
 }
 
-func (i *Installer) quickValidateApiConfig(success *bool) {
-	apiConfig := i.Config.Api
+func (inst *Installer) quickValidateApiConfig(success *bool) {
+	apiConfig := inst.Config.Api
 	if apiConfig == nil {
 		validationError(success, "The `api` field is required")
 		return
 	}
 
-	if i.Config.Cloud != nil && i.Config.Cloud.Compute != nil {
-		apiHostCluster := i.Config.Cloud.Compute.GetApiHostCluster()
+	if inst.Config.Cloud != nil && inst.Config.Cloud.Compute != nil {
+		apiHostCluster := inst.Config.Cloud.Compute.GetApiHostCluster()
 		if apiHostCluster.Location != "" {
-			apiHostLocation := i.Config.Cloud.Compute.GetApiHostCluster().Location
+			apiHostLocation := inst.Config.Cloud.Compute.GetApiHostCluster().Location
 			domainNameRegex := GetDomainNameRegex(apiHostLocation)
 			if !domainNameRegex.MatchString(apiConfig.DomainName) {
 				validationError(success, "The `api.domainName` field must match the pattern "+domainNameRegex.String())
