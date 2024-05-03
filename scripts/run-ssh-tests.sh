@@ -63,6 +63,7 @@ docker create \
     -p $ssh_port:22 \
     -e "SSH_USERS=$ssh_user:$(id -u):4000" \
     -e "SSH_GROUPS=tygerusers:4000" \
+    -e "TCP_FORWARDING=true" \
     -v "$(wsl_host_path "/opt/tyger"):/opt/tyger" \
     --name $container_name \
     quay.io/panubo/sshd:1.6.0 >/dev/null
@@ -105,6 +106,8 @@ Host $ssh_host
   ControlPersist  yes
   ${config_identity_line:-}
 $end_marker"
+
+ssh-keygen -f "${HOME}/.ssh/known_hosts" -R "$ssh_connection_host"
 
 mkdir -p ~/.ssh
 cleanup_ssh_config

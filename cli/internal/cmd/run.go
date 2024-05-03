@@ -136,8 +136,8 @@ func newRunExecCommand() *cobra.Command {
 	postCreate := func(ctx context.Context, run model.Run) error {
 		log.Logger = log.Logger.With().Int64("runId", run.Id).Logger()
 		log.Info().Msg("Run created")
-		var inputSasUri string
-		var outputSasUri string
+		var inputSasUri *url.URL
+		var outputSasUri *url.URL
 		var err error
 		if inputBufferParameter != "" {
 			bufferId := run.Job.Buffers[inputBufferParameter]
@@ -165,7 +165,7 @@ func newRunExecCommand() *cobra.Command {
 			log.Warn().Msg("Canceling...")
 		}()
 
-		if inputSasUri != "" {
+		if inputSasUri != nil {
 			mainWg.Add(1)
 			go func() {
 				defer mainWg.Done()
@@ -181,7 +181,7 @@ func newRunExecCommand() *cobra.Command {
 			}()
 		}
 
-		if outputSasUri != "" {
+		if outputSasUri != nil {
 			mainWg.Add(1)
 			go func() {
 				defer mainWg.Done()

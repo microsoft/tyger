@@ -12,8 +12,6 @@ import (
 	"path"
 	"strings"
 	"time"
-
-	"github.com/hashicorp/go-retryablehttp"
 )
 
 const (
@@ -140,15 +138,6 @@ func (c *Container) GetContainerName() string {
 func (c *Container) SupportsRelay() bool {
 	relayParam, ok := c.Query()["relay"]
 	return ok && len(relayParam) == 1 && relayParam[0] == "true"
-}
-
-func NewContainer(sasUri string, httpClient *retryablehttp.Client) (*Container, error) {
-	parsedUri, err := url.Parse(sasUri)
-	if err != nil {
-		return nil, err
-	}
-
-	return &Container{parsedUri}, nil
 }
 
 func AddCommonBlobRequestHeaders(header http.Header) {

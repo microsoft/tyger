@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
-	"net"
 	"os"
 	"os/exec"
 	"path"
@@ -26,6 +25,7 @@ import (
 	"github.com/eiannone/keyboard"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/ipinfo/go/v2/ipinfo"
+	"github.com/microsoft/tyger/cli/internal/dataplane"
 	"github.com/microsoft/tyger/cli/internal/install/cloudinstall"
 	"github.com/microsoft/tyger/cli/internal/install/dockerinstall"
 
@@ -223,7 +223,7 @@ PromptPublicKey:
 	}
 
 	portString := ""
-	port, err := GetFreePort()
+	port, err := dataplane.GetFreePort()
 	if err == nil {
 		portString = strconv.Itoa(port)
 	}
@@ -692,16 +692,4 @@ func (p ExtendedPrincipal) String() string {
 	}
 
 	return p.ObjectId
-}
-
-func GetFreePort() (port int, err error) {
-	var a *net.TCPAddr
-	if a, err = net.ResolveTCPAddr("tcp", "localhost:0"); err == nil {
-		var l *net.TCPListener
-		if l, err = net.ListenTCP("tcp", a); err == nil {
-			defer l.Close()
-			return l.Addr().(*net.TCPAddr).Port, nil
-		}
-	}
-	return
 }

@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -57,7 +58,8 @@ func WithReadHttpClient(httpClient *retryablehttp.Client) ReadOption {
 	}
 }
 
-func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...ReadOption) error {
+func Read(ctx context.Context, uri *url.URL, outputWriter io.Writer, options ...ReadOption) error {
+	container := &Container{uri}
 	readOptions := &readOptions{
 		dop: DefaultReadDop,
 	}
@@ -68,8 +70,17 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 	if readOptions.httpClient == nil {
 		tygerClient, _ := controlplane.GetClientFromCache()
 		if tygerClient != nil {
+			readOptions.connectionType = tygerClient.ConnectionType()
 			readOptions.httpClient = tygerClient.DataPlaneClient.Client
-			readOptions.connectionType = tygerClient.ConnectionType
+			if tygerClient.ConnectionType() == client.TygerConnectionTypeSsh && uri.Scheme == "http+unix" {
+				httpClient, tunnelPool, err := createSshTunnelPoolClient(ctx, tygerClient, container, readOptions.dop)
+				if err != nil {
+					return err
+				}
+
+				defer tunnelPool.Close()
+				readOptions.httpClient = httpClient
+			}
 		} else {
 			readOptions.httpClient = client.DefaultRetryableClient
 		}
@@ -81,10 +92,6 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 	defer cancel()
 
 	ctx = log.With().Str("operation", "buffer read").Logger().WithContext(ctx)
-	container, err := NewContainer(uri, httpClient)
-	if err != nil {
-		log.Ctx(ctx).Fatal().Err(err).Msg("invalid URL:")
-	}
 
 	if container.SupportsRelay() {
 		return readRelay(ctx, httpClient, readOptions.connectionType, container, outputWriter)
@@ -305,12 +312,10 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUri
 			}
 		}
 
-		req, err := retryablehttp.NewRequest(http.MethodGet, blobUri, nil)
+		req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, blobUri, nil)
 		if err != nil {
 			return nil, err
 		}
-
-		req = req.WithContext(ctx)
 
 		AddCommonBlobRequestHeaders(req.Header)
 
@@ -389,7 +394,7 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUri
 			}
 
 			if retryCount < MaxRetries {
-				log.Ctx(ctx).Warn().Err(err).Msg("Error reading response body, retrying")
+				log.Ctx(ctx).Debug().Err(err).Msg("Error reading response body, retrying")
 
 				// wait in the same way as retryablehttp
 				wait := httpClient.Backoff(httpClient.RetryWaitMin, httpClient.RetryWaitMax, retryCount, resp)

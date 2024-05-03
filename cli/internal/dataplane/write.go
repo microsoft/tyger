@@ -70,7 +70,8 @@ func WithWriteMetadataEndWriteTimeout(timeout time.Duration) WriteOption {
 
 // If invalidHashChain is set to true, the value of the hash chain attached to the blob will
 // always be the Inital Value. This should only be set for testing.
-func Write(ctx context.Context, uri string, inputReader io.Reader, options ...WriteOption) error {
+func Write(ctx context.Context, uri *url.URL, inputReader io.Reader, options ...WriteOption) error {
+	container := &Container{uri}
 	writeOptions := &writeOptions{
 		dop:                     DefaultWriteDop,
 		blockSize:               DefaultBlockSize,
@@ -85,7 +86,16 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 		tygerClient, _ := controlplane.GetClientFromCache()
 		if tygerClient != nil {
 			writeOptions.httpClient = tygerClient.DataPlaneClient.Client
-			writeOptions.connectionType = tygerClient.ConnectionType
+			writeOptions.connectionType = tygerClient.ConnectionType()
+			if tygerClient.ConnectionType() == client.TygerConnectionTypeSsh && uri.Scheme == "http+unix" {
+				httpClient, tunnelPool, err := createSshTunnelPoolClient(ctx, tygerClient, container, writeOptions.dop)
+				if err != nil {
+					return err
+				}
+
+				defer tunnelPool.Close()
+				writeOptions.httpClient = httpClient
+			}
 		} else {
 			writeOptions.httpClient = client.DefaultClient.Client
 		}
@@ -95,11 +105,6 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-
-	container, err := NewContainer(uri, httpClient)
-	if err != nil {
-		return fmt.Errorf("invalid URL: %w", err)
-	}
 
 	if container.SupportsRelay() {
 		return relayWrite(ctx, httpClient, writeOptions.connectionType, container, inputReader)

@@ -203,24 +203,21 @@ func newLoginStatusCommand() *cobra.Command {
 				return fmt.Errorf("run `tyger login` to login to a server: %v", err)
 			}
 
-			service, proxy, principal, err := controlplane.GetLoginInfoFromCache()
-			if err != nil {
-				return fmt.Errorf("run `tyger login` to login to a server: %v", err)
-			}
+			service := *tygerClient.RawControlPlaneUrl
 
 			if service.Scheme == "http+unix" {
 				service.Scheme = "unix"
 				service.Path = strings.TrimSuffix(service.Path, ":")
 			}
 
-			if principal == "" {
+			if tygerClient.Principal == "" {
 				fmt.Printf("You are logged in to %s", service.String())
 			} else {
-				fmt.Printf("You are logged in to %s as %s", service.String(), principal)
+				fmt.Printf("You are logged in to %s as %s", service.String(), tygerClient.Principal)
 			}
 
-			if proxy != nil {
-				fmt.Printf(" using proxy server %s", proxy.String())
+			if tygerClient.RawProxy != nil {
+				fmt.Printf(" using proxy server %s", tygerClient.RawProxy.String())
 			}
 			fmt.Println()
 

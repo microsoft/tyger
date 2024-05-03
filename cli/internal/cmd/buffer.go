@@ -187,7 +187,7 @@ func newBufferAccessCommand() *cobra.Command {
 	return cmd
 }
 
-func getBufferAccessUri(ctx context.Context, bufferId string, writable bool) (string, error) {
+func getBufferAccessUri(ctx context.Context, bufferId string, writable bool) (*url.URL, error) {
 	bufferAccess := model.BufferAccess{}
 
 	queryOptions := url.Values{}
@@ -196,7 +196,7 @@ func getBufferAccessUri(ctx context.Context, bufferId string, writable bool) (st
 	tygerClient, err := controlplane.GetClientFromCache()
 	if err == nil {
 		// We're ignoring the error here and will let InvokeRequest handle it
-		switch tygerClient.ConnectionType {
+		switch tygerClient.ConnectionType() {
 		case client.TygerConnectionTypeDocker:
 			queryOptions.Add("preferTcp", "true")
 			if os.Getenv("TYGER_ACCESSING_FROM_DOCKER") == "1" {
@@ -207,8 +207,11 @@ func getBufferAccessUri(ctx context.Context, bufferId string, writable bool) (st
 
 	uri := fmt.Sprintf("v1/buffers/%s/access?%s", bufferId, queryOptions.Encode())
 	_, err = controlplane.InvokeRequest(ctx, http.MethodPost, uri, nil, &bufferAccess)
+	if err != nil {
+		return nil, err
+	}
 
-	return bufferAccess.Uri, err
+	return url.Parse(bufferAccess.Uri)
 }
 
 func NewBufferReadCommand(openFileFunc func(name string, flag int, perm fs.FileMode) (*os.File, error)) *cobra.Command {

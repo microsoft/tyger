@@ -208,14 +208,14 @@ func skipIfDistributedRunsNotSupported(t *testing.T) {
 }
 
 func isUsingUnixSocketDirectlyOrIndirectly() bool {
-	if s, _, _, _ := controlplane.GetLoginInfoFromCache(); s.Scheme == "http+unix" || s.Scheme == "ssh" || s.Scheme == "docker" {
+	if c, _ := controlplane.GetClientFromCache(); c.ControlPlaneUrl.Scheme == "http+unix" {
 		return true
 	}
 	return false
 }
 
 func isUsingUnixSocketDirectly() bool {
-	if s, _, _, _ := controlplane.GetLoginInfoFromCache(); s.Scheme == "http+unix" {
+	if c, _ := controlplane.GetClientFromCache(); c.RawControlPlaneUrl.Scheme == "http+unix" {
 		return true
 	}
 	return false

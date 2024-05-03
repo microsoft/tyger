@@ -162,22 +162,25 @@ const (
 )
 
 type TygerClient struct {
-	ConnectionType     TygerConnectionType
 	ControlPlaneUrl    *url.URL
 	ControlPlaneClient *Client
 	GetAccessToken     AccessTokenFunc
 	DataPlaneClient    *Client
 	Principal          string
+	RawControlPlaneUrl *url.URL
+	RawProxy           *url.URL
 }
 
-func NewTygerClient(connectionType TygerConnectionType, controlPlaneUrl *url.URL, getAccessToken AccessTokenFunc, principal string, controlPlaneClient *Client, dataPlaneClient *Client) *TygerClient {
-	return &TygerClient{
-		ConnectionType:     connectionType,
-		ControlPlaneUrl:    controlPlaneUrl,
-		ControlPlaneClient: controlPlaneClient,
-		DataPlaneClient:    dataPlaneClient,
-		GetAccessToken:     getAccessToken,
-		Principal:          principal,
+func (c *TygerClient) ConnectionType() TygerConnectionType {
+	switch c.RawControlPlaneUrl.Scheme {
+	case "docker":
+		return TygerConnectionTypeDocker
+	case "ssh":
+		return TygerConnectionTypeSsh
+	case "http+unix":
+		return TygerConnectionTypeUnix
+	default:
+		return TygerConnectionTypeTcp
 	}
 }
 
