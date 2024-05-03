@@ -107,9 +107,9 @@ Host $ssh_host
   ${config_identity_line:-}
 $end_marker"
 
+mkdir -p ~/.ssh
 ssh-keygen -f "${HOME}/.ssh/known_hosts" -R "$ssh_connection_host"
 
-mkdir -p ~/.ssh
 cleanup_ssh_config
 echo "$host_config" >>~/.ssh/config
 
