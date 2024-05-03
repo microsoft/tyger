@@ -582,8 +582,7 @@ func GetClientFromCache() (*client.TygerClient, error) {
 		case "http+unix", "https+unix":
 			controlPlaneOptions.DisableRetries = true
 			dataPlaneOptions.DisableRetries = true
-		default:
-			panic(fmt.Sprintf("unhandled scheme: %s", si.parsedServerUri.Scheme))
+		case "http", "https":
 		}
 
 		controlPlaneClient, err := client.NewClient(&controlPlaneOptions)

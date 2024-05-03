@@ -43,8 +43,8 @@ wsl_host_path() {
 }
 
 cleanup_ssh_config() {
-    if [[ -f ~/.ssh/config ]]; then
-        sed -i "/$start_marker/,/$end_marker/d" ~/.ssh/config
+    if [[ -f "${HOME}/.ssh/config" ]]; then
+        sed -i "/$start_marker/,/$end_marker/d" "${HOME}/.ssh/config"
     fi
 }
 
@@ -107,11 +107,13 @@ Host $ssh_host
   ${config_identity_line:-}
 $end_marker"
 
-mkdir -p ~/.ssh
-ssh-keygen -f "${HOME}/.ssh/known_hosts" -R "$ssh_connection_host"
+mkdir -p "${HOME}/.ssh"
 
 cleanup_ssh_config
-echo "$host_config" >>~/.ssh/config
+echo "$host_config" >> "${HOME}/.ssh/config"
+
+touch "${HOME}/.ssh/known_hosts"
+ssh-keygen -f "${HOME}/.ssh/known_hosts" -R "$ssh_connection_host"
 
 max_attempts=30
 attempts=0
