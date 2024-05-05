@@ -72,7 +72,7 @@ func Read(ctx context.Context, uri *url.URL, outputWriter io.Writer, options ...
 		if tygerClient != nil {
 			readOptions.connectionType = tygerClient.ConnectionType()
 			readOptions.httpClient = tygerClient.DataPlaneClient.Client
-			if tygerClient.ConnectionType() == client.TygerConnectionTypeSsh && uri.Scheme == "http+unix" {
+			if tygerClient.ConnectionType() == client.TygerConnectionTypeSsh && uri.Scheme == "http+unix" && !container.SupportsRelay() {
 				httpClient, tunnelPool, err := createSshTunnelPoolClient(ctx, tygerClient, container, readOptions.dop)
 				if err != nil {
 					return err

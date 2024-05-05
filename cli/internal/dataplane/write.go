@@ -88,7 +88,7 @@ func Write(ctx context.Context, uri *url.URL, inputReader io.Reader, options ...
 		if tygerClient != nil {
 			writeOptions.httpClient = tygerClient.DataPlaneClient.Client
 			writeOptions.connectionType = tygerClient.ConnectionType()
-			if tygerClient.ConnectionType() == client.TygerConnectionTypeSsh && uri.Scheme == "http+unix" {
+			if tygerClient.ConnectionType() == client.TygerConnectionTypeSsh && uri.Scheme == "http+unix" && !container.SupportsRelay() {
 				httpClient, tunnelPool, err := createSshTunnelPoolClient(ctx, tygerClient, container, writeOptions.dop)
 				if err != nil {
 					return err
