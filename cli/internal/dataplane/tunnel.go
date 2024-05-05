@@ -48,6 +48,7 @@ func createSshTunnelPoolClient(ctx context.Context, tygerClient *client.TygerCli
 
 type sshTunnelPool struct {
 	socketPath     string
+	ctx            context.Context
 	cancelCtx      context.CancelFunc
 	mutex          sync.Mutex
 	allTunnels     *list.List
@@ -56,6 +57,7 @@ type sshTunnelPool struct {
 }
 
 func (tp *sshTunnelPool) Close() {
+	log.Debug().Msg("Closing SSH tunnel pool")
 	tp.cancelCtx()
 	tp.mutex.Lock()
 	defer tp.mutex.Unlock()
@@ -66,7 +68,7 @@ func (tp *sshTunnelPool) Close() {
 
 func (tp *sshTunnelPool) GetUrl(input *url.URL) *url.URL {
 	tp.mutex.Lock()
-	if len(tp.healthyTunnels) == 0 {
+	if len(tp.healthyTunnels) == 0 || tp.ctx.Err() != nil {
 		tp.mutex.Unlock()
 
 		if input.Scheme == "http" {
@@ -157,6 +159,7 @@ func NewSshTunnelPool(ctx context.Context, sshParams client.SshParams, count int
 
 	pool := &sshTunnelPool{
 		socketPath: sshParams.SocketPath,
+		ctx:        ctx,
 		cancelCtx:  cancelCtx,
 		mutex:      sync.Mutex{},
 		allTunnels: list.New(),
@@ -206,6 +209,7 @@ type sshTunnel struct {
 	Host               string
 	healthCheckRequest *http.Request
 	command            *exec.Cmd
+	exited             chan error
 }
 
 func (t *sshTunnel) Close() {
@@ -215,7 +219,10 @@ func (t *sshTunnel) Close() {
 
 	log.Debug().Int("port", t.Port).Msg("Closing SSH tunnel")
 	t.command.Process.Kill()
-	t.command.Process.Wait()
+	select {
+	case <-t.exited:
+	case <-time.After(500 * time.Millisecond):
+	}
 }
 
 func (t *sshTunnel) healthCheck() error {
@@ -261,6 +268,7 @@ func newSshTunnel(ctx context.Context, pool *sshTunnelPool, sshParams client.Ssh
 		Host:               fmt.Sprintf("localhost:%d", port),
 		healthCheckRequest: healthCheckRequest,
 		command:            cmd,
+		exited:             make(chan error),
 	}
 
 	pool.mutex.Lock()
@@ -271,8 +279,6 @@ func newSshTunnel(ctx context.Context, pool *sshTunnelPool, sshParams client.Ssh
 		return nil, err
 	}
 
-	exitedChan := make(chan error, 1)
-
 	go func() {
 		err := cmd.Wait()
 		if ctx.Err() != nil {
@@ -280,12 +286,12 @@ func newSshTunnel(ctx context.Context, pool *sshTunnelPool, sshParams client.Ssh
 			err = nil
 		}
 		log.Debug().Int("port", port).AnErr("error", err).Bytes("stderr", stdErr.Bytes()).Msg("SSH tunnel closed")
-		exitedChan <- err
+		tunnel.exited <- err
+		close(tunnel.exited)
 	}()
 
 	for {
 		if ctx.Err() != nil {
-			tunnel.Close()
 			return nil, ctx.Err()
 		}
 
@@ -299,7 +305,7 @@ func newSshTunnel(ctx context.Context, pool *sshTunnelPool, sshParams client.Ssh
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case err := <-exitedChan:
+		case err := <-tunnel.exited:
 			return nil, fmt.Errorf("tunnel exited: %w", err)
 		case <-time.After(1 * time.Second):
 		}

@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -150,7 +151,9 @@ func Write(ctx context.Context, uri *url.URL, inputReader io.Reader, options ...
 				bb.CurrentCumulativeHash <- encodedHashChain
 
 				if err := uploadBlobWithRetry(ctx, httpClient, blobUrl, body, encodedMD5Hash, encodedHashChain); err != nil {
-					log.Debug().Err(err).Msg("Encountered error uploading blob")
+					if !errors.Is(err, ctx.Err()) {
+						log.Debug().Err(err).Msg("Encountered error uploading blob")
+					}
 					errorChannel <- err
 					return
 				}
