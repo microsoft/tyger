@@ -14,13 +14,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
 	pool "github.com/libp2p/go-buffer-pool"
-	"github.com/microsoft/tyger/cli/internal/httpclient"
+	"github.com/microsoft/tyger/cli/internal/client"
+	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/rs/zerolog/log"
 )
 
@@ -37,8 +39,9 @@ var (
 )
 
 type readOptions struct {
-	dop        int
-	httpClient *retryablehttp.Client
+	dop            int
+	httpClient     *retryablehttp.Client
+	connectionType client.TygerConnectionType
 }
 
 type ReadOption func(o *readOptions)
@@ -55,7 +58,8 @@ func WithReadHttpClient(httpClient *retryablehttp.Client) ReadOption {
 	}
 }
 
-func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...ReadOption) error {
+func Read(ctx context.Context, uri *url.URL, outputWriter io.Writer, options ...ReadOption) error {
+	container := &Container{uri}
 	readOptions := &readOptions{
 		dop: DefaultReadDop,
 	}
@@ -64,8 +68,22 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 	}
 
 	if readOptions.httpClient == nil {
-		readOptions.httpClient = httpclient.NewRetryableClient()
-		readOptions.httpClient.HTTPClient.Timeout = ResponseTimeout
+		tygerClient, _ := controlplane.GetClientFromCache()
+		if tygerClient != nil {
+			readOptions.connectionType = tygerClient.ConnectionType()
+			readOptions.httpClient = tygerClient.DataPlaneClient.Client
+			if tygerClient.ConnectionType() == client.TygerConnectionTypeSsh && uri.Scheme == "http+unix" && !container.SupportsRelay() {
+				httpClient, tunnelPool, err := createSshTunnelPoolClient(ctx, tygerClient, container, readOptions.dop)
+				if err != nil {
+					return err
+				}
+
+				defer tunnelPool.Close()
+				readOptions.httpClient = httpClient
+			}
+		} else {
+			readOptions.httpClient = client.DefaultRetryableClient
+		}
 	}
 
 	httpClient := readOptions.httpClient
@@ -74,17 +92,12 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 	defer cancel()
 
 	ctx = log.With().Str("operation", "buffer read").Logger().WithContext(ctx)
-	container, err := NewContainer(uri, httpClient)
-	if err != nil {
-		log.Ctx(ctx).Fatal().Err(err).Msg("invalid URL:")
+
+	if container.SupportsRelay() {
+		return readRelay(ctx, httpClient, readOptions.connectionType, container, outputWriter)
 	}
 
-	if err := readBufferStart(ctx, httpClient, container); err != nil {
-		return err
-	}
-
-	errorChannel := make(chan error, 1)
-
+	errorChannel := make(chan error, readOptions.dop*2)
 	waitForBlobs := atomic.Bool{}
 	waitForBlobs.Store(true)
 
@@ -97,6 +110,10 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 		// All blobs should have been written successfully by now.
 		waitForBlobs.Store(false)
 	}()
+
+	if err := readBufferStart(ctx, httpClient, container); err != nil {
+		return err
+	}
 
 	metrics := TransferMetrics{
 		Context:   ctx,
@@ -111,14 +128,24 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 	finalBlobNumber := atomic.Int64{}
 	finalBlobNumber.Store(-1)
 
+	wg := sync.WaitGroup{}
 	for i := 0; i < readOptions.dop; i++ {
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			c := make(chan BufferBlob, 5)
 			for {
 				lock.Lock()
 				blobNumber := nextBlobNumber
 				nextBlobNumber++
-				responseChannel <- c
+				select {
+				case responseChannel <- c:
+				case <-ctx.Done():
+					lock.Unlock()
+					errorChannel <- ctx.Err()
+					return
+				}
+
 				lock.Unlock()
 
 				blobUri := container.GetBlobUri(blobNumber)
@@ -205,8 +232,11 @@ func Read(ctx context.Context, uri string, outputWriter io.Writer, options ...Re
 	select {
 	case <-doneChan:
 		metrics.Stop()
+		wg.Wait()
 		return nil
 	case err := <-errorChannel:
+		cancel()
+		wg.Wait()
 		return err
 	}
 }
@@ -282,18 +312,16 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUri
 			}
 		}
 
-		req, err := retryablehttp.NewRequest(http.MethodGet, blobUri, nil)
+		req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, blobUri, nil)
 		if err != nil {
 			return nil, err
 		}
-
-		req = req.WithContext(ctx)
 
 		AddCommonBlobRequestHeaders(req.Header)
 
 		resp, err := httpClient.Do(req)
 		if err != nil {
-			return nil, httpclient.RedactHttpError(err)
+			return nil, client.RedactHttpError(err)
 		}
 
 		respData, err := handleReadResponse(ctx, resp)
@@ -314,7 +342,7 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUri
 				log.Ctx(ctx).Debug().Msg("MD5 mismatch, retrying")
 				continue
 			} else {
-				return nil, fmt.Errorf("failed to read blob: %w", httpclient.RedactHttpError(err))
+				return nil, fmt.Errorf("failed to read blob: %w", client.RedactHttpError(err))
 			}
 		}
 		if err == ErrNotFound {
@@ -366,7 +394,7 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUri
 			}
 
 			if retryCount < MaxRetries {
-				log.Ctx(ctx).Warn().Err(err).Msg("Error reading response body, retrying")
+				log.Ctx(ctx).Debug().Err(err).Msg("Error reading response body, retrying")
 
 				// wait in the same way as retryablehttp
 				wait := httpClient.Backoff(httpClient.RetryWaitMin, httpClient.RetryWaitMax, retryCount, resp)
@@ -383,7 +411,7 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUri
 			}
 		}
 
-		return nil, httpclient.RedactHttpError(err)
+		return nil, client.RedactHttpError(err)
 	}
 }
 
@@ -407,6 +435,9 @@ func handleReadResponse(ctx context.Context, resp *http.Response) (*readData, er
 		if err != nil {
 			// return the buffer to the pool
 			pool.Put(buf)
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, ctxErr
+			}
 			return nil, &responseBodyReadError{reason: err}
 		}
 

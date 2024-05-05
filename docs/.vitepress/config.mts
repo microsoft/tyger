@@ -18,7 +18,14 @@ export default defineConfig({
         text: "Introduction",
         items: [
           { text: "What is Tyger?", link: "/introduction/what-is-tyger" },
-          { text: "Installation", link: "/introduction/installation" },
+          {
+            text: "Installation",
+            link: "/introduction/installation/installation",
+            items: [
+              { text: "Azure cloud", link: "/introduction/installation/cloud-installation" },
+              { text: "Docker", link: "/introduction/installation/docker-installation" },
+            ],
+          },
         ],
       },
       {
@@ -29,14 +36,21 @@ export default defineConfig({
           { text: "Working with codespecs", link: "/guides/codespecs" },
           { text: "Working with runs", link: "/guides/runs" },
           { text: "Distributed runs", link: "/guides/distributed-runs" },
+          { text: "Ephemeral buffers", link: "/guides/ephemeral-buffers" },
         ],
       },
       {
         text: "Reference",
         collapsed: true,
         items: [
-          { text: "Gadgetron examples", link: "/reference/gadgetron/gadgetron" },
-          { text: "Database management", link: "/reference/database-management" },
+          {
+            text: "Gadgetron examples",
+            link: "/reference/gadgetron/gadgetron",
+          },
+          {
+            text: "Database management",
+            link: "/reference/database-management",
+          },
           { text: "<code>tyger-proxy</code>", link: "/reference/tyger-proxy" },
         ],
       },

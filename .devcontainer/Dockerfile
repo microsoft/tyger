@@ -66,7 +66,7 @@ RUN umask 0002 \
     && VERSION=8.0.100 bash install.sh \
     # GO
     && cd /opt/features/src/go \
-    && VERSION=1.21.3 bash install.sh \
+    && VERSION=1.22.0 bash install.sh \
     && chown -R "${USERNAME}" "${GOROOT}" "${GOPATH}" \
     # GitHub CLI
     && cd /opt/features/src/github-cli/ \
@@ -96,3 +96,5 @@ RUN echo -e "\n\
 if ! grep -q \"^source /opt/devcontainer/devcontainer.bashrc\" \${HOME}/.bashrc; then\n\
 	echo \"source /opt/devcontainer/devcontainer.bashrc\" >> \${HOME}/.bashrc\n\
 fi\n" >> /etc/bash.bashrc
+
+RUN mkdir -p /workspaces && ln -s /workspaces/tyger /workspaces/tyger-docker

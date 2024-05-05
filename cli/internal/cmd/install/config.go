@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -20,10 +21,13 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armsubscriptions"
+	"github.com/a8m/envsubst"
 	"github.com/eiannone/keyboard"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/ipinfo/go/v2/ipinfo"
-	"github.com/microsoft/tyger/cli/internal/install"
+	"github.com/microsoft/tyger/cli/internal/dataplane"
+	"github.com/microsoft/tyger/cli/internal/install/cloudinstall"
+	"github.com/microsoft/tyger/cli/internal/install/dockerinstall"
 
 	"github.com/spf13/cobra"
 
@@ -46,44 +50,19 @@ func NewConfigCommand(parentCommand *cobra.Command) *cobra.Command {
 	}
 
 	installCmd.AddCommand(newConfigCreateCommand())
-	installCmd.AddCommand(newConfigGetPathCommand())
 
 	return installCmd
 }
 
-func newConfigGetPathCommand() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:                   "get-path",
-		Short:                 "Get the path to the tyger configuration file",
-		Long:                  "Get the path to the tyger configuration file",
-		DisableFlagsInUseLine: true,
-		Args:                  cobra.NoArgs,
-		RunE: func(*cobra.Command, []string) error {
-			configPath := getDefaultConfigPath()
-			if _, err := os.Stat(configPath); err == nil {
-				fmt.Println(configPath)
-				return nil
-			}
-
-			return errors.New("no config file exists. Run `tyger config create` to create one")
-		},
-	}
-
-	return cmd
-}
-
 func newConfigCreateCommand() *cobra.Command {
+	configPath := ""
+
 	cmd := &cobra.Command{
-		Use:                   "create",
+		Use:                   "create -f FILE.yml",
 		Short:                 "Create a new config file",
 		Long:                  "Create a new config file",
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if _, err := exec.LookPath("az"); err != nil {
-				return errors.New("please install the Azure CLI (az) first")
-			}
-
-			configPath := getDefaultConfigPath()
 			if _, err := os.Stat(configPath); err == nil {
 				input := confirmation.New(fmt.Sprintf("A config file already exists at %s and will be overwritten. Continue?", configPath), confirmation.Yes)
 				input.WrapMode = promptkit.WordWrap
@@ -94,188 +73,8 @@ func newConfigCreateCommand() *cobra.Command {
 				if !ready {
 					os.Exit(1)
 				}
-			}
 
-			ipInfoClient := ipinfo.NewClient(nil, nil, "")
-			ip, err := ipInfoClient.GetIPInfo(nil)
-			if err != nil {
-				return fmt.Errorf("failed to get current external IP address: %w", err)
-			}
-
-			templateValues := install.ConfigTemplateValues{
-				KubernetesVersion:    install.DefaultKubernetesVersion,
-				PostgresMajorVersion: install.DefaultPostgresMajorVersion,
-				CurrentIpAddress:     ip.IP.String(),
-			}
-
-			fmt.Printf("\nFirst, let's collect settings for the Azure subscription to use. This is where cloud resources will be deployed.\n\n")
-
-			var cred azcore.TokenCredential
-
-			ctx := cmd.Context()
-
-			for {
-				var principal ExtendedPrincipal
-				for {
-
-					cred, err = install.NewMiAwareAzureCLICredential(nil)
-					if err != nil {
-						principal, err = getCurrentPrincipal(ctx, cred)
-					}
-					if err != nil {
-						if err == install.ErrNotLoggedIn {
-							fmt.Printf("You are not logged in to Azure. Please run `az login` in another terminal window.\nPress any key to continue when ready...\n\n")
-							getSingleKey()
-							continue
-						}
-						return err
-					}
-					break
-				}
-
-				input := confirmation.New(fmt.Sprintf("You are logged in as %s. Is that the right account?", principal.String()), confirmation.Yes)
-				input.WrapMode = promptkit.WordWrap
-				ready, err := input.RunPrompt()
-				if err != nil {
-					return err
-				}
 				fmt.Println()
-				if ready {
-					break
-				}
-
-				fmt.Printf("Please run `az login` in another terminal window.\nPress any key to continue when ready...\n\n")
-				getSingleKey()
-			}
-
-			templateValues.TenantId, err = chooseTenant(cred, "Select the tenant associated with the subscription:", false)
-			if err != nil {
-				return err
-			}
-
-			tenantCred, err := install.NewMiAwareAzureCLICredential(
-				&azidentity.AzureCLICredentialOptions{
-					TenantID: templateValues.TenantId,
-				})
-			if err != nil {
-				return err
-			}
-
-			// get the principal again, this time in the context of the chosen tenant
-			principal, err := getCurrentPrincipal(ctx, tenantCred)
-			if err != nil {
-				return err
-			}
-
-			switch principal.Kind {
-			case install.PrincipalKindUser:
-				templateValues.PrincipalKind = principal.Kind
-				templateValues.PrincipalDisplay = principal.Upn
-
-				if principal.IsFromCurrentTenant {
-					templateValues.PrincipalId = principal.Upn
-				} else {
-					templateValues.PrincipalId = principal.ObjectId
-				}
-			case install.PrincipalKindServicePrincipal:
-				templateValues.PrincipalKind = principal.Kind
-				templateValues.PrincipalId = principal.ObjectId
-				templateValues.PrincipalDisplay = principal.Display
-			default:
-				panic(fmt.Sprintf("unexpected principal kind: %s", principal.Kind))
-			}
-
-			for {
-				templateValues.SubscriptionId, err = chooseSubscription(tenantCred)
-				if err != nil {
-					if strings.Contains(err.Error(), "AADSTS50076") {
-						// MFA is required
-						fmt.Printf("Run 'az login --tenant %s' in another terminal window to explicitly login to this tenant.\nPress any key when ready...\n\n", templateValues.TenantId)
-						getSingleKey()
-						continue
-					}
-					return err
-				}
-				break
-			}
-
-			templateValues.EnvironmentName, err = prompt("Give this environment a name:", "", "", install.ResourceNameRegex)
-			if err != nil {
-				return err
-			}
-
-			templateValues.ResourceGroup, err = prompt("Enter a name for a resource group:", templateValues.EnvironmentName, "", install.ResourceNameRegex)
-			if err != nil {
-				return err
-			}
-
-			templateValues.DefaultLocation, err = chooseLocation(tenantCred, templateValues.SubscriptionId)
-			if err != nil {
-				return err
-			}
-
-			templateValues.DatabaseServerName, err = prompt("Give the database server a name:", fmt.Sprintf("%s-tyger", templateValues.EnvironmentName), "", install.DatabaseServerNameRegex)
-			if err != nil {
-				return err
-			}
-
-			templateValues.BufferStorageAccountName, err = prompt("Give the buffer storage account a name:", fmt.Sprintf("%s%sbuf", templateValues.EnvironmentName, templateValues.DefaultLocation), "", install.StorageAccountNameRegex)
-			if err != nil {
-				return err
-			}
-
-			templateValues.LogsStorageAccountName, err = prompt("Give the logs storage account a name:", fmt.Sprintf("%stygerlogs", templateValues.EnvironmentName), "", install.StorageAccountNameRegex)
-			if err != nil {
-				return err
-			}
-
-			positiveIntegerRegex := regexp.MustCompile(`^\d+$`)
-			if numString, err := prompt("Enter the minimum node count for the CPU node pool:", "1", "", positiveIntegerRegex); err != nil {
-				return err
-			} else {
-				templateValues.CpuNodePoolMinCount, _ = strconv.Atoi(numString)
-			}
-
-			if numString, err := prompt("Enter the minimum node count for the GPU node pool:", "0", "", positiveIntegerRegex); err != nil {
-				return err
-			} else {
-				templateValues.GpuNodePoolMinCount, _ = strconv.Atoi(numString)
-			}
-
-			suggestedDomainName := fmt.Sprintf("%s-tyger", templateValues.EnvironmentName)
-			domainSuffix := install.GetDomainNameSuffix(templateValues.DefaultLocation)
-			domainLabel, err := prompt("Choose a domain name for the Tyger service:", suggestedDomainName, domainSuffix, install.SubdomainRegex)
-			if err != nil {
-				return err
-			}
-			templateValues.DomainName = fmt.Sprintf("%s%s", domainLabel, domainSuffix)
-
-			fmt.Printf("Now for the tenant associated with the Tyger service.\n\n")
-			input := confirmation.New("Do you want to use the same tenant for the Tyger service?", confirmation.Yes)
-			input.WrapMode = promptkit.WordWrap
-			sameTenant, err := input.RunPrompt()
-			if err != nil {
-				return err
-			}
-
-			if sameTenant {
-				templateValues.ApiTenantId = templateValues.TenantId
-			} else {
-				for {
-					res, err := chooseTenant(cred, "Choose a tenant for the Tyger service:", true)
-					if err != nil {
-						return err
-					}
-
-					if res == "other" {
-						fmt.Printf("Run 'az login' in another terminal window.\nPress any key when ready...\n\n")
-						getSingleKey()
-						continue
-					} else {
-						templateValues.ApiTenantId = res
-						break
-					}
-				}
 			}
 
 			if err := os.MkdirAll(path.Dir(configPath), 0775); err != nil {
@@ -287,9 +86,36 @@ func newConfigCreateCommand() *cobra.Command {
 				return fmt.Errorf("failed to open config file for writing: %w", err)
 			}
 			defer f.Close()
-			err = install.RenderConfig(templateValues, f)
+
+			options := []IdAndName{
+				{cloudinstall.EnvironmentKindCloud, "Azure cloud"},
+				{dockerinstall.EnvironmentKindDocker, "Docker"},
+			}
+
+			s := selection.New(
+				"Do you want to create a Tyger environment in the Azure cloud or on your local system using Docker?",
+				options)
+			s.Filter = nil
+			s.WrapMode = promptkit.WordWrap
+
+			res, err := s.RunPrompt()
 			if err != nil {
-				return fmt.Errorf("failed to write config file: %w", err)
+				return err
+			}
+
+			fmt.Println()
+
+			switch res.id {
+			case cloudinstall.EnvironmentKindCloud:
+				if err := generateCloudConfig(cmd.Context(), f); err != nil {
+					return err
+				}
+			case dockerinstall.EnvironmentKindDocker:
+				if err := generateDockerConfig(f); err != nil {
+					return err
+				}
+			default:
+				panic(fmt.Sprintf("unexpected environment kind: %s", res.id))
 			}
 
 			fmt.Println("Config file written to", configPath)
@@ -297,7 +123,314 @@ func newConfigCreateCommand() *cobra.Command {
 		},
 	}
 
+	cmd.Flags().StringVarP(&configPath, "file", "f", "", "The path to the config file to create")
+	cmd.MarkFlagRequired("file")
+
 	return cmd
+}
+
+func generateDockerConfig(configFile *os.File) error {
+	templateValues := dockerinstall.ConfigTemplateValues{}
+
+	c := confirmation.New("Tyger requires a cryptographic key pair to secure the data plane API. Do you want to generate a new key pair?", confirmation.Yes)
+	c.WrapMode = promptkit.WordWrap
+	shouldGenerateKey, err := c.RunPrompt()
+	if err != nil {
+		return err
+	}
+
+	fmt.Println()
+
+	privateKeyPath := "${HOME}/tyger-signing.pem"
+	var expandedPrivateKeyPath string
+PromptPrivateKey:
+	privateKeyPath, err = prompt("Enter the path of the private key file. This must not be in a source code repository. Environment variables (${VAR}) will be expanded when reading the file.", privateKeyPath, "", nil)
+	if err != nil {
+		return err
+	}
+
+	expandedPrivateKeyPath, err = envsubst.String(privateKeyPath)
+	if err != nil {
+		return fmt.Errorf("failed to expand environment variables: %w", err)
+	}
+
+	if _, err := os.Stat(expandedPrivateKeyPath); err != nil {
+		if !shouldGenerateKey {
+			fmt.Printf("Failed to stat file at '%s'. Please enter a valid path.\n\n", expandedPrivateKeyPath)
+			goto PromptPrivateKey
+		}
+	} else {
+		if shouldGenerateKey {
+			c := confirmation.New("Do you want to overwrite the existing file?", confirmation.Yes)
+			c.WrapMode = promptkit.WordWrap
+			overwrite, err := c.RunPrompt()
+			if err != nil {
+				return err
+			}
+
+			fmt.Println()
+
+			if !overwrite {
+				goto PromptPrivateKey
+			}
+		}
+	}
+
+	baseName := strings.TrimSuffix(privateKeyPath, filepath.Ext(privateKeyPath))
+	publicKeyPath := fmt.Sprintf("%s-public%s", baseName, filepath.Ext(privateKeyPath))
+	var expandedPublicKeyPath string
+PromptPublicKey:
+
+	publicKeyPath, err = prompt("Enter the path of the public key file. This must not be in a source code repository. Environment variables (${VAR}) will be expanded when reading the file.", publicKeyPath, "", nil)
+	if err != nil {
+		return err
+	}
+
+	expandedPublicKeyPath, err = envsubst.StringRestricted(publicKeyPath, true, false)
+	if err != nil {
+		return fmt.Errorf("failed to expand environment variables: %w", err)
+	}
+
+	if _, err := os.Stat(expandedPublicKeyPath); err != nil {
+		if !shouldGenerateKey {
+			fmt.Printf("Failed to stat file at '%s'. Please enter a valid path.\n\n", expandedPublicKeyPath)
+			goto PromptPublicKey
+		}
+	} else {
+		if shouldGenerateKey {
+			c := confirmation.New("Do you want to overwrite the existing file?", confirmation.Yes)
+			c.WrapMode = promptkit.WordWrap
+			overwrite, err := c.RunPrompt()
+			if err != nil {
+				return err
+			}
+
+			fmt.Println()
+
+			if !overwrite {
+				goto PromptPublicKey
+			}
+		}
+	}
+
+	templateValues.PrivateSigningKeyPath = privateKeyPath
+	templateValues.PublicSigningKeyPath = publicKeyPath
+
+	if shouldGenerateKey {
+		if err := dockerinstall.GenerateSigningKeyPair(expandedPublicKeyPath, expandedPrivateKeyPath); err != nil {
+			return fmt.Errorf("failed to generate key pair: %w", err)
+		}
+	}
+
+	portString := ""
+	port, err := dataplane.GetFreePort()
+	if err == nil {
+		portString = strconv.Itoa(port)
+	}
+
+	portString, err = prompt("Enter the port on which the data plane API will listen:", portString, "", regexp.MustCompile(`^\d+$`))
+	if err != nil {
+		return err
+	}
+
+	templateValues.DataPlanePort, err = strconv.Atoi(portString)
+	if err != nil {
+		return err
+	}
+
+	return dockerinstall.RenderConfig(templateValues, configFile)
+}
+
+func generateCloudConfig(ctx context.Context, configFile *os.File) error {
+	if _, err := exec.LookPath("az"); err != nil {
+		return errors.New("please install the Azure CLI (az) first")
+	}
+
+	ipInfoClient := ipinfo.NewClient(nil, nil, "")
+	ip, err := ipInfoClient.GetIPInfo(nil)
+	if err != nil {
+		return fmt.Errorf("failed to get current external IP address: %w", err)
+	}
+
+	templateValues := cloudinstall.ConfigTemplateValues{
+		KubernetesVersion:    cloudinstall.DefaultKubernetesVersion,
+		PostgresMajorVersion: cloudinstall.DefaultPostgresMajorVersion,
+		CurrentIpAddress:     ip.IP.String(),
+	}
+
+	fmt.Printf("\nLet's collect settings for the Azure subscription to use. This is where cloud resources will be deployed.\n\n")
+
+	var cred azcore.TokenCredential
+
+	for {
+		var principal ExtendedPrincipal
+		for {
+
+			cred, err = cloudinstall.NewMiAwareAzureCLICredential(nil)
+			if err == nil {
+				principal, err = getCurrentPrincipal(ctx, cred)
+			}
+			if err != nil {
+				if err == cloudinstall.ErrNotLoggedIn {
+					fmt.Printf("You are not logged in to Azure. Please run `az login` in another terminal window.\nPress any key to continue when ready...\n\n")
+					getSingleKey()
+					continue
+				}
+				return err
+			}
+			break
+		}
+
+		input := confirmation.New(fmt.Sprintf("You are logged in as %s. Is that the right account?", principal.String()), confirmation.Yes)
+		input.WrapMode = promptkit.WordWrap
+		ready, err := input.RunPrompt()
+		if err != nil {
+			return err
+		}
+		fmt.Println()
+		if ready {
+			break
+		}
+
+		fmt.Printf("Please run `az login` in another terminal window.\nPress any key to continue when ready...\n\n")
+		getSingleKey()
+	}
+
+	templateValues.TenantId, err = chooseTenant(cred, "Select the tenant associated with the subscription:", false)
+	if err != nil {
+		return err
+	}
+
+	tenantCred, err := cloudinstall.NewMiAwareAzureCLICredential(
+		&azidentity.AzureCLICredentialOptions{
+			TenantID: templateValues.TenantId,
+		})
+	if err != nil {
+		return err
+	}
+
+	principal, err := getCurrentPrincipal(ctx, tenantCred)
+	if err != nil {
+		return err
+	}
+
+	switch principal.Kind {
+	case cloudinstall.PrincipalKindUser:
+		templateValues.PrincipalKind = principal.Kind
+		templateValues.PrincipalDisplay = principal.Upn
+
+		if principal.IsFromCurrentTenant {
+			templateValues.PrincipalId = principal.Upn
+		} else {
+			templateValues.PrincipalId = principal.ObjectId
+		}
+	case cloudinstall.PrincipalKindServicePrincipal:
+		templateValues.PrincipalKind = principal.Kind
+		templateValues.PrincipalId = principal.ObjectId
+		templateValues.PrincipalDisplay = principal.Display
+	default:
+		panic(fmt.Sprintf("unexpected principal kind: %s", principal.Kind))
+	}
+
+	for {
+		templateValues.SubscriptionId, err = chooseSubscription(tenantCred)
+		if err != nil {
+			if strings.Contains(err.Error(), "AADSTS50076") {
+
+				fmt.Printf("Run 'az login --tenant %s' in another terminal window to explicitly login to this tenant.\nPress any key when ready...\n\n", templateValues.TenantId)
+				getSingleKey()
+				continue
+			}
+			return err
+		}
+		break
+	}
+
+	templateValues.EnvironmentName, err = prompt("Give this environment a name:", "", "", cloudinstall.ResourceNameRegex)
+	if err != nil {
+		return err
+	}
+
+	templateValues.ResourceGroup, err = prompt("Enter a name for a resource group:", templateValues.EnvironmentName, "", cloudinstall.ResourceNameRegex)
+	if err != nil {
+		return err
+	}
+
+	templateValues.DefaultLocation, err = chooseLocation(tenantCred, templateValues.SubscriptionId)
+	if err != nil {
+		return err
+	}
+
+	templateValues.DatabaseServerName, err = prompt("Give the database server a name:", fmt.Sprintf("%s-tyger", templateValues.EnvironmentName), "", cloudinstall.DatabaseServerNameRegex)
+	if err != nil {
+		return err
+	}
+
+	templateValues.BufferStorageAccountName, err = prompt("Give the buffer storage account a name:", fmt.Sprintf("%s%sbuf", templateValues.EnvironmentName, templateValues.DefaultLocation), "", cloudinstall.StorageAccountNameRegex)
+	if err != nil {
+		return err
+	}
+
+	templateValues.LogsStorageAccountName, err = prompt("Give the logs storage account a name:", fmt.Sprintf("%stygerlogs", templateValues.EnvironmentName), "", cloudinstall.StorageAccountNameRegex)
+	if err != nil {
+		return err
+	}
+
+	positiveIntegerRegex := regexp.MustCompile(`^\d+$`)
+	if numString, err := prompt("Enter the minimum node count for the CPU node pool:", "1", "", positiveIntegerRegex); err != nil {
+		return err
+	} else {
+		templateValues.CpuNodePoolMinCount, _ = strconv.Atoi(numString)
+	}
+
+	if numString, err := prompt("Enter the minimum node count for the GPU node pool:", "0", "", positiveIntegerRegex); err != nil {
+		return err
+	} else {
+		templateValues.GpuNodePoolMinCount, _ = strconv.Atoi(numString)
+	}
+
+	suggestedDomainName := fmt.Sprintf("%s-tyger", templateValues.EnvironmentName)
+	domainSuffix := cloudinstall.GetDomainNameSuffix(templateValues.DefaultLocation)
+	domainLabel, err := prompt("Choose a domain name for the Tyger service:", suggestedDomainName, domainSuffix, cloudinstall.SubdomainRegex)
+	if err != nil {
+		return err
+	}
+	templateValues.DomainName = fmt.Sprintf("%s%s", domainLabel, domainSuffix)
+
+	fmt.Printf("Now for the tenant associated with the Tyger service.\n\n")
+	input := confirmation.New("Do you want to use the same tenant for the Tyger service?", confirmation.Yes)
+	input.WrapMode = promptkit.WordWrap
+	sameTenant, err := input.RunPrompt()
+	if err != nil {
+		return err
+	}
+
+	if sameTenant {
+		templateValues.ApiTenantId = templateValues.TenantId
+	} else {
+		for {
+			res, err := chooseTenant(cred, "Choose a tenant for the Tyger service:", true)
+			if err != nil {
+				return err
+			}
+
+			if res == "other" {
+				fmt.Printf("Run 'az login' in another terminal window.\nPress any key when ready...\n\n")
+				getSingleKey()
+				continue
+			} else {
+				templateValues.ApiTenantId = res
+				break
+			}
+		}
+	}
+
+	err = cloudinstall.RenderConfig(templateValues, configFile)
+	if err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+
+	return nil
 }
 
 func chooseLocation(cred azcore.TokenCredential, subscriptionId string) (string, error) {
@@ -377,7 +510,7 @@ func chooseSubscription(cred azcore.TokenCredential) (string, error) {
 func getCurrentPrincipal(ctx context.Context, cred azcore.TokenCredential) (principal ExtendedPrincipal, err error) {
 	tokenResponse, err := cred.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{cloud.AzurePublic.Services[cloud.ResourceManager].Audience}})
 	if err != nil {
-		return principal, install.ErrNotLoggedIn
+		return principal, cloudinstall.ErrNotLoggedIn
 	}
 
 	claims := jwt.MapClaims{}
@@ -387,7 +520,7 @@ func getCurrentPrincipal(ctx context.Context, cred azcore.TokenCredential) (prin
 	}
 	principal.ObjectId = claims["oid"].(string)
 
-	principals, err := install.ObjectsIdToPrincipals(ctx, cred, []string{principal.ObjectId})
+	principals, err := cloudinstall.ObjectsIdToPrincipals(ctx, cred, []string{principal.ObjectId})
 	if err != nil {
 		return principal, err
 	}
@@ -399,8 +532,8 @@ func getCurrentPrincipal(ctx context.Context, cred azcore.TokenCredential) (prin
 	principal.Kind = principals[0].Kind
 
 	switch principals[0].Kind {
-	case install.PrincipalKindUser:
-		principal.Upn, err = install.GetUserPrincipalName(ctx, cred, principals[0].ObjectId)
+	case cloudinstall.PrincipalKindUser:
+		principal.Upn, err = cloudinstall.GetUserPrincipalName(ctx, cred, principals[0].ObjectId)
 		if err != nil {
 			return principal, err
 		}
@@ -410,8 +543,8 @@ func getCurrentPrincipal(ctx context.Context, cred azcore.TokenCredential) (prin
 		} else {
 			principal.IsFromCurrentTenant = true
 		}
-	case install.PrincipalKindServicePrincipal:
-		principal.Display, err = install.GetServicePrincipalDisplayName(ctx, cred, principals[0].ObjectId)
+	case cloudinstall.PrincipalKindServicePrincipal:
+		principal.Display, err = cloudinstall.GetServicePrincipalDisplayName(ctx, cred, principals[0].ObjectId)
 		if err != nil {
 			return principal, err
 		}
@@ -509,13 +642,16 @@ func prompt(question, initialValue string, suffix string, validationRegex *regex
 	input := textinput.New(question)
 	input.WrapMode = promptkit.WordWrap
 	input.InitialValue = initialValue
-	input.Validate = func(s string) error {
-		if validationRegex.MatchString(s) {
-			return nil
-		}
+	if validationRegex != nil {
+		input.Validate = func(s string) error {
+			if validationRegex.MatchString(s) {
+				return nil
+			}
 
-		return fmt.Errorf("must match the regex %s", validationRegex.String())
+			return fmt.Errorf("must match the regex %s", validationRegex.String())
+		}
 	}
+
 	input.ExtendedTemplateFuncs = template.FuncMap{
 		"Suffix": func() string {
 			return suffix
@@ -540,7 +676,7 @@ func getSingleKey() {
 }
 
 type ExtendedPrincipal struct {
-	install.Principal
+	cloudinstall.Principal
 	Upn                 string
 	Display             string
 	IsFromCurrentTenant bool

@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/microsoft/tyger/cli/internal/install"
+	"github.com/microsoft/tyger/cli/internal/install/cloudinstall"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -24,35 +25,26 @@ func NewCloudCommand(parentCommand *cobra.Command) *cobra.Command {
 		},
 	}
 
-	cmd.AddCommand(newCloudInstallCommand(cmd))
-	cmd.AddCommand(newCloudUninstallCommand(cmd))
+	cmd.AddCommand(newCloudInstallCommand())
+	cmd.AddCommand(newCloudUninstallCommand())
 
 	return cmd
 }
 
-type commonFlags struct {
-	configPath   string
-	setOverrides map[string]string
-}
-
-func newCloudInstallCommand(parentCommand *cobra.Command) *cobra.Command {
+func newCloudInstallCommand() *cobra.Command {
 	flags := commonFlags{}
 	cmd := cobra.Command{
-		Use:                   "install",
+		Use:                   "install -f CONFIG.yml",
 		Short:                 "Install cloud infrastructure",
 		Long:                  "Install cloud infrastructure",
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
-			ctx := commonPrerun(cmd.Context(), &flags)
+			ctx, installer := commonPrerun(cmd.Context(), &flags)
+			cloudInstaller := CheckCloudInstaller(installer)
 
 			log.Info().Msg("Starting cloud install")
-			ctx, err := loginAndValidateSubscription(ctx)
-			if err != nil {
-				log.Fatal().Err(err).Send()
-			}
-
-			if err := install.InstallCloud(ctx); err != nil {
+			if err := cloudInstaller.InstallCloud(ctx); err != nil {
 				if err != install.ErrAlreadyLoggedError {
 					log.Fatal().Err(err).Send()
 				}
@@ -66,31 +58,28 @@ func newCloudInstallCommand(parentCommand *cobra.Command) *cobra.Command {
 	return &cmd
 }
 
-func newCloudUninstallCommand(parentCommand *cobra.Command) *cobra.Command {
+func newCloudUninstallCommand() *cobra.Command {
 	flags := commonFlags{}
 	cmd := cobra.Command{
-		Use:                   "uninstall",
+		Use:                   "uninstall -f CONFIG.yml",
 		Short:                 "Uninstall cloud infrastructure",
 		Long:                  "Uninstall cloud infrastructure",
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
-			ctx := commonPrerun(cmd.Context(), &flags)
+			ctx, installer := commonPrerun(cmd.Context(), &flags)
+			cloudInstaller := CheckCloudInstaller(installer)
 
 			log.Info().Msg("Starting cloud uninstall")
-			ctx, err := loginAndValidateSubscription(ctx)
-			if err != nil {
-				log.Fatal().Err(err).Send()
-			}
 
-			if err := install.UninstallCloud(ctx); err != nil {
+			if err := cloudInstaller.UninstallCloud(ctx); err != nil {
 				if err != install.ErrAlreadyLoggedError {
 					log.Fatal().Err(err).Send()
 				}
 				os.Exit(1)
 			}
-			log.Info().Msg("Uninstall complete")
 
+			log.Info().Msg("Uninstall complete")
 		},
 	}
 
@@ -99,6 +88,17 @@ func newCloudUninstallCommand(parentCommand *cobra.Command) *cobra.Command {
 }
 
 func addCommonFlags(cmd *cobra.Command, flags *commonFlags) {
-	cmd.Flags().StringVarP(&flags.configPath, "file", "f", "", "path to config file")
+	cmd.Flags().StringVarP(&flags.configPath, "file", "f", "", "path to the installation configuration YAML file")
+	cmd.MarkFlagRequired("file")
 	cmd.Flags().StringToStringVar(&flags.setOverrides, "set", nil, "override config values (e.g. --set cloud.subscriptionID=1234 --set cloud.resourceGroup=mygroup)")
+}
+
+func CheckCloudInstaller(installer install.Installer) *cloudinstall.Installer {
+	cloudInstaller, ok := installer.(*cloudinstall.Installer)
+
+	if !ok {
+		log.Fatal().Msgf("This command is only supported on configurations where the `kind` field is `%s`.", cloudinstall.EnvironmentKindCloud)
+	}
+
+	return cloudInstaller
 }

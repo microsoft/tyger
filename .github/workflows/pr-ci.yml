@@ -187,7 +187,7 @@ jobs:
     env:
       TYGER_MIN_NODE_COUNT: "1"
       DO_NOT_BUILD_IMAGES: "true"
-      EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}
+      EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}-amd64
       TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
 
     steps:
@@ -250,7 +250,7 @@ jobs:
     env:
       TYGER_MIN_NODE_COUNT: "1"
       DO_NOT_BUILD_IMAGES: "true"
-      EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}
+      EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}-amd64
       TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
     steps:
       - name: Checkout
@@ -379,6 +379,33 @@ jobs:
             -CertificateName $certificateName `
             -CertificateVersion $certificateVersion
 
+  verify-docker:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      TYGER_ENVIRONMENT_TYPE: docker
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v4
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+
+      - uses: actions/setup-dotnet@v3
+        with:
+          global-json-file: server/global.json
+
+      - name: "Build and test"
+        run: |
+          set -euo pipefail
+          make -s -j 4
+
   codeql:
     runs-on: ubuntu-latest
     if: github.repository == 'microsoft/tyger'
@@ -432,6 +459,7 @@ jobs:
       - unit-tests-and-format
       - integration-tests
       - get-config
+      - verify-docker
       - windows-smoke-tests
 
     runs-on: ubuntu-latest
@@ -480,6 +508,7 @@ jobs:
       - unit-tests-and-format
       - integration-tests
       - get-config
+      - verify-docker
       - windows-smoke-tests
     env:
       DEVELOPER_CONFIG_BASE64: ${{ needs.get-config.outputs.DEVELOPER_CONFIG_BASE64 }}

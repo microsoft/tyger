@@ -12,14 +12,14 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/microsoft/tyger/cli/internal/proxy"
+	"github.com/microsoft/tyger/cli/internal/tygerproxy"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"sigs.k8s.io/yaml"
 )
 
-func newProxyStartCommand(optionsFilePath *string, options *proxy.ProxyOptions) *cobra.Command {
+func newProxyStartCommand(optionsFilePath *string, options *tygerproxy.ProxyOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		SilenceUsage: true,
 		Use:          "start",

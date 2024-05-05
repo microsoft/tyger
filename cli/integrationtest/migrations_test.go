@@ -9,29 +9,35 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/golang-jwt/jwt/v5"
-	koanfyaml "github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/v2"
-	"github.com/microsoft/tyger/cli/internal/install"
-	"github.com/mitchellh/mapstructure"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
+
+	koanfyaml "github.com/knadh/koanf/parsers/yaml"
+	"github.com/microsoft/tyger/cli/internal/dataplane"
+	"github.com/microsoft/tyger/cli/internal/install/cloudinstall"
 )
 
-func TestMigrations(t *testing.T) {
+func TestCloudMigrations(t *testing.T) {
 	t.Parallel()
+	skipIfUsingUnixSocket(t)
 
 	environmentConfig := runCommandSucceeds(t, "../../scripts/get-config.sh")
 	tempDir := t.TempDir()
 	configPath := fmt.Sprintf("%s/environment-config.yaml", tempDir)
 	require.NoError(t, os.WriteFile(configPath, []byte(environmentConfig), 0644))
 
-	config := install.EnvironmentConfig{}
+	config := cloudinstall.CloudEnvironmentConfig{}
 
 	koanfConfig := koanf.New(".")
 	require.NoError(t, koanfConfig.Load(file.Provider(configPath), koanfyaml.Parser()))
@@ -40,24 +46,28 @@ func TestMigrations(t *testing.T) {
 		DecoderConfig: &mapstructure.DecoderConfig{
 			WeaklyTypedInput: true,
 			ErrorUnused:      true,
+			Squash:           true,
 			Result:           &config,
 		},
 	}))
 
 	ctx := context.Background()
 
-	ctx = install.SetConfigOnContext(ctx, &config)
-	cred, err := install.NewMiAwareAzureCLICredential(
+	cred, err := cloudinstall.NewMiAwareAzureCLICredential(
 		&azidentity.AzureCLICredentialOptions{
 			TenantID: config.Cloud.TenantID,
 		})
-	ctx = install.SetAzureCredentialOnContext(ctx, cred)
 
-	restConfig, err := install.GetUserRESTConfig(ctx)
+	installer := cloudinstall.Installer{
+		Config:     &config,
+		Credential: cred,
+	}
+
+	restConfig, err := installer.GetUserRESTConfig(ctx)
 	require.NoError(t, err)
 
 	// this is a try run to get the Helm values
-	_, helmValuesYaml, err := install.InstallTygerHelmChart(ctx, restConfig, true)
+	_, helmValuesYaml, err := installer.InstallTygerHelmChart(ctx, restConfig, true)
 	require.NoError(t, err)
 
 	helmValues := make(map[string]any)
@@ -77,7 +87,7 @@ func TestMigrations(t *testing.T) {
 	port := helmValues["database"].(map[string]any)["port"].(float64)
 	databaseName := helmValues["database"].(map[string]any)["databaseName"].(string)
 
-	temporaryDatabaseName := fmt.Sprintf("tygertest%s", install.RandomAlphanumString(8))
+	temporaryDatabaseName := fmt.Sprintf("tygertest%s", cloudinstall.RandomAlphanumString(8))
 
 	createPsqlCommandBuilder := func() *CmdBuilder {
 		return NewCmdBuilder("psql",
@@ -92,8 +102,14 @@ func TestMigrations(t *testing.T) {
 		Arg("--command").Arg(fmt.Sprintf("CREATE DATABASE %s", temporaryDatabaseName)).
 		RunSucceeds(t)
 
+	defer func() {
+		createPsqlCommandBuilder().
+			Arg("--command").Arg(fmt.Sprintf("DROP DATABASE %s", temporaryDatabaseName)).
+			RunSucceeds(t)
+	}()
+
 	tygerMigrationApplyArgs := []string{
-		"api", "migrations", "apply", "--latest", "--wait",
+		"api", "migrations", "apply", "--latest", "--offline", "--wait",
 		"-f", configPath,
 		"--set", fmt.Sprintf("api.helm.tyger.values.database.databaseName=%s", temporaryDatabaseName),
 	}
@@ -111,10 +127,51 @@ func TestMigrations(t *testing.T) {
 		"--set", fmt.Sprintf("api.helm.tyger.values.database.databaseName=%s", temporaryDatabaseName))
 
 	assert.Contains(t, logs, "Migration 2 complete")
+}
+
+func TestDockerMigrations(t *testing.T) {
+	t.Parallel()
+	skipUnlessUsingUnixSocket(t)
+	skipIfNotUsingUnixSocketDirectly(t)
+
+	lowercaseTestName := strings.ToLower(t.Name())
+
+	environmentConfig := runCommandSucceeds(t, "../../scripts/get-config.sh", "--docker")
+
+	installationPath := fmt.Sprintf("/tmp/tyger/%s", lowercaseTestName)
+	defer func() {
+		os.RemoveAll(installationPath)
+	}()
+
+	configMap := make(map[string]any)
+	require.NoError(t, yaml.Unmarshal([]byte(environmentConfig), &configMap))
+	configMap["environmentName"] = lowercaseTestName
+	configMap["installationPath"] = installationPath
+	configMap["initialDatabaseVersion"] = 1
+	p, err := dataplane.GetFreePort()
+	require.NoError(t, err)
+	configMap["dataPlanePort"] = p
+
+	updatedEnvironmentConfigBytes, err := yaml.Marshal(configMap)
+	require.NoError(t, err)
+
+	tempDir := t.TempDir()
+	configPath := fmt.Sprintf("%s/environment-config.yaml", tempDir)
+	require.NoError(t, os.WriteFile(configPath, updatedEnvironmentConfigBytes, 0644))
+
+	tygerPath, err := exec.LookPath("tyger")
+	require.NoError(t, err)
+	tygerPath, err = filepath.Abs(tygerPath)
+	require.NoError(t, err)
 
 	defer func() {
-		createPsqlCommandBuilder().
-			Arg("--command").Arg(fmt.Sprintf("DROP DATABASE %s", temporaryDatabaseName)).
-			RunSucceeds(t)
+		runCommandSucceeds(t, "sudo", tygerPath, "api", "uninstall", "-f", configPath, "--delete-data")
 	}()
+
+	runCommandSucceeds(t, "sudo", tygerPath, "api", "install", "-f", configPath)
+
+	runTygerSucceeds(t, "api", "migrations", "apply", "--latest", "--offline", "--wait", "-f", configPath)
+
+	logs := runTygerSucceeds(t, "api", "migrations", "logs", "2", "-f", configPath)
+	assert.Contains(t, logs, "Migration 2 complete")
 }

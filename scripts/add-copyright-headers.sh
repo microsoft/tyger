@@ -7,7 +7,7 @@
 
 set -euo pipefail
 
-shopt -s globstar nullglob
+shopt -s globstar nullglob dotglob
 
 process_files() {
     header_line_length=$(echo "$header" | wc -l)

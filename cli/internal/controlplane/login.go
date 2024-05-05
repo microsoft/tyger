@@ -4,6 +4,7 @@
 package controlplane
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -23,11 +24,8 @@ import (
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/public"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/hashicorp/go-retryablehttp"
-	"github.com/mattn/go-ieproxy"
+	"github.com/microsoft/tyger/cli/internal/client"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
-	"github.com/microsoft/tyger/cli/internal/httpclient"
-	"github.com/microsoft/tyger/cli/internal/settings"
 	"sigs.k8s.io/yaml"
 )
 
@@ -36,6 +34,9 @@ const (
 	userScope                           = "Read.Write"
 	servicePrincipalScope               = ".default"
 	discardTokenIfExpiringWithinSeconds = 10 * 60
+	LocalUriSentinel                    = "local"
+	sshConcurrencyLimit                 = 8
+	dockerConcurrencyLimit              = 6
 )
 
 type LoginConfig struct {
@@ -76,65 +77,27 @@ type serviceInfo struct {
 	confidentialClient              *confidential.Client
 }
 
-func (c *serviceInfo) GetServerUri() *url.URL {
-	return c.parsedServerUri
-}
-
-func (c *serviceInfo) GetPrincipal() string {
-	return c.Principal
-}
-
-func (c *serviceInfo) GetProxyFunc() func(*http.Request) (*url.URL, error) {
-	var base func(*http.Request) (*url.URL, error)
-	switch c.Proxy {
-	case "none":
-		base = func(r *http.Request) (*url.URL, error) {
-			return nil, nil
+func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error) {
+	if options.ServerUri == LocalUriSentinel {
+		optionsClone := options
+		optionsClone.ServerUri = client.DefaultControlPlaneUnixSocketUrl
+		c, errUnix := Login(ctx, optionsClone)
+		if errUnix == nil {
+			return c, nil
 		}
-	case "", "auto", "automatic":
-		base = ieproxy.GetProxyFunc()
-	default:
-		base = func(r *http.Request) (*url.URL, error) {
-			return c.parsedProxy, nil
+
+		optionsClone.ServerUri = "docker://"
+		c, errDocker := Login(ctx, optionsClone)
+		if errDocker == nil {
+			return c, nil
 		}
+
+		return nil, errUnix
 	}
 
-	var withDataPlaneCheck func(*http.Request) (*url.URL, error)
-	if c.parsedDataPlaneProxy == nil {
-		withDataPlaneCheck = base
-	} else {
-		controlPlaneUrl := c.parsedServerUri
-		withDataPlaneCheck = func(r *http.Request) (*url.URL, error) {
-			if r.URL.Scheme == controlPlaneUrl.Scheme &&
-				r.URL.Host == controlPlaneUrl.Host &&
-				strings.HasPrefix(r.URL.Path, controlPlaneUrl.Path) {
-				// This is a request to the control plane
-				return base(r)
-			}
-			return c.parsedDataPlaneProxy, nil
-		}
-	}
-
-	return func(r *http.Request) (*url.URL, error) {
-		if r.URL.Scheme == "http" {
-			// We will not use an HTTP proxy when when not using TLS.
-			// The only supported scenario for using http and not https is
-			// when using using tyger to call tyger-proxy. In that case, we
-			// want to connect to tyger-proxy directly, and not through a proxy.
-			return nil, nil
-		}
-		return withDataPlaneCheck(r)
-	}
-}
-
-func (c *serviceInfo) GetDisableTlsCertificateValidation() bool {
-	return c.DisableTlsCertificateValidation
-}
-
-func Login(ctx context.Context, options LoginConfig) (context.Context, settings.ServiceInfo, error) {
-	normalizedServerUri, err := normalizeServerUri(options.ServerUri)
+	normalizedServerUri, err := NormalizeServerUri(options.ServerUri)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	options.ServerUri = normalizedServerUri.String()
 
@@ -148,72 +111,242 @@ func Login(ctx context.Context, options LoginConfig) (context.Context, settings.
 		DisableTlsCertificateValidation: options.DisableTlsCertificateValidation,
 	}
 
-	if err := validateServiceInfo(si); err != nil {
-		return ctx, nil, err
+	defaultClientOptions := client.ClientOptions{
+		ProxyString:                     options.Proxy,
+		DisableTlsCertificateValidation: options.DisableTlsCertificateValidation,
 	}
 
-	// store in context so that the HTTP client can pick up the settings
-	ctx = settings.SetServiceInfoOnContext(ctx, si)
-
-	serviceMetadata, err := getServiceMetadata(ctx, options.ServerUri)
-	if err != nil {
-		return ctx, nil, err
+	if err := client.SetDefaultNetworkClientSettings(&defaultClientOptions); err != nil {
+		return nil, err
 	}
 
-	// augment with data received from the metadata endpoint
-	si.ServerUri = options.ServerUri
-	si.Authority = serviceMetadata.Authority
-	si.Audience = serviceMetadata.Audience
-	si.ClientAppUri = serviceMetadata.CliAppUri
-	si.DataPlaneProxy = serviceMetadata.DataPlaneProxy
-
-	if err := validateServiceInfo(si); err != nil {
-		return ctx, nil, err
-	}
-
-	if serviceMetadata.Authority != "" {
-		useServicePrincipal := options.ServicePrincipal != ""
-
-		var authResult public.AuthResult
-		if useServicePrincipal {
-			authResult, err = si.performServicePrincipalLogin(ctx)
-		} else {
-			authResult, err = si.performUserLogin(ctx, options.UseDeviceCode)
-		}
+	var tygerClient *client.TygerClient
+	if normalizedServerUri.Scheme == "docker" {
+		dockerParams, err := client.ParseDockerUrl(normalizedServerUri)
 		if err != nil {
-			return ctx, nil, err
+			return nil, fmt.Errorf("invalid Docker URL: %w", err)
 		}
 
-		si.LastToken = authResult.AccessToken
-		si.LastTokenExpiry = authResult.ExpiresOn.Unix()
+		loginCommand := exec.CommandContext(ctx, "docker", dockerParams.FormatLoginArgs()...)
+		var outb, errb bytes.Buffer
+		loginCommand.Stdout = &outb
+		loginCommand.Stderr = &errb
+		if err := loginCommand.Run(); err != nil {
+			return nil, fmt.Errorf("failed to establish a tyger connection: %w. stderr: %s", err, errb.String())
+		}
 
-		if !useServicePrincipal {
-			si.Principal = authResult.IDToken.PreferredUsername
+		socketUrl, err := NormalizeServerUri(outb.String())
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse socket URL: %w", err)
+		}
 
-			// We used the client app URI as the client ID when logging in interactively.
-			// This works, but the refresh token will only be valid for the client ID (GUID).
-			// So we need to extract the client ID from the access token and use that next time.
-			claims := jwt.MapClaims{}
-			if _, _, err := jwt.NewParser().ParseUnverified(authResult.AccessToken, claims); err != nil {
-				return nil, nil, fmt.Errorf("unable to parse access token: %w", err)
+		if socketUrl.Scheme != "http+unix" {
+			panic(fmt.Sprintf("unexpected scheme: %s", socketUrl.Scheme))
+		}
+
+		dockerParams.SocketPath = strings.Split(socketUrl.Path, ":")[0]
+		si.parsedServerUri = dockerParams.URL()
+		si.ServerUri = si.parsedServerUri.String()
+
+		controlPlaneClientOptions := defaultClientOptions // clone
+		controlPlaneClientOptions.ProxyString = "none"
+		controlPlaneClientOptions.CreateTransport = client.MakeCommandTransport(dockerConcurrencyLimit, "docker", dockerParams.FormatCmdLine()...)
+		controlPlaneClient, err := client.NewControlPlaneClient(&controlPlaneClientOptions)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create control plane client: %w", err)
+		}
+
+		dataPlaneClientOptions := controlPlaneClientOptions
+		dataPlaneClientOptions.DisableRetries = true
+		dataPlaneClient, err := client.NewDataPlaneClient(&dataPlaneClientOptions)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create data plane client: %w", err)
+		}
+
+		tygerClient = &client.TygerClient{
+			ControlPlaneUrl:    socketUrl,
+			ControlPlaneClient: controlPlaneClient,
+			GetAccessToken:     si.GetAccessToken,
+			DataPlaneClient:    dataPlaneClient,
+			Principal:          si.Principal,
+			RawControlPlaneUrl: si.parsedServerUri,
+			RawProxy:           si.parsedProxy,
+		}
+	} else if normalizedServerUri.Scheme == "ssh" {
+		sshParams, err := client.ParseSshUrl(normalizedServerUri)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ssh URL: %w", err)
+		}
+
+		// Give the user a chance accept remote host key if necessary
+		preFlightCommand := exec.CommandContext(ctx, "ssh", sshParams.FormatLoginArgs("--preflight")...)
+		preFlightCommand.Stdin = os.Stdin
+		preFlightCommand.Stdout = os.Stdout
+		preFlightCommand.Stderr = os.Stderr
+		if err := preFlightCommand.Run(); err != nil {
+			return nil, fmt.Errorf("failed to establish a remote tyger connection: %w", err)
+		}
+
+		loginCommand := exec.CommandContext(ctx, "ssh", sshParams.FormatLoginArgs()...)
+		var outb, errb bytes.Buffer
+		loginCommand.Stdout = &outb
+		loginCommand.Stderr = &errb
+		if err := loginCommand.Run(); err != nil {
+			return nil, fmt.Errorf("failed to establish a remote tyger connection: %w. stderr: %s", err, errb.String())
+		}
+
+		socketUrl, err := NormalizeServerUri(outb.String())
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse socket URL: %w", err)
+		}
+
+		if socketUrl.Scheme != "http+unix" {
+			panic(fmt.Sprintf("unexpected scheme: %s", socketUrl.Scheme))
+		}
+
+		sshParams.SocketPath = strings.Split(socketUrl.Path, ":")[0]
+		si.parsedServerUri = sshParams.URL()
+		si.ServerUri = si.parsedServerUri.String()
+
+		controlPlaneOptions := defaultClientOptions // clone
+		controlPlaneOptions.ProxyString = "none"
+		controlPlaneOptions.CreateTransport = client.MakeCommandTransport(sshConcurrencyLimit, "ssh", sshParams.FormatCmdLine()...)
+		controlPlaneClient, err := client.NewControlPlaneClient(&controlPlaneOptions)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create control plane client: %w", err)
+		}
+
+		dataPlaneOptions := controlPlaneOptions // clone
+		dataPlaneOptions.CreateTransport = client.MakeCommandTransport(sshConcurrencyLimit, "ssh", sshParams.FormatDataPlaneCmdLine()...)
+
+		dataPlaneClient, err := client.NewDataPlaneClient(&dataPlaneOptions)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create data plane client: %w", err)
+		}
+
+		tygerClient = &client.TygerClient{
+			ControlPlaneUrl:    socketUrl,
+			ControlPlaneClient: controlPlaneClient,
+			GetAccessToken:     si.GetAccessToken,
+			DataPlaneClient:    dataPlaneClient,
+			Principal:          si.Principal,
+			RawControlPlaneUrl: si.parsedServerUri,
+			RawProxy:           si.parsedProxy,
+		}
+	} else {
+		if err := validateServiceInfo(si); err != nil {
+			return nil, err
+		}
+
+		serviceMetadata, err := getServiceMetadata(ctx, options.ServerUri)
+		if err != nil {
+			return nil, err
+		}
+
+		// augment with data received from the metadata endpoint
+		si.ServerUri = options.ServerUri
+		si.Authority = serviceMetadata.Authority
+		si.Audience = serviceMetadata.Audience
+		si.ClientAppUri = serviceMetadata.CliAppUri
+		si.DataPlaneProxy = serviceMetadata.DataPlaneProxy
+
+		if err := validateServiceInfo(si); err != nil {
+			return nil, err
+		}
+
+		if serviceMetadata.Authority != "" {
+			useServicePrincipal := options.ServicePrincipal != ""
+
+			var authResult public.AuthResult
+			if useServicePrincipal {
+				authResult, err = si.performServicePrincipalLogin(ctx)
 			} else {
-				si.ClientId = claims["appid"].(string)
+				authResult, err = si.performUserLogin(ctx, options.UseDeviceCode)
 			}
+			if err != nil {
+				return nil, err
+			}
+
+			si.LastToken = authResult.AccessToken
+			si.LastTokenExpiry = authResult.ExpiresOn.Unix()
+
+			if !useServicePrincipal {
+				si.Principal = authResult.IDToken.PreferredUsername
+
+				// We used the client app URI as the client ID when logging in interactively.
+				// This works, but the refresh token will only be valid for the client ID (GUID).
+				// So we need to extract the client ID from the access token and use that next time.
+				claims := jwt.MapClaims{}
+				if _, _, err := jwt.NewParser().ParseUnverified(authResult.AccessToken, claims); err != nil {
+					return nil, fmt.Errorf("unable to parse access token: %w", err)
+				} else {
+					si.ClientId = claims["appid"].(string)
+				}
+			}
+		}
+
+		controlPlaneOptions := defaultClientOptions
+
+		dataPlaneOptions := defaultClientOptions
+		if si.DataPlaneProxy != "" {
+			dataPlaneOptions.ProxyString = si.DataPlaneProxy
+		}
+
+		switch si.parsedServerUri.Scheme {
+		case "http+unix", "https+unix":
+			controlPlaneOptions.DisableRetries = true
+			dataPlaneOptions.DisableRetries = true
+		case "http", "https":
+		default:
+			panic(fmt.Sprintf("unhandled scheme: %s", si.parsedServerUri.Scheme))
+		}
+
+		cpClient, err := client.NewControlPlaneClient(&controlPlaneOptions)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create control plane client: %w", err)
+		}
+
+		dpClient, err := client.NewDataPlaneClient(&controlPlaneOptions)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create data plane client: %w", err)
+		}
+
+		tygerClient = &client.TygerClient{
+			ControlPlaneUrl:    si.parsedServerUri,
+			ControlPlaneClient: cpClient,
+			GetAccessToken:     si.GetAccessToken,
+			DataPlaneClient:    dpClient,
+			Principal:          si.Principal,
+			RawControlPlaneUrl: si.parsedServerUri,
+			RawProxy:           si.parsedProxy,
 		}
 	}
 
 	if options.Persisted {
 		err = si.persist()
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	return ctx, si, err
+	return tygerClient, nil
 }
 
-func normalizeServerUri(uri string) (*url.URL, error) {
+func NormalizeServerUri(uri string) (*url.URL, error) {
 	uri = strings.TrimRight(uri, "/")
 	parsedUrl, err := url.Parse(uri)
 	if err != nil || !parsedUrl.IsAbs() {
 		return nil, errors.New("a valid absolute uri is required")
+	}
+
+	if parsedUrl.Scheme == "unix" {
+		parsedUrl.Scheme = "http+unix"
+	}
+
+	if parsedUrl.Scheme == "http+unix" || parsedUrl.Scheme == "https+unix" {
+		if !strings.HasSuffix(uri, ":") {
+			parsedUrl.Path += ":"
+		}
 	}
 
 	return parsedUrl, err
@@ -247,7 +380,7 @@ func (c *serviceInfo) GetAccessToken(ctx context.Context) (string, error) {
 		customHttpClient := &clientIdReplacingHttpClient{
 			clientAppUri: c.ClientAppUri,
 			clientAppId:  c.ClientId,
-			innerClient:  httpclient.DefaultRetryableClient.StandardClient(),
+			innerClient:  http.DefaultClient,
 		}
 
 		// fall back to using the refresh token from the cache
@@ -350,34 +483,134 @@ func persistCacheContents(path string, bytes []byte) error {
 	return err
 }
 
-func GetPersistedServiceInfo() (settings.ServiceInfo, error) {
-	si := &serviceInfo{}
-	path, err := GetCachePath()
-	if err != nil {
-		return si, err
-	}
-
-	bytes, err := readCachedContents(path)
-
-	if err != nil {
-		return si, err
-	}
-
-	err = yaml.Unmarshal(bytes, &si)
+func GetClientFromCache() (*client.TygerClient, error) {
+	si, err := readCachedServiceInfo()
 	if err != nil {
 		return nil, err
 	}
 
-	if err := validateServiceInfo(si); err != nil {
+	if si.parsedServerUri == nil {
+		return nil, errors.New("not logged in")
+	}
+
+	defaultClientOptions := client.ClientOptions{
+		ProxyString:                     si.Proxy,
+		DisableTlsCertificateValidation: si.DisableTlsCertificateValidation,
+	}
+
+	if err := client.SetDefaultNetworkClientSettings(&defaultClientOptions); err != nil {
 		return nil, err
 	}
-	return si, err
+
+	if si.parsedServerUri.Scheme == "docker" {
+		dockerParams, err := client.ParseDockerUrl(si.parsedServerUri)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ssh URL: %w", err)
+		}
+
+		controlPlaneClientOptions := defaultClientOptions
+		controlPlaneClientOptions.ProxyString = "none"
+		controlPlaneClientOptions.CreateTransport = client.MakeCommandTransport(dockerConcurrencyLimit, "docker", dockerParams.FormatCmdLine()...)
+		cpClient, err := client.NewClient(&controlPlaneClientOptions)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create control plane client: %w", err)
+		}
+
+		dataPlaneClientOptions := controlPlaneClientOptions // clone
+		dataPlaneClientOptions.DisableRetries = true
+
+		dpClient, err := client.NewDataPlaneClient(&dataPlaneClientOptions)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create data plane client: %w", err)
+		}
+
+		endpoint := url.URL{Scheme: "http+unix", Path: fmt.Sprintf("%s:", dockerParams.SocketPath)}
+
+		return &client.TygerClient{
+			ControlPlaneUrl:    &endpoint,
+			ControlPlaneClient: cpClient,
+			GetAccessToken:     si.GetAccessToken,
+			DataPlaneClient:    dpClient,
+			Principal:          si.Principal,
+			RawControlPlaneUrl: si.parsedServerUri,
+			RawProxy:           si.parsedProxy,
+		}, nil
+	} else if si.parsedServerUri.Scheme == "ssh" {
+		sshParams, err := client.ParseSshUrl(si.parsedServerUri)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ssh URL: %w", err)
+		}
+
+		controlPlaneOptions := defaultClientOptions
+		controlPlaneOptions.ProxyString = "none"
+		controlPlaneOptions.CreateTransport = client.MakeCommandTransport(sshConcurrencyLimit, "ssh", sshParams.FormatCmdLine()...)
+
+		dataPlaneClientOptions := controlPlaneOptions // clone
+		dataPlaneClientOptions.CreateTransport = client.MakeCommandTransport(sshConcurrencyLimit, "ssh", sshParams.FormatDataPlaneCmdLine()...)
+
+		cpClient, err := client.NewClient(&controlPlaneOptions)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create control plane client: %w", err)
+		}
+
+		dpClient, err := client.NewDataPlaneClient(&dataPlaneClientOptions)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create data plane client: %w", err)
+		}
+
+		endpoint := url.URL{Scheme: "http+unix", Path: fmt.Sprintf("%s:", sshParams.SocketPath)}
+
+		return &client.TygerClient{
+			ControlPlaneUrl:    &endpoint,
+			ControlPlaneClient: cpClient,
+			GetAccessToken:     si.GetAccessToken,
+			DataPlaneClient:    dpClient,
+			Principal:          si.Principal,
+			RawControlPlaneUrl: si.parsedServerUri,
+			RawProxy:           si.parsedProxy,
+		}, nil
+	} else {
+
+		controlPlaneOptions := defaultClientOptions
+
+		dataPlaneOptions := defaultClientOptions
+		if si.DataPlaneProxy != "" {
+			dataPlaneOptions.ProxyString = si.DataPlaneProxy
+		}
+
+		switch si.parsedServerUri.Scheme {
+		case "http+unix", "https+unix":
+			controlPlaneOptions.DisableRetries = true
+			dataPlaneOptions.DisableRetries = true
+		case "http", "https":
+		}
+
+		controlPlaneClient, err := client.NewClient(&controlPlaneOptions)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create control plane client: %w", err)
+		}
+
+		dataPlaneClient, err := client.NewDataPlaneClient(&dataPlaneOptions)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create data plane client: %w", err)
+		}
+
+		return &client.TygerClient{
+			ControlPlaneUrl:    si.parsedServerUri,
+			ControlPlaneClient: controlPlaneClient,
+			GetAccessToken:     si.GetAccessToken,
+			DataPlaneClient:    dataPlaneClient,
+			Principal:          si.Principal,
+			RawControlPlaneUrl: si.parsedServerUri,
+			RawProxy:           si.parsedProxy,
+		}, nil
+	}
 }
 
 func validateServiceInfo(si *serviceInfo) error {
 	var err error
 	if si.ServerUri != "" {
-		si.parsedServerUri, err = normalizeServerUri(si.ServerUri)
+		si.parsedServerUri, err = NormalizeServerUri(si.ServerUri)
 		if err != nil {
 			return fmt.Errorf("the server URI is invalid")
 		}
@@ -405,10 +638,13 @@ func validateServiceInfo(si *serviceInfo) error {
 	return nil
 }
 
-func readCachedContents(path string) ([]byte, error) {
-	var bytes []byte
-	var err error
+func readCachedServiceInfo() (*serviceInfo, error) {
+	path, err := GetCachePath()
+	if err != nil {
+		return nil, err
+	}
 
+	var bytes []byte
 	// If the file is not readable due to a permission error,
 	// it could be because another process is holding the file open.
 	// In that case, we retry over a short period of time.
@@ -423,16 +659,32 @@ func readCachedContents(path string) ([]byte, error) {
 		}
 	}
 
-	return bytes, err
+	if err != nil {
+		return nil, err
+	}
+
+	si := serviceInfo{}
+	err = yaml.Unmarshal(bytes, &si)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := validateServiceInfo(&si); err != nil {
+		return nil, err
+	}
+
+	return &si, nil
 }
 
 func getServiceMetadata(ctx context.Context, serverUri string) (*model.ServiceMetadata, error) {
-	req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/v1/metadata", serverUri), nil)
+	// Not using a retryable client because when doing `tyger login --local` we first try to use the unix socket
+	// before trying the docker gateway and we don't want to wait for retries.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/v1/metadata", serverUri), nil)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create request: %w", err)
 	}
 
-	resp, err := httpclient.DefaultRetryableClient.Do(req)
+	resp, err := client.DefaultClient.HTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -452,7 +704,7 @@ func (si *serviceInfo) performServicePrincipalLogin(ctx context.Context) (authRe
 			return authResult, fmt.Errorf("error creating credential: %w", err)
 		}
 
-		client, err := confidential.New(si.Authority, si.Principal, cred, confidential.WithHTTPClient(httpclient.DefaultRetryableClient.StandardClient()))
+		client, err := confidential.New(si.Authority, si.Principal, cred, confidential.WithHTTPClient(client.DefaultClient.StandardClient()))
 		if err != nil {
 			return authResult, err
 		}
@@ -498,7 +750,7 @@ func (si *serviceInfo) performUserLogin(ctx context.Context, useDeviceCode bool)
 		si.ClientAppUri,
 		public.WithAuthority(si.Authority),
 		public.WithCache(si),
-		public.WithHTTPClient(httpclient.DefaultRetryableClient.StandardClient()),
+		public.WithHTTPClient(client.DefaultClient.StandardClient()),
 	)
 	if err != nil {
 		return

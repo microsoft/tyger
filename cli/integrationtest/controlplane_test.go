@@ -13,9 +13,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,16 +27,18 @@ import (
 	"github.com/andreyvit/diff"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/google/uuid"
-	"github.com/hashicorp/go-retryablehttp"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
-	"github.com/microsoft/tyger/cli/internal/httpclient"
-	"github.com/microsoft/tyger/cli/internal/settings"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/yaml"
+)
+
+const (
+	BasicImage = "mcr.microsoft.com/cbl-mariner/base/core:2.0"
+	GpuImage   = "nvidia/cuda:11.0.3-base-ubuntu20.04"
 )
 
 func init() {
@@ -45,11 +49,20 @@ func init() {
 	}
 
 	log.Logger = log.Logger.Level(zerolog.ErrorLevel)
-}
 
-const (
-	BasicImage = "mcr.microsoft.com/cbl-mariner/base/core:2.0"
-)
+	if c, _ := controlplane.GetClientFromCache(); c.ControlPlaneUrl.Scheme == "http+unix" {
+		if _, _, err := runCommand("docker", "inspect", BasicImage, GpuImage); err != nil {
+			if stdout, stderr, err := runCommand("docker", "pull", BasicImage); err != nil {
+				fmt.Fprintln(os.Stderr, stderr, stdout)
+				log.Fatal().Err(err).Send()
+			}
+			if stdout, stderr, err := runCommand("docker", "pull", GpuImage); err != nil {
+				fmt.Fprintln(os.Stderr, stderr, stdout)
+				log.Fatal().Err(err).Send()
+			}
+		}
+	}
+}
 
 func TestEndToEnd(t *testing.T) {
 	t.Parallel()
@@ -216,6 +229,105 @@ timeoutSeconds: 600`, BasicImage)
 		RunSucceeds(t)
 
 	require.Equal("Hello: Bonjour", execStdOut)
+}
+
+func TestEndToEndExecWithEphemeralBuffers(t *testing.T) {
+	t.Parallel()
+	skipIfEphemeralBuffersNotSupported(t)
+	require := require.New(t)
+
+	runSpec := fmt.Sprintf(`
+job:
+  codespec:
+    image: %s
+    buffers:
+      inputs: ["input"]
+      outputs: ["output"]
+    command:
+      - "sh"
+      - "-c"
+      - |
+        set -euo pipefail
+        inp=$(cat "$INPUT_PIPE")
+        echo -n "${inp}: Bonjour" > "$OUTPUT_PIPE"
+
+  buffers:
+    input: _
+    output: _
+timeoutSeconds: 600`, BasicImage)
+
+	tempDir := t.TempDir()
+	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
+	require.NoError(os.WriteFile(runSpecPath, []byte(runSpec), 0644))
+
+	execStdOut := NewTygerCmdBuilder("run", "exec", "--file", runSpecPath, "--log-level", "trace").
+		Stdin("Hello").
+		RunSucceeds(t)
+
+	require.Equal("Hello: Bonjour", execStdOut)
+}
+
+func TestEndToEndExecWithLargeEphemeralBuffers(t *testing.T) {
+	t.Parallel()
+	skipIfEphemeralBuffersNotSupported(t)
+	require := require.New(t)
+
+	runSpec := fmt.Sprintf(`
+job:
+  codespec:
+    image: %s
+    buffers:
+      inputs: ["input"]
+      outputs: ["output"]
+    command:
+      - "sh"
+      - "-c"
+      - |
+        set -euo pipefail
+        cat "$INPUT_PIPE" > "$OUTPUT_PIPE"
+
+  buffers:
+    input: _
+    output: _
+timeoutSeconds: 600`, BasicImage)
+
+	tempDir := t.TempDir()
+	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
+	require.NoError(os.WriteFile(runSpecPath, []byte(runSpec), 0644))
+
+	genCmd := exec.Command("tyger", "buffer", "gen", "1G")
+	genPipe, err := genCmd.StdoutPipe()
+	require.NoError(err)
+
+	execCmd := exec.Command("tyger", "run", "exec", "--file", runSpecPath)
+	execCmd.Stdin = genPipe
+
+	stdErr := &bytes.Buffer{}
+	execCmd.Stderr = stdErr
+
+	execOutPipe, err := execCmd.StdoutPipe()
+	require.NoError(err)
+
+	genCmd.Start()
+	execCmd.Start()
+
+	outByteCount := 0
+	for {
+		buf := make([]byte, 64*1024)
+		n, err := execOutPipe.Read(buf)
+		outByteCount += n
+		if err == io.EOF {
+			break
+		}
+		require.NoError(err)
+	}
+
+	execErr := execCmd.Wait()
+	t.Log(stdErr.String())
+	require.NoError(execErr)
+	require.NoError(genCmd.Wait())
+
+	require.Equal(1*1024*1024*1024, outByteCount)
 }
 
 func TestCodespecBufferTagsWithYamlSpec(t *testing.T) {
@@ -422,8 +534,7 @@ func TestInvalidCodespecNames(t *testing.T) {
 			}
 
 			newCodespec := model.Codespec{Kind: "worker", Image: BasicImage}
-			ctx, _ := getServiceInfoContext(t)
-			_, err = controlplane.InvokeRequest(ctx, http.MethodPut, fmt.Sprintf("v1/codespecs/%s", tC.name), newCodespec, nil)
+			_, err = controlplane.InvokeRequest(context.Background(), http.MethodPut, fmt.Sprintf("v1/codespecs/%s", tC.name), newCodespec, nil)
 			if tC.valid {
 				require.Nil(t, err)
 			} else {
@@ -441,12 +552,13 @@ func TestCodespecNameRequirements(t *testing.T) {
 // is scheduled on a node with one.
 func TestGpuResourceRequirement(t *testing.T) {
 	t.Parallel()
+	skipIfGpuNotSupported(t)
 
 	const codespecName = "gputestcodespec"
 	runTygerSucceeds(t,
 		"codespec",
 		"create", codespecName,
-		"--image", "nvidia/cuda:11.0.3-base-ubuntu20.04",
+		"--image", GpuImage,
 		"--gpu", "1",
 		"--command",
 		"--",
@@ -458,8 +570,10 @@ func TestGpuResourceRequirement(t *testing.T) {
 	run := waitForRunSuccess(t, runId)
 
 	require.NoError(t, json.Unmarshal([]byte(runTygerSucceeds(t, "run", "show", runId)), &run))
-	require.NotEmpty(t, run.Cluster)
-	require.Equal(t, "gpunp", run.Job.NodePool)
+	if supportsNodePools(t) {
+		require.NotEmpty(t, run.Cluster)
+		require.Equal(t, "gpunp", run.Job.NodePool)
+	}
 }
 
 // Verify that a run using a codespec that does not require a GPU
@@ -471,7 +585,7 @@ func TestNoGpuResourceRequirement(t *testing.T) {
 	runTygerSucceeds(t,
 		"codespec",
 		"create", codespecName,
-		"--image", "nvidia/cuda:11.0.3-base-ubuntu20.04",
+		"--image", GpuImage,
 		"--command",
 		"--",
 		"bash", "-c", "[[ ! $(nvidia-smi) ]]") // verify that no GPU is available
@@ -484,12 +598,13 @@ func TestNoGpuResourceRequirement(t *testing.T) {
 
 func TestTargetGpuNodePool(t *testing.T) {
 	t.Parallel()
+	skipIfNodePoolsNotSupported(t)
 
 	codespecName := strings.ToLower(t.Name())
 	runTygerSucceeds(t,
 		"codespec",
 		"create", codespecName,
-		"--image", "nvidia/cuda:11.0.3-base-ubuntu20.04",
+		"--image", GpuImage,
 		"--command",
 		"--",
 		"bash", "-c", "[[ $(nvidia-smi -L | wc -l) == 1 ]]") // verify that a GPU is available
@@ -507,7 +622,7 @@ func TestTargetCpuNodePool(t *testing.T) {
 	runTygerSucceeds(t,
 		"codespec",
 		"create", codespecName,
-		"--image", "nvidia/cuda:11.0.3-base-ubuntu20.04",
+		"--image", GpuImage,
 		"--command",
 		"--",
 		"bash", "-c", "[[ ! $(nvidia-smi) ]]") // verify that no GPU is available
@@ -520,6 +635,7 @@ func TestTargetCpuNodePool(t *testing.T) {
 
 func TestTargetingInvalidClusterReturnsError(t *testing.T) {
 	t.Parallel()
+	skipIfNodePoolsNotSupported(t)
 
 	codespecName := strings.ToLower(t.Name())
 	runTygerSucceeds(t,
@@ -533,6 +649,7 @@ func TestTargetingInvalidClusterReturnsError(t *testing.T) {
 
 func TestTargetingInvalidNodePoolReturnsError(t *testing.T) {
 	t.Parallel()
+	skipIfNodePoolsNotSupported(t)
 
 	codespecName := strings.ToLower(t.Name())
 	runTygerSucceeds(t,
@@ -546,6 +663,7 @@ func TestTargetingInvalidNodePoolReturnsError(t *testing.T) {
 
 func TestTargetCpuNodePoolWithGpuResourcesReturnsError(t *testing.T) {
 	t.Parallel()
+	skipIfNodePoolsNotSupported(t)
 
 	codespecName := strings.ToLower(t.Name())
 	runTygerSucceeds(t,
@@ -561,41 +679,38 @@ func TestTargetCpuNodePoolWithGpuResourcesReturnsError(t *testing.T) {
 func TestUnrecognizedFieldsRejected(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	ctx, _ := getServiceInfoContext(t)
 
 	codespec := model.Codespec{}
 	requestBody := map[string]string{"kind": "job", "image": "x"}
-	_, err := controlplane.InvokeRequest(ctx, http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
+	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
 	require.Nil(err)
 
 	requestBody["unknownField"] = "y"
-	_, err = controlplane.InvokeRequest(ctx, http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
+	_, err = controlplane.InvokeRequest(context.Background(), http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
 	require.NotNil(err)
 }
 
 func TestInvalidCodespecDiscriminatorRejected(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	ctx, _ := getServiceInfoContext(t)
 
 	codespec := model.Codespec{}
 	requestBody := map[string]string{"image": "x"}
-	_, err := controlplane.InvokeRequest(ctx, http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
+	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
 	require.ErrorContains(err, "Missing discriminator property 'kind'")
 
 	requestBody["kind"] = "missing"
-	_, err = controlplane.InvokeRequest(ctx, http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
+	_, err = controlplane.InvokeRequest(context.Background(), http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
 	require.ErrorContains(err, "Invalid value for the property 'kind'. It can be either 'job' or 'worker'")
 }
 
 func TestInvalidCodespecMissingRequiredFieldsRejected(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	ctx, _ := getServiceInfoContext(t)
 
 	codespec := model.Codespec{}
 	requestBody := map[string]string{"kind": "job"}
-	_, err := controlplane.InvokeRequest(ctx, http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
+	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
 	require.ErrorContains(err, "missing required properties, including the following: image")
 }
 
@@ -609,12 +724,11 @@ func TestResponseContainsRequestIdHeader(t *testing.T) {
 
 func TestOpenApiSpecIsAsExpected(t *testing.T) {
 	t.Parallel()
-	ctx, serviceInfo := getServiceInfoContext(t)
-
-	swaggerUri := fmt.Sprintf("%s/swagger/v1/swagger.yaml", serviceInfo.GetServerUri())
-	req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, swaggerUri, nil)
+	client, err := controlplane.GetClientFromCache()
 	require.NoError(t, err)
-	resp, err := httpclient.DefaultRetryableClient.Do(req)
+
+	swaggerUri := fmt.Sprintf("%s/swagger/v1/swagger.yaml", client.ControlPlaneUrl)
+	resp, err := client.ControlPlaneClient.Get(swaggerUri)
 	require.Nil(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	actualBytes, err := io.ReadAll(resp.Body)
@@ -625,8 +739,21 @@ func TestOpenApiSpecIsAsExpected(t *testing.T) {
 	require.Nil(t, err)
 
 	if a, e := strings.TrimSpace(string(actualBytes)), strings.TrimSpace(string(expectedBytes)); a != e {
-		t.Errorf("Result not as expected. To update, run `curl %s > %s`\n\nDiff:%v",
-			swaggerUri,
+		var curlCommand string
+		if client.ControlPlaneUrl.Scheme == "http+unix" {
+			u := url.URL{
+				Scheme: "http",
+				Host:   "localhost",
+				Path:   strings.Split(swaggerUri, ":")[2],
+			}
+
+			curlCommand = fmt.Sprintf("curl --unix %s %s ", strings.Split(client.ControlPlaneUrl.Path, ":")[0], u.String())
+		} else {
+			curlCommand = fmt.Sprintf("curl %s ", client.ControlPlaneUrl)
+		}
+
+		t.Errorf("Result not as expected. To update, run `%s > %s`\n\nDiff:%v",
+			curlCommand,
 			expectedFilePath,
 			diff.LineDiff(e, a))
 	}
@@ -655,7 +782,6 @@ func TestRunStatusEnumUnmarshal(t *testing.T) {
 
 func TestListRunsPaging(t *testing.T) {
 	t.Parallel()
-	ctx, _ := getServiceInfoContext(t)
 
 	runTygerSucceeds(t,
 		"codespec",
@@ -672,7 +798,7 @@ func TestListRunsPaging(t *testing.T) {
 
 	for uri := "v1/runs?limit=5"; uri != ""; {
 		page := model.Page[model.Run]{}
-		_, err := controlplane.InvokeRequest(ctx, http.MethodGet, uri, nil, &page)
+		_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, uri, nil, &page)
 		require.Nil(t, err)
 		for _, r := range page.Items {
 			delete(runs, fmt.Sprint(r.Id))
@@ -737,7 +863,6 @@ func TestRecreateCodespec(t *testing.T) {
 
 func TestListCodespecsPaging(t *testing.T) {
 	t.Parallel()
-	ctx, _ := getServiceInfoContext(t)
 
 	prefix := strings.ToLower(t.Name()+uuid.NewString()) + "_"
 	inputNames := [12]string{"klamath", "allagash", "middlefork", "johnday", "missouri", "riogrande", "chattooga", "loxahatchee", "noatak", "tuolumne", "riogrande", "allagash"}
@@ -764,7 +889,7 @@ func TestListCodespecsPaging(t *testing.T) {
 
 	for uri := fmt.Sprintf("v1/codespecs?limit=5&prefix=%s", prefix); uri != ""; {
 		page := model.Page[model.Codespec]{}
-		_, err := controlplane.InvokeRequest(ctx, http.MethodGet, uri, nil, &page)
+		_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, uri, nil, &page)
 		require.Nil(t, err)
 		for _, cs := range page.Items {
 			if _, ok := codespecs[cs.Name]; ok {
@@ -843,7 +968,6 @@ func TestListRunsSince(t *testing.T) {
 
 func TestListCodespecsWithPrefix(t *testing.T) {
 	t.Parallel()
-	ctx, _ := getServiceInfoContext(t)
 
 	codespecNames := [4]string{"3d_t2_flair", "t1w-1mm-ax", "t1w-0.9mm-sag", "3d_t1_star"}
 	codespecMap := make(map[string]string)
@@ -853,7 +977,7 @@ func TestListCodespecsWithPrefix(t *testing.T) {
 
 	uri := "v1/codespecs?prefix=3d_"
 	page := model.Page[model.Codespec]{}
-	_, err := controlplane.InvokeRequest(ctx, http.MethodGet, uri, nil, &page)
+	_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, uri, nil, &page)
 	require.Nil(t, err)
 	for _, cs := range page.Items {
 		require.Equal(t, strings.HasPrefix(cs.Name, "3d_"), true)
@@ -868,7 +992,6 @@ func TestListCodespecsWithPrefix(t *testing.T) {
 
 func TestGetLogsFromPod(t *testing.T) {
 	t.Parallel()
-	ctx, _ := getServiceInfoContext(t)
 
 	codespecName := strings.ToLower(t.Name())
 
@@ -886,15 +1009,14 @@ func TestGetLogsFromPod(t *testing.T) {
 	waitForRunStarted(t, runId)
 
 	// block until we get the first line
-	resp, err := controlplane.InvokeRequest(ctx, http.MethodGet, fmt.Sprintf("v1/runs/%s/logs?follow=true", runId), nil, nil)
+	resp, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, fmt.Sprintf("v1/runs/%s/logs?follow=true", runId), nil, nil, controlplane.WithLeaveResponseOpen())
 	require.Nil(t, err)
+	defer resp.Body.Close()
 	reader := bufio.NewReader(resp.Body)
 	for i := 0; i < 5; i++ {
 		_, err = reader.ReadString('\n')
 		require.Nil(t, err)
 	}
-
-	require.Nil(t, resp.Body.Close())
 
 	logs := runTygerSucceeds(t, "run", "logs", runId)
 	require.Equal(t, "1\n2\n3\n4\n5", logs)
@@ -919,7 +1041,6 @@ func TestGetLogsFromPod(t *testing.T) {
 
 func TestGetArchivedLogs(t *testing.T) {
 	t.Parallel()
-	ctx, _ := getServiceInfoContext(t)
 
 	codespecName := strings.ToLower(t.Name())
 
@@ -940,7 +1061,7 @@ func TestGetArchivedLogs(t *testing.T) {
 	waitForRunSuccess(t, runId)
 
 	// force logs to be archived
-	_, err := controlplane.InvokeRequest(ctx, http.MethodPost, "v1/runs/_sweep", nil, nil)
+	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPost, "v1/runs/_sweep", nil, nil)
 	require.Nil(t, err)
 
 	logs = runTygerSucceeds(t, "run", "logs", runId)
@@ -975,7 +1096,6 @@ func TestGetArchivedLogs(t *testing.T) {
 
 func TestGetArchivedLogsWithLongLines(t *testing.T) {
 	t.Parallel()
-	ctx, _ := getServiceInfoContext(t)
 
 	codespecName := strings.ToLower(t.Name())
 
@@ -996,7 +1116,7 @@ func TestGetArchivedLogsWithLongLines(t *testing.T) {
 	require.Equal(t, expectedLogs, logs)
 
 	// force logs to be archived
-	_, err := controlplane.InvokeRequest(ctx, http.MethodPost, "v1/runs/_sweep", nil, nil)
+	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPost, "v1/runs/_sweep", nil, nil)
 	require.Nil(t, err)
 
 	logs = runTygerSucceeds(t, "run", "logs", runId)
@@ -1005,6 +1125,7 @@ func TestGetArchivedLogsWithLongLines(t *testing.T) {
 
 func TestConnectivityBetweenJobAndWorkers(t *testing.T) {
 	t.Parallel()
+	skipIfDistributedRunsNotSupported(t)
 
 	jobCodespecName := strings.ToLower(t.Name()) + "-job"
 	workerCodespecName := strings.ToLower(t.Name()) + "-worker"
@@ -1034,10 +1155,13 @@ func TestConnectivityBetweenJobAndWorkers(t *testing.T) {
 
 func TestAuthenticationRequired(t *testing.T) {
 	t.Parallel()
-	ctx, serviceInfo := getServiceInfoContext(t)
-	req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/v1/runs/abc", serviceInfo.GetServerUri()), nil)
+	if getServiceMetadata(t).Authority == "" {
+		t.Skip("Authentication disabled for this server")
+	}
+
+	client, err := controlplane.GetClientFromCache()
 	require.NoError(t, err)
-	resp, err := httpclient.DefaultRetryableClient.Do(req)
+	resp, err := client.ControlPlaneClient.Get(fmt.Sprintf("%s/v1/runs/abc", client.ControlPlaneUrl))
 	require.Nil(t, err)
 	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
@@ -1061,7 +1185,6 @@ func TestSpecifyingCacheFileAsEnvironmentVariable(t *testing.T) {
 func TestCancelJob(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	ctx, _ := getServiceInfoContext(t)
 
 	codespecName := strings.ToLower(t.Name())
 
@@ -1078,7 +1201,7 @@ func TestCancelJob(t *testing.T) {
 	runTygerSucceeds(t, "run", "cancel", runId)
 
 	// force the sweep to run to terminate the pod
-	_, err := controlplane.InvokeRequest(ctx, http.MethodPost, "v1/runs/_sweep", nil, nil)
+	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPost, "v1/runs/_sweep", nil, nil)
 	require.NoError(err)
 
 	waitForRunCanceled(t, runId)
@@ -1366,12 +1489,23 @@ func getTestConnectivityImage(t *testing.T) string {
 		return imgVar
 	}
 
-	return runCommandSucceeds(t, "docker", "inspect", "testconnectivity", "--format", "{{ index .RepoDigests 0 }}")
-}
+	devConfig := getDevConfig(t)
+	containerRegistryFqdn := devConfig["wipContainerRegistry"].(map[string]any)["fqdn"].(string)
 
-func getServiceInfoContext(t *testing.T) (context.Context, settings.ServiceInfo) {
-	t.Helper()
-	si, err := controlplane.GetPersistedServiceInfo()
+	c, err := controlplane.GetClientFromCache()
 	require.NoError(t, err)
-	return settings.SetServiceInfoOnContext(context.Background(), si), si
+	var tag string
+	var format string
+	switch c.ControlPlaneUrl.Scheme {
+	case "http+unix", "https+unix":
+		tag = "dev-" + runtime.GOARCH
+		format = "{{ .Id }}"
+	default:
+		tag = "dev-amd64"
+		format = "{{ index .RepoDigests 0 }}"
+	}
+
+	image := fmt.Sprintf("%s/testconnectivity:%s", containerRegistryFqdn, tag)
+
+	return runCommandSucceeds(t, "docker", "inspect", image, "--format", format)
 }

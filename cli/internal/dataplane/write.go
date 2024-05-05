@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,7 +19,8 @@ import (
 
 	"github.com/hashicorp/go-retryablehttp"
 	pool "github.com/libp2p/go-buffer-pool"
-	"github.com/microsoft/tyger/cli/internal/httpclient"
+	"github.com/microsoft/tyger/cli/internal/client"
+	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -34,9 +36,11 @@ var (
 )
 
 type writeOptions struct {
-	dop        int
-	blockSize  int
-	httpClient *retryablehttp.Client
+	dop                     int
+	blockSize               int
+	httpClient              *retryablehttp.Client
+	metadataEndWriteTimeout time.Duration
+	connectionType          client.TygerConnectionType
 }
 
 type WriteOption func(o *writeOptions)
@@ -59,12 +63,20 @@ func WithWriteHttpClient(httpClient *retryablehttp.Client) WriteOption {
 	}
 }
 
+func WithWriteMetadataEndWriteTimeout(timeout time.Duration) WriteOption {
+	return func(o *writeOptions) {
+		o.metadataEndWriteTimeout = timeout
+	}
+}
+
 // If invalidHashChain is set to true, the value of the hash chain attached to the blob will
 // always be the Inital Value. This should only be set for testing.
-func Write(ctx context.Context, uri string, inputReader io.Reader, options ...WriteOption) error {
+func Write(ctx context.Context, uri *url.URL, inputReader io.Reader, options ...WriteOption) error {
+	container := &Container{uri}
 	writeOptions := &writeOptions{
-		dop:       DefaultWriteDop,
-		blockSize: DefaultBlockSize,
+		dop:                     DefaultWriteDop,
+		blockSize:               DefaultBlockSize,
+		metadataEndWriteTimeout: 3 * time.Second,
 	}
 	for _, o := range options {
 		o(writeOptions)
@@ -72,8 +84,22 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 
 	ctx = log.With().Str("operation", "buffer write").Logger().WithContext(ctx)
 	if writeOptions.httpClient == nil {
-		writeOptions.httpClient = httpclient.NewRetryableClient()
-		writeOptions.httpClient.HTTPClient.Timeout = ResponseTimeout
+		tygerClient, _ := controlplane.GetClientFromCache()
+		if tygerClient != nil {
+			writeOptions.httpClient = tygerClient.DataPlaneClient.Client
+			writeOptions.connectionType = tygerClient.ConnectionType()
+			if tygerClient.ConnectionType() == client.TygerConnectionTypeSsh && uri.Scheme == "http+unix" && !container.SupportsRelay() {
+				httpClient, tunnelPool, err := createSshTunnelPoolClient(ctx, tygerClient, container, writeOptions.dop)
+				if err != nil {
+					return err
+				}
+
+				defer tunnelPool.Close()
+				writeOptions.httpClient = httpClient
+			}
+		} else {
+			writeOptions.httpClient = client.DefaultClient.Client
+		}
 	}
 
 	httpClient := writeOptions.httpClient
@@ -81,9 +107,8 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	container, err := NewContainer(uri, httpClient)
-	if err != nil {
-		return fmt.Errorf("invalid URL: %w", err)
+	if container.SupportsRelay() {
+		return relayWrite(ctx, httpClient, writeOptions.connectionType, container, inputReader)
 	}
 
 	if err := writeStartMetadata(ctx, httpClient, container); err != nil {
@@ -91,7 +116,7 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 	}
 
 	outputChannel := make(chan BufferBlob, writeOptions.dop)
-	errorChannel := make(chan error, 1)
+	errorChannel := make(chan error, writeOptions.dop+1)
 
 	wg := sync.WaitGroup{}
 	wg.Add(writeOptions.dop)
@@ -105,7 +130,6 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 		go func() {
 			defer wg.Done()
 			for bb := range outputChannel {
-
 				blobUrl := container.GetBlobUri(bb.BlobNumber)
 				ctx := log.Ctx(ctx).With().Int64("blobNumber", bb.BlobNumber).Logger().WithContext(ctx)
 				var body any = bb.Contents
@@ -127,7 +151,9 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 				bb.CurrentCumulativeHash <- encodedHashChain
 
 				if err := uploadBlobWithRetry(ctx, httpClient, blobUrl, body, encodedMD5Hash, encodedHashChain); err != nil {
-					log.Debug().Err(err).Msg("Encountered error uploading blob")
+					if !errors.Is(err, ctx.Err()) {
+						log.Debug().Err(err).Msg("Encountered error uploading blob")
+					}
 					errorChannel <- err
 					return
 				}
@@ -145,6 +171,8 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 
 		previousHashChannel <- EncodedHashChainInitialValue
 
+		failed := false
+
 		for {
 
 			buffer := pool.Get(writeOptions.blockSize)
@@ -156,11 +184,20 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 			if bytesRead > 0 {
 				currentHashChannel := make(chan string, 1)
 
-				outputChannel <- BufferBlob{
+				blob := BufferBlob{
 					BlobNumber:             blobNumber,
 					Contents:               buffer[:bytesRead],
 					PreviousCumulativeHash: previousHashChannel,
 					CurrentCumulativeHash:  currentHashChannel,
+				}
+				select {
+				case outputChannel <- blob:
+				case <-ctx.Done():
+					failed = true
+				}
+
+				if failed {
+					break
 				}
 
 				previousHashChannel = currentHashChannel
@@ -173,17 +210,21 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 
 			if err != nil {
 				errorChannel <- fmt.Errorf("error reading from input: %w", err)
+				failed = true
+				break
 			}
 		}
 
-		currentHashChannel := make(chan string, 1)
-
-		outputChannel <- BufferBlob{
-			BlobNumber:             blobNumber,
-			Contents:               []byte{},
-			PreviousCumulativeHash: previousHashChannel,
-			CurrentCumulativeHash:  currentHashChannel,
+		if !failed {
+			currentHashChannel := make(chan string, 1)
+			outputChannel <- BufferBlob{
+				BlobNumber:             blobNumber,
+				Contents:               []byte{},
+				PreviousCumulativeHash: previousHashChannel,
+				CurrentCumulativeHash:  currentHashChannel,
+			}
 		}
+
 		close(outputChannel)
 
 		wg.Wait()
@@ -191,10 +232,11 @@ func Write(ctx context.Context, uri string, inputReader io.Reader, options ...Wr
 	}()
 
 	for err := range errorChannel {
+		cancel()
 		if ctx.Err() != nil {
 			// this means the context was cancelled or timed out
 			// use a new context to write the end metadata
-			newCtx, cancel := context.WithTimeout(&MergedContext{Context: context.Background(), valueSource: ctx}, 3*time.Second)
+			newCtx, cancel := context.WithTimeout(&MergedContext{Context: context.Background(), valueSource: ctx}, writeOptions.metadataEndWriteTimeout)
 			defer cancel()
 			ctx = newCtx
 		}
@@ -225,6 +267,8 @@ func writeStartMetadata(ctx context.Context, httpClient *retryablehttp.Client, c
 	if err != nil {
 		return fmt.Errorf("failed to send HEAD request: %w", err)
 	}
+
+	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusOK {
 		return fmt.Errorf("buffer cannot be overwritten")
@@ -288,7 +332,7 @@ func uploadBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, 
 				log.Ctx(ctx).Debug().Msg("MD5 mismatch, retrying")
 				continue
 			} else {
-				return fmt.Errorf("failed to upload blob: %w", httpclient.RedactHttpError(err))
+				return fmt.Errorf("failed to upload blob: %w", client.RedactHttpError(err))
 			}
 		case errBlobOverwrite:
 			// When retrying failed writes, we might encounter the UnauthorizedBlobOverwrite if the original
@@ -315,11 +359,11 @@ func uploadBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, 
 				}
 			}
 
-			return fmt.Errorf("buffer cannot be overwritten: %w", httpclient.RedactHttpError(err))
+			return fmt.Errorf("buffer cannot be overwritten")
 		case errBufferDoesNotExist:
 			return err
 		default:
-			return fmt.Errorf("failed to upload blob: %w", httpclient.RedactHttpError(err))
+			return fmt.Errorf("failed to upload blob: %w", client.RedactHttpError(err))
 		}
 	}
 

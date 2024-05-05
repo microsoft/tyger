@@ -26,7 +26,6 @@ import (
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/dataplane"
-	"github.com/microsoft/tyger/cli/internal/httpclient"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -99,13 +98,13 @@ func newRunExecCommand() *cobra.Command {
 		}
 		unmappedInputBuffers := make([]string, 0)
 		for _, input := range bufferParameters.Inputs {
-			if _, ok := run.Job.Buffers[input]; !ok {
+			if id, ok := run.Job.Buffers[input]; !ok || id == "_" {
 				unmappedInputBuffers = append(unmappedInputBuffers, input)
 			}
 		}
 		unmappedOutputBuffers := make([]string, 0)
 		for _, output := range bufferParameters.Outputs {
-			if _, ok := run.Job.Buffers[output]; !ok {
+			if id, ok := run.Job.Buffers[output]; !ok || id == "_" {
 				unmappedOutputBuffers = append(unmappedOutputBuffers, output)
 			}
 		}
@@ -137,8 +136,8 @@ func newRunExecCommand() *cobra.Command {
 	postCreate := func(ctx context.Context, run model.Run) error {
 		log.Logger = log.Logger.With().Int64("runId", run.Id).Logger()
 		log.Info().Msg("Run created")
-		var inputSasUri string
-		var outputSasUri string
+		var inputSasUri *url.URL
+		var outputSasUri *url.URL
 		var err error
 		if inputBufferParameter != "" {
 			bufferId := run.Job.Buffers[inputBufferParameter]
@@ -157,7 +156,6 @@ func newRunExecCommand() *cobra.Command {
 
 		mainWg := sync.WaitGroup{}
 
-		httpClient := httpclient.DefaultRetryableClient
 		var stopFunc context.CancelFunc
 		ctx, stopFunc = signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 
@@ -167,12 +165,11 @@ func newRunExecCommand() *cobra.Command {
 			log.Warn().Msg("Canceling...")
 		}()
 
-		if inputSasUri != "" {
+		if inputSasUri != nil {
 			mainWg.Add(1)
 			go func() {
 				defer mainWg.Done()
 				err := dataplane.Write(ctx, inputSasUri, os.Stdin,
-					dataplane.WithWriteHttpClient(httpClient),
 					dataplane.WithWriteBlockSize(blockSize),
 					dataplane.WithWriteDop(writeDop))
 				if err != nil {
@@ -184,12 +181,11 @@ func newRunExecCommand() *cobra.Command {
 			}()
 		}
 
-		if outputSasUri != "" {
+		if outputSasUri != nil {
 			mainWg.Add(1)
 			go func() {
 				defer mainWg.Done()
 				err := dataplane.Read(ctx, outputSasUri, os.Stdout,
-					dataplane.WithReadHttpClient(httpClient),
 					dataplane.WithReadDop(readDop))
 				if err != nil {
 					if errors.Is(err, ctx.Err()) {
@@ -214,6 +210,7 @@ func newRunExecCommand() *cobra.Command {
 
 		consecutiveErrors := 0
 	beginWatch:
+		var runFailedErr error
 		eventChan, errChan := watchRun(ctx, run.Id)
 
 		for {
@@ -246,7 +243,12 @@ func newRunExecCommand() *cobra.Command {
 					case model.Pending:
 					case model.Running:
 					default:
-						log.Fatal().Str("status", event.Status.String()).Str("statusReason", event.StatusReason).Msg("Run failed.")
+						msg := fmt.Sprintf("run failed with status %s", event.Status.String())
+						if event.StatusReason != "" {
+							msg = fmt.Sprintf("%s (%s)", msg, event.StatusReason)
+						}
+						runFailedErr = errors.New(msg)
+						goto end
 					}
 				}
 			}
@@ -270,6 +272,10 @@ func newRunExecCommand() *cobra.Command {
 			case <-time.After(20 * time.Second):
 				log.Warn().Msg("Timed out waiting for logs to finish streaming")
 			}
+		}
+
+		if runFailedErr != nil {
+			log.Fatal().Err(runFailedErr).Msg("Run failed")
 		}
 
 		return nil
@@ -612,7 +618,7 @@ func newRunCancelCommand() *cobra.Command {
 			} else if *run.Status == model.Canceling {
 				fmt.Println("Cancel issued for job", args[0])
 			} else if *run.Status == model.Canceled {
-				fmt.Println("Job", args[0], "has already been canceled")
+				fmt.Println("Job", args[0], "has been canceled")
 			} else {
 				if run.StatusReason != "" {
 					return fmt.Errorf("unable to cancel job %s because its status is %s (%s)", args[0], run.Status.String(), run.StatusReason)
@@ -688,10 +694,12 @@ func getLogs(ctx context.Context, runId string, timestamps bool, tailLines int, 
 		if len(queryString) > 0 {
 			queryString = "?" + queryString
 		}
-		resp, err := controlplane.InvokeRequest(ctx, http.MethodGet, fmt.Sprintf("v1/runs/%s/logs%s", runId, queryString), nil, nil)
+		resp, err := controlplane.InvokeRequest(ctx, http.MethodGet, fmt.Sprintf("v1/runs/%s/logs%s", runId, queryString), nil, nil, controlplane.WithLeaveResponseOpen())
 		if err != nil {
 			return err
 		}
+
+		defer resp.Body.Close()
 
 		if !follow {
 			_, err = io.Copy(outputSink, resp.Body)
@@ -745,13 +753,15 @@ func watchRun(ctx context.Context, runId int64) (<-chan model.Run, <-chan error)
 	go func() {
 		defer close(runEventChan)
 
-		resp, err := controlplane.InvokeRequest(ctx, http.MethodGet, fmt.Sprintf("v1/runs/%d?watch=true", runId), nil, nil)
-		if resp != nil && resp.StatusCode == http.StatusNotFound {
-			errChan <- errNotFound
-			return
-		}
+		resp, err := controlplane.InvokeRequest(ctx, http.MethodGet, fmt.Sprintf("v1/runs/%d?watch=true", runId), nil, nil, controlplane.WithLeaveResponseOpen())
 		if err != nil {
 			errChan <- err
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == http.StatusNotFound {
+			errChan <- errNotFound
 			return
 		}
 

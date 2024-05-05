@@ -14,7 +14,7 @@ import (
 func TestAccessStringIsUri(t *testing.T) {
 	uri, err := GetUriFromAccessString("https://example.com")
 	assert.Nil(t, err)
-	assert.Equal(t, "https://example.com", uri)
+	assert.Equal(t, "https://example.com", uri.String())
 }
 
 func TestAccessStringIsInvalidUri(t *testing.T) {
@@ -28,7 +28,7 @@ func TestAccessStringIsFile(t *testing.T) {
 	os.WriteFile(path, []byte("https://example.com"), 0644)
 	uri, err := GetUriFromAccessString(path)
 	assert.Nil(t, err)
-	assert.Equal(t, "https://example.com", uri)
+	assert.Equal(t, "https://example.com", uri.String())
 }
 
 func TestAccessStringIsFileWithInvalidUri(t *testing.T) {

@@ -16,3 +16,8 @@ if [[ "${BASH_ENV:-}" == "$(readlink -f "${BASH_SOURCE[0]:-}")" ]]; then
     # We don't want subshells to unnecessarily source this again.
     unset BASH_ENV
 fi
+
+if [[ "$(pwd)" == "/workspaces/tyger-docker" ]]; then
+    export TYGER_ENVIRONMENT_TYPE="docker"
+    export TYGER_CACHE_FILE="${XDG_CACHE_HOME:-${HOME}/.cache}/tyger/.tyger-docker"
+fi

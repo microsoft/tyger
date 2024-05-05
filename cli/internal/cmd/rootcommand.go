@@ -7,13 +7,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"time"
 
-	"github.com/microsoft/tyger/cli/internal/controlplane"
-	"github.com/microsoft/tyger/cli/internal/httpclient"
+	"github.com/microsoft/tyger/cli/internal/client"
 	"github.com/microsoft/tyger/cli/internal/logging"
-	"github.com/microsoft/tyger/cli/internal/settings"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -35,6 +32,8 @@ func NewCommonRootCommand(commit string) *cobra.Command {
 
 	logFormat := Unspecified
 	logLevel := zerolog.InfoLevel
+
+	proxy := "auto"
 
 	cmd := &cobra.Command{
 		Version:      commit,
@@ -67,24 +66,15 @@ func NewCommonRootCommand(commit string) *cobra.Command {
 			ctx := logging.SetLogSinkOnContext(cmd.Context(), logSink)
 			ctx = log.Logger.WithContext(ctx)
 
-			ctx = settings.SetServiceInfoFuncOnContext(ctx, controlplane.GetPersistedServiceInfo)
-
 			cmd.SetContext(ctx)
 
-			cmdPath := cmd.CommandPath()
-			switch {
-			case strings.HasPrefix(cmdPath, "tyger api"),
-				strings.HasPrefix(cmdPath, "tyger config"),
-				strings.HasPrefix(cmdPath, "tyger cloud"):
-				break
-			default:
-				// Disable the default transport so that we don't forget
-				// to apply proxy settings, unless performing installation operations.
-				httpclient.DisableDefaultTransport()
+			if err := client.SetDefaultNetworkClientSettings(&client.ClientOptions{ProxyString: proxy}); err != nil {
+				log.Fatal().Err(err).Send()
 			}
-
 		},
 	}
+
+	cmd.PersistentFlags().StringVar(&proxy, "proxy", proxy, "The HTTP proxy to use. Can be 'auto[matic]', 'none', or a URI.")
 
 	// hide --help as a flag in the usage output
 	cmd.PersistentFlags().BoolP("help", "h", false, "Print usage")

@@ -43,6 +43,7 @@ networks:
 
 func TestHttpProxy(t *testing.T) {
 	t.Parallel()
+	skipIfUsingUnixSocket(t)
 
 	s := NewComposeSession(t)
 	defer s.Cleanup()
@@ -53,7 +54,7 @@ func TestHttpProxy(t *testing.T) {
 	bufferId := runTygerSucceeds(t, "buffer", "create")
 	NewTygerCmdBuilder("buffer", "write", bufferId).Stdin("Hello").RunSucceeds(t)
 
-	config := getConfig(t)
+	config := getCloudConfig(t)
 	tygerUri := fmt.Sprintf("https://%s", config.Api.DomainName)
 	devConfig := getDevConfig(t)
 	testAppUri := devConfig["testAppUri"].(string)

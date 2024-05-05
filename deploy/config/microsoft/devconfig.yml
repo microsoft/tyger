@@ -1,3 +1,4 @@
+subscriptionId: 87d8acb3-5176-4651-b457-6ab9cefd8e3d
 wipContainerRegistry:
   name: eminence
   fqdn: eminence.azurecr.io
@@ -11,4 +12,4 @@ pemCertSecret:
   version: 0fe705f5a0f94771bd38f7e997540497
 pkcs12CertSecret:
   name: tyger-test-client-cert-pkcs12
-  version: f8b1b7dde7034217bf12ce4ea772b470
+  version: a9523122ebe345779c40737eb546080b

@@ -1,5 +1,8 @@
-#!/bin/bash
-#
+#!/usr/bin/env bash
+
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # This script initializes the devcontainer after it has been created.
 
 set -euo pipefail
@@ -19,3 +22,5 @@ fi
 make -f "$(dirname "$0")/../Makefile" restore || true
 
 make install-cli || true
+
+make az-login-from-host &> /dev/null || true

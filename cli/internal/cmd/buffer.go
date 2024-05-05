@@ -20,6 +20,7 @@ import (
 	"syscall"
 
 	"github.com/alecthomas/units"
+	"github.com/microsoft/tyger/cli/internal/client"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/dataplane"
@@ -112,7 +113,7 @@ func newBufferSetCommand() *cobra.Command {
 				headers.Add("If-Match", etag)
 			}
 
-			_, err := controlplane.InvokeRequestWithHeaders(cmd.Context(), http.MethodPut, fmt.Sprintf("v1/buffers/%s/tags", args[0]), Tags(tagEntries), &buffer, headers)
+			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPut, fmt.Sprintf("v1/buffers/%s/tags", args[0]), Tags(tagEntries), &buffer, controlplane.WithHeaders(headers))
 			if err != nil {
 				return err
 			}
@@ -186,12 +187,31 @@ func newBufferAccessCommand() *cobra.Command {
 	return cmd
 }
 
-func getBufferAccessUri(ctx context.Context, bufferId string, writable bool) (string, error) {
+func getBufferAccessUri(ctx context.Context, bufferId string, writable bool) (*url.URL, error) {
 	bufferAccess := model.BufferAccess{}
-	uri := fmt.Sprintf("v1/buffers/%s/access?writeable=%t", bufferId, writable)
-	_, err := controlplane.InvokeRequest(ctx, http.MethodPost, uri, nil, &bufferAccess)
 
-	return bufferAccess.Uri, err
+	queryOptions := url.Values{}
+	queryOptions.Add("writeable", strconv.FormatBool(writable))
+
+	tygerClient, err := controlplane.GetClientFromCache()
+	if err == nil {
+		// We're ignoring the error here and will let InvokeRequest handle it
+		switch tygerClient.ConnectionType() {
+		case client.TygerConnectionTypeDocker:
+			queryOptions.Add("preferTcp", "true")
+			if os.Getenv("TYGER_ACCESSING_FROM_DOCKER") == "1" {
+				queryOptions.Add("fromDocker", "true")
+			}
+		}
+	}
+
+	uri := fmt.Sprintf("v1/buffers/%s/access?%s", bufferId, queryOptions.Encode())
+	_, err = controlplane.InvokeRequest(ctx, http.MethodPost, uri, nil, &bufferAccess)
+	if err != nil {
+		return nil, err
+	}
+
+	return url.Parse(bufferAccess.Uri)
 }
 
 func NewBufferReadCommand(openFileFunc func(name string, flag int, perm fs.FileMode) (*os.File, error)) *cobra.Command {
@@ -261,7 +281,7 @@ func NewBufferReadCommand(openFileFunc func(name string, flag int, perm fs.FileM
 }
 
 func NewBufferWriteCommand(openFileFunc func(name string, flag int, perm fs.FileMode) (*os.File, error)) *cobra.Command {
-	intputFilePath := ""
+	inputFilePath := ""
 	dop := dataplane.DefaultWriteDop
 	blockSizeString := ""
 
@@ -291,8 +311,8 @@ func NewBufferWriteCommand(openFileFunc func(name string, flag int, perm fs.File
 			}
 
 			var inputReader io.Reader
-			if intputFilePath != "" {
-				inputFile, err := openFileFunc(intputFilePath, os.O_RDONLY, 0)
+			if inputFilePath != "" {
+				inputFile, err := openFileFunc(inputFilePath, os.O_RDONLY, 0)
 				if err != nil {
 					if err == context.Canceled {
 						log.Warn().Msg("OpenFile operation canceled. Will write an empty payload to the buffer.")
@@ -338,7 +358,7 @@ func NewBufferWriteCommand(openFileFunc func(name string, flag int, perm fs.File
 		},
 	}
 
-	cmd.Flags().StringVarP(&intputFilePath, "input", "i", intputFilePath, "The file to read from. If not specified, data is read from standard in.")
+	cmd.Flags().StringVarP(&inputFilePath, "input", "i", inputFilePath, "The file to read from. If not specified, data is read from standard in.")
 	cmd.Flags().IntVarP(&dop, "dop", "p", dop, "The degree of parallelism")
 	cmd.Flags().StringVarP(&blockSizeString, "block-size", "b", blockSizeString, "Split the stream into blocks of this size.")
 	return cmd
@@ -378,37 +398,12 @@ The SIZE argument must be a number with an optional unit (e.g. 10MB). 1KB and 1K
 
 			remainingBytes := int64(parsedBytes)
 
-			return Gen(remainingBytes, outputFile)
+			return dataplane.Gen(remainingBytes, outputFile)
 		},
 	}
 
 	cmd.Flags().StringVarP(&outputFilePath, "output", "o", outputFilePath, "The file write to. If not specified, data is written to standard out.")
 	return cmd
-}
-
-func Gen(byteCount int64, outputWriter io.Writer) error {
-	diff := int('~') - int('!')
-	buf := make([]byte, 300*diff)
-	for i := range buf {
-		buf[i] = byte('!' + i%diff)
-	}
-
-	for byteCount > 0 {
-		var count int64
-		if byteCount > int64(len(buf)) {
-			count = int64(len(buf))
-		} else {
-			count = byteCount
-		}
-
-		_, err := outputWriter.Write(buf[:count])
-		if err != nil {
-			return err
-		}
-
-		byteCount -= count
-	}
-	return nil
 }
 
 func newBufferListCommand() *cobra.Command {

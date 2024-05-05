@@ -9,10 +9,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/microsoft/tyger/cli/internal/controlplane"
-	"github.com/microsoft/tyger/cli/internal/settings"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"sigs.k8s.io/yaml"
 )
 
@@ -22,18 +23,43 @@ func NewLoginCommand() *cobra.Command {
 		Persisted: true,
 	}
 
+	local := false
+
 	loginCmd := &cobra.Command{
-		Use:   "login { SERVER_URL [--service-principal APPID --certificate CERTPATH] [--use-device-code] [--proxy PROXY] } | --file LOGIN_FILE.yaml",
+		Use:   "login { SERVER_URL [--service-principal APPID --certificate CERTPATH] [--use-device-code] [--proxy PROXY] } | --file LOGIN_FILE.yaml | --local",
 		Short: "Login to a server",
 		Long: `Login to the Tyger server at the given URL.
 Subsequent commands will be performed against this server.`,
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if local {
+				var err error
+				cmd.LocalFlags().VisitAll(func(f *pflag.Flag) {
+					if f.Changed && err == nil {
+						switch f.Name {
+						case "local", "proxy":
+						default:
+							err = fmt.Errorf("the options --local and --%s cannot be used together", f.Name)
+						}
+					}
+				})
+				if err != nil {
+					return err
+				}
+
+				if len(args) > 0 {
+					return errors.New("--local cannot be specified with a server address")
+				}
+
+				options.ServerUri = controlplane.LocalUriSentinel
+				_, err = controlplane.Login(cmd.Context(), options)
+				return err
+			}
 
 			switch len(args) {
 			case 0:
 				if optionsFilePath == "" {
-					return errors.New("either a server URL or --file must be specified")
+					return errors.New("either a server URL, --file, or --local must be specified")
 				}
 
 				optionsFilePath, err := filepath.Abs(optionsFilePath)
@@ -85,7 +111,7 @@ Subsequent commands will be performed against this server.`,
 					options.CertificatePath = filepath.Clean(filepath.Join(filepath.Dir(optionsFilePath), options.CertificatePath))
 				}
 
-				_, _, err = controlplane.Login(cmd.Context(), options)
+				_, err = controlplane.Login(cmd.Context(), options)
 				return err
 			case 1:
 				if options.ServicePrincipal != "" {
@@ -110,7 +136,7 @@ Subsequent commands will be performed against this server.`,
 				}
 
 				options.ServerUri = args[0]
-				_, _, err := controlplane.Login(cmd.Context(), options)
+				_, err := controlplane.Login(cmd.Context(), options)
 				return err
 			default:
 				return errors.New("too many arguments")
@@ -153,6 +179,8 @@ proxy: auto
 	loginCmd.Flags().BoolVar(&options.DisableTlsCertificateValidation, "disable-tls-certificate-validation", false, "Disable TLS certificate validation.")
 	loginCmd.Flags().MarkHidden("disable-tls-certificate-validation")
 
+	loginCmd.Flags().BoolVar(&local, "local", false, "Login to  local Tyger server. Cannot be used with other flags.")
+
 	return loginCmd
 }
 
@@ -164,23 +192,35 @@ func newLoginStatusCommand() *cobra.Command {
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			serviceInfo, err := settings.GetServiceInfoFromContext(cmd.Context())
+			tygerClient, err := controlplane.GetClientFromCache()
 
-			if err != nil || serviceInfo.GetServerUri() == nil {
+			if err != nil || tygerClient.ControlPlaneUrl == nil {
 				return errors.New("run 'tyger login' to connect to a Tyger server")
 			}
 
-			_, err = serviceInfo.GetAccessToken(cmd.Context())
+			_, err = tygerClient.GetAccessToken(cmd.Context())
 			if err != nil {
 				return fmt.Errorf("run `tyger login` to login to a server: %v", err)
 			}
 
-			principal := serviceInfo.GetPrincipal()
-			if principal == "" {
-				fmt.Printf("You are anonymously logged in to %s\n", serviceInfo.GetServerUri())
-			} else {
-				fmt.Printf("You are logged in to %s as %s\n", serviceInfo.GetServerUri(), principal)
+			service := *tygerClient.RawControlPlaneUrl
+
+			if service.Scheme == "http+unix" {
+				service.Scheme = "unix"
+				service.Path = strings.TrimSuffix(service.Path, ":")
 			}
+
+			if tygerClient.Principal == "" {
+				fmt.Printf("You are logged in to %s", service.String())
+			} else {
+				fmt.Printf("You are logged in to %s as %s", service.String(), tygerClient.Principal)
+			}
+
+			if tygerClient.RawProxy != nil {
+				fmt.Printf(" using proxy server %s", tygerClient.RawProxy.String())
+			}
+			fmt.Println()
+
 			return nil
 		},
 	}

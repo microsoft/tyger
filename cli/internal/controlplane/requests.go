@@ -18,29 +18,50 @@ import (
 	"github.com/fatih/color"
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
-	"github.com/microsoft/tyger/cli/internal/httpclient"
-	"github.com/microsoft/tyger/cli/internal/settings"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel/propagation"
 )
 
-func InvokeRequest(ctx context.Context, method string, relativeUri string, input interface{}, output interface{}) (*http.Response, error) {
-	return InvokeRequestWithHeaders(ctx, method, relativeUri, input, output, nil)
+type InvokeRequestOptions struct {
+	Headers           http.Header
+	LeaveResponseOpen bool
 }
 
-func InvokeRequestWithHeaders(ctx context.Context, method string, relativeUri string, input interface{}, output interface{}, headers http.Header) (*http.Response, error) {
-	serviceInfo, err := settings.GetServiceInfoFromContext(ctx)
-	if err != nil || serviceInfo.GetServerUri() == nil {
+type InvokeRequestOptionFunc func(*InvokeRequestOptions)
+
+func WithHeaders(headers http.Header) InvokeRequestOptionFunc {
+	return func(options *InvokeRequestOptions) {
+		options.Headers = headers
+	}
+}
+
+func WithLeaveResponseOpen() InvokeRequestOptionFunc {
+	return func(options *InvokeRequestOptions) {
+		options.LeaveResponseOpen = true
+	}
+}
+
+func InvokeRequest(ctx context.Context, method string, relativeUri string, input interface{}, output interface{}, options ...InvokeRequestOptionFunc) (*http.Response, error) {
+	var opts *InvokeRequestOptions
+	if len(options) > 0 {
+		opts = &InvokeRequestOptions{}
+		for _, option := range options {
+			option(opts)
+		}
+	}
+
+	tygerClient, err := GetClientFromCache()
+	if err != nil || tygerClient.ControlPlaneUrl == nil {
 		return nil, errors.New("run 'tyger login' to connect to a Tyger server")
 	}
 
-	token, err := serviceInfo.GetAccessToken(ctx)
+	token, err := tygerClient.GetAccessToken(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("run `tyger login` to login to a server: %v", err)
 	}
 
-	absoluteUri := fmt.Sprintf("%s/%s", serviceInfo.GetServerUri(), relativeUri)
+	absoluteUri := fmt.Sprintf("%s/%s", tygerClient.ControlPlaneUrl, relativeUri)
 	var body io.Reader = nil
 	if input != nil {
 		serializedBody, err := json.Marshal(input)
@@ -57,9 +78,11 @@ func InvokeRequestWithHeaders(ctx context.Context, method string, relativeUri st
 
 	propagation.Baggage{}.Inject(ctx, propagation.HeaderCarrier(req.Header))
 
-	for key, values := range headers {
-		for _, value := range values {
-			req.Header.Add(key, value)
+	if options != nil && opts.Headers != nil {
+		for key, values := range opts.Headers {
+			for _, value := range values {
+				req.Header.Add(key, value)
+			}
 		}
 	}
 
@@ -79,7 +102,7 @@ func InvokeRequestWithHeaders(ctx context.Context, method string, relativeUri st
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 	}
 
-	resp, err := httpclient.DefaultRetryableClient.Do(req)
+	resp, err := tygerClient.ControlPlaneClient.Do(req)
 	if err != nil {
 		return resp, fmt.Errorf("unable to connect to server: %v", err)
 	}
@@ -91,6 +114,7 @@ func InvokeRequestWithHeaders(ctx context.Context, method string, relativeUri st
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		defer resp.Body.Close()
 		errorResponse := model.ErrorResponse{}
 		if err = json.NewDecoder(resp.Body).Decode(&errorResponse); err == nil {
 			return resp, fmt.Errorf("%s: %s", errorResponse.Error.Code, errorResponse.Error.Message)
@@ -98,6 +122,12 @@ func InvokeRequestWithHeaders(ctx context.Context, method string, relativeUri st
 
 		return resp, fmt.Errorf("unexpected status code %s", resp.Status)
 	}
+
+	if options != nil && opts.LeaveResponseOpen {
+		return resp, nil
+	}
+
+	defer resp.Body.Close()
 
 	if output != nil {
 		err = json.NewDecoder(resp.Body).Decode(output)

@@ -1,5 +1,12 @@
 # Distributed Runs
 
+::: warning Note
+
+Distributed runs are not supported when Tyger is installed in a local Docker
+environment.
+
+:::
+
 All runs in Tyger use a "job" codespec for primary execution. Distributed runs
 additionally employ workers for distributing workloads. These workers, defined
 by a separate codespec, typically listen on network ports so that the the job

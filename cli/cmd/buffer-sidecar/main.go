@@ -4,14 +4,21 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
+	"net"
+	"net/url"
 	"os"
+	"path"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/microsoft/tyger/cli/internal/cmd"
+	"github.com/microsoft/tyger/cli/internal/dataplane"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
@@ -33,26 +40,202 @@ func newRootCommand() *cobra.Command {
 	namespace := ""
 	podName := ""
 	containerName := ""
+	tombstoneFile := ""
 
-	readCommand := cmd.NewBufferReadCommand(func(filePath string, flag int, perm fs.FileMode) (*os.File, error) {
-		return tryOpenFileUntilContainerExits(&namespace, &podName, &containerName, filePath, flag, perm)
-	})
+	openFileFunc := func(filePath string, flag int, perm fs.FileMode) (*os.File, error) {
+		return tryOpenFileUntilContainerExits(namespace, podName, containerName, tombstoneFile, filePath, flag, perm)
+	}
 
-	writeCommand := cmd.NewBufferWriteCommand(func(filePath string, flag int, perm fs.FileMode) (*os.File, error) {
-		return tryOpenFileUntilContainerExits(&namespace, &podName, &containerName, filePath, flag, perm)
-	})
+	intputCommand := cmd.NewBufferReadCommand(openFileFunc)
+	intputCommand.Use = "input"
+	writeCommand := cmd.NewBufferWriteCommand(openFileFunc)
+	writeCommand.Use = "output"
 
-	commands := []*cobra.Command{readCommand, writeCommand}
+	relayCommand := &cobra.Command{
+		Use: "relay",
+	}
+
+	rootCommand.AddCommand(relayCommand)
+
+	listenAddresses := make([]string, 0)
+	outputFilePath := ""
+	primarySigningPublicKeyPath := ""
+	secondarySigningPublicKeyPath := ""
+	bufferId := ""
+	createListener := func(listenAddress string) (net.Listener, error) {
+		u, err := url.Parse(listenAddress)
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to parse listen address")
+		}
+
+		var listener net.Listener
+		switch u.Scheme {
+		case "unix":
+			tempPath := u.Path + "." + "temp"
+			defer os.Remove(tempPath)
+			listener, err = net.Listen(u.Scheme, tempPath)
+			if err == nil {
+				if err := os.Rename(tempPath, u.Path); err != nil {
+					return nil, fmt.Errorf("failed to move socket: %w", err)
+				}
+			}
+		case "http":
+			listener, err = net.Listen("tcp", u.Host)
+		default:
+			return nil, fmt.Errorf("unsupported scheme: %s", u.Scheme)
+		}
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to create listener: %w", err)
+		}
+
+		log.Info().Str("address", listenAddress).Msg("Listening for connections")
+
+		return listener, nil
+	}
+
+	relayInputCommand := &cobra.Command{
+		Use: "input",
+		Run: func(cmd *cobra.Command, args []string) {
+			ctx, cancel := context.WithCancel(cmd.Context())
+			impl := func() error {
+				validateSignatureFunc, err := dataplane.CreateSignatureValidationFunc(primarySigningPublicKeyPath, secondarySigningPublicKeyPath)
+				if err != nil {
+					return err
+				}
+
+				var outputWriter io.Writer
+				if outputFilePath != "" {
+					var err error
+					outputFile, err := openFileFunc(outputFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+					if err != nil {
+						if err == context.Canceled {
+							log.Warn().Msg("OpenFile operation canceled. Will discard input")
+							outputWriter = io.Discard
+							go func() {
+								// give some time for a client to connect and pass in the data that will be discarded instead of just closing the listner.
+								time.Sleep(time.Minute)
+								cancel()
+							}()
+						} else {
+							return fmt.Errorf("failed to open output file: %w", err)
+						}
+					} else {
+						defer outputFile.Close()
+						outputWriter = outputFile
+					}
+				} else {
+					outputWriter = os.Stdout
+				}
+
+				listeners := make([]net.Listener, 0, len(listenAddresses))
+				for _, listenAddress := range listenAddresses {
+					listener, err := createListener(listenAddress)
+					if err != nil {
+						return err
+					}
+
+					listeners = append(listeners, listener)
+				}
+
+				return dataplane.RelayInputServer(ctx, listeners, bufferId, outputWriter, validateSignatureFunc)
+			}
+
+			if err := impl(); err != nil {
+				log.Fatal().Err(err).Send()
+			}
+		},
+	}
+
+	relayInputCommand.Flags().StringVarP(&outputFilePath, "output", "o", outputFilePath, "The file write to. If not specified, data is written to standard out.")
+	relayInputCommand.Flags().StringSliceVarP(&listenAddresses, "listen", "l", listenAddresses, "The address to listen on. Can be specified multiple times.")
+	relayInputCommand.MarkFlagRequired("listen")
+	relayInputCommand.Flags().StringVarP(&bufferId, "buffer", "b", bufferId, "The buffer ID")
+	relayInputCommand.MarkFlagRequired("buffer")
+	relayInputCommand.Flags().StringVarP(&primarySigningPublicKeyPath, "primary-public-signing-key", "p", primarySigningPublicKeyPath, "The path to the primary signing public key file")
+	relayInputCommand.MarkFlagRequired("primary-public-signing-key")
+	relayInputCommand.Flags().StringVarP(&secondarySigningPublicKeyPath, "secondary-public-signing-key", "s", secondarySigningPublicKeyPath, "The path to the secondary signing public key file")
+	relayCommand.AddCommand(relayInputCommand)
+
+	inputFilePath := ""
+	relayOutputCommand := &cobra.Command{
+		Use: "output",
+		Run: func(cmd *cobra.Command, args []string) {
+			ctx, cancel := context.WithCancel(cmd.Context())
+			impl := func() error {
+				validateSignatureFunc, err := dataplane.CreateSignatureValidationFunc(primarySigningPublicKeyPath, secondarySigningPublicKeyPath)
+				if err != nil {
+					return err
+				}
+				readerChan := make(chan io.ReadCloser, 1)
+				errorChan := make(chan error, 1)
+				go func() {
+					if inputFilePath == "" {
+						readerChan <- os.Stdin
+					}
+					log.Info().Msgf("Opening file %s for reading", inputFilePath)
+					inputFile, err := openFileFunc(inputFilePath, os.O_RDONLY, 0)
+					if err != nil {
+						if err == context.Canceled {
+							log.Warn().Msg("OpenFile operation canceled. Will return an empty response body.")
+							readerChan <- io.NopCloser(bytes.NewReader([]byte{}))
+							go func() {
+								// give some time for a client to connect and observe the empty reponse instead of just closing the listener
+								time.Sleep(time.Minute)
+								cancel()
+							}()
+						} else {
+							errorChan <- err
+						}
+					} else {
+						log.Info().Str("file", inputFilePath).Msg("Opened file for reading")
+						readerChan <- inputFile
+					}
+				}()
+
+				listeners := make([]net.Listener, 0, len(listenAddresses))
+				for _, listenAddress := range listenAddresses {
+					listener, err := createListener(listenAddress)
+					if err != nil {
+						return err
+					}
+
+					listeners = append(listeners, listener)
+				}
+
+				return dataplane.RelayOutputServer(ctx, listeners, bufferId, readerChan, errorChan, validateSignatureFunc)
+			}
+
+			if err := impl(); err != nil {
+				log.Fatal().Err(err).Send()
+			}
+		},
+	}
+	relayOutputCommand.Flags().StringVarP(&inputFilePath, "input", "i", inputFilePath, "The file to read from. If not specified, data is read from standard in.")
+	relayOutputCommand.Flags().StringSliceVarP(&listenAddresses, "listen", "l", listenAddresses, "The address to listen on. Can be specified multiple times.")
+	relayOutputCommand.MarkFlagRequired("listen")
+	relayOutputCommand.Flags().StringVarP(&bufferId, "buffer", "b", bufferId, "The buffer ID")
+	relayOutputCommand.MarkFlagRequired("buffer")
+	relayOutputCommand.Flags().StringVarP(&primarySigningPublicKeyPath, "primary-public-signing-key", "p", primarySigningPublicKeyPath, "The path to the primary signing public key file")
+	relayOutputCommand.MarkFlagRequired("primary-public-signing-key")
+	relayOutputCommand.Flags().StringVarP(&secondarySigningPublicKeyPath, "secondary-public-signing-key", "s", secondarySigningPublicKeyPath, "The path to the secondary signing public key file")
+
+	relayCommand.AddCommand(relayOutputCommand)
+
+	commands := []*cobra.Command{intputCommand, writeCommand, relayInputCommand, relayOutputCommand}
 	for _, command := range commands {
 		command.Flags().StringVar(&namespace, "namespace", "", "The namespace of the pod to watch")
-		command.MarkFlagRequired("namespace")
 		command.Flags().StringVar(&podName, "pod", "", "The name of the pod to watch")
-		command.MarkFlagRequired("pod")
 		command.Flags().StringVar(&containerName, "container", "", "The name of the container to watch")
-		command.MarkFlagRequired("container")
+		command.Flags().StringVar(&tombstoneFile, "tombstone", "", "The file that signals when the main container has exited")
+
+		command.MarkFlagsRequiredTogether("namespace", "pod", "container")
+		command.MarkFlagsMutuallyExclusive("tombstone", "namespace")
+		command.MarkFlagsMutuallyExclusive("tombstone", "pod")
+		command.MarkFlagsMutuallyExclusive("tombstone", "container")
 
 		command.Long += `
-While waiting to open the named pipe, this command will watch the specified container for completion.
+While waiting to open the named pipe, this command will either watch the specified Kubernetes container for completion or will wait for the tombstone file to be created.
 If it completes before the pipe is opened, the command will abandon opening the pipe and will treat the contents as empty.
 The reason for this is to avoid hanging indefinitely if the container completes without touching the pipe.`
 
@@ -62,37 +245,54 @@ The reason for this is to avoid hanging indefinitely if the container completes 
 	return rootCommand
 }
 
-func tryOpenFileUntilContainerExits(namespace, podName, containerName *string, filePath string, flag int, perm fs.FileMode) (*os.File, error) {
-	// Create Kubernetes client
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to load in-cluster Kubernetes config")
-	}
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to create Kubernetes clientset")
-	}
-
+func tryOpenFileUntilContainerExits(namespace, podName, containerName, tombstoneFilePath string, filePath string, flag int, perm fs.FileMode) (*os.File, error) {
 	// Create cancellable contexts
 	openFileCtx, openFileCancel := context.WithCancel(context.Background())
 	watchCtx, watchCancel := context.WithCancel(context.Background())
 	defer watchCancel()
 
-	// begin watching for container completion
-	go func() {
-		err := watchUntilContainerCompletion(watchCtx, clientset, *namespace, *podName, *containerName)
-		if err != nil {
-			if err == context.Canceled {
-				log.Debug().Msg("Container completion watcher canceled.")
+	if tombstoneFilePath != "" {
+		// begin watching for tombstone file
+		go func() {
+			err := watchUntilTombstoneFileCreated(watchCtx, tombstoneFilePath)
+			if err != nil {
+				if err == context.Canceled {
+					return
+				}
+				log.Warn().Err(err).Msg("Tombstone file watcher failed with unexpected error.")
 				return
 			}
-			log.Warn().Err(err).Msg("Container completion watcher failed with unexpected error.")
-			return
+
+			log.Info().Msg("Tombstone file created.")
+			openFileCancel()
+		}()
+	} else {
+		// Create Kubernetes client
+		config, err := rest.InClusterConfig()
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to load in-cluster Kubernetes config")
+		}
+		clientset, err := kubernetes.NewForConfig(config)
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to create Kubernetes clientset")
 		}
 
-		log.Info().Msg("Target container completed.")
-		openFileCancel()
-	}()
+		// begin watching for container completion
+		go func() {
+			err := watchUntilContainerCompletion(watchCtx, clientset, namespace, podName, containerName)
+			if err != nil {
+				if err == context.Canceled {
+					log.Debug().Msg("Container completion watcher canceled.")
+					return
+				}
+				log.Warn().Err(err).Msg("Container completion watcher failed with unexpected error.")
+				return
+			}
+
+			log.Info().Msg("Target container completed.")
+			openFileCancel()
+		}()
+	}
 
 	// try to open the file with the cancellable context
 	inputFile, err := openFileWithCtx(openFileCtx, filePath, flag, perm)
@@ -101,6 +301,45 @@ func tryOpenFileUntilContainerExits(namespace, podName, containerName *string, f
 	}
 
 	return inputFile, nil
+}
+
+func watchUntilTombstoneFileCreated(watchCtx context.Context, tombstoneFilePath string) error {
+	// creates a new file watcher
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return fmt.Errorf("failed to create file watcher: %w", err)
+	}
+	defer watcher.Close()
+
+	// watch the directory containing the tombstone file
+	err = watcher.Add(path.Dir(tombstoneFilePath))
+	if err != nil {
+		return fmt.Errorf("failed to watch directory: %w", err)
+	}
+
+	if _, err := os.Stat(tombstoneFilePath); err == nil {
+		return nil
+	}
+
+	for {
+		select {
+		case <-watchCtx.Done():
+			return watchCtx.Err()
+		case event, ok := <-watcher.Events:
+			if !ok {
+				return errors.New("file watcher closed")
+			}
+			if event.Op&fsnotify.Create == fsnotify.Create && event.Name == tombstoneFilePath {
+				return nil
+			}
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return errors.New("file watcher closed")
+			}
+			return fmt.Errorf("file watcher error: %w", err)
+		}
+	}
+
 }
 
 func main() {

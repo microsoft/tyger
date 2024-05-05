@@ -16,6 +16,9 @@
         "files.trimFinalNewlines": true,
         "files.trimTrailingWhitespace": true,
         "files.insertFinalNewline": true,
+        "files.associations": {
+          "Makefile.*": "makefile"
+        },
 
         "[csharp]": {
           "editor.formatOnSave": true
@@ -39,8 +42,17 @@
 
         "go.toolsManagement.checkForUpdates": "local",
         "go.useLanguageServer": true,
+        "go.testFlags": ["-tags=integrationtest"],
         "gopls": {
           "build.buildFlags": ["-tags=integrationtest"]
+        },
+        "go.delveConfig": {
+          "substitutePath": [
+            {
+              "from": "/workspaces/tyger-docker",
+              "to": "/workspaces/tyger"
+            }
+          ]
         },
 
         "shellcheck.customArgs": ["-x"],
@@ -65,24 +77,32 @@
         "mhutchie.git-graph",
         "ms-azuretools.vscode-docker",
         "ms-dotnettools.csharp",
-        "ms-kubernetes-tools.vscode-kubernetes-tools",
         "timonwong.shellcheck"
       ]
     }
   },
 
+  "runArgs": ["--network=host"],
+
   "mounts": [
     // Bind mount docker socket under an alias to support docker-from-docker
-    "source=/var/run/docker.sock,target=/var/run/docker-host.sock,type=bind"
+    "source=/var/run/docker.sock,target=/var/run/docker-host.sock,type=bind",
+    "source=/opt/tyger,target=/opt/tyger,type=bind",
+    "source=/tmp/tyger,target=/tmp/tyger,type=bind",
+    "source=tyger-local-buffers,target=/docker-volumes/buffers,type=volume",
+    "source=tyger-local-run-logs,target=/docker-volumes/run-logs,type=volume"
   ],
 
   "remoteUser": "vscode",
   "overrideCommand": false,
+  "initializeCommand": ".devcontainer/prepare-host.sh",
   "onCreateCommand": ".devcontainer/devcontainer-on-create.sh",
 
   "containerEnv": {
     "DOCKER_BUIKDKIT": "1",
-    "DEVCONTAINER_HOST_HOME": "${localEnv:HOME}"
+    "DEVCONTAINER_HOST_HOME": "${localEnv:HOME}",
+    "WSL_DISTRO_NAME": "${localEnv:WSL_DISTRO_NAME}",
+    "TYGER_ACCESSING_FROM_DOCKER": "1"
   },
 
   "forwardPorts": [

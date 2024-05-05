@@ -31,3 +31,5 @@ x64/
 **/.pytest_cache/
 
 dist/
+
+*.pem

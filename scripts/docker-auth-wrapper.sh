@@ -18,7 +18,7 @@ fi
 set -e
 
 # Check if the command failed and the error text contains one of the specific strings
-if [[ "$error_output" =~ "unauthorized: authentication required" || "$error_output" =~ "denied: requested access to the resource is denied" ]]; then
+if [[ "${error_output,,}" =~ "unauthorized" || "${error_output,,}" =~ "denied" ]]; then
     echo "Logging in to ACR..." >&2
     "$(dirname "${0}")"/check-az-login.sh
 

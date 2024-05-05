@@ -9,9 +9,10 @@ application is not limited to MRI and it could be used in a variety of domains
 and scenarios.
 
 At a high level, Tyger is a REST API that abstracts over an Azure Kubernetes
-cluster and Azure Blob storage. Future plans include support for on-prem
-deployments. It includes a command-line tool, `tyger`, for easy interaction with
-this API. Users specify signal processing code as a container image.
+cluster and Azure Blob storage. Tyger can also be installed locally, requiring
+only Docker. Future plans include support for on-prem Kubernetes deployments. It
+includes a command-line tool, `tyger`, for easy interaction with this API. Users
+specify signal processing code as a container image.
 
 Tyger is centered around **stream processing**, allowing data to be processed as
 it is acquired, without needing to wait for the complete dataset. It is based on

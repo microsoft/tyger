@@ -10,6 +10,7 @@ import (
 	"strconv"
 
 	"github.com/microsoft/tyger/cli/internal/install"
+	"github.com/microsoft/tyger/cli/internal/install/dockerinstall"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -26,37 +27,35 @@ func NewApiCommand(parentCommand *cobra.Command) *cobra.Command {
 		},
 	}
 
-	cmd.AddCommand(newApiInstallCommand(cmd))
-	cmd.AddCommand(newApiUninstallCommand(cmd))
-	cmd.AddCommand(NewMigrationsCommand(cmd))
+	cmd.AddCommand(newApiInstallCommand())
+	cmd.AddCommand(newApiUninstallCommand())
+	cmd.AddCommand(NewMigrationsCommand())
+	cmd.AddCommand(NewGenerateSingingKeyCommand())
 
 	return cmd
 }
 
-func newApiInstallCommand(parentCommand *cobra.Command) *cobra.Command {
+func newApiInstallCommand() *cobra.Command {
 	flags := commonFlags{}
 	cmd := cobra.Command{
-		Use:                   "install",
+		Use:                   "install -f CONFIG.yml",
 		Short:                 "Install the Typer API",
 		Long:                  "Install the Typer API",
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
-			ctx := commonPrerun(cmd.Context(), &flags)
+			ctx, installer := commonPrerun(cmd.Context(), &flags)
 
 			log.Info().Msg("Starting Tyger API install")
 
-			ctx, err := loginAndValidateSubscription(ctx)
+			err := installer.InstallTyger(ctx)
 			if err != nil {
-				log.Fatal().Err(err).Send()
-			}
-
-			if err := install.InstallTyger(ctx); err != nil {
 				if err != install.ErrAlreadyLoggedError {
 					log.Fatal().Err(err).Send()
 				}
 				os.Exit(1)
 			}
+
 			log.Info().Msg("Install complete")
 		},
 	}
@@ -65,39 +64,37 @@ func newApiInstallCommand(parentCommand *cobra.Command) *cobra.Command {
 	return &cmd
 }
 
-func newApiUninstallCommand(parentCommand *cobra.Command) *cobra.Command {
+func newApiUninstallCommand() *cobra.Command {
 	flags := commonFlags{}
+	deleteData := false
 	cmd := cobra.Command{
-		Use:                   "uninstall",
+		Use:                   "uninstall -f CONFIG.yml",
 		Short:                 "Uninstall the Typer API",
 		Long:                  "Uninstall the Typer API",
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
-			ctx := commonPrerun(cmd.Context(), &flags)
+			ctx, installer := commonPrerun(cmd.Context(), &flags)
 
 			log.Info().Msg("Starting Tyger API uninstall")
 
-			ctx, err := loginAndValidateSubscription(ctx)
-			if err != nil {
-				log.Fatal().Err(err).Send()
-			}
-
-			if err := install.UninstallTyger(ctx); err != nil {
+			if err := installer.UninstallTyger(ctx, deleteData); err != nil {
 				if err != install.ErrAlreadyLoggedError {
 					log.Fatal().Err(err).Send()
 				}
 				os.Exit(1)
 			}
+
 			log.Info().Msg("Uninstall complete")
 		},
 	}
 
 	addCommonFlags(&cmd, &flags)
+	cmd.Flags().BoolVar(&deleteData, "delete-data", deleteData, "Permanently delete data (Docker only)")
 	return &cmd
 }
 
-func NewMigrationsCommand(parentCommand *cobra.Command) *cobra.Command {
+func NewMigrationsCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                   "migration",
 		Aliases:               []string{"migrations"},
@@ -122,8 +119,9 @@ func NewMigrationApplyCommand() *cobra.Command {
 	targetVersion := 0
 	latest := false
 	wait := false
+	offline := false
 	cmd := &cobra.Command{
-		Use:                   "apply",
+		Use:                   "apply -f CONFIG.yml",
 		Short:                 "Apply tyger database migrations",
 		Long:                  "Apply tyger database migrations",
 		DisableFlagsInUseLine: true,
@@ -137,14 +135,8 @@ func NewMigrationApplyCommand() *cobra.Command {
 				log.Fatal().Msg("Only one of --latest or --target-version can be specified")
 			}
 
-			ctx := commonPrerun(cmd.Context(), &flags)
-
-			ctx, err := loginAndValidateSubscription(ctx)
-			if err != nil {
-				log.Fatal().Err(err).Send()
-			}
-
-			if err := install.ApplyMigrations(ctx, targetVersion, latest, wait); err != nil {
+			ctx, installer := commonPrerun(cmd.Context(), &flags)
+			if err := installer.ApplyMigrations(ctx, targetVersion, latest, offline, wait); err != nil {
 				log.Fatal().Err(err).Send()
 			}
 		},
@@ -153,6 +145,7 @@ func NewMigrationApplyCommand() *cobra.Command {
 	cmd.Flags().IntVar(&targetVersion, "target-version", targetVersion, "The target version to migrate to")
 	cmd.Flags().BoolVar(&latest, "latest", latest, "Migrate to the latest version")
 	cmd.Flags().BoolVar(&wait, "wait", wait, "Wait for the migration to complete")
+	cmd.Flags().BoolVar(&offline, "offline", offline, "Do not coordinate with replicas to ensure uninterrupted service")
 
 	addCommonFlags(cmd, &flags)
 	return cmd
@@ -160,37 +153,25 @@ func NewMigrationApplyCommand() *cobra.Command {
 
 func NewMigrationLogsCommand() *cobra.Command {
 	flags := commonFlags{}
-	targetVersion := 0
-	latest := false
-	wait := false
 	cmd := &cobra.Command{
-		Use:                   "logs ID",
+		Use:                   "logs ID -f CONFIG.yml",
 		Short:                 "Get the logs of a database migration",
 		Long:                  "Get the logs of a database migration",
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			ctx := commonPrerun(cmd.Context(), &flags)
-
-			ctx, err := loginAndValidateSubscription(ctx)
-			if err != nil {
-				log.Fatal().Err(err).Send()
-			}
+			ctx, installer := commonPrerun(cmd.Context(), &flags)
 
 			id, err := strconv.Atoi(args[0])
 			if err != nil {
 				log.Fatal().Msg("The ID argument must be an integer")
 			}
 
-			if err := install.GetMigrationLogs(ctx, id, os.Stdout); err != nil {
+			if err := installer.GetMigrationLogs(ctx, id, os.Stdout); err != nil {
 				log.Fatal().Err(err).Send()
 			}
 		},
 	}
-
-	cmd.Flags().IntVar(&targetVersion, "target-version", targetVersion, "The target version to migrate to")
-	cmd.Flags().BoolVar(&latest, "latest", latest, "Migrate to the latest version")
-	cmd.Flags().BoolVar(&wait, "wait", wait, "Wait for the migration to complete")
 
 	addCommonFlags(cmd, &flags)
 	return cmd
@@ -200,23 +181,19 @@ func NewMigrationsListCommand() *cobra.Command {
 	flags := commonFlags{}
 	all := false
 	cmd := &cobra.Command{
-		Use:                   "list",
+		Use:                   "list -f CONFIG.yml",
 		Short:                 "List the tyger API database migrations",
 		Long:                  "List the tyger API database migrations",
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
-			ctx := commonPrerun(cmd.Context(), &flags)
+			ctx, installer := commonPrerun(cmd.Context(), &flags)
 
-			ctx, err := loginAndValidateSubscription(ctx)
+			versions, err := installer.ListDatabaseVersions(ctx, all)
 			if err != nil {
-				log.Fatal().Err(err).Send()
+				log.Fatal().Err(err).Msg("Failed list database versions")
 			}
 
-			versions, err := install.ListDatabaseVersions(ctx, all)
-			if err != nil {
-				log.Fatal().Err(err).Msg("Failed to exec into pod")
-			}
 			encoder := json.NewEncoder(os.Stdout)
 			encoder.SetIndent("", "  ")
 
@@ -228,5 +205,28 @@ func NewMigrationsListCommand() *cobra.Command {
 
 	addCommonFlags(cmd, &flags)
 	cmd.Flags().BoolVar(&all, "all", all, "Show all versions, including those that have been applied")
+	return cmd
+}
+
+func NewGenerateSingingKeyCommand() *cobra.Command {
+	publicFile := ""
+	privateFile := ""
+	cmd := &cobra.Command{
+		Use:                   "generate-signing-key --public FILE.pem --private FILE.pem",
+		Short:                 "Generate a new signing key pair",
+		Long:                  "Generate a new signing key pair",
+		DisableFlagsInUseLine: true,
+		Args:                  cobra.NoArgs,
+		Run: func(cmd *cobra.Command, args []string) {
+			if err := dockerinstall.GenerateSigningKeyPair(publicFile, privateFile); err != nil {
+				log.Fatal().Err(err).Send()
+			}
+		},
+	}
+
+	cmd.Flags().StringVar(&publicFile, "public", publicFile, "The file to write the public key to")
+	cmd.MarkFlagRequired("public")
+	cmd.Flags().StringVar(&privateFile, "private", privateFile, "The file to write the private key to")
+	cmd.MarkFlagRequired("private")
 	return cmd
 }

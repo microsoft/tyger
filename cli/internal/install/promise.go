@@ -40,7 +40,7 @@ func NewPromiseAfter[T any](ctx context.Context, group *PromiseGroup, function f
 		for _, d := range dependencies {
 			if err := d.AwaitErr(); err != nil {
 				var defaultT T
-				return defaultT, errDependencyFailed
+				return defaultT, ErrDependencyFailed
 			}
 		}
 

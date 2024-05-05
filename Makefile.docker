@@ -1,0 +1,96 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+ENVIRONMENT_CONFIG_JSON = $(shell scripts/get-config.sh --docker -o json | jq -c)
+DOCKER_BUILD_ARCH_FLAGS = --arch $$(dpkg --print-architecture)
+DOCKER_BUILD_PUSH_FLAGS = 
+
+set-localsettings: ensure-data-plane-cert
+	run_secrets_path="/opt/tyger/control-plane/run-secrets/"
+	ephemeral_buffers_path="/opt/tyger/control-plane/ephemeral-buffers"
+	logs_path="/docker-volumes/run-logs"
+
+	jq <<- EOF > ${CONTROL_PLANE_SERVER_PATH}/appsettings.local.json
+		{
+			"urls": "http://unix:/opt/tyger/control-plane/tyger.sock",
+			"logging": { "Console": {"FormatterName": "simple" } },
+			"auth": {
+				"enabled": "false"
+			},
+			"compute": {
+				"docker": {
+					"runSecretsPath": "$${run_secrets_path}",
+					"ephemeralBuffersPath": "$${ephemeral_buffers_path}",
+					"wslDistroName": "$${WSL_DISTRO_NAME}"
+				}
+			},
+			"logArchive": {
+				"localStorage": {
+					"logsDirectory": "$${logs_path}"
+				}
+			},
+			"buffers": {
+				"primarySigningPrivateKeyPath": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.signingKeys.primary.private')",
+				"bufferSidecarImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.bufferSidecarImage')",
+				"localStorage": {
+					"dataPlaneEndpoint": "http+unix:///opt/tyger/data-plane/tyger.data.sock",
+					"tcpDataPlaneEndpoint": "http://localhost:$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.dataPlanePort')"
+				}
+			},
+			"database": {
+				"connectionString": "Host=/opt/tyger/database; Username=tyger-server",
+				"autoMigrate": "true",
+				"tygerServerRoleName": "tyger-server"
+			}
+		}
+	EOF
+
+set-data-plane-localsettings:
+	jq <<- EOF > ${DATA_PLANE_SERVER_PATH}/appsettings.local.json
+		{
+			"urls": "http://unix:/opt/tyger/data-plane/tyger.data.sock",
+			"logging": { "Console": {"FormatterName": "simple" } },
+			"dataDirectory": "/docker-volumes/buffers",
+			"PrimarySigningPublicKeyPath": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.signingKeys.primary.public')"
+		}
+	EOF
+
+up: ensure-data-plane-cert install-cli docker-build-tyger-server docker-build-buffer-sidecar docker-build-test
+	tyger api install -f <(scripts/get-config.sh --docker)
+
+down: install-cli
+	tyger api uninstall -f <(scripts/get-config.sh --docker)
+
+ensure-data-plane-cert: install-cli
+	primaryKeys=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.signingKeys.primary')
+
+	cert_path_public=$$(echo $${primaryKeys} | jq -r '.public')
+	cert_path_private=$$(echo $${primaryKeys} | jq -r '.private')
+
+	if [[ ! -f "$${cert_path_public}" ]]; then
+		tyger api generate-signing-key --public $${cert_path_public} --private $${cert_path_private}
+	fi
+
+run: set-localsettings
+	cd server/ControlPlane
+	dotnet run -v m --no-restore
+
+run-data-plane: set-data-plane-localsettings
+	cd server/DataPlane
+	dotnet run -v m --no-restore
+
+login:
+	tyger login --local
+
+connect-db:
+	docker exec -it tyger-local-db psql -U tyger-server tyger-server
+
+variant-test:
+	scripts/run-ssh-tests.sh
+
+	TYGER_CACHE_FILE=$(mktemp)
+	export TYGER_CACHE_FILE
+
+	tyger login docker://
+	tyger login status
+	$(MAKE) integration-test-no-up
