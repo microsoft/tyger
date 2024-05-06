@@ -102,6 +102,13 @@ jobs:
             exit 1
           fi
 
+      - name: Build docs
+        run: |
+          set -euo pipefail
+          cd docs
+          npm install
+          npm run docs:build
+
   build-images:
     needs:
       - test-azure-needs-hosted-runner

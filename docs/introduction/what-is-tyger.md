@@ -35,8 +35,8 @@ like Kubernetes and Azure Blob Storage.
 
 ::: tip
 
-If you've already followed the [installation instructions](installation.md), you
-can run this example too!
+If you've already followed the [installation
+instructions](installation/installation.md), you can run this example too!
 
 First, make sure you have [`ffmpeg`](https://ffmpeg.org/download.html) (which
 comes with `ffplay`).
