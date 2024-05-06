@@ -19,7 +19,8 @@ require (
 	github.com/IGLOU-EU/go-wildcard/v2 v2.0.2
 	github.com/a8m/envsubst v1.4.2
 	github.com/andreyvit/diff v0.0.0-20170406064948-c7f18ee00883
-	github.com/docker/docker v26.0.0+incompatible
+	github.com/docker/docker v26.0.2+incompatible
+	github.com/docker/go-connections v0.5.0
 	github.com/eiannone/keyboard v0.0.0-20220611211555-0d226195f203
 	github.com/erikgeiser/promptkit v0.9.0
 	github.com/fatih/color v1.16.0
@@ -80,7 +81,6 @@ require (
 	github.com/docker/cli v26.0.0+incompatible // indirect
 	github.com/docker/distribution v2.8.3+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.8.1 // indirect
-	github.com/docker/go-connections v0.5.0 // indirect
 	github.com/docker/go-metrics v0.0.1 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/emicklei/go-restful/v3 v3.12.0 // indirect
