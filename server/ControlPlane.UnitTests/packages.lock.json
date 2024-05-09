@@ -660,8 +660,8 @@
       },
       "Npgsql": {
         "type": "Transitive",
-        "resolved": "8.0.0",
-        "contentHash": "Qiz74U+O7Mv4knrsXgKVYGJjgwoziK+aMFZqz7PtKR3vyGIhZA0tnW6HoUnL3X+YqtmVuhmoKkN8LDWEHMxPbw==",
+        "resolved": "8.0.3",
+        "contentHash": "6WEmzsQJCZAlUG1pThKg/RmeF6V+I0DmBBBE/8YzpRtEzhyZzKcK7ulMANDm5CkxrALBEC8H+5plxHWtIL7xnA==",
         "dependencies": {
           "Microsoft.Extensions.Logging.Abstractions": "8.0.0"
         }
@@ -1722,7 +1722,7 @@
           "Microsoft.Extensions.Http.Resilience": "[8.2.0, )",
           "Microsoft.IdentityModel.Protocols.OpenIdConnect": "[7.0.3, )",
           "Microsoft.OpenApi": "[1.6.11, )",
-          "Npgsql": "[8.0.0, )",
+          "Npgsql": "[8.0.3, )",
           "Polly.Core": "[8.3.0, )",
           "SimpleBase": "[4.0.0, )",
           "Swashbuckle.AspNetCore": "[6.5.0, )",
