@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/rs/zerolog/log"
@@ -87,11 +88,18 @@ func (inst *Installer) createTygerClusterRBAC(ctx context.Context, restConfigPro
 
 	for _, principal := range inst.Config.Cloud.Compute.ManagementPrincipals {
 		subject := rbacv1.Subject{
-			Name: principal.Id,
+			Name: principal.ObjectId,
 		}
 		switch principal.Kind {
 		case PrincipalKindServicePrincipal:
 			subject.Kind = string(PrincipalKindUser)
+		case PrincipalKindUser:
+			subject.Kind = string(principal.Kind)
+			// If this is a guest user, the name should be the object ID,
+			// otherwise the name should be the UPN
+			if !strings.Contains(principal.UserPrincipalName, "#EXT#@") {
+				subject.Name = principal.UserPrincipalName
+			}
 		default:
 			subject.Kind = string(principal.Kind)
 		}

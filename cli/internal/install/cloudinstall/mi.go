@@ -48,6 +48,10 @@ func (inst *Installer) createManagedIdentity(ctx context.Context, name string) (
 		return nil, fmt.Errorf("failed to create managed identity: %w", err)
 	}
 
+	if err := assignRbacRole(ctx, inst.Config.Cloud.Compute.GetManagementPrincipalIds(), true, *resp.ID, "Reader", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
+		return nil, fmt.Errorf("failed to assign RBAC role on managed identity: %w", err)
+	}
+
 	return &resp.Identity, nil
 }
 

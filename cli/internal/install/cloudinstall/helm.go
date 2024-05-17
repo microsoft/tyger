@@ -375,7 +375,7 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, restConfig *re
 		return "", "", fmt.Errorf("failed to create PostgreSQL server client: %w", err)
 	}
 
-	dbServerName, err := inst.getDatabaseServerName(ctx, false)
+	dbServerName, err := inst.getDatabaseServerName(ctx, &tygerServerIdentity.Identity, false)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to get database server name: %w", err)
 	}

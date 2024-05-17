@@ -29,19 +29,25 @@ cloud:
             minCount: {{ .GpuNodePoolMinCount }}
             maxCount: 10
 
-    # These are the principals that will be granted full access to the
-    # "tyger" namespace in each cluster.
-    # For users, kind must be "User".
-    #   If the user's home tenant is this subscription's tenant and
-    #   is not a personal Microsoft account, set id to the user
-    #   principal name (email). Otherwise, set id to the object ID (GUID).
-    # For service principals, kind must also be "User" and id must
-    # be the service principal's object ID (GUID).
-    # For groups, kind must be "Group" and id must be the group's
-    # object ID (GUID).
+    # These are the principals that will have the ability to run `tyger api install`.
+    # They will have access to the "tyger" namespace in each cluster and will have
+    # the necessary Azure RBAC role assignments.
+    # For users:
+    #   "kind" must be set to "User"
+    #   "objectId" must be set to the object ID GUID
+    #   "userPrincipalName" must be set (this is usually the email address, unless this is a guest account)
+    # For groups:
+    #   "kind" must be set to "Group"
+    #   "objectId" must be set to the object ID GUID
+    # For service principals:
+    #   "kind" must be set to "ServicePrincipal"
+    #   "objectId" must be set to the object ID GUID
     managementPrincipals:
-      - kind: {{ .PrincipalKind }}
-        id: {{ .PrincipalId }} {{- if not (contains .PrincipalId "@") }} # {{ .PrincipalDisplay }} {{- end }}
+      - kind: {{ .Principal.Kind }}
+        {{- if .Principal.UserPrincipalName }}
+        userPrincipalName: {{ .Principal.UserPrincipalName }}
+        {{- end }}
+        objectId: {{ .Principal.ObjectId }}
 
     # The names of private container registries that the clusters must
     # be able to pull from.

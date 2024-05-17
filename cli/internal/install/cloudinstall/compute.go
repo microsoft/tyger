@@ -211,6 +211,7 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 		}
 	}
 
+	var createdCluster armcontainerservice.ManagedCluster
 	if poller != nil {
 		if !poller.Done() {
 			log.Info().Msgf("Waiting for cluster '%s' to be ready", clusterConfig.Name)
@@ -221,10 +222,16 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 		}
 		log.Info().Msgf("Cluster '%s' ready", clusterConfig.Name)
 
-		return &r.ManagedCluster, nil
+		createdCluster = r.ManagedCluster
+	} else {
+		createdCluster = existingCluster.ManagedCluster
 	}
 
-	return &existingCluster.ManagedCluster, nil
+	if err := assignRbacRole(ctx, inst.Config.Cloud.Compute.GetManagementPrincipalIds(), true, *createdCluster.ID, "Azure Kubernetes Service Cluster User Role", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
+		return nil, fmt.Errorf("failed to assign RBAC role on cluster: %w", err)
+	}
+
+	return &createdCluster, nil
 }
 
 func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCluster) (hasChanges bool, onlyScaleDown bool) {
@@ -325,7 +332,7 @@ func getClusterDnsPrefix(environmentName, clusterName, subId string) string {
 }
 
 func attachAcr(ctx context.Context, kubeletObjectId, containerRegistryId, subscriptionId string, credential azcore.TokenCredential) error {
-	return assignRbacRole(ctx, kubeletObjectId, containerRegistryId, "AcrPull", subscriptionId, credential)
+	return assignRbacRole(ctx, []string{kubeletObjectId}, false, containerRegistryId, "AcrPull", subscriptionId, credential)
 }
 
 func detachAcr(ctx context.Context, kubeletObjectId, containerRegistryId, subscriptionId string, credential azcore.TokenCredential) error {

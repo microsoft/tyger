@@ -37,8 +37,17 @@ type CloudConfig struct {
 
 type ComputeConfig struct {
 	Clusters                   []*ClusterConfig `json:"clusters"`
-	ManagementPrincipals       []AksPrincipal   `json:"managementPrincipals"`
+	ManagementPrincipals       []Principal      `json:"managementPrincipals"`
+	LocalDevelopmentIdentityId string           `json:"localDevelopmentIdentityId"` // undocumented - for local development only
 	PrivateContainerRegistries []string         `json:"privateContainerRegistries"`
+}
+
+func (c *ComputeConfig) GetManagementPrincipalIds() []string {
+	var ids []string
+	for _, p := range c.ManagementPrincipals {
+		ids = append(ids, p.ObjectId)
+	}
+	return ids
 }
 
 type NamedAzureResource struct {
@@ -55,13 +64,12 @@ const (
 )
 
 type Principal struct {
-	ObjectId string        `json:"objectId"`
-	Kind     PrincipalKind `json:"kind"`
-}
+	ObjectId          string        `json:"objectId"`
+	UserPrincipalName string        `json:"userPrincipalName"`
+	Kind              PrincipalKind `json:"kind"`
 
-type AksPrincipal struct {
-	Kind PrincipalKind `json:"kind"`
-	Id   string        `json:"id"`
+	// Deprecated: Id is deprecated. Use ObjectId instead
+	Id string `json:"id"`
 }
 
 func (c *ComputeConfig) GetApiHostCluster() *ClusterConfig {
@@ -75,12 +83,11 @@ func (c *ComputeConfig) GetApiHostCluster() *ClusterConfig {
 }
 
 type ClusterConfig struct {
-	Name                       string            `json:"name"`
-	ApiHost                    bool              `json:"apiHost"`
-	Location                   string            `json:"location"`
-	KubernetesVersion          string            `json:"kubernetesVersion,omitempty"`
-	UserNodePools              []*NodePoolConfig `json:"userNodePools"`
-	LocalDevelopmentIdentityId string            `json:"localDevelopmentIdentityId"` // undocumented - for local development only
+	Name              string            `json:"name"`
+	ApiHost           bool              `json:"apiHost"`
+	Location          string            `json:"location"`
+	KubernetesVersion string            `json:"kubernetesVersion,omitempty"`
+	UserNodePools     []*NodePoolConfig `json:"userNodePools"`
 }
 
 type NodePoolConfig struct {
@@ -155,9 +162,7 @@ type ConfigTemplateValues struct {
 	SubscriptionId           string
 	DefaultLocation          string
 	KubernetesVersion        string
-	PrincipalId              string
-	PrincipalDisplay         string
-	PrincipalKind            PrincipalKind
+	Principal                Principal
 	DatabaseServerName       string
 	PostgresMajorVersion     int
 	BufferStorageAccountName string

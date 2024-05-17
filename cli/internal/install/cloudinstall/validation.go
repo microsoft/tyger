@@ -11,6 +11,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/postgresql/armpostgresqlflexibleservers/v4"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 )
 
@@ -140,11 +141,25 @@ func quickValidateComputeConfig(success *bool, cloudConfig *CloudConfig) {
 
 	for _, p := range computeConfig.ManagementPrincipals {
 		switch p.Kind {
-		case PrincipalKindUser, PrincipalKindGroup, PrincipalKindServicePrincipal:
+		case PrincipalKindUser:
+			if p.UserPrincipalName == "" {
+				validationError(success, "The `userPrincipalName` field is required on a user principal")
+			}
+		case PrincipalKindGroup, PrincipalKindServicePrincipal:
 		case "":
 			validationError(success, "The `kind` field is required on a management principal")
 		default:
 			validationError(success, "The `kind` field must be one of %v", []PrincipalKind{PrincipalKindUser, PrincipalKindGroup, PrincipalKindServicePrincipal})
+		}
+
+		if p.ObjectId == "" {
+			validationError(success, "The `objectId` field is required on a management principal")
+		} else if _, err := uuid.Parse(p.ObjectId); err != nil {
+			validationError(success, "The `objectId` field must be a GUID")
+		}
+
+		if p.Id != "" {
+			validationError(success, "The `id` field is no longer supported a management principal. Use `objectId` instead")
 		}
 	}
 }

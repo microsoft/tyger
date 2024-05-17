@@ -314,23 +314,7 @@ func generateCloudConfig(ctx context.Context, configFile *os.File) error {
 		return err
 	}
 
-	switch principal.Kind {
-	case cloudinstall.PrincipalKindUser:
-		templateValues.PrincipalKind = principal.Kind
-		templateValues.PrincipalDisplay = principal.Upn
-
-		if principal.IsFromCurrentTenant {
-			templateValues.PrincipalId = principal.Upn
-		} else {
-			templateValues.PrincipalId = principal.ObjectId
-		}
-	case cloudinstall.PrincipalKindServicePrincipal:
-		templateValues.PrincipalKind = principal.Kind
-		templateValues.PrincipalId = principal.ObjectId
-		templateValues.PrincipalDisplay = principal.Display
-	default:
-		panic(fmt.Sprintf("unexpected principal kind: %s", principal.Kind))
-	}
+	templateValues.Principal = principal.Principal
 
 	for {
 		templateValues.SubscriptionId, err = chooseSubscription(tenantCred)
@@ -533,16 +517,11 @@ func getCurrentPrincipal(ctx context.Context, cred azcore.TokenCredential) (prin
 
 	switch principals[0].Kind {
 	case cloudinstall.PrincipalKindUser:
-		principal.Upn, err = cloudinstall.GetUserPrincipalName(ctx, cred, principals[0].ObjectId)
+		principal.UserPrincipalName, err = cloudinstall.GetUserPrincipalName(ctx, cred, principals[0].ObjectId)
 		if err != nil {
 			return principal, err
 		}
 
-		if idpClaim, hasIdpClaim := claims["idp"]; hasIdpClaim && idpClaim.(string) != claims["iss"].(string) {
-			principal.IsFromCurrentTenant = false
-		} else {
-			principal.IsFromCurrentTenant = true
-		}
 	case cloudinstall.PrincipalKindServicePrincipal:
 		principal.Display, err = cloudinstall.GetServicePrincipalDisplayName(ctx, cred, principals[0].ObjectId)
 		if err != nil {
@@ -677,14 +656,12 @@ func getSingleKey() {
 
 type ExtendedPrincipal struct {
 	cloudinstall.Principal
-	Upn                 string
-	Display             string
-	IsFromCurrentTenant bool
+	Display string
 }
 
 func (p ExtendedPrincipal) String() string {
-	if p.Upn != "" {
-		return p.Upn
+	if p.UserPrincipalName != "" {
+		return p.UserPrincipalName
 	}
 
 	if p.Display != "" {
