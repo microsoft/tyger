@@ -44,7 +44,13 @@ const (
 
 func (inst *Installer) createDatabase(ctx context.Context, tygerServerManagedIdentityPromise, migrationRunnerManagedIdentityPromise *install.Promise[*armmsi.Identity]) (any, error) {
 	databaseConfig := inst.Config.Cloud.DatabaseConfig
-	serverName, err := inst.getDatabaseServerName(ctx, true)
+
+	tygerServerManagedIdentity, err := tygerServerManagedIdentityPromise.Await()
+	if err != nil {
+		return nil, install.ErrDependencyFailed
+	}
+
+	serverName, err := inst.getDatabaseServerName(ctx, tygerServerManagedIdentity, true)
 	if err != nil {
 		return nil, err
 	}
@@ -133,6 +139,10 @@ func (inst *Installer) createDatabase(ctx context.Context, tygerServerManagedIde
 		}
 	} else {
 		log.Info().Msgf("PostgreSQL server '%s' appears to be up to date", *existingServer.Name)
+	}
+
+	if err := assignRbacRole(ctx, inst.Config.Cloud.Compute.GetManagementPrincipalIds(), true, *existingServer.ID, "Reader", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
+		return nil, fmt.Errorf("failed to assign RBAC role on database: %w", err)
 	}
 
 	if inst.Config.Cloud.LogAnalyticsWorkspace != nil {
@@ -235,11 +245,6 @@ func (inst *Installer) createDatabase(ctx context.Context, tygerServerManagedIde
 	}
 
 	currentPrincipalDisplayName, err := createDatabaseAdmins(ctx, inst.Config, serverName, inst.Credential, migrationRunnerManagedIdentity)
-
-	tygerServerManagedIdentity, err := tygerServerManagedIdentityPromise.Await()
-	if err != nil {
-		return nil, install.ErrDependencyFailed
-	}
 
 	if err := inst.createRoles(ctx, existingServer, currentPrincipalDisplayName, tygerServerManagedIdentity, migrationRunnerManagedIdentity); err != nil {
 		return nil, err
@@ -497,8 +502,10 @@ func (inst *Installer) getDatabaseConfiguredTagKey() string {
 
 // If you try to create a database server less than five days after one with the same name was deleted, you might get an error.
 // For this reason, we allow the database server name to be left empty in the config, and we will give it a random name.
-// The suffix of this name is stored in a tag on the resource group.
-func (inst *Installer) getDatabaseServerName(ctx context.Context, generateIfNecessary bool) (string, error) {
+// The suffix of this name is stored in a tag on the managed identity resource.
+// We used to store this tag on the resource group, but performing an API install would require persistent read access
+// to the resource group, which is not allowed by an internal Microsoft policy.
+func (inst *Installer) getDatabaseServerName(ctx context.Context, tygerServerManagedIdentity *armmsi.Identity, generateIfNecessary bool) (string, error) {
 	if inst.Config.Cloud.DatabaseConfig.ServerName != "" {
 		return inst.Config.Cloud.DatabaseConfig.ServerName, nil
 	}
@@ -512,24 +519,44 @@ func (inst *Installer) getDatabaseServerName(ctx context.Context, generateIfNece
 	}
 
 	suffixTagKey := inst.getUniqueSuffixTagKey()
-	scope := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s", inst.Config.Cloud.SubscriptionID, inst.Config.Cloud.ResourceGroup)
-	getTagsResponse, err := tagsClient.GetAtScope(ctx, scope, nil)
+
+	miTagsResponse, err := tagsClient.GetAtScope(ctx, *tygerServerManagedIdentity.ID, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to get tags: %w", err)
 	}
 
 	var suffix string
-	if suffixTagValue, ok := getTagsResponse.TagsResource.Properties.Tags[suffixTagKey]; ok && suffixTagValue != nil {
+	if suffixTagValue, ok := miTagsResponse.TagsResource.Properties.Tags[suffixTagKey]; ok && suffixTagValue != nil {
 		suffix = *suffixTagValue
 	} else {
-		if !generateIfNecessary {
-			return "", errors.New("database server name is not set and no existing suffix is found")
+		// See if it is stored on the resource group, which is where it used to be stored.
+		resourceGroupScope := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s", inst.Config.Cloud.SubscriptionID, inst.Config.Cloud.ResourceGroup)
+		rgTagsResponse, err := tagsClient.GetAtScope(ctx, resourceGroupScope, nil)
+		if err != nil {
+			return "", fmt.Errorf("failed to get tags: %w", err)
 		}
+		if suffixTagValue, ok := rgTagsResponse.TagsResource.Properties.Tags[suffixTagKey]; ok && suffixTagValue != nil {
+			suffix = *suffixTagValue
+			if generateIfNecessary {
+				miTagsResponse.TagsResource.Properties.Tags[suffixTagKey] = suffixTagValue
+				if _, err := tagsClient.CreateOrUpdateAtScope(ctx, *tygerServerManagedIdentity.ID, miTagsResponse.TagsResource, nil); err != nil {
+					return "", fmt.Errorf("failed to set tags: %w", err)
+				}
+			}
+		} else {
+			if !generateIfNecessary {
+				return "", errors.New("database server name is not set and no existing suffix is found")
+			}
 
-		suffix = getRandomName()
-		getTagsResponse.TagsResource.Properties.Tags[suffixTagKey] = &suffix
-		if _, err := tagsClient.CreateOrUpdateAtScope(ctx, scope, getTagsResponse.TagsResource, nil); err != nil {
-			return "", fmt.Errorf("failed to set tags: %w", err)
+			suffix = getRandomName()
+			miTagsResponse.TagsResource.Properties.Tags[suffixTagKey] = &suffix
+			if _, err := tagsClient.CreateOrUpdateAtScope(ctx, *tygerServerManagedIdentity.ID, miTagsResponse.TagsResource, nil); err != nil {
+				return "", fmt.Errorf("failed to set tags: %w", err)
+			}
+			rgTagsResponse.TagsResource.Properties.Tags[suffixTagKey] = &suffix
+			if _, err := tagsClient.CreateOrUpdateAtScope(ctx, resourceGroupScope, rgTagsResponse.TagsResource, nil); err != nil {
+				return "", fmt.Errorf("failed to set tags: %w", err)
+			}
 		}
 	}
 

@@ -41,11 +41,15 @@ func (inst *Installer) CreateStorageAccount(ctx context.Context,
 	tags[TagKey] = &inst.Config.EnvironmentName
 
 	parameters := armstorage.AccountCreateParameters{
-		Tags:       tags,
-		Location:   &storageAccountConfig.Location,
-		Kind:       Ptr(armstorage.KindStorageV2),
-		SKU:        &armstorage.SKU{Name: (*armstorage.SKUName)(&storageAccountConfig.Sku)},
-		Properties: &armstorage.AccountPropertiesCreateParameters{},
+		Tags:     tags,
+		Location: &storageAccountConfig.Location,
+		Kind:     Ptr(armstorage.KindStorageV2),
+		SKU:      &armstorage.SKU{Name: (*armstorage.SKUName)(&storageAccountConfig.Sku)},
+		Properties: &armstorage.AccountPropertiesCreateParameters{
+			AllowSharedKeyAccess:   Ptr(false),
+			EnableHTTPSTrafficOnly: Ptr(true),
+			MinimumTLSVersion:      Ptr(armstorage.MinimumTLSVersionTLS12),
+		},
 	}
 
 	log.Info().Msgf("Creating or updating storage account '%s'", storageAccountConfig.Name)
@@ -66,14 +70,20 @@ func (inst *Installer) CreateStorageAccount(ctx context.Context,
 
 	log.Info().Msgf("Assigning RBAC role to storage account '%s'", storageAccountConfig.Name)
 
-	if err := assignRbacRole(ctx, *managedIdentity.Properties.PrincipalID, *res.ID, "Storage Blob Data Contributor", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
+	if err := assignRbacRole(ctx, inst.Config.Cloud.Compute.GetManagementPrincipalIds(), true, *res.ID, "Reader", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
 		return nil, fmt.Errorf("failed to assign storage RBAC role: %w", err)
 	}
 
-	if localId := inst.Config.Cloud.Compute.GetApiHostCluster().LocalDevelopmentIdentityId; localId != "" {
-		if err := assignRbacRole(ctx, localId, *res.ID, "Storage Blob Data Contributor", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
-			return nil, fmt.Errorf("failed to assign storage RBAC role: %w", err)
-		}
+	dataContributorPrincipals := []string{*managedIdentity.Properties.PrincipalID}
+	for _, p := range inst.Config.Cloud.Compute.ManagementPrincipals {
+		dataContributorPrincipals = append(dataContributorPrincipals, p.ObjectId)
+	}
+	if localId := inst.Config.Cloud.Compute.LocalDevelopmentIdentityId; localId != "" {
+		dataContributorPrincipals = append(dataContributorPrincipals, localId)
+	}
+
+	if err := assignRbacRole(ctx, dataContributorPrincipals, true, *res.ID, "Storage Blob Data Contributor", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
+		return nil, fmt.Errorf("failed to assign storage RBAC role: %w", err)
 	}
 
 	return nil, nil

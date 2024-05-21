@@ -13,7 +13,6 @@ cloud:
       - name: ${TYGER_ENVIRONMENT_NAME}
         apiHost: true
         kubernetesVersion: 1.27
-        localDevelopmentIdentityId: c0e60aba-35f0-4778-bc9b-fc5d2af14687
         userNodePools:
           - name: cpunp
             vmSize: Standard_DS12_v2
@@ -25,11 +24,12 @@ cloud:
             maxCount: 10
 
     managementPrincipals:
-      - id: 2e092785-472a-4ea1-9700-4d15646d9e91
+      - objectId: 2e092785-472a-4ea1-9700-4d15646d9e91
         kind: ServicePrincipal
-      - id: c0e60aba-35f0-4778-bc9b-fc5d2af14687
+      - objectId: 36043a62-1383-4012-95aa-44da0a4d8012
         kind: Group
 
+    localDevelopmentIdentityId: 36043a62-1383-4012-95aa-44da0a4d8012
     privateContainerRegistries:
       - eminence
 
