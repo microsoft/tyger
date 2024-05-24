@@ -38,7 +38,6 @@ type CloudConfig struct {
 type ComputeConfig struct {
 	Clusters                   []*ClusterConfig `json:"clusters"`
 	ManagementPrincipals       []Principal      `json:"managementPrincipals"`
-	LocalDevelopmentIdentityId string           `json:"localDevelopmentIdentityId"` // undocumented - for local development only
 	PrivateContainerRegistries []string         `json:"privateContainerRegistries"`
 }
 

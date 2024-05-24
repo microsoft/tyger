@@ -74,15 +74,7 @@ func (inst *Installer) CreateStorageAccount(ctx context.Context,
 		return nil, fmt.Errorf("failed to assign storage RBAC role: %w", err)
 	}
 
-	dataContributorPrincipals := []string{*managedIdentity.Properties.PrincipalID}
-	for _, p := range inst.Config.Cloud.Compute.ManagementPrincipals {
-		dataContributorPrincipals = append(dataContributorPrincipals, p.ObjectId)
-	}
-	if localId := inst.Config.Cloud.Compute.LocalDevelopmentIdentityId; localId != "" {
-		dataContributorPrincipals = append(dataContributorPrincipals, localId)
-	}
-
-	if err := assignRbacRole(ctx, dataContributorPrincipals, true, *res.ID, "Storage Blob Data Contributor", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
+	if err := assignRbacRole(ctx, []string{*managedIdentity.Properties.PrincipalID}, true, *res.ID, "Storage Blob Data Contributor", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
 		return nil, fmt.Errorf("failed to assign storage RBAC role: %w", err)
 	}
 
