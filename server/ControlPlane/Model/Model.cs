@@ -177,6 +177,8 @@ public partial record JobCodespec : Codespec, IValidatableObject
     /// </summary>
     public BufferParameters? Buffers { get; init; }
 
+    public IList<Socket>? Sockets { get; init; }
+
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
         if (Buffers != null)
@@ -201,7 +203,47 @@ public partial record JobCodespec : Codespec, IValidatableObject
                 }
             }
         }
+
+        if (Sockets != null)
+        {
+            foreach (var socket in Sockets)
+            {
+                if (socket.Port is <= 0 or > 65535)
+                {
+                    yield return new ValidationResult("Port must be between 1 and 65535");
+                }
+
+                if (!string.IsNullOrEmpty(socket.InputBuffer))
+                {
+                    if (Buffers?.Inputs is null || !Buffers.Inputs.Contains(socket.InputBuffer, StringComparer.InvariantCultureIgnoreCase))
+                    {
+                        yield return new ValidationResult($"The input buffer '{socket.InputBuffer}' for socket {socket.Port} is not among the codespec's input buffer parameters");
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(socket.OutputBuffer))
+                {
+                    if (Buffers?.Outputs is null || !Buffers.Outputs.Contains(socket.OutputBuffer, StringComparer.InvariantCultureIgnoreCase))
+                    {
+                        yield return new ValidationResult($"The output buffer '{socket.OutputBuffer}' for socket {socket.Port} is not among the codespec's output buffer parameters");
+                    }
+                }
+
+                if (string.IsNullOrEmpty(socket.InputBuffer) && string.IsNullOrEmpty(socket.OutputBuffer))
+                {
+                    yield return new ValidationResult($"At least one of the input or output buffer must be specified for socket {socket.Port}");
+                }
+            }
+        }
     }
+}
+
+[Equatable]
+public partial record Socket
+{
+    public int Port { get; init; }
+    public string? InputBuffer { get; init; }
+    public string? OutputBuffer { get; init; }
 }
 
 [Equatable]

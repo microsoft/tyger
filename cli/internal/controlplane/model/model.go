@@ -47,10 +47,17 @@ type CodespecResources struct {
 	Gpu      *resource.Quantity        `json:"gpu,omitempty"`
 }
 
+type Socket struct {
+	Port         int    `json:"port"`
+	InputBuffer  string `json:"inputBuffer,omitempty"`
+	OutputBuffer string `json:"outputBuffer,omitempty"`
+}
+
 type Codespec struct {
 	Kind             string `json:"kind"`
 	CodespecMetadata `json:",inline"`
 	Buffers          *BufferParameters  `json:"buffers,omitempty"`
+	Sockets          []Socket           `json:"sockets,omitempty"`
 	Image            string             `json:"image"`
 	Command          []string           `json:"command,omitempty"`
 	Args             []string           `json:"args,omitempty"`
