@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.ComponentModel.DataAnnotations;
+using System.Diagnostics;
 using k8s;
 using Microsoft.Extensions.Options;
 using Tyger.ControlPlane.Buffers;
@@ -116,6 +117,7 @@ public class LoggingHandler : DelegatingHandler
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
+        var start = Stopwatch.GetTimestamp();
         var resp = await base.SendAsync(request, cancellationToken);
         string? errorBody = "";
         if (!resp.IsSuccessStatusCode)
@@ -124,7 +126,10 @@ public class LoggingHandler : DelegatingHandler
             errorBody = await resp.Content.ReadAsStringAsync(cancellationToken);
         }
 
-        _logger.ExecutedKubernetesRequest(request.Method, request?.RequestUri?.ToString(), (int)resp.StatusCode, errorBody);
+        var end = Stopwatch.GetTimestamp();
+        var elapsedMs = (end - start) * 1000 / Stopwatch.Frequency;
+
+        _logger.ExecutedKubernetesRequest(request.Method, request?.RequestUri?.ToString(), (int)resp.StatusCode, elapsedMs, errorBody);
         return resp;
     }
 }
