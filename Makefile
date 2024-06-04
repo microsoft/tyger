@@ -44,6 +44,10 @@ build-go:
 
 build: build-csharp build-go
 
+run: set-localsettings
+	cd server/ControlPlane
+	dotnet run -v m --no-restore
+
 unit-test:
 	find . -name *csproj | xargs -L 1 dotnet test --no-restore -v q
 	

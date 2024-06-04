@@ -71,10 +71,6 @@ ensure-data-plane-cert: install-cli
 		tyger api generate-signing-key --public $${cert_path_public} --private $${cert_path_private}
 	fi
 
-run: set-localsettings
-	cd server/ControlPlane
-	dotnet run -v m --no-restore
-
 run-data-plane: set-data-plane-localsettings
 	cd server/DataPlane
 	dotnet run -v m --no-restore
