@@ -55,4 +55,4 @@ runs:
       run: |
           az account get-access-token --scope https://storage.azure.com/.default --output none
           az account get-access-token --scope https://vault.azure.net/.default --output none
-          az account get-access-token --scope https://ossrdbms-aad.database.windows.net --output none
+          az account get-access-token --resource https://ossrdbms-aad.database.windows.net --output none

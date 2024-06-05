@@ -83,13 +83,6 @@ docker-build-buffer-sidecar: login-wip-acr
 docker-build-worker-waiter: login-wip-acr
 	$(MAKE) _docker-build DOCKER_BUILD_TARGET=worker-waiter
 
-login-wip-acr:
-	registry=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
-	if ! ./scripts/check-docker-login.sh "$${registry}"; then
-		registry_name=$$(echo "$$registry" | cut -d'.' -f1)
-		az acr login --name "$${registry_name}"
-	fi
-
 docker-build: docker-build-test docker-build-tyger-server docker-build-buffer-sidecar docker-build-worker-waiter
 
 publish-official-images:
