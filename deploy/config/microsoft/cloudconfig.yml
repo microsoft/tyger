@@ -29,6 +29,7 @@ cloud:
       - objectId: 36043a62-1383-4012-95aa-44da0a4d8012
         kind: Group
 
+    localDevelopmentIdentityId: 36043a62-1383-4012-95aa-44da0a4d8012
     privateContainerRegistries:
       - eminence
 

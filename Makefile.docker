@@ -5,6 +5,9 @@ ENVIRONMENT_CONFIG_JSON = $(shell scripts/get-config.sh --docker -o json | jq -c
 DOCKER_BUILD_ARCH_FLAGS = --arch $$(dpkg --print-architecture)
 DOCKER_BUILD_PUSH_FLAGS = 
 
+login-wip-acr:
+	# do nothing. We don't push any images local docker mode.
+
 set-localsettings: ensure-data-plane-cert
 	run_secrets_path="/opt/tyger/control-plane/run-secrets/"
 	ephemeral_buffers_path="/opt/tyger/control-plane/ephemeral-buffers"
@@ -70,10 +73,6 @@ ensure-data-plane-cert: install-cli
 	if [[ ! -f "$${cert_path_public}" ]]; then
 		tyger api generate-signing-key --public $${cert_path_public} --private $${cert_path_private}
 	fi
-
-run: set-localsettings
-	cd server/ControlPlane
-	dotnet run -v m --no-restore
 
 run-data-plane: set-data-plane-localsettings
 	cd server/DataPlane

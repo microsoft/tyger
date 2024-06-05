@@ -54,7 +54,7 @@ RUN umask 0002 \
     && MOBY=false VERSION=24.0.6 DOCKERDASHCOMPOSEVERSION=none bash install.sh \
     # AZURE CLI
     && cd /opt/features/src/azure-cli \
-    && VERSION=2.53.1 bash install.sh \
+    && VERSION=2.61.0 bash install.sh \
     # POWERSHELL
     && cd /opt/features/src/powershell \
     && VERSION=7.3.9 bash install.sh \

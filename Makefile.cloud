@@ -38,6 +38,13 @@ set-context: check-az-login
 		fi
 	done
 
+login-wip-acr:
+	registry=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
+	if ! ./scripts/check-docker-login.sh "$${registry}"; then
+		registry_name=$$(echo "$$registry" | cut -d'.' -f1)
+		az acr login --name "$${registry_name}"
+	fi
+
 set-localsettings:
 	helm_values=$$(helm get values -n ${HELM_NAMESPACE} ${HELM_RELEASE} -o json || true)
 
