@@ -14,11 +14,11 @@ if [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
 fi
 
 devcontainer_image=$(docker ps --filter label=devcontainer.metadata --format json | jq -r '.Image' | head -n 1)
-container_id=$(docker run -d -u "$USER" --mount "source=${DEVCONTAINER_HOST_HOME}/.azure/,target=/home/${USER}/.azure,type=bind,readonly" "$devcontainer_image" 2>/dev/null || true)
+container_id=$(docker run -d -u "$USER" --mount "source=${DEVCONTAINER_HOST_HOME}/.azure/,target=${HOME}/.azure,type=bind,readonly" "$devcontainer_image" 2>/dev/null || true)
 if [[ -n "$container_id" ]]; then
-    trap 'docker rm -f "$container_id" 2&> /dev/null' EXIT
+    trap 'docker rm -f "$container_id" 2&> /dev/null || true' EXIT
 
-    docker cp "$container_id:/home/${USER}/.azure/" ~/
+    docker cp "$container_id:${HOME}/.azure/" ~/
     if az account show; then
         exit 0
     fi
