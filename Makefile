@@ -71,22 +71,31 @@ _docker-build:
 	registry=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
 	scripts/build-images.sh $$target_arg ${DOCKER_BUILD_ARCH_FLAGS} ${DOCKER_BUILD_PUSH_FLAGS} --tag "$$tag" --registry "$${registry}"
 
-docker-build-test:
+docker-build-test: login-wip-acr
 	$(MAKE) _docker-build DOCKER_BUILD_TARGET=test-connectivity
 
-docker-build-tyger-server:
+docker-build-tyger-server: login-wip-acr
 	$(MAKE) _docker-build DOCKER_BUILD_TARGET=tyger-server
 
-docker-build-buffer-sidecar:
+docker-build-buffer-sidecar: login-wip-acr
 	$(MAKE) _docker-build DOCKER_BUILD_TARGET=buffer-sidecar
 
-docker-build-worker-waiter:
+docker-build-worker-waiter: login-wip-acr
 	$(MAKE) _docker-build DOCKER_BUILD_TARGET=worker-waiter
+
+login-wip-acr:
+	registry=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
+	if ! ./scripts/check-docker-login.sh "$${registry}"; then
+		registry_name=$$(echo "$$registry" | cut -d'.' -f1)
+		az acr login --name "$${registry_name}"
+	fi
 
 docker-build: docker-build-test docker-build-tyger-server docker-build-buffer-sidecar docker-build-worker-waiter
 
 publish-official-images:
 	registry=$$(scripts/get-config.sh --dev -e .officialContainerRegistry.fqdn)
+	registry_name=$$(echo "$$registry" | cut -d'.' -f1)
+	az acr login --name "$${registry_name}"
 	tag=$$(git describe --tags)
 	scripts/build-images.sh --push --push-force --arch amd64 --arch arm64 --tyger-server --worker-waiter --buffer-sidecar --helm --tag "$${tag}" --registry "$${registry}"
 

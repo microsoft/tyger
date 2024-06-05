@@ -126,7 +126,7 @@ function build_and_push_platform() {
   # Push image
   if [[ -z "${force:-}" ]]; then
     # First try to pull the image
-    image_exists=$("$(dirname "${0}")/docker-auth-wrapper.sh" pull "$full_image" 2>/dev/null || true)
+    image_exists=$(docker pull "$full_image" 2>/dev/null || true)
     if [[ -n "$image_exists" ]]; then
       echo "Attempting to push an image that already exists: $full_image"
       echo "Use \"--push-force\" to overwrite existing image tags"
@@ -135,7 +135,7 @@ function build_and_push_platform() {
   fi
 
   echo "Pushing image ${full_image}..."
-  "$(dirname "${0}")/docker-auth-wrapper.sh" push --quiet "$full_image" >/dev/null
+  docker push --quiet "$full_image" >/dev/null
 }
 
 function build_and_push() {
@@ -162,7 +162,7 @@ function build_and_push() {
   # Push manigest
   if [[ -z "${force:-}" ]]; then
     # First try to pull the image
-    manifest_exists=$("$(dirname "${0}")/docker-auth-wrapper.sh" pull "$manifest_name" 2>/dev/null || true)
+    manifest_exists=$(docker pull "$manifest_name" 2>/dev/null || true)
     if [[ -n "$manifest_exists" ]]; then
       echo "Attempting to push a manifest that already exists: $manifest_name"
       echo "Use \"--push-force\" to overwrite existing image tags"
