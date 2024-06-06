@@ -40,11 +40,12 @@ public class KubernetesRunLogReader : ILogSource
 
     public async Task<Pipeline?> GetLogs(long runId, GetLogsOptions options, CancellationToken cancellationToken)
     {
-        switch (await _repository.GetRun(runId, cancellationToken))
+        var run = await _repository.GetRun(runId, cancellationToken);
+        switch (run)
         {
             case null:
                 return null;
-            case (Run run, _, null):
+            case { LogsArchivedAt: null }:
                 if (!options.Follow || run.Status == RunStatus.Canceling)
                 {
                     return await GetLogsSnapshot(run, options, cancellationToken);

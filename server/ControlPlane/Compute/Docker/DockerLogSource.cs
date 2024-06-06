@@ -6,7 +6,6 @@ using Docker.DotNet;
 using Docker.DotNet.Models;
 using Tyger.ControlPlane.Database;
 using Tyger.ControlPlane.Logging;
-using Tyger.ControlPlane.Model;
 
 namespace Tyger.ControlPlane.Compute.Docker;
 
@@ -25,11 +24,12 @@ public class DockerLogSource : ILogSource
 
     public async Task<Pipeline?> GetLogs(long runId, GetLogsOptions options, CancellationToken cancellationToken)
     {
-        switch (await _repository.GetRun(runId, cancellationToken))
+        var run = await _repository.GetRun(runId, cancellationToken);
+        switch (run)
         {
             case null:
                 return null;
-            case (Run run, _, null):
+            case { LogsArchivedAt: null }:
                 var containers = await _client.Containers.ListContainersAsync(new ContainersListParameters()
                 {
                     All = true,

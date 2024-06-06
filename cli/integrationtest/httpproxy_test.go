@@ -15,7 +15,6 @@ import (
 )
 
 const composeFile = `
-version: '3.8'
 name: http-proxy-test
 
 services:

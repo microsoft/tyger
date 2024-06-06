@@ -381,6 +381,12 @@ public record Run : ModelBase
     /// </summary>
     public int? TimeoutSeconds { get; init; } = (int)TimeSpan.FromHours(12).TotalSeconds;
 
+    [JsonIgnore]
+    public bool Final { get; init; } = false;
+
+    [JsonIgnore]
+    public DateTimeOffset? LogsArchivedAt { get; init; }
+
     /// <summary>
     /// The name of target cluster.
     /// </summary>
@@ -395,7 +401,7 @@ public record Run : ModelBase
             StatusReason = null,
             RunningCount = null,
             CreatedAt = default,
-            FinishedAt = null
+            FinishedAt = null,
         };
     }
 }

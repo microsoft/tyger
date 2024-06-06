@@ -16,12 +16,9 @@ using static Tyger.ControlPlane.Compute.Kubernetes.KubernetesMetadata;
 
 namespace Tyger.ControlPlane.Compute.Kubernetes;
 
-public class KubernetesRunReader : IRunReader
+public partial class KubernetesRunReader : IRunReader
 
 {
-    // Used to extract "gpunp" from an AKS node named "aks-gpunp-23329378-vmss000007"
-    private static readonly Regex s_nodePoolFromNodeName = new(@"^aks-([^\-]+)-", RegexOptions.Compiled);
-
     private readonly IKubernetes _client;
     private readonly IRepository _repository;
     private readonly KubernetesApiOptions _k8sOptions;
@@ -42,12 +39,12 @@ public class KubernetesRunReader : IRunReader
     public async Task<(IReadOnlyList<Run>, string? nextContinuationToken)> ListRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken)
     {
         (var partialRuns, var nextContinuationToken) = await _repository.GetRuns(limit, since, continuationToken, cancellationToken);
-        if (partialRuns.All(r => r.final))
+        if (partialRuns.All(r => r.Final))
         {
-            return (partialRuns.Select(r => r.run).ToList(), nextContinuationToken);
+            return (partialRuns.AsReadOnly(), nextContinuationToken);
         }
 
-        var selector = $"{RunLabel} in ({string.Join(",", partialRuns.Where(p => !p.final).Select(p => p.run.Id))})";
+        var selector = $"{RunLabel} in ({string.Join(",", partialRuns.Where(p => !p.Final).Select(p => p.Id))})";
 
         var jobAndPodsById = await _client.EnumerateJobsInNamespace(_k8sOptions.Namespace, labelSelector: selector, cancellationToken: cancellationToken)
             .GroupJoin(
@@ -59,29 +56,25 @@ public class KubernetesRunReader : IRunReader
 
         for (int i = 0; i < partialRuns.Count; i++)
         {
-            (var run, var final) = partialRuns[i];
-            if (!final)
+            var run = partialRuns[i];
+            if (!run.Final)
             {
                 if (!jobAndPodsById.TryGetValue(run.Id!.Value, out var jobAndPods))
                 {
                     continue;
                 }
 
-                partialRuns[i] = (UpdateRunFromJobAndPods(run, jobAndPods.job, await jobAndPods.pods.ToListAsync(cancellationToken)), true);
+                partialRuns[i] = UpdateRunFromJobAndPods(run, jobAndPods.job, await jobAndPods.pods.ToListAsync(cancellationToken));
             }
         }
 
-        return (partialRuns.Where(p => p.final).Select(p => p.run).ToList(), nextContinuationToken);
+        return (partialRuns.AsReadOnly(), nextContinuationToken);
     }
 
     public async Task<Run?> GetRun(long id, CancellationToken cancellationToken)
     {
-        if (await _repository.GetRun(id, cancellationToken) is not (Run run, var final, _))
-        {
-            return null;
-        }
-
-        if (final)
+        var run = await _repository.GetRun(id, cancellationToken);
+        if (run is null or { Final: true })
         {
             return run;
         }
@@ -105,12 +98,13 @@ public class KubernetesRunReader : IRunReader
 
     public async IAsyncEnumerable<Run> WatchRun(long id, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        if (await _repository.GetRun(id, cancellationToken) is not (Run run, var final, _))
+        var run = await GetRun(id, cancellationToken);
+        if (run is null)
         {
             yield break;
         }
 
-        if (final)
+        if (run.Final)
         {
             yield return run;
             yield break;
@@ -185,12 +179,14 @@ public class KubernetesRunReader : IRunReader
 
                 if (updateRunFromRepository)
                 {
-                    if (await _repository.GetRun(id, cancellationToken) is (Run currentRun, var currentFinal, _))
+                    var currentRun = await _repository.GetRun(id, cancellationToken);
+                    if (currentRun is null)
                     {
-                        updatedRun = currentRun;
-                        final = currentFinal;
+                        cts.Cancel();
+                        yield break;
                     }
 
+                    updatedRun = currentRun;
                     updateRunFromRepository = false;
                 }
 
@@ -205,7 +201,7 @@ public class KubernetesRunReader : IRunReader
 
                 run = updatedRun;
 
-                if (final || run.Status is RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceled)
+                if (run.Final || run.Status is RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceled)
                 {
                     cts.Cancel();
                     yield break;
@@ -361,7 +357,7 @@ public class KubernetesRunReader : IRunReader
         {
             static string GetNodePoolFromNodeName(string nodeName)
             {
-                var match = s_nodePoolFromNodeName.Match(nodeName);
+                var match = NodePoolFromNodeNameRegex().Match(nodeName);
                 if (!match.Success)
                 {
                     throw new InvalidOperationException($"Node name in unexpected format: '{nodeName}'");
@@ -390,4 +386,8 @@ public class KubernetesRunReader : IRunReader
                 : run with { Worker = newWorkerTarget, Job = newJobTarget };
         }
     }
+
+    // Used to extract "gpunp" from an AKS node named "aks-gpunp-23329378-vmss000007"
+    [GeneratedRegex(@"^aks-([^\-]+)-", RegexOptions.Compiled)]
+    private static partial Regex NodePoolFromNodeNameRegex();
 }

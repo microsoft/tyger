@@ -217,7 +217,7 @@ public class Repository : IRepository
 
     public async Task<Run> CreateRun(Run newRun, CancellationToken cancellationToken)
     {
-        newRun = newRun.WithoutSystemProperties();
+        newRun = newRun.WithoutSystemProperties() with { Status = RunStatus.Pending };
 
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
         await using var tx = await connection.BeginTransactionAsync(cancellationToken);
@@ -242,7 +242,7 @@ public class Repository : IRepository
         await using (var reader = await insertCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken))
         {
             await reader.ReadAsync(cancellationToken);
-            run = newRun with { Id = reader.GetInt64(0), CreatedAt = reader.GetDateTime(1), Status = RunStatus.Pending };
+            run = newRun with { Id = reader.GetInt64(0), CreatedAt = reader.GetDateTime(1) };
         }
 
         using var updateCommand = new NpgsqlCommand
@@ -268,13 +268,13 @@ public class Repository : IRepository
         return run;
     }
 
-    public async Task UpdateRun(Run run, bool? resourcesCreated = null, bool? final = null, DateTimeOffset? logsArchivedAt = null, CancellationToken cancellationToken = default)
+    public async Task UpdateRun(Run run, bool? resourcesCreated = null, CancellationToken cancellationToken = default)
     {
         await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
         var paramNumber = 2;
         await using var command = new NpgsqlCommand($"""
             UPDATE runs
-            SET run = $2 {(resourcesCreated.HasValue ? $", resources_created = ${++paramNumber}" : null)} {(final.HasValue ? $", final = ${++paramNumber}" : null)} {(logsArchivedAt.HasValue ? $", logs_archived_at = ${++paramNumber}" : null)}
+            SET run = $2 {(resourcesCreated.HasValue ? $", resources_created = ${++paramNumber}" : null)} {(run.Final ? $", final = ${++paramNumber}" : null)} {(run.LogsArchivedAt.HasValue ? $", logs_archived_at = ${++paramNumber}" : null)}
             WHERE id = $1
             """, conn)
         {
@@ -290,14 +290,14 @@ public class Repository : IRepository
             command.Parameters.AddWithValue(NpgsqlDbType.Boolean, resourcesCreated.Value);
         }
 
-        if (final.HasValue)
+        if (run.Final)
         {
-            command.Parameters.AddWithValue(NpgsqlDbType.Boolean, final.Value);
+            command.Parameters.AddWithValue(NpgsqlDbType.Boolean, run.Final);
         }
 
-        if (logsArchivedAt.HasValue)
+        if (run.LogsArchivedAt.HasValue)
         {
-            command.Parameters.AddWithValue(NpgsqlDbType.TimestampTz, logsArchivedAt.Value);
+            command.Parameters.AddWithValue(NpgsqlDbType.TimestampTz, run.LogsArchivedAt.Value);
         }
 
         await command.PrepareAsync(cancellationToken);
@@ -322,7 +322,7 @@ public class Repository : IRepository
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    public async Task<(Run run, bool final, DateTimeOffset? logsArchivedAt)?> GetRun(long id, CancellationToken cancellationToken)
+    public async Task<Run?> GetRun(long id, CancellationToken cancellationToken)
     {
         await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
         await using var cmd = new NpgsqlCommand("""
@@ -344,19 +344,18 @@ public class Repository : IRepository
             return null;
         }
 
-        var createdAt = reader.GetDateTime(0);
         var runJson = reader.GetString(1);
         var final = reader.GetBoolean(2);
         var logsArchivedAt = reader.IsDBNull(3) ? (DateTime?)null : reader.GetDateTime(3);
-
-        return (JsonSerializer.Deserialize<Run>(runJson, _serializerOptions)!, final, logsArchivedAt);
+        var run = JsonSerializer.Deserialize<Run>(runJson, _serializerOptions) ?? throw new InvalidOperationException("Failed to deserialize run.");
+        return run with { Id = id, Final = final, LogsArchivedAt = logsArchivedAt };
     }
 
-    public async Task<(IList<(Run run, bool final)>, string? nextContinuationToken)> GetRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken)
+    public async Task<(IList<Run>, string? nextContinuationToken)> GetRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken)
     {
         var sb = new StringBuilder();
         sb.Append("""
-            SELECT run, final
+            SELECT run, final, logs_archived_at
             FROM runs
             WHERE resources_created = true
 
@@ -411,19 +410,22 @@ public class Repository : IRepository
         await cmd.PrepareAsync(cancellationToken);
         await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
 
-        List<(Run Run, bool Final)> results = [];
+        List<Run> results = [];
         while (await reader.ReadAsync(cancellationToken))
         {
             var runJson = reader.GetString(0);
             var final = reader.GetBoolean(1);
+            var logsArchivedAt = reader.IsDBNull(2) ? (DateTime?)null : reader.GetDateTime(2);
+            var run = JsonSerializer.Deserialize<Run>(runJson, _serializerOptions) ?? throw new InvalidOperationException("Failed to deserialize run.");
+            run = run with { Final = final, LogsArchivedAt = logsArchivedAt };
 
-            results.Add((JsonSerializer.Deserialize<Run>(runJson, _serializerOptions)!, final));
+            results.Add(run);
         }
 
         if (results.Count == limit + 1)
         {
             results.RemoveAt(limit);
-            var last = results[^1].Run;
+            var last = results[^1];
             string newToken = Base32.ZBase32.Encode(Encoding.ASCII.GetBytes(JsonSerializer.Serialize(new[] { last.CreatedAt!.Value.UtcTicks, last.Id }, _serializerOptions)));
             return (results, newToken);
         }

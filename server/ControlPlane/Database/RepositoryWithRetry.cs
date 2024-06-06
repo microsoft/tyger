@@ -69,12 +69,12 @@ public class RepositoryWithRetry : IRepository
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.GetPageOfRunsThatNeverGotResources(cancellationToken), cancellationToken);
     }
 
-    public async Task<(Run run, bool final, DateTimeOffset? logsArchivedAt)?> GetRun(long id, CancellationToken cancellationToken)
+    public async Task<Run?> GetRun(long id, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.GetRun(id, cancellationToken), cancellationToken);
     }
 
-    public async Task<(IList<(Run run, bool final)>, string? nextContinuationToken)> GetRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken)
+    public async Task<(IList<Run>, string? nextContinuationToken)> GetRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.GetRuns(limit, since, continuationToken, cancellationToken), cancellationToken);
     }
@@ -84,9 +84,9 @@ public class RepositoryWithRetry : IRepository
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.UpdateBufferById(id, eTag, tags, cancellationToken), cancellationToken);
     }
 
-    public async Task UpdateRun(Run run, bool? resourcesCreated = null, bool? final = null, DateTimeOffset? logsArchivedAt = null, CancellationToken cancellationToken = default)
+    public async Task UpdateRun(Run run, bool? resourcesCreated = null, CancellationToken cancellationToken = default)
     {
-        await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.UpdateRun(run, resourcesCreated, final, logsArchivedAt, cancellationToken), cancellationToken);
+        await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.UpdateRun(run, resourcesCreated, cancellationToken), cancellationToken);
     }
 
     public async Task<Codespec> UpsertCodespec(string name, Codespec newcodespec, CancellationToken cancellationToken)

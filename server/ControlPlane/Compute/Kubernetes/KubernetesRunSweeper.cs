@@ -118,14 +118,15 @@ public sealed class KubernetesRunSweeper : IRunSweeper, IHostedService, IDisposa
                 {
                     var runId = long.Parse(job.GetLabel(JobLabel), CultureInfo.InvariantCulture);
 
-                    switch (await _repository.GetRun(runId, cancellationToken))
+                    var run = await _repository.GetRun(runId, cancellationToken);
+                    switch (run)
                     {
                         case null:
                             await _repository.DeleteRun(runId, cancellationToken);
                             await DeleteRunResources(runId, cancellationToken);
                             break;
 
-                        case (var run, _, null):
+                        case { LogsArchivedAt: null }:
                             await ArchiveLogs(run, cancellationToken);
                             if (isCanceling)
                             {
@@ -136,7 +137,7 @@ public sealed class KubernetesRunSweeper : IRunSweeper, IHostedService, IDisposa
 
                             break;
 
-                        case (var run, _, var time) when DateTimeOffset.UtcNow - time > s_minDurationAfterArchivingBeforeDeletingPod || isCanceling:
+                        case var _ when DateTimeOffset.UtcNow - run.LogsArchivedAt > s_minDurationAfterArchivingBeforeDeletingPod || isCanceling:
                             var pods = await _client.EnumeratePodsInNamespace(_k8sOptions.Namespace, labelSelector: $"{RunLabel}={runId}", cancellationToken: cancellationToken)
                                 .ToListAsync(cancellationToken);
 
@@ -154,7 +155,7 @@ public sealed class KubernetesRunSweeper : IRunSweeper, IHostedService, IDisposa
                             }
 
                             _logger.FinalizingTerminatedRun(run.Id!.Value, run.Status!.Value);
-                            await _repository.UpdateRun(run, final: true, cancellationToken: cancellationToken);
+                            await _repository.UpdateRun(run with { Final = true }, cancellationToken: cancellationToken);
                             await DeleteRunResources(run.Id!.Value, cancellationToken);
                             break;
                         default:
@@ -175,7 +176,7 @@ public sealed class KubernetesRunSweeper : IRunSweeper, IHostedService, IDisposa
         pipeline ??= new Pipeline(Array.Empty<byte>());
 
         await _logArchive.ArchiveLogs(run.Id.Value, pipeline, cancellationToken);
-        await _repository.UpdateRun(run, logsArchivedAt: DateTimeOffset.UtcNow, cancellationToken: cancellationToken);
+        await _repository.UpdateRun(run with { LogsArchivedAt = DateTimeOffset.UtcNow }, cancellationToken: cancellationToken);
     }
 
     private async Task DeleteRunResources(long runId, CancellationToken cancellationToken)
