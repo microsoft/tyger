@@ -107,60 +107,60 @@ public sealed class KubernetesRunSweeper : IRunSweeper, IHostedService, IDisposa
 
         // Now go though the list of jobs on the the cluster
         string? continuation = null;
+        var placeholderRunTemplate = new Run { CreatedAt = DateTime.MinValue, Job = new() { Codespec = new CommittedCodespecRef("", null) } };
         do
         {
             var jobs = await _client.BatchV1.ListNamespacedJobAsync(_k8sOptions.Namespace, continueParameter: continuation, labelSelector: JobLabel, cancellationToken: cancellationToken);
 
             foreach (var job in jobs.Items)
             {
-                bool isCanceling = KubernetesRunReader.IsJobCanceling(job);
-                if (isCanceling || KubernetesRunReader.HasJobSucceeded(job) || KubernetesRunReader.HasJobFailed(job, out _))
+                var runId = long.Parse(job.GetLabel(JobLabel), CultureInfo.InvariantCulture);
+                var status = (await new RunResources(placeholderRunTemplate with { Id = runId }, _client, _k8sOptions, job: job).GetPartiallyUpdatedRun(cancellationToken)).Status;
+
+                if (status is not RunStatus.Succeeded and not RunStatus.Failed and not RunStatus.Canceling and not RunStatus.Canceled)
                 {
-                    var runId = long.Parse(job.GetLabel(JobLabel), CultureInfo.InvariantCulture);
+                    continue;
+                }
 
-                    var run = await _repository.GetRun(runId, cancellationToken);
-                    switch (run)
-                    {
-                        case null:
-                            await _repository.DeleteRun(runId, cancellationToken);
-                            await DeleteRunResources(runId, cancellationToken);
-                            break;
+                var run = await _repository.GetRun(runId, cancellationToken);
+                switch (run)
+                {
+                    case null:
+                        await _repository.DeleteRun(runId, cancellationToken);
+                        await DeleteRunResources(runId, cancellationToken);
+                        break;
 
-                        case { LogsArchivedAt: null }:
-                            await ArchiveLogs(run, cancellationToken);
-                            if (isCanceling)
+                    case { LogsArchivedAt: null }:
+                        await ArchiveLogs(run, cancellationToken);
+                        if (status is RunStatus.Canceling or RunStatus.Canceled)
+                        {
+                            // now that we have collected the logs, terminate the pods.
+                            string labelSelector = $"{RunLabel}={runId}";
+                            await _client.CoreV1.DeleteCollectionNamespacedPodAsync(_k8sOptions.Namespace, labelSelector: labelSelector, cancellationToken: cancellationToken);
+                        }
+
+                        break;
+
+                    case var _ when DateTimeOffset.UtcNow - run.LogsArchivedAt > s_minDurationAfterArchivingBeforeDeletingPod || (status is RunStatus.Canceling or RunStatus.Canceled):
+                        run = await new RunResources(run, _client, _k8sOptions).GetUpdatedRun(cancellationToken);
+                        if (run.Status == RunStatus.Canceling)
+                        {
+                            // the pods did not termintate in time. Override the status.
+                            run = run with
                             {
-                                // now that we have collected the logs, terminate the pods.
-                                string labelSelector = $"{RunLabel}={runId}";
-                                await _client.CoreV1.DeleteCollectionNamespacedPodAsync(_k8sOptions.Namespace, labelSelector: labelSelector, cancellationToken: cancellationToken);
-                            }
+                                Status = RunStatus.Canceled,
+                                StatusReason = "Canceled by user",
+                                RunningCount = 0,
+                                FinishedAt = run.FinishedAt ?? DateTimeOffset.UtcNow
+                            };
+                        }
 
-                            break;
-
-                        case var _ when DateTimeOffset.UtcNow - run.LogsArchivedAt > s_minDurationAfterArchivingBeforeDeletingPod || isCanceling:
-                            var pods = await _client.EnumeratePodsInNamespace(_k8sOptions.Namespace, labelSelector: $"{RunLabel}={runId}", cancellationToken: cancellationToken)
-                                .ToListAsync(cancellationToken);
-
-                            run = KubernetesRunReader.UpdateRunFromJobAndPods(run, job, pods);
-                            if (isCanceling && run.Status != RunStatus.Canceled)
-                            {
-                                // the pods did not termintate in time. Override the status.
-                                run = run with
-                                {
-                                    Status = RunStatus.Canceled,
-                                    StatusReason = "Canceled by user",
-                                    RunningCount = 0,
-                                    FinishedAt = run.FinishedAt ?? DateTimeOffset.UtcNow
-                                };
-                            }
-
-                            _logger.FinalizingTerminatedRun(run.Id!.Value, run.Status!.Value);
-                            await _repository.UpdateRun(run with { Final = true }, cancellationToken: cancellationToken);
-                            await DeleteRunResources(run.Id!.Value, cancellationToken);
-                            break;
-                        default:
-                            break;
-                    }
+                        _logger.FinalizingTerminatedRun(run.Id!.Value, run.Status!.Value);
+                        await _repository.UpdateRun(run with { Final = true }, cancellationToken: cancellationToken);
+                        await DeleteRunResources(run.Id!.Value, cancellationToken);
+                        break;
+                    default:
+                        break;
                 }
             }
 

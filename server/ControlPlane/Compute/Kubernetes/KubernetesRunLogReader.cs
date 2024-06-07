@@ -57,7 +57,9 @@ public class KubernetesRunLogReader : ILogSource
                     return null;
                 }
 
-                if (KubernetesRunReader.UpdateRunFromJobAndPods(run, jobs.Items.Single(), Array.Empty<V1Pod>()).Status is RunStatus.Succeeded or RunStatus.Failed)
+                run = await new RunResources(run, _client, _k8sOptions, jobs.Items.Single()).GetPartiallyUpdatedRun(cancellationToken);
+
+                if (run.Status is RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceled)
                 {
                     return await GetLogsSnapshot(run, options, cancellationToken);
                 }
@@ -153,7 +155,7 @@ public class KubernetesRunLogReader : ILogSource
                         case WatchEventType.Deleted:
                             return;
                         case WatchEventType.Modified:
-                            var status = KubernetesRunReader.UpdateRunFromJobAndPods(run, item, Array.Empty<V1Pod>()).Status;
+                            var status = (await new RunResources(run, _client, _k8sOptions, item).GetPartiallyUpdatedRun(cancellationToken)).Status;
                             if (status is RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceled)
                             {
                                 return;

@@ -3,7 +3,7 @@
 
 ENVIRONMENT_CONFIG_JSON = $(shell scripts/get-config.sh -o json | jq -c)
 
-SECURITY_ENABLED=true
+SECURITY_ENABLED=false
 HELM_NAMESPACE=tyger
 HELM_RELEASE=tyger
 TYGER_URI = https://$(shell echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.domainName')

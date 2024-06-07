@@ -113,7 +113,8 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
             Metadata = new()
             {
                 Name = JobNameFromRunId(run.Id!.Value),
-                Labels = jobLabels
+                Labels = jobLabels,
+                Annotations = jobCodespec.Sockets is { Count: > 0 } ? new Dictionary<string, string>() { { HasSocketAnnotation, "true" } } : null
             },
             Spec = new()
             {
