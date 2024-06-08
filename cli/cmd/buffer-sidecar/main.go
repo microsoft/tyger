@@ -221,9 +221,21 @@ func newRootCommand() *cobra.Command {
 			ctx, cancel := context.WithCancel(cmd.Context())
 			defer cancel()
 
-			conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", destinationAddress)
-			if err != nil {
-				log.Fatal().Err(err).Msg("Failed to connect to address")
+			var conn net.Conn
+
+			for startTime := time.Now(); ; {
+				localConn, err := (&net.Dialer{}).DialContext(ctx, "tcp", destinationAddress)
+				if err == nil {
+					conn = localConn
+					break
+				}
+
+				if time.Since(startTime) > 20*time.Minute {
+					log.Fatal().Err(err).Msg("Timeout exceeded. Failed to connect to address.")
+				}
+
+				log.Warn().Err(err).Msg("Failed to connect to address. Retrying in 1 second")
+				time.Sleep(time.Second)
 			}
 
 			defer conn.Close()
@@ -264,7 +276,7 @@ func newRootCommand() *cobra.Command {
 				}
 			}()
 
-			_, err = io.Copy(outputWriter, conn)
+			_, err := io.Copy(outputWriter, conn)
 			if err != nil {
 				log.Fatal().Err(err).Msg("Failed to copy from socket to output file")
 			}
