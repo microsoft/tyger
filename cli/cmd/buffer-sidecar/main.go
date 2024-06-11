@@ -226,6 +226,7 @@ func newRootCommand() *cobra.Command {
 			for startTime := time.Now(); ; {
 				localConn, err := (&net.Dialer{}).DialContext(ctx, "tcp", destinationAddress)
 				if err == nil {
+					log.Info().Str("address", destinationAddress).Msg("Connected to address")
 					conn = localConn
 					break
 				}
@@ -270,16 +271,20 @@ func newRootCommand() *cobra.Command {
 					conn.(*net.TCPConn).CloseWrite()
 				}()
 				defer close(errorChan)
-				_, err := io.Copy(conn, inputReader)
+				n, err := io.Copy(conn, inputReader)
 				if err != nil {
 					errorChan <- fmt.Errorf("failed to copy from input file to socket: %w", err)
 				}
+
+				log.Info().Int64("bytes", n).Msg("Finished copying from file to socket")
 			}()
 
-			_, err := io.Copy(outputWriter, conn)
+			n, err := io.Copy(outputWriter, conn)
 			if err != nil {
 				log.Fatal().Err(err).Msg("Failed to copy from socket to output file")
 			}
+
+			log.Info().Int64("bytes", n).Msg("Finished copying from socket to file")
 
 			err = <-errorChan
 			if err != nil {
