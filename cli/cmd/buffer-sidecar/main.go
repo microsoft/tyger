@@ -274,9 +274,9 @@ func newRootCommand() *cobra.Command {
 				n, err := io.Copy(conn, inputReader)
 				if err != nil {
 					errorChan <- fmt.Errorf("failed to copy from input file to socket: %w", err)
+				} else {
+					log.Info().Int64("bytes", n).Msg("Finished copying from file to socket")
 				}
-
-				log.Info().Int64("bytes", n).Msg("Finished copying from file to socket")
 			}()
 
 			n, err := io.Copy(outputWriter, conn)
