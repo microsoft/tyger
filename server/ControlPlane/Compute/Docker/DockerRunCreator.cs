@@ -22,9 +22,10 @@ namespace Tyger.ControlPlane.Compute.Docker;
 
 public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedService, ICapabilitiesContributor
 {
-    private const string ContainerNameLabelKey = "tyger-run-container-name";
+    public const string ContainerNameLabelKey = "tyger-run-container-name";
     public const string EphemeralBufferSocketPathLabelKey = "tyger-ephemeral-buffer-socket-path";
     public const string EphemeralBufferIdLabelKey = "tyger-ephemeral-buffer-id";
+    public const string SocketCountLabelKey = "tyger-socket-count";
 
     private readonly DockerClient _client;
     private readonly DockerEphemeralBufferProvider _ephemeralBufferProvider;
@@ -159,16 +160,20 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
         var startContainersTasks = new List<Task>();
 
+        string RelativePipePath(string bufferParameterName)
+        {
+            return Path.Combine(relativePipesPath, bufferParameterName + ".pipe");
+        }
+
         foreach ((var bufferParameterName, (bool write, Uri accessUri)) in bufferMap)
         {
             var sidecarLabels = labels.Add(ContainerNameLabelKey, $"{bufferParameterName}-buffer-sidecar");
 
-            var pipeName = bufferParameterName + ".pipe";
-            var pipePath = Path.Combine(absoluteSecretsBase, relativePipesPath, pipeName);
+            var pipePath = Path.Combine(absoluteSecretsBase, RelativePipePath(bufferParameterName));
             MkFifo(pipePath, 0x1FF);
             ChMod(pipePath, 0x1FF);
 
-            var containerPipePath = Path.Combine(absoluteContainerSecretsBase, relativePipesPath, Path.GetFileName(pipePath));
+            var containerPipePath = Path.Combine(absoluteContainerSecretsBase, RelativePipePath(bufferParameterName));
             env[$"{bufferParameterName.ToUpperInvariant()}_PIPE"] = containerPipePath;
 
             var accessFileName = bufferParameterName + ".access";
@@ -313,14 +318,13 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             }
 
             AdjustMountsForWsl(sidecarContainerParameters);
+            startContainersTasks.Add(CreateAndStartContainer(sidecarContainerParameters, cancellationToken));
+        }
 
-            async Task StartSidecar()
-            {
-                var createResponse = await _client.Containers.CreateContainerAsync(sidecarContainerParameters, cancellationToken);
-                await _client.Containers.StartContainerAsync(createResponse.ID, null, cancellationToken);
-            }
-
-            startContainersTasks.Add(StartSidecar());
+        var mainContainerLabels = bufferMap.Count == 0 ? labels : labels.Add(ContainerNameLabelKey, "main");
+        if (jobCodespec.Sockets is { Count: > 0 })
+        {
+            mainContainerLabels = mainContainerLabels.Add(SocketCountLabelKey, jobCodespec.Sockets.Count.ToString());
         }
 
         var mainContainerParameters = new CreateContainerParameters
@@ -331,7 +335,8 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             Env = env.Select(e => $"{e.Key}={e.Value}").ToList(),
             Cmd = jobCodespec.Args?.Select(a => ExpandVariables(a, env))?.ToList(),
             Entrypoint = jobCodespec.Command is { Length: > 0 } ? jobCodespec.Command.Select(a => ExpandVariables(a, env)).ToList() : null,
-            Labels = bufferMap.Count == 0 ? labels : labels.Add(ContainerNameLabelKey, $"main"),
+            Labels = mainContainerLabels,
+            ExposedPorts = jobCodespec.Sockets?.ToDictionary(s => $"{s.Port}/tcp", s => new EmptyStruct()),
             HostConfig = new()
             {
                 DeviceRequests = needsGpu ? [
@@ -350,14 +355,15 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                         Type = "bind",
                         ReadOnly = false,
                     }
-                ]
+                ],
+                PortBindings = jobCodespec.Sockets?.ToDictionary(s => $"{s.Port}/tcp", s => (IList<PortBinding>)[new() { HostIP = "127.0.0.1" }]),
             }
         };
 
         AdjustMountsForWsl(mainContainerParameters);
 
-        var createResponse = await _client.Containers.CreateContainerAsync(mainContainerParameters, cancellationToken);
-        var containerId = createResponse.ID;
+        var mainContainerCreateResponse = await _client.Containers.CreateContainerAsync(mainContainerParameters, cancellationToken);
+        var mainContainerId = mainContainerCreateResponse.ID;
 
         var monitorCancellation = new CancellationTokenSource();
 
@@ -378,7 +384,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         {
             Filters = new Dictionary<string, IDictionary<string, bool>>
             {
-                {"container", new Dictionary<string, bool>{{ containerId, true } } }
+                {"container", new Dictionary<string, bool>{{ mainContainerId, true } } }
             }
         }, new Progress<Message>(m =>
         {
@@ -388,7 +394,76 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             }
         }), monitorCancellation.Token);
 
-        startContainersTasks.Add(_client.Containers.StartContainerAsync(containerId, null, cancellationToken));
+        var startMainContainerTask = _client.Containers.StartContainerAsync(mainContainerId, null, cancellationToken);
+        startContainersTasks.Add(startMainContainerTask);
+
+        if (jobCodespec.Sockets != null)
+        {
+            // We need to start the socket adapter sidecars after the main container
+            // because we need to know the host port of the main container to configure
+
+            bool mainContainerStarted = false;
+            try
+            {
+                await startMainContainerTask;
+                mainContainerStarted = true;
+            }
+            catch { } // The exception will be handled below
+
+            if (mainContainerStarted)
+            {
+                var mainContainerInspectResult = await _client.Containers.InspectContainerAsync(mainContainerCreateResponse.ID, cancellationToken);
+
+                foreach (var socket in jobCodespec.Sockets)
+                {
+                    var sidecarLabels = labels.Add(ContainerNameLabelKey, $"socket-{socket.Port}-sidecar");
+                    var hostPort = mainContainerInspectResult.NetworkSettings.Ports[$"{socket.Port}/tcp"].Single().HostPort ?? throw new InvalidOperationException("Host port not set");
+                    var sidecarContainerParameters = new CreateContainerParameters
+                    {
+                        Image = _bufferOptions.BufferSidecarImage,
+                        Name = $"tyger-run-{run.Id}-sidecar-socket-{socket.Port}",
+                        Labels = sidecarLabels,
+                        Cmd = [
+                            "socket-adapt",
+                            "--address",
+                            $"localhost:{hostPort}",
+                            "--input",
+                            string.IsNullOrEmpty(socket.InputBuffer) ? "" : Path.Combine(absoluteContainerSecretsBase, RelativePipePath(socket.InputBuffer)),
+                            "--output",
+                            string.IsNullOrEmpty(socket.OutputBuffer) ? "" : Path.Combine(absoluteContainerSecretsBase, RelativePipePath(socket.OutputBuffer)),
+                            "--tombstone",
+                            Path.Combine(absoluteContainerSecretsBase, relativeTombstonePath, "tombstone.txt"),
+                            "--log-format",
+                            "json",
+                        ],
+                        HostConfig = new()
+                        {
+                            Mounts =
+                            [
+                                new()
+                                {
+                                    Source = Path.Combine(absoluteSecretsBase, relativePipesPath),
+                                    Target = Path.Combine(absoluteContainerSecretsBase, relativePipesPath),
+                                    Type = "bind",
+                                    ReadOnly = false,
+                                },
+                                new()
+                                {
+                                    Source = Path.Combine(absoluteSecretsBase, relativeTombstonePath),
+                                    Target = Path.Combine(absoluteContainerSecretsBase, relativeTombstonePath),
+                                    Type = "bind",
+                                    ReadOnly = true,
+                                }
+                            ],
+                            NetworkMode = "host",
+                        },
+                    };
+
+                    AdjustMountsForWsl(sidecarContainerParameters);
+                    startContainersTasks.Add(CreateAndStartContainer(sidecarContainerParameters, cancellationToken));
+                }
+            }
+        }
 
         try
         {
@@ -408,6 +483,12 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         await Repository.UpdateRun(run, resourcesCreated: true, cancellationToken: cancellationToken);
         _logger.CreatedRun(run.Id!.Value);
         return run with { Status = RunStatus.Running };
+    }
+
+    private async Task CreateAndStartContainer(CreateContainerParameters sidecarContainerParameters, CancellationToken cancellationToken)
+    {
+        var createResponse = await _client.Containers.CreateContainerAsync(sidecarContainerParameters, cancellationToken);
+        await _client.Containers.StartContainerAsync(createResponse.ID, null, cancellationToken);
     }
 
     public static string ExpandVariables(string input, IDictionary<string, string> environment)

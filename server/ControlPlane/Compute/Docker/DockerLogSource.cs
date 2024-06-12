@@ -6,6 +6,8 @@ using Docker.DotNet;
 using Docker.DotNet.Models;
 using Tyger.ControlPlane.Database;
 using Tyger.ControlPlane.Logging;
+using Tyger.ControlPlane.Model;
+using Tyger.ControlPlane.Runs;
 
 namespace Tyger.ControlPlane.Compute.Docker;
 
@@ -14,12 +16,14 @@ public class DockerLogSource : ILogSource
     private readonly DockerClient _client;
     private readonly ILogArchive _logArchive;
     private readonly IRepository _repository;
+    private readonly IRunReader _runReader;
 
-    public DockerLogSource(DockerClient client, ILogArchive logArchive, IRepository repository)
+    public DockerLogSource(DockerClient client, ILogArchive logArchive, IRepository repository, IRunReader runReader)
     {
         _client = client;
         _logArchive = logArchive;
         _repository = repository;
+        _runReader = runReader;
     }
 
     public async Task<Pipeline?> GetLogs(long runId, GetLogsOptions options, CancellationToken cancellationToken)
@@ -44,13 +48,58 @@ public class DockerLogSource : ILogSource
                     return null;
                 }
 
+                string? mainSocketContainerId = null;
+                var mainSocketContainerTerminablePipelineElement = new TerminablePipelineElement();
+
+                if (options.Follow)
+                {
+                    mainSocketContainerId = (await _client.Containers.ListContainersAsync(
+                        new ContainersListParameters()
+                        {
+                            All = true,
+                            Filters = new Dictionary<string, IDictionary<string, bool>>
+                            {
+                                {"label", new Dictionary<string, bool>{{ $"tyger-run={runId}", true } } }
+                            }
+                        }, cancellationToken))
+                    .FirstOrDefault(c => c.Labels.TryGetValue(DockerRunCreator.SocketCountLabelKey, out var count) && int.TryParse(count, out var socketCount) && socketCount > 0)?.ID;
+
+                    if (mainSocketContainerId != null)
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            await foreach (var x in _runReader.WatchRun(runId, cancellationToken))
+                            {
+                                if (x.Status is RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceled)
+                                {
+                                    mainSocketContainerTerminablePipelineElement.Terminate();
+                                    break;
+                                }
+                            }
+                        }, cancellationToken);
+                    }
+                }
+
                 var pipelineSources = containers.ToAsyncEnumerable()
-                    .SelectAwait(async c => await GetContainerLogs(
-                        c.ID,
-                        c.Labels.TryGetValue("tyger-run-container-name", out var prefix) ? $"[{prefix}]" : null,
-                        options with { IncludeTimestamps = true },
-                        cancellationToken))
+                    .SelectAwait(async c =>
+                        (
+                            container: c,
+                            pipeline: await GetContainerLogs(
+                            c.ID,
+                            c.Labels.TryGetValue(DockerRunCreator.ContainerNameLabelKey, out var prefix) ? $"[{prefix}]" : null,
+                            options with { IncludeTimestamps = true },
+                            cancellationToken))
+                        )
                     .ToEnumerable()
+                    .Select(x =>
+                        {
+                            if (x.container.ID == mainSocketContainerId)
+                            {
+                                x.pipeline.AddElement(mainSocketContainerTerminablePipelineElement);
+                            }
+
+                            return x.pipeline;
+                        })
                     .ToArray();
 
                 LogMerger logMerger;
@@ -77,7 +126,7 @@ public class DockerLogSource : ILogSource
         }
     }
 
-    private async Task<IPipelineSource> GetContainerLogs(string containerId, string? prefix, GetLogsOptions options, CancellationToken cancellationToken)
+    private async Task<Pipeline> GetContainerLogs(string containerId, string? prefix, GetLogsOptions options, CancellationToken cancellationToken)
     {
         async Task<IPipelineSource> GetSingleStreamLogs(bool stdout)
         {
@@ -102,6 +151,10 @@ public class DockerLogSource : ILogSource
                         stdout: stdout ? pipe.Writer.AsStream() : Stream.Null,
                         stderr: stdout ? Stream.Null : pipe.Writer.AsStream(),
                         cancellationToken);
+                }
+                catch (OperationCanceledException e) when (e.CancellationToken == cancellationToken)
+                {
+                    // Ignore
                 }
                 finally
                 {

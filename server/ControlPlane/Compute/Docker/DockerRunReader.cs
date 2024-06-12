@@ -144,7 +144,9 @@ public class DockerRunReader : IRunReader
             return run;
         }
 
-        var expectedCountainerCount = (run.Job.Buffers?.Count ?? 0) + 1;
+        var socketCount = containers.Aggregate(0, (acc, c) => c.Config.Labels.TryGetValue(DockerRunCreator.SocketCountLabelKey, out var countString) && int.TryParse(countString, out var count) ? acc + count : acc);
+
+        var expectedCountainerCount = (run.Job.Buffers?.Count ?? 0) + socketCount + 1;
 
         if (containers.Count != expectedCountainerCount)
         {
@@ -159,6 +161,16 @@ public class DockerRunReader : IRunReader
         if (containers.All(c => c.State.Status == "exited" && c.State.ExitCode == 0))
         {
             return run with { Status = RunStatus.Succeeded };
+        }
+
+        if (socketCount > 0)
+        {
+            var mainSocketContainer = containers.FirstOrDefault(c => c.Config.Labels.TryGetValue(DockerRunCreator.SocketCountLabelKey, out var hasSocket));
+            // If the main container has opened a socket, we consider the run successful if all other containers have exited successfully
+            if (mainSocketContainer != null && containers.Where(c => c.ID != mainSocketContainer.ID).All(c => c.State.Status == "exited" && c.State.ExitCode == 0))
+            {
+                return run with { Status = RunStatus.Succeeded };
+            }
         }
 
         if (containers.Any(c => c.State.Running))
