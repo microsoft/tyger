@@ -330,6 +330,108 @@ timeoutSeconds: 600`, BasicImage)
 	require.Equal(1*1024*1024*1024, outByteCount)
 }
 
+func TestEndToEndExecWithSockets(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+
+	runSpec := fmt.Sprintf(`
+job:
+  codespec:
+    image: %s
+    buffers:
+      inputs: ["input"]
+      outputs: ["output"]
+    sockets:
+      - port: 9002
+        inputBuffer: input
+        outputBuffer: output
+    args:
+      - socket
+      - --port
+      - "9002"
+timeoutSeconds: 600`, getTestConnectivityImage(t))
+
+	tempDir := t.TempDir()
+	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
+	require.NoError(os.WriteFile(runSpecPath, []byte(runSpec), 0644))
+
+	execStdOut := NewTygerCmdBuilder("run", "exec", "--file", runSpecPath, "--log-level", "trace").
+		Stdin("0123").
+		RunSucceeds(t)
+
+	require.Equal("1234", execStdOut)
+}
+
+func TestEndToEndExecWithSocketsWithDelay(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+
+	runSpec := fmt.Sprintf(`
+job:
+  codespec:
+    image: %s
+    buffers:
+      inputs: ["input"]
+      outputs: ["output"]
+    sockets:
+      - port: 9002
+        inputBuffer: input
+        outputBuffer: output
+    args:
+      - socket
+      - --port
+      - "9002"
+      - --delay
+      - 5s
+timeoutSeconds: 600`, getTestConnectivityImage(t))
+
+	tempDir := t.TempDir()
+	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
+	require.NoError(os.WriteFile(runSpecPath, []byte(runSpec), 0644))
+
+	execStdOut := NewTygerCmdBuilder("run", "exec", "--file", runSpecPath, "--log-level", "trace").
+		Stdin("0123").
+		RunSucceeds(t)
+
+	require.Equal("1234", execStdOut)
+}
+
+func TestEndToEndExecWithSocketsAndEphemeralBuffers(t *testing.T) {
+	t.Parallel()
+	skipIfEphemeralBuffersNotSupported(t)
+	require := require.New(t)
+
+	runSpec := fmt.Sprintf(`
+job:
+  codespec:
+    image: %s
+    buffers:
+      inputs: ["input"]
+      outputs: ["output"]
+    sockets:
+      - port: 9002
+        inputBuffer: input
+        outputBuffer: output
+    args:
+      - socket
+      - --port
+      - "9002"
+  buffers:
+    input: _
+    output: _
+timeoutSeconds: 600`, getTestConnectivityImage(t))
+
+	tempDir := t.TempDir()
+	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
+	require.NoError(os.WriteFile(runSpecPath, []byte(runSpec), 0644))
+
+	execStdOut := NewTygerCmdBuilder("run", "exec", "--file", runSpecPath, "--log-level", "trace").
+		Stdin("0123").
+		RunSucceeds(t)
+
+	require.Equal("1234", execStdOut)
+}
+
 func TestCodespecBufferTagsWithYamlSpec(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
@@ -1137,7 +1239,7 @@ func TestConnectivityBetweenJobAndWorkers(t *testing.T) {
 		"create", jobCodespecName,
 		"--image", digest,
 		"--",
-		"--job")
+		"job")
 
 	runTygerSucceeds(t,
 		"codespec",
@@ -1147,7 +1249,7 @@ func TestConnectivityBetweenJobAndWorkers(t *testing.T) {
 		"--max-replicas", "3",
 		"--endpoint", "TestWorker=29477",
 		"--",
-		"--worker")
+		"worker")
 
 	runId := runTygerSucceeds(t, "run", "create", "--codespec", jobCodespecName, "--worker-codespec", workerCodespecName, "--worker-replicas", "3", "--timeout", "10m")
 	waitForRunSuccess(t, runId)
@@ -1193,7 +1295,7 @@ func TestCancelJob(t *testing.T) {
 		"create", codespecName,
 		"--image", getTestConnectivityImage(t),
 		"--",
-		"--worker")
+		"worker")
 
 	runId := runTygerSucceeds(t, "run", "create", "--codespec", codespecName, "--timeout", "10m")
 	t.Logf("Run ID: %s", runId)
