@@ -99,6 +99,11 @@ func (inst *Installer) InstallTyger(ctx context.Context) error {
 
 	pg := &install.PromiseGroup{}
 
+	install.NewPromise(ctx, pg, func(ctx context.Context) (any, error) {
+		err := inst.createNetwork(ctx)
+		return nil, err
+	})
+
 	dbPromise := install.NewPromise(ctx, pg, func(ctx context.Context) (any, error) {
 		if err := inst.createDatabaseContainer(ctx); err != nil {
 			return nil, fmt.Errorf("error creating database container: %w", err)
@@ -207,6 +212,7 @@ func (inst *Installer) createControlPlaneContainer(ctx context.Context, checkGpu
 				fmt.Sprintf("Compute__Docker__EphemeralBuffersPath=%s/control-plane/ephemeral-buffers/", inst.Config.InstallationPath),
 				fmt.Sprintf("Compute__Docker__GpuSupport=%t", gpuAvailable),
 				fmt.Sprintf("Compute__Docker__WslDistroName=%s", os.Getenv("WSL_DISTRO_NAME")),
+				fmt.Sprintf("Compute__Docker__NetworkName=%s", inst.resourceName("network")),
 				"LogArchive__LocalStorage__LogsDirectory=/app/logs",
 				"Buffers__BufferSidecarImage=" + inst.Config.BufferSidecarImage,
 				fmt.Sprintf("Buffers__LocalStorage__DataPlaneEndpoint=http+unix://%s/data-plane/tyger.data.sock", inst.Config.InstallationPath),
@@ -401,6 +407,10 @@ func (inst *Installer) UninstallTyger(ctx context.Context, deleteData bool) erro
 		if err := inst.removeContainer(ctx, runContainer.ID); err != nil {
 			return fmt.Errorf("error removing run container: %w", err)
 		}
+	}
+
+	if err := inst.removeNetwork(ctx); err != nil {
+		return err
 	}
 
 	entries, err := os.ReadDir(inst.Config.InstallationPath)
@@ -911,6 +921,61 @@ func (inst *Installer) statDockerSocket(ctx context.Context) (userId int, groupI
 	}
 
 	return userId, groupId, permissions, nil
+}
+
+func (inst *Installer) createNetwork(ctx context.Context) error {
+	networkName := inst.resourceName("network")
+	existingNetwork, err := inst.client.NetworkInspect(ctx, networkName, types.NetworkInspectOptions{})
+	if err != nil && !client.IsErrNotFound(err) {
+		return fmt.Errorf("error checking for network: %w", err)
+	}
+
+	existingNetworkExists := !client.IsErrNotFound(err)
+
+	networkCreateOptions := types.NetworkCreate{
+		Driver: "bridge",
+	}
+
+	if inst.Config.Network == nil || inst.Config.Network.Subnet == "" {
+		if existingNetworkExists {
+			return nil
+		}
+	} else {
+		if existingNetworkExists {
+			if existingNetwork.IPAM.Config[0].Subnet == inst.Config.Network.Subnet {
+				return nil
+			}
+
+			return fmt.Errorf("network %s already exists with a different subnet", networkName)
+		}
+
+		networkCreateOptions.IPAM = &network.IPAM{
+			Config: []network.IPAMConfig{
+				{
+					Subnet: inst.Config.Network.Subnet,
+				},
+			},
+		}
+	}
+
+	if _, err := inst.client.NetworkCreate(ctx, networkName, networkCreateOptions); err != nil {
+		return fmt.Errorf("error creating network: %w", err)
+	}
+
+	return nil
+}
+
+func (inst *Installer) removeNetwork(ctx context.Context) error {
+	networkName := inst.resourceName("network")
+	if err := inst.client.NetworkRemove(ctx, networkName); err != nil {
+		if client.IsErrNotFound(err) {
+			return nil
+		}
+
+		return fmt.Errorf("error removing network: %w", err)
+	}
+
+	return nil
 }
 
 // -1 if v1 < v2, 0 if v1 == v2, 1 if v1 > v2

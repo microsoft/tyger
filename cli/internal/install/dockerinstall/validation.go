@@ -5,6 +5,7 @@ package dockerinstall
 
 import (
 	"fmt"
+	"net"
 	"os/user"
 	"regexp"
 	"strconv"
@@ -135,6 +136,14 @@ func (inst *Installer) QuickValidateConfig() bool {
 	if inst.Config.UseGateway == nil {
 		useGateway := defaultUseGateway()
 		inst.Config.UseGateway = &useGateway
+	}
+
+	if inst.Config.Network != nil {
+		if inst.Config.Network.Subnet != "" {
+			if _, _, err := net.ParseCIDR(inst.Config.Network.Subnet); err != nil {
+				validationError(&success, "The `network.subnet` field must be a valid CIDR block if specified")
+			}
+		}
 	}
 
 	return success

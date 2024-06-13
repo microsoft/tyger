@@ -24,7 +24,8 @@ set-localsettings: ensure-data-plane-cert
 				"docker": {
 					"runSecretsPath": "$${run_secrets_path}",
 					"ephemeralBuffersPath": "$${ephemeral_buffers_path}",
-					"wslDistroName": "$${WSL_DISTRO_NAME}"
+					"wslDistroName": "$${WSL_DISTRO_NAME}",
+					"networkName": "tyger-local-network"
 				}
 			},
 			"logArchive": {

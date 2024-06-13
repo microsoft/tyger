@@ -49,4 +49,7 @@ public class DockerOptions
     public bool GpuSupport { get; set; }
 
     public string? WslDistroName { get; set; }
+
+    [Required]
+    public required string NetworkName { get; set; }
 }

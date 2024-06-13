@@ -119,6 +119,8 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
         var run = await Repository.CreateRun(newRun, cancellationToken);
 
+        string mainContainerName = $"tyger-run-{run.Id}-main";
+
         if (newRun.Job.Buffers != null)
         {
             foreach ((var bufferParameterName, var bufferId) in newRun.Job.Buffers)
@@ -321,6 +323,57 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             startContainersTasks.Add(CreateAndStartContainer(sidecarContainerParameters, cancellationToken));
         }
 
+        if (jobCodespec.Sockets != null)
+        {
+            foreach (var socket in jobCodespec.Sockets)
+            {
+                var sidecarLabels = labels.Add(ContainerNameLabelKey, $"socket-{socket.Port}-sidecar");
+                var sidecarContainerParameters = new CreateContainerParameters
+                {
+                    Image = _bufferOptions.BufferSidecarImage,
+                    Name = $"tyger-run-{run.Id}-sidecar-socket-{socket.Port}",
+                    Labels = sidecarLabels,
+                    Cmd = [
+                        "socket-adapt",
+                            "--address",
+                            $"{mainContainerName}:{socket.Port}",
+                            "--input",
+                            string.IsNullOrEmpty(socket.InputBuffer) ? "" : Path.Combine(absoluteContainerSecretsBase, RelativePipePath(socket.InputBuffer)),
+                            "--output",
+                            string.IsNullOrEmpty(socket.OutputBuffer) ? "" : Path.Combine(absoluteContainerSecretsBase, RelativePipePath(socket.OutputBuffer)),
+                            "--tombstone",
+                            Path.Combine(absoluteContainerSecretsBase, relativeTombstonePath, "tombstone.txt"),
+                            "--log-format",
+                            "json",
+                        ],
+                    HostConfig = new()
+                    {
+                        Mounts =
+                        [
+                            new()
+                                {
+                                    Source = Path.Combine(absoluteSecretsBase, relativePipesPath),
+                                    Target = Path.Combine(absoluteContainerSecretsBase, relativePipesPath),
+                                    Type = "bind",
+                                    ReadOnly = false,
+                                },
+                                new()
+                                {
+                                    Source = Path.Combine(absoluteSecretsBase, relativeTombstonePath),
+                                    Target = Path.Combine(absoluteContainerSecretsBase, relativeTombstonePath),
+                                    Type = "bind",
+                                    ReadOnly = true,
+                                }
+                        ],
+                        NetworkMode = jobCodespec.Sockets?.Count > 0 ? _dockerOptions.NetworkName : null,
+                    },
+                };
+
+                AdjustMountsForWsl(sidecarContainerParameters);
+                startContainersTasks.Add(CreateAndStartContainer(sidecarContainerParameters, cancellationToken));
+            }
+        }
+
         var mainContainerLabels = bufferMap.Count == 0 ? labels : labels.Add(ContainerNameLabelKey, "main");
         if (jobCodespec.Sockets is { Count: > 0 })
         {
@@ -330,13 +383,12 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         var mainContainerParameters = new CreateContainerParameters
         {
             Image = jobCodespec.Image,
-            Name = $"tyger-run-{run.Id}-main",
+            Name = mainContainerName,
             WorkingDir = jobCodespec.WorkingDir,
             Env = env.Select(e => $"{e.Key}={e.Value}").ToList(),
             Cmd = jobCodespec.Args?.Select(a => ExpandVariables(a, env))?.ToList(),
             Entrypoint = jobCodespec.Command is { Length: > 0 } ? jobCodespec.Command.Select(a => ExpandVariables(a, env)).ToList() : null,
             Labels = mainContainerLabels,
-            ExposedPorts = jobCodespec.Sockets?.ToDictionary(s => $"{s.Port}/tcp", s => new EmptyStruct()),
             HostConfig = new()
             {
                 DeviceRequests = needsGpu ? [
@@ -356,7 +408,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                         ReadOnly = false,
                     }
                 ],
-                PortBindings = jobCodespec.Sockets?.ToDictionary(s => $"{s.Port}/tcp", s => (IList<PortBinding>)[new() { HostIP = "127.0.0.1" }]),
+                NetworkMode = jobCodespec.Sockets?.Count > 0 ? _dockerOptions.NetworkName : null,
             }
         };
 
@@ -396,74 +448,6 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
         var startMainContainerTask = _client.Containers.StartContainerAsync(mainContainerId, null, cancellationToken);
         startContainersTasks.Add(startMainContainerTask);
-
-        if (jobCodespec.Sockets != null)
-        {
-            // We need to start the socket adapter sidecars after the main container
-            // because we need to know the host port of the main container to configure
-
-            bool mainContainerStarted = false;
-            try
-            {
-                await startMainContainerTask;
-                mainContainerStarted = true;
-            }
-            catch { } // The exception will be handled below
-
-            if (mainContainerStarted)
-            {
-                var mainContainerInspectResult = await _client.Containers.InspectContainerAsync(mainContainerCreateResponse.ID, cancellationToken);
-
-                foreach (var socket in jobCodespec.Sockets)
-                {
-                    var sidecarLabels = labels.Add(ContainerNameLabelKey, $"socket-{socket.Port}-sidecar");
-                    var hostPort = mainContainerInspectResult.NetworkSettings.Ports[$"{socket.Port}/tcp"].Single().HostPort ?? throw new InvalidOperationException("Host port not set");
-                    var sidecarContainerParameters = new CreateContainerParameters
-                    {
-                        Image = _bufferOptions.BufferSidecarImage,
-                        Name = $"tyger-run-{run.Id}-sidecar-socket-{socket.Port}",
-                        Labels = sidecarLabels,
-                        Cmd = [
-                            "socket-adapt",
-                            "--address",
-                            $"localhost:{hostPort}",
-                            "--input",
-                            string.IsNullOrEmpty(socket.InputBuffer) ? "" : Path.Combine(absoluteContainerSecretsBase, RelativePipePath(socket.InputBuffer)),
-                            "--output",
-                            string.IsNullOrEmpty(socket.OutputBuffer) ? "" : Path.Combine(absoluteContainerSecretsBase, RelativePipePath(socket.OutputBuffer)),
-                            "--tombstone",
-                            Path.Combine(absoluteContainerSecretsBase, relativeTombstonePath, "tombstone.txt"),
-                            "--log-format",
-                            "json",
-                        ],
-                        HostConfig = new()
-                        {
-                            Mounts =
-                            [
-                                new()
-                                {
-                                    Source = Path.Combine(absoluteSecretsBase, relativePipesPath),
-                                    Target = Path.Combine(absoluteContainerSecretsBase, relativePipesPath),
-                                    Type = "bind",
-                                    ReadOnly = false,
-                                },
-                                new()
-                                {
-                                    Source = Path.Combine(absoluteSecretsBase, relativeTombstonePath),
-                                    Target = Path.Combine(absoluteContainerSecretsBase, relativeTombstonePath),
-                                    Type = "bind",
-                                    ReadOnly = true,
-                                }
-                            ],
-                            NetworkMode = "host",
-                        },
-                    };
-
-                    AdjustMountsForWsl(sidecarContainerParameters);
-                    startContainersTasks.Add(CreateAndStartContainer(sidecarContainerParameters, cancellationToken));
-                }
-            }
-        }
 
         try
         {

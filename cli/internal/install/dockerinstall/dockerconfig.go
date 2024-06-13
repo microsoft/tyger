@@ -42,15 +42,22 @@ type DockerEnvironmentConfig struct {
 	SigningKeys DataPlaneSigningKeys `json:"signingKeys"`
 
 	InitialDatabaseVersion *int `json:"initialDatabaseVersion"`
+
+	Network *NetworkConfig `json:"network"`
 }
 
 type DataPlaneSigningKeys struct {
 	Primary   *KeyPair `json:"primary"`
 	Secondary *KeyPair `json:"secondary"`
 }
+
 type KeyPair struct {
 	PublicKey  string `json:"public"`
 	PrivateKey string `json:"private"`
+}
+
+type NetworkConfig struct {
+	Subnet string `json:"subnet"`
 }
 
 func (c *DockerEnvironmentConfig) GetGroupIdInt() int {
