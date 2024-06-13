@@ -602,7 +602,7 @@ public class Repository : IRepository
             bool valid = false;
             try
             {
-                var fields = JsonSerializer.Deserialize<string[]>(Encoding.ASCII.GetString(Base32.ZBase32.Decode(continuationToken)), _serializerOptions);
+                var fields = JsonSerializer.Deserialize<JsonElement[]>(Encoding.ASCII.GetString(Base32.ZBase32.Decode(continuationToken)), _serializerOptions);
                 if (fields is { Length: 2 })
                 {
                     if (tags == null)
@@ -615,8 +615,8 @@ public class Repository : IRepository
                     }
 
                     commandText.Append($"(t1.created_at, t1.id) < (${param}, ${param + 1})\n");
-                    command.Parameters.Add(new() { Value = DateTimeOffset.Parse(fields[0]), NpgsqlDbType = NpgsqlDbType.TimestampTz });
-                    command.Parameters.Add(new() { Value = fields[1], NpgsqlDbType = NpgsqlDbType.Text });
+                    command.Parameters.Add(new() { Value = new DateTimeOffset(fields[0].GetInt64(), TimeSpan.Zero), NpgsqlDbType = NpgsqlDbType.TimestampTz });
+                    command.Parameters.Add(new() { Value = fields[1].GetString(), NpgsqlDbType = NpgsqlDbType.Text });
                     param += 2;
                     valid = true;
                 }
@@ -687,7 +687,7 @@ public class Repository : IRepository
         {
             results.RemoveAt(limit);
             var last = results[^1];
-            string newToken = Base32.ZBase32.Encode(Encoding.ASCII.GetBytes(JsonSerializer.Serialize(new[] { last.CreatedAt.ToString(), last.Id }, _serializerOptions)));
+            string newToken = Base32.ZBase32.Encode(Encoding.ASCII.GetBytes(JsonSerializer.Serialize(new object[] { last.CreatedAt.UtcTicks, last.Id }, _serializerOptions)));
             return (results, newToken);
         }
 
