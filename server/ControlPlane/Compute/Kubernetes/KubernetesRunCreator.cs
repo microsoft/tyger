@@ -114,7 +114,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
             {
                 Name = JobNameFromRunId(run.Id!.Value),
                 Labels = jobLabels,
-                Annotations = jobCodespec.Sockets is { Count: > 0 } ? new Dictionary<string, string>() { { HasSocketAnnotation, "true" } } : null
+                Annotations = jobCodespec.Sockets?.Count > 0 ? new Dictionary<string, string>() { { HasSocketAnnotation, "true" } } : null
             },
             Spec = new()
             {
@@ -255,7 +255,13 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         var mainContainer = GetMainContainer(job.Spec.Template.Spec);
         mainContainer.Env ??= [];
 
-        foreach (var envVar in bufferMap.Select(p => new V1EnvVar($"{p.Key.ToUpperInvariant()}_PIPE", $"{FifoMountPath}/{p.Key}")))
+        IEnumerable<string> buffersNotUsedBySockets = bufferMap.Keys;
+        if (codespec.Sockets?.Count > 0)
+        {
+            buffersNotUsedBySockets = bufferMap.Keys.Except(codespec.Sockets.SelectMany(s => new[] { s.InputBuffer!, s.OutputBuffer! }));
+        }
+
+        foreach (var envVar in buffersNotUsedBySockets.Select(p => new V1EnvVar($"{p.ToUpperInvariant()}_PIPE", $"{FifoMountPath}/{p}")))
         {
             mainContainer.Env.Add(envVar);
         }

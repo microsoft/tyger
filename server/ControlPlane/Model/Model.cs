@@ -5,6 +5,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using Generator.Equals;
 using k8s.Models;
 
@@ -206,6 +207,7 @@ public partial record JobCodespec : Codespec, IValidatableObject
 
         if (Sockets != null)
         {
+            var buffersUsedBySockets = new HashSet<string>();
             foreach (var socket in Sockets)
             {
                 if (socket.Port is <= 0 or > 65535)
@@ -219,6 +221,10 @@ public partial record JobCodespec : Codespec, IValidatableObject
                     {
                         yield return new ValidationResult($"The input buffer '{socket.InputBuffer}' for socket {socket.Port} is not among the codespec's input buffer parameters");
                     }
+                    else if (!buffersUsedBySockets.Add(socket.InputBuffer))
+                    {
+                        yield return new ValidationResult($"The input buffer '{socket.InputBuffer}' is used by multiple sockets");
+                    }
                 }
 
                 if (!string.IsNullOrEmpty(socket.OutputBuffer))
@@ -227,6 +233,10 @@ public partial record JobCodespec : Codespec, IValidatableObject
                     {
                         yield return new ValidationResult($"The output buffer '{socket.OutputBuffer}' for socket {socket.Port} is not among the codespec's output buffer parameters");
                     }
+                    else if (!buffersUsedBySockets.Add(socket.OutputBuffer))
+                    {
+                        yield return new ValidationResult($"The output buffer '{socket.OutputBuffer}' is used by multiple sockets");
+                    }
                 }
 
                 if (string.IsNullOrEmpty(socket.InputBuffer) && string.IsNullOrEmpty(socket.OutputBuffer))
@@ -234,8 +244,62 @@ public partial record JobCodespec : Codespec, IValidatableObject
                     yield return new ValidationResult($"At least one of the input or output buffer must be specified for socket {socket.Port}");
                 }
             }
+
+            var bufferEnvironmentVariablesUsedBySockets = buffersUsedBySockets.Select(b => $"{b.ToUpperInvariant()}_PIPE").ToHashSet();
+
+            if (Args != null)
+            {
+                foreach (var arg in Args)
+                {
+                    foreach (var result in VerifyNoBufferReferencesUsedBySockets(arg, bufferEnvironmentVariablesUsedBySockets))
+                    {
+                        yield return result;
+                    }
+                }
+            }
+
+            if (Command != null)
+            {
+                foreach (var command in Command)
+                {
+                    foreach (var result in VerifyNoBufferReferencesUsedBySockets(command, bufferEnvironmentVariablesUsedBySockets))
+                    {
+                        yield return result;
+                    }
+                }
+            }
+
+            if (Env != null)
+            {
+                foreach (var env in Env.Values)
+                {
+                    foreach (var result in VerifyNoBufferReferencesUsedBySockets(env, bufferEnvironmentVariablesUsedBySockets))
+                    {
+                        yield return result;
+                    }
+                }
+            }
         }
     }
+
+    private static IEnumerable<ValidationResult> VerifyNoBufferReferencesUsedBySockets(string input, HashSet<string> bufferEnvironmentVariablesUsedBySockets)
+    {
+        foreach (Match match in EnvironmentVariableExpansionRegex().Matches(input))
+        {
+            if (match.Value.StartsWith("$$", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (bufferEnvironmentVariablesUsedBySockets.Contains(match.Groups[1].Value))
+            {
+                yield return new ValidationResult($"The buffer reference '{match.Value}' is not valid because it is used by a socket");
+            }
+        }
+    }
+
+    [GeneratedRegex(@"\$\(([^)]+)\)|\$\$([^)]+)")]
+    internal static partial Regex EnvironmentVariableExpansionRegex();
 }
 
 [Equatable]

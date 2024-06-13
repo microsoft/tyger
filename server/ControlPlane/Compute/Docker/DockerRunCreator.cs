@@ -4,7 +4,6 @@
 using System.Collections.Immutable;
 using System.ComponentModel.DataAnnotations;
 using System.Formats.Tar;
-using System.Text.RegularExpressions;
 using System.Web;
 using Docker.DotNet;
 using Docker.DotNet.Models;
@@ -176,7 +175,10 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             ChMod(pipePath, 0x1FF);
 
             var containerPipePath = Path.Combine(absoluteContainerSecretsBase, RelativePipePath(bufferParameterName));
-            env[$"{bufferParameterName.ToUpperInvariant()}_PIPE"] = containerPipePath;
+            if (jobCodespec.Sockets?.Any(s => s.InputBuffer == bufferParameterName || s.OutputBuffer == bufferParameterName) != true)
+            {
+                env[$"{bufferParameterName.ToUpperInvariant()}_PIPE"] = containerPipePath;
+            }
 
             var accessFileName = bufferParameterName + ".access";
             var accessFilePath = Path.Combine(absoluteSecretsBase, relativeAccessFilesPath, accessFileName);
@@ -375,7 +377,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         }
 
         var mainContainerLabels = bufferMap.Count == 0 ? labels : labels.Add(ContainerNameLabelKey, "main");
-        if (jobCodespec.Sockets is { Count: > 0 })
+        if (jobCodespec.Sockets?.Count > 0)
         {
             mainContainerLabels = mainContainerLabels.Add(SocketCountLabelKey, jobCodespec.Sockets.Count.ToString());
         }
@@ -385,7 +387,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             Image = jobCodespec.Image,
             Name = mainContainerName,
             WorkingDir = jobCodespec.WorkingDir,
-            Env = env.Select(e => $"{e.Key}={e.Value}").ToList(),
+            Env = env.Select(e => $"{e.Key}={ExpandVariables(e.Value, env)}").ToList(),
             Cmd = jobCodespec.Args?.Select(a => ExpandVariables(a, env))?.ToList(),
             Entrypoint = jobCodespec.Command is { Length: > 0 } ? jobCodespec.Command.Select(a => ExpandVariables(a, env)).ToList() : null,
             Labels = mainContainerLabels,
@@ -477,7 +479,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
     public static string ExpandVariables(string input, IDictionary<string, string> environment)
     {
-        return EnvironmentVariableExpansionRegex().Replace(input, match =>
+        return JobCodespec.EnvironmentVariableExpansionRegex().Replace(input, match =>
         {
             if (match.Value.StartsWith("$$", StringComparison.Ordinal))
             {
@@ -600,7 +602,4 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-
-    [GeneratedRegex(@"\$\(([^)]+)\)|\$\$([^)]+)")]
-    private static partial Regex EnvironmentVariableExpansionRegex();
 }
