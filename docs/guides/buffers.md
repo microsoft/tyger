@@ -82,7 +82,7 @@ Buffers can be tagged with key-value metadata pairs. You can assign tags to a
 buffer when creating it like this:
 
 ```bash
-tyger buffer create --tag mykey1=myvalue1 --tag mykey2=myvalue2
+buffer_id=$(tyger buffer create --tag mykey1=myvalue1 --tag mykey2=myvalue2)
 ```
 
 You can view the tags on a buffer with:
@@ -105,21 +105,38 @@ The response looks like:
 }
 ```
 
-Replace a buffer's tags with:
+Update a buffer's tags with:
 
 ```bash
-tyger buffer set $buffer_id --tag newkey=newvalue
+tyger buffer set $buffer_id --tag myKey1=myvalue1Updated --tag mykey3=myvalue3
 ```
-
-Note: This **replaces** all existing tags.
 
 ```json
 {
-  "id": "362z6u2h7voevic7zt3kkhpwxm",
+  "id": "yf4sx2aqzitepjhmxjhanomn5e",
   "etag": "638418039170119977",
-  "createdAt": "2024-01-25T18:19:55.423949Z",
+  "createdAt": "2024-01-25T18:20:49.951262Z",
   "tags": {
-    "newkey": "newvalue"
+    "myKey1": "myvalue1Updated",
+    "mykey2": "myvalue2",
+    "mykey3": "myvalue3"
+  }
+}
+```
+
+To replace the **entire** set of tags, specify `--clear-tags`:
+
+```bash
+tyger buffer set $buffer_id --clear-tags --tag myKey1=yetAnotherValue
+```
+
+```json
+{
+  "id": "yf4sx2aqzitepjhmxjhanomn5e",
+  "etag": "638418039170119988",
+  "createdAt": "2024-01-25T18:20:49.951262Z",
+  "tags": {
+    "myKey1": "yetAnotherValue",
   }
 }
 ```
