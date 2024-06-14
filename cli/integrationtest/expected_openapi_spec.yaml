@@ -35,6 +35,14 @@ paths:
           in: query
           schema:
             type: string
+        - name: tag
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            additionalProperties:
+              type: string
       responses:
         '200':
           description: Success

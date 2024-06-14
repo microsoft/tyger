@@ -142,6 +142,18 @@ login: install-cli download-test-client-cert
 	EOF
 	)
 
+login-local: install-cli download-test-client-cert
+	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.version')
+	cert_path=$${HOME}/tyger_test_client_cert_$${cert_version}.pem
+	test_app_uri=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.testAppUri')
+
+	tyger login -f <(cat <<EOF
+	serverUri: http://localhost:5000
+	servicePrincipal: $${test_app_uri}
+	certificatePath: $${cert_path}
+	EOF
+	)
+
 start-proxy: install-cli download-test-client-cert
 	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.version')
 	cert_path=$${HOME}/tyger_test_client_cert_$${cert_version}.pem

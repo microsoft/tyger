@@ -424,7 +424,7 @@ func newBufferListCommand() *cobra.Command {
 			}
 
 			for name, value := range tagEntries {
-				listOptions.Add(fmt.Sprintf("tag.%s", name), value)
+				listOptions.Add(fmt.Sprintf("tag[%s]", name), value)
 			}
 
 			relativeUri := fmt.Sprintf("v1/buffers?%s", listOptions.Encode())
