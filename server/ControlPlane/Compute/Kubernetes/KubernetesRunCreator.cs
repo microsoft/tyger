@@ -426,8 +426,8 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
                     {
                         Name = "main",
                         Image = codespec.Image,
-                        Command = codespec.Command,
-                        Args = codespec.Args,
+                        Command = codespec.Command?.ToArray(),
+                        Args = codespec.Args?.ToArray(),
                         Env = codespec.Env?.Select(p => new V1EnvVar(p.Key, p.Value)).ToList()
                     }
                 ],

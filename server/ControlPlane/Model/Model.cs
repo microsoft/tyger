@@ -49,8 +49,8 @@ public record ServiceMetadata(string? Authority = null, string? Audience = null,
 
 [Equatable]
 public partial record BufferParameters(
-    [property: UnorderedEquality] string[]? Inputs,
-    [property: UnorderedEquality] string[]? Outputs) : ModelBase;
+    [property: UnorderedEquality] IReadOnlyList<string>? Inputs,
+    [property: UnorderedEquality] IReadOnlyList<string>? Outputs) : ModelBase;
 
 [Equatable]
 public partial record OvercommittableResources : ModelBase
@@ -116,13 +116,13 @@ public abstract partial record Codespec : ModelBase, ICodespecRef
     /// Overrides the entrypoint of the container image. If not provided, the default entrypoint of the image is used.
     /// </summary>
     [OrderedEquality]
-    public string[]? Command { get; init; }
+    public IReadOnlyList<string>? Command { get; init; }
 
     /// <summary>
     /// Specifies the arguments to pass to the entrypoint
     /// </summary>
     [OrderedEquality]
-    public string[]? Args { get; init; }
+    public IReadOnlyList<string>? Args { get; init; }
 
     /// <summary>
     /// The working directory of the container.
@@ -178,7 +178,7 @@ public partial record JobCodespec : Codespec, IValidatableObject
     /// </summary>
     public BufferParameters? Buffers { get; init; }
 
-    public IList<Socket>? Sockets { get; init; }
+    public IReadOnlyList<Socket>? Sockets { get; init; }
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
@@ -474,9 +474,9 @@ public record DatabaseVersionInUse(int Id) : ModelBase;
 
 public record RunPage(IReadOnlyList<Run> Items, Uri? NextLink);
 
-public record CodespecPage(IList<Codespec> Items, Uri? NextLink);
+public record CodespecPage(IReadOnlyList<Codespec> Items, Uri? NextLink);
 
-public record BufferPage(IList<Buffer> Items, Uri? NextLink);
+public record BufferPage(IReadOnlyList<Buffer> Items, Uri? NextLink);
 
 public record Cluster(string Name, string Location, IReadOnlyList<NodePool> NodePools);
 

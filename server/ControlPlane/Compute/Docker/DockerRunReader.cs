@@ -144,7 +144,11 @@ public class DockerRunReader : IRunReader
             return run;
         }
 
-        var socketCount = containers.Aggregate(0, (acc, c) => c.Config.Labels.TryGetValue(DockerRunCreator.SocketCountLabelKey, out var countString) && int.TryParse(countString, out var count) ? acc + count : acc);
+        var socketCount = containers.Aggregate(
+            0,
+            (acc, c) =>
+                c.Config.Labels.TryGetValue(DockerRunCreator.SocketCountLabelKey, out var countString)
+                && int.TryParse(countString, out var count) ? acc + count : acc);
 
         var expectedCountainerCount = (run.Job.Buffers?.Count ?? 0) + socketCount + 1;
 

@@ -61,7 +61,7 @@ public partial class KubernetesRunReader : IRunReader
                     continue;
                 }
 
-                partialRuns[i] = await new RunResources(run, _client, _k8sOptions, jobAndPods.job, await jobAndPods.pods.ToListAsync(cancellationToken)).GetUpdatedRun(cancellationToken);
+                partialRuns[i] = await run.GetUpdatedRun(_client, _k8sOptions, cancellationToken, jobAndPods.job, await jobAndPods.pods.ToListAsync(cancellationToken));
             }
         }
 
@@ -76,8 +76,7 @@ public partial class KubernetesRunReader : IRunReader
             return run;
         }
 
-        var runResources = new RunResources(run, _client, _k8sOptions);
-        return await runResources.GetUpdatedRun(cancellationToken);
+        return await run.GetUpdatedRun(_client, _k8sOptions, cancellationToken);
     }
 
     public async IAsyncEnumerable<Run> WatchRun(long id, [EnumeratorCancellation] CancellationToken cancellationToken)
@@ -105,7 +104,7 @@ public partial class KubernetesRunReader : IRunReader
         var podList = await _client.CoreV1.ListNamespacedPodAsync(_k8sOptions.Namespace, labelSelector: $"{JobLabel}={id}", cancellationToken: cancellationToken);
         Dictionary<string, V1Pod> pods = podList.Items.ToDictionary(p => p.Name());
 
-        run = await new RunResources(run, _client, _k8sOptions, job, pods.Values.ToList()).GetUpdatedRun(cancellationToken);
+        run = await run.GetUpdatedRun(_client, _k8sOptions, cancellationToken, job, pods.Values.ToList());
         yield return run;
 
         if (run.Status is RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceled)
@@ -174,7 +173,7 @@ public partial class KubernetesRunReader : IRunReader
                     updateRunFromRepository = false;
                 }
 
-                updatedRun = await new RunResources(updatedRun, _client, _k8sOptions, job, pods.Values.ToList()).GetUpdatedRun(cancellationToken);
+                updatedRun = await updatedRun.GetUpdatedRun(_client, _k8sOptions, cancellationToken, job, pods.Values.ToList());
 
                 if (run.Status != updatedRun.Status ||
                     !string.Equals(run.StatusReason, updatedRun.StatusReason, StringComparison.Ordinal) ||

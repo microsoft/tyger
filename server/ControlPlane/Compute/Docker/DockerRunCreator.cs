@@ -337,35 +337,35 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                     Labels = sidecarLabels,
                     Cmd = [
                         "socket-adapt",
-                            "--address",
-                            $"{mainContainerName}:{socket.Port}",
-                            "--input",
-                            string.IsNullOrEmpty(socket.InputBuffer) ? "" : Path.Combine(absoluteContainerSecretsBase, RelativePipePath(socket.InputBuffer)),
-                            "--output",
-                            string.IsNullOrEmpty(socket.OutputBuffer) ? "" : Path.Combine(absoluteContainerSecretsBase, RelativePipePath(socket.OutputBuffer)),
-                            "--tombstone",
-                            Path.Combine(absoluteContainerSecretsBase, relativeTombstonePath, "tombstone.txt"),
-                            "--log-format",
-                            "json",
-                        ],
+                        "--address",
+                        $"{mainContainerName}:{socket.Port}",
+                        "--input",
+                        string.IsNullOrEmpty(socket.InputBuffer) ? "" : Path.Combine(absoluteContainerSecretsBase, RelativePipePath(socket.InputBuffer)),
+                        "--output",
+                        string.IsNullOrEmpty(socket.OutputBuffer) ? "" : Path.Combine(absoluteContainerSecretsBase, RelativePipePath(socket.OutputBuffer)),
+                        "--tombstone",
+                        Path.Combine(absoluteContainerSecretsBase, relativeTombstonePath, "tombstone.txt"),
+                        "--log-format",
+                        "json",
+                    ],
                     HostConfig = new()
                     {
                         Mounts =
                         [
                             new()
-                                {
-                                    Source = Path.Combine(absoluteSecretsBase, relativePipesPath),
-                                    Target = Path.Combine(absoluteContainerSecretsBase, relativePipesPath),
-                                    Type = "bind",
-                                    ReadOnly = false,
-                                },
-                                new()
-                                {
-                                    Source = Path.Combine(absoluteSecretsBase, relativeTombstonePath),
-                                    Target = Path.Combine(absoluteContainerSecretsBase, relativeTombstonePath),
-                                    Type = "bind",
-                                    ReadOnly = true,
-                                }
+                            {
+                                Source = Path.Combine(absoluteSecretsBase, relativePipesPath),
+                                Target = Path.Combine(absoluteContainerSecretsBase, relativePipesPath),
+                                Type = "bind",
+                                ReadOnly = false,
+                            },
+                            new()
+                            {
+                                Source = Path.Combine(absoluteSecretsBase, relativeTombstonePath),
+                                Target = Path.Combine(absoluteContainerSecretsBase, relativeTombstonePath),
+                                Type = "bind",
+                                ReadOnly = true,
+                            }
                         ],
                         NetworkMode = jobCodespec.Sockets?.Count > 0 ? _dockerOptions.NetworkName : null,
                     },
@@ -389,7 +389,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             WorkingDir = jobCodespec.WorkingDir,
             Env = env.Select(e => $"{e.Key}={ExpandVariables(e.Value, env)}").ToList(),
             Cmd = jobCodespec.Args?.Select(a => ExpandVariables(a, env))?.ToList(),
-            Entrypoint = jobCodespec.Command is { Length: > 0 } ? jobCodespec.Command.Select(a => ExpandVariables(a, env)).ToList() : null,
+            Entrypoint = jobCodespec.Command is { Count: > 0 } ? jobCodespec.Command.Select(a => ExpandVariables(a, env)).ToList() : null,
             Labels = mainContainerLabels,
             HostConfig = new()
             {

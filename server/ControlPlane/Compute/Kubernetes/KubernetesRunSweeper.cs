@@ -115,7 +115,7 @@ public sealed class KubernetesRunSweeper : IRunSweeper, IHostedService, IDisposa
             foreach (var job in jobs.Items)
             {
                 var runId = long.Parse(job.GetLabel(JobLabel), CultureInfo.InvariantCulture);
-                var status = (await new RunResources(placeholderRunTemplate with { Id = runId }, _client, _k8sOptions, job: job).GetPartiallyUpdatedRun(cancellationToken)).Status;
+                var status = (await (placeholderRunTemplate with { Id = runId }).GetPartiallyUpdatedRun(_client, _k8sOptions, cancellationToken, job)).Status;
 
                 if (status is not RunStatus.Succeeded and not RunStatus.Failed and not RunStatus.Canceling and not RunStatus.Canceled)
                 {
@@ -142,7 +142,7 @@ public sealed class KubernetesRunSweeper : IRunSweeper, IHostedService, IDisposa
                         break;
 
                     case var _ when DateTimeOffset.UtcNow - run.LogsArchivedAt > s_minDurationAfterArchivingBeforeDeletingPod || (status is RunStatus.Canceling or RunStatus.Canceled):
-                        run = await new RunResources(run, _client, _k8sOptions).GetUpdatedRun(cancellationToken);
+                        run = await run.GetUpdatedRun(_client, _k8sOptions, cancellationToken);
                         if (run.Status == RunStatus.Canceling)
                         {
                             // the pods did not termintate in time. Override the status.

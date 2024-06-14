@@ -84,9 +84,9 @@ public class RepositoryWithRetry : IRepository
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.UpdateBufferById(id, eTag, tags, cancellationToken), cancellationToken);
     }
 
-    public async Task UpdateRun(Run run, bool? resourcesCreated = null, CancellationToken cancellationToken = default)
+    public async Task UpdateRun(Run run, CancellationToken cancellationToken, bool? resourcesCreated = null)
     {
-        await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.UpdateRun(run, resourcesCreated, cancellationToken), cancellationToken);
+        await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.UpdateRun(run, cancellationToken, resourcesCreated), cancellationToken);
     }
 
     public async Task<Codespec> UpsertCodespec(string name, Codespec newcodespec, CancellationToken cancellationToken)

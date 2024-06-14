@@ -62,7 +62,10 @@ public class DockerLogSource : ILogSource
                                 {"label", new Dictionary<string, bool>{{ $"tyger-run={runId}", true } } }
                             }
                         }, cancellationToken))
-                    .FirstOrDefault(c => c.Labels.TryGetValue(DockerRunCreator.SocketCountLabelKey, out var count) && int.TryParse(count, out var socketCount) && socketCount > 0)?.ID;
+                    .FirstOrDefault(c =>
+                        c.Labels.TryGetValue(DockerRunCreator.SocketCountLabelKey, out var count)
+                        && int.TryParse(count, out var socketCount) && socketCount > 0
+                    )?.ID;
 
                     if (mainSocketContainerId != null)
                     {

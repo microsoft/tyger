@@ -88,8 +88,20 @@ public class ModelValidationTests
     public void EnvVarReferenceToBufferUsedBySocket()
     {
         Should.Throw<ValidationException>(() => Validate(s_validCodespec with { Sockets = [new() { Port = 80, InputBuffer = "a" }], Args = ["$(A_PIPE)"] }));
-        Should.Throw<ValidationException>(() => Validate(s_validCodespec with { Sockets = [new() { Port = 80, InputBuffer = "a" }], Command = ["$(A_PIPE)"] }));
+        Should.Throw<ValidationException>(() => Validate(s_validCodespec with { Sockets = [new() { Port = 80, InputBuffer = "a" }], Command = ["$(B_PIPE) $(A_PIPE)"] }));
         Should.Throw<ValidationException>(() => Validate(s_validCodespec with { Sockets = [new() { Port = 80, InputBuffer = "a" }], Env = new Dictionary<string, string> { ["Foo"] = "$(A_PIPE)" } }));
+    }
+
+    [Fact]
+    public void ReferenceToBufferNotUsedBySocket()
+    {
+        Validate(s_validCodespec with { Sockets = [new() { Port = 80, InputBuffer = "a" }], Args = ["$(B_PIPE)"], Command = ["$(B_PIPE)"], Env = new Dictionary<string, string> { ["Foo"] = "$(B_PIPE)" } });
+    }
+
+    [Fact]
+    public void EscapedReferenceToBuffer()
+    {
+        Validate(s_validCodespec with { Sockets = [new() { Port = 80, InputBuffer = "a" }], Args = ["$$(A_PIPE)"] });
     }
 
     private static void Validate(object o) => Validator.ValidateObject(o, new ValidationContext(o), true);

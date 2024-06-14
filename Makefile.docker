@@ -94,3 +94,6 @@ variant-test:
 	tyger login docker://
 	tyger login status
 	$(MAKE) integration-test-no-up
+
+get-last-server-exception:
+	docker logs tyger-local-control-plane 2>&1 | grep Exception || true | tac | head -n 1 | jq -r '.exception'

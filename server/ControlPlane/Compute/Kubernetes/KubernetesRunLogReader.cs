@@ -57,7 +57,7 @@ public class KubernetesRunLogReader : ILogSource
                     return null;
                 }
 
-                run = await new RunResources(run, _client, _k8sOptions, jobs.Items.Single()).GetPartiallyUpdatedRun(cancellationToken);
+                run = await run.GetPartiallyUpdatedRun(_client, _k8sOptions, cancellationToken, jobs.Items.Single());
 
                 if (run.Status is RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceled)
                 {
@@ -92,7 +92,7 @@ public class KubernetesRunLogReader : ILogSource
             }
         }
 
-        run = await new RunResources(run, _client, _k8sOptions, jobList.Items.Single(), podList.Items.ToList()).GetPartiallyUpdatedRun(cancellationToken);
+        run = await run.GetPartiallyUpdatedRun(_client, _k8sOptions, cancellationToken, jobList.Items.Single(), podList.Items.ToList());
 
         var terminableSocketContainers = new Dictionary<(V1Pod, string), TerminablePipelineElement>();
 
@@ -224,7 +224,7 @@ public class KubernetesRunLogReader : ILogSource
                         updateRunFromRepository = false;
                     }
 
-                    run = await new RunResources(run, _client, _k8sOptions, job, pods.Values.ToList()).GetPartiallyUpdatedRun(cancellationToken);
+                    run = await run.GetPartiallyUpdatedRun(_client, _k8sOptions, cancellationToken, job, pods.Values.ToList());
 
                     if (run.Final || run.Status is RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceled)
                     {

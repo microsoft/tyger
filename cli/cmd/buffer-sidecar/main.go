@@ -215,11 +215,17 @@ func newRootCommand() *cobra.Command {
 	relayCommand.AddCommand(relayOutputCommand)
 
 	var destinationAddress string
+	connectionTimeoutString := "10m"
 	socketAdaptCommand := &cobra.Command{
 		Use: "socket-adapt",
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx, cancel := context.WithCancel(cmd.Context())
 			defer cancel()
+
+			connectionTimeout, err := time.ParseDuration(connectionTimeoutString)
+			if err != nil {
+				log.Fatal().Err(err).Msg("Invalid connection timeout duration")
+			}
 
 			var conn net.Conn
 
@@ -231,7 +237,7 @@ func newRootCommand() *cobra.Command {
 					break
 				}
 
-				if time.Since(startTime) > 20*time.Minute {
+				if time.Since(startTime) > connectionTimeout {
 					log.Fatal().Err(err).Msg("Timeout exceeded. Failed to connect to address.")
 				}
 
@@ -297,6 +303,7 @@ func newRootCommand() *cobra.Command {
 	socketAdaptCommand.MarkFlagRequired("address")
 	socketAdaptCommand.Flags().StringVarP(&inputFilePath, "input", "i", inputFilePath, "The file to read from. If not specified, if not specified, there will be no data written to the socket.")
 	socketAdaptCommand.Flags().StringVarP(&outputFilePath, "output", "o", outputFilePath, "The file write to. If not specified, data read from the socket will be discarded")
+	socketAdaptCommand.Flags().StringVar(&connectionTimeoutString, "connection-timeout", connectionTimeoutString, "The timeout for connecting to the socket")
 
 	rootCommand.AddCommand(socketAdaptCommand)
 

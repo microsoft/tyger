@@ -13,7 +13,7 @@ public interface IRepository
 
     Task<(IList<Codespec>, string? nextContinuationToken)> GetCodespecs(int limit, string? prefix, string? continuationToken, CancellationToken cancellationToken);
     Task<Run> CreateRun(Run newRun, CancellationToken cancellationToken);
-    Task UpdateRun(Run run, bool? resourcesCreated = null, CancellationToken cancellationToken = default);
+    Task UpdateRun(Run run, CancellationToken cancellationToken, bool? resourcesCreated = null);
     Task DeleteRun(long id, CancellationToken cancellationToken);
     Task<Run?> GetRun(long id, CancellationToken cancellationToken);
     Task<(IList<Run>, string? nextContinuationToken)> GetRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken);

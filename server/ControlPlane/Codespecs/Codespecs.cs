@@ -76,7 +76,7 @@ public static class Codespecs
                 nextLink = QueryHelpers.AddQueryString(context.Request.Path, "_ct", nextContinuationToken);
             }
 
-            return Results.Ok(new CodespecPage(codespecs, nextLink == null ? null : new Uri(nextLink)));
+            return Results.Ok(new CodespecPage(codespecs.AsReadOnly(), nextLink == null ? null : new Uri(nextLink)));
         })
         .Produces<CodespecPage>();
 

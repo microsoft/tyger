@@ -268,7 +268,7 @@ public class Repository : IRepository
         return run;
     }
 
-    public async Task UpdateRun(Run run, bool? resourcesCreated = null, CancellationToken cancellationToken = default)
+    public async Task UpdateRun(Run run, CancellationToken cancellationToken, bool? resourcesCreated = null)
     {
         await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
         var paramNumber = 2;
