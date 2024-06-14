@@ -24,12 +24,8 @@ public class DockerRunReader : IRunReader
 
     public async Task<Run?> GetRun(long id, CancellationToken cancellationToken)
     {
-        if (await _repository.GetRun(id, cancellationToken) is not (Run run, var final, _))
-        {
-            return null;
-        }
-
-        if (final)
+        var run = await _repository.GetRun(id, cancellationToken);
+        if (run is null or { Final: true })
         {
             return run;
         }
@@ -54,21 +50,21 @@ public class DockerRunReader : IRunReader
     public async Task<(IReadOnlyList<Run>, string? nextContinuationToken)> ListRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken)
     {
         (var partialRuns, var nextContinuationToken) = await _repository.GetRuns(limit, since, continuationToken, cancellationToken);
-        if (partialRuns.All(r => r.final))
+        if (partialRuns.All(r => r.Final))
         {
-            return (partialRuns.Select(r => r.run).ToList(), nextContinuationToken);
+            return (partialRuns.AsReadOnly(), nextContinuationToken);
         }
 
         for (int i = 0; i < partialRuns.Count; i++)
         {
-            (var run, var final) = partialRuns[i];
-            if (!final)
+            var run = partialRuns[i];
+            if (!run.Final)
             {
-                partialRuns[i] = (await GetRun(run.Id!.Value, cancellationToken) ?? run, false);
+                partialRuns[i] = await GetRun(run.Id!.Value, cancellationToken) ?? run;
             }
         }
 
-        return (partialRuns.Select(r => r.run).ToList(), nextContinuationToken);
+        return (partialRuns.AsReadOnly(), nextContinuationToken);
     }
 
     public async IAsyncEnumerable<Run> WatchRun(long id, [EnumeratorCancellation] CancellationToken cancellationToken)
@@ -148,7 +144,13 @@ public class DockerRunReader : IRunReader
             return run;
         }
 
-        var expectedCountainerCount = (run.Job.Buffers?.Count ?? 0) + 1;
+        var socketCount = containers.Aggregate(
+            0,
+            (acc, c) =>
+                c.Config.Labels.TryGetValue(DockerRunCreator.SocketCountLabelKey, out var countString)
+                && int.TryParse(countString, out var count) ? acc + count : acc);
+
+        var expectedCountainerCount = (run.Job.Buffers?.Count ?? 0) + socketCount + 1;
 
         if (containers.Count != expectedCountainerCount)
         {
@@ -163,6 +165,16 @@ public class DockerRunReader : IRunReader
         if (containers.All(c => c.State.Status == "exited" && c.State.ExitCode == 0))
         {
             return run with { Status = RunStatus.Succeeded };
+        }
+
+        if (socketCount > 0)
+        {
+            var mainSocketContainer = containers.FirstOrDefault(c => c.Config.Labels.TryGetValue(DockerRunCreator.SocketCountLabelKey, out var hasSocket));
+            // If the main container has opened a socket, we consider the run successful if all other containers have exited successfully
+            if (mainSocketContainer != null && containers.Where(c => c.ID != mainSocketContainer.ID).All(c => c.State.Status == "exited" && c.State.ExitCode == 0))
+            {
+                return run with { Status = RunStatus.Succeeded };
+            }
         }
 
         if (containers.Any(c => c.State.Running))

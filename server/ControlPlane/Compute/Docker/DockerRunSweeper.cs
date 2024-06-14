@@ -121,15 +121,14 @@ public sealed class DockerRunSweeper : IRunSweeper, IHostedService, IDisposable
                     continue;
                 case { Status: RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceling or RunStatus.Canceled } run:
 
-                    switch (await _repository.GetRun(runId, cancellationToken))
+                    switch (run)
                     {
-                        case (_, _, null):
+                        case { LogsArchivedAt: null }:
                             await ArchiveLogs(run, cancellationToken);
                             break;
-                        case (_, _, var time) when DateTimeOffset.UtcNow - time > s_minDurationAfterArchivingBeforeDeletingPod:
-
+                        case var _ when DateTimeOffset.UtcNow - run.LogsArchivedAt > s_minDurationAfterArchivingBeforeDeletingPod:
                             _logger.FinalizingTerminatedRun(run.Id!.Value, run.Status!.Value);
-                            await _repository.UpdateRun(run, final: true, cancellationToken: cancellationToken);
+                            await _repository.UpdateRun(run with { Final = true }, cancellationToken: cancellationToken);
                             await DeleteRunResources(run.Id!.Value, cancellationToken);
                             break;
                         default:
@@ -203,7 +202,7 @@ public sealed class DockerRunSweeper : IRunSweeper, IHostedService, IDisposable
         pipeline ??= new Pipeline(Array.Empty<byte>());
 
         await _logArchive.ArchiveLogs(run.Id.Value, pipeline, cancellationToken);
-        await _repository.UpdateRun(run, logsArchivedAt: DateTimeOffset.UtcNow, cancellationToken: cancellationToken);
+        await _repository.UpdateRun(run with { LogsArchivedAt = DateTimeOffset.UtcNow }, cancellationToken: cancellationToken);
     }
 
     public void Dispose()

@@ -94,7 +94,7 @@ public static class Buffers
                     nextLink = QueryHelpers.AddQueryString(context.Request.Path, "_ct", nextContinuationToken);
                 }
 
-                return Results.Ok(new BufferPage(buffers, nextLink == null ? null : new Uri(nextLink)));
+                return Results.Ok(new BufferPage(buffers.AsReadOnly(), nextLink == null ? null : new Uri(nextLink)));
             })
             .WithName("getBuffers")
             .Produces<BufferPage>();

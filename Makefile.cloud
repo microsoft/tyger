@@ -24,17 +24,25 @@ remove-environment: install-cli
 	tyger cloud uninstall -f <(scripts/get-config.sh)
 
 # Sets up the az subscription and kubectl config for the current environment
-set-context: check-az-login
+set-context:
 	subscription=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.cloud.subscriptionId')
 	resource_group=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.cloud.resourceGroup')
 
 	for cluster in $$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -c '.cloud.compute.clusters | .[]'); do
 		if [[ "$$(echo "$$cluster" | jq -r '.apiHost')" == "true" ]]; then
 			cluster_name=$$(echo "$$cluster" | jq -r '.name')
-			az account set --subscription "$${subscription}"
-			az aks get-credentials -n "$${cluster_name}" -g "$${resource_group}" --overwrite-existing --only-show-errors
-			kubelogin convert-kubeconfig -l azurecli
-			kubectl config set-context --current --namespace=${HELM_NAMESPACE}
+			if [[ "$$(az account show --query id -o tsv 2> /dev/null || true)" != "$${subscription}" ]]; then
+				az account set --subscription "$${subscription}"
+			fi
+			
+			if [[ "$$(kubectl config view --minify -o json 2> /dev/null | jq -r '.["current-context"]' 2> /dev/null || true)" != "$${cluster_name}" ]]; then
+				az aks get-credentials -n "$${cluster_name}" -g "$${resource_group}" --overwrite-existing --only-show-errors
+				kubelogin convert-kubeconfig -l azurecli
+			fi
+
+			if [[ "$$(kubectl config view --minify -o json | jq --arg context_name $${cluster_name} -r '.contexts[] | select(.name == $$context_name) | .context.namespace')" != "${HELM_NAMESPACE}" ]]; then
+				kubectl config set-context --current --namespace=${HELM_NAMESPACE}
+			fi
 		fi
 	done
 
@@ -45,7 +53,7 @@ login-wip-acr:
 		az acr login --name "$${registry_name}"
 	fi
 
-set-localsettings:
+set-localsettings: set-context
 	helm_values=$$(helm get values -n ${HELM_NAMESPACE} ${HELM_RELEASE} -o json || true)
 
 	if [[ -z "$${helm_values}" ]]; then
@@ -176,3 +184,6 @@ purge-runs: set-context
 
 variant-test:
 	# No variant tests for cloud configuration
+
+get-last-server-exception: set-context
+	kubectl logs -l component=tyger-server | grep Exception || true | tac | head -n 1 | jq -r '.exception'

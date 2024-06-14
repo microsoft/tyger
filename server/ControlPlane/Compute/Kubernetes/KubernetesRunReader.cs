@@ -2,11 +2,8 @@
 // Licensed under the MIT License.
 
 using System.Globalization;
-using System.Net;
 using System.Runtime.CompilerServices;
-using System.Text.RegularExpressions;
 using k8s;
-using k8s.Autorest;
 using k8s.Models;
 using Microsoft.Extensions.Options;
 using Tyger.ControlPlane.Database;
@@ -16,12 +13,9 @@ using static Tyger.ControlPlane.Compute.Kubernetes.KubernetesMetadata;
 
 namespace Tyger.ControlPlane.Compute.Kubernetes;
 
-public class KubernetesRunReader : IRunReader
+public partial class KubernetesRunReader : IRunReader
 
 {
-    // Used to extract "gpunp" from an AKS node named "aks-gpunp-23329378-vmss000007"
-    private static readonly Regex s_nodePoolFromNodeName = new(@"^aks-([^\-]+)-", RegexOptions.Compiled);
-
     private readonly IKubernetes _client;
     private readonly IRepository _repository;
     private readonly KubernetesApiOptions _k8sOptions;
@@ -42,12 +36,12 @@ public class KubernetesRunReader : IRunReader
     public async Task<(IReadOnlyList<Run>, string? nextContinuationToken)> ListRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken)
     {
         (var partialRuns, var nextContinuationToken) = await _repository.GetRuns(limit, since, continuationToken, cancellationToken);
-        if (partialRuns.All(r => r.final))
+        if (partialRuns.All(r => r.Final))
         {
-            return (partialRuns.Select(r => r.run).ToList(), nextContinuationToken);
+            return (partialRuns.AsReadOnly(), nextContinuationToken);
         }
 
-        var selector = $"{RunLabel} in ({string.Join(",", partialRuns.Where(p => !p.final).Select(p => p.run.Id))})";
+        var selector = $"{RunLabel} in ({string.Join(",", partialRuns.Where(p => !p.Final).Select(p => p.Id))})";
 
         var jobAndPodsById = await _client.EnumerateJobsInNamespace(_k8sOptions.Namespace, labelSelector: selector, cancellationToken: cancellationToken)
             .GroupJoin(
@@ -59,58 +53,41 @@ public class KubernetesRunReader : IRunReader
 
         for (int i = 0; i < partialRuns.Count; i++)
         {
-            (var run, var final) = partialRuns[i];
-            if (!final)
+            var run = partialRuns[i];
+            if (!run.Final)
             {
                 if (!jobAndPodsById.TryGetValue(run.Id!.Value, out var jobAndPods))
                 {
                     continue;
                 }
 
-                partialRuns[i] = (UpdateRunFromJobAndPods(run, jobAndPods.job, await jobAndPods.pods.ToListAsync(cancellationToken)), true);
+                partialRuns[i] = await run.GetUpdatedRun(_client, _k8sOptions, cancellationToken, jobAndPods.job, await jobAndPods.pods.ToListAsync(cancellationToken));
             }
         }
 
-        return (partialRuns.Where(p => p.final).Select(p => p.run).ToList(), nextContinuationToken);
+        return (partialRuns.AsReadOnly(), nextContinuationToken);
     }
 
     public async Task<Run?> GetRun(long id, CancellationToken cancellationToken)
     {
-        if (await _repository.GetRun(id, cancellationToken) is not (Run run, var final, _))
-        {
-            return null;
-        }
-
-        if (final)
+        var run = await _repository.GetRun(id, cancellationToken);
+        if (run is null or { Final: true })
         {
             return run;
         }
 
-        V1Job job;
-        try
-        {
-            job = await _client.BatchV1.ReadNamespacedJobAsync(JobNameFromRunId(id), _k8sOptions.Namespace, cancellationToken: cancellationToken);
-        }
-        catch (HttpOperationException e) when (e.Response.StatusCode == HttpStatusCode.NotFound)
-        {
-            _logger.RunMissingJob(JobNameFromRunId(id));
-            return null;
-        }
-
-        var pods = await _client.EnumeratePodsInNamespace(_k8sOptions.Namespace, labelSelector: $"{RunLabel}={id}", cancellationToken: cancellationToken)
-            .ToListAsync(cancellationToken);
-
-        return UpdateRunFromJobAndPods(run, job, pods);
+        return await run.GetUpdatedRun(_client, _k8sOptions, cancellationToken);
     }
 
     public async IAsyncEnumerable<Run> WatchRun(long id, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        if (await _repository.GetRun(id, cancellationToken) is not (Run run, var final, _))
+        var run = await GetRun(id, cancellationToken);
+        if (run is null)
         {
             yield break;
         }
 
-        if (final)
+        if (run.Final)
         {
             yield return run;
             yield break;
@@ -127,7 +104,7 @@ public class KubernetesRunReader : IRunReader
         var podList = await _client.CoreV1.ListNamespacedPodAsync(_k8sOptions.Namespace, labelSelector: $"{JobLabel}={id}", cancellationToken: cancellationToken);
         Dictionary<string, V1Pod> pods = podList.Items.ToDictionary(p => p.Name());
 
-        run = UpdateRunFromJobAndPods(run, job, pods.Values);
+        run = await run.GetUpdatedRun(_client, _k8sOptions, cancellationToken, job, pods.Values.ToList());
         yield return run;
 
         if (run.Status is RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceled)
@@ -185,16 +162,18 @@ public class KubernetesRunReader : IRunReader
 
                 if (updateRunFromRepository)
                 {
-                    if (await _repository.GetRun(id, cancellationToken) is (Run currentRun, var currentFinal, _))
+                    var currentRun = await _repository.GetRun(id, cancellationToken);
+                    if (currentRun is null)
                     {
-                        updatedRun = currentRun;
-                        final = currentFinal;
+                        cts.Cancel();
+                        yield break;
                     }
 
+                    updatedRun = currentRun;
                     updateRunFromRepository = false;
                 }
 
-                updatedRun = UpdateRunFromJobAndPods(updatedRun, job, pods.Values.ToList());
+                updatedRun = await updatedRun.GetUpdatedRun(_client, _k8sOptions, cancellationToken, job, pods.Values.ToList());
 
                 if (run.Status != updatedRun.Status ||
                     !string.Equals(run.StatusReason, updatedRun.StatusReason, StringComparison.Ordinal) ||
@@ -205,7 +184,7 @@ public class KubernetesRunReader : IRunReader
 
                 run = updatedRun;
 
-                if (final || run.Status is RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceled)
+                if (run.Final || run.Status is RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceled)
                 {
                     cts.Cancel();
                     yield break;
@@ -221,173 +200,6 @@ public class KubernetesRunReader : IRunReader
             catch (AggregateException e) when (cts.IsCancellationRequested && e.InnerExceptions.Any(ex => ex is OperationCanceledException))
             {
             }
-        }
-    }
-
-    private static int GetJobCompletionIndex(V1Pod pod)
-    {
-        if (!int.TryParse(pod.Metadata.Annotations?["batch.kubernetes.io/job-completion-index"], CultureInfo.InvariantCulture, out var index))
-        {
-            throw new InvalidOperationException($"Pod {pod.Metadata.Name} is missing the job-completion-index annotation");
-        }
-
-        return index;
-    }
-
-    internal static bool HasJobSucceeded(V1Job job)
-    {
-        return job.Status.Conditions?.Any(c => c.Type == "Complete" && c.Status == "True") == true;
-    }
-
-    internal static bool HasJobSucceeded(Run run, V1Job job, IReadOnlyCollection<V1Pod> jobPods)
-    {
-        if (HasJobSucceeded(job))
-        {
-            return true;
-        }
-
-        return Enumerable.Range(0, run.Job.Replicas)
-            .GroupJoin(jobPods, i => i, GetJobCompletionIndex, (i, p) => (i, p))
-            .All(g => g.p.Any(p => p.Status.Phase == "Succeeded"));
-    }
-
-    internal static bool HasJobFailed(V1Job job, out V1JobCondition failureCondition)
-    {
-        failureCondition = job.Status.Conditions?.FirstOrDefault(c => c.Type == "Failed" && c.Status == "True")!;
-        return failureCondition != null;
-    }
-
-    internal static bool IsJobCanceling(V1Job job)
-    {
-        return job.Metadata.Annotations?.TryGetValue("Status", out var status) == true && status == "Canceling";
-    }
-
-    public static Run UpdateRunFromJobAndPods(Run run, V1Job job, IReadOnlyCollection<V1Pod> pods)
-    {
-        IReadOnlyCollection<V1Pod> jobPods;
-        IReadOnlyCollection<V1Pod> workerPods;
-
-        if (pods.Count == 0)
-        {
-            jobPods = workerPods = pods;
-        }
-        else if (run.Worker == null)
-        {
-            jobPods = pods;
-            workerPods = Array.Empty<V1Pod>();
-        }
-        else
-        {
-            List<V1Pod> localJobPods, localWorkerPods;
-            jobPods = localJobPods = [];
-            workerPods = localWorkerPods = [];
-
-            foreach (var pod in pods)
-            {
-                (pod.GetLabel(JobLabel) is not null ? localJobPods : localWorkerPods).Add(pod);
-            }
-        }
-
-        run = UpdateStatus(run, job, jobPods, workerPods);
-        return UpdateNodePools(run, job, jobPods, workerPods);
-
-        static Run UpdateStatus(Run run, V1Job job, IReadOnlyCollection<V1Pod> jobPods, IReadOnlyCollection<V1Pod> workerPods)
-        {
-            if (HasJobFailed(job, out var failureCondition))
-            {
-                if (IsJobCanceling(job))
-                {
-                    return run with
-                    {
-                        Status = RunStatus.Canceled,
-                        StatusReason = "Canceled by user",
-                        FinishedAt = failureCondition.LastTransitionTime!,
-                        RunningCount = null
-                    };
-                }
-
-                return run with
-                {
-                    Status = RunStatus.Failed,
-                    StatusReason = failureCondition.Reason,
-                    FinishedAt = failureCondition.LastTransitionTime!,
-                    RunningCount = null
-                };
-            }
-
-            if (HasJobSucceeded(run, job, jobPods))
-            {
-                var finishedTimes = jobPods
-                    .Where(p => p.Status.Phase == "Succeeded")
-                    .Select(p => p.Status.ContainerStatuses.Single(c => c.Name == "main").State.Terminated?.FinishedAt)
-                    .Where(t => t != null).Select(t => t!.Value).ToList();
-                return run with
-                {
-                    Status = RunStatus.Succeeded,
-                    FinishedAt = finishedTimes.Count == 0 ? null : finishedTimes.Min(),
-                    RunningCount = null
-                };
-            }
-
-            var runningCount = jobPods.Count(p => p.Status.Phase == "Running");
-
-            if (IsJobCanceling(job))
-            {
-                return run with
-                {
-                    Status = RunStatus.Canceling,
-                    RunningCount = runningCount
-                };
-            }
-
-            // Note that the job object may not yet reflect the status of the pods.
-            // It could be that pods have succeeeded or failed without the job reflecting this.
-            // We want to avoid returning a pending state if no pods are running because they have
-            // all exited but the job hasn't been updated yet.
-            var isRunning = jobPods.Any(p => p.Status.Phase is "Running" or "Succeeded" or "Failed");
-            if (isRunning)
-            {
-                return run with
-                {
-                    Status = RunStatus.Running,
-                    RunningCount = runningCount
-                };
-            }
-
-            return run with { Status = RunStatus.Pending };
-        }
-
-        static Run UpdateNodePools(Run run, V1Job job, IReadOnlyCollection<V1Pod> jobPods, IReadOnlyCollection<V1Pod> workerPods)
-        {
-            static string GetNodePoolFromNodeName(string nodeName)
-            {
-                var match = s_nodePoolFromNodeName.Match(nodeName);
-                if (!match.Success)
-                {
-                    throw new InvalidOperationException($"Node name in unexpected format: '{nodeName}'");
-                }
-
-                return match.Groups[1].Value;
-            }
-
-            static string GetNodePool(IReadOnlyCollection<V1Pod> pods)
-            {
-                return string.Join(
-                    ",",
-                    pods.Select(p => p.Spec.NodeName).Where(n => !string.IsNullOrEmpty(n)).Select(GetNodePoolFromNodeName).Distinct());
-            }
-
-            RunCodeTarget? newWorkerTarget = run.Worker != null && run.Worker.NodePool == null
-                ? run.Worker with { NodePool = GetNodePool(workerPods) }
-                : run.Worker;
-
-            JobRunCodeTarget newJobTarget = run.Job.NodePool == null
-                ? run.Job with { NodePool = GetNodePool(jobPods) }
-                : run.Job;
-
-            return ReferenceEquals(newWorkerTarget, run.Worker) && ReferenceEquals(newJobTarget, run.Job)
-                ? run
-                : run with { Worker = newWorkerTarget, Job = newJobTarget };
         }
     }
 }

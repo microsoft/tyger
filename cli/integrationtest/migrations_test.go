@@ -151,6 +151,7 @@ func TestDockerMigrations(t *testing.T) {
 	p, err := dataplane.GetFreePort()
 	require.NoError(t, err)
 	configMap["dataPlanePort"] = p
+	configMap["network"] = map[string]any{"subnet": "172.255.0.0/24"}
 
 	updatedEnvironmentConfigBytes, err := yaml.Marshal(configMap)
 	require.NoError(t, err)
