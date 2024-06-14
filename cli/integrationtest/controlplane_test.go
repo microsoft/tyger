@@ -1359,14 +1359,47 @@ func TestBufferSetTags(t *testing.T) {
 	bufferId := runTygerSucceeds(t, "buffer", "create", "--tag", "testtag1=testvalue1", "--tag", "testtag2=testvalue2")
 	t.Logf("Buffer ID: %s", bufferId)
 
-	bufferJson := runTygerSucceeds(t, "buffer", "set", bufferId, "--tag", "testtag3=testvalue3", "--tag", "testtag4=testvalue4")
+	bufferJson := runTygerSucceeds(t, "buffer", "set", bufferId, "--tag", "testtag2=testvalue2updated", "--tag", "testtag3=testvalue3")
 
 	var buffer model.Buffer
 	require.NoError(json.Unmarshal([]byte(bufferJson), &buffer))
 
-	require.Equal(2, len(buffer.Tags))
-	require.Equal("testvalue3", buffer.Tags["testtag3"])
-	require.Equal("testvalue4", buffer.Tags["testtag4"])
+	require.Equal(map[string]string{"testtag1": "testvalue1", "testtag2": "testvalue2updated", "testtag3": "testvalue3"}, buffer.Tags)
+}
+
+func TestBufferSetTagsWithClear(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+
+	bufferId := runTygerSucceeds(t, "buffer", "create", "--tag", "testtag1=testvalue1", "--tag", "testtag2=testvalue2")
+	t.Logf("Buffer ID: %s", bufferId)
+
+	bufferJson := runTygerSucceeds(t, "buffer", "set", bufferId, "--clear-tags", "--tag", "testtag3=testvalue3", "--tag", "testtag4=testvalue4")
+
+	var buffer model.Buffer
+	require.NoError(json.Unmarshal([]byte(bufferJson), &buffer))
+
+	require.Equal(map[string]string{"testtag3": "testvalue3", "testtag4": "testvalue4"}, buffer.Tags)
+}
+
+func TestBufferSetTagsClearWithETag(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+
+	bufferJson := runTygerSucceeds(t, "buffer", "create", "--tag", "testtag1=testvalue1", "--tag", "testtag2=testvalue2", "--full-resource")
+
+	var bufferETag model.Buffer
+	require.NoError(json.Unmarshal([]byte(bufferJson), &bufferETag))
+
+	t.Logf("Buffer ID: %s eTag: %s", bufferETag.Id, bufferETag.ETag)
+
+	bufferJson = runTygerSucceeds(t, "buffer", "set", bufferETag.Id, "--clear-tags", "--tag", "testtag3=testvalue3", "--tag", "testtag4=testvalue4", "--etag", bufferETag.ETag)
+
+	var buffer model.Buffer
+	require.NoError(json.Unmarshal([]byte(bufferJson), &buffer))
+
+	require.Equal(map[string]string{"testtag3": "testvalue3", "testtag4": "testvalue4"}, buffer.Tags)
+	require.NotEqual(bufferETag.ETag, buffer.ETag)
 }
 
 func TestBufferSetTagsWithETag(t *testing.T) {
@@ -1380,14 +1413,12 @@ func TestBufferSetTagsWithETag(t *testing.T) {
 
 	t.Logf("Buffer ID: %s eTag: %s", bufferETag.Id, bufferETag.ETag)
 
-	bufferJson = runTygerSucceeds(t, "buffer", "set", bufferETag.Id, "--tag", "testtag3=testvalue3", "--tag", "testtag4=testvalue4", "--etag", bufferETag.ETag)
+	bufferJson = runTygerSucceeds(t, "buffer", "set", bufferETag.Id, "--tag", "testtag2=testvalue2updated", "--tag", "testtag4=testvalue4", "--etag", bufferETag.ETag)
 
 	var buffer model.Buffer
 	require.NoError(json.Unmarshal([]byte(bufferJson), &buffer))
 
-	require.Equal(2, len(buffer.Tags))
-	require.Equal("testvalue3", buffer.Tags["testtag3"])
-	require.Equal("testvalue4", buffer.Tags["testtag4"])
+	require.Equal(map[string]string{"testtag1": "testvalue1", "testtag2": "testvalue2updated", "testtag4": "testvalue4"}, buffer.Tags)
 	require.NotEqual(bufferETag.ETag, buffer.ETag)
 }
 
@@ -1401,7 +1432,7 @@ func TestBufferSetWithInvalidETag(t *testing.T) {
 	runTygerSucceeds(t, "buffer", "show", bufferId)
 
 	_, stderr, _ := runTyger("buffer", "set", bufferId, "--etag", "bad-etag")
-	require.Contains(stderr, "412 Precondition Failed")
+	require.Contains(stderr, "the server's ETag does not match the provided ETag")
 
 	_, stderr2, _ := runTyger("buffer", "set", "bad-bufferid", "--etag", "bad-etag")
 	require.Contains(stderr2, "404 Not Found")
@@ -1414,7 +1445,7 @@ func TestBufferSetClearTags(t *testing.T) {
 	bufferId := runTygerSucceeds(t, "buffer", "create", "--tag", "testtag1=testvalue1", "--tag", "testtag2=testvalue2")
 	t.Logf("Buffer ID: %s", bufferId)
 
-	bufferJson := runTygerSucceeds(t, "buffer", "set", bufferId)
+	bufferJson := runTygerSucceeds(t, "buffer", "set", bufferId, "--clear-tags")
 
 	var buffer model.Buffer
 	require.NoError(json.Unmarshal([]byte(bufferJson), &buffer))
