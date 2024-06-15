@@ -184,7 +184,7 @@ public static partial class RunExtensions
 
             (var jobPods, _) = await GetPods(cancellationToken);
 
-            var runningCount = jobPods.Count(p => p.Status.Phase == "Running");
+            var runningCount = jobPods.Count(p => p.Status?.Phase == "Running");
 
             if (isCanceling)
             {
@@ -199,7 +199,7 @@ public static partial class RunExtensions
             // It could be that pods have succeeeded or failed without the job reflecting this.
             // We want to avoid returning a pending state if no pods are running because they have
             // all exited but the job hasn't been updated yet.
-            var isRunning = jobPods.Any(p => p.Status.Phase is "Running" or "Succeeded" or "Failed");
+            var isRunning = jobPods.Any(p => p.Status?.Phase is "Running" or "Succeeded" or "Failed");
             if (isRunning)
             {
                 return _run = _run with
@@ -216,7 +216,7 @@ public static partial class RunExtensions
         {
             Debug.Assert(_job != null, "_job should have been loaded");
 
-            var failureCondition = _job.Status.Conditions?.FirstOrDefault(c => c.Type == "Failed" && c.Status == "True");
+            var failureCondition = _job.Status?.Conditions?.FirstOrDefault(c => c.Type == "Failed" && c.Status == "True");
             if (failureCondition != null)
             {
                 return (failureCondition.LastTransitionTime!.Value, failureCondition.Reason);
@@ -226,7 +226,8 @@ public static partial class RunExtensions
             {
                 (var jobPods, _) = await GetPods(cancellationToken);
                 var containerStatus = jobPods
-                    .SelectMany(p => p.Status!.ContainerStatuses)
+                    .Where(p => p.Status?.ContainerStatuses != null)
+                    .SelectMany(p => p.Status.ContainerStatuses)
                     .Where(cs => cs.State?.Terminated?.ExitCode is not null and not 0)
                     .MinBy(cs => cs.State.Terminated.FinishedAt!.Value);
 
@@ -244,7 +245,7 @@ public static partial class RunExtensions
         {
             Debug.Assert(_job != null, "_job should have been loaded");
             bool succeeeded = false;
-            if (_job.Status.Conditions?.Any(c => c.Type == "Complete" && c.Status == "True") == true)
+            if (_job.Status?.Conditions?.Any(c => c.Type == "Complete" && c.Status == "True") == true)
             {
                 succeeeded = true;
             }
@@ -253,7 +254,7 @@ public static partial class RunExtensions
                 (var jobPods, _) = await GetPods(cancellationToken);
                 succeeeded = Enumerable.Range(0, _run.Job.Replicas)
                     .GroupJoin(jobPods, i => i, GetJobCompletionIndex, (i, p) => (i, p))
-                    .All(g => g.p.Any(p => p.Status.Phase == "Succeeded"));
+                    .All(g => g.p.Any(p => p.Status?.Phase == "Succeeded"));
             }
 
             if (succeeeded)
@@ -266,7 +267,7 @@ public static partial class RunExtensions
                 (var jobPods, _) = await GetPods(cancellationToken);
                 var finishedTime = jobPods
                         .Where(p => p.Status.Phase == "Succeeded")
-                        .Select(p => p.Status.ContainerStatuses.Single(c => c.Name == "main").State.Terminated?.FinishedAt)
+                        .Select(p => p.Status.ContainerStatuses?.Single(c => c.Name == "main").State.Terminated?.FinishedAt)
                         .Where(t => t != null)
                         .Max();
 
@@ -280,11 +281,11 @@ public static partial class RunExtensions
                 // the main container may still be running but if all sidecars have exited successfully, then we consider it complete.
                 if (jobPods.All(pod =>
                         pod.Spec.Containers.All(c =>
-                            pod.Status.ContainerStatuses.Any(cs =>
+                            pod.Status?.ContainerStatuses?.Any(cs =>
                                 cs.Name == c.Name &&
                                 (cs.Name == "main"
-                                    ? cs.State?.Running != null
-                                    : cs.State?.Terminated?.ExitCode == 0)))))
+                                    ? cs.State.Running != null
+                                    : cs.State.Terminated?.ExitCode == 0)) == true)))
                 {
                     var finishedTime = jobPods.SelectMany(p => p.Status.ContainerStatuses).Select(cs => cs.State.Terminated?.FinishedAt).Where(t => t != null).Max();
                     return finishedTime ?? _run.CreatedAt;

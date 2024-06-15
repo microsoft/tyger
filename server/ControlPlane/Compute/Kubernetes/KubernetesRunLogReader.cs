@@ -261,7 +261,7 @@ Finished:
 
     private static bool IsContainerRunningOrTerminated(V1Pod pod, V1Container container)
     {
-        return pod.Status.ContainerStatuses?.SingleOrDefault(s => s.Name == container.Name) is { State.Waiting: null };
+        return pod.Status?.ContainerStatuses?.SingleOrDefault(s => s.Name == container.Name) is { State.Waiting: null };
     }
 
     private async Task<Pipeline?> GetLogsSnapshot(Run run, GetLogsOptions options, CancellationToken cancellationToken)
