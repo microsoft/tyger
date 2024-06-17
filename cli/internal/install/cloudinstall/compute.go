@@ -5,6 +5,7 @@ package cloudinstall
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -153,6 +154,89 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 		}
 
 		cluster.Properties.AgentPoolProfiles = append(cluster.Properties.AgentPoolProfiles, &profile)
+	}
+
+	if clusterAlreadyExists {
+		// Check for node pools that need to be added or removed, which
+		// need to be handled separately other cluster property updates.
+
+		agentPoolsClient, err := armcontainerservice.NewAgentPoolsClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create agent pools client: %w", err)
+		}
+
+		agentPoolDeletePollers := make([]*runtime.Poller[armcontainerservice.AgentPoolsClientDeleteResponse], 0)
+
+		for _, existingNodePool := range existingCluster.ManagedCluster.Properties.AgentPoolProfiles {
+			found := false
+			for _, newPool := range cluster.Properties.AgentPoolProfiles {
+				if *newPool.Name == *existingNodePool.Name {
+					found = true
+					break
+				}
+			}
+			if !found {
+				log.Info().Msgf("Deleting node pool '%s' from cluster '%s'", *existingNodePool.Name, clusterConfig.Name)
+				p, err := agentPoolsClient.BeginDelete(ctx, inst.Config.Cloud.ResourceGroup, clusterConfig.Name, *existingNodePool.Name, nil)
+				if err != nil {
+					return nil, fmt.Errorf("failed to delete node pool: %w", err)
+				}
+				agentPoolDeletePollers = append(agentPoolDeletePollers, p)
+			}
+		}
+
+		for _, deletePoller := range agentPoolDeletePollers {
+			if _, err := deletePoller.PollUntilDone(ctx, nil); err != nil {
+				return nil, fmt.Errorf("failed to delete node pool: %w", err)
+			}
+		}
+
+		agentPoolCreatePollers := make([]*runtime.Poller[armcontainerservice.AgentPoolsClientCreateOrUpdateResponse], 0)
+
+		for _, newNodePool := range cluster.Properties.AgentPoolProfiles {
+			found := false
+			for _, existingNodePool := range existingCluster.ManagedCluster.Properties.AgentPoolProfiles {
+				if *newNodePool.Name == *existingNodePool.Name {
+					found = true
+					break
+				}
+			}
+			if !found {
+				log.Info().Msgf("Adding node pool '%s' to cluster '%s'", *newNodePool.Name, clusterConfig.Name)
+				newNodePoolJson, err := json.Marshal(newNodePool)
+				if err != nil {
+					panic(fmt.Errorf("failed to marshal node pool: %w", err))
+				}
+
+				properties := armcontainerservice.ManagedClusterAgentPoolProfileProperties{}
+				decoder := json.NewDecoder(strings.NewReader(string(newNodePoolJson)))
+				decoder.DisallowUnknownFields()
+				if err := decoder.Decode(&properties); err != nil {
+					panic(fmt.Errorf("failed to decode node pool: %w", err))
+				}
+
+				options := armcontainerservice.AgentPool{Properties: &properties}
+				p, err := agentPoolsClient.BeginCreateOrUpdate(ctx, inst.Config.Cloud.ResourceGroup, clusterConfig.Name, *newNodePool.Name, options, nil)
+				if err != nil {
+					return nil, fmt.Errorf("failed to create node pool: %w", err)
+				}
+				agentPoolCreatePollers = append(agentPoolCreatePollers, p)
+			}
+
+			for _, p := range agentPoolCreatePollers {
+				if _, err := p.PollUntilDone(ctx, nil); err != nil {
+					return nil, fmt.Errorf("failed to create node pool: %w", err)
+				}
+			}
+		}
+
+		if len(agentPoolDeletePollers) > 0 || len(agentPoolCreatePollers) > 0 {
+			// refresh the existingCluster variable
+			existingCluster, err = clustersClient.Get(ctx, inst.Config.Cloud.ResourceGroup, clusterConfig.Name, nil)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get cluster: %w", err)
+			}
+		}
 	}
 
 	var needsUpdate bool
