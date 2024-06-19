@@ -207,6 +207,10 @@ jobs:
       - name: Log in to Azure
         uses: ./.github/actions/login-azure
 
+      - name: Log in to ACR
+        run: |
+          make login-wip-acr
+
       - uses: actions/setup-go@v4
         with:
           go-version-file: cli/go.mod

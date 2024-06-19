@@ -7,6 +7,7 @@ using System.Text.Json;
 using Tyger.ControlPlane.Database;
 using Tyger.ControlPlane.Database.Migrations;
 using Tyger.ControlPlane.Model;
+using Socket = System.Net.Sockets.Socket;
 
 namespace Tyger.ControlPlane.Compute.Docker;
 

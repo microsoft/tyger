@@ -61,7 +61,6 @@ public static class OpenApi
 
             });
             c.SchemaFilter<ModelBaseSchemaFilter>();
-            c.OperationFilter<ParameterStyleWorkaroundFilter>();
 
             var filePath = Path.Combine(AppContext.BaseDirectory, "tyger-server.xml");
             c.IncludeXmlComments(filePath);
@@ -85,21 +84,6 @@ internal sealed class ModelBaseSchemaFilter : ISchemaFilter
             // properties because of the [JsonExtensionData] member. But that is only
             // there to fail when unrecognized fields are encountered during deserialization.
             schema.AdditionalPropertiesAllowed = false;
-        }
-    }
-}
-
-// Workaround for https://github.com/microsoft/OpenAPI.NET/issues/1132
-internal sealed class ParameterStyleWorkaroundFilter : IOperationFilter
-{
-    public void Apply(OpenApiOperation operation, OperationFilterContext context)
-    {
-        if (operation.Parameters != null)
-        {
-            foreach (var parameter in operation.Parameters)
-            {
-                parameter.Style = null;
-            }
         }
     }
 }

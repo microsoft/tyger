@@ -24,7 +24,8 @@ set-localsettings: ensure-data-plane-cert
 				"docker": {
 					"runSecretsPath": "$${run_secrets_path}",
 					"ephemeralBuffersPath": "$${ephemeral_buffers_path}",
-					"wslDistroName": "$${WSL_DISTRO_NAME}"
+					"wslDistroName": "$${WSL_DISTRO_NAME}",
+					"networkName": "tyger-local-network"
 				}
 			},
 			"logArchive": {
@@ -93,3 +94,6 @@ variant-test:
 	tyger login docker://
 	tyger login status
 	$(MAKE) integration-test-no-up
+
+get-last-server-exception:
+	docker logs tyger-local-control-plane 2>&1 | grep Exception || true | tac | head -n 1 | jq -r '.exception'

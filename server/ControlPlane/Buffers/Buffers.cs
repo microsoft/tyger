@@ -5,6 +5,7 @@ using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Primitives;
+using Microsoft.OpenApi.Models;
 using Tyger.Common.Api;
 using Tyger.ControlPlane.Json;
 using Tyger.ControlPlane.Model;
@@ -65,9 +66,9 @@ public static class Buffers
 
                 foreach (var tag in context.Request.Query)
                 {
-                    if (tag.Key.StartsWith("tag.", StringComparison.Ordinal))
+                    if (tag.Key.StartsWith("tag[", StringComparison.Ordinal) && tag.Key.EndsWith(']') && tag.Value.Count > 0)
                     {
-                        tagQuery.Add(tag.Key[4..], tag.Value.FirstOrDefault() ?? "");
+                        tagQuery.Add(tag.Key[4..^1], tag.Value.FirstOrDefault() ?? "");
                     }
                 }
 
@@ -94,10 +95,36 @@ public static class Buffers
                     nextLink = QueryHelpers.AddQueryString(context.Request.Path, "_ct", nextContinuationToken);
                 }
 
-                return Results.Ok(new BufferPage(buffers, nextLink == null ? null : new Uri(nextLink)));
+                return Results.Ok(new BufferPage(buffers.AsReadOnly(), nextLink == null ? null : new Uri(nextLink)));
             })
             .WithName("getBuffers")
-            .Produces<BufferPage>();
+            .Produces<BufferPage>()
+            .WithOpenApi(c =>
+                {
+                    // Specify that the query parameter "tag" is a "deep object"
+                    // and can be used like this `tag[key1]=value1&tag[key2]=value2`.
+                    c.Parameters.Add(new OpenApiParameter
+                    {
+                        Name = "tag",
+                        In = ParameterLocation.Query,
+                        Required = false,
+                        Schema = new OpenApiSchema
+                        {
+                            Type = "object",
+                            AdditionalProperties = new OpenApiSchema
+                            {
+                                Type = "string",
+                            },
+                        },
+                        Style = ParameterStyle.DeepObject,
+                        Explode = true,
+                    });
+
+                    // For some reason the text is changed to "OK" when we implement this,
+                    // so we need to set it back to "Success".
+                    c.Responses["200"].Description = "Success";
+                    return c;
+                });
 
         app.MapGet("/v1/buffers/{id}", async (BufferManager manager, HttpContext context, string id, CancellationToken cancellationToken) =>
             {

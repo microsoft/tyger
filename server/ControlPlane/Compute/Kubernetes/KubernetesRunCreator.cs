@@ -113,7 +113,8 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
             Metadata = new()
             {
                 Name = JobNameFromRunId(run.Id!.Value),
-                Labels = jobLabels
+                Labels = jobLabels,
+                Annotations = jobCodespec.Sockets?.Count > 0 ? new Dictionary<string, string>() { { HasSocketAnnotation, "true" } } : null
             },
             Spec = new()
             {
@@ -130,7 +131,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
 
         if (bufferMap != null)
         {
-            await AddBufferProxySidecars(job, run, bufferMap, cancellationToken);
+            await AddBufferProxySidecars(job, run, bufferMap, jobCodespec, cancellationToken);
         }
 
         if (newRun.Worker != null)
@@ -245,7 +246,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         return Enumerable.Range(0, run.Worker!.Replicas).Select(i => $"{StatefulSetNameFromRunId(run.Id!.Value)}-{i}.{StatefulSetNameFromRunId(run.Id.Value)}.{_k8sOptions.Namespace}.svc.cluster.local").ToArray();
     }
 
-    private async Task AddBufferProxySidecars(V1Job job, Run run, Dictionary<string, (bool write, Uri sasUri)> bufferMap, CancellationToken cancellationToken)
+    private async Task AddBufferProxySidecars(V1Job job, Run run, Dictionary<string, (bool write, Uri sasUri)> bufferMap, JobCodespec codespec, CancellationToken cancellationToken)
     {
         const string SecretMountPath = "/etc/buffer-sas-tokens";
         const string FifoMountPath = "/etc/buffer-fifos";
@@ -254,7 +255,13 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         var mainContainer = GetMainContainer(job.Spec.Template.Spec);
         mainContainer.Env ??= [];
 
-        foreach (var envVar in bufferMap.Select(p => new V1EnvVar($"{p.Key.ToUpperInvariant()}_PIPE", $"{FifoMountPath}/{p.Key}")))
+        IEnumerable<string> buffersNotUsedBySockets = bufferMap.Keys;
+        if (codespec.Sockets?.Count > 0)
+        {
+            buffersNotUsedBySockets = bufferMap.Keys.Except(codespec.Sockets.SelectMany(s => new[] { s.InputBuffer!, s.OutputBuffer! }));
+        }
+
+        foreach (var envVar in buffersNotUsedBySockets.Select(p => new V1EnvVar($"{p.ToUpperInvariant()}_PIPE", $"{FifoMountPath}/{p}")))
         {
             mainContainer.Env.Add(envVar);
         }
@@ -304,19 +311,23 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
             {
                 Name = $"{bufferName}-buffer-sidecar",
                 Image = _bufferOptions.BufferSidecarImage,
-                Args = new[]
-                {
+                Args =
+                [
                     write ? "output" : "input",
                     $"{SecretMountPath}/{bufferName}",
                     write ? "--input" : "--output",
                     $"{FifoMountPath}/{bufferName}",
-                    "--namespace", _k8sOptions.Namespace,
-                    "--pod", "$(POD_NAME)",
-                    "--container", "main",
-                    "--log-format", "json",
-                },
-                VolumeMounts = new[]
-                {
+                    "--namespace",
+                    _k8sOptions.Namespace,
+                    "--pod",
+                    "$(POD_NAME)",
+                    "--container",
+                    "main",
+                    "--log-format",
+                    "json",
+                ],
+                VolumeMounts =
+                [
                     fifoVolumeMount,
                     new()
                     {
@@ -324,12 +335,50 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
                         MountPath = SecretMountPath,
                         ReadOnlyProperty = true,
                     },
-                },
-                Env = new[]
-                {
+                ],
+                Env =
+                [
                     new V1EnvVar("POD_NAME", valueFrom: new V1EnvVarSource(fieldRef: new V1ObjectFieldSelector("metadata.name"))),
-                },
+                ],
             });
+        }
+
+        if (codespec.Sockets != null)
+        {
+            foreach (var socket in codespec.Sockets)
+            {
+                job.Spec.Template.Spec.Containers.Add(new()
+                {
+                    Name = $"socket-{socket.Port}-sidecar",
+                    Image = _bufferOptions.BufferSidecarImage,
+                    Args =
+                    [
+                        "socket-adapt",
+                        "--address",
+                        $"localhost:{socket.Port}",
+                        "--input",
+                        string.IsNullOrEmpty(socket.InputBuffer) ? "" : $"{FifoMountPath}/{socket.InputBuffer}",
+                        "--output",
+                        string.IsNullOrEmpty(socket.OutputBuffer) ? "" : $"{FifoMountPath}/{socket.OutputBuffer}",
+                        "--namespace",
+                        _k8sOptions.Namespace,
+                        "--pod",
+                        "$(POD_NAME)",
+                        "--container",
+                        "main",
+                        "--log-format",
+                        "json",
+                    ],
+                    VolumeMounts =
+                    [
+                        fifoVolumeMount,
+                    ],
+                    Env =
+                    [
+                        new V1EnvVar("POD_NAME", valueFrom: new V1EnvVarSource(fieldRef: new V1ObjectFieldSelector("metadata.name"))),
+                    ],
+                });
+            }
         }
 
         job.Spec.Template.Spec.ServiceAccountName = _k8sOptions.JobServiceAccount;
@@ -377,8 +426,8 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
                     {
                         Name = "main",
                         Image = codespec.Image,
-                        Command = codespec.Command,
-                        Args = codespec.Args,
+                        Command = codespec.Command?.ToArray(),
+                        Args = codespec.Args?.ToArray(),
                         Env = codespec.Env?.Select(p => new V1EnvVar(p.Key, p.Value)).ToList()
                     }
                 ],

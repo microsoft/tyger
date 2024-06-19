@@ -68,6 +68,10 @@ signingKeys:
   #  private:
   #  public:
 
+# Optionally specify settings for the Docker network to be created
+# network:
+#  subnet: 172.20.0.0/16
+
 # Optionally specify container images to use.
 # controlPlaneImage:
 # dataPlaneImage:

@@ -5,6 +5,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using Generator.Equals;
 using k8s.Models;
 
@@ -48,8 +49,8 @@ public record ServiceMetadata(string? Authority = null, string? Audience = null,
 
 [Equatable]
 public partial record BufferParameters(
-    [property: UnorderedEquality] string[]? Inputs,
-    [property: UnorderedEquality] string[]? Outputs) : ModelBase;
+    [property: UnorderedEquality] IReadOnlyList<string>? Inputs,
+    [property: UnorderedEquality] IReadOnlyList<string>? Outputs) : ModelBase;
 
 [Equatable]
 public partial record OvercommittableResources : ModelBase
@@ -115,13 +116,13 @@ public abstract partial record Codespec : ModelBase, ICodespecRef
     /// Overrides the entrypoint of the container image. If not provided, the default entrypoint of the image is used.
     /// </summary>
     [OrderedEquality]
-    public string[]? Command { get; init; }
+    public IReadOnlyList<string>? Command { get; init; }
 
     /// <summary>
     /// Specifies the arguments to pass to the entrypoint
     /// </summary>
     [OrderedEquality]
-    public string[]? Args { get; init; }
+    public IReadOnlyList<string>? Args { get; init; }
 
     /// <summary>
     /// The working directory of the container.
@@ -177,6 +178,8 @@ public partial record JobCodespec : Codespec, IValidatableObject
     /// </summary>
     public BufferParameters? Buffers { get; init; }
 
+    public IReadOnlyList<Socket>? Sockets { get; init; }
+
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
         if (Buffers != null)
@@ -201,7 +204,110 @@ public partial record JobCodespec : Codespec, IValidatableObject
                 }
             }
         }
+
+        if (Sockets != null)
+        {
+            var buffersUsedBySockets = new HashSet<string>();
+            foreach (var socket in Sockets)
+            {
+                if (socket.Port is <= 0 or > 65535)
+                {
+                    yield return new ValidationResult("Port must be between 1 and 65535");
+                }
+
+                if (!string.IsNullOrEmpty(socket.InputBuffer))
+                {
+                    if (Buffers?.Inputs is null || !Buffers.Inputs.Contains(socket.InputBuffer, StringComparer.InvariantCultureIgnoreCase))
+                    {
+                        yield return new ValidationResult($"The input buffer '{socket.InputBuffer}' for socket {socket.Port} is not among the codespec's input buffer parameters");
+                    }
+                    else if (!buffersUsedBySockets.Add(socket.InputBuffer))
+                    {
+                        yield return new ValidationResult($"The input buffer '{socket.InputBuffer}' is used by multiple sockets");
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(socket.OutputBuffer))
+                {
+                    if (Buffers?.Outputs is null || !Buffers.Outputs.Contains(socket.OutputBuffer, StringComparer.InvariantCultureIgnoreCase))
+                    {
+                        yield return new ValidationResult($"The output buffer '{socket.OutputBuffer}' for socket {socket.Port} is not among the codespec's output buffer parameters");
+                    }
+                    else if (!buffersUsedBySockets.Add(socket.OutputBuffer))
+                    {
+                        yield return new ValidationResult($"The output buffer '{socket.OutputBuffer}' is used by multiple sockets");
+                    }
+                }
+
+                if (string.IsNullOrEmpty(socket.InputBuffer) && string.IsNullOrEmpty(socket.OutputBuffer))
+                {
+                    yield return new ValidationResult($"At least one of the input or output buffer must be specified for socket {socket.Port}");
+                }
+            }
+
+            var bufferEnvironmentVariablesUsedBySockets = buffersUsedBySockets.Select(b => $"{b.ToUpperInvariant()}_PIPE").ToHashSet();
+
+            if (Args != null)
+            {
+                foreach (var arg in Args)
+                {
+                    foreach (var result in VerifyNoBufferReferencesUsedBySockets(arg, bufferEnvironmentVariablesUsedBySockets))
+                    {
+                        yield return result;
+                    }
+                }
+            }
+
+            if (Command != null)
+            {
+                foreach (var command in Command)
+                {
+                    foreach (var result in VerifyNoBufferReferencesUsedBySockets(command, bufferEnvironmentVariablesUsedBySockets))
+                    {
+                        yield return result;
+                    }
+                }
+            }
+
+            if (Env != null)
+            {
+                foreach (var env in Env.Values)
+                {
+                    foreach (var result in VerifyNoBufferReferencesUsedBySockets(env, bufferEnvironmentVariablesUsedBySockets))
+                    {
+                        yield return result;
+                    }
+                }
+            }
+        }
     }
+
+    private static IEnumerable<ValidationResult> VerifyNoBufferReferencesUsedBySockets(string input, HashSet<string> bufferEnvironmentVariablesUsedBySockets)
+    {
+        foreach (Match match in EnvironmentVariableExpansionRegex().Matches(input))
+        {
+            if (match.Value.StartsWith("$$", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (bufferEnvironmentVariablesUsedBySockets.Contains(match.Groups[1].Value))
+            {
+                yield return new ValidationResult($"The buffer reference '{match.Value}' is not valid because it is used by a socket");
+            }
+        }
+    }
+
+    [GeneratedRegex(@"\$\(([^)]+)\)|\$\$([^)]+)")]
+    internal static partial Regex EnvironmentVariableExpansionRegex();
+}
+
+[Equatable]
+public partial record Socket
+{
+    public int Port { get; init; }
+    public string? InputBuffer { get; init; }
+    public string? OutputBuffer { get; init; }
 }
 
 [Equatable]
@@ -339,6 +445,12 @@ public record Run : ModelBase
     /// </summary>
     public int? TimeoutSeconds { get; init; } = (int)TimeSpan.FromHours(12).TotalSeconds;
 
+    [JsonIgnore]
+    public bool Final { get; init; } = false;
+
+    [JsonIgnore]
+    public DateTimeOffset? LogsArchivedAt { get; init; }
+
     /// <summary>
     /// The name of target cluster.
     /// </summary>
@@ -353,7 +465,7 @@ public record Run : ModelBase
             StatusReason = null,
             RunningCount = null,
             CreatedAt = default,
-            FinishedAt = null
+            FinishedAt = null,
         };
     }
 }
@@ -362,9 +474,9 @@ public record DatabaseVersionInUse(int Id) : ModelBase;
 
 public record RunPage(IReadOnlyList<Run> Items, Uri? NextLink);
 
-public record CodespecPage(IList<Codespec> Items, Uri? NextLink);
+public record CodespecPage(IReadOnlyList<Codespec> Items, Uri? NextLink);
 
-public record BufferPage(IList<Buffer> Items, Uri? NextLink);
+public record BufferPage(IReadOnlyList<Buffer> Items, Uri? NextLink);
 
 public record Cluster(string Name, string Location, IReadOnlyList<NodePool> NodePools);
 
