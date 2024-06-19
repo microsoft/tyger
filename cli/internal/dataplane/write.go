@@ -14,6 +14,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"sync"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 const (
 	DefaultWriteDop              = 16
 	DefaultBlockSize             = 4 * 1024 * 1024
+	DefaultTimeWindow			 = 0 // seconds
 	EncodedHashChainInitialValue = "MDAwMDAwMDAwMDAwMDAwMA=="
 )
 
@@ -38,6 +40,7 @@ var (
 type writeOptions struct {
 	dop                     int
 	blockSize               int
+	timeWindow				int
 	httpClient              *retryablehttp.Client
 	metadataEndWriteTimeout time.Duration
 	connectionType          client.TygerConnectionType
@@ -54,6 +57,12 @@ func WithWriteDop(dop int) WriteOption {
 func WithWriteBlockSize(blockSize int) WriteOption {
 	return func(o *writeOptions) {
 		o.blockSize = blockSize
+	}
+}
+
+func WithWriteTime(timeWindow int) WriteOption {
+	return func(o *writeOptions) {
+		o.timeWindow = timeWindow
 	}
 }
 
@@ -76,6 +85,7 @@ func Write(ctx context.Context, uri *url.URL, inputReader io.Reader, options ...
 	writeOptions := &writeOptions{
 		dop:                     DefaultWriteDop,
 		blockSize:               DefaultBlockSize,
+		timeWindow:				 DefaultTimeWindow,
 		metadataEndWriteTimeout: 3 * time.Second,
 	}
 	for _, o := range options {
@@ -172,11 +182,27 @@ func Write(ctx context.Context, uri *url.URL, inputReader io.Reader, options ...
 		previousHashChannel <- EncodedHashChainInitialValue
 
 		failed := false
-
 		for {
+			var bytesRead int
+			var buffer []byte
+			var err error
 
-			buffer := pool.Get(writeOptions.blockSize)
-			bytesRead, err := io.ReadFull(inputReader, buffer)
+			if(writeOptions.timeWindow != 0) {
+				// wait time window, then consume from inputReader
+				<-time.After(time.Second* time.Duration(writeOptions.timeWindow))
+				buffer, err = io.ReadAll(inputReader)
+				bytesRead = len(buffer)
+				// ReadAll will never return EOF in this scenario,
+				if(bytesRead == 0 && err == nil) {
+					err = os.Stdin.SetDeadline(time.Now().Add(time.Minute))
+				}
+			} else {
+				buffer = pool.Get(writeOptions.blockSize)
+				bytesRead, err = io.ReadFull(inputReader, buffer)
+			}
+
+			fmt.Println("bytes read", bytesRead)
+			fmt.Println("here is what err is", err)
 			if blobNumber == 0 {
 				metrics.Start()
 			}

@@ -284,6 +284,7 @@ func NewBufferWriteCommand(openFileFunc func(name string, flag int, perm fs.File
 	inputFilePath := ""
 	dop := dataplane.DefaultWriteDop
 	blockSizeString := ""
+	timeWindow := ""
 
 	cmd := &cobra.Command{
 		Use:                   "write { BUFFER_ID | BUFFER_SAS_URI | FILE_WITH_SAS_URI } [flags]",
@@ -337,6 +338,7 @@ func NewBufferWriteCommand(openFileFunc func(name string, flag int, perm fs.File
 
 			writeOptions := []dataplane.WriteOption{dataplane.WithWriteDop(dop)}
 			if blockSizeString != "" {
+				fmt.Println("block size is being set to", blockSizeString)
 				if blockSizeString != "" && blockSizeString[len(blockSizeString)-1] != 'B' {
 					blockSizeString += "B"
 				}
@@ -346,6 +348,17 @@ func NewBufferWriteCommand(openFileFunc func(name string, flag int, perm fs.File
 				}
 
 				writeOptions = append(writeOptions, dataplane.WithWriteBlockSize(int(parsedBlockSize)))
+			}
+
+			if timeWindow != "" {
+				fmt.Println("time is being set to", timeWindow)
+
+				parsedtimeWindow, err := strconv.Atoi(timeWindow)
+				if err != nil {
+					log.Fatal().Err(err).Msg("Invalid time")
+				}
+
+				writeOptions = append(writeOptions, dataplane.WithWriteTime(parsedtimeWindow))
 			}
 
 			err = dataplane.Write(ctx, uri, inputReader, writeOptions...)
@@ -361,6 +374,7 @@ func NewBufferWriteCommand(openFileFunc func(name string, flag int, perm fs.File
 	cmd.Flags().StringVarP(&inputFilePath, "input", "i", inputFilePath, "The file to read from. If not specified, data is read from standard in.")
 	cmd.Flags().IntVarP(&dop, "dop", "p", dop, "The degree of parallelism")
 	cmd.Flags().StringVarP(&blockSizeString, "block-size", "b", blockSizeString, "Split the stream into blocks of this size.")
+	cmd.Flags().StringVarP(&timeWindow, "time-window", "t", timeWindow, "Split the stream into blocks based on this time interval.")
 	return cmd
 }
 
