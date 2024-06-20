@@ -14,7 +14,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"sync"
 	"time"
 
@@ -188,21 +187,22 @@ func Write(ctx context.Context, uri *url.URL, inputReader io.Reader, options ...
 			var err error
 
 			if(writeOptions.timeWindow != 0) {
-				// wait time window, then consume from inputReader
-				<-time.After(time.Second* time.Duration(writeOptions.timeWindow))
-				buffer, err = io.ReadAll(inputReader)
-				bytesRead = len(buffer)
-				// ReadAll will never return EOF in this scenario,
-				if(bytesRead == 0 && err == nil) {
-					err = os.Stdin.SetDeadline(time.Now().Add(time.Minute))
+				window := time.Second* time.Duration(writeOptions.timeWindow)
+				bufferTemp := make([]byte, 1)
+				bytesReadTemp := 0
+				for start := time.Now(); time.Since(start) < window; {
+					bytesReadTemp, err = io.ReadAtLeast(inputReader, bufferTemp, 1)
+					if(bytesReadTemp != 0) {
+						buffer = append(buffer, bufferTemp[0])
+						bytesRead++
+					}
 				}
+				
 			} else {
 				buffer = pool.Get(writeOptions.blockSize)
 				bytesRead, err = io.ReadFull(inputReader, buffer)
 			}
-
-			fmt.Println("bytes read", bytesRead)
-			fmt.Println("here is what err is", err)
+ 
 			if blobNumber == 0 {
 				metrics.Start()
 			}
