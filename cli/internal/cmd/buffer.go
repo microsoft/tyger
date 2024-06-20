@@ -379,7 +379,7 @@ func NewBufferWriteCommand(openFileFunc func(name string, flag int, perm fs.File
 
 			writeOptions := []dataplane.WriteOption{dataplane.WithWriteDop(dop)}
 			if blockSizeString != "" {
-				fmt.Println("block size is being set to", blockSizeString)
+				
 				if blockSizeString != "" && blockSizeString[len(blockSizeString)-1] != 'B' {
 					blockSizeString += "B"
 				}
@@ -392,7 +392,6 @@ func NewBufferWriteCommand(openFileFunc func(name string, flag int, perm fs.File
 			}
 
 			if timeWindow != "" {
-				fmt.Println("time is being set to", timeWindow)
 
 				parsedtimeWindow, err := strconv.Atoi(timeWindow)
 				if err != nil {
