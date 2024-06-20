@@ -197,7 +197,6 @@ func Write(ctx context.Context, uri *url.URL, inputReader io.Reader, options ...
 						bytesRead++
 					}
 				}
-				
 			} else {
 				buffer = pool.Get(writeOptions.blockSize)
 				bytesRead, err = io.ReadFull(inputReader, buffer)
