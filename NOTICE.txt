@@ -8722,75 +8722,106 @@ jobs:
   actionlint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@8f4b7f84864484a7bf31766abe9204da3cbe65b3 # v3.5.0
+      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
       - name: "Check GitHub workflow files"
         uses: docker://docker.mirror.hashicorp.services/rhysd/actionlint:latest
         with:
-          args: -colorname: Build
+          args: -colorname: Go format check
 on:
-  push:
+  pull_request:
+    types: ['opened', 'synchronize']
+
 jobs:
   run-tests:
     runs-on: ubuntu-latest
-    env:
-      TEST_RESULTS: "/tmp/test-results"
     steps:
-      - name: Setup go
-        uses: actions/setup-go@4d34df0c2316fe8122ab82dc22947d607c0c91f9 # v4.0.0
+      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+
+      - uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
         with:
-          go-version: 1.18
-      - uses: actions/checkout@8f4b7f84864484a7bf31766abe9204da3cbe65b3 # v3.5.0
-      - run: mkdir -p "$TEST_RESULTS"/go-retryablyhttp
-      - name: restore_cache
-        uses: actions/cache@69d9d449aced6a2ede0bc19182fadc3a0a42d2b0 # v3.2.6
-        with:
-          key: go-mod-v1-{{ checksum "go.sum" }}
-          restore-keys: go-mod-v1-{{ checksum "go.sum" }}
-          path: "/go/pkg/mod"
-      - run: go mod download
-      - run: go mod tidy
+          go-version-file: ./.go-version
+
       - name: Run go format
         run: |-
-          files=$(go fmt ./...)
+          files=$(gofmt -s -l .)
           if [ -n "$files" ]; then
-            echo "The following file(s) do not conform to go fmt:"
-            echo "$files"
+            echo >&2 "The following file(s) are not gofmt compliant:"
+            echo >&2 "$files"
             exit 1
           fi
-      - name: Install gotestsum
-        run: go install gotest.tools/gotestsum@latest
+name: Unit tests (Go 1.19)
+on:
+  pull_request:
+    types: ['opened', 'synchronize']
+
+jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+
+      - uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
+        with:
+          go-version: 1.19
+
       - name: Run unit tests
-        run: |-
-          PACKAGE_NAMES=$(go list ./...)
-          # shellcheck disable=SC2086 # can't quote package list
-          gotestsum --junitfile "${TEST_RESULTS}"/go-retryablyhttp/gotestsum-report.xml -- $PACKAGE_NAMES
-      - uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
+        run: make test
+name: Unit tests (Go 1.20+)
+on:
+  pull_request:
+    types: ['opened', 'synchronize']
+
+jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+
+      - uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
         with:
-          path: "/tmp/test-results"
-      - uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
-        with:
-          path: "/tmp/test-results"
-permissions:
-  contents: read
+          go-version: 1.22
+
+      - name: Run unit tests
+        run: make test
 .idea/
 *.iml
 *.test
-.vscode/## 0.7.5 (Nov 8, 2023)
+.vscode/1.22.2
+## 0.7.7 (May 30, 2024)
 
-BUG FIXES
+BUG FIXES:
 
-- client: fixes an issue where the request body is not preserved on temporary redirects or re-established HTTP/2 connections [GH-207]
+- client: avoid potentially leaking URL-embedded basic authentication credentials in logs (#158)
+
+## 0.7.6 (May 9, 2024)
+
+ENHANCEMENTS:
+
+- client: support a `RetryPrepare` function for modifying the request before retrying (#216)
+- client: support HTTP-date values for `Retry-After` header value (#138)
+- client: avoid reading entire body when the body is a `*bytes.Reader` (#197)
+
+BUG FIXES:
+
+- client: fix a broken check for invalid server certificate in go 1.20+ (#210)
+
+## 0.7.5 (Nov 8, 2023)
+
+BUG FIXES:
+
+- client: fixes an issue where the request body is not preserved on temporary redirects or re-established HTTP/2 connections (#207)
 
 ## 0.7.4 (Jun 6, 2023)
 
-BUG FIXES
+BUG FIXES:
 
-- client: fixing an issue where the Content-Type header wouldn't be sent with an empty payload when using HTTP/2 [GH-194]
+- client: fixing an issue where the Content-Type header wouldn't be sent with an empty payload when using HTTP/2 (#194)
 
 ## 0.7.3 (May 15, 2023)
 
 Initial release
-* @hashicorp/release-engineeringCopyright (c) 2015 HashiCorp, Inc.
+* @hashicorp/go-retryablehttp-maintainers
+Copyright (c) 2015 HashiCorp, Inc.
 
 Mozilla Public License, version 2.0
 
@@ -9159,7 +9190,7 @@ default: test
 
 test:
 	go vet ./...
-	go test -race ./...
+	go test -v -race ./...
 
 updatedeps:
 	go get -f -t -u ./...
@@ -9227,7 +9258,35 @@ standardClient := retryClient.StandardClient() // *http.Client
 ```
 
 For more usage and examples see the
-[godoc](http://godoc.org/github.com/hashicorp/go-retryablehttp).
+[pkg.go.dev](https://pkg.go.dev/github.com/hashicorp/go-retryablehttp).
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: MPL-2.0
+
+//go:build !go1.20
+// +build !go1.20
+
+package retryablehttp
+
+import "crypto/x509"
+
+func isCertError(err error) bool {
+	_, ok := err.(x509.UnknownAuthorityError)
+	return ok
+}
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: MPL-2.0
+
+//go:build go1.20
+// +build go1.20
+
+package retryablehttp
+
+import "crypto/tls"
+
+func isCertError(err error) bool {
+	_, ok := err.(*tls.CertificateVerificationError)
+	return ok
+}
 // Copyright (c) HashiCorp, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
@@ -9257,10 +9316,8 @@ package retryablehttp
 import (
 	"bytes"
 	"context"
-	"crypto/x509"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"math"
 	"math/rand"
@@ -9293,6 +9350,10 @@ var (
 	// limit the size we consume to respReadLimit.
 	respReadLimit = int64(4096)
 
+	// timeNow sets the function that returns the current time.
+	// This defaults to time.Now. Changes to this should only be done in tests.
+	timeNow = time.Now
+
 	// A regular expression to match the error returned by net/http when the
 	// configured number of redirects is exhausted. This error isn't typed
 	// specifically so we resort to matching on the error string.
@@ -9302,6 +9363,11 @@ var (
 	// scheme specified in the URL is invalid. This error isn't typed
 	// specifically so we resort to matching on the error string.
 	schemeErrorRe = regexp.MustCompile(`unsupported protocol scheme`)
+
+	// A regular expression to match the error returned by net/http when a
+	// request header or value is invalid. This error isn't typed
+	// specifically so we resort to matching on the error string.
+	invalidHeaderErrorRe = regexp.MustCompile(`invalid header`)
 
 	// A regular expression to match the error returned by net/http when the
 	// TLS certificate is not trusted. This error isn't typed
@@ -9478,21 +9544,19 @@ func getBodyReaderAndContentLength(rawBody interface{}) (ReaderFunc, int64, erro
 	// deal with it seeking so want it to match here instead of the
 	// io.ReadSeeker case.
 	case *bytes.Reader:
-		buf, err := ioutil.ReadAll(body)
-		if err != nil {
-			return nil, 0, err
-		}
+		snapshot := *body
 		bodyReader = func() (io.Reader, error) {
-			return bytes.NewReader(buf), nil
+			r := snapshot
+			return &r, nil
 		}
-		contentLength = int64(len(buf))
+		contentLength = int64(body.Len())
 
 	// Compat case
 	case io.ReadSeeker:
 		raw := body
 		bodyReader = func() (io.Reader, error) {
 			_, err := raw.Seek(0, 0)
-			return ioutil.NopCloser(raw), err
+			return io.NopCloser(raw), err
 		}
 		if lr, ok := raw.(LenReader); ok {
 			contentLength = int64(lr.Len())
@@ -9500,7 +9564,7 @@ func getBodyReaderAndContentLength(rawBody interface{}) (ReaderFunc, int64, erro
 
 	// Read all in so we can reset
 	case io.Reader:
-		buf, err := ioutil.ReadAll(body)
+		buf, err := io.ReadAll(body)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -9623,6 +9687,9 @@ type Backoff func(min, max time.Duration, attemptNum int, resp *http.Response) t
 // attempted. If overriding this, be sure to close the body if needed.
 type ErrorHandler func(resp *http.Response, err error, numTries int) (*http.Response, error)
 
+// PrepareRetry is called before retry operation. It can be used for example to re-sign the request
+type PrepareRetry func(req *http.Request) error
+
 // Client is used to make HTTP requests. It adds additional functionality
 // like automatic retries to tolerate minor outages.
 type Client struct {
@@ -9650,6 +9717,9 @@ type Client struct {
 
 	// ErrorHandler specifies the custom error handler to use, if any
 	ErrorHandler ErrorHandler
+
+	// PrepareRetry can prepare the request for retry operation, for example re-sign it
+	PrepareRetry PrepareRetry
 
 	loggerInit sync.Once
 	clientInit sync.Once
@@ -9724,11 +9794,16 @@ func baseRetryPolicy(resp *http.Response, err error) (bool, error) {
 				return false, v
 			}
 
+			// Don't retry if the error was due to an invalid header.
+			if invalidHeaderErrorRe.MatchString(v.Error()) {
+				return false, v
+			}
+
 			// Don't retry if the error was due to TLS cert verification failure.
 			if notTrustedErrorRe.MatchString(v.Error()) {
 				return false, v
 			}
-			if _, ok := v.Err.(x509.UnknownAuthorityError); ok {
+			if isCertError(v.Err) {
 				return false, v
 			}
 		}
@@ -9765,10 +9840,8 @@ func baseRetryPolicy(resp *http.Response, err error) (bool, error) {
 func DefaultBackoff(min, max time.Duration, attemptNum int, resp *http.Response) time.Duration {
 	if resp != nil {
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable {
-			if s, ok := resp.Header["Retry-After"]; ok {
-				if sleep, err := strconv.ParseInt(s[0], 10, 64); err == nil {
-					return time.Second * time.Duration(sleep)
-				}
+			if sleep, ok := parseRetryAfterHeader(resp.Header["Retry-After"]); ok {
+				return sleep
 			}
 		}
 	}
@@ -9779,6 +9852,41 @@ func DefaultBackoff(min, max time.Duration, attemptNum int, resp *http.Response)
 		sleep = max
 	}
 	return sleep
+}
+
+// parseRetryAfterHeader parses the Retry-After header and returns the
+// delay duration according to the spec: https://httpwg.org/specs/rfc7231.html#header.retry-after
+// The bool returned will be true if the header was successfully parsed.
+// Otherwise, the header was either not present, or was not parseable according to the spec.
+//
+// Retry-After headers come in two flavors: Seconds or HTTP-Date
+//
+// Examples:
+// * Retry-After: Fri, 31 Dec 1999 23:59:59 GMT
+// * Retry-After: 120
+func parseRetryAfterHeader(headers []string) (time.Duration, bool) {
+	if len(headers) == 0 || headers[0] == "" {
+		return 0, false
+	}
+	header := headers[0]
+	// Retry-After: 120
+	if sleep, err := strconv.ParseInt(header, 10, 64); err == nil {
+		if sleep < 0 { // a negative sleep doesn't make sense
+			return 0, false
+		}
+		return time.Second * time.Duration(sleep), true
+	}
+
+	// Retry-After: Fri, 31 Dec 1999 23:59:59 GMT
+	retryTime, err := time.Parse(time.RFC1123, header)
+	if err != nil {
+		return 0, false
+	}
+	if until := retryTime.Sub(timeNow()); until > 0 {
+		return until, true
+	}
+	// date is in the past
+	return 0, true
 }
 
 // LinearJitterBackoff provides a callback for Client.Backoff which will
@@ -9808,13 +9916,13 @@ func LinearJitterBackoff(min, max time.Duration, attemptNum int, resp *http.Resp
 	}
 
 	// Seed rand; doing this every time is fine
-	rand := rand.New(rand.NewSource(int64(time.Now().Nanosecond())))
+	source := rand.New(rand.NewSource(int64(time.Now().Nanosecond())))
 
 	// Pick a random number that lies somewhere between the min and max and
 	// multiply by the attemptNum. attemptNum starts at zero so we always
 	// increment here. We first get a random percentage, then apply that to the
 	// difference between min and max, and add to min.
-	jitter := rand.Float64() * float64(max-min)
+	jitter := source.Float64() * float64(max-min)
 	jitterMin := int64(jitter) + int64(min)
 	return time.Duration(jitterMin * int64(attemptNum))
 }
@@ -9839,19 +9947,19 @@ func (c *Client) Do(req *Request) (*http.Response, error) {
 	if logger != nil {
 		switch v := logger.(type) {
 		case LeveledLogger:
-			v.Debug("performing request", "method", req.Method, "url", req.URL)
+			v.Debug("performing request", "method", req.Method, "url", redactURL(req.URL))
 		case Logger:
-			v.Printf("[DEBUG] %s %s", req.Method, req.URL)
+			v.Printf("[DEBUG] %s %s", req.Method, redactURL(req.URL))
 		}
 	}
 
 	var resp *http.Response
 	var attempt int
 	var shouldRetry bool
-	var doErr, respErr, checkErr error
+	var doErr, respErr, checkErr, prepareErr error
 
 	for i := 0; ; i++ {
-		doErr, respErr = nil, nil
+		doErr, respErr, prepareErr = nil, nil, nil
 		attempt++
 
 		// Always rewind the request body when non-nil.
@@ -9864,7 +9972,7 @@ func (c *Client) Do(req *Request) (*http.Response, error) {
 			if c, ok := body.(io.ReadCloser); ok {
 				req.Body = c
 			} else {
-				req.Body = ioutil.NopCloser(body)
+				req.Body = io.NopCloser(body)
 			}
 		}
 
@@ -9896,9 +10004,9 @@ func (c *Client) Do(req *Request) (*http.Response, error) {
 		if err != nil {
 			switch v := logger.(type) {
 			case LeveledLogger:
-				v.Error("request failed", "error", err, "method", req.Method, "url", req.URL)
+				v.Error("request failed", "error", err, "method", req.Method, "url", redactURL(req.URL))
 			case Logger:
-				v.Printf("[ERR] %s %s request failed: %v", req.Method, req.URL, err)
+				v.Printf("[ERR] %s %s request failed: %v", req.Method, redactURL(req.URL), err)
 			}
 		} else {
 			// Call this here to maintain the behavior of logging all requests,
@@ -9934,7 +10042,7 @@ func (c *Client) Do(req *Request) (*http.Response, error) {
 
 		wait := c.Backoff(c.RetryWaitMin, c.RetryWaitMax, i, resp)
 		if logger != nil {
-			desc := fmt.Sprintf("%s %s", req.Method, req.URL)
+			desc := fmt.Sprintf("%s %s", req.Method, redactURL(req.URL))
 			if resp != nil {
 				desc = fmt.Sprintf("%s (status: %d)", desc, resp.StatusCode)
 			}
@@ -9958,17 +10066,26 @@ func (c *Client) Do(req *Request) (*http.Response, error) {
 		// without racing against the closeBody call in persistConn.writeLoop.
 		httpreq := *req.Request
 		req.Request = &httpreq
+
+		if c.PrepareRetry != nil {
+			if err := c.PrepareRetry(req.Request); err != nil {
+				prepareErr = err
+				break
+			}
+		}
 	}
 
 	// this is the closest we have to success criteria
-	if doErr == nil && respErr == nil && checkErr == nil && !shouldRetry {
+	if doErr == nil && respErr == nil && checkErr == nil && prepareErr == nil && !shouldRetry {
 		return resp, nil
 	}
 
 	defer c.HTTPClient.CloseIdleConnections()
 
 	var err error
-	if checkErr != nil {
+	if prepareErr != nil {
+		err = prepareErr
+	} else if checkErr != nil {
 		err = checkErr
 	} else if respErr != nil {
 		err = respErr
@@ -9990,17 +10107,17 @@ func (c *Client) Do(req *Request) (*http.Response, error) {
 	// communicate why
 	if err == nil {
 		return nil, fmt.Errorf("%s %s giving up after %d attempt(s)",
-			req.Method, req.URL, attempt)
+			req.Method, redactURL(req.URL), attempt)
 	}
 
 	return nil, fmt.Errorf("%s %s giving up after %d attempt(s): %w",
-		req.Method, req.URL, attempt, err)
+		req.Method, redactURL(req.URL), attempt, err)
 }
 
 // Try to read the response body so we can reuse this connection.
 func (c *Client) drainBody(body io.ReadCloser) {
 	defer body.Close()
-	_, err := io.Copy(ioutil.Discard, io.LimitReader(body, respReadLimit))
+	_, err := io.Copy(io.Discard, io.LimitReader(body, respReadLimit))
 	if err != nil {
 		if c.logger() != nil {
 			switch v := c.logger().(type) {
@@ -10075,6 +10192,20 @@ func (c *Client) StandardClient() *http.Client {
 		Transport: &RoundTripper{Client: c},
 	}
 }
+
+// Taken from url.URL#Redacted() which was introduced in go 1.15.
+// We can switch to using it directly if we'll bump the minimum required go version.
+func redactURL(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+
+	ru := *u
+	if _, has := ru.User.Password(); has {
+		ru.User = url.UserPassword(ru.User.Username(), "xxxxx")
+	}
+	return ru.String()
+}
 // Copyright (c) HashiCorp, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
@@ -10086,12 +10217,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -10282,7 +10413,7 @@ func testClientDo(t *testing.T, body interface{}) {
 		}
 
 		// Check the payload
-		body, err := ioutil.ReadAll(r.Body)
+		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			t.Fatalf("err: %s", err)
 		}
@@ -10429,6 +10560,128 @@ func TestClient_Do_WithResponseHandler(t *testing.T) {
 	}
 }
 
+func TestClient_Do_WithPrepareRetry(t *testing.T) {
+	// Create the client. Use short retry windows so we fail faster.
+	client := NewClient()
+	client.RetryWaitMin = 10 * time.Millisecond
+	client.RetryWaitMax = 10 * time.Millisecond
+	client.RetryMax = 2
+
+	var checks int
+	client.CheckRetry = func(_ context.Context, resp *http.Response, err error) (bool, error) {
+		checks++
+		if err != nil && strings.Contains(err.Error(), "nonretryable") {
+			return false, nil
+		}
+		return DefaultRetryPolicy(context.TODO(), resp, err)
+	}
+
+	var prepareChecks int
+	client.PrepareRetry = func(req *http.Request) error {
+		prepareChecks++
+		req.Header.Set("foo", strconv.Itoa(prepareChecks))
+		return nil
+	}
+
+	// Mock server which always responds 200.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer ts.Close()
+
+	var shouldSucceed bool
+	tests := []struct {
+		name                  string
+		handler               ResponseHandlerFunc
+		expectedChecks        int // often 2x number of attempts since we check twice
+		expectedPrepareChecks int
+		err                   string
+	}{
+		{
+			name:                  "nil handler",
+			handler:               nil,
+			expectedChecks:        1,
+			expectedPrepareChecks: 0,
+		},
+		{
+			name: "handler always succeeds",
+			handler: func(*http.Response) error {
+				return nil
+			},
+			expectedChecks:        2,
+			expectedPrepareChecks: 0,
+		},
+		{
+			name: "handler always fails in a retryable way",
+			handler: func(*http.Response) error {
+				return errors.New("retryable failure")
+			},
+			expectedChecks:        6,
+			expectedPrepareChecks: 2,
+		},
+		{
+			name: "handler always fails in a nonretryable way",
+			handler: func(*http.Response) error {
+				return errors.New("nonretryable failure")
+			},
+			expectedChecks:        2,
+			expectedPrepareChecks: 0,
+		},
+		{
+			name: "handler succeeds on second attempt",
+			handler: func(*http.Response) error {
+				if shouldSucceed {
+					return nil
+				}
+				shouldSucceed = true
+				return errors.New("retryable failure")
+			},
+			expectedChecks:        4,
+			expectedPrepareChecks: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			checks = 0
+			prepareChecks = 0
+			shouldSucceed = false
+			// Create the request
+			req, err := NewRequest("GET", ts.URL, nil)
+			if err != nil {
+				t.Fatalf("err: %v", err)
+			}
+			req.SetResponseHandler(tt.handler)
+
+			// Send the request.
+			_, err = client.Do(req)
+			if err != nil && !strings.Contains(err.Error(), tt.err) {
+				t.Fatalf("error does not match expectation, expected: %s, got: %s", tt.err, err.Error())
+			}
+			if err == nil && tt.err != "" {
+				t.Fatalf("no error, expected: %s", tt.err)
+			}
+
+			if checks != tt.expectedChecks {
+				t.Fatalf("expected %d attempts, got %d attempts", tt.expectedChecks, checks)
+			}
+
+			if prepareChecks != tt.expectedPrepareChecks {
+				t.Fatalf("expected %d attempts of prepare check, got %d attempts", tt.expectedPrepareChecks, prepareChecks)
+			}
+			header := req.Request.Header.Get("foo")
+			if tt.expectedPrepareChecks == 0 && header != "" {
+				t.Fatalf("expected no changes to request header 'foo', but got '%s'", header)
+			}
+			expectedHeader := strconv.Itoa(tt.expectedPrepareChecks)
+			if tt.expectedPrepareChecks != 0 && header != expectedHeader {
+				t.Fatalf("expected changes in request header 'foo' '%s', but got '%s'", expectedHeader, header)
+			}
+
+		})
+	}
+}
+
 func TestClient_Do_fails(t *testing.T) {
 	// Mock server which always responds 500.
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -10436,17 +10689,32 @@ func TestClient_Do_fails(t *testing.T) {
 	}))
 	defer ts.Close()
 
+	serverUrlWithBasicAuth, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("failed parsing test server url: %s", ts.URL)
+	}
+	serverUrlWithBasicAuth.User = url.UserPassword("user", "pasten")
+
 	tests := []struct {
+		url  string
 		name string
 		cr   CheckRetry
 		err  string
 	}{
 		{
+			url:  ts.URL,
 			name: "default_retry_policy",
 			cr:   DefaultRetryPolicy,
 			err:  "giving up after 3 attempt(s)",
 		},
 		{
+			url:  serverUrlWithBasicAuth.String(),
+			name: "default_retry_policy_url_with_basic_auth",
+			cr:   DefaultRetryPolicy,
+			err:  redactURL(serverUrlWithBasicAuth) + " giving up after 3 attempt(s)",
+		},
+		{
+			url:  ts.URL,
 			name: "error_propagated_retry_policy",
 			cr:   ErrorPropagatedRetryPolicy,
 			err:  "giving up after 3 attempt(s): unexpected HTTP status 500 Internal Server Error",
@@ -10463,7 +10731,7 @@ func TestClient_Do_fails(t *testing.T) {
 			client.RetryMax = 2
 
 			// Create the request
-			req, err := NewRequest("POST", ts.URL, nil)
+			req, err := NewRequest("POST", tt.url, nil)
 			if err != nil {
 				t.Fatalf("err: %v", err)
 			}
@@ -10471,7 +10739,7 @@ func TestClient_Do_fails(t *testing.T) {
 			// Send the request.
 			_, err = client.Do(req)
 			if err == nil || !strings.HasSuffix(err.Error(), tt.err) {
-				t.Fatalf("expected giving up error, got: %#v", err)
+				t.Fatalf("expected %#v, got: %#v", tt.err, err)
 			}
 		})
 	}
@@ -10611,7 +10879,7 @@ func testClientResponseLogHook(t *testing.T, l interface{}, buf *bytes.Buffer) {
 			}
 		} else {
 			// Log the response body when we get a 500
-			body, err := ioutil.ReadAll(resp.Body)
+			body, err := io.ReadAll(resp.Body)
 			if err != nil {
 				t.Fatalf("err: %v", err)
 			}
@@ -10632,7 +10900,7 @@ func testClientResponseLogHook(t *testing.T, l interface{}, buf *bytes.Buffer) {
 
 	// Make sure we can read the response body still, since we did not
 	// read or close it from the response log hook.
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -10732,12 +11000,67 @@ func TestClient_CheckRetry(t *testing.T) {
 	}
 }
 
+func testStaticTime(t *testing.T) {
+	timeNow = func() time.Time {
+		now, err := time.Parse(time.RFC1123, "Fri, 31 Dec 1999 23:59:57 GMT")
+		if err != nil {
+			panic(err)
+		}
+		return now
+	}
+	t.Cleanup(func() {
+		timeNow = time.Now
+	})
+}
+
+func TestParseRetryAfterHeader(t *testing.T) {
+	testStaticTime(t)
+	tests := []struct {
+		name    string
+		headers []string
+		sleep   time.Duration
+		ok      bool
+	}{
+		{"seconds", []string{"2"}, time.Second * 2, true},
+		{"date", []string{"Fri, 31 Dec 1999 23:59:59 GMT"}, time.Second * 2, true},
+		{"past-date", []string{"Fri, 31 Dec 1999 23:59:00 GMT"}, 0, true},
+		{"nil", nil, 0, false},
+		{"two-headers", []string{"2", "3"}, time.Second * 2, true},
+		{"empty", []string{""}, 0, false},
+		{"negative", []string{"-2"}, 0, false},
+		{"bad-date", []string{"Fri, 32 Dec 1999 23:59:59 GMT"}, 0, false},
+		{"bad-date-format", []string{"badbadbad"}, 0, false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			sleep, ok := parseRetryAfterHeader(test.headers)
+			if ok != test.ok {
+				t.Fatalf("expected ok=%t, got ok=%t", test.ok, ok)
+			}
+			if sleep != test.sleep {
+				t.Fatalf("expected sleep=%v, got sleep=%v", test.sleep, sleep)
+			}
+		})
+	}
+}
+
 func TestClient_DefaultBackoff(t *testing.T) {
-	for _, code := range []int{http.StatusTooManyRequests, http.StatusServiceUnavailable} {
-		t.Run(fmt.Sprintf("http_%d", code), func(t *testing.T) {
+	testStaticTime(t)
+	tests := []struct {
+		name        string
+		code        int
+		retryHeader string
+	}{
+		{"http_429_seconds", http.StatusTooManyRequests, "2"},
+		{"http_429_date", http.StatusTooManyRequests, "Fri, 31 Dec 1999 23:59:59 GMT"},
+		{"http_503_seconds", http.StatusServiceUnavailable, "2"},
+		{"http_503_date", http.StatusServiceUnavailable, "Fri, 31 Dec 1999 23:59:59 GMT"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
 			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Retry-After", "2")
-				http.Error(w, fmt.Sprintf("test_%d_body", code), code)
+				w.Header().Set("Retry-After", test.retryHeader)
+				http.Error(w, fmt.Sprintf("test_%d_body", test.code), test.code)
 			}))
 			defer ts.Close()
 
@@ -10835,6 +11158,60 @@ func TestClient_DefaultRetryPolicy_invalidscheme(t *testing.T) {
 	}
 }
 
+func TestClient_DefaultRetryPolicy_invalidheadername(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer ts.Close()
+
+	attempts := 0
+	client := NewClient()
+	client.CheckRetry = func(_ context.Context, resp *http.Response, err error) (bool, error) {
+		attempts++
+		return DefaultRetryPolicy(context.TODO(), resp, err)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	req.Header.Set("Header-Name-\033", "header value")
+	_, err = client.StandardClient().Do(req)
+	if err == nil {
+		t.Fatalf("expected header error, got nil")
+	}
+	if attempts != 1 {
+		t.Fatalf("expected 1 attempt, got %d", attempts)
+	}
+}
+
+func TestClient_DefaultRetryPolicy_invalidheadervalue(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer ts.Close()
+
+	attempts := 0
+	client := NewClient()
+	client.CheckRetry = func(_ context.Context, resp *http.Response, err error) (bool, error) {
+		attempts++
+		return DefaultRetryPolicy(context.TODO(), resp, err)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	req.Header.Set("Header-Name", "bad header value \033")
+	_, err = client.StandardClient().Do(req)
+	if err == nil {
+		t.Fatalf("expected header value error, got nil")
+	}
+	if attempts != 1 {
+		t.Fatalf("expected 1 attempt, got %d", attempts)
+	}
+}
+
 func TestClient_CheckRetryStop(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "test_500_body", http.StatusInternalServerError)
@@ -10896,7 +11273,7 @@ func TestClient_Post(t *testing.T) {
 		}
 
 		// Check the payload
-		body, err := ioutil.ReadAll(r.Body)
+		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			t.Fatalf("err: %s", err)
 		}
@@ -10934,7 +11311,7 @@ func TestClient_PostForm(t *testing.T) {
 		}
 
 		// Check the payload
-		body, err := ioutil.ReadAll(r.Body)
+		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			t.Fatalf("err: %s", err)
 		}
@@ -11118,20 +11495,53 @@ module github.com/hashicorp/go-retryablehttp
 
 require (
 	github.com/hashicorp/go-cleanhttp v0.5.2
-	github.com/hashicorp/go-hclog v0.9.2
+	github.com/hashicorp/go-hclog v1.6.3
 )
 
-go 1.13
+require (
+	github.com/fatih/color v1.16.0 // indirect
+	github.com/mattn/go-colorable v0.1.13 // indirect
+	github.com/mattn/go-isatty v0.0.20 // indirect
+	golang.org/x/sys v0.20.0 // indirect
+)
+
+go 1.19
+github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
+github.com/fatih/color v1.13.0/go.mod h1:kLAiJbzzSOZDVNGyDpeOxJ47H46qBXwg5ILebYFFOfk=
+github.com/fatih/color v1.16.0 h1:zmkK9Ngbjj+K0yRhTVONQh1p/HknKYSlNT+vZCzyokM=
+github.com/fatih/color v1.16.0/go.mod h1:fL2Sau1YI5c0pdGEVCbKQbLXB6edEj1ZgiY4NijnWvE=
 github.com/hashicorp/go-cleanhttp v0.5.2 h1:035FKYIWjmULyFRBKPs8TBQoi0x6d9G4xc9neXJWAZQ=
 github.com/hashicorp/go-cleanhttp v0.5.2/go.mod h1:kO/YDlP8L1346E6Sodw+PrpBSV4/SoxCXGY6BqNFT48=
-github.com/hashicorp/go-hclog v0.9.2 h1:CG6TE5H9/JXsFWJCfoIVpKFIkFe6ysEuHirp4DxCsHI=
-github.com/hashicorp/go-hclog v0.9.2/go.mod h1:5CU+agLiy3J7N7QjHK5d05KxGsuXiQLrjA0H7acj2lQ=
+github.com/hashicorp/go-hclog v1.6.3 h1:Qr2kF+eVWjTiYmU7Y31tYlP1h0q/X3Nl3tPGdaB11/k=
+github.com/hashicorp/go-hclog v1.6.3/go.mod h1:W4Qnvbt70Wk/zYJryRzDRU/4r0kIg0PVHBcfoyhpF5M=
+github.com/mattn/go-colorable v0.1.9/go.mod h1:u6P/XSegPjTcexA+o6vUJrdnUu04hMope9wVRipJSqc=
+github.com/mattn/go-colorable v0.1.12/go.mod h1:u5H1YNBxpqRaxsYJYSkiCWKzEfiAb1Gb520KVy5xxl4=
+github.com/mattn/go-colorable v0.1.13 h1:fFA4WZxdEF4tXPZVKMLwD8oUnCTTo08duU7wxecdEvA=
+github.com/mattn/go-colorable v0.1.13/go.mod h1:7S9/ev0klgBDR4GtXTXX8a3vIGJpMovkB8vQcUbaXHg=
+github.com/mattn/go-isatty v0.0.12/go.mod h1:cbi8OIDigv2wuxKPP5vlRcQ1OAZbq2CE4Kysco4FUpU=
+github.com/mattn/go-isatty v0.0.14/go.mod h1:7GGIvUiUoEMVVmxf/4nioHXj79iQHKdU27kJ6hsGG94=
+github.com/mattn/go-isatty v0.0.16/go.mod h1:kYGgaQfpe5nmfYZH+SKPsOc2e4SrIfOl2e/yFXSvRLM=
+github.com/mattn/go-isatty v0.0.20 h1:xfD0iDuEKnDkl03q4limB+vH+GxLEtL/jb4xVJSWWEY=
+github.com/mattn/go-isatty v0.0.20/go.mod h1:W+V8PltTTMOvKvAeJH7IuucS94S2C6jfK/D7dTCTo3Y=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
-github.com/stretchr/testify v1.2.2 h1:bSDNvY7ZPG5RlJ8otE/7V6gMiyenm9RtJ7IUVIAoJ1w=
-github.com/stretchr/testify v1.2.2/go.mod h1:a8OnRcib4nhh0OaRAV+Yts87kKdq0PP7pXfy6kDkUVs=
+github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
+github.com/stretchr/testify v1.7.2 h1:4jaiDzPyXQvSd7D0EjG45355tLlV3VOECpq10pLC+8s=
+github.com/stretchr/testify v1.7.2/go.mod h1:R6va5+xMeoiuVRoj+gSkQ7d3FALtqAAGI1FQKckRals=
+golang.org/x/sys v0.0.0-20200116001909-b77594299b42/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
+golang.org/x/sys v0.0.0-20200223170610-d5e6a3e2c0ae/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
+golang.org/x/sys v0.0.0-20210630005230-0f9fa26af87c/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+golang.org/x/sys v0.0.0-20210927094055-39ccf1dd6fa6/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+golang.org/x/sys v0.0.0-20220503163025-988cb79eb6c6/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+golang.org/x/sys v0.0.0-20220811171246-fbc7d0a398ab/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+golang.org/x/sys v0.6.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+golang.org/x/sys v0.20.0 h1:Od9JTbYCk261bKm4M/mw7AklTlFYIa0bIp9BgSm1S8Y=
+golang.org/x/sys v0.20.0/go.mod h1:/VUhepiaJMQUp4+oa/7Zr1D23ma6VTLIYjOOTFZPUcA=
+gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
+gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=
+gopkg.in/yaml.v3 v3.0.1/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
 // Copyright (c) HashiCorp, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
@@ -11195,7 +11605,7 @@ package retryablehttp
 import (
 	"context"
 	"errors"
-	"io/ioutil"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -11277,7 +11687,7 @@ func TestRoundTripper_RoundTrip(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
-	if v, err := ioutil.ReadAll(resp.Body); err != nil {
+	if v, err := io.ReadAll(resp.Body); err != nil {
 		t.Fatal(err)
 	} else if string(v) != "success!" {
 		t.Fatalf("expected %q, got %q", "success!", v)
@@ -11361,56 +11771,67 @@ jobs:
   actionlint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@8f4b7f84864484a7bf31766abe9204da3cbe65b3 # v3.5.0
+      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
       - name: "Check GitHub workflow files"
         uses: docker://docker.mirror.hashicorp.services/rhysd/actionlint:latest
         with:
-          args: -colorname: Build
+          args: -colorname: Go format check
 on:
-  push:
+  pull_request:
+    types: ['opened', 'synchronize']
+
 jobs:
   run-tests:
     runs-on: ubuntu-latest
-    env:
-      TEST_RESULTS: "/tmp/test-results"
     steps:
-      - name: Setup go
-        uses: actions/setup-go@4d34df0c2316fe8122ab82dc22947d607c0c91f9 # v4.0.0
+      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+
+      - uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
         with:
-          go-version: 1.18
-      - uses: actions/checkout@8f4b7f84864484a7bf31766abe9204da3cbe65b3 # v3.5.0
-      - run: mkdir -p "$TEST_RESULTS"/go-retryablyhttp
-      - name: restore_cache
-        uses: actions/cache@69d9d449aced6a2ede0bc19182fadc3a0a42d2b0 # v3.2.6
-        with:
-          key: go-mod-v1-{{ checksum "go.sum" }}
-          restore-keys: go-mod-v1-{{ checksum "go.sum" }}
-          path: "/go/pkg/mod"
-      - run: go mod download
-      - run: go mod tidy
+          go-version-file: ./.go-version
+
       - name: Run go format
         run: |-
-          files=$(go fmt ./...)
+          files=$(gofmt -s -l .)
           if [ -n "$files" ]; then
-            echo "The following file(s) do not conform to go fmt:"
-            echo "$files"
+            echo >&2 "The following file(s) are not gofmt compliant:"
+            echo >&2 "$files"
             exit 1
           fi
-      - name: Install gotestsum
-        run: go install gotest.tools/gotestsum@latest
+name: Unit tests (Go 1.19)
+on:
+  pull_request:
+    types: ['opened', 'synchronize']
+
+jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+
+      - uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
+        with:
+          go-version: 1.19
+
       - name: Run unit tests
-        run: |-
-          PACKAGE_NAMES=$(go list ./...)
-          # shellcheck disable=SC2086 # can't quote package list
-          gotestsum --junitfile "${TEST_RESULTS}"/go-retryablyhttp/gotestsum-report.xml -- $PACKAGE_NAMES
-      - uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
+        run: make test
+name: Unit tests (Go 1.20+)
+on:
+  pull_request:
+    types: ['opened', 'synchronize']
+
+jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+
+      - uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
         with:
-          path: "/tmp/test-results"
-      - uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
-        with:
-          path: "/tmp/test-results"
-permissions:
-  contents: read
+          go-version: 1.22
+
+      - name: Run unit tests
+        run: make test
 
 ================================================================================
 
@@ -11430,56 +11851,67 @@ jobs:
   actionlint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@8f4b7f84864484a7bf31766abe9204da3cbe65b3 # v3.5.0
+      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
       - name: "Check GitHub workflow files"
         uses: docker://docker.mirror.hashicorp.services/rhysd/actionlint:latest
         with:
-          args: -colorname: Build
+          args: -colorname: Go format check
 on:
-  push:
+  pull_request:
+    types: ['opened', 'synchronize']
+
 jobs:
   run-tests:
     runs-on: ubuntu-latest
-    env:
-      TEST_RESULTS: "/tmp/test-results"
     steps:
-      - name: Setup go
-        uses: actions/setup-go@4d34df0c2316fe8122ab82dc22947d607c0c91f9 # v4.0.0
+      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+
+      - uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
         with:
-          go-version: 1.18
-      - uses: actions/checkout@8f4b7f84864484a7bf31766abe9204da3cbe65b3 # v3.5.0
-      - run: mkdir -p "$TEST_RESULTS"/go-retryablyhttp
-      - name: restore_cache
-        uses: actions/cache@69d9d449aced6a2ede0bc19182fadc3a0a42d2b0 # v3.2.6
-        with:
-          key: go-mod-v1-{{ checksum "go.sum" }}
-          restore-keys: go-mod-v1-{{ checksum "go.sum" }}
-          path: "/go/pkg/mod"
-      - run: go mod download
-      - run: go mod tidy
+          go-version-file: ./.go-version
+
       - name: Run go format
         run: |-
-          files=$(go fmt ./...)
+          files=$(gofmt -s -l .)
           if [ -n "$files" ]; then
-            echo "The following file(s) do not conform to go fmt:"
-            echo "$files"
+            echo >&2 "The following file(s) are not gofmt compliant:"
+            echo >&2 "$files"
             exit 1
           fi
-      - name: Install gotestsum
-        run: go install gotest.tools/gotestsum@latest
+name: Unit tests (Go 1.19)
+on:
+  pull_request:
+    types: ['opened', 'synchronize']
+
+jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+
+      - uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
+        with:
+          go-version: 1.19
+
       - name: Run unit tests
-        run: |-
-          PACKAGE_NAMES=$(go list ./...)
-          # shellcheck disable=SC2086 # can't quote package list
-          gotestsum --junitfile "${TEST_RESULTS}"/go-retryablyhttp/gotestsum-report.xml -- $PACKAGE_NAMES
-      - uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
+        run: make test
+name: Unit tests (Go 1.20+)
+on:
+  pull_request:
+    types: ['opened', 'synchronize']
+
+jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+
+      - uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
         with:
-          path: "/tmp/test-results"
-      - uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
-        with:
-          path: "/tmp/test-results"
-permissions:
-  contents: read
+          go-version: 1.22
+
+      - name: Run unit tests
+        run: make test
 
 ================================================================================
 
@@ -26994,7 +27426,18 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ================================================================================
 
+** Microsoft.Identity.Client.Extensions.Msal; version 4.61.3 -- 
+(c) Microsoft Corporation
 
+MIT License
+
+Copyright (c) <year> <copyright holders>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ================================================================================
 
