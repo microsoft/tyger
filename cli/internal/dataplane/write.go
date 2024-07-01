@@ -181,32 +181,32 @@ func Write(ctx context.Context, uri *url.URL, inputReader io.Reader, options ...
 		previousHashChannel <- EncodedHashChainInitialValue
 
 		failed := false
+		routineStarted := false
+		buffer := pool.Get(writeOptions.blockSize)
+		var bytesRead int
+		var err error
+		
 		for {
-			var bytesRead int
-			var buffer []byte
-			var err error
 
-			if(writeOptions.timeWindow != 0) {
-				window := time.Second* time.Duration(writeOptions.timeWindow)
-				bufferTemp := make([]byte, 1)
-				bytesReadTemp := 0
-				for start := time.Now(); time.Since(start) < window; {
-					bytesReadTemp, err = io.ReadAtLeast(inputReader, bufferTemp, 1)
-					if(bytesReadTemp != 0) {
-						buffer = append(buffer, bufferTemp[0])
-						bytesRead++
+			if writeOptions.timeWindow != 0 {
+				if!routineStarted {
+					go trackBuffer(writeOptions.timeWindow, &buffer, &bytesRead, inputReader, &err)
+					routineStarted = true
+
+					if blobNumber == 0 {
+						metrics.Start()
 					}
 				}
 			} else {
 				buffer = pool.Get(writeOptions.blockSize)
 				bytesRead, err = io.ReadFull(inputReader, buffer)
-			}
- 
-			if blobNumber == 0 {
-				metrics.Start()
+				 
+				if blobNumber == 0 {
+					metrics.Start()
+				}
 			}
 
-			if bytesRead > 0 {
+			if bytesRead > 0 {	
 				currentHashChannel := make(chan string, 1)
 
 				blob := BufferBlob{
@@ -227,6 +227,10 @@ func Write(ctx context.Context, uri *url.URL, inputReader io.Reader, options ...
 
 				previousHashChannel = currentHashChannel
 				blobNumber++
+
+				// flush buffer
+				buffer = pool.Get(writeOptions.blockSize)
+				bytesRead = 0
 			}
 
 			if err == io.EOF || err == io.ErrUnexpectedEOF {
@@ -274,6 +278,13 @@ func Write(ctx context.Context, uri *url.URL, inputReader io.Reader, options ...
 	writeEndMetadata(ctx, httpClient, container, BufferStatusComplete)
 	metrics.Stop()
 	return nil
+}
+
+func trackBuffer(window int, buffer *[]byte, bytesRead *int, inputReader io.Reader, err *error) {
+	for {
+		<-time.After(time.Second* time.Duration(window))
+		*bytesRead, *err = inputReader.Read(*buffer)
+	}
 }
 
 func writeStartMetadata(ctx context.Context, httpClient *retryablehttp.Client, container *Container) error {
