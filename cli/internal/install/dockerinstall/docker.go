@@ -47,8 +47,6 @@ const (
 	runLogsVolumeSuffix  = "run-logs"
 
 	dockerSocketPath = "/var/run/docker.sock"
-
-	marinerImage = "mcr.microsoft.com/cbl-mariner/base/core:2.0"
 )
 
 type containerSpec struct {
@@ -806,7 +804,7 @@ func (inst *Installer) checkGpuAvailability(ctx context.Context) (bool, error) {
 	// and that there are GPUs available
 
 	containerConfig := &container.Config{
-		Image: marinerImage,
+		Image: inst.Config.MarinerImage,
 		Cmd:   []string{"bash", "-c", "[[ $(nvidia-smi -L | wc -l) > 0 ]]"},
 		Tty:   false,
 	}
@@ -856,7 +854,7 @@ func (inst *Installer) checkGpuAvailability(ctx context.Context) (bool, error) {
 func (inst *Installer) statDockerSocket(ctx context.Context) (userId int, groupId int, permissions int, err error) {
 	// Define the container configuration
 	containerConfig := &container.Config{
-		Image: marinerImage,
+		Image: inst.Config.MarinerImage,
 		Cmd:   []string{"stat", "-c", "%u %g %a", dockerSocketPath},
 		Tty:   false,
 	}

@@ -32,6 +32,7 @@ type DockerEnvironmentConfig struct {
 	InstallationPath string `json:"installationPath"`
 
 	PostgresImage      string `json:"postgresImage"`
+	MarinerImage       string `json:"marinerImage"`
 	ControlPlaneImage  string `json:"controlPlaneImage"`
 	DataPlaneImage     string `json:"dataPlaneImage"`
 	BufferSidecarImage string `json:"bufferSidecarImage"`
