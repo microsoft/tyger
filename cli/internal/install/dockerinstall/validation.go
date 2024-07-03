@@ -20,6 +20,7 @@ var (
 
 	DefaultEnvironmentName = "local"
 	DefaultPostgresImage   = "postgres:16.2"
+	DefaultMarinerImage    = "mcr.microsoft.com/cbl-mariner/base/core:2.0"
 )
 
 func (inst *Installer) QuickValidateConfig() bool {
@@ -119,6 +120,9 @@ func (inst *Installer) QuickValidateConfig() bool {
 
 	if inst.Config.PostgresImage == "" {
 		inst.Config.PostgresImage = DefaultPostgresImage
+	}
+	if inst.Config.MarinerImage == "" {
+		inst.Config.MarinerImage = DefaultMarinerImage
 	}
 	if inst.Config.ControlPlaneImage == "" {
 		inst.Config.ControlPlaneImage = defaultImage("tyger-server")

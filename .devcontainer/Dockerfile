@@ -63,7 +63,7 @@ RUN umask 0002 \
     && VERSION=1.28.3 HELM=3.13.1 MINIKUBE=none bash install.sh \
     # DOTNET
     && cd /opt/features/src/dotnet \
-    && VERSION=8.0.100 bash install.sh \
+    && VERSION=8.0.302 bash install.sh \
     # GO
     && cd /opt/features/src/go \
     && VERSION=1.22.0 bash install.sh \
