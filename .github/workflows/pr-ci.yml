@@ -64,9 +64,15 @@ jobs:
           go-version-file: cli/go.mod
           cache-dependency-path: cli/go.sum
 
+      - run: |
+          env | sort
+
       - uses: actions/setup-dotnet@v3
         with:
           global-json-file: server/global.json
+
+      - run: |
+          env | sort
 
       - name: Build and Verify format
         run: |
@@ -74,6 +80,9 @@ jobs:
           make restore
           make verify-format
           make install-cli
+
+      - run: |
+          env | sort
 
       - name: Run unit tests
         run: |
