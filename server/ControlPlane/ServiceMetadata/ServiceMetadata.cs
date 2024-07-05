@@ -37,6 +37,8 @@ public enum Capabilities
     NodePools = 1 << 1,
     DistributedRuns = 1 << 2,
     EphemeralBuffers = 1 << 3,
+    Docker = 1 << 4,
+    Kubernetes = 1 << 5,
 }
 
 public interface ICapabilitiesContributor

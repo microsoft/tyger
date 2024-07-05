@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,7 +23,13 @@ import (
 	"time"
 
 	"github.com/alecthomas/units"
+	"github.com/docker/cli/cli/connhelper"
+	dockerimage "github.com/docker/docker/api/types/image"
+	dockerclient "github.com/docker/docker/client"
+	"github.com/dustin/go-humanize"
+	"github.com/hashicorp/go-cleanhttp"
 	"github.com/kaz-yamam0t0/go-timeparser/timeparser"
+	"github.com/microsoft/tyger/cli/internal/client"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/dataplane"
@@ -335,6 +342,7 @@ func newRunCreateCommandCore(
 		worker   codeTargetFlags
 		cluster  string
 		timeout  string
+		pull     bool
 	}
 
 	getCodespecRef := func(ctf codeTargetFlags) model.CodespecRef {
@@ -438,6 +446,12 @@ func newRunCreateCommandCore(
 				}
 			}
 
+			if flags.pull {
+				if err := pullImages(cmd.Context(), newRun); err != nil {
+					return err
+				}
+			}
+
 			committedRun := model.Run{}
 			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/runs", newRun, &committedRun)
 			if err != nil {
@@ -470,6 +484,8 @@ func newRunCreateCommandCore(
 
 	cmd.Flags().StringVar(&flags.cluster, "cluster", "", "The name of the cluster to execute in")
 	cmd.Flags().StringVar(&flags.timeout, "timeout", "", `How log before the run times out. Specified in a sequence of decimal numbers, each with optional fraction and a unit suffix, such as "300s", "1.5h" or "2h45m". Valid time units are "s", "m", "h"`)
+
+	cmd.Flags().BoolVar(&flags.pull, "pull", false, "Pull container images. Applies only to Tyger running in Docker.")
 
 	return cmd
 }
@@ -796,4 +812,126 @@ func watchRun(ctx context.Context, runId int64) (<-chan model.Run, <-chan error)
 	}()
 
 	return runEventChan, errChan
+}
+
+func pullImages(ctx context.Context, newRun model.Run) error {
+	serviceMetadata := model.ServiceMetadata{}
+	_, err := controlplane.InvokeRequest(ctx, http.MethodGet, "v1/metadata", nil, &serviceMetadata)
+	if err != nil {
+		return fmt.Errorf("failed to get service metadata: %w", err)
+	}
+
+	if !slices.Contains(serviceMetadata.Capabilities, "Docker") {
+		log.Warn().Msg("The --pull parameter is only supported when running Tyger in Docker.")
+	} else {
+		imagesToPull := make([]string, 0)
+		accumulateImage := func(codespecRef model.CodespecRef) error {
+			if codespecRef.Inline != nil {
+				imagesToPull = append(imagesToPull, codespecRef.Inline.Image)
+				return nil
+			}
+
+			if codespecRef.Named == nil {
+				return nil
+			}
+
+			codeSpec := model.Codespec{}
+			_, err := controlplane.InvokeRequest(ctx, http.MethodGet, fmt.Sprintf("v1/codespecs/%s", *codespecRef.Named), nil, &codeSpec)
+			if err != nil {
+				return fmt.Errorf("failed to get codespec %s: %w", *codespecRef.Named, err)
+			}
+
+			imagesToPull = append(imagesToPull, codeSpec.Image)
+
+			return nil
+		}
+
+		if err := accumulateImage(newRun.Job.Codespec); err != nil {
+			return err
+		}
+		if newRun.Worker != nil {
+			if err := accumulateImage(newRun.Worker.Codespec); err != nil {
+				return err
+			}
+		}
+
+		tygerClient, err := controlplane.GetClientFromCache()
+		if err != nil {
+			return fmt.Errorf("failed to get Tyger client: %w", err)
+		}
+
+		var dockerClientOpt []dockerclient.Opt
+
+		if tygerClient.ConnectionType() == client.TygerConnectionTypeSsh {
+			sshParams, err := client.ParseSshUrl(tygerClient.RawControlPlaneUrl)
+			if err != nil {
+				return fmt.Errorf("failed to parse SSH URL: %w", err)
+			}
+
+			sshParams.CliPath = ""
+			sshParams.SocketPath = ""
+			connhelper, err := connhelper.GetConnectionHelper(sshParams.URL().String())
+			if err != nil {
+				return fmt.Errorf("failed to get connection helper: %w", err)
+			}
+
+			httpClient := cleanhttp.DefaultClient()
+			httpClient.Transport.(*http.Transport).DialContext = connhelper.Dialer
+
+			dockerClientOpt = []dockerclient.Opt{
+				dockerclient.WithAPIVersionNegotiation(),
+				dockerclient.WithHost(sshParams.URL().String()),
+				dockerclient.WithDialContext(connhelper.Dialer),
+			}
+		} else {
+			dockerClientOpt = []dockerclient.Opt{dockerclient.WithAPIVersionNegotiation(), dockerclient.FromEnv}
+		}
+
+		dockerCli, err := dockerclient.NewClientWithOpts(dockerClientOpt...)
+		if err != nil {
+			return fmt.Errorf("failed to create Docker client: %w", err)
+		}
+
+		for _, imageName := range imagesToPull {
+			out, err := dockerCli.ImagePull(context.Background(), imageName, dockerimage.PullOptions{})
+			if err != nil {
+				return fmt.Errorf("failed to pull image %s: %w", imageName, err)
+			}
+			defer out.Close()
+
+			decoder := json.NewDecoder(out)
+			for {
+				var progress dockerPullProgress
+				if err := decoder.Decode(&progress); err == io.EOF {
+					break
+				} else if err != nil {
+					return fmt.Errorf("failed to decode image pull progress: %w", err)
+				}
+
+				if progress.Status != "" {
+					logger := log.With().Str("image", imageName).Logger()
+					detail := ""
+					if progress.ProgressDetail != nil && progress.ProgressDetail.Total > 0 {
+						detail = fmt.Sprintf(" (%s/%s)", humanize.Bytes(progress.ProgressDetail.Current), humanize.Bytes(progress.ProgressDetail.Total))
+					}
+					logger.Info().Msgf("%s%s", progress.Status, detail)
+				}
+			}
+
+			log.Info().Msgf("Pulled image %s", imageName)
+		}
+	}
+
+	return nil
+}
+
+type dockerPullProgress struct {
+	Status         string                    `json:"status"`
+	Progress       string                    `json:"progress"`
+	ProgressDetail *dockerPullProgressDetail `json:"progressDetail"`
+}
+
+type dockerPullProgressDetail struct {
+	Current uint64 `json:"current"`
+	Total   uint64 `json:"total"`
 }
