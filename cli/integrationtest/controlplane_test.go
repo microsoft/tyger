@@ -1546,6 +1546,31 @@ func TestBufferListWithoutTags(t *testing.T) {
 	require.Contains(buffers, buffer)
 }
 
+func TestImagePull(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+
+	runSpec := `
+job:
+  codespec:
+    image: mcr.microsoft.com/cbl-mariner/busybox:1.35
+    command:
+      - "sh"
+      - "-c"
+      - |
+        echo "hello"
+  tags:
+    testName: TestEndToEndWithYamlSpecAndAutomaticallyCreatedBuffers
+timeoutSeconds: 600`
+
+	tempDir := t.TempDir()
+	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
+	require.NoError(os.WriteFile(runSpecPath, []byte(runSpec), 0644))
+
+	// create run
+	runTygerSucceeds(t, "run", "exec", "--file", runSpecPath, "--pull")
+}
+
 func waitForRunStarted(t *testing.T, runId string) model.Run {
 	t.Helper()
 	return waitForRun(t, runId, true, false)

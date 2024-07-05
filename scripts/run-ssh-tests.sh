@@ -8,7 +8,7 @@ set -euo pipefail
 container_name=tyger-test-ssh
 
 ssh_port=2847
-ssh_user=testuser
+ssh_user=root # Run as root so we can easily test docker commands from within the container
 ssh_host=tygersshhost
 start_marker="# START OF TYGER TESTING SECTION"
 end_marker="# END OF TYGER TESTING SECTION"
@@ -61,12 +61,12 @@ fi
 docker rm -f $container_name &>/dev/null
 docker create \
     -p $ssh_port:22 \
-    -e "SSH_USERS=$ssh_user:$(id -u):4000" \
-    -e "SSH_GROUPS=tygerusers:4000" \
+    -e "SSH_ENABLE_ROOT=true" \
     -e "TCP_FORWARDING=true" \
     -v "$(wsl_host_path "/opt/tyger"):/opt/tyger" \
+    -v "$(wsl_host_path "/var/run/docker.sock"):/var/run/docker.sock" \
     --name $container_name \
-    quay.io/panubo/sshd:1.6.0 >/dev/null
+    quay.io/panubo/sshd:1.8.0 >/dev/null
 
 if [[ -z $(ssh-add -L >/dev/null || true) ]]; then
     priv_key_file=$(mktemp -u)
@@ -85,7 +85,17 @@ fi
 
 docker cp "$(which tyger)" "$container_name:/usr/bin/" >/dev/null
 
+# add docker cli to the container to test `tyger run create --pull``
+mkdir -p /tmp/docker
+docker_version=$(docker --version | grep -oP '\d+\.\d+\.\d+')
+wget "https://download.docker.com/linux/static/stable/$(uname -m)/docker-$docker_version.tgz" -O /tmp/docker/docker.tgz -q
+tar -C /tmp/docker -xzf /tmp/docker/docker.tgz
+docker cp "/tmp/docker/docker/docker" "$container_name:/usr/bin/" >/dev/null
+rm -rf /tmp/docker
+
 docker start $container_name >/dev/null
+
+docker exec $container_name chown $ssh_user:$ssh_user "/etc/authorized_keys/$ssh_user"
 
 if [[ -n "${TYGER_ACCESSING_FROM_DOCKER:-}" ]]; then
     ssh_connection_host=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $container_name)
