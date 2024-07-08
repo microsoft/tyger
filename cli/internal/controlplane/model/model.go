@@ -13,9 +13,9 @@ import (
 )
 
 type ServiceMetadata struct {
-	Authority      string   `json:"authority"`
-	Audience       string   `json:"audience"`
-	CliAppUri      string   `json:"cliAppUri"`
+	Authority      string   `json:"authority,omitempty"`
+	Audience       string   `json:"audience,omitempty"`
+	CliAppUri      string   `json:"cliAppUri,omitempty"`
 	DataPlaneProxy string   `json:"dataPlaneProxy,omitempty"`
 	Capabilities   []string `json:"capabilities,omitempty"`
 }
