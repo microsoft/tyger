@@ -27,7 +27,7 @@ import (
 
 const (
 	DefaultWriteDop              = 16
-	DefaultBlockSize             = 4 * 1024 * 1024
+	DefaultBlockSize             = 10
 	DefaultFlushInterval         = 0
 	EncodedHashChainInitialValue = "MDAwMDAwMDAwMDAwMDAwMA=="
 )
@@ -283,7 +283,9 @@ func Write(ctx context.Context, uri *url.URL, inputReader io.Reader, options ...
 func trackBuffer(flushInterval time.Duration, buffer *[]byte, bytesRead *int, inputReader io.Reader, err *error) {
 	for {
 		for start := time.Now(); time.Since(start) < flushInterval; {
-			*bytesRead, *err = inputReader.Read(*buffer)
+			if *bytesRead == 0 {
+				*bytesRead, *err = inputReader.Read(*buffer)
+			}
 		}
 	}
 }
