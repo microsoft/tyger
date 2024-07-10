@@ -281,8 +281,10 @@ func Write(ctx context.Context, uri *url.URL, inputReader io.Reader, options ...
 }
 
 func trackBuffer(flushInterval time.Duration, buffer *[]byte, bytesRead *int, inputReader io.Reader, err *error) {
-	for start := time.Now(); time.Since(start) < flushInterval; {
-		*bytesRead, *err = inputReader.Read(*buffer)
+	for {
+		for start := time.Now(); time.Since(start) < flushInterval; {
+			*bytesRead, *err = inputReader.Read(*buffer)
+		}
 	}
 }
 
