@@ -18,6 +18,7 @@ import (
 	"os/signal"
 	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/alecthomas/units"
 	"github.com/microsoft/tyger/cli/internal/client"
@@ -325,7 +326,7 @@ func NewBufferWriteCommand(openFileFunc func(name string, flag int, perm fs.File
 	inputFilePath := ""
 	dop := dataplane.DefaultWriteDop
 	blockSizeString := ""
-	timeWindow := ""
+	flushInterval := ""
 
 	cmd := &cobra.Command{
 		Use:                   "write { BUFFER_ID | BUFFER_SAS_URI | FILE_WITH_SAS_URI } [flags]",
@@ -379,7 +380,7 @@ func NewBufferWriteCommand(openFileFunc func(name string, flag int, perm fs.File
 
 			writeOptions := []dataplane.WriteOption{dataplane.WithWriteDop(dop)}
 			if blockSizeString != "" {
-				
+
 				if blockSizeString != "" && blockSizeString[len(blockSizeString)-1] != 'B' {
 					blockSizeString += "B"
 				}
@@ -391,14 +392,14 @@ func NewBufferWriteCommand(openFileFunc func(name string, flag int, perm fs.File
 				writeOptions = append(writeOptions, dataplane.WithWriteBlockSize(int(parsedBlockSize)))
 			}
 
-			if timeWindow != "" {
+			if flushInterval != "" {
 
-				parsedtimeWindow, err := strconv.Atoi(timeWindow)
+				parsedflushInterval, err := time.ParseDuration(flushInterval)
 				if err != nil {
-					log.Fatal().Err(err).Msg("Invalid time")
+					log.Fatal().Err(err).Msg("Invalid flush interval")
 				}
 
-				writeOptions = append(writeOptions, dataplane.WithWriteTime(parsedtimeWindow))
+				writeOptions = append(writeOptions, dataplane.WithFlushInterval(parsedflushInterval))
 			}
 
 			err = dataplane.Write(ctx, uri, inputReader, writeOptions...)
@@ -414,7 +415,7 @@ func NewBufferWriteCommand(openFileFunc func(name string, flag int, perm fs.File
 	cmd.Flags().StringVarP(&inputFilePath, "input", "i", inputFilePath, "The file to read from. If not specified, data is read from standard in.")
 	cmd.Flags().IntVarP(&dop, "dop", "p", dop, "The degree of parallelism")
 	cmd.Flags().StringVarP(&blockSizeString, "block-size", "b", blockSizeString, "Split the stream into blocks of this size.")
-	cmd.Flags().StringVarP(&timeWindow, "time-window", "t", timeWindow, "Split the stream into blocks based on this time interval.")
+	cmd.Flags().StringVarP(&flushInterval, "flush-interval", "f", flushInterval, "The longest time to wait before accumulated data is written to the remote service. If this parameter is set, data will be flushed either when --block-size of data has been accumulated or when the specified interval has elapsed, whichever comes first. This is useful for scenarios where data is trickling in and needs to be sent at regular intervals.")
 	return cmd
 }
 

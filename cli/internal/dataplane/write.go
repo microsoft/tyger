@@ -28,7 +28,7 @@ import (
 const (
 	DefaultWriteDop              = 16
 	DefaultBlockSize             = 4 * 1024 * 1024
-	DefaultTimeWindow			 = 0 // seconds
+	DefaultFlushInterval         = 0
 	EncodedHashChainInitialValue = "MDAwMDAwMDAwMDAwMDAwMA=="
 )
 
@@ -39,7 +39,7 @@ var (
 type writeOptions struct {
 	dop                     int
 	blockSize               int
-	timeWindow				int
+	flushInterval           time.Duration
 	httpClient              *retryablehttp.Client
 	metadataEndWriteTimeout time.Duration
 	connectionType          client.TygerConnectionType
@@ -59,9 +59,9 @@ func WithWriteBlockSize(blockSize int) WriteOption {
 	}
 }
 
-func WithWriteTime(timeWindow int) WriteOption {
+func WithFlushInterval(flushInterval time.Duration) WriteOption {
 	return func(o *writeOptions) {
-		o.timeWindow = timeWindow
+		o.flushInterval = flushInterval
 	}
 }
 
@@ -84,7 +84,7 @@ func Write(ctx context.Context, uri *url.URL, inputReader io.Reader, options ...
 	writeOptions := &writeOptions{
 		dop:                     DefaultWriteDop,
 		blockSize:               DefaultBlockSize,
-		timeWindow:				 DefaultTimeWindow,
+		flushInterval:           DefaultFlushInterval,
 		metadataEndWriteTimeout: 3 * time.Second,
 	}
 	for _, o := range options {
@@ -185,12 +185,12 @@ func Write(ctx context.Context, uri *url.URL, inputReader io.Reader, options ...
 		buffer := pool.Get(writeOptions.blockSize)
 		var bytesRead int
 		var err error
-		
+
 		for {
 
-			if writeOptions.timeWindow != 0 {
-				if!routineStarted {
-					go trackBuffer(writeOptions.timeWindow, &buffer, &bytesRead, inputReader, &err)
+			if writeOptions.flushInterval != 0 {
+				if !routineStarted {
+					go trackBuffer(writeOptions.flushInterval, &buffer, &bytesRead, inputReader, &err)
 					routineStarted = true
 
 					if blobNumber == 0 {
@@ -200,13 +200,13 @@ func Write(ctx context.Context, uri *url.URL, inputReader io.Reader, options ...
 			} else {
 				buffer = pool.Get(writeOptions.blockSize)
 				bytesRead, err = io.ReadFull(inputReader, buffer)
-				 
+
 				if blobNumber == 0 {
 					metrics.Start()
 				}
 			}
 
-			if bytesRead > 0 {	
+			if bytesRead > 0 {
 				currentHashChannel := make(chan string, 1)
 
 				blob := BufferBlob{
@@ -280,9 +280,8 @@ func Write(ctx context.Context, uri *url.URL, inputReader io.Reader, options ...
 	return nil
 }
 
-func trackBuffer(window int, buffer *[]byte, bytesRead *int, inputReader io.Reader, err *error) {
-	for {
-		<-time.After(time.Second* time.Duration(window))
+func trackBuffer(flushInterval time.Duration, buffer *[]byte, bytesRead *int, inputReader io.Reader, err *error) {
+	for start := time.Now(); time.Since(start) < flushInterval; {
 		*bytesRead, *err = inputReader.Read(*buffer)
 	}
 }
