@@ -12,7 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"golang.org/x/crypto/ssh/terminal"
+	"golang.org/x/term"
 )
 
 // Parses and formats ssh:// URLs
@@ -158,7 +158,7 @@ func (sp *SshParams) formatCmdLine(sshOptions map[string]string, otherSshArgs []
 
 func (sp *SshParams) FormatLoginArgs(add ...string) []string {
 	var sshOptions map[string]string
-	if !terminal.IsTerminal(int(os.Stdin.Fd())) {
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		// avoid interactive prompt
 		sshOptions = map[string]string{
 			"StrictHostKeyChecking": "yes",
