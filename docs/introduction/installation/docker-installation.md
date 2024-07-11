@@ -149,13 +149,19 @@ not a password.
 The format of the SSH URL is:
 
 ```
-ssh://[user@]host[:port][?cliPath=/path/to/tyger]
+ssh://[user@]host[:port][?key1=value1&key2=value2]
 ```
 
 All values in `[]` are optional. The user and port default values will come from
-your SSH config file (~/.ssh/config). The `cliPath` query parameter only needs
-to be specified if `tyger` is not installed in a directory in the SSH host's
-$PATH variable.
+your SSH config file (~/.ssh/config). Additional parameters can be passed in
+as query parameters (after the `?`). These are:
+
+ - `cliPath`, to speciy that path to the `tyger` CLI on the host. This is only
+necessary if the localtion is not part of the `PATH` variable.
+- `option[sshConfigKey]`, to specify additional SSH
+[configuration options](https://www.man7.org/linux/man-pages/man5/ssh_config.5.html).
+For example, `ssh://myhost?option[StrictHostChecking]=no` results in a SSH command
+that looks like `ssh myhost -o StrictHostChecking=no`
 
 For the best user experience with SSH, configure ~/.ssh/config as follows to
 allow reusing a SSH connection for multiple invocations of the `tyger` CLI:

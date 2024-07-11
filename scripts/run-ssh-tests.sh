@@ -110,7 +110,6 @@ Host $ssh_host
   HostName $ssh_connection_host
   Port $ssh_connection_port
   User $ssh_user
-  StrictHostKeyChecking no
   ControlMaster auto
   ControlPath  ~/.ssh/control-%C
   ControlPersist  yes
@@ -127,7 +126,7 @@ ssh-keygen -f "${HOME}/.ssh/known_hosts" -R "$ssh_connection_host"
 
 max_attempts=30
 attempts=0
-until ssh $ssh_host true &>/dev/null || [ $attempts -eq $max_attempts ]; do
+until ssh $ssh_host -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null true &>/dev/null || [ $attempts -eq $max_attempts ]; do
     echo "Waiting for SSH server to be ready..."
     sleep 1
     attempts="$((attempts + 1))"
@@ -143,7 +142,7 @@ echo "SSH server is ready"
 TYGER_CACHE_FILE=$(mktemp)
 export TYGER_CACHE_FILE
 
-tyger login ssh://$ssh_host
+tyger login "ssh://$ssh_host?option[StrictHostKeyChecking]=no"
 tyger login status
 
 if [[ -z ${start_only:-} ]]; then

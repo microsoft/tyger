@@ -868,9 +868,24 @@ func pullImages(ctx context.Context, newRun model.Run) error {
 				return fmt.Errorf("failed to parse SSH URL: %w", err)
 			}
 
+			// Capture SSH options
+			defaultArgs := sshParams.FormatCmdLine()
+			optionArgs := []string{
+				"-o", "ConnectTimeout=none", // The default of 30s that docker adds can cause a _hang_ of 30s: https://github.com/PowerShell/Win32-OpenSSH/issues/1352
+			}
+			for i := 0; i < len(defaultArgs); i++ {
+				if defaultArgs[i] == "-o" {
+					optionArgs = append(optionArgs, defaultArgs[i], defaultArgs[i+1])
+					i++
+				}
+			}
+
+			// clear fields that result in a URI that docker won't underatand
 			sshParams.CliPath = ""
 			sshParams.SocketPath = ""
-			connhelper, err := connhelper.GetConnectionHelper(sshParams.URL().String())
+			sshParams.Options = nil
+
+			connhelper, err := connhelper.GetConnectionHelperWithSSHOpts(sshParams.URL().String(), optionArgs)
 			if err != nil {
 				return fmt.Errorf("failed to get connection helper: %w", err)
 			}
