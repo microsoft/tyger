@@ -121,10 +121,10 @@ func (sp *SshParams) formatCmdLine(sshOptions map[string]string, otherSshArgs []
 		combinedSshOptions = sp.Options
 	} else {
 		combinedSshOptions = make(map[string]string)
-		for k, v := range sp.Options {
+		for k, v := range sshOptions {
 			combinedSshOptions[k] = v
 		}
-		for k, v := range sshOptions {
+		for k, v := range sp.Options {
 			combinedSshOptions[k] = v
 		}
 	}

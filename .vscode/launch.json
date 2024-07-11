@@ -55,7 +55,7 @@
       "mode": "auto",
       "program": "cli/cmd/tyger",
       "cwd": "${workspaceFolder}",
-      "args": ["buffer", "write", "http+unix:///tmp/xyz?relay=true"],
+      "args": ["login", "status", "--format", "json"],
       "env": {
         "TYGER_CACHE_FILE": "/home/vscode/.cache/tyger/.tyger-docker"
       },
