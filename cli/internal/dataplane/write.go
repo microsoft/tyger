@@ -27,7 +27,7 @@ import (
 
 const (
 	DefaultWriteDop              = 16
-	DefaultBlockSize             = 10
+	DefaultBlockSize             = 4 * 1024 * 1024
 	DefaultFlushInterval         = 0
 	EncodedHashChainInitialValue = "MDAwMDAwMDAwMDAwMDAwMA=="
 )
