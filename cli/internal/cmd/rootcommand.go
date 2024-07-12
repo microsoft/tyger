@@ -17,6 +17,14 @@ import (
 	"github.com/thediveo/enumflag"
 )
 
+type OutputFormat int8
+
+const (
+	OutputFormatUnspecified OutputFormat = iota
+	OutputFormatJson
+	OutputFormatText
+)
+
 func NewCommonRootCommand(commit string) *cobra.Command {
 	if commit == "" {
 		commit = "unknown"
@@ -24,13 +32,13 @@ func NewCommonRootCommand(commit string) *cobra.Command {
 
 	type LogFormat int8
 	const (
-		Unspecified LogFormat = iota
-		Pretty
-		Plain
-		Json
+		LogFormatUnspecified LogFormat = iota
+		LogFormatPretty
+		LogFormatPlain
+		LogFormatJson
 	)
 
-	logFormat := Unspecified
+	logFormat := LogFormatUnspecified
 	logLevel := zerolog.InfoLevel
 
 	proxy := "auto"
@@ -39,11 +47,11 @@ func NewCommonRootCommand(commit string) *cobra.Command {
 		Version:      commit,
 		SilenceUsage: true,
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
-			if logFormat == Unspecified {
+			if logFormat == LogFormatUnspecified {
 				if isStdErrTerminal() {
-					logFormat = Pretty
+					logFormat = LogFormatPretty
 				} else {
-					logFormat = Plain
+					logFormat = LogFormatPlain
 				}
 			}
 
@@ -51,11 +59,11 @@ func NewCommonRootCommand(commit string) *cobra.Command {
 			log.Logger = log.Logger.Level(logLevel)
 			var logSink io.Writer
 			switch logFormat {
-			case Pretty, Plain:
+			case LogFormatPretty, LogFormatPlain:
 				logSink = zerolog.ConsoleWriter{
 					Out:        os.Stderr,
 					TimeFormat: "2006-01-02T15:04:05.000Z07:00", // like RFC3339Nano, but always showing three digits for the fractional seconds
-					NoColor:    logFormat == Plain,
+					NoColor:    logFormat == LogFormatPlain,
 				}
 				log.Logger = log.Output(logSink)
 			default:
@@ -89,10 +97,10 @@ func NewCommonRootCommand(commit string) *cobra.Command {
 	}
 
 	var logFormatIds = map[LogFormat][]string{
-		Unspecified: {""},
-		Pretty:      {"pretty"},
-		Plain:       {"plain"},
-		Json:        {"json"},
+		LogFormatUnspecified: {""},
+		LogFormatPretty:      {"pretty"},
+		LogFormatPlain:       {"plain"},
+		LogFormatJson:        {"json"},
 	}
 
 	cmd.PersistentFlags().Var(
@@ -122,4 +130,17 @@ func hasFlagChanged(cmd *cobra.Command, flagName string) bool {
 	}
 
 	return flag.Changed
+}
+
+func addOutputFormatFlag(cmd *cobra.Command, format *OutputFormat) {
+	var outputFormatIds = map[OutputFormat][]string{
+		OutputFormatUnspecified: {""},
+		OutputFormatJson:        {"json"},
+		OutputFormatText:        {"text"},
+	}
+
+	cmd.Flags().Var(
+		enumflag.New(format, "format", outputFormatIds, enumflag.EnumCaseInsensitive),
+		"format",
+		"specifies output format. Can be either 'json' or 'text'.")
 }

@@ -41,7 +41,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         _logger = logger;
     }
 
-    public Capabilities GetCapabilities() => Capabilities.DistributedRuns | Capabilities.NodePools;
+    public Capabilities GetCapabilities() => Capabilities.Kubernetes | Capabilities.DistributedRuns | Capabilities.NodePools;
 
     public async Task<Run> CreateRun(Run newRun, CancellationToken cancellationToken)
     {

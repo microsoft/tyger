@@ -4,14 +4,17 @@
 package cmd
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 
 	"github.com/microsoft/tyger/cli/internal/controlplane"
+	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"sigs.k8s.io/yaml"
@@ -185,7 +188,9 @@ proxy: auto
 }
 
 func newLoginStatusCommand() *cobra.Command {
-	return &cobra.Command{
+	outputFormat := OutputFormatUnspecified
+
+	stausCmd := &cobra.Command{
 		Use:                   "status",
 		Short:                 "Get the login status",
 		Long:                  `Get the login status.`,
@@ -210,20 +215,50 @@ func newLoginStatusCommand() *cobra.Command {
 				service.Path = strings.TrimSuffix(service.Path, ":")
 			}
 
-			if tygerClient.Principal == "" {
-				fmt.Printf("You are logged in to %s", service.String())
-			} else {
-				fmt.Printf("You are logged in to %s as %s", service.String(), tygerClient.Principal)
-			}
+			switch outputFormat {
+			case OutputFormatUnspecified, OutputFormatText:
+				if tygerClient.Principal == "" {
+					fmt.Printf("You are logged in to %s", service.String())
+				} else {
+					fmt.Printf("You are logged in to %s as %s", service.String(), tygerClient.Principal)
+				}
 
-			if tygerClient.RawProxy != nil {
-				fmt.Printf(" using proxy server %s", tygerClient.RawProxy.String())
-			}
-			fmt.Println()
+				if tygerClient.RawProxy != nil {
+					fmt.Printf(" using proxy server %s", tygerClient.RawProxy.String())
+				}
+				fmt.Println()
 
-			return nil
+				return nil
+			case OutputFormatJson:
+				result := loginStatusResult{
+					ServeUri:  service.String(),
+					Principal: tygerClient.Principal,
+				}
+				if tygerClient.RawProxy != nil {
+					result.Proxy = tygerClient.RawProxy.String()
+				}
+				if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, "v1/metadata", nil, &result.Metadata); err != nil {
+					return fmt.Errorf("failed to get service metadata: %v", err)
+				}
+
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(result)
+			default:
+				panic(fmt.Sprintf("unexpected output format: %v", outputFormat))
+			}
 		},
 	}
+
+	addOutputFormatFlag(stausCmd, &outputFormat)
+	return stausCmd
+}
+
+type loginStatusResult struct {
+	ServeUri  string                `json:"serverUri"`
+	Principal string                `json:"principal,omitempty"`
+	Proxy     string                `json:"proxy,omitempty"`
+	Metadata  model.ServiceMetadata `json:"metadata"`
 }
 
 func NewLogoutCommand() *cobra.Command {

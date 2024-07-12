@@ -15,7 +15,8 @@ Runs](distributed-runs.md).
 When Tyger is running in a local Docker environment, container images used by
 runs need to be pulled in advance using `docker pull`. This is a security
 measure to prevent using Tyger to introduce untrusted container images onto the
-system.
+system. The Tyger CLI will pull the image for you if you pass in `--pull` to
+to `tyger run create` or `tyger run exec`.
 
 :::
 
