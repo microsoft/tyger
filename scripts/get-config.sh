@@ -94,6 +94,7 @@ else
 
     export TYGER_MIN_NODE_COUNT="${TYGER_MIN_NODE_COUNT:-0}"
     export TYGER_LOCATION="${TYGER_LOCATION:-westus2}"
+    export TYGER_DATABASE_LOCATION=${TYGER_DATABASE_LOCATION:-$TYGER_LOCATION}
   fi
 
   repo_fqdn=$(envsubst <"${devconfig_path}" | yq ".wipContainerRegistry.fqdn")
