@@ -75,5 +75,7 @@ func newIdentitiesInstallCommand() *cobra.Command {
 		},
 	}
 
+	addCommonFlags(cmd, &flags)
+
 	return cmd
 }
