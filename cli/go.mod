@@ -20,7 +20,7 @@ require (
 	github.com/a8m/envsubst v1.4.2
 	github.com/andreyvit/diff v0.0.0-20170406064948-c7f18ee00883
 	github.com/docker/cli v27.0.3+incompatible
-	github.com/docker/docker v27.0.3+incompatible
+	github.com/docker/docker v27.1.0+incompatible
 	github.com/docker/go-connections v0.5.0
 	github.com/dustin/go-humanize v1.0.1
 	github.com/eiannone/keyboard v0.0.0-20220611211555-0d226195f203
