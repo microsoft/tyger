@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path"
@@ -246,16 +248,33 @@ func generateCloudConfig(ctx context.Context, configFile *os.File) error {
 		return errors.New("please install the Azure CLI (az) first")
 	}
 
-	ipInfoClient := ipinfo.NewClient(nil, nil, "")
-	ip, err := ipInfoClient.GetIPInfo(nil)
-	if err != nil {
-		return fmt.Errorf("failed to get current external IP address: %w", err)
+	ipStr := ""
+	resp, err := http.Get("https://ip2location.io/ip")
+
+	defer resp.Body.Close()
+
+	if err == nil {
+		if resp.StatusCode == http.StatusOK {
+			bodyBytes, err := io.ReadAll(resp.Body)
+			if err == nil {
+				ipStr = string(bodyBytes)
+			}
+		}
+	}
+
+	if ipStr == "" {
+		ipInfoClient := ipinfo.NewClient(nil, nil, "")
+		ip, err := ipInfoClient.GetIPInfo(nil)
+		if err != nil {
+			return fmt.Errorf("failed to get current external IP address: %w", err)
+		}
+		ipStr = ip.IP.String()
 	}
 
 	templateValues := cloudinstall.ConfigTemplateValues{
 		KubernetesVersion:    cloudinstall.DefaultKubernetesVersion,
 		PostgresMajorVersion: cloudinstall.DefaultPostgresMajorVersion,
-		CurrentIpAddress:     ip.IP.String(),
+		CurrentIpAddress:     ipStr,
 	}
 
 	fmt.Printf("\nLet's collect settings for the Azure subscription to use. This is where cloud resources will be deployed.\n\n")
