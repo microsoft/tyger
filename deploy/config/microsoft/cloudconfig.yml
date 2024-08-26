@@ -12,7 +12,13 @@ cloud:
     clusters:
       - name: ${TYGER_ENVIRONMENT_NAME}
         apiHost: true
+        sku: Standard
         kubernetesVersion: 1.27
+        systemNodePool:
+          name: system
+          vmSize: Standard_DS2_v2
+          minCount: 1
+          maxCount: 3
         userNodePools:
           - name: cpunp
             vmSize: Standard_DS12_v2

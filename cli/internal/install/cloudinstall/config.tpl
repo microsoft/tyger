@@ -19,6 +19,12 @@ cloud:
         kubernetesVersion: {{ .KubernetesVersion }}
         # location: Defaults to defaultLocation
 
+        systemNodePool:
+          name: system
+          vmSize: Standard_DS2_v2
+          minCount: 1
+          maxCount: 3
+
         userNodePools:
           - name: cpunp
             vmSize: Standard_DS12_v2

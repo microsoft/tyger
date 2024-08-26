@@ -54,6 +54,11 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 		ChartRef:    "traefik/traefik",
 		Version:     "24.0.0",
 		Values: map[string]any{
+			"image": map[string]any{
+				"registry":   "mcr.microsoft.com",
+				"repository": "oss/traefik/traefik",
+				"tag":        "v2.10.7",
+			},
 			"logs": map[string]any{
 				"general": map[string]any{
 					"format": "json",

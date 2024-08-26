@@ -96,31 +96,25 @@ func quickValidateComputeConfig(success *bool, cloudConfig *CloudConfig) {
 			cluster.KubernetesVersion = DefaultKubernetesVersion
 		}
 
+		switch cluster.Sku {
+		case "":
+			cluster.Sku = ClusterSkuStandard
+		case ClusterSkuFree, ClusterSkuStandard, ClusterSkuPremium:
+		default:
+			validationError(success, "The `sku` field of the cluster `%s` must be `Free`, `Standard`, or `Premium`", cluster.Name)
+		}
+
+		if cluster.SystemNodePool == nil {
+			validationError(success, "The `systemNodePool` field is required on a cluster `%s`", cluster.Name)
+		} else {
+			quickValidateNodePoolConfig(success, cluster.SystemNodePool, 1)
+		}
+
 		if len(cluster.UserNodePools) == 0 {
 			validationError(success, "At least one user node pool must be specified")
 		}
 		for _, np := range cluster.UserNodePools {
-			if np.Name == "" {
-				validationError(success, "The `name` field is required on a node pool")
-			} else if !ResourceNameRegex.MatchString(np.Name) {
-				validationError(success, "The node pool `name` field must match the pattern "+ResourceNameRegex.String())
-			}
-
-			if np.VMSize == "" {
-				validationError(success, "The `vmSize` field is required on a node pool")
-			}
-
-			if np.MinCount < 0 {
-				validationError(success, "The `minCount` field must be greater than or equal to zero")
-			}
-
-			if np.MaxCount < 0 {
-				validationError(success, "The `maxCount` field must be greater than or equal to zero")
-			}
-
-			if np.MinCount > np.MaxCount {
-				validationError(success, "The `minCount` field must be less than or equal to the `maxCount` field")
-			}
+			quickValidateNodePoolConfig(success, np, 0)
 		}
 
 		if cluster.ApiHost {
@@ -161,6 +155,30 @@ func quickValidateComputeConfig(success *bool, cloudConfig *CloudConfig) {
 		if p.Id != "" {
 			validationError(success, "The `id` field is no longer supported a management principal. Use `objectId` instead")
 		}
+	}
+}
+
+func quickValidateNodePoolConfig(success *bool, np *NodePoolConfig, minNodeCount int) {
+	if np.Name == "" {
+		validationError(success, "The `name` field is required on a node pool")
+	} else if !ResourceNameRegex.MatchString(np.Name) {
+		validationError(success, "The node pool `name` field must match the pattern "+ResourceNameRegex.String())
+	}
+
+	if np.VMSize == "" {
+		validationError(success, "The `vmSize` field is required on a node pool")
+	}
+
+	if np.MinCount < int32(minNodeCount) {
+		validationError(success, "The `minCount` field must be greater than or equal to %d", minNodeCount)
+	}
+
+	if np.MaxCount < 0 {
+		validationError(success, "The `maxCount` field must be greater than or equal to %d", minNodeCount)
+	}
+
+	if np.MinCount > np.MaxCount {
+		validationError(success, "The `minCount` field must be less than or equal to the `maxCount` field")
 	}
 }
 

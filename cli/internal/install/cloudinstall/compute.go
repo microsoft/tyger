@@ -82,6 +82,10 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 				},
 			},
 		},
+		SKU: &armcontainerservice.ManagedClusterSKU{
+			Name: Ptr(armcontainerservice.ManagedClusterSKUNameBase),
+			Tier: Ptr(armcontainerservice.ManagedClusterSKUTier(clusterConfig.Sku)),
+		},
 	}
 
 	if workspace := inst.Config.Cloud.LogAnalyticsWorkspace; workspace != nil {
@@ -104,18 +108,17 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 				"logAnalyticsWorkspaceResourceID": resp.ID,
 			},
 		}
-
 	}
 
 	cluster.Properties.AgentPoolProfiles = []*armcontainerservice.ManagedClusterAgentPoolProfile{
 		{
-			Name:              Ptr("system"),
+			Name:              &clusterConfig.SystemNodePool.Name,
 			Mode:              Ptr(armcontainerservice.AgentPoolModeSystem),
-			VMSize:            Ptr("Standard_DS2_v2"),
+			VMSize:            &clusterConfig.SystemNodePool.VMSize,
 			EnableAutoScaling: Ptr(true),
-			Count:             Ptr(int32(1)),
-			MinCount:          Ptr(int32(1)),
-			MaxCount:          Ptr(int32(3)),
+			Count:             &clusterConfig.SystemNodePool.MinCount,
+			MinCount:          &clusterConfig.SystemNodePool.MinCount,
+			MaxCount:          &clusterConfig.SystemNodePool.MaxCount,
 			OSType:            Ptr(armcontainerservice.OSTypeLinux),
 			OSSKU:             Ptr(armcontainerservice.OSSKUAzureLinux),
 		},
@@ -158,11 +161,58 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 
 	if clusterAlreadyExists {
 		// Check for node pools that need to be added or removed, which
-		// need to be handled separately other cluster property updates.
+		// need to be handled separately from other cluster property updates.
 
 		agentPoolsClient, err := armcontainerservice.NewAgentPoolsClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create agent pools client: %w", err)
+		}
+
+		agentPoolCreatePollers := make([]*runtime.Poller[armcontainerservice.AgentPoolsClientCreateOrUpdateResponse], 0)
+
+		for _, newNodePool := range cluster.Properties.AgentPoolProfiles {
+			found := false
+			for _, existingNodePool := range existingCluster.ManagedCluster.Properties.AgentPoolProfiles {
+				if *newNodePool.Name == *existingNodePool.Name {
+					found = true
+					if *newNodePool.VMSize != *existingNodePool.VMSize {
+						return nil, fmt.Errorf("create a new node pool instead of changing the VM size of node pool '%s'", *newNodePool.Name)
+					}
+
+					if *newNodePool.Mode != *existingNodePool.Mode {
+						return nil, fmt.Errorf("cannot change existing node pool '%s' from user to system (or vice-versa)", *newNodePool.Name)
+					}
+
+					break
+				}
+			}
+			if !found {
+				log.Info().Msgf("Adding node pool '%s' to cluster '%s'", *newNodePool.Name, clusterConfig.Name)
+				newNodePoolJson, err := json.Marshal(newNodePool)
+				if err != nil {
+					panic(fmt.Errorf("failed to marshal node pool: %w", err))
+				}
+
+				properties := armcontainerservice.ManagedClusterAgentPoolProfileProperties{}
+				decoder := json.NewDecoder(strings.NewReader(string(newNodePoolJson)))
+				decoder.DisallowUnknownFields()
+				if err := decoder.Decode(&properties); err != nil {
+					panic(fmt.Errorf("failed to decode node pool: %w", err))
+				}
+
+				options := armcontainerservice.AgentPool{Properties: &properties}
+				p, err := agentPoolsClient.BeginCreateOrUpdate(ctx, inst.Config.Cloud.ResourceGroup, clusterConfig.Name, *newNodePool.Name, options, nil)
+				if err != nil {
+					return nil, fmt.Errorf("failed to create node pool: %w", err)
+				}
+				agentPoolCreatePollers = append(agentPoolCreatePollers, p)
+			}
+		}
+
+		for _, p := range agentPoolCreatePollers {
+			if _, err := p.PollUntilDone(ctx, nil); err != nil {
+				return nil, fmt.Errorf("failed to create node pool: %w", err)
+			}
 		}
 
 		agentPoolDeletePollers := make([]*runtime.Poller[armcontainerservice.AgentPoolsClientDeleteResponse], 0)
@@ -188,45 +238,6 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 		for _, deletePoller := range agentPoolDeletePollers {
 			if _, err := deletePoller.PollUntilDone(ctx, nil); err != nil {
 				return nil, fmt.Errorf("failed to delete node pool: %w", err)
-			}
-		}
-
-		agentPoolCreatePollers := make([]*runtime.Poller[armcontainerservice.AgentPoolsClientCreateOrUpdateResponse], 0)
-
-		for _, newNodePool := range cluster.Properties.AgentPoolProfiles {
-			found := false
-			for _, existingNodePool := range existingCluster.ManagedCluster.Properties.AgentPoolProfiles {
-				if *newNodePool.Name == *existingNodePool.Name {
-					found = true
-					break
-				}
-			}
-			if !found {
-				log.Info().Msgf("Adding node pool '%s' to cluster '%s'", *newNodePool.Name, clusterConfig.Name)
-				newNodePoolJson, err := json.Marshal(newNodePool)
-				if err != nil {
-					panic(fmt.Errorf("failed to marshal node pool: %w", err))
-				}
-
-				properties := armcontainerservice.ManagedClusterAgentPoolProfileProperties{}
-				decoder := json.NewDecoder(strings.NewReader(string(newNodePoolJson)))
-				decoder.DisallowUnknownFields()
-				if err := decoder.Decode(&properties); err != nil {
-					panic(fmt.Errorf("failed to decode node pool: %w", err))
-				}
-
-				options := armcontainerservice.AgentPool{Properties: &properties}
-				p, err := agentPoolsClient.BeginCreateOrUpdate(ctx, inst.Config.Cloud.ResourceGroup, clusterConfig.Name, *newNodePool.Name, options, nil)
-				if err != nil {
-					return nil, fmt.Errorf("failed to create node pool: %w", err)
-				}
-				agentPoolCreatePollers = append(agentPoolCreatePollers, p)
-			}
-
-			for _, p := range agentPoolCreatePollers {
-				if _, err := p.PollUntilDone(ctx, nil); err != nil {
-					return nil, fmt.Errorf("failed to create node pool: %w", err)
-				}
 			}
 		}
 
@@ -340,6 +351,10 @@ func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCl
 		if *v != *existingV {
 			return true, false
 		}
+	}
+
+	if *cluster.SKU.Tier != *existingCluster.SKU.Tier {
+		return true, false
 	}
 
 	if len(cluster.Properties.AgentPoolProfiles) != len(existingCluster.Properties.AgentPoolProfiles) {
