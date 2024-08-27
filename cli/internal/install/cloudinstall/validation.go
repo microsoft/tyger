@@ -8,7 +8,10 @@ import (
 	"net"
 	"net/url"
 	"regexp"
+	"slices"
+	"strings"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v4"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/postgresql/armpostgresqlflexibleservers/v4"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage"
 	"github.com/google/uuid"
@@ -96,12 +99,17 @@ func quickValidateComputeConfig(success *bool, cloudConfig *CloudConfig) {
 			cluster.KubernetesVersion = DefaultKubernetesVersion
 		}
 
-		switch cluster.Sku {
-		case "":
-			cluster.Sku = ClusterSkuStandard
-		case ClusterSkuFree, ClusterSkuStandard, ClusterSkuPremium:
-		default:
-			validationError(success, "The `sku` field of the cluster `%s` must be `Free`, `Standard`, or `Premium`", cluster.Name)
+		if cluster.Sku == "" {
+			cluster.Sku = armcontainerservice.ManagedClusterSKUTierStandard
+		} else {
+			possibleValues := armcontainerservice.PossibleManagedClusterSKUTierValues()
+			if !slices.Contains(possibleValues, cluster.Sku) {
+				formattedPossibleValues := make([]string, len(possibleValues))
+				for i, v := range possibleValues {
+					formattedPossibleValues[i] = fmt.Sprintf("`%s`", v)
+				}
+				validationError(success, "The `sku` field of the cluster `%s` must be one of [%s]", cluster.Name, strings.Join(formattedPossibleValues, ", "))
+			}
 		}
 
 		if cluster.SystemNodePool == nil {

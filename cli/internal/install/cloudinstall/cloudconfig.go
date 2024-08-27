@@ -8,6 +8,8 @@ import (
 	"io"
 	"strings"
 	"text/template"
+
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v4"
 )
 
 //go:embed config.tpl
@@ -82,22 +84,14 @@ func (c *ComputeConfig) GetApiHostCluster() *ClusterConfig {
 	panic("API host cluster not found - this should have been caught during validation")
 }
 
-type ClusterSku string
-
-const (
-	ClusterSkuFree     ClusterSku = "Free"
-	ClusterSkuStandard ClusterSku = "Standard"
-	ClusterSkuPremium  ClusterSku = "Premium"
-)
-
 type ClusterConfig struct {
-	Name              string            `json:"name"`
-	ApiHost           bool              `json:"apiHost"`
-	Location          string            `json:"location"`
-	Sku               ClusterSku        `json:"sku"`
-	KubernetesVersion string            `json:"kubernetesVersion,omitempty"`
-	SystemNodePool    *NodePoolConfig   `json:"systemNodePool"`
-	UserNodePools     []*NodePoolConfig `json:"userNodePools"`
+	Name              string                                    `json:"name"`
+	ApiHost           bool                                      `json:"apiHost"`
+	Location          string                                    `json:"location"`
+	Sku               armcontainerservice.ManagedClusterSKUTier `json:"sku"`
+	KubernetesVersion string                                    `json:"kubernetesVersion,omitempty"`
+	SystemNodePool    *NodePoolConfig                           `json:"systemNodePool"`
+	UserNodePools     []*NodePoolConfig                         `json:"userNodePools"`
 }
 
 type NodePoolConfig struct {
