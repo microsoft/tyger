@@ -16,7 +16,7 @@ cloud:
     clusters:
       - name: {{ .EnvironmentName }}
         apiHost: true
-        kubernetesVersion: {{ .KubernetesVersion }}
+        kubernetesVersion: "{{ .KubernetesVersion }}"
         # location: Defaults to defaultLocation
 
         systemNodePool:

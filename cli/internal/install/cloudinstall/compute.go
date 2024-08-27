@@ -59,6 +59,24 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 	}
 	tags[TagKey] = &inst.Config.EnvironmentName
 
+	if clusterAlreadyExists {
+		if *existingCluster.Properties.KubernetesVersion != clusterConfig.KubernetesVersion {
+			existingCluster.Properties.KubernetesVersion = &clusterConfig.KubernetesVersion
+			log.Ctx(ctx).Info().Msgf("Updating Kubernetes version to %s", clusterConfig.KubernetesVersion)
+			resp, err := clustersClient.BeginCreateOrUpdate(ctx, inst.Config.Cloud.ResourceGroup, clusterConfig.Name, existingCluster.ManagedCluster, nil)
+			if err != nil {
+				return nil, fmt.Errorf("failed to update cluster: %w", err)
+			}
+			if _, err := resp.PollUntilDone(ctx, nil); err != nil {
+				return nil, fmt.Errorf("failed to update cluster: %w", err)
+			}
+			existingCluster, err = clustersClient.Get(ctx, inst.Config.Cloud.ResourceGroup, clusterConfig.Name, nil)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get cluster: %w", err)
+			}
+		}
+	}
+
 	cluster := armcontainerservice.ManagedCluster{
 		Tags:     tags,
 		Location: Ptr(clusterConfig.Location),
@@ -112,29 +130,31 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 
 	cluster.Properties.AgentPoolProfiles = []*armcontainerservice.ManagedClusterAgentPoolProfile{
 		{
-			Name:              &clusterConfig.SystemNodePool.Name,
-			Mode:              Ptr(armcontainerservice.AgentPoolModeSystem),
-			VMSize:            &clusterConfig.SystemNodePool.VMSize,
-			EnableAutoScaling: Ptr(true),
-			Count:             &clusterConfig.SystemNodePool.MinCount,
-			MinCount:          &clusterConfig.SystemNodePool.MinCount,
-			MaxCount:          &clusterConfig.SystemNodePool.MaxCount,
-			OSType:            Ptr(armcontainerservice.OSTypeLinux),
-			OSSKU:             Ptr(armcontainerservice.OSSKUAzureLinux),
+			Name:                &clusterConfig.SystemNodePool.Name,
+			Mode:                Ptr(armcontainerservice.AgentPoolModeSystem),
+			OrchestratorVersion: &clusterConfig.KubernetesVersion,
+			VMSize:              &clusterConfig.SystemNodePool.VMSize,
+			EnableAutoScaling:   Ptr(true),
+			Count:               &clusterConfig.SystemNodePool.MinCount,
+			MinCount:            &clusterConfig.SystemNodePool.MinCount,
+			MaxCount:            &clusterConfig.SystemNodePool.MaxCount,
+			OSType:              Ptr(armcontainerservice.OSTypeLinux),
+			OSSKU:               Ptr(armcontainerservice.OSSKUAzureLinux),
 		},
 	}
 
 	for _, np := range clusterConfig.UserNodePools {
 		profile := armcontainerservice.ManagedClusterAgentPoolProfile{
-			Name:              &np.Name,
-			Mode:              Ptr(armcontainerservice.AgentPoolModeUser),
-			VMSize:            &np.VMSize,
-			EnableAutoScaling: Ptr(true),
-			Count:             &np.MinCount,
-			MinCount:          &np.MinCount,
-			MaxCount:          &np.MaxCount,
-			OSType:            Ptr(armcontainerservice.OSTypeLinux),
-			OSSKU:             Ptr(armcontainerservice.OSSKUAzureLinux),
+			Name:                &np.Name,
+			Mode:                Ptr(armcontainerservice.AgentPoolModeUser),
+			OrchestratorVersion: &clusterConfig.KubernetesVersion,
+			VMSize:              &np.VMSize,
+			EnableAutoScaling:   Ptr(true),
+			Count:               &np.MinCount,
+			MinCount:            &np.MinCount,
+			MaxCount:            &np.MaxCount,
+			OSType:              Ptr(armcontainerservice.OSTypeLinux),
+			OSSKU:               Ptr(armcontainerservice.OSSKUAzureLinux),
 			NodeLabels: map[string]*string{
 				"tyger": Ptr("run"),
 			},
@@ -380,6 +400,9 @@ func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCl
 					if *np.MaxCount > *existingNp.MaxCount {
 						onlyScaleDown = false
 					}
+				}
+				if *np.OrchestratorVersion != *existingNp.OrchestratorVersion {
+					return true, false
 				}
 				break
 			}
