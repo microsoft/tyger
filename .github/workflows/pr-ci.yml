@@ -337,7 +337,7 @@ jobs:
           cp -a "$(go env GOPATH)/bin/$(go env GOOS)_$(go env GOARCH)/." "$destination"
 
       - name: Archive windows-cli-tools
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@4.4.0
         with:
           name: windows-cli-tools
           path: windows-cli-tools
