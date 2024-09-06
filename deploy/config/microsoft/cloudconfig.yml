@@ -21,7 +21,7 @@ cloud:
           maxCount: 3
         userNodePools:
           - name: cpunp
-            vmSize: standard_e8s_v3
+            vmSize: standard_e4s_v3
             minCount: ${TYGER_MIN_CPU_NODE_COUNT}
             maxCount: 10
           - name: gpunp
