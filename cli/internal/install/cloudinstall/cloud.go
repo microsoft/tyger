@@ -12,6 +12,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v4"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armsubscriptions"
 	"github.com/fatih/color"
@@ -236,6 +237,17 @@ func (inst *Installer) createPromises(ctx context.Context) install.PromiseGroup 
 	tygerServerManagedIdentityPromise := install.NewPromise(ctx, group, inst.createTygerServerManagedIdentity)
 	migrationRunnerManagedIdentityPromise := install.NewPromise(ctx, group, inst.createMigrationRunnerManagedIdentity)
 
+	customIdentityPromises := make([]*install.Promise[*armmsi.Identity], 0)
+
+	for _, identityName := range inst.Config.Cloud.Compute.Identities {
+		identityName := identityName
+		customIdentityPromises = append(customIdentityPromises, install.NewPromise(ctx, group, func(ctx context.Context) (*armmsi.Identity, error) {
+			return inst.createManagedIdentity(ctx, identityName)
+		}))
+	}
+
+	install.NewPromise(ctx, group, inst.deleteUnusedIdentities)
+
 	install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
 		return inst.createDatabase(ctx, tygerServerManagedIdentityPromise, migrationRunnerManagedIdentityPromise)
 	})
@@ -254,6 +266,12 @@ func (inst *Installer) createPromises(ctx context.Context) install.PromiseGroup 
 			})
 			install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
 				return inst.createFederatedIdentityCredential(ctx, migrationRunnerManagedIdentityPromise, createClusterPromise)
+			})
+		}
+
+		for _, identityPromise := range customIdentityPromises {
+			install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
+				return inst.createFederatedIdentityCredential(ctx, identityPromise, createClusterPromise)
 			})
 		}
 	}

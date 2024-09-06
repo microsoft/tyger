@@ -106,6 +106,11 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         var commonLabels = ImmutableDictionary<string, string>.Empty.Add(RunLabel, $"{run.Id}");
 
         var jobLabels = commonLabels.Add(JobLabel, $"{run.Id}");
+        if (jobPodTemplateSpec.Metadata.Labels != null)
+        {
+            jobLabels = jobLabels.AddRange(jobPodTemplateSpec.Metadata.Labels);
+        }
+
         jobPodTemplateSpec.Metadata.Labels = jobLabels;
 
         var job = new V1Job
@@ -137,6 +142,11 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         if (newRun.Worker != null)
         {
             var workerLabels = commonLabels.Add(WorkerLabel, $"{run.Id}");
+            if (workerPodTemplateSpec!.Metadata.Labels != null)
+            {
+                workerLabels = workerLabels.AddRange(workerPodTemplateSpec.Metadata.Labels);
+            }
+
             workerPodTemplateSpec!.Metadata.Labels = workerLabels;
 
             var workerStatefulSet = new V1StatefulSet()
@@ -381,8 +391,6 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
             }
         }
 
-        job.Spec.Template.Spec.ServiceAccountName = _k8sOptions.JobServiceAccount;
-
         await _client.CoreV1.CreateNamespacedSecretAsync(buffersSecret, _k8sOptions.Namespace, cancellationToken: cancellationToken);
         _logger.CreatedSecret(buffersSecret.Metadata.Name);
     }
@@ -410,13 +418,39 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         return targetCluster;
     }
 
-    private static V1PodTemplateSpec CreatePodTemplateSpec(Codespec codespec, RunCodeTarget codeTarget, ClusterOptions? targetCluster, string restartPolicy)
+    private V1PodTemplateSpec CreatePodTemplateSpec(Codespec codespec, RunCodeTarget codeTarget, ClusterOptions? targetCluster, string restartPolicy)
     {
+        string? GetServiceAccount()
+        {
+            var identities = _k8sOptions.CustomIdentities;
+            if (!string.IsNullOrEmpty(codespec.Identity))
+            {
+                if (identities?.TryGetValue(codespec.Identity, out var serviceAccount) == true)
+                {
+                    return serviceAccount;
+                }
+
+                if (identities is null or { Count: 0 })
+                {
+                    throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "Identity '{0}' is not supported.", codespec.Identity));
+                }
+
+                var options = string.Join(", ", identities.Keys.Select(c => $"'{c}'"));
+                throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "Unknown identity '{0}'. Valid options are: {1}.", codespec.Identity, options));
+            }
+
+            return codespec is JobCodespec ? _k8sOptions.JobServiceAccount : null;
+        }
+
         var podTemplateSpec = new V1PodTemplateSpec()
         {
             Metadata = new()
             {
-                Finalizers = [FinalizerName]
+                Finalizers = [FinalizerName],
+                Labels = new Dictionary<string, string>
+                {
+                    { "azure.workload.identity/use", (!string.IsNullOrEmpty(codespec.Identity)).ToString().ToLowerInvariant() }
+                },
             },
             Spec = new()
             {
@@ -432,6 +466,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
                     }
                 ],
                 RestartPolicy = restartPolicy,
+                ServiceAccountName = GetServiceAccount(),
             }
         };
 

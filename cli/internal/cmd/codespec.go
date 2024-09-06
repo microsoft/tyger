@@ -55,6 +55,7 @@ func newCodespecCreateCommand() *cobra.Command {
 		outputBuffers []string
 		env           map[string]string
 		command       bool
+		identity      string
 		requests      overcommittableResourceStrings
 		limits        overcommittableResourceStrings
 		gpu           string
@@ -63,7 +64,7 @@ func newCodespecCreateCommand() *cobra.Command {
 	}
 
 	var cmd = &cobra.Command{
-		Use:                   `create NAME [--file YAML_SPEC] [--image IMAGE] [--kind job|worker] [--max-replicas REPLICAS] [[--input BUFFER_NAME] ...] [[--output BUFFER_NAME] ...] [[--env \"KEY=VALUE\"] ...] [[ --endpoint SERVICE=PORT ]] [--gpu QUANTITY] [--cpu-request QUANTITY] [--memory-request QUANTITY] [--cpu-limit QUANTITY] [--memory-limit QUANTITY] [--command] -- [COMMAND] [args...]`,
+		Use:                   `create NAME [--file YAML_SPEC] [--image IMAGE] [--kind job|worker] [--max-replicas REPLICAS] [[--input BUFFER_NAME] ...] [[--output BUFFER_NAME] ...] [[--env \"KEY=VALUE\"] ...] [--identity IDENTITY] [[ --endpoint SERVICE=PORT ]] [--gpu QUANTITY] [--cpu-request QUANTITY] [--memory-request QUANTITY] [--cpu-limit QUANTITY] [--memory-limit QUANTITY] [--command] -- [COMMAND] [args...]`,
 		Short:                 "Create or update a codespec",
 		Long:                  `Create or update a codespec. Outputs the version of the codespec that was created.`,
 		DisableFlagsInUseLine: true,
@@ -132,6 +133,10 @@ func newCodespecCreateCommand() *cobra.Command {
 
 			if hasFlagChanged(cmd, "env") {
 				newCodespec.Env = flags.env
+			}
+
+			if hasFlagChanged(cmd, "identity") {
+				newCodespec.Identity = flags.identity
 			}
 
 			if hasFlagChanged(cmd, "endpoint") {
@@ -276,6 +281,7 @@ func newCodespecCreateCommand() *cobra.Command {
 	cmd.Flags().StringToStringVarP(&flags.env, "env", "e", nil, "Environment variables to set in the container in the form KEY=value")
 	cmd.Flags().StringToIntVar(&flags.endpoints, "endpoint", nil, "TCP endpoints in the form NAME=PORT. Only valid for worker codespecs.")
 	cmd.Flags().BoolVar(&flags.command, "command", false, "If true and extra arguments are present, use them as the 'command' field in the container, rather than the 'args' field which is the default.")
+	cmd.Flags().StringVar(&flags.identity, "identity", "", "The workload identity to use for this codespec.")
 	cmd.Flags().StringVar(&flags.requests.cpu, "cpu-request", "", "CPU cores requested")
 	cmd.Flags().StringVar(&flags.requests.memory, "memory-request", "", "memory bytes requested")
 	cmd.Flags().StringVar(&flags.limits.cpu, "cpu-limit", "", "CPU cores limit")

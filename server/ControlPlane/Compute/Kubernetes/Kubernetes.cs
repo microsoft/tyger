@@ -65,6 +65,8 @@ public class KubernetesApiOptions : KubernetesCoreOptions
     [Required]
     public string JobServiceAccount { get; set; } = null!;
 
+    public Dictionary<string, string>? CustomIdentities { get; set; }
+
     [Required]
     public string NoOpConfigMap { get; set; } = null!;
 

@@ -31,6 +31,7 @@ import (
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/yaml"
@@ -39,6 +40,7 @@ import (
 const (
 	BasicImage = "mcr.microsoft.com/cbl-mariner/base/core:2.0"
 	GpuImage   = "nvidia/cuda:11.0.3-base-ubuntu20.04"
+	AzCliImage = "mcr.microsoft.com/azure-cli:2.64.0"
 )
 
 func init() {
@@ -853,7 +855,7 @@ func TestOpenApiSpecIsAsExpected(t *testing.T) {
 
 			curlCommand = fmt.Sprintf("curl --unix %s %s ", strings.Split(client.ControlPlaneUrl.Path, ":")[0], u.String())
 		} else {
-			curlCommand = fmt.Sprintf("curl %s ", client.ControlPlaneUrl)
+			curlCommand = fmt.Sprintf("curl %s ", swaggerUri)
 		}
 
 		t.Errorf("Result not as expected. To update, run `%s > %s`\n\nDiff:%v",
@@ -1569,6 +1571,82 @@ timeoutSeconds: 600`
 
 	// create run
 	runTygerSucceeds(t, "run", "exec", "--file", runSpecPath, "--pull")
+}
+
+func TestWorkloadIdentity(t *testing.T) {
+	t.Parallel()
+	skipIfUsingUnixSocket(t)
+
+	require := require.New(t)
+
+	runSpec := fmt.Sprintf(`
+job:
+  codespec:
+    image: %s
+    identity: test-identity
+    command:
+      - "sh"
+      - "-c"
+      - |
+        set -euo pipefail
+        az login --federated-token "$(cat $AZURE_FEDERATED_TOKEN_FILE)" --service-principal -u $AZURE_CLIENT_ID -t $AZURE_TENANT_ID --allow-no-subscriptions
+        az account get-access-token > /dev/null
+timeoutSeconds: 600`, AzCliImage)
+
+	tempDir := t.TempDir()
+	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
+	require.NoError(os.WriteFile(runSpecPath, []byte(runSpec), 0644))
+
+	runTygerSucceeds(t, "run", "exec", "--file", runSpecPath, "--logs")
+}
+
+func TestMissingWorkloadIdentity(t *testing.T) {
+	t.Parallel()
+	skipIfUsingUnixSocket(t)
+
+	require := require.New(t)
+
+	runSpec := fmt.Sprintf(`
+job:
+  codespec:
+    image: %s
+    command:
+      - "sh"
+      - "-c"
+      - |
+        set -euo pipefail
+        az login --federated-token "$(cat $AZURE_FEDERATED_TOKEN_FILE)" --service-principal -u $AZURE_CLIENT_ID -t $AZURE_TENANT_ID --allow-no-subscriptions
+        az account get-access-token > /dev/null
+timeoutSeconds: 600`, AzCliImage)
+
+	tempDir := t.TempDir()
+	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
+	require.NoError(os.WriteFile(runSpecPath, []byte(runSpec), 0644))
+
+	_, _, err := runTyger("run", "exec", "--file", runSpecPath, "--logs")
+	assert.Error(t, err)
+}
+
+func TestWorkloadIdentityWithInvalidIdentity(t *testing.T) {
+	t.Parallel()
+	skipIfUsingUnixSocket(t)
+
+	require := require.New(t)
+
+	runSpec := fmt.Sprintf(`
+job:
+  codespec:
+    image: %s
+    identity: invalid-identity
+    command: date
+timeoutSeconds: 600`, BasicImage)
+
+	tempDir := t.TempDir()
+	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
+	require.NoError(os.WriteFile(runSpecPath, []byte(runSpec), 0644))
+
+	_, _, err := runTyger("run", "exec", "--file", runSpecPath, "--logs")
+	assert.Error(t, err)
 }
 
 func waitForRunStarted(t *testing.T, runId string) model.Run {

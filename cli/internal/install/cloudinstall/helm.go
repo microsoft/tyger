@@ -333,6 +333,10 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, restConfig *re
 	if err != nil {
 		return "", "", fmt.Errorf("failed to marshal cluster configuration: %w", err)
 	}
+	clustersConfig := make([]map[string]any, 0)
+	if err := json.Unmarshal(clustersConfigJson, &clustersConfig); err != nil {
+		return "", "", fmt.Errorf("failed to unmarshal cluster configuration: %w", err)
+	}
 
 	identitiesClient, err := armmsi.NewUserAssignedIdentitiesClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
 	if err != nil {
@@ -347,6 +351,21 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, restConfig *re
 	migrationRunnerIdentity, err := identitiesClient.Get(ctx, inst.Config.Cloud.ResourceGroup, migrationRunnerManagedIdentityName, nil)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to get managed identity: %w", err)
+	}
+
+	customIdentitiesValues := make([]map[string]any, 0)
+	for _, identity := range inst.Config.Cloud.Compute.Identities {
+		identity, err := identitiesClient.Get(ctx, inst.Config.Cloud.ResourceGroup, identity, nil)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to get managed identity: %w", err)
+		}
+
+		customIdentitiesValues = append(
+			customIdentitiesValues,
+			map[string]any{
+				"name":     identity.Name,
+				"clientId": identity.Properties.ClientID,
+			})
 	}
 
 	storageClient, err := armstorage.NewAccountsClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
@@ -409,6 +428,7 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, restConfig *re
 					"name":     migrationRunnerIdentity.Name,
 					"clientId": migrationRunnerIdentity.Properties.ClientID,
 				},
+				"custom": customIdentitiesValues,
 			},
 			"security": map[string]any{
 				"enabled":   true,
@@ -432,7 +452,7 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, restConfig *re
 			"logArchive": map[string]any{
 				"storageAccountEndpoint": *logArchiveAccount.Properties.PrimaryEndpoints.Blob,
 			},
-			"clusterConfigurationJson": string(clustersConfigJson),
+			"clusterConfiguration": clustersConfig,
 		},
 	}
 

@@ -130,6 +130,11 @@ workingDir: /some/path
 env:
   MY_VAR: myValue
 
+# An optional workload identity to run as, allowing access to cloud resources.
+# This must be one of the identites given in the cloud configuration file under
+# cloud.compute.identities.
+identity: my-identity
+
 # Compute Resources required by the container.
 # All quantities are strings in the format described in
 # https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/quantity/
@@ -182,6 +187,7 @@ tyger codespec create
     [--max-replicas REPLICAS]
     [[--input BUFFER_NAME] ...] [[--output BUFFER_NAME] ...]
     [[--env "KEY=VALUE"] ...]
+    [--identity IDENTITY]
     [[ --endpoint SERVICE=PORT ]]
     [--gpu QUANTITY]
     [--cpu-request QUANTITY]

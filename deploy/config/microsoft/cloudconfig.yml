@@ -16,17 +16,17 @@ cloud:
         kubernetesVersion: "1.28"
         systemNodePool:
           name: system
-          vmSize: Standard_DS2_v2
+          vmSize: standard_e2s_v3
           minCount: 1
           maxCount: 3
         userNodePools:
           - name: cpunp
-            vmSize: Standard_DS12_v2
-            minCount: ${TYGER_MIN_NODE_COUNT}
+            vmSize: standard_e8s_v3
+            minCount: ${TYGER_MIN_CPU_NODE_COUNT}
             maxCount: 10
           - name: gpunp
             vmSize: Standard_NC6s_v3
-            minCount: ${TYGER_MIN_NODE_COUNT}
+            minCount: ${TYGER_MIN_GPU_NODE_COUNT}
             maxCount: 10
 
     managementPrincipals:
@@ -39,6 +39,9 @@ cloud:
     privateContainerRegistries:
       - eminence
 
+    identities:
+      - test-identity
+
   storage:
     buffers:
       - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}tygerbuf
@@ -46,11 +49,11 @@ cloud:
       name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}tygerlog
 
   database:
-    location: westus3
+    location: ${TYGER_DATABASE_LOCATION}
     firewallRules: ${TYGER_ENVIRONMENT_FIREWALL_RULES}
 
 api:
-  domainName: ${TYGER_ENVIRONMENT_NAME}-tyger.westus2.cloudapp.azure.com
+  domainName: ${TYGER_ENVIRONMENT_NAME}-tyger.${TYGER_LOCATION}.cloudapp.azure.com
   auth:
     tenantId: 76d3279b-830e-4bea-baf8-12863cdeba4c
     apiAppUri: api://tyger-server

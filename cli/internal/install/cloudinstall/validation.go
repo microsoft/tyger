@@ -164,6 +164,17 @@ func quickValidateComputeConfig(success *bool, cloudConfig *CloudConfig) {
 			validationError(success, "The `id` field is no longer supported a management principal. Use `objectId` instead")
 		}
 	}
+
+	if computeConfig.Identities != nil {
+		for _, id := range computeConfig.Identities {
+			if id == "" {
+				validationError(success, "The `identities` field must not contain empty strings")
+			}
+			if isSystemManagedIdentityName(id) {
+				validationError(success, "The `identities` field must not contain the reserved name '%s'", id)
+			}
+		}
+	}
 }
 
 func quickValidateNodePoolConfig(success *bool, np *NodePoolConfig, minNodeCount int) {

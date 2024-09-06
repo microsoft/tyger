@@ -1,3 +1,4 @@
+{{- $tygerName := include "tyger.fullname" . -}}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -8,7 +9,7 @@ metadata:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: {{ include "tyger.fullname" . }}-server
+  name: {{ $tygerName }}-server
 rules:
 - apiGroups: [""]
   resources: ["pods", "pods/log", "services"]
@@ -26,11 +27,11 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: {{ include "tyger.fullname" . }}-server
+  name: {{ $tygerName }}-server
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: {{ include "tyger.fullname" . }}-server
+  name: {{ $tygerName }}-server
 subjects:
 - kind: ServiceAccount
   name: {{ .Values.identity.tygerServer.name }}
@@ -38,59 +39,58 @@ subjects:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: {{ include "tyger.fullname" . }}-job
+  name: {{ $tygerName }}-job
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: {{ include "tyger.fullname" . }}-job
+  name: {{ $tygerName }}-job
 rules:
 - apiGroups: [""]
   resources: ["pods"]
   verbs: ["get", "watch", "list"]
 ---
+{{- range $index, $element := .Values.identity.custom }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $tygerName}}-custom-{{ $element.name }}-job
+  annotations:
+    azure.workload.identity/client-id: {{ $element.clientId }}
+---
+{{- end }}
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: {{ include "tyger.fullname" . }}-job
+  name: {{ $tygerName }}-job
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: {{ include "tyger.fullname" . }}-job
+  name: {{ $tygerName }}-job
 subjects:
 - kind: ServiceAccount
-  name: {{ include "tyger.fullname" . }}-job
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ include "tyger.fullname" . }}-server
-data:
-  appsettings.json: |-
-    {
-      "compute": {
-        "kubernetes": {
-          "clusters":
-            {{ .Values.clusterConfigurationJson }}
-        }
-      }
-    }
+  name: {{ $tygerName }}-job
+{{- range $index, $element := .Values.identity.custom }}
+- kind: ServiceAccount
+  name: {{ $tygerName}}-custom-{{ $element.name }}-job
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "tyger.fullname" . }}-server
+  name: {{ $tygerName }}-server
 spec:
   selector:
     matchLabels:
-      component: {{ include "tyger.fullname" . }}-server
+      component: {{ $tygerName }}-server
   replicas: {{ .Values.replicas }}
   strategy:
     type: Recreate # For inner-loop local development. TODO: parameterize
   template:
     metadata:
       labels:
-        component: {{ include "tyger.fullname" . }}-server
+        component: {{ $tygerName }}-server
         azure.workload.identity/use: "true"
     spec:
       containers:
@@ -104,8 +104,6 @@ spec:
               value: http://+:5000
             - name: KeyPerFileDirectory
               value: /etc/secrets/
-            - name: AppSettingsDirectory
-              value: /etc/config/
             - name: AZURE_CLIENT_ID
               value: {{ .Values.identity.tygerServer.clientId }}
             - name: ServiceMetadata__ExternalBaseUrl
@@ -123,15 +121,35 @@ spec:
             - name: Compute__Kubernetes__Namespace
               value: {{ .Release.Namespace }}
             - name: Compute__Kubernetes__JobServiceAccount
-              value: {{ include "tyger.fullname" . }}-job
+              value: {{ $tygerName }}-job
             - name: Compute__Kubernetes__NoOpConfigMap
-              value: {{ include "tyger.fullname" . }}-no-op
+              value: {{ $tygerName }}-no-op
             - name: Compute__Kubernetes__WorkerWaiterImage
               value: {{ required "A value for workerWaiterImage is required" .Values.workerWaiterImage }}
             - name: Compute__Kubernetes__CurrentPodUid
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.uid
+            {{- range $i, $cluster := .Values.clusterConfiguration }}
+            - name: Compute__Kubernetes__Clusters__{{ $i }}__Name
+              value: "{{ $cluster.name }}"
+            - name: Compute__Kubernetes__Clusters__{{ $i }}__Location
+              value: "{{ $cluster.location }}"
+            - name: Compute__Kubernetes__Clusters__{{ $i }}__Sku
+              value: "{{ $cluster.sku }}"
+            - name: Compute__Kubernetes__Clusters__{{ $i }}__ApiHost
+              value: "{{ $cluster.apiHost }}"
+            {{- range $j, $userNodePool := $cluster.userNodePools }}
+            - name: Compute__Kubernetes__Clusters__{{ $i }}__UserNodePools__{{ $j }}__Name
+              value: "{{ $userNodePool.name }}"
+            - name: Compute__Kubernetes__Clusters__{{ $i }}__UserNodePools__{{ $j }}__VmSize
+              value: "{{ $userNodePool.vmSize }}"
+            {{- end }}
+            {{- end }}
+            {{- range $index, $element := .Values.identity.custom }}
+            - name: Compute__Kubernetes__CustomIdentities__{{ $element.name }}
+              value: {{ $tygerName}}-custom-{{ $element.name }}-job
+            {{- end }}
             - name: Database__ConnectionString
               value: "Host={{ .Values.database.host }}; Database={{ .Values.database.databaseName }}; Port={{ .Values.database.port }}; Username={{ .Values.identity.tygerServer.name }}; SslMode=VerifyFull;"
             - name: Database__TygerServerRoleName
@@ -158,10 +176,6 @@ spec:
             httpGet:
               path: /healthcheck
               port: 5000
-          volumeMounts:
-          - name: config
-            mountPath: /etc/config
-            readOnly: true
 
       serviceAccount: {{ .Values.identity.tygerServer.name }}
       {{- with .Values.nodeSelector }}
@@ -176,19 +190,14 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-
-      volumes:
-      - name: config
-        configMap:
-          name: {{ include "tyger.fullname" . }}-server
 ---
 kind: Service
 apiVersion: v1
 metadata:
-  name: {{ include "tyger.fullname" . }}-server
+  name: {{ $tygerName }}-server
 spec:
   selector:
-    component: {{ include "tyger.fullname" . }}-server
+    component: {{ $tygerName }}-server
   ports:
     - name: tyger
       protocol: TCP
@@ -199,13 +208,13 @@ spec:
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
-  name: {{ include "tyger.fullname" . }}-cert
+  name: {{ $tygerName }}-cert
 spec:
   acme:
     server: https://acme-v02.api.letsencrypt.org/directory
     email: {{ .Values.tls.letsEncrypt.email }}
     privateKeySecretRef:
-      name: {{ include "tyger.fullname" . }}-cert
+      name: {{ $tygerName }}-cert
     solvers:
       - http01:
           ingress:
@@ -218,7 +227,7 @@ metadata:
 spec:
   secretName: {{ .Values.hostname }}-tls
   issuerRef:
-    name: {{ include "tyger.fullname" . }}-cert
+    name: {{ $tygerName }}-cert
     kind: Issuer
   dnsNames:
     - {{ .Values.hostname }}
@@ -228,11 +237,11 @@ spec:
 apiVersion: traefik.containo.us/v1alpha1
 kind: IngressRoute
 metadata:
-  name: {{ include "tyger.fullname" . }}-server
+  name: {{ $tygerName }}-server
   {{- if .Values.tls.letsEncrypt.enabled }}
   annotations:
     kubernetes.io/ingress.class: traefik
-    cert-manager.io/issuer: {{ include "tyger.fullname" . }}-cert
+    cert-manager.io/issuer: {{ $tygerName }}-cert
   {{- end }}
 spec:
   {{- if .Values.tls.enabled }}
@@ -254,5 +263,5 @@ spec:
   - kind: Rule
     match: Host(`{{ required "A value for hostname is required." .Values.hostname }}`)
     services:
-    - name: {{ include "tyger.fullname" . }}-server
+    - name: {{ $tygerName }}-server
       port: 8080
