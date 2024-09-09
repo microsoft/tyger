@@ -16,16 +16,16 @@ cloud:
         kubernetesVersion: "1.28"
         systemNodePool:
           name: system
-          vmSize: standard_e2s_v3
+          vmSize: ${TYGER_SYSTEM_NODE_SKU}
           minCount: 1
           maxCount: 3
         userNodePools:
           - name: cpunp
-            vmSize: standard_e4s_v3
+            vmSize: ${TYGER_CPU_NODE_SKU}
             minCount: ${TYGER_MIN_CPU_NODE_COUNT}
             maxCount: 10
           - name: gpunp
-            vmSize: Standard_NC6s_v3
+            vmSize: ${TYGER_GPU_NODE_SKU}
             minCount: ${TYGER_MIN_GPU_NODE_COUNT}
             maxCount: 10
 
