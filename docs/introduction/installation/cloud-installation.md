@@ -107,6 +107,11 @@ cloud:
     # privateContainerRegistries:
     #   - myprivateregistry
 
+    # An optional array of managed identities that will be created in the resource group.
+    # These identities are available to runs as workload identities.
+    # identities:
+    # - my-identity
+
   database:
     serverName: demo-tyger
     postgresMajorVersion: 16

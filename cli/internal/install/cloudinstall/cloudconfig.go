@@ -42,6 +42,7 @@ type ComputeConfig struct {
 	ManagementPrincipals       []Principal      `json:"managementPrincipals"`
 	LocalDevelopmentIdentityId string           `json:"localDevelopmentIdentityId"` // undocumented - for local development only
 	PrivateContainerRegistries []string         `json:"privateContainerRegistries"`
+	Identities                 []string         `json:"identities"`
 }
 
 func (c *ComputeConfig) GetManagementPrincipalIds() []string {

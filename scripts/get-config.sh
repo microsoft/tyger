@@ -92,8 +92,21 @@ else
     TYGER_HELM_CHART_DIR=$(readlink -f "${this_dir}/../deploy/helm/tyger")
     export TYGER_HELM_CHART_DIR
 
-    export TYGER_MIN_NODE_COUNT="${TYGER_MIN_NODE_COUNT:-0}"
+    export TYGER_MIN_CPU_NODE_COUNT="${TYGER_MIN_CPU_NODE_COUNT:-${TYGER_MIN_NODE_COUNT:-0}}"
+    export TYGER_MIN_GPU_NODE_COUNT="${TYGER_MIN_GPU_NODE_COUNT:-${TYGER_MIN_NODE_COUNT:-0}}"
+    export TYGER_DATABASE_LOCATION="${TYGER_DATABASE_LOCATION:-${TYGER_LOCATION:-westus3}}"
     export TYGER_LOCATION="${TYGER_LOCATION:-westus2}"
+
+    if [[ "$TYGER_LOCATION" == "eastus" ]]; then
+      export TYGER_SYSTEM_NODE_SKU="${TYGER_SYSTEM_NODE_SKU:-Standard_e2s_v3}"
+      export TYGER_CPU_NODE_SKU="${TYGER_CPU_NODE_SKU:-Standard_E8s_v3}"
+      export TYGER_GPU_NODE_SKU="${TYGER_GPU_NODE_SKU:-Standard_NC6s_v3}"
+    else
+      export TYGER_SYSTEM_NODE_SKU="${TYGER_SYSTEM_NODE_SKU:-Standard_DS2_v2}"
+      export TYGER_CPU_NODE_SKU="${TYGER_CPU_NODE_SKU:-Standard_DS12_v2}"
+      export TYGER_GPU_NODE_SKU="${TYGER_GPU_NODE_SKU:-Standard_NC6s_v3}"
+    fi
+
   fi
 
   repo_fqdn=$(envsubst <"${devconfig_path}" | yq ".wipContainerRegistry.fqdn")

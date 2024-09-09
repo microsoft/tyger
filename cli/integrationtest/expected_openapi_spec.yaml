@@ -519,6 +519,10 @@ components:
             type: string
           description: Environment variables to set in the container
           nullable: true
+        identity:
+          type: string
+          description: The workload identity to use. Only supported in cloud environments.
+          nullable: true
         resources:
           $ref: '#/components/schemas/CodespecResources'
         maxReplicas:

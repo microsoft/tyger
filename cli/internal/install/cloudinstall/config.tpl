@@ -60,6 +60,12 @@ cloud:
     # privateContainerRegistries:
     #   - myprivateregistry
 
+    # An optional array of managed identities that will be created in the resource group.
+    # These identities are available to runs as workload identities. When updating this list
+    # both `tyger cloud install` and `tyger api installed` must be run.
+    # identities:
+    # - my-identity
+
   database:
     serverName: {{ .DatabaseServerName }}
     postgresMajorVersion: {{ .PostgresMajorVersion }}

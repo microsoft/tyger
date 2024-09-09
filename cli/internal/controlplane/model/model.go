@@ -63,6 +63,7 @@ type Codespec struct {
 	Args             []string           `json:"args,omitempty"`
 	WorkingDir       string             `json:"workingDir,omitempty"`
 	Env              map[string]string  `json:"env,omitempty"`
+	Identity         string             `json:"identity,omitempty"`
 	Resources        *CodespecResources `json:"resources,omitempty"`
 	MaxReplicas      *int               `json:"maxReplicas,omitempty"`
 	Endpoints        map[string]int     `json:"endpoints,omitempty"`

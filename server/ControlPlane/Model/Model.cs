@@ -136,6 +136,11 @@ public abstract partial record Codespec : ModelBase, ICodespecRef
     public Dictionary<string, string>? Env { get; init; }
 
     /// <summary>
+    /// The workload identity to use. Only supported in cloud environments.
+    /// </summary>
+    public string? Identity { get; init; }
+
+    /// <summary>
     /// Container resource requests and limits
     /// </summary>
     public CodespecResources? Resources { get; init; }

@@ -12,6 +12,14 @@ AUTO_MIGRATE=false
 DOCKER_BUILD_ARCH_FLAGS = --arch amd64
 DOCKER_BUILD_PUSH_FLAGS = --push --push-force
 
+pim-elevate:
+	default_justification="Deploying Tyger"
+	read -p "Enter a justification (default: \"$${default_justification}\"): " justification
+	justification=$${justification:-$${default_justification}}
+
+	subscription=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.cloud.subscriptionId')
+	az-pim activate role --subscription "$${subscription}" Owner "$${justification}"
+
 ensure-environment: check-az-login install-cli
 	tyger cloud install -f <(scripts/get-config.sh)
 
