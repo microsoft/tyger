@@ -29,3 +29,9 @@ wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get -y install --no-install-recommends \
   postgresql-client-16
+
+# install az-pim
+AZ_PIM_VERSION=0.5.0
+wget "https://github.com/demoray/azure-pim-cli/releases/download/0.5.0/az-pim-linux-musl-${AZ_PIM_VERSION}" \
+&& sudo mv "az-pim-linux-musl-${AZ_PIM_VERSION}" /usr/bin/az-pim \
+&& sudo chmod +x /usr/bin/az-pim
