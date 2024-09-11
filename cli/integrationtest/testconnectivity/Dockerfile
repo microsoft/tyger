@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/oss/go/microsoft/golang:1.22.0-bullseye as go-build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/oss/go/microsoft/golang:1.23.1-bullseye as go-build
 ARG TARGETARCH BUILDOS
 
 WORKDIR /go/src/app

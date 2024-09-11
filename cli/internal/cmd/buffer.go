@@ -258,6 +258,7 @@ func getBufferAccessUri(ctx context.Context, bufferId string, writable bool) (*u
 func NewBufferReadCommand(openFileFunc func(name string, flag int, perm fs.FileMode) (*os.File, error)) *cobra.Command {
 	outputFilePath := ""
 	dop := dataplane.DefaultReadDop
+	requireComplete := false
 	cmd := &cobra.Command{
 		Use:                   "read { BUFFER_ID | BUFFER_SAS_URI | FILE_WITH_SAS_URI } [flags]",
 		Short:                 "Reads the contents of a buffer",
@@ -307,7 +308,7 @@ func NewBufferReadCommand(openFileFunc func(name string, flag int, perm fs.FileM
 				log.Warn().Msg("Canceling...")
 			}()
 
-			if err := dataplane.Read(ctx, uri, outputFile, dataplane.WithReadDop(dop)); err != nil {
+			if err := dataplane.Read(ctx, uri, outputFile, dataplane.WithReadDop(dop), dataplane.WithRequireComplete(requireComplete)); err != nil {
 				if errors.Is(err, ctx.Err()) {
 					err = ctx.Err()
 				}
@@ -318,6 +319,7 @@ func NewBufferReadCommand(openFileFunc func(name string, flag int, perm fs.FileM
 
 	cmd.Flags().StringVarP(&outputFilePath, "output", "o", outputFilePath, "The file write to. If not specified, data is written to standard out.")
 	cmd.Flags().IntVarP(&dop, "dop", "p", dop, "The degree of parallelism")
+	cmd.Flags().BoolVar(&requireComplete, "require-complete", requireComplete, "Require that the buffer is complete before reading. If the buffer is not complete, the operation will fail.")
 	return cmd
 }
 

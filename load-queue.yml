@@ -1,0 +1,7 @@
+job:
+  codespec:
+    image: eminence.azurecr.io/load-queue@sha256:5db391bba7088f8b51ef211da1da0b4859e8b750122ebd1effcb56cc05952faf
+    identity: test-identity
+    resources:
+      requests:
+        cpu: 1

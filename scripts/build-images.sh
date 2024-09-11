@@ -217,6 +217,16 @@ if [[ -n "${buffer_sidecar:-}" ]]; then
   repo="tyger-cli"
 
   build_and_push
+
+  target="load-queue"
+  repo="load-queue"
+
+  build_and_push
+
+  target="copier"
+  repo="copier"
+
+  build_and_push
 fi
 
 if [[ -n "${helm:-}" ]]; then

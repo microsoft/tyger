@@ -1,6 +1,6 @@
 module github.com/microsoft/tyger/cli
 
-go 1.22
+go 1.23
 
 require (
 	dario.cat/mergo v1.0.0
@@ -15,6 +15,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources v1.2.0
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armsubscriptions v1.3.0
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage v1.5.0
+	github.com/Azure/azure-sdk-for-go/sdk/storage/azqueue v1.0.0
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.2.2
 	github.com/IGLOU-EU/go-wildcard/v2 v2.0.2
 	github.com/a8m/envsubst v1.4.2
@@ -38,6 +39,7 @@ require (
 	github.com/knadh/koanf/parsers/yaml v0.1.0
 	github.com/knadh/koanf/providers/file v0.1.0
 	github.com/knadh/koanf/v2 v2.1.0
+	github.com/lib/pq v1.10.9
 	github.com/mattn/go-ieproxy v0.0.11
 	github.com/mittwald/go-helm-client v0.12.9
 	github.com/pkg/errors v0.9.1
@@ -51,6 +53,7 @@ require (
 	k8s.io/api v0.29.3
 	k8s.io/apimachinery v0.29.3
 	k8s.io/client-go v0.29.3
+	oras.land/oras-go v1.2.5
 	sigs.k8s.io/yaml v1.4.0
 )
 
@@ -122,7 +125,6 @@ require (
 	github.com/knadh/koanf/maps v0.1.1 // indirect
 	github.com/lann/builder v0.0.0-20180802200727-47ae307949d0 // indirect
 	github.com/lann/ps v0.0.0-20150810152359-62de8c46ede0 // indirect
-	github.com/lib/pq v1.10.9 // indirect
 	github.com/liggitt/tabwriter v0.0.0-20181228230101-89fcab3d43de // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
@@ -196,7 +198,6 @@ require (
 	k8s.io/kube-openapi v0.0.0-20240322212309-b815d8309940 // indirect
 	k8s.io/kubectl v0.29.3 // indirect
 	k8s.io/utils v0.0.0-20240310230437-4693a0247e57 // indirect
-	oras.land/oras-go v1.2.5 // indirect
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/kustomize/api v0.16.0 // indirect
 	sigs.k8s.io/kustomize/kyaml v0.16.0 // indirect

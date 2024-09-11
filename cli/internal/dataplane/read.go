@@ -35,13 +35,15 @@ const (
 var (
 	errPastEndOfBlob     = errors.New("past end of blob")
 	ErrNotFound          = errors.New("not found")
-	errBufferFailedState = errors.New("the buffer is in a permanently failed state")
+	ErrBufferFailedState = errors.New("the buffer is in a permanently failed state")
+	ErrBufferNotComplete = errors.New("the buffer is required to be complete and is not")
 )
 
 type readOptions struct {
-	dop            int
-	httpClient     *retryablehttp.Client
-	connectionType client.TygerConnectionType
+	dop             int
+	httpClient      *retryablehttp.Client
+	connectionType  client.TygerConnectionType
+	requireComplete bool
 }
 
 type ReadOption func(o *readOptions)
@@ -55,6 +57,12 @@ func WithReadDop(dop int) ReadOption {
 func WithReadHttpClient(httpClient *retryablehttp.Client) ReadOption {
 	return func(o *readOptions) {
 		o.httpClient = httpClient
+	}
+}
+
+func WithRequireComplete(value bool) ReadOption {
+	return func(o *readOptions) {
+		o.requireComplete = value
 	}
 }
 
@@ -91,7 +99,7 @@ func Read(ctx context.Context, uri *url.URL, outputWriter io.Writer, options ...
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	ctx = log.With().Str("operation", "buffer read").Logger().WithContext(ctx)
+	ctx = log.Ctx(ctx).With().Str("operation", "buffer read").Logger().WithContext(ctx)
 
 	if container.SupportsRelay() {
 		return readRelay(ctx, httpClient, readOptions.connectionType, container, outputWriter)
@@ -110,6 +118,32 @@ func Read(ctx context.Context, uri *url.URL, outputWriter io.Writer, options ...
 		// All blobs should have been written successfully by now.
 		waitForBlobs.Store(false)
 	}()
+
+	if readOptions.requireComplete {
+		wait := atomic.Bool{}
+		wait.Store(false)
+		data, err := DownloadBlob(ctx, httpClient, container.GetEndMetadataUri(), &wait, nil, nil)
+		if err != nil {
+			if err == ErrNotFound {
+				return ErrBufferNotComplete
+			}
+			return err
+		}
+
+		bufferEndMetadata := BufferEndMetadata{}
+		if err := json.Unmarshal(data.Data, &bufferEndMetadata); err != nil {
+			return fmt.Errorf("failed to unmarshal buffer end metadata: %w", err)
+		}
+
+		switch bufferEndMetadata.Status {
+		case BufferStatusComplete:
+			break
+		case BufferStatusFailed:
+			return ErrBufferFailedState
+		default:
+			return fmt.Errorf("buffer end blob has unexpected status '%s'", bufferEndMetadata.Status)
+		}
+	}
 
 	if err := readBufferStart(ctx, httpClient, container); err != nil {
 		return err
@@ -260,6 +294,10 @@ func readBufferStart(ctx context.Context, httpClient *retryablehttp.Client, cont
 	return nil
 }
 
+func readBufferEnd(ctx context.Context, httpClient *retryablehttp.Client, container *Container) error {
+
+}
+
 func pollForBufferEnd(ctx context.Context, httpClient *retryablehttp.Client, container *Container) error {
 	wait := atomic.Bool{}
 	wait.Store(false)
@@ -282,7 +320,7 @@ func pollForBufferEnd(ctx context.Context, httpClient *retryablehttp.Client, con
 		case BufferStatusComplete:
 			return nil
 		case BufferStatusFailed:
-			return errBufferFailedState
+			return ErrBufferFailedState
 		default:
 			log.Warn().Msgf("Buffer end blob has unexpected status '%s'", bufferEndMetadata.Status)
 			return nil

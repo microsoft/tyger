@@ -82,7 +82,7 @@ func Write(ctx context.Context, uri *url.URL, inputReader io.Reader, options ...
 		o(writeOptions)
 	}
 
-	ctx = log.With().Str("operation", "buffer write").Logger().WithContext(ctx)
+	ctx = log.Ctx(ctx).With().Str("operation", "buffer write").Logger().WithContext(ctx)
 	if writeOptions.httpClient == nil {
 		tygerClient, _ := controlplane.GetClientFromCache()
 		if tygerClient != nil {

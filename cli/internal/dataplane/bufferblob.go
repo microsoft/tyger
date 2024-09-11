@@ -14,11 +14,13 @@ import (
 	"time"
 )
 
+type BufferStatus string
+
 const (
 	CurrentBufferFormatVersion = "0.3.0"
 
-	BufferStatusComplete = "complete"
-	BufferStatusFailed   = "failed"
+	BufferStatusComplete BufferStatus = "complete"
+	BufferStatusFailed   BufferStatus = "failed"
 
 	HashChainHeader  = "x-ms-meta-cumulative_hash_chain"
 	ContentMD5Header = "Content-MD5"

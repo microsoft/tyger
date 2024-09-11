@@ -363,7 +363,7 @@ func TestCancellationOnWrite(t *testing.T) {
 	err = dataplane.Write(writeCtx, writeSasUri, inputReader, dataplane.WithWriteHttpClient(writeClient), dataplane.WithWriteMetadataEndWriteTimeout(time.Minute))
 	assert.ErrorIs(t, err, context.Canceled)
 
-	assert.ErrorContains(t, <-errorChan, "the buffer is in a permanently failed state")
+	assert.ErrorContains(t, <-errorChan, dataplane.ErrBufferFailedState.Error())
 }
 
 func TestRunningFromPowershellRaisesWarning(t *testing.T) {
