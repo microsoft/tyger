@@ -53,7 +53,7 @@ type BufferStartMetadata struct {
 }
 
 type BufferEndMetadata struct {
-	Status string `json:"status"`
+	Status BufferStatus `json:"status"`
 }
 
 type Container struct {

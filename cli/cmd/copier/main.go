@@ -2,219 +2,218 @@ package main
 
 import (
 	"context"
-	"errors"
-	"fmt"
+	"crypto/tls"
 	"io"
+	"net"
 	"net/http"
-	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azqueue"
-	"github.com/hashicorp/go-retryablehttp"
-	"github.com/microsoft/tyger/cli/internal/client"
 	"github.com/microsoft/tyger/cli/internal/dataplane"
-	"github.com/microsoft/tyger/cli/internal/logging"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/sync/semaphore"
 )
 
 const (
 	sourceEndpoint      = "https://nihdatareconeastusbuf.blob.core.windows.net"
-	destinationEndpoint = "https://nihwestus2buf.blob.core.windows.net"
-	copyConcurrency     = 8
+	destinationEndpoint = "https://jostairswestus2.blob.core.windows.net"
 )
 
 func main() {
 	ctx := context.Background()
 	zerolog.TimeFieldFormat = time.RFC3339Nano
 	log.Logger = log.Logger.Level(zerolog.InfoLevel)
-	zerolog.DefaultContextLogger = &log.Logger
-	ctx = logging.SetLogSinkOnContext(ctx, os.Stderr)
-	ctx = log.Logger.WithContext(ctx)
-
-	if err := client.SetDefaultNetworkClientSettings(&client.ClientOptions{ProxyString: "none"}); err != nil {
-		log.Ctx(ctx).Fatal().Err(err).Send()
+	var logSink io.Writer
+	if isStdErrTerminal() {
+		logSink = zerolog.ConsoleWriter{
+			Out:        os.Stderr,
+			TimeFormat: "2006-01-02T15:04:05.000Z07:00", // like RFC3339Nano, but always showing three digits for the fractional seconds
+		}
+	} else {
+		logSink = os.Stderr
 	}
 
+	log.Logger = log.Output(logSink)
+	zerolog.DefaultContextLogger = &log.Logger
+	ctx = log.Logger.WithContext(ctx)
+
+	creds := make([]azcore.TokenCredential, 0)
 	cliCred, err := azidentity.NewAzureCLICredential(nil)
-	if err != nil {
-		log.Ctx(ctx).Fatal().Err(err).Msg("failed to get Azure CLI credential")
+	if err == nil {
+		creds = append(creds, cliCred)
 	}
 
 	workloadCred, err := azidentity.NewWorkloadIdentityCredential(nil)
-	if err != nil {
-		log.Ctx(ctx).Fatal().Err(err).Msg("failed to get workload identity credential")
+	if err == nil {
+		creds = append(creds, workloadCred)
 	}
 
-	cred, err := azidentity.NewChainedTokenCredential([]azcore.TokenCredential{cliCred, workloadCred}, nil)
+	cred, err := azidentity.NewChainedTokenCredential(creds, nil)
 	if err != nil {
 		log.Ctx(ctx).Fatal().Err(err).Msg("failed to create chained token credential")
 	}
 
-	dpClient, err := client.NewDataPlaneClient(nil)
-	if err != nil {
-		log.Ctx(ctx).Fatal().Err(err).Msg("failed to create data plane client")
-	}
-
-	dpClient.HTTPClient.Transport = &WithCredentialRoundtripper{
-		inner: dpClient.HTTPClient.Transport,
-		cred:  cred,
-	}
-
-	readOpts := []dataplane.ReadOption{dataplane.WithReadHttpClient(dpClient.Client), dataplane.WithRequireComplete(true)}
-	writeOpts := []dataplane.WriteOption{dataplane.WithWriteHttpClient(dpClient.Client), dataplane.WithWriteDop(64)}
-
-	queue, err := azqueue.NewQueueClient("https://jostairstygerbuf.queue.core.windows.net/buffers/", cred, nil)
+	queue, err := azqueue.NewQueueClient("https://jostairstygerbuf.queue.core.windows.net/buffers2/", cred, nil)
 	if err != nil {
 		log.Ctx(ctx).Fatal().Err(err).Msg("failed to get queue client")
 	}
 
 	visibilityTimeout := int32((1 * time.Hour).Seconds())
-	numberOfMessagesToDequeue := int32(10)
+	messagesToDequeue := int32(20)
 
-	wg := &sync.WaitGroup{}
-	for i := 0; i < copyConcurrency; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for {
-				messages, err := queue.DequeueMessages(ctx, &azqueue.DequeueMessagesOptions{VisibilityTimeout: &visibilityTimeout, NumberOfMessages: &numberOfMessagesToDequeue})
-				if err != nil {
-					log.Ctx(ctx).Fatal().Err(err).Msg("failed to dequeue message")
-				}
+	clientOptions := azblob.ClientOptions{
+		ClientOptions: azcore.ClientOptions{
+			Transport: &RoundripTransporter{
+				inner: &http.Transport{
+					Proxy: http.ProxyFromEnvironment,
+					DialContext: (&net.Dialer{
+						Timeout:   30 * time.Second,
+						KeepAlive: 30 * time.Second,
+					}).DialContext,
+					ForceAttemptHTTP2:     false,
+					MaxIdleConns:          10000,
+					MaxIdleConnsPerHost:   5000,
+					IdleConnTimeout:       90 * time.Second,
+					TLSHandshakeTimeout:   10 * time.Second,
+					ExpectContinueTimeout: 1 * time.Second,
+					TLSClientConfig: &tls.Config{
+						MinVersion:    tls.VersionTLS12,
+						Renegotiation: tls.RenegotiateFreelyAsClient,
+					},
+				}},
+			Retry: policy.RetryOptions{
+				MaxRetries: 50,
+			},
+		},
+	}
 
-				if len(messages.Messages) == 0 {
-					return
-				}
+	sourceBlobServiceClient, err := azblob.NewClient(sourceEndpoint, cred, &clientOptions)
+	if err != nil {
+		log.Ctx(ctx).Fatal().Err(err).Msg("failed to create blob service client")
+	}
 
-				for _, m := range messages.Messages {
-					bufferId := *m.MessageText
-					ctx = log.With().Str("container", bufferId).Logger().WithContext(ctx)
-					err = copyBlob(ctx, bufferId, dpClient, readOpts, writeOpts)
+	destBlobServiceClient, err := azblob.NewClient(destinationEndpoint, cred, &clientOptions)
+	if err != nil {
+		log.Ctx(ctx).Fatal().Err(err).Msg("failed to create blob service client")
+	}
+
+	sema := semaphore.NewWeighted(2048)
+
+	transferMetrics := &dataplane.TransferMetrics{
+		Context: ctx,
+	}
+
+	transferMetrics.Start()
+
+	for {
+		r, err := queue.DequeueMessages(ctx, &azqueue.DequeueMessagesOptions{VisibilityTimeout: &visibilityTimeout, NumberOfMessages: &messagesToDequeue})
+		if err != nil {
+			log.Ctx(ctx).Fatal().Err(err).Msg("failed to dequeue message")
+		}
+
+		if len(r.Messages) == 0 {
+			break
+		}
+
+		batchWaitGroup := sync.WaitGroup{}
+		for _, m := range r.Messages {
+
+			for _, containerId := range strings.Split(*m.MessageText, ",") {
+				batchWaitGroup.Add(1)
+				go func() {
+					defer batchWaitGroup.Done()
+					_, err = destBlobServiceClient.CreateContainer(ctx, containerId, nil)
 					if err != nil {
-						if errors.Is(err, dataplane.ErrBufferNotComplete) || errors.Is(err, dataplane.ErrBufferFailedState) {
-							log.Warn().Err(err).Msg("skipping buffer")
-						} else {
-							log.Ctx(ctx).Fatal().Err(err).Msg("failed to copy blob")
+						if !bloberror.HasCode(err, bloberror.ContainerAlreadyExists) {
+							log.Ctx(ctx).Fatal().Err(err).Msg("failed to create container")
 						}
 					}
 
-					_, err = queue.DeleteMessage(ctx, *m.MessageID, *m.PopReceipt, nil)
-					if err != nil {
-						log.Ctx(ctx).Fatal().Err(err).Msg("failed to delete message")
+					sourceContainerClient := sourceBlobServiceClient.ServiceClient().NewContainerClient(containerId)
+					destContainerClient := destBlobServiceClient.ServiceClient().NewContainerClient(containerId)
+					blobPager := sourceBlobServiceClient.NewListBlobsFlatPager(containerId, nil)
+
+					bufferWaitGoup := sync.WaitGroup{}
+					bufferStart := time.Now()
+
+					count := 0
+					var bytes int64
+
+					for blobPager.More() {
+						blobPage, err := blobPager.NextPage(ctx)
+						if err != nil {
+							log.Ctx(ctx).Fatal().Err(err).Msg("failed to get next page")
+						}
+
+						for _, blob := range blobPage.Segment.BlobItems {
+							sourceBlobClient := sourceContainerClient.NewBlockBlobClient(*blob.Name)
+							destBlobClient := destContainerClient.NewBlockBlobClient(*blob.Name)
+							bufferWaitGoup.Add(1)
+							count++
+							if blob.Properties.ContentLength != nil {
+								bytes += *blob.Properties.ContentLength
+							}
+
+							sema.Acquire(ctx, 1)
+							go func() {
+								defer bufferWaitGoup.Done()
+								defer sema.Release(1)
+								for {
+									_, err := destBlobClient.UploadBlobFromURL(ctx, sourceBlobClient.URL(), nil)
+									if err != nil {
+										if bloberror.HasCode(err, bloberror.ServerBusy) {
+											log.Warn().Msg("throttled")
+											time.Sleep(100 * time.Millisecond)
+											continue
+										}
+										log.Fatal().Err(err).Msg("failed to copy blob")
+									}
+									break
+								}
+
+								transferMetrics.Update(uint64(*blob.Properties.ContentLength))
+							}()
+						}
+
 					}
-				}
+
+					bufferWaitGoup.Wait()
+					log.Trace().Dur("duration", time.Since(bufferStart)).Int64("bytes", bytes).Str("bufferId", containerId).Msg("copied buffer")
+				}()
 			}
-		}()
-	}
 
-	wg.Wait()
-	log.Info().Msg("Done")
-}
-
-func copyBlob(ctx context.Context, bufferId string, dpClient *client.Client, readOpts []dataplane.ReadOption, writeOpts []dataplane.WriteOption) error {
-	sourceContainerUrl, err := url.Parse(fmt.Sprintf("%s/%s", sourceEndpoint, bufferId))
-	if err != nil {
-		return fmt.Errorf("failed to parse URL: %w", err)
-	}
-
-	sourceContainer := dataplane.Container{URL: sourceContainerUrl}
-
-	sourceBufferEndUrl := sourceContainer.GetEndMetadataUri()
-
-	bufferEndReadRequest, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, sourceBufferEndUrl, nil)
-	if err != nil {
-		log.Ctx(ctx).Fatal().Err(err).Msg("failed to create request")
-	}
-	dataplane.AddCommonBlobRequestHeaders(bufferEndReadRequest.Header)
-
-	destinationContainerUrl, err := url.Parse(fmt.Sprintf("%s/%s", destinationEndpoint, bufferId))
-	if err != nil {
-		return fmt.Errorf("failed to parse URL: %w", err)
-	}
-
-	destinationContainer := dataplane.Container{URL: destinationContainerUrl}
-
-	createContainerRequest, err := retryablehttp.NewRequestWithContext(ctx, http.MethodPut, fmt.Sprintf("%s?restype=container", destinationContainerUrl.String()), nil)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-	dataplane.AddCommonBlobRequestHeaders(createContainerRequest.Header)
-	createContainerResponse, err := dpClient.Do(createContainerRequest)
-	if err != nil {
-		return fmt.Errorf("failed to create container: %w", err)
-	}
-	io.Copy(io.Discard, createContainerResponse.Body)
-	createContainerResponse.Body.Close()
-
-	if createContainerResponse.StatusCode != http.StatusCreated {
-		if createContainerResponse.StatusCode == http.StatusConflict {
-			if err := deleteBlob(ctx, destinationContainer.GetStartMetadataUri(), dpClient); err != nil {
-				return err
+		}
+		batchWaitGroup.Wait()
+		for _, m := range r.Messages {
+			_, err := queue.DeleteMessage(ctx, *m.MessageID, *m.PopReceipt, nil)
+			if err != nil {
+				log.Ctx(ctx).Fatal().Err(err).Msg("failed to delete message")
 			}
-			if err := deleteBlob(ctx, destinationContainer.GetEndMetadataUri(), dpClient); err != nil {
-				return err
-			}
-		} else {
-			return fmt.Errorf("failed to create container: %s", createContainerResponse.Status)
+			log.Trace().Msg("Deleted batch")
 		}
 	}
 
-	pipeReader, pipeWriter := io.Pipe()
-	defer pipeReader.Close()
-
-	go func() {
-		err := dataplane.Read(ctx, sourceContainer.URL, pipeWriter, readOpts...)
-		pipeWriter.CloseWithError(err)
-	}()
-
-	return dataplane.Write(ctx, destinationContainerUrl, pipeReader, writeOpts...)
+	transferMetrics.Stop()
 }
 
-func deleteBlob(ctx context.Context, uri string, dpClient *client.Client) error {
-	deleteBufferStartRequest, err := retryablehttp.NewRequestWithContext(ctx, http.MethodDelete, uri, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-	dataplane.AddCommonBlobRequestHeaders(deleteBufferStartRequest.Header)
-
-	resp, err := dpClient.Do(deleteBufferStartRequest)
-	if err != nil {
-		return fmt.Errorf("failed to delete blob: %w", err)
-	}
-
-	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
-
-	switch resp.StatusCode {
-	case http.StatusAccepted, http.StatusNotFound:
-		return nil
-	default:
-		return fmt.Errorf("failed to delete blob: %s", resp.Status)
-	}
-}
-
-type WithCredentialRoundtripper struct {
+type RoundripTransporter struct {
 	inner http.RoundTripper
-	cred  azcore.TokenCredential
-	token azcore.AccessToken
 }
 
-func (w *WithCredentialRoundtripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	if w.token.ExpiresOn.Compare(time.Now().Add(5*time.Minute)) < 0 {
-		tok, err := w.cred.GetToken(req.Context(), policy.TokenRequestOptions{Scopes: []string{"https://storage.azure.com/.default"}})
-		if err != nil {
-			return nil, err
-		}
-		w.token = tok
-	}
+func (t *RoundripTransporter) Do(req *http.Request) (*http.Response, error) {
+	return t.inner.RoundTrip(req)
+}
 
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", w.token.Token))
-	req.Header.Del("date")
-	return w.inner.RoundTrip(req)
+func isStdErrTerminal() bool {
+	o, _ := os.Stderr.Stat()
+	return (o.Mode() & os.ModeCharDevice) == os.ModeCharDevice
 }

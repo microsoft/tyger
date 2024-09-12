@@ -49,6 +49,21 @@
       ]
     },
     {
+      "name": "copier",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "cli/cmd/copier",
+      "cwd": "${workspaceFolder}",
+      "args": [],
+      "substitutePath": [
+        {
+          "from": "/workspaces/tyger-docker",
+          "to": "/workspaces/tyger"
+        }
+      ]
+    },
+    {
       "name": "CLI Docker",
       "type": "go",
       "request": "launch",

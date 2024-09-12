@@ -13,7 +13,6 @@ import (
 
 type TransferMetrics struct {
 	Context            context.Context
-	Container          *Container
 	totalBytes         uint64
 	currentPeriodBytes uint64
 	startTime          time.Time
@@ -53,7 +52,7 @@ func (ts *TransferMetrics) Start() {
 		}
 	}()
 
-	log.Ctx(ts.Context).Info().Str("container", ts.Container.GetContainerName()).Msg("Transfer starting")
+	log.Ctx(ts.Context).Info().Msg("Transfer starting")
 }
 
 func (ts *TransferMetrics) Stop() {

@@ -27,8 +27,7 @@ func relayWrite(ctx context.Context, httpClient *retryablehttp.Client, connectio
 	httpClient.HTTPClient.Timeout = 0
 
 	metrics := TransferMetrics{
-		Context:   ctx,
-		Container: container,
+		Context: ctx,
 	}
 
 	pipeReader, pipeWriter := io.Pipe()
@@ -98,8 +97,7 @@ func readRelay(ctx context.Context, httpClient *retryablehttp.Client, connection
 	}
 
 	metrics := TransferMetrics{
-		Context:   ctx,
-		Container: container,
+		Context: ctx,
 	}
 
 	metrics.Start()

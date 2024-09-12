@@ -99,7 +99,10 @@ func Read(ctx context.Context, uri *url.URL, outputWriter io.Writer, options ...
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	ctx = log.Ctx(ctx).With().Str("operation", "buffer read").Logger().WithContext(ctx)
+	ctx = log.Ctx(ctx).With().
+		Str("operation", "buffer read").
+		Str("buffer", container.GetContainerName()).
+		Logger().WithContext(ctx)
 
 	if container.SupportsRelay() {
 		return readRelay(ctx, httpClient, readOptions.connectionType, container, outputWriter)
@@ -150,8 +153,7 @@ func Read(ctx context.Context, uri *url.URL, outputWriter io.Writer, options ...
 	}
 
 	metrics := TransferMetrics{
-		Context:   ctx,
-		Container: container,
+		Context: ctx,
 	}
 	metrics.Start()
 
@@ -294,9 +296,9 @@ func readBufferStart(ctx context.Context, httpClient *retryablehttp.Client, cont
 	return nil
 }
 
-func readBufferEnd(ctx context.Context, httpClient *retryablehttp.Client, container *Container) error {
+// func readBufferEnd(ctx context.Context, httpClient *retryablehttp.Client, container *Container) error {
 
-}
+// }
 
 func pollForBufferEnd(ctx context.Context, httpClient *retryablehttp.Client, container *Container) error {
 	wait := atomic.Bool{}

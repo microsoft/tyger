@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"io"
 	"iter"
 	"os"
 	"strings"
@@ -14,7 +15,6 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azqueue"
 	"github.com/dustin/go-humanize"
 	_ "github.com/lib/pq"
-	"github.com/microsoft/tyger/cli/internal/logging"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"oras.land/oras-go/pkg/context"
@@ -24,8 +24,18 @@ func main() {
 	ctx := context.Background()
 	zerolog.TimeFieldFormat = time.RFC3339Nano
 	log.Logger = log.Logger.Level(zerolog.InfoLevel)
+	var logSink io.Writer
+	if isStdErrTerminal() {
+		logSink = zerolog.ConsoleWriter{
+			Out:        os.Stderr,
+			TimeFormat: "2006-01-02T15:04:05.000Z07:00", // like RFC3339Nano, but always showing three digits for the fractional seconds
+		}
+	} else {
+		logSink = os.Stderr
+	}
+
+	log.Logger = log.Output(logSink)
 	zerolog.DefaultContextLogger = &log.Logger
-	ctx = logging.SetLogSinkOnContext(ctx, os.Stderr)
 	ctx = log.Logger.WithContext(ctx)
 
 	creds := make([]azcore.TokenCredential, 0)
@@ -133,4 +143,9 @@ func GetBufferIds(cred azcore.TokenCredential) (iter.Seq2[string, error], error)
 
 	}, nil
 
+}
+
+func isStdErrTerminal() bool {
+	o, _ := os.Stderr.Stat()
+	return (o.Mode() & os.ModeCharDevice) == os.ModeCharDevice
 }
