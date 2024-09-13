@@ -200,7 +200,7 @@ func Read(ctx context.Context, uri *url.URL, outputWriter io.Writer, options ...
 					errorChannel <- fmt.Errorf("error downloading blob: %w", err)
 					return
 				}
-				metrics.Update(uint64(len(respData.Data)))
+				metrics.Update(uint64(len(respData.Data)), 0)
 
 				md5Header := respData.Header.Get(ContentMD5Header)
 				if md5Header == "" {

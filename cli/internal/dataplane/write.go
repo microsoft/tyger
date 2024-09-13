@@ -161,7 +161,7 @@ func Write(ctx context.Context, uri *url.URL, inputReader io.Reader, options ...
 					return
 				}
 
-				metrics.Update(uint64(len(bb.Contents)))
+				metrics.Update(uint64(len(bb.Contents)), 0)
 
 				pool.Put(bb.Contents)
 			}

@@ -6,13 +6,11 @@ import (
 	"io"
 	"iter"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
-	"github.com/Azure/azure-sdk-for-go/sdk/storage/azqueue"
 	"github.com/dustin/go-humanize"
 	_ "github.com/lib/pq"
 	"github.com/rs/zerolog"
@@ -55,56 +53,48 @@ func main() {
 		log.Ctx(ctx).Fatal().Err(err).Msg("failed to create chained token credential")
 	}
 
-	queue, err := azqueue.NewQueueClient("https://jostairstygerbuf.queue.core.windows.net/buffers2/", cred, nil)
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to get queue client")
-	}
+	// queue, err := azqueue.NewQueueClient("https://jostairstygerbuf.queue.core.windows.net/buffers2/", cred, nil)
+	// if err != nil {
+	// 	log.Fatal().Err(err).Msg("failed to get queue client")
+	// }
 
-	_, err = queue.ClearMessages(ctx, nil)
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to clear messages")
-	}
+	// _, err = queue.ClearMessages(ctx, nil)
+	// if err != nil {
+	// 	log.Fatal().Err(err).Msg("failed to clear messages")
+	// }
 
 	// Get the buffer IDs
-	bufferIds, err := GetBufferIds(cred)
+	bufferAndTags, err := GetBufferIdsAndTags(cred)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to get buffer IDs")
 	}
 
-	var ttl int32 = -1
-	enqueueOptions := &azqueue.EnqueueMessageOptions{
-		TimeToLive: &ttl,
-	}
+	// var ttl int32 = -1
+	// enqueueOptions := &azqueue.EnqueueMessageOptions{
+	// 	TimeToLive: &ttl,
+	// }
 
-	batch := make([]string, 0, 100)
 	var count int64
-	for id, err := range bufferIds {
+	for bufferIdAndTags, err := range bufferAndTags {
 		if err != nil {
 			log.Fatal().Err(err).Msg("failed to get buffer ID")
 		}
-		batch = append(batch, id)
 
 		count++
-		if count%int64(cap(batch)) == 0 {
-			message := strings.Join(batch, ",")
-			_, err := queue.EnqueueMessage(ctx, message, enqueueOptions)
-			if err != nil {
-				log.Fatal().Err(err).Msg("failed to enqueue message")
-			}
-
-			batch = batch[:0]
-
-			if count%1000 == 0 {
-				log.Info().Msgf("Enqueued %s", humanize.Comma(count))
-			}
-		}
+		_ = bufferIdAndTags
+		break
 	}
 
 	log.Info().Msgf("Enqueued %s", humanize.Comma(count))
 	log.Info().Msg("Done")
 }
 
-func GetBufferIds(cred azcore.TokenCredential) (iter.Seq2[string, error], error) {
+type bufferIdAndTags struct {
+	id   string
+	tags map[string]string
+}
+
+func GetBufferIdsAndTags(cred azcore.TokenCredential) (iter.Seq2[bufferIdAndTags, error], error) {
 	tokenResponse, err := cred.GetToken(context.Background(), policy.TokenRequestOptions{
 		Scopes: []string{"https://ossrdbms-aad.database.windows.net/.default"},
 	})
@@ -119,30 +109,62 @@ func GetBufferIds(cred azcore.TokenCredential) (iter.Seq2[string, error], error)
 		return nil, err
 	}
 
-	rows, err := db.Query("SELECT id from buffers")
+	rows, err := db.Query(`
+		SELECT buffers.id, tag_keys.name, tags.value
+		FROM buffers
+		LEFT JOIN tags ON
+			buffers.created_at = tags.created_at AND buffers.id = tags.id
+		LEFT JOIN tag_keys on tags.key = tag_keys.id
+		ORDER BY buffers.created_at ASC, buffers.id ASC`)
 	if err != nil {
 		db.Close()
 		return nil, err
 	}
 
-	return func(yield func(string, error) bool) {
+	return func(yield func(bufferIdAndTags, error) bool) {
 		defer db.Close()
 		defer rows.Close()
 
+		current := bufferIdAndTags{}
+
 		for rows.Next() {
 			var id string
-			err := rows.Scan(&id)
-			if !yield(id, err) {
-				break
+			var tagKey *string
+			var tagValue *string
+			err := rows.Scan(&id, &tagKey, &tagValue)
+			if err != nil {
+				if yield(bufferIdAndTags{}, err) {
+					return
+				}
+			}
+
+			if id != current.id {
+				if current.id != "" {
+					if !yield(current, nil) {
+						return
+					}
+				}
+
+				current = bufferIdAndTags{id: id}
+				if tagKey != nil {
+					current.tags = map[string]string{*tagKey: *tagValue}
+				}
+			}
+
+			if tagKey != nil {
+				current.tags[*tagKey] = *tagValue
 			}
 		}
 
+		if current.id != "" {
+			yield(current, nil)
+		}
+
 		if err := rows.Err(); err != nil {
-			yield("", err)
+			yield(bufferIdAndTags{}, err)
 		}
 
 	}, nil
-
 }
 
 func isStdErrTerminal() bool {

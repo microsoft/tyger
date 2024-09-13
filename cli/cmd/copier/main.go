@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"database/sql"
+	"fmt"
 	"io"
+	"iter"
 	"net"
 	"net/http"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -16,7 +18,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
-	"github.com/Azure/azure-sdk-for-go/sdk/storage/azqueue"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
+	_ "github.com/lib/pq"
 	"github.com/microsoft/tyger/cli/internal/dataplane"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -26,6 +29,8 @@ import (
 const (
 	sourceEndpoint      = "https://nihdatareconeastusbuf.blob.core.windows.net"
 	destinationEndpoint = "https://jostairswestus2.blob.core.windows.net"
+	parallelBufferCount = 512
+	tygerCopyingKey     = "tyger_copying"
 )
 
 func main() {
@@ -61,14 +66,6 @@ func main() {
 	if err != nil {
 		log.Ctx(ctx).Fatal().Err(err).Msg("failed to create chained token credential")
 	}
-
-	queue, err := azqueue.NewQueueClient("https://jostairstygerbuf.queue.core.windows.net/buffers2/", cred, nil)
-	if err != nil {
-		log.Ctx(ctx).Fatal().Err(err).Msg("failed to get queue client")
-	}
-
-	visibilityTimeout := int32((1 * time.Hour).Seconds())
-	messagesToDequeue := int32(20)
 
 	clientOptions := azblob.ClientOptions{
 		ClientOptions: azcore.ClientOptions{
@@ -106,6 +103,10 @@ func main() {
 		log.Ctx(ctx).Fatal().Err(err).Msg("failed to create blob service client")
 	}
 
+	createContainerOptions := container.CreateOptions{
+		Metadata: map[string]*string{tygerCopyingKey: nil},
+	}
+
 	sema := semaphore.NewWeighted(2048)
 
 	transferMetrics := &dataplane.TransferMetrics{
@@ -114,39 +115,34 @@ func main() {
 
 	transferMetrics.Start()
 
-	for {
-		r, err := queue.DequeueMessages(ctx, &azqueue.DequeueMessagesOptions{VisibilityTimeout: &visibilityTimeout, NumberOfMessages: &messagesToDequeue})
-		if err != nil {
-			log.Ctx(ctx).Fatal().Err(err).Msg("failed to dequeue message")
-		}
+	buffers, err := GetBufferIdsAndTags(cred)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to get buffer IDs")
+	}
+	overallWg := sync.WaitGroup{}
 
-		if len(r.Messages) == 0 {
-			break
-		}
-
-		batchWaitGroup := sync.WaitGroup{}
-		for _, m := range r.Messages {
-
-			for _, containerId := range strings.Split(*m.MessageText, ",") {
-				batchWaitGroup.Add(1)
-				go func() {
-					defer batchWaitGroup.Done()
-					_, err = destBlobServiceClient.CreateContainer(ctx, containerId, nil)
-					if err != nil {
-						if !bloberror.HasCode(err, bloberror.ContainerAlreadyExists) {
-							log.Ctx(ctx).Fatal().Err(err).Msg("failed to create container")
-						}
+	bufferChannel := make(chan bufferIdAndTags, parallelBufferCount)
+	for range parallelBufferCount {
+		overallWg.Add(1)
+		go func() {
+			defer overallWg.Done()
+			for bufferIdAndTags := range bufferChannel {
+				containerId := bufferIdAndTags.id
+				containerComplete := false
+				_, err := destBlobServiceClient.CreateContainer(ctx, containerId, &createContainerOptions)
+				if err != nil {
+					if !bloberror.HasCode(err, bloberror.ContainerAlreadyExists) {
+						log.Ctx(ctx).Fatal().Err(err).Msg("failed to create container")
 					}
+				}
 
-					sourceContainerClient := sourceBlobServiceClient.ServiceClient().NewContainerClient(containerId)
-					destContainerClient := destBlobServiceClient.ServiceClient().NewContainerClient(containerId)
+				sourceContainerClient := sourceBlobServiceClient.ServiceClient().NewContainerClient(containerId)
+				destContainerClient := destBlobServiceClient.ServiceClient().NewContainerClient(containerId)
+
+				if !containerComplete {
 					blobPager := sourceBlobServiceClient.NewListBlobsFlatPager(containerId, nil)
 
 					bufferWaitGoup := sync.WaitGroup{}
-					bufferStart := time.Now()
-
-					count := 0
-					var bytes int64
 
 					for blobPager.More() {
 						blobPage, err := blobPager.NextPage(ctx)
@@ -158,10 +154,6 @@ func main() {
 							sourceBlobClient := sourceContainerClient.NewBlockBlobClient(*blob.Name)
 							destBlobClient := destContainerClient.NewBlockBlobClient(*blob.Name)
 							bufferWaitGoup.Add(1)
-							count++
-							if blob.Properties.ContentLength != nil {
-								bytes += *blob.Properties.ContentLength
-							}
 
 							sema.Acquire(ctx, 1)
 							go func() {
@@ -180,29 +172,120 @@ func main() {
 									break
 								}
 
-								transferMetrics.Update(uint64(*blob.Properties.ContentLength))
+								transferMetrics.Update(uint64(*blob.Properties.ContentLength), 0)
 							}()
 						}
 
 					}
 
 					bufferWaitGoup.Wait()
-					log.Trace().Dur("duration", time.Since(bufferStart)).Int64("bytes", bytes).Str("bufferId", containerId).Msg("copied buffer")
-				}()
-			}
+					transferMetrics.Update(0, 1)
+				}
 
-		}
-		batchWaitGroup.Wait()
-		for _, m := range r.Messages {
-			_, err := queue.DeleteMessage(ctx, *m.MessageID, *m.PopReceipt, nil)
-			if err != nil {
-				log.Ctx(ctx).Fatal().Err(err).Msg("failed to delete message")
+				var tags map[string]*string
+				if len(bufferIdAndTags.tags) > 0 {
+					tags = make(map[string]*string, len(bufferIdAndTags.tags))
+					for k, v := range bufferIdAndTags.tags {
+						tags[fmt.Sprintf("tyger_custom_tag_%s", k)] = &v
+					}
+				}
+
+				_, err = destContainerClient.SetMetadata(ctx, &container.SetMetadataOptions{Metadata: tags})
+				if err != nil {
+					log.Ctx(ctx).Fatal().Err(err).Msg("failed to set metadata on container")
+				}
 			}
-			log.Trace().Msg("Deleted batch")
+		}()
+
+	}
+
+	for bufferIdAndTags, err := range buffers {
+		if err != nil {
+			log.Fatal().Err(err).Msg("failed to get buffer IDs")
 		}
+
+		bufferChannel <- bufferIdAndTags
 	}
 
 	transferMetrics.Stop()
+}
+
+type bufferIdAndTags struct {
+	id   string
+	tags map[string]string
+}
+
+func GetBufferIdsAndTags(cred azcore.TokenCredential) (iter.Seq2[bufferIdAndTags, error], error) {
+	tokenResponse, err := cred.GetToken(context.Background(), policy.TokenRequestOptions{
+		Scopes: []string{"https://ossrdbms-aad.database.windows.net/.default"},
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	connStr := fmt.Sprintf("dbname=postgres host=nihdatarecon-tyger.postgres.database.azure.com port=5432 sslmode=verify-full user=SC-kr331@microsoft.com password=%s", tokenResponse.Token)
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(`
+		SELECT buffers.id, tag_keys.name, tags.value
+		FROM buffers
+		LEFT JOIN tags ON
+			buffers.created_at = tags.created_at AND buffers.id = tags.id
+		LEFT JOIN tag_keys on tags.key = tag_keys.id
+		ORDER BY buffers.created_at ASC, buffers.id ASC`)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+
+	return func(yield func(bufferIdAndTags, error) bool) {
+		defer db.Close()
+		defer rows.Close()
+
+		current := bufferIdAndTags{}
+
+		for rows.Next() {
+			var id string
+			var tagKey *string
+			var tagValue *string
+			err := rows.Scan(&id, &tagKey, &tagValue)
+			if err != nil {
+				if yield(bufferIdAndTags{}, err) {
+					return
+				}
+			}
+
+			if id != current.id {
+				if current.id != "" {
+					if !yield(current, nil) {
+						return
+					}
+				}
+
+				current = bufferIdAndTags{id: id}
+				if tagKey != nil {
+					current.tags = map[string]string{*tagKey: *tagValue}
+				}
+			}
+
+			if tagKey != nil {
+				current.tags[*tagKey] = *tagValue
+			}
+		}
+
+		if current.id != "" {
+			yield(current, nil)
+		}
+
+		if err := rows.Err(); err != nil {
+			yield(bufferIdAndTags{}, err)
+		}
+
+	}, nil
 }
 
 type RoundripTransporter struct {
