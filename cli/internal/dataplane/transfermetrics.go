@@ -70,10 +70,13 @@ func (ts *TransferMetrics) Start() {
 }
 
 func (ts *TransferMetrics) Stop() {
-	elapsed := time.Since(ts.startTime)
-	ts.stoppedChannel <- nil
-	<-ts.reportingComplete
-	ts.totalBytes += ts.currentPeriodBytes.Load()
+	var elapsed time.Duration
+	if ts.startTime != (time.Time{}) {
+		elapsed = time.Since(ts.startTime)
+		ts.stoppedChannel <- nil
+		<-ts.reportingComplete
+		ts.totalBytes += ts.currentPeriodBytes.Load()
+	}
 
 	bytesPerSecond := uint64(float64(ts.totalBytes) / elapsed.Seconds())
 

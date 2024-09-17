@@ -58,6 +58,9 @@ func newImportCommand(dbFlags *databaseFlags) *cobra.Command {
 						}
 
 						for _, container := range page.ContainerItems {
+							for k, v := range container.Metadata {
+								log.Info().Str("key", k).Str("value", *v).Msg("metadata")
+							}
 							if status, ok := container.Metadata[exportedBufferStatusKey]; ok && *status == exportedStatus {
 								channel <- container
 							}
@@ -174,6 +177,7 @@ func insertBatch(ctx context.Context, pool *pgxpool.Pool, containerBatch []*serv
 		INSERT INTO tag_keys (name)
 		SELECT DISTINCT key
 		FROM temp_tags
+		WHERE NOT EXISTS (SELECT * FROM tag_keys WHERE name = temp_tags.key)
 		ON CONFLICT (name) DO NOTHING
 	`)
 

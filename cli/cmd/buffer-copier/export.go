@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,6 +26,7 @@ const (
 func newExportCommand(dbFlags *databaseFlags) *cobra.Command {
 	sourceStorageEndpoint := ""
 	destinationStorageEndpoint := ""
+	filter := make(map[string]string)
 	cmd := &cobra.Command{
 		Use:                   "export",
 		Short:                 "Exports the buffers from the current Tyger instance a storage account",
@@ -68,7 +70,7 @@ func newExportCommand(dbFlags *databaseFlags) *cobra.Command {
 				}()
 			}
 
-			bufferPages, err := GetBufferIdsAndTags(ctx, dbFlags, cred)
+			bufferPages, err := GetBufferIdsAndTags(ctx, dbFlags, filter, cred)
 			if err != nil {
 				log.Fatal().Err(err).Msg("failed to get buffer IDs")
 			}
@@ -93,13 +95,13 @@ func newExportCommand(dbFlags *databaseFlags) *cobra.Command {
 
 			close(bufferChannel)
 			overallWg.Wait()
-
 			transferMetrics.Stop()
 		},
 	}
 
 	cmd.Flags().StringVar(&sourceStorageEndpoint, "source-storage-endpoint", "", "The storage account to export buffers from")
 	cmd.Flags().StringVar(&destinationStorageEndpoint, "destination-storage-endpoint", "", "The storage account to export buffers to")
+	cmd.Flags().StringToStringVar(&filter, "filter", filter, "key-value tags to filter the buffers to export")
 	cmd.MarkFlagRequired("source-storage-endpoint")
 	cmd.MarkFlagRequired("destination-storage-endpoint")
 
@@ -191,7 +193,7 @@ func copyBuffer(ctx context.Context,
 	return nil
 }
 
-func GetBufferIdsAndTags(ctx context.Context, dbFlags *databaseFlags, cred azcore.TokenCredential) (iter.Seq2[[]bufferIdAndTags, error], error) {
+func GetBufferIdsAndTags(ctx context.Context, dbFlags *databaseFlags, filter map[string]string, cred azcore.TokenCredential) (iter.Seq2[[]bufferIdAndTags, error], error) {
 	pool, err := createDatabaseConnectionPool(ctx, dbFlags, cred)
 	if err != nil {
 		return nil, err
@@ -207,27 +209,108 @@ func GetBufferIdsAndTags(ctx context.Context, dbFlags *databaseFlags, cred azcor
 		defer pool.Close()
 		defer conn.Release()
 
+		filterTagIds := make(map[string]int)
+		if len(filter) > 0 {
+			tagNames := make([]string, 0, len(filter))
+			for k := range filter {
+				tagNames = append(tagNames, k)
+			}
+			keyRows, err := conn.Query(ctx, `SELECT name, id FROM tag_keys WHERE name = ANY ($1)`, tagNames)
+			if err != nil {
+				yield(nil, fmt.Errorf("failed to query database: %w", err))
+				return
+			}
+
+			for keyRows.Next() {
+				var name string
+				var id int
+				err := keyRows.Scan(&name, &id)
+				if err != nil {
+					keyRows.Close()
+					yield(nil, fmt.Errorf("failed to scan row: %w", err))
+					return
+				}
+				filterTagIds[name] = id
+			}
+			keyRows.Close()
+
+			if len(filterTagIds) != len(filter) {
+				return
+			}
+		}
+
 		lastCreatedAt := time.Time{}
 		lastBufferId := ""
 		const pageSize = 8192
 		pageCount := 0
 
+		var matchTable string
+		if len(filter) > 0 {
+			matchTable = "tags"
+		} else {
+			matchTable = "buffers"
+		}
+
 		for {
-			rows, err := conn.Query(ctx,
-				`WITH matches AS (
-					SELECT created_at, id
-					FROM buffers
-					WHERE (created_at, id) > ($1, $2)
-					ORDER BY created_at ASC, id ASC
-					LIMIT $3
-				)
-				SELECT matches.created_at, matches.id, tag_keys.name, tags.value
+			conn.Release()
+			conn, err = pool.Acquire(ctx)
+			if err != nil {
+				yield(nil, fmt.Errorf("failed to acquire database connection: %w", err))
+				return
+			}
+
+			queryBuilder := strings.Builder{}
+			params := []any{lastCreatedAt, lastBufferId, pageSize}
+
+			queryBuilder.WriteString(`
+			WITH matches AS (
+				SELECT t1.created_at, t1.id
+				FROM `)
+			queryBuilder.WriteString(matchTable)
+			queryBuilder.WriteString(" AS t1\n")
+
+			if len(filter) > 0 {
+				for i := range len(filter) - 1 {
+					aliasNumber := i + 2
+					queryBuilder.WriteString(fmt.Sprintf("INNER JOIN tags AS t%d ON t1.created_at = t%d.created_at AND t1.id = t%d.id\n", aliasNumber, aliasNumber, aliasNumber))
+				}
+
+				queryBuilder.WriteString("WHERE\n")
+
+				i := 1
+				for key, value := range filter {
+					if i > 1 {
+						queryBuilder.WriteString("AND\n")
+					}
+
+					params = append(params, filterTagIds[key])
+					keyParamNum := len(params)
+					params = append(params, value)
+					valueParamNum := len(params)
+					queryBuilder.WriteString(fmt.Sprintf("t%d.key = $%d AND t%d.value = $%d\n", i, keyParamNum, i, valueParamNum))
+					i++
+				}
+			}
+
+			if len(filter) == 0 {
+				queryBuilder.WriteString("WHERE\n")
+			} else {
+				queryBuilder.WriteString("AND\n")
+			}
+
+			queryBuilder.WriteString(`
+				(t1.created_at, t1.id) > ($1, $2)
+				ORDER BY t1.created_at ASC, t1.id ASC
+				LIMIT $3
+			)
+			SELECT matches.created_at, matches.id, tag_keys.name, tags.value
 				FROM matches
 				LEFT JOIN tags ON
 					matches.created_at = tags.created_at AND matches.id = tags.id
 				LEFT JOIN tag_keys on tags.key = tag_keys.id
-				ORDER BY matches.created_at ASC, matches.id ASC`,
-				lastCreatedAt, lastBufferId, pageSize)
+				ORDER BY matches.created_at ASC, matches.id ASC`)
+
+			rows, err := conn.Query(ctx, queryBuilder.String(), params...)
 			if err != nil {
 				yield(nil, fmt.Errorf("failed to query database: %w", err))
 				return
