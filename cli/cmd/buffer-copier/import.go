@@ -218,7 +218,10 @@ func insertBatch(ctx context.Context, pool *pgxpool.Pool, containerBatch []*serv
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	log.Info().Str("duration", time.Since(start).String()).Int("newBuffers", newBufferCount).Str("totalCount", humanize.Comma(totalCount)).Msg("inserted batch")
+	log.Info().
+		Str("duration", time.Since(start).String()).
+		Str("newBuffers", humanize.Comma(int64(newBufferCount))).
+		Str("totalCount", humanize.Comma(totalCount)).Msg("inserted batch")
 
 	return err
 }

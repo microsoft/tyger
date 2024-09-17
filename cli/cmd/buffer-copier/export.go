@@ -183,7 +183,7 @@ func copyBuffer(ctx context.Context,
 	exportedStatus := exportedStatus
 	tags[exportedBufferStatusKey] = &exportedStatus
 	for k, v := range bufferIdAndTags.tags {
-		tags[fmt.Sprintf("customTagPrefix%s", k)] = &v
+		tags[customTagPrefix+k] = &v
 	}
 
 	_, err = destContainerClient.SetMetadata(ctx, &container.SetMetadataOptions{Metadata: tags})
