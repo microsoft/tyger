@@ -56,8 +56,14 @@ spec:
           env:
             - name: AZURE_CLIENT_ID
               value: {{ .Values.identity.migrationRunner.clientId }}
-            - name: Database__ConnectionString
-              value: "Host={{ .Values.database.host }}; Database={{ .Values.database.databaseName }}; Port={{ .Values.database.port }}; Username={{ .Values.identity.migrationRunner.name }}; SslMode=VerifyFull;"
+            - name: Database__Host
+              value: {{ .Values.database.host }}
+            - name: Database__DatabaseName
+              value: {{ .Values.database.databaseName }}
+            - name: Database__Port
+              value: "{{ .Values.database.port }}"
+            - name: Database__Username
+              value: {{ .Values.identity.migrationRunner.name }}
             - name: Database__TygerServerRoleName
               value: {{ .Values.identity.tygerServer.name }}
             - name: Compute__Kubernetes__Namespace

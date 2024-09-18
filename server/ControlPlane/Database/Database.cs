@@ -48,7 +48,17 @@ public static class Database
         builder.Services.AddSingleton(sp =>
         {
             var databaseOptions = sp.GetRequiredService<IOptions<DatabaseOptions>>().Value;
-            var dataSourceBuilder = new NpgsqlDataSourceBuilder(databaseOptions.ConnectionString);
+
+            var dataSourceBuilder = new NpgsqlDataSourceBuilder();
+            dataSourceBuilder.ConnectionStringBuilder.Host = databaseOptions.Host;
+            dataSourceBuilder.ConnectionStringBuilder.Database = databaseOptions.DatabaseName;
+            if (databaseOptions.Port.HasValue)
+            {
+                dataSourceBuilder.ConnectionStringBuilder.Port = databaseOptions.Port.Value;
+            }
+
+            dataSourceBuilder.ConnectionStringBuilder.Username = databaseOptions.Username;
+            dataSourceBuilder.ConnectionStringBuilder.SslMode = SslMode.VerifyFull;
 
             if (string.IsNullOrEmpty(databaseOptions.PasswordFile))
             {
@@ -211,7 +221,14 @@ public static class Database
 public class DatabaseOptions
 {
     [Required]
-    public string ConnectionString { get; set; } = null!;
+    public required string Host { get; set; }
+
+    public string? DatabaseName { get; set; }
+
+    public int? Port { get; set; }
+
+    [Required]
+    public required string Username { get; set; }
 
     public string? PasswordFile { get; set; }
 

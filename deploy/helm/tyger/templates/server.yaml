@@ -150,8 +150,14 @@ spec:
             - name: Compute__Kubernetes__CustomIdentities__{{ $element.name }}
               value: {{ $tygerName}}-custom-{{ $element.name }}-job
             {{- end }}
-            - name: Database__ConnectionString
-              value: "Host={{ .Values.database.host }}; Database={{ .Values.database.databaseName }}; Port={{ .Values.database.port }}; Username={{ .Values.identity.tygerServer.name }}; SslMode=VerifyFull;"
+            - name: Database__Host
+              value: {{ .Values.database.host }}
+            - name: Database__DatabaseName
+              value: {{ .Values.database.databaseName }}
+            - name: Database__Port
+              value: "{{ .Values.database.port }}"
+            - name: Database__Username
+              value: {{ .Values.identity.tygerServer.name }}
             - name: Database__TygerServerRoleName
               value: {{ .Values.identity.tygerServer.name }}
             - name: Database__AutoMigrate
