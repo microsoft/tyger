@@ -141,5 +141,10 @@ public sealed class LocalStorageBufferProvider : IBufferProvider, IHealthCheck, 
         throw new ValidationException("Exporting buffers is not supported with local storage.");
     }
 
+    public Task<Run> ImportBuffers(CancellationToken cancellationToken)
+    {
+        throw new ValidationException("Importing buffers is not supported with local storage.");
+    }
+
     public void Dispose() => _dataPlaneClient.Dispose();
 }

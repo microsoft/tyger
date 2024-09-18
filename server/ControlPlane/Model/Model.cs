@@ -496,7 +496,9 @@ public record Cluster(string Name, string Location, IReadOnlyList<NodePool> Node
 
 public record NodePool(string Name, string VmSize);
 
-public record ExportBuffersRequest(string DestinationStorageEndpoint, Dictionary<string, string>? Filters, [property: OpenApiExclude] bool HashIds);
+public record ExportBuffersRequest(string DestinationStorageEndpoint, Dictionary<string, string>? Filters, [property: OpenApiExclude] bool HashIds) : ModelBase;
+
+public record ImportBuffersRequest() : ModelBase;
 
 [AttributeUsage(AttributeTargets.Property)]
 public class OpenApiExcludeAttribute : Attribute

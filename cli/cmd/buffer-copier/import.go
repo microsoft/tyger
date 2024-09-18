@@ -58,9 +58,6 @@ func newImportCommand(dbFlags *databaseFlags) *cobra.Command {
 						}
 
 						for _, container := range page.ContainerItems {
-							for k, v := range container.Metadata {
-								log.Info().Str("key", k).Str("value", *v).Msg("metadata")
-							}
 							if status, ok := container.Metadata[exportedBufferStatusKey]; ok && *status == exportedStatus {
 								channel <- container
 							}

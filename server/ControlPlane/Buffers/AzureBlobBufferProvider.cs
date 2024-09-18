@@ -153,6 +153,47 @@ public sealed class AzureBlobBufferProvider : IBufferProvider, IHealthCheck, IHo
         return await _runCreator.Value.CreateRun(newRun, cancellationToken);
     }
 
+    public async Task<Run> ImportBuffers(CancellationToken cancellationToken)
+    {
+        var args = new List<string>
+        {
+            "import",
+            "--storage-endpoint", _serviceClient.Uri.ToString(),
+            "--db-host", _databaseOptions.Host,
+            "--db-user", _databaseOptions.Username,
+        };
+
+        if (!string.IsNullOrEmpty(_databaseOptions.DatabaseName))
+        {
+            args.Add("--db-name");
+            args.Add(_databaseOptions.DatabaseName);
+        }
+
+        if (_databaseOptions.Port.HasValue)
+        {
+            args.Add("--db-port");
+            args.Add(_databaseOptions.Port.Value.ToString());
+        }
+
+        var newRun = new Run
+        {
+            Kind = RunKind.System,
+            Job = new JobRunCodeTarget
+            {
+                Codespec = new JobCodespec
+                {
+                    Image = _bufferOptions.BufferCopierImage,
+                    Identity = _databaseOptions.TygerServerIdentity,
+                    Args = args,
+                },
+            },
+
+            TimeoutSeconds = (int)TimeSpan.FromDays(7).TotalSeconds,
+        };
+
+        return await _runCreator.Value.CreateRun(newRun, cancellationToken);
+    }
+
     public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken)
     {
         await _serviceClient.GetBlobContainerClient("healthcheck").ExistsAsync(cancellationToken);

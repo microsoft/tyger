@@ -50,6 +50,7 @@ func NewBufferCommand() *cobra.Command {
 	cmd.AddCommand(newBufferSetCommand())
 	cmd.AddCommand(newBufferListCommand())
 	cmd.AddCommand(newBufferExportCommand())
+	cmd.AddCommand(newBufferImportCommand())
 
 	return cmd
 }
@@ -507,6 +508,26 @@ func newBufferExportCommand() *cobra.Command {
 	cmd.Flags().StringToStringVar(&request.Filters, "tag", nil, "Only include buffers with the given tag. Can be specified multiple times.")
 	cmd.Flags().BoolVar(&request.HashIds, "hash-ids", false, "Hash the buffer IDs.")
 	cmd.Flags().MarkHidden("hash-ids")
+
+	return cmd
+}
+
+func newBufferImportCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:                   "import",
+		Short:                 "Import buffers into the local Tyger instance",
+		DisableFlagsInUseLine: true,
+		Args:                  cobra.ExactArgs(0),
+		Run: func(cmd *cobra.Command, args []string) {
+			runResponse := model.Run{}
+			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/buffers/import", struct{}{}, &runResponse)
+			if err != nil {
+				log.Fatal().Err(err).Msg("Failed to import buffers")
+			}
+
+			log.Info().Int64("runId", runResponse.Id).Msg("Import started")
+		},
+	}
 
 	return cmd
 }

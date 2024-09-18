@@ -196,7 +196,15 @@ public static class Buffers
                 return Results.Json(run, statusCode: StatusCodes.Status201Created);
             })
             .WithName("exportBuffers")
-            .Produces<Run>(StatusCodes.Status201Created);
+            .Produces<Run>(StatusCodes.Status202Accepted);
+
+        app.MapPost("/v1/buffers/import", async (BufferManager manager, ImportBuffersRequest exportRequest, CancellationToken cancellationToken) =>
+            {
+                var run = await manager.ImportBuffers(cancellationToken);
+                return Results.Json(run, statusCode: StatusCodes.Status201Created);
+            })
+            .WithName("importBuffers")
+            .Produces<Run>(StatusCodes.Status202Accepted);
     }
 }
 

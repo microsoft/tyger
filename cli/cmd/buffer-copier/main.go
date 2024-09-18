@@ -19,9 +19,14 @@ import (
 )
 
 const (
-	exportedBufferStatusKey = "Tyger_exported_buffer_status"
+	exportedBufferStatusKey = "tyger_exported_buffer_status"
 	exportedStatus          = "exported"
-	customTagPrefix         = "Tyger_custom_tag_"
+	customTagPrefix         = "tyger_custom_tag_"
+)
+
+var (
+	exportedBufferStatusKeyHttpHeaderCasing = http.CanonicalHeaderKey(exportedBufferStatusKey)
+	customTagPrefixHttpHeaderCasing         = http.CanonicalHeaderKey(customTagPrefix)
 )
 
 var (

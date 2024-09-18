@@ -80,7 +80,7 @@ func newExportCommand(dbFlags *databaseFlags) *cobra.Command {
 			for range parallelExportBufferCount {
 				go func() {
 					for bufferIdAndTags := range bufferChannel {
-						if err := copyBuffer(ctx, bufferIdAndTags, sourceBlobServiceClient, destBlobServiceClient, transferMetrics, sema); err != nil {
+						if err := copyBuffer(ctx, bufferIdAndTags, sourceBlobServiceClient, destBlobServiceClient, transferMetrics, sema, bufferIdTransform); err != nil {
 							log.Fatal().Err(err).Msg("failed to copy buffer")
 						}
 						transferMetrics.Update(0, 1)
@@ -102,7 +102,6 @@ func newExportCommand(dbFlags *databaseFlags) *cobra.Command {
 
 				for _, bufferIdAndTags := range page {
 					overallWg.Add(1)
-					bufferIdAndTags.id = bufferIdTransform(bufferIdAndTags.id)
 					bufferChannel <- bufferIdAndTags
 				}
 
@@ -131,10 +130,12 @@ func copyBuffer(ctx context.Context,
 	destBlobServiceClient *azblob.Client,
 	transferMetrics *dataplane.TransferMetrics,
 	sema *semaphore.Weighted,
+	bufferIdTransform func(string) string,
 ) error {
-	containerId := bufferIdAndTags.id
-	sourceContainerClient := sourceBlobServiceClient.ServiceClient().NewContainerClient(containerId)
-	destContainerClient := destBlobServiceClient.ServiceClient().NewContainerClient(containerId)
+	sourceContainerId := bufferIdAndTags.id
+	destinationContainerId := bufferIdTransform(sourceContainerId)
+	sourceContainerClient := sourceBlobServiceClient.ServiceClient().NewContainerClient(sourceContainerId)
+	destContainerClient := destBlobServiceClient.ServiceClient().NewContainerClient(destinationContainerId)
 
 	_, err := destContainerClient.Create(ctx, nil)
 	if err != nil {
@@ -144,7 +145,8 @@ func copyBuffer(ctx context.Context,
 				log.Ctx(ctx).Fatal().Err(err).Msg("failed to get container properties")
 			}
 
-			if status, ok := props.Metadata[exportedBufferStatusKey]; ok && status != nil && *status == exportedStatus {
+			// Note: casing is normalized because this is coming from an HTTP header
+			if status, ok := props.Metadata[exportedBufferStatusKeyHttpHeaderCasing]; ok && status != nil && *status == exportedStatus {
 				return nil
 			}
 
@@ -153,7 +155,7 @@ func copyBuffer(ctx context.Context,
 		}
 	}
 
-	blobPager := sourceBlobServiceClient.NewListBlobsFlatPager(containerId, nil)
+	blobPager := sourceBlobServiceClient.NewListBlobsFlatPager(sourceContainerId, nil)
 
 	bufferWaitGoup := sync.WaitGroup{}
 
@@ -161,7 +163,7 @@ func copyBuffer(ctx context.Context,
 		blobPage, err := blobPager.NextPage(ctx)
 		if err != nil {
 			if bloberror.HasCode(err, bloberror.ContainerNotFound) {
-				log.Ctx(ctx).Warn().Msgf("container '%s' not found", containerId)
+				log.Ctx(ctx).Warn().Msgf("container '%s' not found", sourceContainerId)
 				break
 			}
 			log.Ctx(ctx).Fatal().Err(err).Msg("failed to get page of blobs")
@@ -205,6 +207,7 @@ func copyBuffer(ctx context.Context,
 
 	_, err = destContainerClient.SetMetadata(ctx, &container.SetMetadataOptions{Metadata: tags})
 	if err != nil {
+		return fmt.Errorf("failed to set metadata: %w", err)
 	}
 
 	return nil

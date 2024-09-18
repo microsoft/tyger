@@ -13,6 +13,7 @@ public interface IBufferProvider
     Uri CreateBufferAccessUrl(string id, bool writeable, bool preferTcp);
 
     Task<Run> ExportBuffers(ExportBuffersRequest exportBufferRequest, CancellationToken cancellationToken);
+    Task<Run> ImportBuffers(CancellationToken cancellationToken);
 }
 
 public interface IEphemeralBufferProvider
