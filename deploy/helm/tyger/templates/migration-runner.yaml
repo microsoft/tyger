@@ -66,6 +66,8 @@ spec:
               value: {{ .Values.identity.migrationRunner.name }}
             - name: Database__TygerServerRoleName
               value: {{ .Values.identity.tygerServer.name }}
+            - name: Database__TygerServerIdentity
+              value: {{ .Values.identity.tygerServer.name }}
             - name: Compute__Kubernetes__Namespace
               value: {{ .Release.Namespace }}
             - name: Compute__Kubernetes__JobServiceAccount

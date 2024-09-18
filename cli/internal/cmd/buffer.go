@@ -49,6 +49,7 @@ func NewBufferCommand() *cobra.Command {
 	cmd.AddCommand(newBufferShowCommand())
 	cmd.AddCommand(newBufferSetCommand())
 	cmd.AddCommand(newBufferListCommand())
+	cmd.AddCommand(newBufferExportCommand())
 
 	return cmd
 }
@@ -475,8 +476,37 @@ func newBufferListCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringToStringVar(&tagEntries, "tag", nil, "add a key-value tag to the buffer. Can be specified multiple times.")
+	cmd.Flags().StringToStringVar(&tagEntries, "tag", nil, "Only include buffers with the given tag. Can be specified multiple times.")
 	cmd.Flags().IntVarP(&limit, "limit", "l", 1000, "The maximum number of buffers to list. Default 1000")
+
+	return cmd
+}
+
+func newBufferExportCommand() *cobra.Command {
+	request := model.ExportBuffersRequest{
+		Filters: make(map[string]string),
+	}
+
+	cmd := &cobra.Command{
+		Use:                   "export DESTINATION_STORAGE_ENDPOINT [--tag KEY=VALUE ...]",
+		Short:                 "Export buffers to a storage account",
+		DisableFlagsInUseLine: true,
+		Args:                  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			request.DestinationStorageEndpoint = args[0]
+			runResponse := model.Run{}
+			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/buffers/export", request, &runResponse)
+			if err != nil {
+				log.Fatal().Err(err).Msg("Failed to export buffers")
+			}
+
+			log.Info().Int64("runId", runResponse.Id).Msg("Export started")
+		},
+	}
+
+	cmd.Flags().StringToStringVar(&request.Filters, "tag", nil, "Only include buffers with the given tag. Can be specified multiple times.")
+	cmd.Flags().BoolVar(&request.HashIds, "hash-ids", false, "Hash the buffer IDs.")
+	cmd.Flags().MarkHidden("hash-ids")
 
 	return cmd
 }

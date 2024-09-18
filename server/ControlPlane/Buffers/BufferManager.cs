@@ -129,6 +129,11 @@ public sealed partial class BufferManager
         return match.Groups["BUFFERID"].Value;
     }
 
+    public async Task<Run> ExportBuffers(ExportBuffersRequest exportBufferRequest, CancellationToken cancellationToken)
+    {
+        return await _bufferProvider.ExportBuffers(exportBufferRequest, cancellationToken);
+    }
+
     [GeneratedRegex(@"^(?<TEMP>(run-(?<RUNID>\d+)-)?temp-)?(?<BUFFERID>\w+)$")]
     private static partial Regex BufferIdRegex();
 }

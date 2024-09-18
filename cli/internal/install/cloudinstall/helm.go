@@ -417,6 +417,7 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, restConfig *re
 		Values: map[string]any{
 			"image":              fmt.Sprintf("%s/tyger-server:%s", install.ContainerRegistry, install.ContainerImageTag),
 			"bufferSidecarImage": fmt.Sprintf("%s/buffer-sidecar:%s", install.ContainerRegistry, install.ContainerImageTag),
+			"bufferCopierImage":  fmt.Sprintf("%s/buffer-copier:%s", install.ContainerRegistry, install.ContainerImageTag),
 			"workerWaiterImage":  fmt.Sprintf("%s/worker-waiter:%s", install.ContainerRegistry, install.ContainerImageTag),
 			"hostname":           inst.Config.Api.DomainName,
 			"identity": map[string]any{

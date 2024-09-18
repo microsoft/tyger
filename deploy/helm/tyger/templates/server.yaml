@@ -160,6 +160,8 @@ spec:
               value: {{ .Values.identity.tygerServer.name }}
             - name: Database__TygerServerRoleName
               value: {{ .Values.identity.tygerServer.name }}
+            - name: Database__TygerServerIdentity
+              value: {{ .Values.identity.tygerServer.name }}
             - name: Database__AutoMigrate
               value: "{{ .Values.database.autoMigrate }}"
             {{- range $index, $element := .Values.buffers.storageAccounts }}
@@ -172,6 +174,8 @@ spec:
             {{- end }}
             - name: Buffers__BufferSidecarImage
               value: {{ required "A value for bufferSidecarImage is required" .Values.bufferSidecarImage }}
+            - name: Buffers__BufferCopierImage
+              value: {{ required "A value for bufferCopierImage is required" .Values.bufferCopierImage }}
             - name: LogArchive__CloudStorage__StorageAccountEndpoint
               value: {{ required "A value for logArchive.storageAccountEndpoint is required" .Values.logArchive.storageAccountEndpoint }}
           readinessProbe:

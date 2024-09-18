@@ -1,10 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+using System.ComponentModel.DataAnnotations;
 using System.Net.Sockets;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using Tyger.Common.Buffers;
+using Tyger.ControlPlane.Model;
 
 namespace Tyger.ControlPlane.Buffers;
 
@@ -39,7 +41,7 @@ public sealed class LocalStorageBufferProvider : IBufferProvider, IHealthCheck, 
             {
                 ConnectCallback = async (sockHttpConnContext, ctxToken) =>
                 {
-                    var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+                    var socket = new System.Net.Sockets.Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
 
                     var endpoint = new UnixDomainSocketEndPoint(socketPath);
                     await socket.ConnectAsync(endpoint, ctxToken);
@@ -132,6 +134,11 @@ public sealed class LocalStorageBufferProvider : IBufferProvider, IHealthCheck, 
         var action = writeable ? SasAction.Create | SasAction.Read : SasAction.Read;
         var queryString = LocalSasHandler.GetSasQueryString(id, SasResourceType.Blob, action, _signData);
         return new Uri(preferTcp ? _baseTcpUrl : _baseUrl, $"v1/containers/{id}{queryString}");
+    }
+
+    public Task<Run> ExportBuffers(ExportBuffersRequest exportBufferRequest, CancellationToken cancellationToken)
+    {
+        throw new ValidationException("Exporting buffers is not supported with local storage.");
     }
 
     public void Dispose() => _dataPlaneClient.Dispose();

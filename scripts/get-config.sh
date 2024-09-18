@@ -114,6 +114,7 @@ else
     TYGER_SERVER_IMAGE="${repo_fqdn}/tyger-server:${EXPLICIT_IMAGE_TAG}"
     TYGER_DATA_PLANE_SERVER_IMAGE="${repo_fqdn}/tyger-data-plane-server:${EXPLICIT_IMAGE_TAG}"
     BUFFER_SIDECAR_IMAGE="${repo_fqdn}/buffer-sidecar:${EXPLICIT_IMAGE_TAG}"
+    BUFFER_COPIER_IMAGE="${repo_fqdn}/buffer-copier:${EXPLICIT_IMAGE_TAG}"
     WORKER_WAITER_IMAGE="${repo_fqdn}/worker-waiter:${EXPLICIT_IMAGE_TAG}"
   elif [[ "$docker" == true ]]; then
     arch=$(dpkg --print-architecture)
@@ -126,6 +127,7 @@ else
 
     TYGER_SERVER_IMAGE="$(docker inspect "${repo_fqdn}/tyger-server:dev-${arch}" 2>/dev/null | jq -r --arg repo "${repo_fqdn}/tyger-server" '.[0].RepoDigests[] | select (startswith($repo))' 2>/dev/null || true)"
     BUFFER_SIDECAR_IMAGE="$(docker inspect "${repo_fqdn}/buffer-sidecar:dev-${arch}" 2>/dev/null | jq -r --arg repo "${repo_fqdn}/buffer-sidecar" '.[0].RepoDigests[] | select (startswith($repo))' 2>/dev/null || true)"
+    BUFFER_COPIER_IMAGE="$(docker inspect "${repo_fqdn}/buffer-copier:dev-${arch}" 2>/dev/null | jq -r --arg repo "${repo_fqdn}/buffer-copier" '.[0].RepoDigests[] | select (startswith($repo))' 2>/dev/null || true)"
     WORKER_WAITER_IMAGE="$(docker inspect "${repo_fqdn}/worker-waiter:dev-${arch}" 2>/dev/null | jq -r --arg repo "${repo_fqdn}/worker-waiter" '.[0].RepoDigests[] | select (startswith($repo))' 2>/dev/null || true)"
   fi
 
@@ -137,6 +139,7 @@ else
     export GATEWAY_IMAGE
   else
     export WORKER_WAITER_IMAGE
+    export BUFFER_COPIER_IMAGE
   fi
 fi
 

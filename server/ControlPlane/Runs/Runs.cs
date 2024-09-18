@@ -25,6 +25,11 @@ public static class Runs
         app.MapPost("/v1/runs", async (IRunCreator runCreator, HttpContext context) =>
         {
             var run = await context.Request.ReadAndValidateJson<Run>(context.RequestAborted);
+            if (run.Kind == RunKind.System)
+            {
+                throw new ValidationException("System runs cannot be created directly");
+            }
+
             Run createdRun = await runCreator.CreateRun(run, context.RequestAborted);
             return Results.Created($"/v1/runs/{createdRun.Id}", createdRun);
         })
@@ -155,9 +160,9 @@ public static class Runs
                 return Responses.NotFound();
             }
 
-            return Results.Ok(run);
+            return Results.Accepted(value: run);
         })
-        .Produces<Run>(StatusCodes.Status200OK)
+        .Produces<Run>(StatusCodes.Status202Accepted)
         .Produces<ErrorBody>(StatusCodes.Status404NotFound);
 
         // this endpoint is for testing purposes only, to force the background pod sweep

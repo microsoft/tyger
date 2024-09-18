@@ -401,8 +401,17 @@ public enum RunStatus
     Canceled,
 }
 
+public enum RunKind
+{
+    User = 0,
+    System,
+}
+
 public record Run : ModelBase
 {
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public RunKind Kind { get; init; } = RunKind.User;
+
     /// <summary>
     /// The run ID. Populated by the system.
     /// </summary>
@@ -486,3 +495,10 @@ public record BufferPage(IReadOnlyList<Buffer> Items, Uri? NextLink);
 public record Cluster(string Name, string Location, IReadOnlyList<NodePool> NodePools);
 
 public record NodePool(string Name, string VmSize);
+
+public record ExportBuffersRequest(string DestinationStorageEndpoint, Dictionary<string, string>? Filters, [property: OpenApiExclude] bool HashIds);
+
+[AttributeUsage(AttributeTargets.Property)]
+public class OpenApiExcludeAttribute : Attribute
+{
+}
