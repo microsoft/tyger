@@ -7,7 +7,7 @@ ARG TYGER_VERSION="a"
 RUN --mount=type=cache,target=/root/.cache/go-build go mod download
 COPY . .
 RUN --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=${BUILDOS} GOARCH=${TARGETARCH} go build -ldflags="-s -w -X main.version=${TYGER_VERSION}" -v -o /go/bin/dist/${BUILDOS}/${TARGETARCH}/ ./cmd/buffer-sidecar ./cmd/tyger ./cmd/load-queue ./cmd/copier
+    CGO_ENABLED=0 GOOS=${BUILDOS} GOARCH=${TARGETARCH} go build -ldflags="-s -w -X main.version=${TYGER_VERSION}" -v -o /go/bin/dist/${BUILDOS}/${TARGETARCH}/ ./cmd/buffer-sidecar ./cmd/tyger ./cmd/buffer-copier
 
 FROM mcr.microsoft.com/cbl-mariner/distroless/minimal:2.0-nonroot.20240112 as buffer-sidecar
 ARG TARGETARCH BUILDOS
@@ -22,17 +22,9 @@ WORKDIR /app
 COPY --from=go-build /go/bin/dist/${BUILDOS}/${TARGETARCH}/tyger .
 ENTRYPOINT ["/app/tyger"]
 
-
-FROM mcr.microsoft.com/cbl-mariner/distroless/minimal:2.0-nonroot.20240112 as load-queue
+FROM mcr.microsoft.com/cbl-mariner/distroless/minimal:2.0-nonroot.20240112 as buffer-copier
 ARG TARGETARCH BUILDOS
 
 WORKDIR /app
-COPY --from=go-build /go/bin/dist/${BUILDOS}/${TARGETARCH}/load-queue .
-ENTRYPOINT ["/app/load-queue"]
-
-FROM mcr.microsoft.com/cbl-mariner/distroless/minimal:2.0-nonroot.20240112 as copier
-ARG TARGETARCH BUILDOS
-
-WORKDIR /app
-COPY --from=go-build /go/bin/dist/${BUILDOS}/${TARGETARCH}/copier .
-ENTRYPOINT ["/app/copier"]
+COPY --from=go-build /go/bin/dist/${BUILDOS}/${TARGETARCH}/buffer-copier .
+ENTRYPOINT ["/app/buffer-copier"]

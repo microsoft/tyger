@@ -218,13 +218,8 @@ if [[ -n "${buffer_sidecar:-}" ]]; then
 
   build_and_push
 
-  target="load-queue"
-  repo="load-queue"
-
-  build_and_push
-
-  target="copier"
-  repo="copier"
+  target="buffer-copier"
+  repo="buffer-copier"
 
   build_and_push
 fi

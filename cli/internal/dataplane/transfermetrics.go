@@ -59,7 +59,7 @@ func (ts *TransferMetrics) Start() {
 					partial = partial.Str("totalBuffers", humanize.Comma(int64(totalBuffers)))
 				}
 
-				partial = partial.Str("totalData", humanize.IBytes(ts.totalBytes))
+				partial = partial.Str("totalData", removeSpaces(humanize.IBytes(ts.totalBytes)))
 
 				partial.Msg("Transfer progress")
 			}
@@ -89,11 +89,16 @@ func (ts *TransferMetrics) Stop() {
 		partial = partial.Uint64("totalBuffers", totalBuffers)
 	}
 
-	partial = partial.Str("totalData", humanize.IBytes(ts.totalBytes))
+	partial = partial.Str("totalData", removeSpaces(humanize.IBytes(ts.totalBytes)))
 	partial.Msg("Transfer complete")
 }
 
 func humanizeBytesAsBits(bytes uint64) string {
 	s := humanize.Bytes(bytes * 8)
-	return strings.TrimSuffix(s, "B") + "b"
+	return removeSpaces(strings.TrimSuffix(s, "B") + "b")
+}
+
+// "1 MB" -> "1MB" to that log field values are not quoted in the console
+func removeSpaces(s string) string {
+	return strings.Replace(s, " ", "", -1)
 }

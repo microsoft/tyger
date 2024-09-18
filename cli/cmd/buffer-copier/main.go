@@ -59,7 +59,7 @@ func main() {
 	dbFlags := databaseFlags{}
 
 	rootCommand := cmd.NewCommonRootCommand(version)
-	rootCommand.Use = "tyger-copier"
+	rootCommand.Use = "buffer-copier"
 	rootCommand.Long = `Export and import buffers from one Tyger instance to another`
 
 	// add flags for the root command based on the commonFlags struct

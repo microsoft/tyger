@@ -927,7 +927,7 @@ func pullImages(ctx context.Context, newRun model.Run) error {
 					logger := log.Ctx(ctx).With().Str("image", imageName).Logger()
 					detail := ""
 					if progress.ProgressDetail != nil && progress.ProgressDetail.Total > 0 {
-						detail = fmt.Sprintf(" (%s/%s)", humanize.Bytes(progress.ProgressDetail.Current), humanize.Bytes(progress.ProgressDetail.Total))
+						detail = fmt.Sprintf(" (%s/%s)", humanize.IBytes(progress.ProgressDetail.Current), humanize.IBytes(progress.ProgressDetail.Total))
 					}
 					logger.Info().Msgf("%s%s", progress.Status, detail)
 				}

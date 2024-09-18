@@ -29,9 +29,7 @@ public sealed class AzureBlobBufferProvider : IBufferProvider, IHealthCheck, IHo
 
     public async Task CreateBuffer(string id, CancellationToken cancellationToken)
     {
-        var r = await _serviceClient.CreateBlobContainerAsync(id, cancellationToken: cancellationToken);
-        var containerClient = r.Value;
-        containerClient.
+        await _serviceClient.CreateBlobContainerAsync(id, cancellationToken: cancellationToken);
     }
 
     public Uri CreateBufferAccessUrl(string id, bool writeable, bool preferTcp)

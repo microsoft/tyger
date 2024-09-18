@@ -1,9 +1,0 @@
-job:
-  codespec:
-    image: eminence.azurecr.io/copier@sha256:122829f2df1b517a46e64fe988ed0ece62523cc39b4ed0f00d764b4add30d58a
-    identity: test-identity
-    resources:
-      requests:
-        cpu: 6
-
-timeoutSeconds: 864000
