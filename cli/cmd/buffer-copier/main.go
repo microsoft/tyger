@@ -86,6 +86,23 @@ func main() {
 	}
 }
 
+// Do a quick check to see if we can reach the storage account. Do not wait for the retries to complete.
+func verifyStorageAccountConnectivity(ctx context.Context, client *azblob.Client) error {
+	resChan := make(chan any)
+	go func() {
+		_, err := client.ServiceClient().GetAccountInfo(ctx, nil)
+		resChan <- err
+		close(resChan)
+	}()
+
+	select {
+	case <-resChan:
+		return nil
+	case <-time.After(time.Minute):
+		return fmt.Errorf("failed to connect to storage endpoint %s", client.ServiceClient().URL())
+	}
+}
+
 type databaseFlags struct {
 	dbName string
 	dbHost string

@@ -24,6 +24,8 @@ import (
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/dataplane"
+	"github.com/microsoft/tyger/cli/internal/logging"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -495,13 +497,15 @@ func newBufferExportCommand() *cobra.Command {
 		Args:                  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			request.DestinationStorageEndpoint = args[0]
-			runResponse := model.Run{}
-			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/buffers/export", request, &runResponse)
+			run := model.Run{}
+			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/buffers/export", request, &run)
 			if err != nil {
 				log.Fatal().Err(err).Msg("Failed to export buffers")
 			}
 
-			log.Info().Int64("runId", runResponse.Id).Msg("Export started")
+			if err := attachToRunNoBufferIO(cmd.Context(), run, true, false, getSystemRunLogSink(cmd.Context())); err != nil {
+				log.Fatal().Err(err).Msg("Failed to attach to run")
+			}
 		},
 	}
 
@@ -519,15 +523,29 @@ func newBufferImportCommand() *cobra.Command {
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.ExactArgs(0),
 		Run: func(cmd *cobra.Command, args []string) {
-			runResponse := model.Run{}
-			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/buffers/import", struct{}{}, &runResponse)
+			run := model.Run{}
+			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/buffers/import", struct{}{}, &run)
 			if err != nil {
 				log.Fatal().Err(err).Msg("Failed to import buffers")
 			}
 
-			log.Info().Int64("runId", runResponse.Id).Msg("Import started")
+			if err := attachToRunNoBufferIO(cmd.Context(), run, true, false, getSystemRunLogSink(cmd.Context())); err != nil {
+				log.Fatal().Err(err).Msg("Failed to attach to run")
+			}
 		},
 	}
 
 	return cmd
+}
+
+// If we are using the zerolog console writer, this returns an io.Writer that
+// parses sends the log lines to the console writer, so that the output is formatted.
+func getSystemRunLogSink(ctx context.Context) io.Writer {
+	loggingSink := logging.GetLogSinkFromContext(ctx)
+	if consoleWriter, ok := loggingSink.(zerolog.ConsoleWriter); ok {
+		formatter := logging.NewZeroLogFormatter(consoleWriter)
+		return formatter
+	}
+
+	return os.Stderr
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/base32"
 	"fmt"
 	"iter"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -47,6 +48,9 @@ func newExportCommand(dbFlags *databaseFlags) *cobra.Command {
 		Args:                  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx := cmd.Context()
+			if runId := os.Getenv("TYGER_RUN_ID"); runId != "" {
+				ctx = log.Ctx(ctx).With().Str("runId", runId).Logger().WithContext(ctx)
+			}
 			cred, err := createCredential()
 			if err != nil {
 				log.Ctx(cmd.Context()).Fatal().Err(err).Msg("Failed to create credentials")
@@ -66,6 +70,13 @@ func newExportCommand(dbFlags *databaseFlags) *cobra.Command {
 			destBlobServiceClient, err := azblob.NewClient(destinationStorageEndpoint, cred, &blobClientOptions)
 			if err != nil {
 				log.Ctx(ctx).Fatal().Err(err).Msg("failed to create blob service client")
+			}
+
+			if err := verifyStorageAccountConnectivity(ctx, sourceBlobServiceClient); err != nil {
+				log.Ctx(ctx).Fatal().Err(err).Msg("failed to connect to source storage account")
+			}
+			if err := verifyStorageAccountConnectivity(ctx, destBlobServiceClient); err != nil {
+				log.Ctx(ctx).Fatal().Err(err).Msg("failed to connect to source storage account")
 			}
 
 			sema := semaphore.NewWeighted(maxExportConcurrentRequests)

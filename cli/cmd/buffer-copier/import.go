@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +32,9 @@ func newImportCommand(dbFlags *databaseFlags) *cobra.Command {
 		Args:                  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx := cmd.Context()
+			if runId := os.Getenv("TYGER_RUN_ID"); runId != "" {
+				ctx = log.Ctx(ctx).With().Str("runId", runId).Logger().WithContext(ctx)
+			}
 			cred, err := createCredential()
 			if err != nil {
 				log.Ctx(cmd.Context()).Fatal().Err(err).Msg("Failed to create credentials")
@@ -39,6 +43,10 @@ func newImportCommand(dbFlags *databaseFlags) *cobra.Command {
 			blobServiceClient, err := azblob.NewClient(storageEndpoint, cred, &blobClientOptions)
 			if err != nil {
 				log.Ctx(ctx).Fatal().Err(err).Msg("failed to create blob service client")
+			}
+
+			if err := verifyStorageAccountConnectivity(ctx, blobServiceClient); err != nil {
+				log.Ctx(ctx).Fatal().Err(err).Msg("failed to connect to source storage account")
 			}
 
 			channel := make(chan *service.ContainerItem, listContainerPageSize*10)
@@ -218,7 +226,7 @@ func insertBatch(ctx context.Context, pool *pgxpool.Pool, containerBatch []*serv
 	log.Info().
 		Str("duration", time.Since(start).String()).
 		Str("newBuffers", humanize.Comma(int64(newBufferCount))).
-		Str("totalCount", humanize.Comma(totalCount)).Msg("inserted batch")
+		Str("totalCount", humanize.Comma(totalCount)).Msg("Inserted batch")
 
 	return err
 }

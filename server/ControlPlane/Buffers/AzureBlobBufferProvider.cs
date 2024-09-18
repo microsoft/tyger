@@ -102,6 +102,7 @@ public sealed class AzureBlobBufferProvider : IBufferProvider, IHealthCheck, IHo
         var args = new List<string>
         {
             "export",
+            "--log-format", "json",
             "--source-storage-endpoint", _serviceClient.Uri.ToString(),
             "--destination-storage-endpoint", exportBufferRequest.DestinationStorageEndpoint.ToString(),
             "--db-host", _databaseOptions.Host,
@@ -158,6 +159,7 @@ public sealed class AzureBlobBufferProvider : IBufferProvider, IHealthCheck, IHo
         var args = new List<string>
         {
             "import",
+            "--log-format", "json",
             "--storage-endpoint", _serviceClient.Uri.ToString(),
             "--db-host", _databaseOptions.Host,
             "--db-user", _databaseOptions.Username,

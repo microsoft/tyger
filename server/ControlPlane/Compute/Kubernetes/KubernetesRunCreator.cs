@@ -467,13 +467,21 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
                         Image = codespec.Image,
                         Command = codespec.Command?.ToArray(),
                         Args = codespec.Args?.ToArray(),
-                        Env = codespec.Env?.Select(p => new V1EnvVar(p.Key, p.Value)).ToList()
+                        Env = [new V1EnvVar("TYGER_RUN_ID", valueFrom: new V1EnvVarSource(fieldRef: new V1ObjectFieldSelector($"metadata.labels['{RunLabel}']")))],
                     }
                 ],
                 RestartPolicy = restartPolicy,
                 ServiceAccountName = GetServiceAccount(),
             }
         };
+
+        if (codespec.Env != null)
+        {
+            foreach (var (key, value) in codespec.Env)
+            {
+                podTemplateSpec.Spec.Containers[0].Env.Add(new(key, value));
+            }
+        }
 
         AddComputeResources(podTemplateSpec, codespec, codeTarget, targetCluster);
 
