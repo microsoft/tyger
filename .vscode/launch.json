@@ -49,26 +49,6 @@
       ]
     },
     {
-      "name": "export",
-      "type": "go",
-      "request": "launch",
-      "mode": "auto",
-      "program": "cli/cmd/buffer-copier",
-      "cwd": "${workspaceFolder}",
-      "args": [
-        "export",
-        "--db-host",
-        "jostairs-tyger-intelligent-bardeen.postgres.database.azure.com",
-        "--db-user",
-        "SC-kr331@microsoft.com",
-        "--source-storage-endpoint",
-        "https://jostairseastus.blob.core.windows.net",
-        "--destination-storage-endpoint",
-        "https://jostairseastus.blob.core.windows.net",
-        "--hash-ids"
-      ]
-    },
-    {
       "name": "CLI Docker",
       "type": "go",
       "request": "launch",
