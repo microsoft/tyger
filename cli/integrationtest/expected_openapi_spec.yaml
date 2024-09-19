@@ -160,8 +160,26 @@ paths:
               $ref: '#/components/schemas/ExportBuffersRequest'
         required: true
       responses:
-        '201':
-          description: Created
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Run'
+  /v1/buffers/import:
+    post:
+      tags:
+        - tyger-server
+      operationId: importBuffers
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImportBuffersRequest'
+        required: true
+      responses:
+        '202':
+          description: Accepted
           content:
             application/json:
               schema:
@@ -606,6 +624,9 @@ components:
           additionalProperties:
             type: string
           nullable: true
+      additionalProperties: false
+    ImportBuffersRequest:
+      type: object
       additionalProperties: false
     JobCodespec:
       type: object
