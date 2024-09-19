@@ -13,6 +13,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/microsoft/tyger/cli/internal/cmd"
@@ -26,7 +27,6 @@ const (
 
 var (
 	exportedBufferStatusKeyHttpHeaderCasing = http.CanonicalHeaderKey(exportedBufferStatusKey)
-	customTagPrefixHttpHeaderCasing         = http.CanonicalHeaderKey(customTagPrefix)
 )
 
 var (
@@ -163,4 +163,57 @@ type RoundripTransporter struct {
 
 func (t *RoundripTransporter) Do(req *http.Request) (*http.Response, error) {
 	return t.inner.RoundTrip(req)
+}
+
+func getCurrentPrincipal(ctx context.Context, cred azcore.TokenCredential) string {
+	const unknownPrincipal = "unknown"
+	tokenResponse, err := cred.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{"https://storage.azure.com/.default"}})
+	if err != nil {
+		return unknownPrincipal
+	}
+
+	claims := jwt.MapClaims{}
+	_, _, err = jwt.NewParser().ParseUnverified(tokenResponse.Token, claims)
+	if err != nil {
+		return unknownPrincipal
+	}
+
+	oid, _ := claims["oid"].(string)
+	appId, _ := claims["appid"].(string)
+	mi, _ := claims["xms_mirid"].(string)
+	idtyp, _ := claims["idtyp"].(string)
+
+	if mi != "" {
+		miString := fmt.Sprintf("managed identity %s", mi)
+		if appId != "" {
+			miString += fmt.Sprintf(" (app ID %s)", appId)
+		}
+		return miString
+	}
+
+	switch idtyp {
+	case "user":
+		if name, _ := claims["unique_name"].(string); name != "" {
+			return name
+		}
+
+		if name, _ := claims["upn"].(string); name != "" {
+			return name
+		}
+
+		if oid != "" {
+			return fmt.Sprintf("user %s", oid)
+		}
+
+	case "app":
+		if appId != "" {
+			return fmt.Sprintf("app ID %s", appId)
+		}
+
+		if oid != "" {
+			return fmt.Sprintf("app %s", oid)
+		}
+	}
+
+	return unknownPrincipal
 }

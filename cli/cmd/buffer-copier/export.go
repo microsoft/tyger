@@ -25,6 +25,7 @@ import (
 const (
 	parallelExportBufferCount   = 512
 	maxExportConcurrentRequests = 1024
+	exportPageSize              = 8192
 )
 
 var (
@@ -87,14 +88,18 @@ func newExportCommand(dbFlags *databaseFlags) *cobra.Command {
 
 			overallWg := sync.WaitGroup{}
 
+			ctx, cancel := context.WithCancelCause(ctx)
+			defer cancel(nil)
+
 			bufferChannel := make(chan bufferIdAndTags, parallelExportBufferCount)
 			for range parallelExportBufferCount {
 				go func() {
 					for bufferIdAndTags := range bufferChannel {
 						if err := copyBuffer(ctx, bufferIdAndTags, sourceBlobServiceClient, destBlobServiceClient, transferMetrics, sema, bufferIdTransform); err != nil {
-							log.Fatal().Err(err).Msg("failed to copy buffer")
+							cancel(err)
+						} else {
+							transferMetrics.Update(0, 1)
 						}
-						transferMetrics.Update(0, 1)
 						overallWg.Done()
 					}
 				}()
@@ -103,7 +108,8 @@ func newExportCommand(dbFlags *databaseFlags) *cobra.Command {
 			count := 0
 			for page, err := range GetBufferIdsAndTags(ctx, dbFlags, filter, cred) {
 				if err != nil {
-					log.Fatal().Err(err).Msg("failed to get buffer IDs")
+					cancel(fmt.Errorf("failed to get buffer IDs and tags: %w", err))
+					break
 				}
 
 				if count == 0 {
@@ -119,7 +125,27 @@ func newExportCommand(dbFlags *databaseFlags) *cobra.Command {
 			}
 
 			close(bufferChannel)
-			overallWg.Wait()
+
+			doneChan := make(chan any)
+			go func() {
+				overallWg.Wait()
+				close(doneChan)
+			}()
+
+			select {
+			case <-doneChan:
+			case <-ctx.Done():
+			}
+
+			err = context.Cause(ctx)
+			if err != nil {
+				if bloberror.HasCode(err, bloberror.AuthorizationFailure, bloberror.AuthorizationPermissionMismatch, bloberror.InvalidAuthenticationInfo) {
+					log.Ctx(ctx).Fatal().Err(err).Msgf("Failed to access storage account. Ensure %s has Storage Blob Data Contributor access on the storage account %s", getCurrentPrincipal(context.Background(), cred), destinationStorageEndpoint)
+				} else {
+					log.Ctx(ctx).Fatal().Err(err).Msg("Failed to export buffers")
+				}
+			}
+
 			transferMetrics.Stop()
 		},
 	}
@@ -153,7 +179,7 @@ func copyBuffer(ctx context.Context,
 		if bloberror.HasCode(err, bloberror.ContainerAlreadyExists) {
 			props, err := destContainerClient.GetProperties(ctx, nil)
 			if err != nil {
-				log.Ctx(ctx).Fatal().Err(err).Msg("failed to get container properties")
+				return fmt.Errorf("failed to get container properties: %w", err)
 			}
 
 			// Note: casing is normalized because this is coming from an HTTP header
@@ -162,13 +188,16 @@ func copyBuffer(ctx context.Context,
 			}
 
 		} else {
-			log.Ctx(ctx).Fatal().Err(err).Msg("failed to create container")
+			return fmt.Errorf("failed to create container: %w", err)
 		}
 	}
 
 	blobPager := sourceBlobServiceClient.NewListBlobsFlatPager(sourceContainerId, nil)
 
 	bufferWaitGoup := sync.WaitGroup{}
+
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
 
 	for blobPager.More() {
 		blobPage, err := blobPager.NextPage(ctx)
@@ -177,15 +206,18 @@ func copyBuffer(ctx context.Context,
 				log.Ctx(ctx).Warn().Msgf("container '%s' not found", sourceContainerId)
 				break
 			}
-			log.Ctx(ctx).Fatal().Err(err).Msg("failed to get page of blobs")
+			return fmt.Errorf("failed to get page of blobs: %w", err)
 		}
 
 		for _, blob := range blobPage.Segment.BlobItems {
 			sourceBlobClient := sourceContainerClient.NewBlockBlobClient(*blob.Name)
 			destBlobClient := destContainerClient.NewBlockBlobClient(*blob.Name)
-			bufferWaitGoup.Add(1)
+			if err := sema.Acquire(ctx, 1); err != nil {
+				// context canceled
+				return err
+			}
 
-			sema.Acquire(ctx, 1)
+			bufferWaitGoup.Add(1)
 			go func() {
 				defer bufferWaitGoup.Done()
 				defer sema.Release(1)
@@ -193,10 +225,11 @@ func copyBuffer(ctx context.Context,
 					_, err := destBlobClient.UploadBlobFromURL(ctx, sourceBlobClient.URL(), nil)
 					if err != nil {
 						if bloberror.HasCode(err, bloberror.ServerBusy) {
-							time.Sleep(100 * time.Millisecond)
 							continue
 						}
-						log.Fatal().Err(err).Msg("failed to copy blob")
+
+						cancel(err)
+						return
 					}
 					break
 				}
@@ -204,24 +237,26 @@ func copyBuffer(ctx context.Context,
 				transferMetrics.Update(uint64(*blob.Properties.ContentLength), 0)
 			}()
 		}
-
 	}
 
 	bufferWaitGoup.Wait()
 
-	tags := make(map[string]*string, len(bufferIdAndTags.tags)+1)
-	exportedStatus := exportedStatus
-	tags[exportedBufferStatusKey] = &exportedStatus
-	for k, v := range bufferIdAndTags.tags {
-		tags[customTagPrefix+k] = &v
+	err = context.Cause(ctx)
+	if err == nil {
+		tags := make(map[string]*string, len(bufferIdAndTags.tags)+1)
+		exportedStatus := exportedStatus
+		tags[exportedBufferStatusKey] = &exportedStatus
+		for k, v := range bufferIdAndTags.tags {
+			tags[customTagPrefix+k] = &v
+		}
+
+		_, err = destContainerClient.SetMetadata(ctx, &container.SetMetadataOptions{Metadata: tags})
+		if err != nil {
+			return fmt.Errorf("failed to set metadata: %w", err)
+		}
 	}
 
-	_, err = destContainerClient.SetMetadata(ctx, &container.SetMetadataOptions{Metadata: tags})
-	if err != nil {
-		return fmt.Errorf("failed to set metadata: %w", err)
-	}
-
-	return nil
+	return err
 }
 
 func GetBufferIdsAndTags(ctx context.Context, dbFlags *databaseFlags, filter map[string]string, cred azcore.TokenCredential) iter.Seq2[[]bufferIdAndTags, error] {
@@ -260,13 +295,12 @@ func GetBufferIdsAndTags(ctx context.Context, dbFlags *databaseFlags, filter map
 
 		lastCreatedAt := time.Time{}
 		lastBufferId := ""
-		const pageSize = 8192
 		pageCount := 0
 
 		// we fetch the results in pages because otherwise this reader could be open for many hours.
 		query, params := func() (string, []any) {
 			queryBuilder := strings.Builder{}
-			params := []any{lastCreatedAt, lastBufferId, pageSize}
+			params := []any{lastCreatedAt, lastBufferId, exportPageSize}
 			paramOffset := len(params)
 			for k, v := range filter {
 				params = append(params, filterTagIds[k])
@@ -334,7 +368,7 @@ func GetBufferIdsAndTags(ctx context.Context, dbFlags *databaseFlags, filter map
 			if pageCount == 0 {
 				page = make([]bufferIdAndTags, 0, 1024)
 			} else {
-				page = make([]bufferIdAndTags, 0, pageSize)
+				page = make([]bufferIdAndTags, 0, exportPageSize)
 			}
 			pageCount++
 
@@ -384,7 +418,7 @@ func GetBufferIdsAndTags(ctx context.Context, dbFlags *databaseFlags, filter map
 				return
 			}
 
-			if len(page) < pageSize {
+			if len(page) < exportPageSize {
 				return
 			}
 		}

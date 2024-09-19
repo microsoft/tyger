@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/service"
 	"github.com/dustin/go-humanize"
@@ -37,7 +38,7 @@ func newImportCommand(dbFlags *databaseFlags) *cobra.Command {
 			}
 			cred, err := createCredential()
 			if err != nil {
-				log.Ctx(cmd.Context()).Fatal().Err(err).Msg("Failed to create credentials")
+				log.Ctx(ctx).Fatal().Err(err).Msg("Failed to create credentials")
 			}
 
 			blobServiceClient, err := azblob.NewClient(storageEndpoint, cred, &blobClientOptions)
@@ -49,7 +50,9 @@ func newImportCommand(dbFlags *databaseFlags) *cobra.Command {
 				log.Ctx(ctx).Fatal().Err(err).Msg("failed to connect to source storage account")
 			}
 
-			channel := make(chan *service.ContainerItem, listContainerPageSize*10)
+			containerChannel := make(chan *service.ContainerItem, listContainerPageSize*10)
+			ctx, cancel := context.WithCancelCause(ctx)
+			defer cancel(nil)
 
 			wg := sync.WaitGroup{}
 			for _, r := range containerPrefixChars {
@@ -62,12 +65,13 @@ func newImportCommand(dbFlags *databaseFlags) *cobra.Command {
 					for pager.More() {
 						page, err := pager.NextPage(ctx)
 						if err != nil {
-							log.Ctx(ctx).Fatal().Err(err).Msg("failed to list containers")
+							cancel(fmt.Errorf("failed to list containers: %w", err))
+							return
 						}
 
 						for _, container := range page.ContainerItems {
 							if status, ok := container.Metadata[exportedBufferStatusKey]; ok && *status == exportedStatus {
-								channel <- container
+								containerChannel <- container
 							}
 						}
 					}
@@ -76,16 +80,16 @@ func newImportCommand(dbFlags *databaseFlags) *cobra.Command {
 
 			go func() {
 				wg.Wait()
-				close(channel)
+				close(containerChannel)
 			}()
 
-			pool, err := createDatabaseConnectionPool(ctx, dbFlags, cred)
-			if err != nil {
-				log.Ctx(ctx).Fatal().Err(err).Msg("failed to create database connection pool")
+			err = bulkInsert(ctx, dbFlags, cred, dbBatchSize, containerChannel)
+			if ctxCause := context.Cause(ctx); ctxCause != nil {
+				err = ctxCause
 			}
 
-			if err := bulkInsert(ctx, pool, dbBatchSize, channel); err != nil {
-				log.Ctx(ctx).Fatal().Err(err).Msg("failed to bulk insert")
+			if err != nil {
+				log.Ctx(ctx).Fatal().Err(err).Msg("Import failed")
 			}
 		},
 	}
@@ -96,7 +100,12 @@ func newImportCommand(dbFlags *databaseFlags) *cobra.Command {
 	return cmd
 }
 
-func bulkInsert(ctx context.Context, pool *pgxpool.Pool, batchSize int, containers <-chan *service.ContainerItem) error {
+func bulkInsert(ctx context.Context, dbFlags *databaseFlags, cred azcore.TokenCredential, batchSize int, containers <-chan *service.ContainerItem) error {
+	pool, err := createDatabaseConnectionPool(ctx, dbFlags, cred)
+	if err != nil {
+		log.Ctx(ctx).Fatal().Err(err).Msg("failed to create database connection pool")
+	}
+
 	totalCount := int64(0)
 	page := make([]*service.ContainerItem, 0, batchSize)
 
@@ -105,7 +114,7 @@ func bulkInsert(ctx context.Context, pool *pgxpool.Pool, batchSize int, containe
 		page = append(page, container)
 		if len(page) == batchSize {
 			if err := insertBatch(ctx, pool, page, totalCount); err != nil {
-				return err
+				return fmt.Errorf("failed to insert batch: %w", err)
 			}
 			page = page[:0]
 		}
@@ -113,7 +122,7 @@ func bulkInsert(ctx context.Context, pool *pgxpool.Pool, batchSize int, containe
 
 	if len(page) > 0 {
 		if err := insertBatch(ctx, pool, page, totalCount); err != nil {
-			return err
+			return fmt.Errorf("failed to insert batch: %w", err)
 		}
 	}
 	return nil
