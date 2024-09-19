@@ -492,7 +492,7 @@ func newBufferExportCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:                   "export DESTINATION_STORAGE_ENDPOINT [--tag KEY=VALUE ...]",
-		Short:                 "Export buffers to a storage account",
+		Short:                 "Export buffers to a storage account belonging to another Tyger instance. Note that the Tyger server's managed identity must have the necessary permissions to write to the destination storage account. Only supported in cloud environments.",
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
@@ -519,7 +519,7 @@ func newBufferExportCommand() *cobra.Command {
 func newBufferImportCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                   "import",
-		Short:                 "Import buffers into the local Tyger instance",
+		Short:                 "Import buffers into the local Tyger instance. This command is intended to be run after `tyger buffer export` on another Tyger instance has exported to this instance's storage accounts.",
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.ExactArgs(0),
 		Run: func(cmd *cobra.Command, args []string) {
