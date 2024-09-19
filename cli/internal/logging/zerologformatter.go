@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 package logging
 
 import (
@@ -21,7 +24,6 @@ func (w *ZerologFormatter) Write(p []byte) (n int, err error) {
 	w.buf = append(w.buf, p...)
 
 	for {
-		// Find the index of the next newline character.
 		i := bytes.IndexByte(w.buf, '\n')
 		if i < 0 {
 			break

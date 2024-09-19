@@ -1651,6 +1651,7 @@ timeoutSeconds: 600`, BasicImage)
 
 func TestExport(t *testing.T) {
 	t.Parallel()
+	skipIfUsingUnixSocket(t)
 
 	testId := uuid.NewString()
 
