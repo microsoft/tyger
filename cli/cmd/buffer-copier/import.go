@@ -21,7 +21,7 @@ import (
 const (
 	listContainerPageSize = 5000 // max is 5000
 	dbBatchSize           = 25_000
-	containerPrefixChars  = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	containerPrefixChars  = "abcdefghijklmnopqrstuvwxyz0123456789" // container names must start with a lowercase letter or number
 )
 
 func newImportCommand(dbFlags *databaseFlags) *cobra.Command {

@@ -28,15 +28,6 @@ const (
 	exportPageSize              = 8192
 )
 
-var (
-	base32Encoding = base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").WithPadding(base32.NoPadding)
-)
-
-func hashBufferIdTransform(id string) string {
-	hash := sha256.Sum256([]byte(id))
-	return base32Encoding.EncodeToString(hash[:])
-}
-
 func newExportCommand(dbFlags *databaseFlags) *cobra.Command {
 	sourceStorageEndpoint := ""
 	destinationStorageEndpoint := ""
@@ -60,7 +51,7 @@ func newExportCommand(dbFlags *databaseFlags) *cobra.Command {
 			if hashIds, err := cmd.Flags().GetBool("hash-ids"); err != nil {
 				panic(err)
 			} else if hashIds {
-				bufferIdTransform = hashBufferIdTransform
+				bufferIdTransform = hashBufferId
 			}
 
 			sourceBlobServiceClient, err := azblob.NewClient(sourceStorageEndpoint, cred, &blobClientOptions)
@@ -106,7 +97,7 @@ func newExportCommand(dbFlags *databaseFlags) *cobra.Command {
 			}
 
 			count := 0
-			for page, err := range GetBufferIdsAndTags(ctx, dbFlags, filter, cred) {
+			for page, err := range getBufferIdsAndTags(ctx, dbFlags, filter, cred) {
 				if err != nil {
 					cancel(fmt.Errorf("failed to get buffer IDs and tags: %w", err))
 					break
@@ -259,7 +250,7 @@ func copyBuffer(ctx context.Context,
 	return err
 }
 
-func GetBufferIdsAndTags(ctx context.Context, dbFlags *databaseFlags, filter map[string]string, cred azcore.TokenCredential) iter.Seq2[[]bufferIdAndTags, error] {
+func getBufferIdsAndTags(ctx context.Context, dbFlags *databaseFlags, filter map[string]string, cred azcore.TokenCredential) iter.Seq2[[]bufferIdAndTags, error] {
 	return func(yield func([]bufferIdAndTags, error) bool) {
 		pool, err := createDatabaseConnectionPool(ctx, dbFlags, cred)
 		if err != nil {
@@ -423,4 +414,9 @@ func GetBufferIdsAndTags(ctx context.Context, dbFlags *databaseFlags, filter map
 			}
 		}
 	}
+}
+
+func hashBufferId(id string) string {
+	hash := sha256.Sum256([]byte(id))
+	return strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(hash[:]))
 }
