@@ -58,7 +58,6 @@ public static class Database
             }
 
             dataSourceBuilder.ConnectionStringBuilder.Username = databaseOptions.Username;
-            dataSourceBuilder.ConnectionStringBuilder.SslMode = SslMode.VerifyFull;
 
             if (string.IsNullOrEmpty(databaseOptions.PasswordFile))
             {
@@ -68,6 +67,7 @@ public static class Database
                     !Path.Exists(dataSourceBuilder.ConnectionStringBuilder.Host))
                 {
                     // assume we are connecting to a cloud database
+                    dataSourceBuilder.ConnectionStringBuilder.SslMode = SslMode.VerifyFull;
                     var tokenCredential = sp.GetRequiredService<TokenCredential>();
                     var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(Database).FullName!);
                     dataSourceBuilder.UsePeriodicPasswordProvider(
@@ -235,7 +235,6 @@ public class DatabaseOptions
     [Required]
     public required string TygerServerRoleName { get; set; }
 
-    [Required]
     public required string TygerServerIdentity { get; set; }
 
     public bool AutoMigrate { get; set; }
