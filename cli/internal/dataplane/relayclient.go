@@ -26,9 +26,7 @@ func relayWrite(ctx context.Context, httpClient *retryablehttp.Client, connectio
 	httpClient = client.CloneRetryableClient(httpClient)
 	httpClient.HTTPClient.Timeout = 0
 
-	metrics := TransferMetrics{
-		Context: ctx,
-	}
+	metrics := NewTransferMetrics(ctx)
 
 	pipeReader, pipeWriter := io.Pipe()
 
@@ -39,11 +37,9 @@ func relayWrite(ctx context.Context, httpClient *retryablehttp.Client, connectio
 	}()
 
 	inputReader = pipeReader
-	inputReader = &ReaderWithMetrics{transferMetrics: &metrics, reader: inputReader}
+	inputReader = &ReaderWithMetrics{transferMetrics: metrics, reader: inputReader}
 
 	partiallyBufferedReader := NewPartiallyBufferedReader(inputReader, 64*1024)
-
-	metrics.Start()
 
 	request, err := http.NewRequestWithContext(ctx, http.MethodPut, container.String(), partiallyBufferedReader)
 	if err != nil {
@@ -96,13 +92,9 @@ func readRelay(ctx context.Context, httpClient *retryablehttp.Client, connection
 		return fmt.Errorf("error reading from relay: %s", resp.Status)
 	}
 
-	metrics := TransferMetrics{
-		Context: ctx,
-	}
+	metrics := NewTransferMetrics(ctx)
 
-	metrics.Start()
-
-	_, err = io.Copy(outputWriter, &ReaderWithMetrics{transferMetrics: &metrics, reader: resp.Body})
+	_, err = io.Copy(outputWriter, &ReaderWithMetrics{transferMetrics: metrics, reader: resp.Body})
 
 	if err == nil {
 		metrics.Stop()

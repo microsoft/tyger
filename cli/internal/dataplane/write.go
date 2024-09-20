@@ -125,9 +125,7 @@ func Write(ctx context.Context, uri *url.URL, inputReader io.Reader, options ...
 	wg := sync.WaitGroup{}
 	wg.Add(writeOptions.dop)
 
-	metrics := TransferMetrics{
-		Context: ctx,
-	}
+	metrics := NewTransferMetrics(ctx)
 
 	for i := 0; i < writeOptions.dop; i++ {
 		go func() {
@@ -180,9 +178,6 @@ func Write(ctx context.Context, uri *url.URL, inputReader io.Reader, options ...
 
 			buffer := pool.Get(writeOptions.blockSize)
 			bytesRead, err := io.ReadFull(inputReader, buffer)
-			if blobNumber == 0 {
-				metrics.Start()
-			}
 
 			if bytesRead > 0 {
 				currentHashChannel := make(chan string, 1)

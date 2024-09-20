@@ -15,7 +15,7 @@ import (
 )
 
 type TransferMetrics struct {
-	Context            context.Context
+	ctx                context.Context
 	totalBuffers       atomic.Uint64
 	totalBytes         uint64
 	currentPeriodBytes atomic.Uint64
@@ -25,12 +25,22 @@ type TransferMetrics struct {
 	reportingComplete  chan any
 }
 
-func (ts *TransferMetrics) Update(byteCount uint64, completedBuffers uint64) {
-	ts.currentPeriodBytes.Add(byteCount)
-	ts.totalBuffers.Add(completedBuffers)
+func NewTransferMetrics(ctx context.Context) *TransferMetrics {
+	return &TransferMetrics{
+		ctx: ctx,
+	}
 }
 
-func (ts *TransferMetrics) Start() {
+func (ts *TransferMetrics) Update(byteCount uint64, completedBuffers uint64) {
+	newPeriodBytes := ts.currentPeriodBytes.Add(byteCount)
+	newCompletedBuffers := ts.totalBuffers.Add(completedBuffers)
+
+	if (byteCount > 0 && newPeriodBytes == byteCount || completedBuffers > 0 && newCompletedBuffers == completedBuffers) && ts.startTime == (time.Time{}) {
+		ts.start()
+	}
+}
+
+func (ts *TransferMetrics) start() {
 	ts.stoppedChannel = make(chan any)
 	ts.reportingComplete = make(chan any)
 	ts.ticker = time.NewTicker(2 * time.Second)
@@ -53,7 +63,7 @@ func (ts *TransferMetrics) Start() {
 				bytesPerSecond := uint64(float64(currentBytes) / elapsed.Seconds())
 				// For networking throughput in Mbps, we divide by 1000 * 1000 (not 1024 * 1024) because
 				// networking is traditionally done in base 10 units (not base 2).
-				partial := log.Ctx(ts.Context).Info().Str("throughput", fmt.Sprintf("%sps", humanizeBytesAsBits(bytesPerSecond)))
+				partial := log.Ctx(ts.ctx).Info().Str("throughput", fmt.Sprintf("%sps", humanizeBytesAsBits(bytesPerSecond)))
 				totalBuffers := ts.totalBuffers.Load()
 				if totalBuffers > 0 {
 					partial = partial.Str("totalBuffers", humanize.Comma(int64(totalBuffers)))
@@ -66,7 +76,7 @@ func (ts *TransferMetrics) Start() {
 		}
 	}()
 
-	log.Ctx(ts.Context).Info().Msg("Transfer starting")
+	log.Ctx(ts.ctx).Info().Msg("Transfer starting")
 }
 
 func (ts *TransferMetrics) Stop() {
@@ -80,7 +90,7 @@ func (ts *TransferMetrics) Stop() {
 
 	bytesPerSecond := uint64(float64(ts.totalBytes) / elapsed.Seconds())
 
-	partial := log.Ctx(ts.Context).Info().
+	partial := log.Ctx(ts.ctx).Info().
 		Str("elapsed", elapsed.Round(time.Second).String()).
 		Str("avgThroughput", fmt.Sprintf("%sps", humanizeBytesAsBits(bytesPerSecond)))
 

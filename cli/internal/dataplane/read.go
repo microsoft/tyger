@@ -118,10 +118,7 @@ func Read(ctx context.Context, uri *url.URL, outputWriter io.Writer, options ...
 		return err
 	}
 
-	metrics := TransferMetrics{
-		Context: ctx,
-	}
-	metrics.Start()
+	metrics := NewTransferMetrics(ctx)
 
 	responseChannel := make(chan chan BufferBlob, readOptions.dop*2)
 	var lock sync.Mutex

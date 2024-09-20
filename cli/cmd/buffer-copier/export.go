@@ -76,9 +76,7 @@ func newExportCommand(dbFlags *databaseFlags) *cobra.Command {
 
 			sema := semaphore.NewWeighted(maxExportConcurrentRequests)
 
-			transferMetrics := &dataplane.TransferMetrics{
-				Context: ctx,
-			}
+			transferMetrics := dataplane.NewTransferMetrics(ctx)
 
 			overallWg := sync.WaitGroup{}
 
@@ -99,23 +97,16 @@ func newExportCommand(dbFlags *databaseFlags) *cobra.Command {
 				}()
 			}
 
-			count := 0
 			for page, err := range getBufferIdsAndTags(ctx, dbFlags, filter, cred) {
 				if err != nil {
 					cancel(fmt.Errorf("failed to get buffer IDs and tags: %w", err))
 					break
 				}
 
-				if count == 0 {
-					transferMetrics.Start()
-				}
-				count += len(page)
-
 				for _, bufferIdAndTags := range page {
 					overallWg.Add(1)
 					bufferChannel <- bufferIdAndTags
 				}
-
 			}
 
 			close(bufferChannel)
