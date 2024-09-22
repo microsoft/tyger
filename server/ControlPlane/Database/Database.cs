@@ -48,7 +48,16 @@ public static class Database
         builder.Services.AddSingleton(sp =>
         {
             var databaseOptions = sp.GetRequiredService<IOptions<DatabaseOptions>>().Value;
-            var dataSourceBuilder = new NpgsqlDataSourceBuilder(databaseOptions.ConnectionString);
+
+            var dataSourceBuilder = new NpgsqlDataSourceBuilder();
+            dataSourceBuilder.ConnectionStringBuilder.Host = databaseOptions.Host;
+            dataSourceBuilder.ConnectionStringBuilder.Database = databaseOptions.DatabaseName;
+            if (databaseOptions.Port.HasValue)
+            {
+                dataSourceBuilder.ConnectionStringBuilder.Port = databaseOptions.Port.Value;
+            }
+
+            dataSourceBuilder.ConnectionStringBuilder.Username = databaseOptions.Username;
 
             if (string.IsNullOrEmpty(databaseOptions.PasswordFile))
             {
@@ -58,6 +67,7 @@ public static class Database
                     !Path.Exists(dataSourceBuilder.ConnectionStringBuilder.Host))
                 {
                     // assume we are connecting to a cloud database
+                    dataSourceBuilder.ConnectionStringBuilder.SslMode = SslMode.VerifyFull;
                     var tokenCredential = sp.GetRequiredService<TokenCredential>();
                     var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(Database).FullName!);
                     dataSourceBuilder.UsePeriodicPasswordProvider(
@@ -211,12 +221,21 @@ public static class Database
 public class DatabaseOptions
 {
     [Required]
-    public string ConnectionString { get; set; } = null!;
+    public required string Host { get; set; }
+
+    public string? DatabaseName { get; set; }
+
+    public int? Port { get; set; }
+
+    [Required]
+    public required string Username { get; set; }
 
     public string? PasswordFile { get; set; }
 
     [Required]
     public required string TygerServerRoleName { get; set; }
+
+    public required string TygerServerIdentity { get; set; }
 
     public bool AutoMigrate { get; set; }
 }

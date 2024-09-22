@@ -24,6 +24,8 @@ import (
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/dataplane"
+	"github.com/microsoft/tyger/cli/internal/logging"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -49,6 +51,8 @@ func NewBufferCommand() *cobra.Command {
 	cmd.AddCommand(newBufferShowCommand())
 	cmd.AddCommand(newBufferSetCommand())
 	cmd.AddCommand(newBufferListCommand())
+	cmd.AddCommand(newBufferExportCommand())
+	cmd.AddCommand(newBufferImportCommand())
 
 	return cmd
 }
@@ -473,8 +477,73 @@ func newBufferListCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringToStringVar(&tagEntries, "tag", nil, "add a key-value tag to the buffer. Can be specified multiple times.")
+	cmd.Flags().StringToStringVar(&tagEntries, "tag", nil, "Only include buffers with the given tag. Can be specified multiple times.")
 	cmd.Flags().IntVarP(&limit, "limit", "l", 1000, "The maximum number of buffers to list. Default 1000")
 
 	return cmd
+}
+
+func newBufferExportCommand() *cobra.Command {
+	request := model.ExportBuffersRequest{
+		Filters: make(map[string]string),
+	}
+
+	cmd := &cobra.Command{
+		Use:                   "export DESTINATION_STORAGE_ENDPOINT [--tag KEY=VALUE ...]",
+		Short:                 "Export buffers to a storage account belonging to another Tyger instance. Note that the Tyger server's managed identity must have the necessary permissions to write to the destination storage account. Only supported in cloud environments.",
+		DisableFlagsInUseLine: true,
+		Args:                  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			request.DestinationStorageEndpoint = args[0]
+			run := model.Run{}
+			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/buffers/export", request, &run)
+			if err != nil {
+				log.Fatal().Err(err).Msg("Failed to export buffers")
+			}
+
+			if err := attachToRunNoBufferIO(cmd.Context(), run, true, false, getSystemRunLogSink(cmd.Context())); err != nil {
+				log.Fatal().Err(err).Msg("Failed to attach to run")
+			}
+		},
+	}
+
+	cmd.Flags().StringToStringVar(&request.Filters, "tag", nil, "Only include buffers with the given tag. Can be specified multiple times.")
+	cmd.Flags().BoolVar(&request.HashIds, "hash-ids", false, "Hash the buffer IDs.")
+	cmd.Flags().MarkHidden("hash-ids")
+
+	return cmd
+}
+
+func newBufferImportCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:                   "import",
+		Short:                 "Import buffers into the local Tyger instance. This command is intended to be run after `tyger buffer export` on another Tyger instance has exported to this instance's storage accounts.",
+		DisableFlagsInUseLine: true,
+		Args:                  cobra.ExactArgs(0),
+		Run: func(cmd *cobra.Command, args []string) {
+			run := model.Run{}
+			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/buffers/import", struct{}{}, &run)
+			if err != nil {
+				log.Fatal().Err(err).Msg("Failed to import buffers")
+			}
+
+			if err := attachToRunNoBufferIO(cmd.Context(), run, true, false, getSystemRunLogSink(cmd.Context())); err != nil {
+				log.Fatal().Err(err).Msg("Failed to attach to run")
+			}
+		},
+	}
+
+	return cmd
+}
+
+// If we are using the zerolog console writer, this returns an io.Writer that
+// feeds lines (that are expected to contain JSON) to the console writer, so that the output is formatted.
+func getSystemRunLogSink(ctx context.Context) io.Writer {
+	loggingSink := logging.GetLogSinkFromContext(ctx)
+	if consoleWriter, ok := loggingSink.(zerolog.ConsoleWriter); ok {
+		formatter := logging.NewZeroLogFormatter(consoleWriter)
+		return formatter
+	}
+
+	return os.Stderr
 }

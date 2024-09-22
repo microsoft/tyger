@@ -127,6 +127,7 @@ func (ref CodespecRef) MarshalJSON() ([]byte, error) {
 
 type Run struct {
 	RunMetadata
+	Kind           string         `json:"kind,omitempty"`
 	Job            RunCodeTarget  `json:"job,omitempty"`
 	Worker         *RunCodeTarget `json:"worker,omitempty"`
 	Cluster        string         `json:"cluster,omitempty"`
@@ -227,4 +228,10 @@ type Cluster struct {
 	Name      string     `json:"name"`
 	Location  string     `json:"location"`
 	NodePools []NodePool `json:"nodePools"`
+}
+
+type ExportBuffersRequest struct {
+	DestinationStorageEndpoint string            `json:"destinationStorageEndpoint"`
+	Filters                    map[string]string `json:"filters,omitempty"`
+	HashIds                    bool              `json:"hashIds,omitempty"`
 }

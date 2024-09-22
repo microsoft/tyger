@@ -203,3 +203,39 @@ tyger buffer list --tag mykey1=myvalue1 --tag missingkey=missingvalue
 ```json
 []
 ```
+
+## Copying buffers between Tyger instances
+::: warning Note
+This functionality is only supported when Tyger is running in the cloud.
+:::
+
+Suppose you have two Tyger instances, and you want to copy all buffers including
+their tags from one instance to another. This can be accomplished in two steps.
+
+### Export the buffers
+
+```bash
+tyger buffer export DESTINATION_STORAGE_ENDPOINT [--tag KEY=VALUE ...]
+```
+
+`DESTINATION_STORAGE_ENDPOINT` should be the blob endpoint of the destination
+Tyger instance's storage account. The Tyger server's managed identity needs to have
+`Storage Blob Data Contributor` access on this storage account.
+
+To only export a subset of buffer, you can filter the buffers to be exported by
+tags.
+
+This command starts a special [run](./runs). Logs are displayed inline, but can also be
+retrieved later using [`tyger run logs ID`](./runs#viewing-logs).
+
+### Import the buffers
+Once the export run has completed successfully, you can import these buffers
+into the destination Tyger instance's database with the command:
+
+```bash
+tyger buffer import
+```
+
+This starts a run that scans though the instance's storage account and imports
+new buffers. Note that existing buffers are not touched and their tags will not
+be updated.

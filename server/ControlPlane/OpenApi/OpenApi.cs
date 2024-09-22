@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+using System.Reflection;
 using k8s.Models;
 using Microsoft.OpenApi.Any;
 using Microsoft.OpenApi.Models;
@@ -30,6 +31,8 @@ public static class OpenApi
                 _ => null
             });
 
+            c.MapType<RunKind>(() => new OpenApiSchema { Enum = [new OpenApiString("user"), new OpenApiString("system")] });
+
             c.MapType<ResourceQuantity>(() => new OpenApiSchema { Type = "string" });
             c.MapType<CommittedCodespecRef>(() => new OpenApiSchema { Type = "string" });
             c.MapType<RunStatus>(() => new OpenApiSchema
@@ -44,23 +47,24 @@ public static class OpenApi
             {
                 if (type == typeof(ICodespecRef))
                 {
-                    return new[] { typeof(CommittedCodespecRef), typeof(Codespec) };
+                    return [typeof(CommittedCodespecRef), typeof(Codespec)];
                 }
 
                 if (type == typeof(Codespec))
                 {
-                    return new[] { typeof(JobCodespec), typeof(WorkerCodespec) };
+                    return [typeof(JobCodespec), typeof(WorkerCodespec)];
                 }
 
                 if (type == typeof(RunCodeTarget))
                 {
-                    return new[] { typeof(JobRunCodeTarget) };
+                    return [typeof(JobRunCodeTarget)];
                 }
 
                 return Array.Empty<Type>();
 
             });
             c.SchemaFilter<ModelBaseSchemaFilter>();
+            c.SchemaFilter<OpenApiExcludeSchemaFilter>();
 
             var filePath = Path.Combine(AppContext.BaseDirectory, "tyger-server.xml");
             c.IncludeXmlComments(filePath);
@@ -84,6 +88,21 @@ internal sealed class ModelBaseSchemaFilter : ISchemaFilter
             // properties because of the [JsonExtensionData] member. But that is only
             // there to fail when unrecognized fields are encountered during deserialization.
             schema.AdditionalPropertiesAllowed = false;
+        }
+    }
+}
+
+internal sealed class OpenApiExcludeSchemaFilter : ISchemaFilter
+{
+    public void Apply(OpenApiSchema schema, SchemaFilterContext context)
+    {
+        var excludedProperties = context.Type.GetProperties().Where(p => p.GetCustomAttribute<OpenApiExcludeAttribute>() != null);
+
+        foreach (var excludedProperty in excludedProperties)
+        {
+            // casing does not match
+            var keyToRemove = schema.Properties.Keys.Single(k => k.Equals(excludedProperty.Name, StringComparison.OrdinalIgnoreCase));
+            schema.Properties.Remove(keyToRemove);
         }
     }
 }

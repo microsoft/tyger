@@ -100,12 +100,17 @@ set-localsettings: set-context
 				"cloudStorage": {
 					"storageAccounts": $$(echo $${helm_values} | jq -c '.buffers.storageAccounts')
 				},
-				"bufferSidecarImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.bufferSidecarImage')"
+				"bufferSidecarImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.bufferSidecarImage')",
+				"bufferCopierImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.bufferCopierImage')"
 			},
 			"database": {
-				"connectionString": "Host=$$(echo $${helm_values} | jq -r '.database.host'); Database=$$(echo $${helm_values} | jq -r '.database.databaseName'); Port=$$(echo $${helm_values} | jq -r '.database.port'); Username=$$(az account show | jq -r '.user.name'); SslMode=VerifyFull",
+				"host": "$$(echo $${helm_values} | jq -r '.database.host')",
+				"databaseName": "$$(echo $${helm_values} | jq -r '.database.databaseName')",
+				"port": "$$(echo $${helm_values} | jq -r '.database.port')",
+				"username": "$$(az account show | jq -r '.user.name')",
 				"autoMigrate": ${AUTO_MIGRATE},
-				"tygerServerRoleName": "$$(echo $${helm_values} | jq -r '.identity.tygerServer.name')"
+				"tygerServerRoleName": "$$(echo $${helm_values} | jq -r '.identity.tygerServer.name')",
+				"tygerServerIdentity": "$$(echo $${helm_values} | jq -r '.identity.tygerServer.name')"
 			}
 		}
 	EOF

@@ -1649,6 +1649,44 @@ timeoutSeconds: 600`, BasicImage)
 	assert.Error(t, err)
 }
 
+func TestExport(t *testing.T) {
+	t.Parallel()
+	skipIfUsingUnixSocket(t)
+
+	testId := uuid.NewString()
+
+	originalBufferIds := []string{}
+	for i := range 10 {
+		id := runTygerSucceeds(t, "buffer", "create", "--tag", fmt.Sprintf("exporttestindex=%d", i), "--tag", fmt.Sprintf("exporttest=%s", testId))
+		originalBufferIds = append(originalBufferIds, id)
+
+		writeCommand := exec.Command("tyger", "buffer", "write", id)
+		writeCommand.Stdin = bytes.NewBufferString("hello")
+
+		writeStdErr := &bytes.Buffer{}
+		writeCommand.Stderr = writeStdErr
+
+		assert.NoError(t, writeCommand.Run())
+	}
+
+	sas := runTygerSucceeds(t, "buffer", "access", originalBufferIds[0])
+	sasUrl, err := url.Parse(sas)
+	require.NoError(t, err)
+	storageEndpoint := fmt.Sprintf("https://%s", sasUrl.Host)
+
+	runTygerSucceeds(t, "buffer", "export", storageEndpoint, "--tag", fmt.Sprintf("exporttest=%s", testId), "--hash-ids")
+
+	runTygerSucceeds(t, "buffer", "import")
+
+	jsonOutput := runTygerSucceeds(t, "buffer", "list", "--tag", fmt.Sprintf("exporttest=%s", testId))
+	var buffers []model.Buffer
+	require.NoError(t, json.Unmarshal([]byte(jsonOutput), &buffers))
+	assert.Len(t, buffers, len(originalBufferIds)*2)
+	for _, buffer := range buffers {
+		assert.Len(t, buffer.Tags, 2)
+	}
+}
+
 func waitForRunStarted(t *testing.T, runId string) model.Run {
 	t.Helper()
 	return waitForRun(t, runId, true, false)

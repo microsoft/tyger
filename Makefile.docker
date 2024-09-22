@@ -42,7 +42,8 @@ set-localsettings: ensure-data-plane-cert
 				}
 			},
 			"database": {
-				"connectionString": "Host=/opt/tyger/database; Username=tyger-server",
+				"host": "/opt/tyger/database",
+				"databaseName": "tyger-server",
 				"autoMigrate": "true",
 				"tygerServerRoleName": "tyger-server"
 			}

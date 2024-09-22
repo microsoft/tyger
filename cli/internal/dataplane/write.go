@@ -82,7 +82,11 @@ func Write(ctx context.Context, uri *url.URL, inputReader io.Reader, options ...
 		o(writeOptions)
 	}
 
-	ctx = log.With().Str("operation", "buffer write").Logger().WithContext(ctx)
+	ctx = log.Ctx(ctx).With().
+		Str("operation", "buffer write").
+		Str("buffer", container.GetContainerName()).
+		Logger().WithContext(ctx)
+
 	if writeOptions.httpClient == nil {
 		tygerClient, _ := controlplane.GetClientFromCache()
 		if tygerClient != nil {
@@ -121,10 +125,7 @@ func Write(ctx context.Context, uri *url.URL, inputReader io.Reader, options ...
 	wg := sync.WaitGroup{}
 	wg.Add(writeOptions.dop)
 
-	metrics := TransferMetrics{
-		Context:   ctx,
-		Container: container,
-	}
+	metrics := NewTransferMetrics(ctx)
 
 	for i := 0; i < writeOptions.dop; i++ {
 		go func() {
@@ -158,7 +159,7 @@ func Write(ctx context.Context, uri *url.URL, inputReader io.Reader, options ...
 					return
 				}
 
-				metrics.Update(uint64(len(bb.Contents)))
+				metrics.Update(uint64(len(bb.Contents)), 0)
 
 				pool.Put(bb.Contents)
 			}
@@ -177,9 +178,6 @@ func Write(ctx context.Context, uri *url.URL, inputReader io.Reader, options ...
 
 			buffer := pool.Get(writeOptions.blockSize)
 			bytesRead, err := io.ReadFull(inputReader, buffer)
-			if blobNumber == 0 {
-				metrics.Start()
-			}
 
 			if bytesRead > 0 {
 				currentHashChannel := make(chan string, 1)
@@ -285,7 +283,7 @@ func writeStartMetadata(ctx context.Context, httpClient *retryablehttp.Client, c
 	return uploadBlobWithRetry(ctx, httpClient, startMetadataUri, startBytes, encodedMD5Hash, "")
 }
 
-func writeEndMetadata(ctx context.Context, httpClient *retryablehttp.Client, container *Container, status string) {
+func writeEndMetadata(ctx context.Context, httpClient *retryablehttp.Client, container *Container, status BufferStatus) {
 	bufferEndMetadata := BufferEndMetadata{Status: status}
 	endBytes, err := json.Marshal(bufferEndMetadata)
 	if err != nil {

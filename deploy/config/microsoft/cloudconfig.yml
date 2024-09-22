@@ -64,4 +64,5 @@ api:
       values:
         image: ${TYGER_SERVER_IMAGE}
         bufferSidecarImage: ${BUFFER_SIDECAR_IMAGE}
+        bufferCopierImage: ${BUFFER_COPIER_IMAGE}
         workerWaiterImage: ${WORKER_WAITER_IMAGE}

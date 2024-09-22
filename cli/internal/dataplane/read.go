@@ -35,7 +35,7 @@ const (
 var (
 	errPastEndOfBlob     = errors.New("past end of blob")
 	ErrNotFound          = errors.New("not found")
-	errBufferFailedState = errors.New("the buffer is in a permanently failed state")
+	ErrBufferFailedState = errors.New("the buffer is in a permanently failed state")
 )
 
 type readOptions struct {
@@ -91,7 +91,10 @@ func Read(ctx context.Context, uri *url.URL, outputWriter io.Writer, options ...
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	ctx = log.With().Str("operation", "buffer read").Logger().WithContext(ctx)
+	ctx = log.Ctx(ctx).With().
+		Str("operation", "buffer read").
+		Str("buffer", container.GetContainerName()).
+		Logger().WithContext(ctx)
 
 	if container.SupportsRelay() {
 		return readRelay(ctx, httpClient, readOptions.connectionType, container, outputWriter)
@@ -115,11 +118,7 @@ func Read(ctx context.Context, uri *url.URL, outputWriter io.Writer, options ...
 		return err
 	}
 
-	metrics := TransferMetrics{
-		Context:   ctx,
-		Container: container,
-	}
-	metrics.Start()
+	metrics := NewTransferMetrics(ctx)
 
 	responseChannel := make(chan chan BufferBlob, readOptions.dop*2)
 	var lock sync.Mutex
@@ -164,7 +163,7 @@ func Read(ctx context.Context, uri *url.URL, outputWriter io.Writer, options ...
 					errorChannel <- fmt.Errorf("error downloading blob: %w", err)
 					return
 				}
-				metrics.Update(uint64(len(respData.Data)))
+				metrics.Update(uint64(len(respData.Data)), 0)
 
 				md5Header := respData.Header.Get(ContentMD5Header)
 				if md5Header == "" {
@@ -282,7 +281,7 @@ func pollForBufferEnd(ctx context.Context, httpClient *retryablehttp.Client, con
 		case BufferStatusComplete:
 			return nil
 		case BufferStatusFailed:
-			return errBufferFailedState
+			return ErrBufferFailedState
 		default:
 			log.Warn().Msgf("Buffer end blob has unexpected status '%s'", bufferEndMetadata.Status)
 			return nil

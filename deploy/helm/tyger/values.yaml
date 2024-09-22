@@ -43,6 +43,7 @@ logArchive:
   storageAccountEndpoint:
 
 bufferSidecarImage:
+bufferCopierImage:
 workerWaiterImage:
 
 clusterConfiguration: "{}"

@@ -238,7 +238,8 @@ func (inst *Installer) startMigrationRunner(ctx context.Context, containerName s
 			User:  fmt.Sprintf("%d:%d", inst.Config.GetUserIdInt(), inst.Config.GetGroupIdInt()),
 			Env: []string{
 				fmt.Sprintf("Urls=http://unix:%s/control-plane/tyger.sock", inst.Config.InstallationPath),
-				fmt.Sprintf("Database__ConnectionString=Host=%s/database; Username=tyger-server", inst.Config.InstallationPath),
+				fmt.Sprintf("Database__Host=%s/database", inst.Config.InstallationPath),
+				"Database__Username=tyger-server",
 				"Database__AutoMigrate=true",
 				"Database__TygerServerRoleName=tyger-server",
 				"Compute__Docker__Enabled=true",

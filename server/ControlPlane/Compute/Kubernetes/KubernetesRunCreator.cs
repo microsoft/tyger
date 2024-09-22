@@ -63,7 +63,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
             }
         };
 
-        var jobPodTemplateSpec = CreatePodTemplateSpec(jobCodespec, newRun.Job, targetCluster, "Never");
+        var jobPodTemplateSpec = CreatePodTemplateSpec(jobCodespec, newRun.Job, targetCluster, newRun, "Never");
 
         V1PodTemplateSpec? workerPodTemplateSpec = null;
         WorkerCodespec? workerCodespec = null;
@@ -82,7 +82,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
                     Codespec = workerCodespec.ToCodespecRef()
                 }
             };
-            workerPodTemplateSpec = CreatePodTemplateSpec(workerCodespec, newRun.Worker, targetCluster, "Always");
+            workerPodTemplateSpec = CreatePodTemplateSpec(workerCodespec, newRun.Worker, targetCluster, newRun, "Always");
         }
 
         if (newRun.Job.Buffers == null)
@@ -418,13 +418,18 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         return targetCluster;
     }
 
-    private V1PodTemplateSpec CreatePodTemplateSpec(Codespec codespec, RunCodeTarget codeTarget, ClusterOptions? targetCluster, string restartPolicy)
+    private V1PodTemplateSpec CreatePodTemplateSpec(Codespec codespec, RunCodeTarget codeTarget, ClusterOptions? targetCluster, Run run, string restartPolicy)
     {
         string? GetServiceAccount()
         {
             var identities = _k8sOptions.CustomIdentities;
             if (!string.IsNullOrEmpty(codespec.Identity))
             {
+                if (run.Kind == RunKind.System)
+                {
+                    return codespec.Identity;
+                }
+
                 if (identities?.TryGetValue(codespec.Identity, out var serviceAccount) == true)
                 {
                     return serviceAccount;
@@ -462,13 +467,21 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
                         Image = codespec.Image,
                         Command = codespec.Command?.ToArray(),
                         Args = codespec.Args?.ToArray(),
-                        Env = codespec.Env?.Select(p => new V1EnvVar(p.Key, p.Value)).ToList()
+                        Env = [new V1EnvVar("TYGER_RUN_ID", valueFrom: new V1EnvVarSource(fieldRef: new V1ObjectFieldSelector($"metadata.labels['{RunLabel}']")))],
                     }
                 ],
                 RestartPolicy = restartPolicy,
                 ServiceAccountName = GetServiceAccount(),
             }
         };
+
+        if (codespec.Env != null)
+        {
+            foreach (var (key, value) in codespec.Env)
+            {
+                podTemplateSpec.Spec.Containers[0].Env.Add(new(key, value));
+            }
+        }
 
         AddComputeResources(podTemplateSpec, codespec, codeTarget, targetCluster);
 

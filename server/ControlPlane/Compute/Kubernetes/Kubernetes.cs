@@ -37,6 +37,7 @@ public static class Kubernetes
             builder.Services.AddOptions<KubernetesApiOptions>().BindConfiguration("compute:kubernetes").ValidateDataAnnotations().ValidateOnStart();
             builder.Services.AddSingleton<KubernetesRunCreator>();
             builder.Services.AddSingleton<IRunCreator>(sp => sp.GetRequiredService<KubernetesRunCreator>());
+            builder.Services.AddSingleton(sp => new Lazy<IRunCreator>(() => sp.GetRequiredService<KubernetesRunCreator>()));
             builder.Services.AddSingleton<ICapabilitiesContributor>(sp => sp.GetRequiredService<KubernetesRunCreator>());
             builder.Services.AddSingleton<KubernetesRunReader>();
             builder.Services.AddSingleton<IRunReader>(sp => sp.GetRequiredService<KubernetesRunReader>());

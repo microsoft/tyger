@@ -148,6 +148,42 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
+  /v1/buffers/export:
+    post:
+      tags:
+        - tyger-server
+      operationId: exportBuffers
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExportBuffersRequest'
+        required: true
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Run'
+  /v1/buffers/import:
+    post:
+      tags:
+        - tyger-server
+      operationId: importBuffers
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImportBuffersRequest'
+        required: true
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Run'
   '/v1/codespecs/{name}':
     put:
       tags:
@@ -384,8 +420,8 @@ paths:
           schema:
             type: string
       responses:
-        '200':
-          description: Success
+        '202':
+          description: Accepted
           content:
             application/json:
               schema:
@@ -578,6 +614,20 @@ components:
         message:
           type: string
       additionalProperties: false
+    ExportBuffersRequest:
+      type: object
+      properties:
+        destinationStorageEndpoint:
+          type: string
+        filters:
+          type: object
+          additionalProperties:
+            type: string
+          nullable: true
+      additionalProperties: false
+    ImportBuffersRequest:
+      type: object
+      additionalProperties: false
     JobCodespec:
       type: object
       allOf:
@@ -624,6 +674,10 @@ components:
         - job
       type: object
       properties:
+        kind:
+          enum:
+            - user
+            - system
         id:
           type: integer
           description: The run ID. Populated by the system.

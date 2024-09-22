@@ -189,6 +189,22 @@ public static class Buffers
             .WithName("getBufferAccessString")
             .Produces<BufferAccess>(StatusCodes.Status201Created)
             .Produces<ErrorBody>(StatusCodes.Status404NotFound);
+
+        app.MapPost("/v1/buffers/export", async (BufferManager manager, ExportBuffersRequest exportRequest, CancellationToken cancellationToken) =>
+            {
+                var run = await manager.ExportBuffers(exportRequest, cancellationToken);
+                return Results.Json(run, statusCode: StatusCodes.Status201Created);
+            })
+            .WithName("exportBuffers")
+            .Produces<Run>(StatusCodes.Status202Accepted);
+
+        app.MapPost("/v1/buffers/import", async (BufferManager manager, ImportBuffersRequest exportRequest, CancellationToken cancellationToken) =>
+            {
+                var run = await manager.ImportBuffers(cancellationToken);
+                return Results.Json(run, statusCode: StatusCodes.Status201Created);
+            })
+            .WithName("importBuffers")
+            .Produces<Run>(StatusCodes.Status202Accepted);
     }
 }
 
@@ -196,6 +212,8 @@ public class BufferOptions
 {
     [Required]
     public string BufferSidecarImage { get; set; } = null!;
+
+    public string BufferCopierImage { get; set; } = null!;
 
     public string PrimarySigningPrivateKeyPath { get; init; } = null!;
     public string SecondarySigningPrivateKeyPath { get; init; } = null!;

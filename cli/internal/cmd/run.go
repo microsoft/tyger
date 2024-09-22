@@ -141,151 +141,7 @@ func newRunExecCommand() *cobra.Command {
 	readDop := dataplane.DefaultReadDop
 
 	postCreate := func(ctx context.Context, run model.Run) error {
-		log.Logger = log.Logger.With().Int64("runId", run.Id).Logger()
-		log.Info().Msg("Run created")
-		var inputSasUri *url.URL
-		var outputSasUri *url.URL
-		var err error
-		if inputBufferParameter != "" {
-			bufferId := run.Job.Buffers[inputBufferParameter]
-			inputSasUri, err = getBufferAccessUri(ctx, bufferId, true)
-			if err != nil {
-				return err
-			}
-		}
-		if outputBufferParameter != "" {
-			bufferId := run.Job.Buffers[outputBufferParameter]
-			outputSasUri, err = getBufferAccessUri(ctx, bufferId, false)
-			if err != nil {
-				return err
-			}
-		}
-
-		mainWg := sync.WaitGroup{}
-
-		var stopFunc context.CancelFunc
-		ctx, stopFunc = signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-
-		go func() {
-			<-ctx.Done()
-			stopFunc()
-			log.Warn().Msg("Canceling...")
-		}()
-
-		if inputSasUri != nil {
-			mainWg.Add(1)
-			go func() {
-				defer mainWg.Done()
-				err := dataplane.Write(ctx, inputSasUri, os.Stdin,
-					dataplane.WithWriteBlockSize(blockSize),
-					dataplane.WithWriteDop(writeDop))
-				if err != nil {
-					if errors.Is(err, ctx.Err()) {
-						err = ctx.Err()
-					}
-					log.Fatal().Err(err).Msg("Failed to write input")
-				}
-			}()
-		}
-
-		if outputSasUri != nil {
-			mainWg.Add(1)
-			go func() {
-				defer mainWg.Done()
-				err := dataplane.Read(ctx, outputSasUri, os.Stdout,
-					dataplane.WithReadDop(readDop))
-				if err != nil {
-					if errors.Is(err, ctx.Err()) {
-						err = ctx.Err()
-					}
-					log.Fatal().Err(err).Msg("Failed to read output")
-				}
-			}()
-		}
-
-		logsWg := sync.WaitGroup{}
-		if logs {
-			logsWg.Add(1)
-			go func() {
-				defer logsWg.Done()
-				err := getLogs(ctx, strconv.FormatInt(run.Id, 10), logTimestamps, -1, nil, true, os.Stderr)
-				if err != nil {
-					log.Error().Err(err).Msg("Failed to get logs")
-				}
-			}()
-		}
-
-		consecutiveErrors := 0
-	beginWatch:
-		var runFailedErr error
-		eventChan, errChan := watchRun(ctx, run.Id)
-
-		for {
-			select {
-			case err := <-errChan:
-				log.Error().Err(err).Msg("Error while watching run")
-				consecutiveErrors++
-
-				if consecutiveErrors > 1 {
-					log.Fatal().Err(err).Msg("Failed to watch run")
-				}
-
-				goto beginWatch
-			case event, ok := <-eventChan:
-				if !ok {
-					goto end
-				}
-				consecutiveErrors = 0
-
-				if event.Status != nil {
-					logEntry := log.Info().Str("status", event.Status.String())
-					if event.RunningCount != nil {
-						logEntry = logEntry.Int("runningCount", *event.RunningCount)
-					}
-					logEntry.Msg("Run status changed")
-
-					switch *event.Status {
-					case model.Succeeded:
-						goto end
-					case model.Pending:
-					case model.Running:
-					default:
-						msg := fmt.Sprintf("run failed with status %s", event.Status.String())
-						if event.StatusReason != "" {
-							msg = fmt.Sprintf("%s (%s)", msg, event.StatusReason)
-						}
-						runFailedErr = errors.New(msg)
-						goto end
-					}
-				}
-			}
-		}
-
-	end:
-		mainWg.Wait()
-
-		if logs {
-			// The run has completed and we have received all data. We just need to wait for the logs to finish streaming,
-			// but we will give up after a period of time.
-			c := make(chan struct{})
-			go func() {
-				defer close(c)
-				logsWg.Wait()
-			}()
-
-			select {
-			case <-c:
-				break
-			case <-time.After(20 * time.Second):
-				log.Warn().Msg("Timed out waiting for logs to finish streaming")
-			}
-		}
-
-		if runFailedErr != nil {
-			log.Fatal().Err(runFailedErr).Msg("Run failed")
-		}
-
-		return nil
+		return attachToRun(ctx, run, inputBufferParameter, outputBufferParameter, blockSize, writeDop, readDop, logs, logTimestamps, os.Stderr)
 	}
 
 	cmd := newRunCreateCommandCore("exec", preValidate, postCreate)
@@ -322,6 +178,158 @@ If the job has a single output buffer, stdout is streamed from the buffer.`
 	cmd.Flags().IntVar(&readDop, "read-dop", readDop, "The degree of parallelism for reading from the output buffer.")
 
 	return cmd
+}
+
+func attachToRunNoBufferIO(ctx context.Context, run model.Run, logs bool, logTimestamps bool, logSink io.Writer) error {
+	return attachToRun(ctx, run, "", "", dataplane.DefaultBlockSize, dataplane.DefaultWriteDop, dataplane.DefaultReadDop, logs, logTimestamps, logSink)
+}
+
+func attachToRun(ctx context.Context, run model.Run, inputBufferParameter, outputBufferParameter string, blockSize int, writeDop int, readDop int, logs bool, logTimestamps bool, logSink io.Writer) error {
+	log.Logger = log.Logger.With().Int64("runId", run.Id).Logger()
+	log.Info().Msg("Run created")
+	var inputSasUri *url.URL
+	var outputSasUri *url.URL
+	var err error
+	if inputBufferParameter != "" {
+		bufferId := run.Job.Buffers[inputBufferParameter]
+		inputSasUri, err = getBufferAccessUri(ctx, bufferId, true)
+		if err != nil {
+			return err
+		}
+	}
+	if outputBufferParameter != "" {
+		bufferId := run.Job.Buffers[outputBufferParameter]
+		outputSasUri, err = getBufferAccessUri(ctx, bufferId, false)
+		if err != nil {
+			return err
+		}
+	}
+
+	mainWg := sync.WaitGroup{}
+
+	var stopFunc context.CancelFunc
+	ctx, stopFunc = signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		<-ctx.Done()
+		stopFunc()
+		log.Warn().Msg("Canceling...")
+	}()
+
+	if inputSasUri != nil {
+		mainWg.Add(1)
+		go func() {
+			defer mainWg.Done()
+			err := dataplane.Write(ctx, inputSasUri, os.Stdin,
+				dataplane.WithWriteBlockSize(blockSize),
+				dataplane.WithWriteDop(writeDop))
+			if err != nil {
+				if errors.Is(err, ctx.Err()) {
+					err = ctx.Err()
+				}
+				log.Fatal().Err(err).Msg("Failed to write input")
+			}
+		}()
+	}
+
+	if outputSasUri != nil {
+		mainWg.Add(1)
+		go func() {
+			defer mainWg.Done()
+			err := dataplane.Read(ctx, outputSasUri, os.Stdout,
+				dataplane.WithReadDop(readDop))
+			if err != nil {
+				if errors.Is(err, ctx.Err()) {
+					err = ctx.Err()
+				}
+				log.Fatal().Err(err).Msg("Failed to read output")
+			}
+		}()
+	}
+
+	logsWg := sync.WaitGroup{}
+	if logs {
+		logsWg.Add(1)
+		go func() {
+			defer logsWg.Done()
+			err := getLogs(ctx, strconv.FormatInt(run.Id, 10), logTimestamps, -1, nil, true, logSink)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to get logs")
+			}
+		}()
+	}
+
+	consecutiveErrors := 0
+beginWatch:
+	var runFailedErr error
+	eventChan, errChan := watchRun(ctx, run.Id)
+
+	for {
+		select {
+		case err := <-errChan:
+			log.Error().Err(err).Msg("Error while watching run")
+			consecutiveErrors++
+
+			if consecutiveErrors > 1 {
+				log.Fatal().Err(err).Msg("Failed to watch run")
+			}
+
+			goto beginWatch
+		case event, ok := <-eventChan:
+			if !ok {
+				goto end
+			}
+			consecutiveErrors = 0
+
+			if event.Status != nil {
+				logEntry := log.Info().Str("status", event.Status.String())
+				if event.RunningCount != nil {
+					logEntry = logEntry.Int("runningCount", *event.RunningCount)
+				}
+				logEntry.Msg("Run status changed")
+
+				switch *event.Status {
+				case model.Succeeded:
+					goto end
+				case model.Pending:
+				case model.Running:
+				default:
+					msg := fmt.Sprintf("run failed with status %s", event.Status.String())
+					if event.StatusReason != "" {
+						msg = fmt.Sprintf("%s (%s)", msg, event.StatusReason)
+					}
+					runFailedErr = errors.New(msg)
+					goto end
+				}
+			}
+		}
+	}
+
+end:
+	mainWg.Wait()
+
+	if logs {
+		// The run has completed and we have received all data. We just need to wait for the logs to finish streaming,
+		// but we will give up after a period of time.
+		c := make(chan struct{})
+		go func() {
+			defer close(c)
+			logsWg.Wait()
+		}()
+
+		select {
+		case <-c:
+			break
+		case <-time.After(20 * time.Second):
+			log.Warn().Msg("Timed out waiting for logs to finish streaming")
+		}
+	}
+
+	if runFailedErr != nil {
+		log.Fatal().Err(runFailedErr).Msg("Run failed")
+	}
+
+	return nil
 }
 
 func newRunCreateCommandCore(
@@ -924,10 +932,10 @@ func pullImages(ctx context.Context, newRun model.Run) error {
 				}
 
 				if progress.Status != "" {
-					logger := log.With().Str("image", imageName).Logger()
+					logger := log.Ctx(ctx).With().Str("image", imageName).Logger()
 					detail := ""
 					if progress.ProgressDetail != nil && progress.ProgressDetail.Total > 0 {
-						detail = fmt.Sprintf(" (%s/%s)", humanize.Bytes(progress.ProgressDetail.Current), humanize.Bytes(progress.ProgressDetail.Total))
+						detail = fmt.Sprintf(" (%s/%s)", humanize.IBytes(progress.ProgressDetail.Current), humanize.IBytes(progress.ProgressDetail.Total))
 					}
 					logger.Info().Msgf("%s%s", progress.Status, detail)
 				}
