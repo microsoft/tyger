@@ -18,7 +18,8 @@ pim-elevate:
 	justification=$${justification:-$${default_justification}}
 
 	subscription=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.cloud.subscriptionId')
-	az-pim activate role --subscription "$${subscription}" Owner "$${justification}"
+	subscription_name=$$(az account show --subscription "$${subscription}" --query name -o tsv)
+	az-pim-cli activate --name "$${subscription_name}" --role "Owner" --reason "$${justification}"
 
 ensure-environment: check-az-login install-cli
 	tyger cloud install -f <(scripts/get-config.sh)
