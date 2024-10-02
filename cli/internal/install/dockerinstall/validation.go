@@ -154,7 +154,7 @@ func (inst *Installer) QuickValidateConfig() bool {
 }
 
 func defaultImage(repo string) string {
-	return fmt.Sprintf("%s/%s:%s", install.ContainerRegistry, repo, install.ContainerImageTag)
+	return fmt.Sprintf("%s%s%s:%s", install.ContainerRegistry, install.GetNormalizedContainerRegistryDirectory(), repo, install.ContainerImageTag)
 }
 
 func validationError(success *bool, format string, args ...any) {

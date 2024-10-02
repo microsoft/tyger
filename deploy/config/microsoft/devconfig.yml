@@ -1,10 +1,12 @@
 subscriptionId: 87d8acb3-5176-4651-b457-6ab9cefd8e3d
 wipContainerRegistry:
-  name: eminence
   fqdn: eminence.azurecr.io
-officialContainerRegistry:
-  name: tyger
-  fqdn: tyger.azurecr.io
+officialPushContainerRegistry:
+  fqdn: tygerprod.azurecr.io
+  directory: /public/tyger
+officialPullContainerRegistry:
+  fqdn: mcr.microsoft.com
+  directory: /tyger
 keyVault: eminence
 testAppUri: api://tyger-test-client
 pemCertSecret:

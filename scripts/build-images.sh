@@ -19,6 +19,7 @@ Options:
   --worker-waiter                  Build (and optionally push) the worker-waiter image
   --buffer-sidecar                 Build (and optionally push) the buffer-sidecar image
   --helm                           Package and push the Tyger Helm chart
+  --registry-directory             The parent directory of the repositories. e.g. <registry>/<registry-dir>/<repo-name>
   --arch amd64|arm64               The architecture to build for. Can be specified multiple times.
   --push                           Push runtime images (requires --tag or --use-git-hash-as-tag)
   --push-force                     Force runtime images, will overwrite images with same tag (requires --tag or --use-git-hash-as-tag)
@@ -27,6 +28,8 @@ Options:
   -h, --help                       Brings up this menu
 EOF
 }
+
+registry_dir="/"
 
 while [[ $# -gt 0 ]]; do
   key="$1"
@@ -71,6 +74,10 @@ while [[ $# -gt 0 ]]; do
     push=1
     shift
     ;;
+  --registry-directory)
+    registry_dir="$2"
+    shift 2
+    ;;
   --push-force)
     push=1
     force=1
@@ -96,6 +103,16 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Ensure registry_dir starts with a /
+if [[ ! "$registry_dir" =~ ^/ ]]; then
+  registry_dir="/$registry_dir"
+fi
+
+# Ensure registry_dir ends with a /
+if [[ ! "$registry_dir" =~ /$ ]]; then
+  registry_dir="$registry_dir/"
+fi
+
 # if nether amd64 nor arm64 is specified, build for both
 if [[ -z "${amd64:-}" && -z "${arm64:-}" ]]; then
   amd64=true
@@ -107,7 +124,7 @@ export DOCKER_BUILDKIT=1
 repo_root_dir="$(dirname "$0")/.."
 
 function build_and_push_platform() {
-  full_image="${container_registry_fqdn}/${repo}:${image_tag_with_platform}"
+  full_image="${container_registry_fqdn}${registry_dir}${repo}:${image_tag_with_platform}"
   echo "Building image ${full_image}..."
 
   set +e
@@ -156,8 +173,8 @@ function build_and_push() {
     return 0
   fi
 
-  manifest_name="${container_registry_fqdn}/${repo}:${image_tag}"
-  docker manifest create --amend "${manifest_name}" "${container_registry_fqdn}/${repo}:${image_tag}-amd64" "${container_registry_fqdn}/${repo}:${image_tag}-arm64" >/dev/null
+  manifest_name="${container_registry_fqdn}${registry_dir}${repo}:${image_tag}"
+  docker manifest create --amend "${manifest_name}" "${container_registry_fqdn}${registry_dir}${repo}:${image_tag}-amd64" "${container_registry_fqdn}${registry_dir}${repo}:${image_tag}-arm64" >/dev/null
 
   # Push manigest
   if [[ -z "${force:-}" ]]; then
@@ -232,7 +249,7 @@ if [[ -n "${helm:-}" ]]; then
   username="00000000-0000-0000-0000-000000000000"
   echo "${token}" | docker login "${container_registry_fqdn}" -u "${username}" --password-stdin
 
-  helm_repo_namespace="oci://${container_registry_fqdn}/helm"
+  helm_repo_namespace="oci://${container_registry_fqdn}${registry_dir}helm"
   chart_dir=${repo_root_dir}/deploy/helm/tyger
   package_dir=$(mktemp -d)
 
