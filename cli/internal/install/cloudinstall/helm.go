@@ -321,14 +321,6 @@ func (inst *Installer) InstallTyger(ctx context.Context) error {
 }
 
 func (inst *Installer) InstallTygerHelmChart(ctx context.Context, restConfig *rest.Config, dryRun bool) (manifest string, valuesYaml string, err error) {
-	if install.ContainerRegistry == "" {
-		panic("officialContainerRegistry not set during build")
-	}
-
-	if install.ContainerImageTag == "" {
-		panic("officialContainerImageTag not set during build")
-	}
-
 	clustersConfigJson, err := json.Marshal(inst.Config.Cloud.Compute.Clusters)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to marshal cluster configuration: %w", err)
@@ -412,13 +404,13 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, restConfig *re
 	helmConfig := HelmChartConfig{
 		Namespace:   TygerNamespace,
 		ReleaseName: DefaultTygerReleaseName,
-		ChartRef:    fmt.Sprintf("oci://%s/helm/tyger", install.ContainerRegistry),
+		ChartRef:    fmt.Sprintf("oci://%s%shelm/tyger", install.ContainerRegistry, install.GetNormalizedContainerRegistryDirectory()),
 		Version:     install.ContainerImageTag,
 		Values: map[string]any{
-			"image":              fmt.Sprintf("%s/tyger-server:%s", install.ContainerRegistry, install.ContainerImageTag),
-			"bufferSidecarImage": fmt.Sprintf("%s/buffer-sidecar:%s", install.ContainerRegistry, install.ContainerImageTag),
-			"bufferCopierImage":  fmt.Sprintf("%s/buffer-copier:%s", install.ContainerRegistry, install.ContainerImageTag),
-			"workerWaiterImage":  fmt.Sprintf("%s/worker-waiter:%s", install.ContainerRegistry, install.ContainerImageTag),
+			"image":              fmt.Sprintf("%s%styger-server:%s", install.ContainerRegistry, install.GetNormalizedContainerRegistryDirectory(), install.ContainerImageTag),
+			"bufferSidecarImage": fmt.Sprintf("%s%sbuffer-sidecar:%s", install.ContainerRegistry, install.GetNormalizedContainerRegistryDirectory(), install.ContainerImageTag),
+			"bufferCopierImage":  fmt.Sprintf("%s%sbuffer-copier:%s", install.ContainerRegistry, install.GetNormalizedContainerRegistryDirectory(), install.ContainerImageTag),
+			"workerWaiterImage":  fmt.Sprintf("%s%sworker-waiter:%s", install.ContainerRegistry, install.GetNormalizedContainerRegistryDirectory(), install.ContainerImageTag),
 			"hostname":           inst.Config.Api.DomainName,
 			"identity": map[string]any{
 				"tygerServer": map[string]any{

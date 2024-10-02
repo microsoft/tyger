@@ -11,7 +11,8 @@ builds:
     ldflags:
       - -s -w
       - -X main.version={{ .Tag }}
-      - -X github.com/microsoft/tyger/cli/internal/install.ContainerRegistry={{ .Env.OFFICIAL_CONTAINER_REGISTRY }}
+      - -X github.com/microsoft/tyger/cli/internal/install.ContainerRegistry={{ .Env.OFFICIAL_PULL_CONTAINER_REGISTRY }}
+      - -X github.com/microsoft/tyger/cli/internal/install.ContainerRegistryDirectory={{ .Env.OFFICIAL_PULL_CONTAINER_REGISTRY_DIRECTORY }}
       - -X github.com/microsoft/tyger/cli/internal/install.ContainerImageTag={{ .Tag }}
     goos:
       - linux

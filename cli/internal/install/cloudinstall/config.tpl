@@ -111,7 +111,7 @@ api:
   #   tyger:
   #     repoName:
   #     repoUrl: # not set if using `chartRef`
-  #     chartRef: # e.g. oci://tyger.azurecr.io/helm/tyger
+  #     chartRef: # e.g. oci://mcr.microsoft.com/tyger/helm/tyger
   #     namespace:
   #     version:
   #     values:

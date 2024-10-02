@@ -282,27 +282,6 @@ jobs:
           set -euo pipefail
           make -s integration-test-no-up
 
-  publish-official-images:
-    needs:
-      - test-azure-needs-hosted-runner
-    runs-on: ${{ fromJson(needs.test-azure-needs-hosted-runner.outputs.AZURE_RUNS_ON_JSON)}}
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - name: Log in to Azure
-        uses: ./.github/actions/login-azure
-
-      - name: Publish official images
-        run: |
-          set -euo pipefail
-          make publish-official-images
-
   build-windows-binaries:
     runs-on: ubuntu-latest
     defaults:
@@ -539,8 +518,10 @@ jobs:
       - name: get container registry
         run: |
           set -euo pipefail
-          official_container_registry=$(echo "$DEVELOPER_CONFIG_BASE64" | base64 -d | jq -r '.officialContainerRegistry.fqdn')
-          echo "OFFICIAL_CONTAINER_REGISTRY=$(echo $official_container_registry)" >> $GITHUB_ENV
+          official_pull_container_registry=$(echo "$DEVELOPER_CONFIG_BASE64" | base64 -d | jq -r '.officialPullContainerRegistry.fqdn')
+          echo "OFFICIAL_PULL_CONTAINER_REGISTRY=$(echo $official_pull_container_registry)" >> $GITHUB_ENV
+          official_pull_container_registry_directory=$(echo "$DEVELOPER_CONFIG_BASE64" | base64 -d | jq -r '.officialPullContainerRegistry.directory // ""')
+          echo "OFFICIAL_PULL_CONTAINER_REGISTRY_DIRECTORY=$(echo $official_pull_container_registry_directory)" >> $GITHUB_ENV
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v5

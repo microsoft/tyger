@@ -67,9 +67,11 @@ _docker-build:
 	target_arg="--${DOCKER_BUILD_TARGET}"
 
 	tag=$${EXPLICIT_IMAGE_TAG:-dev}
+	dev_config=$$(scripts/get-config.sh --dev -o json)
 
-	registry=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
-	scripts/build-images.sh $$target_arg ${DOCKER_BUILD_ARCH_FLAGS} ${DOCKER_BUILD_PUSH_FLAGS} --tag "$$tag" --registry "$${registry}"
+	registry=$$(echo "$${dev_config}" | jq -r '.wipContainerRegistry.fqdn')
+	directory=$$(echo "$${dev_config}" | jq -r '.wipContainerRegistry.directory // ""')
+	scripts/build-images.sh $$target_arg ${DOCKER_BUILD_ARCH_FLAGS} ${DOCKER_BUILD_PUSH_FLAGS} --tag "$$tag" --registry "$${registry}" --registry-directory "$${directory}"
 
 docker-build-test: login-wip-acr
 	$(MAKE) _docker-build DOCKER_BUILD_TARGET=test-connectivity
@@ -86,11 +88,13 @@ docker-build-worker-waiter: login-wip-acr
 docker-build: docker-build-test docker-build-tyger-server docker-build-buffer-sidecar docker-build-worker-waiter
 
 publish-official-images:
-	registry=$$(scripts/get-config.sh --dev -e .officialContainerRegistry.fqdn)
+	dev_config=$$(scripts/get-config.sh --dev -o json)
+	registry=$$(echo "$${dev_config}" | jq -r '.officialPushContainerRegistry.fqdn')
 	registry_name=$$(echo "$$registry" | cut -d'.' -f1)
 	az acr login --name "$${registry_name}"
+	registry_directory=$$(echo "$${dev_config}" | jq -r '.officialPushContainerRegistry.directory // ""')
 	tag=$$(git describe --tags)
-	scripts/build-images.sh --push --push-force --arch amd64 --arch arm64 --tyger-server --worker-waiter --buffer-sidecar --helm --tag "$${tag}" --registry "$${registry}"
+	scripts/build-images.sh --push --push-force --arch amd64 --arch arm64 --tyger-server --worker-waiter --buffer-sidecar --helm --tag "$${tag}" --registry "$${registry}" --registry-directory "$${registry_directory}"
 
 integration-test-no-up-prereqs:
 
@@ -119,13 +123,13 @@ get-tyger-uri:
 	echo ${TYGER_URI}
 
 install-cli:
-	official_container_registry=$$(scripts/get-config.sh --dev -e .officialContainerRegistry.fqdn)
+	dev_config=$$(scripts/get-config.sh --dev -o json)
+	container_registry=$$(echo "$${dev_config}" | jq -r '.wipContainerRegistry.fqdn')
+	container_registry_directory=$$(echo "$${dev_config}" | jq -r '.wipContainerRegistry.directory // ""')
 	cd cli
 	tag=$$(git describe --tags 2> /dev/null || echo "0.0.0")
 	CGO_ENABLED=0 go install -buildvcs=false -ldflags="-s -w \
-		-X main.version=$${tag} \
-		-X github.com/microsoft/tyger/cli/internal/install.ContainerRegistry=$${official_container_registry} \
-		-X github.com/microsoft/tyger/cli/internal/install.ContainerImageTag=$${tag}" \
+		-X main.version=$${tag}" \
 		./cmd/tyger ./cmd/buffer-sidecar ./cmd/tyger-proxy
 
 cli-ready: install-cli

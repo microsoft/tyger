@@ -157,7 +157,7 @@ api:
   #   tyger:
   #     repoName:
   #     repoUrl: # not set if using `chartRef`
-  #     chartRef: # e.g. oci://tyger.azurecr.io/helm/tyger
+  #     chartRef: # e.g. oci://mcr.microsoft.com/tyger/helm/tyger
   #     namespace:
   #     version:
   #     values: # Helm values overrides
@@ -175,7 +175,7 @@ command-line with `--set`. For example:
 
 ```bash
 tyger api install -f config.yml \
-  --set api.helm.tyger.chartRef=oci://tyger.azurecr.io/helm/tyger \
+  --set api.helm.tyger.chartRef=oci://mcr.microsoft.com/tyger/helm/tyger \
   --set api.helm.tyger.version=v0.4.0
 ```
 
@@ -216,7 +216,7 @@ tyger api install -f config.yml
 ```
 
 This command installs the Tyger API from the Helm chart in the
-`tyger.azurecr.io/helm/tyger` registry, using a version baked into the `tyger`
+`mcr.microsoft.com/tyger/helm/tyger` registry, using a version baked into the `tyger`
 CLI. Upgrade the server by updating the CLI and rerunning `tyger api install`.
 
 The API's TLS certificate is automatically created using [Let's

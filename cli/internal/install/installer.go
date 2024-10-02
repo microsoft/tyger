@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
+	"sync"
 )
 
 var (
@@ -15,11 +17,21 @@ var (
 )
 
 var (
-	// Set during build but we provide defaults so that there is some value when debugging.
-	// We will need to update these from time to time. Alternatively, you can set the registry
-	// values using the --set command-line argument.
-	ContainerRegistry string = "tyger.azurecr.io"
-	ContainerImageTag string = "v0.4.0-112-g428a5e8"
+	// Set during build
+	ContainerRegistry          string = ""
+	ContainerRegistryDirectory string = ""
+	ContainerImageTag          string = ""
+
+	GetNormalizedContainerRegistryDirectory = sync.OnceValue(func() string {
+		normalized := ContainerRegistryDirectory
+		if !strings.HasPrefix(normalized, "/") {
+			normalized = "/" + normalized
+		}
+		if !strings.HasSuffix(normalized, "/") {
+			normalized = normalized + "/"
+		}
+		return normalized
+	})
 )
 
 type Installer interface {
