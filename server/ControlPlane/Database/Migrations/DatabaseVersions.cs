@@ -22,6 +22,10 @@ public enum DatabaseVersion
     [Migrator(typeof(Migrator2))]
     [Description("Adding an index to the codespecs table")]
     AddCodespecsIndex = 2,
+
+    [Migrator(typeof(Migrator3))]
+    [Description("Making run management more scalable")]
+    RunScalability = 3,
 }
 
 public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable

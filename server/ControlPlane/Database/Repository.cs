@@ -8,6 +8,7 @@ using System.Text.Json;
 using Npgsql;
 using NpgsqlTypes;
 using SimpleBase;
+using Tyger.ControlPlane.Database.Migrations;
 using Tyger.ControlPlane.Model;
 using Buffer = Tyger.ControlPlane.Model.Buffer;
 
@@ -16,12 +17,14 @@ namespace Tyger.ControlPlane.Database;
 public class Repository : IRepository
 {
     private readonly NpgsqlDataSource _dataSource;
+    private readonly DatabaseVersions _databaseVersions;
     private readonly JsonSerializerOptions _serializerOptions;
     private readonly ILogger<Repository> _logger;
 
-    public Repository(NpgsqlDataSource dataSource, JsonSerializerOptions serializerOptions, ILogger<Repository> logger)
+    public Repository(NpgsqlDataSource dataSource, DatabaseVersions databaseVersions, JsonSerializerOptions serializerOptions, ILogger<Repository> logger)
     {
         _dataSource = dataSource;
+        _databaseVersions = databaseVersions;
         _serializerOptions = serializerOptions;
         _logger = logger;
     }
@@ -370,12 +373,10 @@ public class Repository : IRepository
             try
             {
                 var fields = JsonSerializer.Deserialize<long[]>(Encoding.ASCII.GetString(Base32.ZBase32.Decode(continuationToken)), _serializerOptions);
-                if (fields is { Length: 2 })
+                if (fields is { Length: 1 })
                 {
-                    var createdAt = new DateTimeOffset(fields[0], TimeSpan.Zero);
-                    var id = fields[1];
-                    sb.AppendLine($"AND (created_at, id) < (${++paramNumber}, ${++paramNumber})");
-                    parameters.Add(new() { Value = createdAt, NpgsqlDbType = NpgsqlDbType.TimestampTz });
+                    var id = fields[0];
+                    sb.AppendLine($"AND id < ${++paramNumber})");
                     parameters.Add(new() { Value = id, NpgsqlDbType = NpgsqlDbType.Bigint });
                     valid = true;
                 }
@@ -426,7 +427,7 @@ public class Repository : IRepository
         {
             results.RemoveAt(limit);
             var last = results[^1];
-            string newToken = Base32.ZBase32.Encode(Encoding.ASCII.GetBytes(JsonSerializer.Serialize(new[] { last.CreatedAt!.Value.UtcTicks, last.Id }, _serializerOptions)));
+            string newToken = Base32.ZBase32.Encode(Encoding.ASCII.GetBytes(JsonSerializer.Serialize(new[] { last.Id }, _serializerOptions)));
             return (results, newToken);
         }
 
@@ -811,7 +812,8 @@ public class Repository : IRepository
     {
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
         await using var tx = await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
-        string eTag = DateTime.UtcNow.Ticks.ToString();
+        var eTag = DateTime.UtcNow.Ticks;
+        var etagString = eTag.ToString();
 
         // Create the buffer DB entry
         using var insertCommand = new NpgsqlCommand
@@ -826,18 +828,20 @@ public class Repository : IRepository
             Parameters =
                 {
                     new() { Value = newBuffer.Id, NpgsqlDbType = NpgsqlDbType.Text },
-                    new() { Value = eTag, NpgsqlDbType = NpgsqlDbType.Text },
+                    _databaseVersions.CachedCurrentVersion < DatabaseVersion.RunScalability
+                        ? new() { Value = etagString, NpgsqlDbType = NpgsqlDbType.Text }
+                        : new() { Value = eTag, NpgsqlDbType = NpgsqlDbType.Bigint }
                 }
         };
 
         await insertCommand.PrepareAsync(cancellationToken);
 
-        var buffer = newBuffer with { ETag = eTag };
+        var buffer = newBuffer with { ETag = etagString };
         await using (var reader = await insertCommand.ExecuteReaderAsync(cancellationToken))
         {
             await reader.ReadAsync(cancellationToken);
 
-            buffer = buffer with { CreatedAt = reader.GetDateTime(0), ETag = eTag };
+            buffer = buffer with { CreatedAt = reader.GetDateTime(0), ETag = etagString };
 
             await reader.ReadAsync(cancellationToken);
         }
