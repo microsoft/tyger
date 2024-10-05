@@ -22,15 +22,24 @@ public static class Runs
 
     public static void MapRuns(this WebApplication app)
     {
-        app.MapPost("/v1/runs", async (IRunCreator runCreator, HttpContext context) =>
+        app.MapPost("/v1/runs", async (IRunCreator runCreator, IRepository repository, HttpContext context) =>
         {
-            var run = await context.Request.ReadAndValidateJson<Run>(context.RequestAborted);
-            if (run.Kind == RunKind.System)
+            var newRun = (await context.Request.ReadAndValidateJson<Run>(context.RequestAborted)).WithoutSystemProperties();
+            if (newRun.Kind == RunKind.System)
             {
                 throw new ValidationException("System runs cannot be created directly");
             }
 
-            Run createdRun = await runCreator.CreateRun(run, context.RequestAborted);
+            Run createdRun;
+            if (context.Request.Headers.TryGetValue("Idempotency-Key", out var idempotencyKey))
+            {
+                createdRun = await repository.CreateRunWithIdempotencyKeyGuard(newRun, idempotencyKey.ToString(), async (run, ct) => await runCreator.CreateRun(run, ct), context.RequestAborted);
+            }
+            else
+            {
+                createdRun = await runCreator.CreateRun(newRun, context.RequestAborted);
+            }
+
             return Results.Created($"/v1/runs/{createdRun.Id}", createdRun);
         })
         .Accepts<Run>("application/json")
@@ -220,40 +229,86 @@ public abstract class RunCreatorBase
         return codespec;
     }
 
-    protected async Task<Dictionary<string, (bool write, Uri sasUri)>> GetBufferMap(BufferParameters? parameters, Dictionary<string, string> arguments, Dictionary<string, string> tags, CancellationToken cancellationToken)
+    protected async Task ProcessBufferArguments(BufferParameters? parameters, Dictionary<string, string> arguments, Dictionary<string, string> tags, CancellationToken cancellationToken)
     {
-        Dictionary<string, string> argumentsClone = arguments == null ? new(StringComparer.OrdinalIgnoreCase) : new(arguments, StringComparer.OrdinalIgnoreCase);
-        IEnumerable<(string param, bool writeable)> combinedParameters = (parameters?.Inputs?.Select(param => (param, false)) ?? Enumerable.Empty<(string, bool)>())
-            .Concat(parameters?.Outputs?.Select(param => (param, true)) ?? Enumerable.Empty<(string, bool)>());
+        if (arguments != null)
+        {
+            var nonEphemeralArguments = arguments.Values.Where(a => a != "_").ToList();
+            if (!await BufferManager.CheckBuffersExist(nonEphemeralArguments, cancellationToken))
+            {
+                foreach (var bufferId in nonEphemeralArguments)
+                {
+                    if (!await BufferManager.BufferExists(bufferId, cancellationToken))
+                    {
+                        throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The buffer '{0}' was not found", bufferId));
+                    }
+                }
+            }
+        }
 
-        var outputMap = new Dictionary<string, (bool write, Uri sasUri)>();
+        Dictionary<string, string> argumentsClone = arguments == null ? new(StringComparer.OrdinalIgnoreCase) : new(arguments, StringComparer.OrdinalIgnoreCase);
+        var combinedParameters = (parameters?.Inputs is null
+                ? parameters?.Outputs
+                : (parameters?.Outputs is null ? parameters?.Inputs : parameters.Inputs.Concat(parameters.Outputs))
+            ) ?? Enumerable.Empty<string>();
 
         foreach (var param in combinedParameters)
         {
-            if (!argumentsClone.TryGetValue(param.param, out var bufferId))
+            if (!argumentsClone.TryGetValue(param, out var bufferId))
             {
-                var newTags = new Dictionary<string, string>(tags) { ["bufferName"] = param.param };
+                var newTags = new Dictionary<string, string>(tags) { ["bufferName"] = param };
                 var newBuffer = new Model.Buffer() { Tags = newTags };
 
                 var buffer = await BufferManager.CreateBuffer(newBuffer, cancellationToken);
                 bufferId = buffer.Id!;
-                arguments![param.param] = bufferId;
+                arguments![param] = bufferId;
             }
             else if (bufferId == "_")
             {
                 bufferId = $"temp-{UniqueId.Create()}";
-                arguments![param.param] = bufferId;
+                arguments![param] = bufferId;
             }
 
-            var bufferAccess = await BufferManager.CreateBufferAccessUrl(bufferId, param.writeable, false, false, cancellationToken)
-                ?? throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The buffer '{0}' was not found", bufferId));
-            outputMap[param.param] = (param.writeable, bufferAccess.Uri);
-            argumentsClone.Remove(param.param);
+            argumentsClone.Remove(param);
         }
 
         foreach (var arg in argumentsClone)
         {
             throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "Buffer argument '{0}' does not correspond to a buffer parameter on the codespec", arg));
+        }
+    }
+
+    // Assuming arguments are already validated
+    protected async Task<Dictionary<string, (bool write, Uri sasUri)>> GetBufferMap(BufferParameters? parameters, Dictionary<string, string> arguments, CancellationToken cancellationToken)
+    {
+        if (arguments is null or { Count: 0 })
+        {
+            return [];
+        }
+
+        var outputMap = new Dictionary<string, (bool write, Uri sasUri)>();
+
+        async Task AddAccessUrl(string parameter, string bufferId, bool writeable, CancellationToken cancellationToken)
+        {
+            var bufferAccess = await BufferManager.CreateBufferAccessUrl(bufferId, writeable, preferTcp: false, fromDocker: false, checkExists: false, cancellationToken)
+                ?? throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The buffer '{0}' was not found", bufferId));
+            outputMap[parameter] = (writeable, bufferAccess.Uri);
+        }
+
+        if (parameters?.Inputs is not null)
+        {
+            foreach (var param in parameters.Inputs)
+            {
+                await AddAccessUrl(param, arguments[param], false, cancellationToken);
+            }
+        }
+
+        if (parameters?.Outputs is not null)
+        {
+            foreach (var param in parameters.Outputs)
+            {
+                await AddAccessUrl(param, arguments[param], true, cancellationToken);
+            }
         }
 
         return outputMap;
@@ -262,7 +317,7 @@ public abstract class RunCreatorBase
 
 public interface IRunCreator
 {
-    Task<Run> CreateRun(Run newRun, CancellationToken cancellationToken);
+    Task<Run> CreateRun(Run run, CancellationToken cancellationToken);
 }
 
 public interface IRunReader

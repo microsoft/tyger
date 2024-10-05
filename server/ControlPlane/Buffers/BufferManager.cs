@@ -78,6 +78,16 @@ public sealed partial class BufferManager
         return null;
     }
 
+    public async Task<bool> BufferExists(string id, CancellationToken cancellationToken)
+    {
+        return await _bufferProvider.BufferExists(id, cancellationToken);
+    }
+
+    public async Task<bool> CheckBuffersExist(ICollection<string> ids, CancellationToken cancellationToken)
+    {
+        return await _repository.CheckBuffersExist(ids, cancellationToken);
+    }
+
     public async Task<Buffer?> UpdateBufferById(string id, string eTag, IDictionary<string, string>? tags, CancellationToken cancellationToken)
     {
         return await _repository.UpdateBufferById(id, eTag, tags, cancellationToken);
@@ -88,7 +98,7 @@ public sealed partial class BufferManager
         return await _repository.GetBuffers(tags, limit, continuationToken, cancellationToken);
     }
 
-    internal async Task<BufferAccess?> CreateBufferAccessUrl(string id, bool writeable, bool preferTcp, bool fromDocker, CancellationToken cancellationToken)
+    internal async Task<BufferAccess?> CreateBufferAccessUrl(string id, bool writeable, bool preferTcp, bool fromDocker, bool checkExists, CancellationToken cancellationToken)
     {
         var match = BufferIdRegex().Match(id);
         if (!match.Success)
@@ -110,7 +120,7 @@ public sealed partial class BufferManager
             return new BufferAccess(new Uri("temporary", UriKind.Relative));
         }
 
-        if (await GetBufferById(id, cancellationToken) is null)
+        if (checkExists && await GetBufferById(id, cancellationToken) is null)
         {
             return null;
         }

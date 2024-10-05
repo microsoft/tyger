@@ -27,6 +27,7 @@ import (
 	dockerimage "github.com/docker/docker/api/types/image"
 	dockerclient "github.com/docker/docker/client"
 	"github.com/dustin/go-humanize"
+	"github.com/google/uuid"
 	"github.com/hashicorp/go-cleanhttp"
 	"github.com/kaz-yamam0t0/go-timeparser/timeparser"
 	"github.com/microsoft/tyger/cli/internal/client"
@@ -461,7 +462,8 @@ func newRunCreateCommandCore(
 			}
 
 			committedRun := model.Run{}
-			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/runs", newRun, &committedRun)
+			customHeaders := controlplane.WithHeaders(http.Header{"Idempotency-Key": []string{uuid.New().String()}})
+			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/runs", newRun, &committedRun, customHeaders)
 			if err != nil {
 				return err
 			}

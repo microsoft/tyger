@@ -178,7 +178,7 @@ public static class Buffers
 
         app.MapPost("/v1/buffers/{id}/access", async (BufferManager manager, string id, bool? writeable, bool? preferTcp, bool? fromDocker, CancellationToken cancellationToken) =>
             {
-                var bufferAccess = await manager.CreateBufferAccessUrl(id, writeable == true, preferTcp == true, fromDocker == true, cancellationToken);
+                var bufferAccess = await manager.CreateBufferAccessUrl(id, writeable == true, preferTcp == true, fromDocker == true, checkExists: true, cancellationToken);
                 if (bufferAccess is null)
                 {
                     return Responses.NotFound();

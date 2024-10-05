@@ -8,7 +8,6 @@ using System.Text.Json;
 using Npgsql;
 using NpgsqlTypes;
 using SimpleBase;
-using Tyger.ControlPlane.Database.Migrations;
 using Tyger.ControlPlane.Model;
 using Buffer = Tyger.ControlPlane.Model.Buffer;
 
@@ -17,14 +16,12 @@ namespace Tyger.ControlPlane.Database;
 public class Repository : IRepository
 {
     private readonly NpgsqlDataSource _dataSource;
-    private readonly DatabaseVersions _databaseVersions;
     private readonly JsonSerializerOptions _serializerOptions;
     private readonly ILogger<Repository> _logger;
 
-    public Repository(NpgsqlDataSource dataSource, DatabaseVersions databaseVersions, JsonSerializerOptions serializerOptions, ILogger<Repository> logger)
+    public Repository(NpgsqlDataSource dataSource, JsonSerializerOptions serializerOptions, ILogger<Repository> logger)
     {
         _dataSource = dataSource;
-        _databaseVersions = databaseVersions;
         _serializerOptions = serializerOptions;
         _logger = logger;
     }
@@ -373,9 +370,9 @@ public class Repository : IRepository
             try
             {
                 var fields = JsonSerializer.Deserialize<long[]>(Encoding.ASCII.GetString(Base32.ZBase32.Decode(continuationToken)), _serializerOptions);
-                if (fields is { Length: 1 })
+                if (fields is { Length: 1 or 2 })
                 {
-                    var id = fields[0];
+                    var id = fields[^1];
                     sb.AppendLine($"AND id < ${++paramNumber})");
                     parameters.Add(new() { Value = id, NpgsqlDbType = NpgsqlDbType.Bigint });
                     valid = true;
@@ -461,6 +458,27 @@ public class Repository : IRepository
         }
 
         return results;
+    }
+
+    public async Task<bool> CheckBuffersExist(ICollection<string> bufferIds, CancellationToken cancellationToken)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var cmd = new NpgsqlCommand
+        {
+            Connection = conn,
+            CommandText = $"""
+                SELECT count(*)
+                FROM buffers
+                WHERE id = ANY($1)
+                """,
+            Parameters =
+            {
+                new() { Value = bufferIds.ToArray(), NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Text },
+            }
+        };
+
+        await cmd.PrepareAsync(cancellationToken);
+        return (long)(await cmd.ExecuteScalarAsync(cancellationToken))! == bufferIds.Count;
     }
 
     public async Task<Buffer?> GetBuffer(string id, string eTag, CancellationToken cancellationToken)
@@ -808,12 +826,87 @@ public class Repository : IRepository
         }
     }
 
+    public async Task<Run> CreateRunWithIdempotencyKeyGuard(Run newRun, string idempotencyKey, Func<Run, CancellationToken, Task<Run>> createRun, CancellationToken cancellationToken)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var tx = await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+
+        using var insertCommand = new NpgsqlCommand
+        {
+            Connection = connection,
+            Transaction = tx,
+            CommandText = """
+                INSERT INTO run_idempotency_keys (idempotency_key)
+                VALUES ($1)
+                ON CONFLICT (idempotency_key) DO NOTHING
+                RETURNING run_id
+                """,
+            Parameters =
+                {
+                    new() { Value = idempotencyKey, NpgsqlDbType = NpgsqlDbType.Text },
+                }
+        };
+
+        await insertCommand.PrepareAsync(cancellationToken);
+
+        if (await insertCommand.ExecuteScalarAsync(cancellationToken) is null)
+        {
+            _logger.DuplicateIdempotencyKeyReceived(idempotencyKey);
+
+            // This should be a rare case so doesn't need to be very efficient.
+            using var selectCommand = new NpgsqlCommand
+            {
+                Connection = connection,
+                Transaction = tx,
+                CommandText = """
+                    SELECT run_id
+                    FROM run_idempotency_keys
+                    WHERE idempotency_key = $1
+                    """,
+                Parameters =
+                    {
+                        new() { Value = idempotencyKey, NpgsqlDbType = NpgsqlDbType.Text },
+                    }
+            };
+
+            await selectCommand.PrepareAsync(cancellationToken);
+            await using var reader = await selectCommand.ExecuteReaderAsync(cancellationToken);
+            await reader.ReadAsync(cancellationToken);
+            long runId = reader.GetInt64(0);
+
+            return await GetRun(runId, cancellationToken) ?? throw new InvalidOperationException("Failed to get run with existing idempotency key.");
+        }
+
+        var createdRun = await createRun(newRun, cancellationToken);
+
+        using var updateCommand = new NpgsqlCommand
+        {
+            Connection = connection,
+            Transaction = tx,
+            CommandText = """
+                UPDATE run_idempotency_keys
+                SET run_id = $1
+                WHERE idempotency_key = $2
+                """,
+            Parameters =
+                {
+                    new() { Value = createdRun.Id, NpgsqlDbType = NpgsqlDbType.Bigint },
+                    new() { Value = idempotencyKey, NpgsqlDbType = NpgsqlDbType.Text },
+                }
+        };
+
+        await updateCommand.PrepareAsync(cancellationToken);
+        await updateCommand.ExecuteNonQueryAsync(cancellationToken);
+
+        await tx.CommitAsync(cancellationToken);
+        return createdRun;
+    }
+
     public async Task<Buffer> CreateBuffer(Buffer newBuffer, CancellationToken cancellationToken)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
         await using var tx = await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
-        var eTag = DateTime.UtcNow.Ticks;
-        var etagString = eTag.ToString();
+        string eTag = DateTime.UtcNow.Ticks.ToString();
 
         // Create the buffer DB entry
         using var insertCommand = new NpgsqlCommand
@@ -828,20 +921,18 @@ public class Repository : IRepository
             Parameters =
                 {
                     new() { Value = newBuffer.Id, NpgsqlDbType = NpgsqlDbType.Text },
-                    _databaseVersions.CachedCurrentVersion < DatabaseVersion.RunScalability
-                        ? new() { Value = etagString, NpgsqlDbType = NpgsqlDbType.Text }
-                        : new() { Value = eTag, NpgsqlDbType = NpgsqlDbType.Bigint }
+                    new() { Value = eTag, NpgsqlDbType = NpgsqlDbType.Text },
                 }
         };
 
         await insertCommand.PrepareAsync(cancellationToken);
 
-        var buffer = newBuffer with { ETag = etagString };
+        var buffer = newBuffer with { ETag = eTag };
         await using (var reader = await insertCommand.ExecuteReaderAsync(cancellationToken))
         {
             await reader.ReadAsync(cancellationToken);
 
-            buffer = buffer with { CreatedAt = reader.GetDateTime(0), ETag = etagString };
+            buffer = buffer with { CreatedAt = reader.GetDateTime(0), ETag = eTag };
 
             await reader.ReadAsync(cancellationToken);
         }

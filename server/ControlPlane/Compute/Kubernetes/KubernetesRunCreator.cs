@@ -43,63 +43,65 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
 
     public Capabilities GetCapabilities() => Capabilities.Kubernetes | Capabilities.DistributedRuns | Capabilities.NodePools;
 
-    public async Task<Run> CreateRun(Run newRun, CancellationToken cancellationToken)
+    public async Task<Run> CreateRun(Run run, CancellationToken cancellationToken)
     {
         // Phase 1: Validate newRun and create the leaf building blocks.
 
-        ClusterOptions targetCluster = GetTargetCluster(newRun);
+        ClusterOptions targetCluster = GetTargetCluster(run);
 
-        if (await GetCodespec(newRun.Job.Codespec, cancellationToken) is not JobCodespec jobCodespec)
+        if (await GetCodespec(run.Job.Codespec, cancellationToken) is not JobCodespec jobCodespec)
         {
             throw new ArgumentException($"The codespec for the job is required to be a job codespec");
         }
 
-        newRun = newRun with
+        run = run with
         {
             Cluster = targetCluster.Name,
-            Job = newRun.Job with
+            Job = run.Job with
             {
                 Codespec = jobCodespec.ToCodespecRef()
             }
         };
 
-        var jobPodTemplateSpec = CreatePodTemplateSpec(jobCodespec, newRun.Job, targetCluster, newRun, "Never");
+        var jobPodTemplateSpec = CreatePodTemplateSpec(jobCodespec, run.Job, targetCluster, run, "Never");
 
         V1PodTemplateSpec? workerPodTemplateSpec = null;
         WorkerCodespec? workerCodespec = null;
-        if (newRun.Worker != null)
+        if (run.Worker != null)
         {
-            workerCodespec = await GetCodespec(newRun.Worker.Codespec, cancellationToken) as WorkerCodespec;
+            workerCodespec = await GetCodespec(run.Worker.Codespec, cancellationToken) as WorkerCodespec;
             if (workerCodespec == null)
             {
                 throw new ArgumentException($"The codespec for the worker is required to be a worker codespec");
             }
 
-            newRun = newRun with
+            run = run with
             {
-                Worker = newRun.Worker with
+                Worker = run.Worker with
                 {
                     Codespec = workerCodespec.ToCodespecRef()
                 }
             };
-            workerPodTemplateSpec = CreatePodTemplateSpec(workerCodespec, newRun.Worker, targetCluster, newRun, "Always");
+            workerPodTemplateSpec = CreatePodTemplateSpec(workerCodespec, run.Worker, targetCluster, run, "Always");
         }
 
-        if (newRun.Job.Buffers == null)
+        if (run.Job.Buffers == null)
         {
-            newRun = newRun with { Job = newRun.Job with { Buffers = [] } };
+            run = run with { Job = run.Job with { Buffers = [] } };
         }
 
-        if (newRun.Job.Tags == null)
+        if (run.Job.Tags == null)
         {
-            newRun = newRun with { Job = newRun.Job with { Tags = [] } };
+            run = run with { Job = run.Job with { Tags = [] } };
         }
 
-        var bufferMap = await GetBufferMap(jobCodespec.Buffers, newRun.Job.Buffers, newRun.Job.Tags, cancellationToken);
+        await ProcessBufferArguments(jobCodespec.Buffers, run.Job.Buffers, run.Job.Tags, cancellationToken);
 
-        // Phase 2: now that we have performed validation, create a record for this run in the database
-
-        var run = await Repository.CreateRun(newRun, cancellationToken);
+        if (run.Status == null)
+        {
+            // Phase 2: now that we have performed validation, create a record for this run in the database
+            return await Repository.CreateRun(run, cancellationToken);
+        }
 
         // Phase 3: assemble and create Kubernetes objects
 
@@ -134,12 +136,14 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
             },
         };
 
+        var bufferMap = await GetBufferMap(jobCodespec.Buffers, run.Job.Buffers, cancellationToken);
+
         if (bufferMap != null)
         {
             await AddBufferProxySidecars(job, run, bufferMap, jobCodespec, cancellationToken);
         }
 
-        if (newRun.Worker != null)
+        if (run.Worker != null)
         {
             var workerLabels = commonLabels.Add(WorkerLabel, $"{run.Id}");
             if (workerPodTemplateSpec!.Metadata.Labels != null)
@@ -159,7 +163,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
                 Spec = new()
                 {
                     PodManagementPolicy = "Parallel",
-                    Replicas = newRun.Worker.Replicas,
+                    Replicas = run.Worker.Replicas,
                     Template = workerPodTemplateSpec,
                     Selector = new() { MatchLabels = workerLabels },
                     ServiceName = StatefulSetNameFromRunId(run.Id.Value)

@@ -29,6 +29,11 @@ public class RepositoryWithRetry : IRepository
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.CreateBuffer(newBuffer, cancellationToken), cancellationToken);
     }
 
+    public async Task<Run> CreateRunWithIdempotencyKeyGuard(Run newRun, string idempotencyKey, Func<Run, CancellationToken, Task<Run>> createRun, CancellationToken cancellationToken)
+    {
+        return await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.CreateRunWithIdempotencyKeyGuard(newRun, idempotencyKey, createRun, cancellationToken), cancellationToken);
+    }
+
     public async Task<Run> CreateRun(Run newRun, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.CreateRun(newRun, cancellationToken), cancellationToken);
@@ -37,6 +42,11 @@ public class RepositoryWithRetry : IRepository
     public async Task DeleteRun(long id, CancellationToken cancellationToken)
     {
         await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.DeleteRun(id, cancellationToken), cancellationToken);
+    }
+
+    public async Task<bool> CheckBuffersExist(ICollection<string> bufferIds, CancellationToken cancellationToken)
+    {
+        return await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.CheckBuffersExist(bufferIds, cancellationToken), cancellationToken);
     }
 
     public async Task<Buffer?> GetBuffer(string id, string eTag, CancellationToken cancellationToken)
