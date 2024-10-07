@@ -100,7 +100,9 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         if (run.Status == null)
         {
             // Phase 2: now that we have performed validation, create a record for this run in the database
-            return await Repository.CreateRun(run, cancellationToken);
+            run = await Repository.CreateRun(run, cancellationToken);
+            _logger.CreatedRunResources(run.Id!.Value);
+            return run;
         }
 
         // Phase 3: assemble and create Kubernetes objects
@@ -197,7 +199,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         // Phase 4: Inform the database that the Kubernetes objects have been created in the cluster.
 
         await Repository.UpdateRun(run, resourcesCreated: true, cancellationToken: cancellationToken);
-        _logger.CreatedRun(run.Id.Value);
+        _logger.CreatedRunResources(run.Id.Value);
         return run;
     }
 

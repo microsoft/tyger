@@ -15,6 +15,10 @@ namespace Tyger.ControlPlane.Database;
 
 public class Repository : IRepository
 {
+    private const int MaxActiveRuns = 2000;
+    private const string NewRunChannelName = "new_run";
+    private const string RunFinalizedChannelName = "run_finalized";
+
     private readonly NpgsqlDataSource _dataSource;
     private readonly JsonSerializerOptions _serializerOptions;
     private readonly ILogger<Repository> _logger;
@@ -245,10 +249,9 @@ public class Repository : IRepository
             run = newRun with { Id = reader.GetInt64(0), CreatedAt = reader.GetDateTime(1) };
         }
 
-        using var updateCommand = new NpgsqlCommand
+        var batch = new NpgsqlBatch(connection, tx);
+        batch.BatchCommands.Add(new NpgsqlBatchCommand
         {
-            Connection = connection,
-            Transaction = tx,
             CommandText = """
                 UPDATE runs
                 SET run = $1
@@ -259,11 +262,15 @@ public class Repository : IRepository
                 new() { Value = JsonSerializer.Serialize(run, _serializerOptions), NpgsqlDbType = NpgsqlDbType.Jsonb },
                 new() { Value = run.Id, NpgsqlDbType = NpgsqlDbType.Bigint },
             },
-        };
+        });
 
-        await updateCommand.PrepareAsync(cancellationToken);
+        batch.BatchCommands.Add(new NpgsqlBatchCommand
+        {
+            CommandText = $"NOTIFY {NewRunChannelName};",
+        });
 
-        await updateCommand.ExecuteNonQueryAsync(cancellationToken);
+        await batch.PrepareAsync(cancellationToken);
+        await batch.ExecuteNonQueryAsync(cancellationToken);
         await tx.CommitAsync(cancellationToken);
         return run;
     }
@@ -947,5 +954,164 @@ public class Repository : IRepository
 
         await tx.CommitAsync(cancellationToken);
         return buffer;
+    }
+
+    public async Task ListenForNewRuns(Func<IReadOnlyList<Run>, CancellationToken, Task> processRuns, CancellationToken cancellationToken)
+    {
+        const long AdvisoryLockId = 2120278927;
+        const int MaxPageSize = 100;
+
+        while (true)
+        {
+            await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+            await using (var listenCommand = new NpgsqlCommand
+            {
+                Connection = connection,
+                CommandText = $"LISTEN {NewRunChannelName}; LISTEN {RunFinalizedChannelName};",
+            })
+            {
+                await listenCommand.PrepareAsync(cancellationToken);
+                await listenCommand.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            while (true)
+            {
+                bool somethingProcessed = false;
+                await using (var tx = await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken))
+                {
+                    await using (var takeLockCommand = new NpgsqlCommand
+                    {
+                        Connection = connection,
+                        Transaction = tx,
+                        CommandText = "SELECT pg_advisory_xact_lock($1)",
+                        Parameters = { new() { Value = AdvisoryLockId, NpgsqlDbType = NpgsqlDbType.Bigint } }
+                    })
+                    {
+                        await takeLockCommand.PrepareAsync(cancellationToken);
+                        await takeLockCommand.ExecuteNonQueryAsync(cancellationToken);
+                    }
+
+                    long activeRuns;
+                    using (var countActiveRunsCommand = new NpgsqlCommand
+                    {
+                        Connection = connection,
+                        Transaction = tx,
+                        CommandText = "SELECT COUNT(*) FROM runs WHERE resources_created = true AND final = false", // TODO: needs index
+                    })
+                    {
+                        await countActiveRunsCommand.PrepareAsync(cancellationToken);
+                        activeRuns = (long)(await countActiveRunsCommand.ExecuteScalarAsync(cancellationToken))!;
+                    }
+
+                    if (activeRuns < MaxActiveRuns)
+                    {
+                        var limit = Math.Max(MaxPageSize, MaxActiveRuns - activeRuns);
+                        var runs = new List<Run>();
+                        using (var getPageCommand = new NpgsqlCommand
+                        {
+                            Connection = connection,
+                            Transaction = tx,
+                            CommandText = """
+                            SELECT run
+                            FROM runs
+                            WHERE resources_created = false and final = false
+                            ORDER BY created_at ASC
+                            LIMIT $1
+                            """,
+                            Parameters = { new() { Value = limit, NpgsqlDbType = NpgsqlDbType.Integer } }
+                        })
+                        {
+                            await getPageCommand.PrepareAsync(cancellationToken);
+                            await using var reader = await getPageCommand.ExecuteReaderAsync(cancellationToken);
+                            while (await reader.ReadAsync(cancellationToken))
+                            {
+                                runs.Add(JsonSerializer.Deserialize<Run>(reader.GetString(0), _serializerOptions)!);
+                            }
+                        }
+
+                        if (runs.Count > 0)
+                        {
+                            somethingProcessed = true;
+                            await processRuns(runs, cancellationToken);
+                        }
+                    }
+                }
+
+                if (somethingProcessed)
+                {
+                    continue;
+                }
+
+                if (!await connection.WaitAsync(TimeSpan.FromMinutes(1), cancellationToken))
+                {
+                    break;
+                }
+            }
+        }
+
+
+        // await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        // await using var tx = await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+
+        // using (var takeLockCommand = new NpgsqlCommand
+        // {
+        //     Connection = connection,
+        //     Transaction = tx,
+        //     CommandText = "SELECT pg_advisory_lock($1)",
+        //     Parameters = { new() { Value = AdvisoryLockId, NpgsqlDbType = NpgsqlDbType.Bigint } }
+        // })
+        // {
+        //     await takeLockCommand.PrepareAsync(cancellationToken);
+        //     await takeLockCommand.ExecuteNonQueryAsync(cancellationToken);
+        // }
+
+        // using (var getPageCommand = new NpgsqlCommand
+        // {
+        //     Connection = connection,
+        //     Transaction = tx,
+        //     CommandText = "SELECT id FROM runs WHERE resources_created = false ORDER BY created_at LIMIT $1",
+        //     Parameters = { new() { Value = MaxPageSize, NpgsqlDbType = NpgsqlDbType.Integer } }
+        // })
+        // {
+        //     await getPageCommand.PrepareAsync(cancellationToken);
+        //     await using var reader = await getPageCommand.ExecuteReaderAsync(cancellationToken);
+        //     var runIds = new List<long>();
+        //     while (await reader.ReadAsync(cancellationToken))
+        //     {
+        //         runIds.Add(reader.GetInt64(0));
+        //     }
+
+        //     if (runIds.Count == 0)
+        //     {
+        //         return;
+        //     }
+
+        //     var runs = new List<Run>();
+        //     foreach (var id in runIds)
+        //     {
+        //         var run = await GetRun(id, cancellationToken);
+        //         if (run != null)
+        //         {
+        //             runs.Add(run);
+        //         }
+        //     }
+
+        //     await processRuns(runs);
+        // }
+
+        // using (var countActiveRunsCommand = new NpgsqlCommand
+        // {
+        //     Connection = connection,
+        //     Transaction = tx,
+        //     CommandText = "SELECT COUNT(*) FROM runs WHERE resources_created = true and final = false", // TODO: needs index
+        // })
+        // {
+        //     await countActiveRunsCommand.PrepareAsync(cancellationToken);
+        //     var activeRuns = (long)(await countActiveRunsCommand.ExecuteScalarAsync(cancellationToken))!;
+        //     if (activeRuns >= MaxActiveRuns)
+        //     {
+        //         return;
+        //     }
+        // }
     }
 }

@@ -49,6 +49,8 @@ public static class Kubernetes
             builder.Services.AddSingleton<KubernetesRunSweeper>();
             builder.Services.AddSingleton<IRunSweeper>(sp => sp.GetRequiredService<KubernetesRunSweeper>());
             builder.Services.AddSingleton<IEphemeralBufferProvider, KubernetesEphemeralBufferProvider>();
+            builder.Services.AddSingleton<RunController>();
+            builder.Services.AddSingleton<IHostedService, RunController>(sp => sp.GetRequiredService<RunController>());
         }
     }
 }

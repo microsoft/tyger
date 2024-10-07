@@ -25,31 +25,5 @@ public interface IRepository
     Task<(IList<Model.Buffer>, string? nextContinuationToken)> GetBuffers(IDictionary<string, string>? tags, int limit, string? continuationToken, CancellationToken cancellationToken);
     Task<Model.Buffer?> UpdateBufferById(string id, string eTag, IDictionary<string, string>? tags, CancellationToken cancellationToken);
     Task<Model.Buffer> CreateBuffer(Model.Buffer newBuffer, CancellationToken cancellationToken);
-}
-
-public sealed class TransactionScope : IDisposable, IAsyncDisposable
-{
-    public TransactionScope(DbTransaction transaction)
-    {
-        Transaction = transaction;
-    }
-
-    public DbTransaction Transaction { get; }
-
-    public async Task CommitAsync()
-    {
-        await Transaction.CommitAsync();
-    }
-
-    public void Dispose()
-    {
-        Transaction.Dispose();
-        Transaction.Connection?.Dispose();
-    }
-
-    public ValueTask DisposeAsync()
-    {
-        Transaction.Dispose();
-        return Transaction.Connection?.DisposeAsync() ?? default;
-    }
+    Task ListenForNewRuns(Func<IReadOnlyList<Run>, CancellationToken, Task> processRuns, CancellationToken cancellationToken);
 }

@@ -103,4 +103,9 @@ public class RepositoryWithRetry : IRepository
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.UpsertCodespec(name, newcodespec, cancellationToken), cancellationToken);
     }
+
+    public async Task ListenForNewRuns(Func<IReadOnlyList<Run>, CancellationToken, Task> processRuns, CancellationToken cancellationToken)
+    {
+        await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.ListenForNewRuns(processRuns, cancellationToken), cancellationToken);
+    }
 }

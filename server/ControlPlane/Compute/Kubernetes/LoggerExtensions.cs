@@ -13,4 +13,10 @@ public static partial class LoggerExtensions
 
     [LoggerMessage(14, LogLevel.Information, "Executed Kubernetes API request {method} {uri}. Status code {statusCode}. {errorBody}")]
     public static partial void ExecutedKubernetesRequest(this ILogger logger, HttpMethod method, string? uri, int statusCode, string? errorBody);
+
+    [LoggerMessage(15, LogLevel.Error, "Error listening for new runs.")]
+    public static partial void ErrorListeningForNewRuns(this ILogger logger, Exception exception);
+
+    [LoggerMessage(16, LogLevel.Error, "Error creating run {runId} resources.")]
+    public static partial void ErrorCreatingRunResources(this ILogger logger, long runId, Exception exception);
 }

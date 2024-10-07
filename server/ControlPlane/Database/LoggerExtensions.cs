@@ -22,4 +22,5 @@ public static partial class LoggerExtensions
 
     [LoggerMessage(5, LogLevel.Information, "Duplicate idempotency key {idempotencyKey} received")]
     public static partial void DuplicateIdempotencyKeyReceived(this ILogger logger, string idempotencyKey);
+
 }
