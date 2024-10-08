@@ -28,13 +28,11 @@ public enum DatabaseVersion
     RunScalability = 3,
 }
 
-public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable
+public sealed class DatabaseVersions : BackgroundService, IHealthCheck
 {
     private readonly NpgsqlDataSource _dataSource;
     private readonly ResiliencePipeline _resiliencePipeline;
     private readonly ILogger<DatabaseVersions> _logger;
-    private readonly CancellationTokenSource _backgroundCancellationTokenSource = new();
-    private Task? _backgroundTask;
 
     public DatabaseVersions(NpgsqlDataSource dataSource, ResiliencePipeline resiliencePipeline, ILogger<DatabaseVersions> logger)
     {
@@ -153,7 +151,7 @@ public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable
         }, cancellationToken);
     }
 
-    async Task IHostedService.StartAsync(CancellationToken cancellationToken)
+    public override async Task StartAsync(CancellationToken cancellationToken)
     {
         while (true)
         {
@@ -169,36 +167,30 @@ public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable
             await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
         }
 
-        async Task BackgroundLoop(CancellationToken cancellationToken)
-        {
-            while (!cancellationToken.IsCancellationRequested)
-            {
-                try
-                {
-                    await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
-                    if (!await ReadAndUpdateCachedDatabaseVersion(cancellationToken))
-                    {
-                        throw new InvalidOperationException("Current database version information is not available");
-                    }
-                }
-                catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    return;
-                }
-                catch (Exception e)
-                {
-                    _logger.FailedToReadDatabaseVersion(e);
-                }
-            }
-        }
-
-        _backgroundTask = BackgroundLoop(_backgroundCancellationTokenSource.Token);
+        await base.StartAsync(cancellationToken);
     }
 
-    Task IHostedService.StopAsync(CancellationToken cancellationToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _backgroundCancellationTokenSource.Cancel();
-        return Task.CompletedTask;
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+                if (!await ReadAndUpdateCachedDatabaseVersion(stoppingToken))
+                {
+                    throw new InvalidOperationException("Current database version information is not available");
+                }
+            }
+            catch (TaskCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception e)
+            {
+                _logger.FailedToReadDatabaseVersion(e);
+            }
+        }
     }
 
     private async Task<bool> ReadAndUpdateCachedDatabaseVersion(CancellationToken cancellationToken)
@@ -236,8 +228,6 @@ public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable
 
         return HealthCheckResult.Healthy();
     }
-
-    public void Dispose() => _backgroundCancellationTokenSource.Dispose();
 }
 
 [AttributeUsage(AttributeTargets.Field, Inherited = false, AllowMultiple = false)]

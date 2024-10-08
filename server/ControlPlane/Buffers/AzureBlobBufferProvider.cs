@@ -15,7 +15,7 @@ using Tyger.ControlPlane.Runs;
 
 namespace Tyger.ControlPlane.Buffers;
 
-public sealed class AzureBlobBufferProvider : IBufferProvider, IHealthCheck, IHostedService, IDisposable
+public sealed class AzureBlobBufferProvider : BackgroundService, IBufferProvider, IHealthCheck, IDisposable
 {
     private static readonly TimeSpan s_userDelegationKeyDuration = TimeSpan.FromDays(1);
 
@@ -24,7 +24,6 @@ public sealed class AzureBlobBufferProvider : IBufferProvider, IHealthCheck, IHo
     private readonly DatabaseOptions _databaseOptions;
     private readonly Lazy<IRunCreator> _runCreator;
     private readonly ILogger<BufferManager> _logger;
-    private readonly CancellationTokenSource _backgroundCancellationTokenSource = new();
     private UserDelegationKey? _userDelegationKey;
 
     public AzureBlobBufferProvider(
@@ -207,59 +206,42 @@ public sealed class AzureBlobBufferProvider : IBufferProvider, IHealthCheck, IHo
         return HealthCheckResult.Healthy();
     }
 
-    async Task IHostedService.StartAsync(CancellationToken cancellationToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        async Task BackgroundLoop(CancellationToken cancellationToken)
+        while (!stoppingToken.IsCancellationRequested)
         {
-            while (!cancellationToken.IsCancellationRequested)
+            await Task.Delay(s_userDelegationKeyDuration * 0.75, stoppingToken);
+            while (true)
             {
-                await Task.Delay(s_userDelegationKeyDuration * 0.75, cancellationToken);
-                while (true)
+                try
                 {
-                    try
+                    await RefreshUserDelegationKey(stoppingToken);
+                    break;
+                }
+                catch (TaskCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    return;
+                }
+                catch (Exception e)
+                {
+                    if (_userDelegationKey is not null && _userDelegationKey.SignedExpiresOn > DateTimeOffset.UtcNow)
                     {
-                        await RefreshUserDelegationKey(cancellationToken);
-                        break;
+                        _logger.FailedToRefreshExpiredUserDelegationKey(e);
                     }
-                    catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
+                    else
                     {
-                        return;
+                        _logger.FailedToRefreshUserDelegationKey(e);
                     }
-                    catch (Exception e)
-                    {
-                        if (_userDelegationKey is not null && _userDelegationKey.SignedExpiresOn > DateTimeOffset.UtcNow)
-                        {
-                            _logger.FailedToRefreshExpiredUserDelegationKey(e);
-                        }
-                        else
-                        {
-                            _logger.FailedToRefreshUserDelegationKey(e);
-                        }
 
-                        await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
-                    }
+                    await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
                 }
             }
         }
-
-        await RefreshUserDelegationKey(cancellationToken);
-        _ = BackgroundLoop(_backgroundCancellationTokenSource.Token);
-    }
-
-    Task IHostedService.StopAsync(CancellationToken cancellationToken)
-    {
-        _backgroundCancellationTokenSource.Cancel();
-        return Task.CompletedTask;
     }
 
     private async Task RefreshUserDelegationKey(CancellationToken cancellationToken)
     {
         var start = DateTimeOffset.UtcNow.AddMinutes(-5);
         _userDelegationKey = await _serviceClient.GetUserDelegationKeyAsync(start, start.Add(s_userDelegationKeyDuration), cancellationToken);
-    }
-
-    public void Dispose()
-    {
-        _backgroundCancellationTokenSource.Dispose();
     }
 }

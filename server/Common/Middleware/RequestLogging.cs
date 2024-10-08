@@ -135,7 +135,7 @@ public class RequestLogging
 
 public static partial class LoggerExtensions
 {
-    [LoggerMessage(0, LogLevel.Information, "Request {method} {path}{query} completed with status {statusCode} in {milliseconds} ms.")]
+    [LoggerMessage(LogLevel.Information, "Request {method} {path}{query} completed with status {statusCode} in {milliseconds} ms.")]
     public static partial void RequestCompleted(this ILogger logger, string method, string path, string? query, int statusCode, double milliseconds);
 
 }

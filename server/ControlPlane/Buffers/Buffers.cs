@@ -30,7 +30,7 @@ public static class Buffers
                 builder.Services.AddOptions<CloudBufferStorageOptions>().BindConfiguration("buffers:cloudStorage").ValidateDataAnnotations().ValidateOnStart();
                 builder.Services.AddSingleton<AzureBlobBufferProvider>();
                 builder.Services.AddSingleton<IBufferProvider>(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
-                builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
+                builder.Services.AddHostedService(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
                 builder.Services.AddHealthChecks().AddCheck<AzureBlobBufferProvider>("buffers");
                 break;
             case (false, true):

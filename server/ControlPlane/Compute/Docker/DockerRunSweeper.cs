@@ -11,12 +11,10 @@ using Tyger.ControlPlane.Runs;
 
 namespace Tyger.ControlPlane.Compute.Docker;
 
-public sealed class DockerRunSweeper : IRunSweeper, IHostedService, IDisposable
+public sealed class DockerRunSweeper : BackgroundService, IRunSweeper
 {
     private static readonly TimeSpan s_minDurationAfterArchivingBeforeDeletingPod = TimeSpan.FromSeconds(30);
 
-    private Task? _backgroundTask;
-    private CancellationTokenSource? _backgroundCancellationTokenSource;
     private readonly ILogSource _logSource;
     private readonly DockerOptions _dockerSecretOptions;
     private readonly ILogArchive _logArchive;
@@ -36,38 +34,16 @@ public sealed class DockerRunSweeper : IRunSweeper, IHostedService, IDisposable
         _logArchive = logArchive;
     }
 
-    public Task StartAsync(CancellationToken cancellationToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _backgroundCancellationTokenSource = new CancellationTokenSource();
-        _backgroundTask = BackgroundLoop(_backgroundCancellationTokenSource.Token);
-        return Task.CompletedTask;
-    }
-
-    public async Task StopAsync(CancellationToken cancellationToken)
-    {
-        if (_backgroundCancellationTokenSource == null || _backgroundTask == null)
-        {
-            return;
-        }
-
-        _backgroundCancellationTokenSource.Cancel();
-
-        // wait for the background task to complete, but give up once the cancellation token is canceled.
-        var tcs = new TaskCompletionSource();
-        cancellationToken.Register(s => ((TaskCompletionSource)s!).SetResult(), tcs);
-        await Task.WhenAny(_backgroundTask, tcs.Task);
-    }
-
-    private async Task BackgroundLoop(CancellationToken cancellationToken)
-    {
-        while (!cancellationToken.IsCancellationRequested)
+        while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
-                await SweepRuns(cancellationToken);
+                await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+                await SweepRuns(stoppingToken);
             }
-            catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
+            catch (TaskCanceledException) when (stoppingToken.IsCancellationRequested)
             {
                 return;
             }
@@ -203,13 +179,5 @@ public sealed class DockerRunSweeper : IRunSweeper, IHostedService, IDisposable
 
         await _logArchive.ArchiveLogs(run.Id.Value, pipeline, cancellationToken);
         await _repository.UpdateRun(run with { LogsArchivedAt = DateTimeOffset.UtcNow }, cancellationToken: cancellationToken);
-    }
-
-    public void Dispose()
-    {
-        if (_backgroundTask is { IsCompleted: true })
-        {
-            _backgroundTask.Dispose();
-        }
     }
 }

@@ -45,12 +45,12 @@ public static class Kubernetes
             builder.Services.AddSingleton<IRunUpdater>(sp => sp.GetRequiredService<KubernetesRunUpdater>());
             builder.Services.AddSingleton<ILogSource, KubernetesRunLogReader>();
             builder.Services.AddSingleton<KubernetesRunSweeper>();
-            builder.Services.AddSingleton<IHostedService, KubernetesRunSweeper>(sp => sp.GetRequiredService<KubernetesRunSweeper>());
+            builder.Services.AddHostedService(sp => sp.GetRequiredService<KubernetesRunSweeper>());
             builder.Services.AddSingleton<KubernetesRunSweeper>();
             builder.Services.AddSingleton<IRunSweeper>(sp => sp.GetRequiredService<KubernetesRunSweeper>());
             builder.Services.AddSingleton<IEphemeralBufferProvider, KubernetesEphemeralBufferProvider>();
             builder.Services.AddSingleton<RunController>();
-            builder.Services.AddSingleton<IHostedService, RunController>(sp => sp.GetRequiredService<RunController>());
+            builder.Services.AddHostedService(sp => sp.GetRequiredService<RunController>());
         }
     }
 }

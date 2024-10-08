@@ -98,10 +98,10 @@ public static class Database
         });
 
         builder.Services.AddSingleton<MigrationRunner>();
-        builder.Services.AddSingleton<IHostedService, MigrationRunner>(sp => sp.GetRequiredService<MigrationRunner>());
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<MigrationRunner>());
 
         builder.Services.AddSingleton<DatabaseVersions>();
-        builder.Services.AddSingleton<IHostedService, DatabaseVersions>(sp => sp.GetRequiredService<DatabaseVersions>());
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<DatabaseVersions>());
         builder.Services.AddHealthChecks().AddCheck<DatabaseVersions>("database");
     }
 
