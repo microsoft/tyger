@@ -77,7 +77,7 @@ public class DockerRunReader : IRunReader
 
         yield return run;
 
-        if (run.Status is RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceled)
+        if (run.Status.IsTerminal())
         {
             yield break;
         }
@@ -125,7 +125,7 @@ public class DockerRunReader : IRunReader
                     yield return updatedRun;
                 }
 
-                if (run.Status is RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceled)
+                if (run.Status.IsTerminal())
                 {
                     yield break;
                 }

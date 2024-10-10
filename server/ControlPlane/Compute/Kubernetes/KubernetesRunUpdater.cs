@@ -34,27 +34,18 @@ public class KubernetesRunUpdater : IRunUpdater
     {
         var run = await _repository.GetRun(id, cancellationToken);
 
-        if (run is null or { Final: true } or { Status: RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceling or RunStatus.Canceled })
+        if (run is null || run.Status.IsTerminal())
         {
             return run;
         }
 
         Run updatedRun = run with
         {
-            Status = RunStatus.Canceling
+            Status = RunStatus.Canceled
         };
 
-        await _repository.UpdateRun(updatedRun, cancellationToken: cancellationToken);
+        await _repository.UpdateRunFromObservedState(new ObservedRunState(updatedRun), cancellationToken: cancellationToken);
         _logger.CancelingRun(id);
-
-        var annotation = new Dictionary<string, string>
-        {
-            { "Status", "Canceling" }
-        };
-        await _client.BatchV1.PatchNamespacedJobAsync(
-                    new V1Patch(new { metadata = new { Annotations = annotation } }, V1Patch.PatchType.MergePatch),
-                    JobNameFromRunId(id),
-                    _k8sOptions.Namespace, cancellationToken: cancellationToken);
 
         return updatedRun;
     }

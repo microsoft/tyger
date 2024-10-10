@@ -73,7 +73,7 @@ public class DockerLogSource : ILogSource
                         {
                             await foreach (var x in _runReader.WatchRun(runId, cancellationToken))
                             {
-                                if (x.Status is RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceled)
+                                if (x.Status.IsTerminal())
                                 {
                                     mainSocketContainerTerminablePipelineElement.Terminate();
                                     break;

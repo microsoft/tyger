@@ -64,7 +64,7 @@ public class KubernetesRunLogReader : ILogSource
                     return null;
                 }
 
-                if (run.Status is RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceled)
+                if (run.Status.IsTerminal())
                 {
                     return await GetLogsSnapshot(run, options, cancellationToken);
                 }
@@ -233,7 +233,7 @@ public class KubernetesRunLogReader : ILogSource
 
                     run = await run.GetPartiallyUpdatedRun(_client, _k8sOptions, cancellationToken, job, pods.Values.ToList());
 
-                    if (run.Final || run.Status is RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceled)
+                    if (run.Final || run.Status.IsTerminal())
                     {
                         cts.Cancel();
                         goto Finished;
