@@ -206,6 +206,12 @@ public sealed class AzureBlobBufferProvider : BackgroundService, IBufferProvider
         return HealthCheckResult.Healthy();
     }
 
+    public override async Task StartAsync(CancellationToken cancellationToken)
+    {
+        await RefreshUserDelegationKey(cancellationToken);
+        await base.StartAsync(cancellationToken);
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)

@@ -121,7 +121,7 @@ public class CodespecRefConverter : JsonConverter<ICodespecRef>
         if (reader.TokenType == JsonTokenType.StartObject)
         {
             var codespec = JsonSerializer.Deserialize<Codespec>(ref reader, options);
-            return codespec;
+            return codespec! with { Name = null, Version = null, CreatedAt = null };
         }
 
         throw new JsonException("Expected string or object");

@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Globalization;
+using System.IO.Pipelines;
 using System.Net;
 using k8s;
 using k8s.Models;
@@ -15,6 +16,8 @@ namespace Tyger.ControlPlane.Compute.Kubernetes;
 
 public class KubernetesRunLogReader : ILogSource
 {
+
+    private static readonly Pipeline s_emptyPipeline = new([]);
     private readonly k8s.Kubernetes _client;
     private readonly IRepository _repository;
     private readonly ILogArchive _logArchive;
@@ -41,11 +44,15 @@ public class KubernetesRunLogReader : ILogSource
     public async Task<Pipeline?> GetLogs(long runId, GetLogsOptions options, CancellationToken cancellationToken)
     {
         var run = await _repository.GetRun(runId, cancellationToken);
-        switch (run)
+        if (run is null)
         {
-            case null:
-                return null;
-            case { LogsArchivedAt: null }:
+            return null;
+        }
+
+        async Task<Pipeline?> InnerGetLogs()
+        {
+            if (run.LogsArchivedAt is null)
+            {
                 if (!options.Follow || run.Status == RunStatus.Canceling)
                 {
                     return await GetLogsSnapshot(run, options, cancellationToken);
@@ -57,18 +64,18 @@ public class KubernetesRunLogReader : ILogSource
                     return null;
                 }
 
-                run = await run.GetPartiallyUpdatedRun(_client, _k8sOptions, cancellationToken, jobs.Items.Single());
-
                 if (run.Status is RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceled)
                 {
                     return await GetLogsSnapshot(run, options, cancellationToken);
                 }
 
                 return await FollowLogs(run, jobs, options, cancellationToken);
+            }
 
-            default:
-                return await _logArchive.GetLogs(runId, options, cancellationToken);
+            return await _logArchive.GetLogs(runId, options, cancellationToken);
         }
+
+        return (await InnerGetLogs()) ?? s_emptyPipeline;
     }
 
     private async Task<Pipeline> FollowLogs(Run run, V1JobList jobList, GetLogsOptions options, CancellationToken cancellationToken)

@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-using System.Data.Common;
+using Tyger.ControlPlane.Compute.Kubernetes;
 using Tyger.ControlPlane.Model;
 
 namespace Tyger.ControlPlane.Database;
@@ -16,6 +16,9 @@ public interface IRepository
     Task<Run> CreateRunWithIdempotencyKeyGuard(Run newRun, string idempotencyKey, Func<Run, CancellationToken, Task<Run>> createRun, CancellationToken cancellationToken);
     Task<Run> CreateRun(Run newRun, CancellationToken cancellationToken);
     Task UpdateRun(Run run, CancellationToken cancellationToken, bool? resourcesCreated = null);
+    Task UpdateRunAsFinal(long id, CancellationToken cancellationToken);
+    Task UpdateRunAsLogsArchived(long id, CancellationToken cancellationToken);
+    Task UpdateRunFromObservedState(ObservedRunState state, CancellationToken cancellationToken);
     Task DeleteRun(long id, CancellationToken cancellationToken);
     Task<Run?> GetRun(long id, CancellationToken cancellationToken);
     Task<(IList<Run>, string? nextContinuationToken)> GetRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken);
@@ -26,4 +29,5 @@ public interface IRepository
     Task<Model.Buffer?> UpdateBufferById(string id, string eTag, IDictionary<string, string>? tags, CancellationToken cancellationToken);
     Task<Model.Buffer> CreateBuffer(Model.Buffer newBuffer, CancellationToken cancellationToken);
     Task ListenForNewRuns(Func<IReadOnlyList<Run>, CancellationToken, Task> processRuns, CancellationToken cancellationToken);
+    Task ListenForRunUpdates(Func<ObservedRunState, CancellationToken, Task> processRunUpdates, CancellationToken cancellationToken);
 }

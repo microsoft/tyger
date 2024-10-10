@@ -265,6 +265,7 @@ beginWatch:
 	var runFailedErr error
 	eventChan, errChan := watchRun(ctx, run.Id)
 
+	lastStatus := model.RunStatus(-1)
 	for {
 		select {
 		case err := <-errChan:
@@ -281,13 +282,15 @@ beginWatch:
 				goto end
 			}
 			consecutiveErrors = 0
-
 			if event.Status != nil {
-				logEntry := log.Info().Str("status", event.Status.String())
-				if event.RunningCount != nil {
-					logEntry = logEntry.Int("runningCount", *event.RunningCount)
+				if *event.Status != lastStatus {
+					lastStatus = *event.Status
+					logEntry := log.Info().Str("status", event.Status.String())
+					if event.RunningCount != nil {
+						logEntry = logEntry.Int("runningCount", *event.RunningCount)
+					}
+					logEntry.Msg("Run status changed")
 				}
-				logEntry.Msg("Run status changed")
 
 				switch *event.Status {
 				case model.Succeeded:

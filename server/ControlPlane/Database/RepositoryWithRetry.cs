@@ -4,6 +4,7 @@
 using System.Text.Json;
 using Npgsql;
 using Polly;
+using Tyger.ControlPlane.Compute.Kubernetes;
 using Tyger.ControlPlane.Model;
 using Buffer = Tyger.ControlPlane.Model.Buffer;
 
@@ -94,9 +95,24 @@ public class RepositoryWithRetry : IRepository
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.UpdateBufferById(id, eTag, tags, cancellationToken), cancellationToken);
     }
 
+    public async Task UpdateRunAsFinal(long id, CancellationToken cancellationToken)
+    {
+        await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.UpdateRunAsFinal(id, cancellationToken), cancellationToken);
+    }
+
+    public async Task UpdateRunAsLogsArchived(long id, CancellationToken cancellationToken)
+    {
+        await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.UpdateRunAsLogsArchived(id, cancellationToken), cancellationToken);
+    }
+
     public async Task UpdateRun(Run run, CancellationToken cancellationToken, bool? resourcesCreated = null)
     {
         await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.UpdateRun(run, cancellationToken, resourcesCreated), cancellationToken);
+    }
+
+    public async Task UpdateRunFromObservedState(ObservedRunState state, CancellationToken cancellationToken)
+    {
+        await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.UpdateRunFromObservedState(state, cancellationToken), cancellationToken);
     }
 
     public async Task<Codespec> UpsertCodespec(string name, Codespec newcodespec, CancellationToken cancellationToken)
@@ -107,5 +123,10 @@ public class RepositoryWithRetry : IRepository
     public async Task ListenForNewRuns(Func<IReadOnlyList<Run>, CancellationToken, Task> processRuns, CancellationToken cancellationToken)
     {
         await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.ListenForNewRuns(processRuns, cancellationToken), cancellationToken);
+    }
+
+    public async Task ListenForRunUpdates(Func<ObservedRunState, CancellationToken, Task> processRunUpdates, CancellationToken cancellationToken)
+    {
+        await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.ListenForRunUpdates(processRunUpdates, cancellationToken), cancellationToken);
     }
 }

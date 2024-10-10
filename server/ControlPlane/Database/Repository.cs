@@ -3,11 +3,13 @@
 
 using System.ComponentModel.DataAnnotations;
 using System.Data;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using Npgsql;
 using NpgsqlTypes;
 using SimpleBase;
+using Tyger.ControlPlane.Compute.Kubernetes;
 using Tyger.ControlPlane.Model;
 using Buffer = Tyger.ControlPlane.Model.Buffer;
 
@@ -18,6 +20,7 @@ public class Repository : IRepository
     private const int MaxActiveRuns = 2000;
     private const string NewRunChannelName = "new_run";
     private const string RunFinalizedChannelName = "run_finalized";
+    private const string RunChangedChannelName = "run_changed";
 
     private readonly NpgsqlDataSource _dataSource;
     private readonly JsonSerializerOptions _serializerOptions;
@@ -254,12 +257,13 @@ public class Repository : IRepository
         {
             CommandText = """
                 UPDATE runs
-                SET run = $1
-                WHERE id = $2
+                SET run = $1, created_at = $2
+                WHERE id = $3
                 """,
             Parameters =
             {
                 new() { Value = JsonSerializer.Serialize(run, _serializerOptions), NpgsqlDbType = NpgsqlDbType.Jsonb },
+                new() { Value = run.CreatedAt, NpgsqlDbType = NpgsqlDbType.TimestampTz },
                 new() { Value = run.Id, NpgsqlDbType = NpgsqlDbType.Bigint },
             },
         });
@@ -273,6 +277,38 @@ public class Repository : IRepository
         await batch.ExecuteNonQueryAsync(cancellationToken);
         await tx.CommitAsync(cancellationToken);
         return run;
+    }
+
+    public async Task UpdateRunAsFinal(long id, CancellationToken cancellationToken)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand("""
+            UPDATE runs
+            SET final = true
+            WHERE id = $1
+            """, conn)
+        {
+            Parameters = { new() { Value = id, NpgsqlDbType = NpgsqlDbType.Bigint } }
+        };
+
+        await command.PrepareAsync(cancellationToken);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task UpdateRunAsLogsArchived(long id, CancellationToken cancellationToken)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand("""
+            UPDATE runs
+            SET logs_archived_at = now() AT TIME ZONE 'utc'
+            WHERE id = $1 and logs_archived_at is null
+            """, conn)
+        {
+            Parameters = { new() { Value = id, NpgsqlDbType = NpgsqlDbType.Bigint } }
+        };
+
+        await command.PrepareAsync(cancellationToken);
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     public async Task UpdateRun(Run run, CancellationToken cancellationToken, bool? resourcesCreated = null)
@@ -311,6 +347,71 @@ public class Repository : IRepository
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
+    public async Task UpdateRunFromObservedState(ObservedRunState state, CancellationToken cancellationToken)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var tx = await conn.BeginTransactionAsync(cancellationToken);
+        await using var readRun = new NpgsqlCommand("""
+            SELECT run
+            FROM runs
+            WHERE id = $1
+                AND run->>'status' NOT IN ('Failed', 'Succeeded', 'Canceled')
+            FOR UPDATE
+            """, conn)
+        {
+            Connection = conn,
+            Transaction = tx,
+            Parameters =
+            {
+                new() { Value = state.Id, NpgsqlDbType = NpgsqlDbType.Bigint },
+            }
+        };
+
+        Run updatedRun;
+        await readRun.PrepareAsync(cancellationToken);
+        await using (var reader = await readRun.ExecuteReaderAsync(cancellationToken))
+        {
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                // The run is already in a terminal state, so we don't do anything
+                return;
+            }
+
+            var runJson = reader.GetString(0);
+            var run = JsonSerializer.Deserialize<Run>(runJson, _serializerOptions) ?? throw new InvalidOperationException("Failed to deserialize run.");
+            updatedRun = run with { Status = state.Status, StatusReason = state.StatusReason, RunningCount = state.RunningCount, FinishedAt = state.FinishedAt, Job = run.Job with { NodePool = state.JobNodePool }, Worker = run.Worker == null ? null : run.Worker with { NodePool = state.WorkerNodePool } };
+            if (updatedRun.Equals(run))
+            {
+                return;
+            }
+        }
+
+        await using var updateRun = new NpgsqlCommand("""
+            UPDATE runs
+            SET run = $2
+            WHERE id = $1
+            """, conn)
+        {
+            Connection = conn,
+            Transaction = tx,
+            Parameters =
+            {
+                new() { Value = state.Id, NpgsqlDbType = NpgsqlDbType.Bigint },
+                new() { Value = JsonSerializer.Serialize(updatedRun, _serializerOptions), NpgsqlDbType = NpgsqlDbType.Jsonb },
+            }
+        };
+
+        await updateRun.PrepareAsync(cancellationToken);
+        await updateRun.ExecuteNonQueryAsync(cancellationToken);
+
+        await using var notifyCommand = new NpgsqlCommand($"SELECT pg_notify('{RunChangedChannelName}', $1);", conn, tx);
+        notifyCommand.Parameters.Add(new() { Value = JsonSerializer.Serialize(state, _serializerOptions), NpgsqlDbType = NpgsqlDbType.Text });
+        await notifyCommand.PrepareAsync(cancellationToken);
+        await notifyCommand.ExecuteNonQueryAsync(cancellationToken);
+
+        await tx.CommitAsync(cancellationToken);
+    }
+
     public async Task DeleteRun(long id, CancellationToken cancellationToken)
     {
         await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
@@ -333,7 +434,7 @@ public class Repository : IRepository
     {
         await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
         await using var cmd = new NpgsqlCommand("""
-            SELECT created_at, run, final, logs_archived_at
+            SELECT run, final, logs_archived_at
             FROM runs
             WHERE id = $1
             """, conn)
@@ -351,9 +452,9 @@ public class Repository : IRepository
             return null;
         }
 
-        var runJson = reader.GetString(1);
-        var final = reader.GetBoolean(2);
-        var logsArchivedAt = reader.IsDBNull(3) ? (DateTime?)null : reader.GetDateTime(3);
+        var runJson = reader.GetString(0);
+        var final = reader.GetBoolean(1);
+        var logsArchivedAt = reader.IsDBNull(2) ? (DateTime?)null : reader.GetDateTime(2);
         var run = JsonSerializer.Deserialize<Run>(runJson, _serializerOptions) ?? throw new InvalidOperationException("Failed to deserialize run.");
         return run with { Id = id, Final = final, LogsArchivedAt = logsArchivedAt };
     }
@@ -1048,70 +1149,61 @@ public class Repository : IRepository
                 }
             }
         }
+    }
 
+    public async Task ListenForRunUpdates(Func<ObservedRunState, CancellationToken, Task> processRunUpdates, CancellationToken cancellationToken)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        List<string> payloads = [];
+        connection.Notification += (s, e) => payloads.Add(e.Payload);
 
-        // await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
-        // await using var tx = await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+        async Task ProcessPayloads()
+        {
+            foreach (var payload in payloads)
+            {
+                var runState = JsonSerializer.Deserialize<ObservedRunState>(payload, _serializerOptions);
+                await processRunUpdates(runState, cancellationToken);
+            }
 
-        // using (var takeLockCommand = new NpgsqlCommand
-        // {
-        //     Connection = connection,
-        //     Transaction = tx,
-        //     CommandText = "SELECT pg_advisory_lock($1)",
-        //     Parameters = { new() { Value = AdvisoryLockId, NpgsqlDbType = NpgsqlDbType.Bigint } }
-        // })
-        // {
-        //     await takeLockCommand.PrepareAsync(cancellationToken);
-        //     await takeLockCommand.ExecuteNonQueryAsync(cancellationToken);
-        // }
+            payloads.Clear();
+        }
 
-        // using (var getPageCommand = new NpgsqlCommand
-        // {
-        //     Connection = connection,
-        //     Transaction = tx,
-        //     CommandText = "SELECT id FROM runs WHERE resources_created = false ORDER BY created_at LIMIT $1",
-        //     Parameters = { new() { Value = MaxPageSize, NpgsqlDbType = NpgsqlDbType.Integer } }
-        // })
-        // {
-        //     await getPageCommand.PrepareAsync(cancellationToken);
-        //     await using var reader = await getPageCommand.ExecuteReaderAsync(cancellationToken);
-        //     var runIds = new List<long>();
-        //     while (await reader.ReadAsync(cancellationToken))
-        //     {
-        //         runIds.Add(reader.GetInt64(0));
-        //     }
+        await using (var listenCommand = new NpgsqlCommand
+        {
+            Connection = connection,
+            CommandText = $"LISTEN {RunChangedChannelName};",
+        })
+        {
+            await listenCommand.PrepareAsync(cancellationToken);
+            await listenCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
 
-        //     if (runIds.Count == 0)
-        //     {
-        //         return;
-        //     }
+        await using (var readExistingCommand = new NpgsqlCommand
+        {
+            Connection = connection,
+            CommandText = """
+                SELECT run from runs
+                WHERE final = false and run->>'status' IN ('Failed', 'Succeeded', 'Canceled')
+                """,
+        })
+        {
+            await readExistingCommand.PrepareAsync(cancellationToken);
 
-        //     var runs = new List<Run>();
-        //     foreach (var id in runIds)
-        //     {
-        //         var run = await GetRun(id, cancellationToken);
-        //         if (run != null)
-        //         {
-        //             runs.Add(run);
-        //         }
-        //     }
+            await using var reader = await readExistingCommand.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var runString = reader.GetString(0);
+                var run = JsonSerializer.Deserialize<Run>(runString, _serializerOptions);
+                await processRunUpdates(new ObservedRunState(run!), cancellationToken);
+            }
+        }
 
-        //     await processRuns(runs);
-        // }
+        await ProcessPayloads();
 
-        // using (var countActiveRunsCommand = new NpgsqlCommand
-        // {
-        //     Connection = connection,
-        //     Transaction = tx,
-        //     CommandText = "SELECT COUNT(*) FROM runs WHERE resources_created = true and final = false", // TODO: needs index
-        // })
-        // {
-        //     await countActiveRunsCommand.PrepareAsync(cancellationToken);
-        //     var activeRuns = (long)(await countActiveRunsCommand.ExecuteScalarAsync(cancellationToken))!;
-        //     if (activeRuns >= MaxActiveRuns)
-        //     {
-        //         return;
-        //     }
-        // }
+        while (true)
+        {
+            await connection.WaitAsync(cancellationToken);
+            await ProcessPayloads();
+        }
     }
 }

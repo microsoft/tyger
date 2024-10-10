@@ -19,4 +19,22 @@ public static partial class LoggerExtensions
 
     [LoggerMessage(LogLevel.Error, "Error creating run {runId} resources.")]
     public static partial void ErrorCreatingRunResources(this ILogger logger, long runId, Exception exception);
+
+    [LoggerMessage(LogLevel.Error, "Error while watching resources.")]
+    public static partial void ErrorWatchingResources(this ILogger logger, Exception exception);
+
+    [LoggerMessage(LogLevel.Error, "Error listening for changes to run records.")]
+    public static partial void ErrorListeningForRunCanges(this ILogger logger, Exception exception);
+
+    [LoggerMessage(LogLevel.Information, "Finalizing run {runId}.")]
+    public static partial void FinalizingRun(this ILogger logger, long runId);
+
+    [LoggerMessage(LogLevel.Information, "Finalized run {runId}.")]
+    public static partial void FinalizedRun(this ILogger logger, long runId);
+
+    [LoggerMessage(LogLevel.Error, "Error finalizing run {runId}.")]
+    public static partial void ErrorFinalizingRun(this ILogger logger, long runId, Exception exception);
+
+
+
 }

@@ -101,7 +101,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         {
             // Phase 2: now that we have performed validation, create a record for this run in the database
             run = await Repository.CreateRun(run, cancellationToken);
-            _logger.CreatedRunResources(run.Id!.Value);
+            _logger.CreatedRun(run.Id!.Value);
             return run;
         }
 

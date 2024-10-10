@@ -401,6 +401,14 @@ public enum RunStatus
     Canceled,
 }
 
+public static class RunStatusExtensions
+{
+    public static bool IsTerminal(this RunStatus status)
+    {
+        return status is RunStatus.Failed or RunStatus.Succeeded or RunStatus.Canceled;
+    }
+}
+
 public enum RunKind
 {
     User = 0,
