@@ -138,6 +138,10 @@ public partial class RunStateObserver : BackgroundService
                 if (resource is V1Job job)
                 {
                     runObjects.Job = job;
+                    if (eventType == WatchEventType.Deleted)
+                    {
+                        _runObjects.Remove(runId.Value);
+                    }
                 }
                 else if (resource is V1Pod pod)
                 {

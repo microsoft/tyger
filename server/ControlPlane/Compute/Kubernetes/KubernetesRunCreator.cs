@@ -181,7 +181,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
             {
                 Metadata = new()
                 {
-                    Name = StatefulSetNameFromRunId(run.Id.Value),
+                    Name = ServiceNameFromRunId(run.Id.Value),
                     Labels = workerLabels,
                 },
                 Spec = new()
@@ -457,7 +457,6 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         {
             Metadata = new()
             {
-                Finalizers = [FinalizerName],
                 Labels = new Dictionary<string, string>
                 {
                     { "azure.workload.identity/use", (!string.IsNullOrEmpty(codespec.Identity)).ToString().ToLowerInvariant() }
