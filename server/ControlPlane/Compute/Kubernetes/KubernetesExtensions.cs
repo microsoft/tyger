@@ -27,21 +27,6 @@ public static class KubernetesExtensions
         } while (!string.IsNullOrEmpty(continuationToken));
     }
 
-    public static async IAsyncEnumerable<V1Job> EnumerateJobsInNamespace(this IKubernetes client, string @namespace, string? fieldSelector = default, string? labelSelector = default, [EnumeratorCancellation] CancellationToken cancellationToken = default)
-    {
-        string? continuationToken = null;
-        do
-        {
-            var jobList = await client.BatchV1.ListNamespacedJobAsync(namespaceParameter: @namespace, continueParameter: continuationToken, fieldSelector: fieldSelector, labelSelector: labelSelector, limit: PageSize, cancellationToken: cancellationToken);
-            foreach (var job in jobList.Items)
-            {
-                yield return job;
-            }
-
-            continuationToken = jobList.Metadata.ContinueProperty;
-        } while (!string.IsNullOrEmpty(continuationToken));
-    }
-
     public static IAsyncEnumerable<(WatchEventType, V1Job)> WatchNamespacedJobsWithRetry(
         this IKubernetes client,
         ILogger logger,

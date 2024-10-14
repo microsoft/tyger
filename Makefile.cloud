@@ -201,12 +201,7 @@ connect-db: set-context
 		--dbname="$$(echo $${helm_values} | jq -r '.database.databaseName')"
 
 purge-runs: set-context
-	for pod in $$(kubectl get pod -n "${HELM_NAMESPACE}" -l tyger-run -o go-template='{{range .items}}{{.metadata.name}}{{"\n"}}{{end}}'); do
-		kubectl patch pod -n "${HELM_NAMESPACE}" "$${pod}" \
-			--type json \
-			--patch='[ { "op": "remove", "path": "/metadata/finalizers" } ]'
-	done
-	kubectl delete job,statefulset,secret,service -n "${HELM_NAMESPACE}" -l tyger-run --cascade=foreground
+	kubectl delete pod,statefulset,secret,service -n "${HELM_NAMESPACE}" -l tyger-run --cascade=foreground
 
 variant-test:
 	# No variant tests for cloud configuration

@@ -251,31 +251,6 @@ public abstract class ResourceInformer<TResource, TListResource>
     }
 }
 
-public class JobInformer : ResourceInformer<V1Job, V1JobList>
-{
-    public JobInformer(
-        IKubernetes client,
-        string @namespace,
-        string labelSelector,
-        ChannelWriter<V1Job> initialResourcesChannel,
-        ChannelWriter<(WatchEventType eventType, V1Job resource)> updatesChannel,
-        ILogger<JobInformer> logger)
-        : base(client, @namespace, labelSelector, initialResourcesChannel, updatesChannel, logger)
-    {
-    }
-
-    protected override Task<HttpOperationResponse<V1JobList>> RetrieveResourceListAsync(string namespaceParameter, string? labelSelector, bool watch, string? resourceVersion, string? continuationToken, CancellationToken cancellationToken)
-    {
-        return Client.BatchV1.ListNamespacedJobWithHttpMessagesAsync(
-            namespaceParameter: namespaceParameter,
-            labelSelector: labelSelector,
-            watch: watch,
-            resourceVersion: resourceVersion,
-            continueParameter: continuationToken,
-            cancellationToken: cancellationToken);
-    }
-}
-
 public class PodInformer : ResourceInformer<V1Pod, V1PodList>
 {
     public PodInformer(

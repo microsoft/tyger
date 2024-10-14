@@ -2,7 +2,6 @@ using System.Net;
 using System.Threading.Channels;
 using k8s;
 using k8s.Autorest;
-using k8s.Models;
 using Microsoft.Extensions.Options;
 using Tyger.ControlPlane.Database;
 using Tyger.ControlPlane.Logging;
@@ -83,7 +82,7 @@ public class RunFinalizer : BackgroundService
         await _repository.UpdateRunAsLogsArchived(runState.Id, cancellationToken);
         _logger.ArchivedLogsForRun(runState.Id);
 
-        await DeleteRunResources(runState.Id, cancellationToken);
+        await DeleteRunResources(runState, cancellationToken);
         await _repository.UpdateRunAsFinal(runState.Id, cancellationToken);
         _logger.FinalizedRun(runState.Id);
     }
@@ -96,38 +95,44 @@ public class RunFinalizer : BackgroundService
         await _logArchive.ArchiveLogs(runId, pipeline, cancellationToken);
     }
 
-    private async Task DeleteRunResources(long runId, CancellationToken cancellationToken)
+    private async Task DeleteRunResources(ObservedRunState runState, CancellationToken cancellationToken)
     {
+        for (var i = 0; i < runState.SpecifiedJobReplicaCount; i++)
+        {
+            try
+            {
+                await _client.CoreV1.DeleteNamespacedPodAsync(JobPodName(runState.Id, i), _k8sOptions.Namespace, cancellationToken: cancellationToken);
+            }
+            catch (HttpOperationException ex) when (ex.Response.StatusCode == HttpStatusCode.NotFound)
+            {
+            }
+        }
+
         try
         {
-            await _client.BatchV1.DeleteNamespacedJobAsync(JobNameFromRunId(runId), _k8sOptions.Namespace, propagationPolicy: "Foreground", cancellationToken: cancellationToken);
+            await _client.CoreV1.DeleteNamespacedSecretAsync(SecretNameFromRunId(runState.Id), _k8sOptions.Namespace, cancellationToken: cancellationToken);
         }
         catch (HttpOperationException ex) when (ex.Response.StatusCode == HttpStatusCode.NotFound)
         {
         }
 
-        try
+        if (runState.SpecifiedWorkerReplicaCount > 0)
         {
-            await _client.CoreV1.DeleteNamespacedSecretAsync(SecretNameFromRunId(runId), _k8sOptions.Namespace, propagationPolicy: "Foreground", cancellationToken: cancellationToken);
-        }
-        catch (HttpOperationException ex) when (ex.Response.StatusCode == HttpStatusCode.NotFound)
-        {
-        }
+            try
+            {
+                await _client.AppsV1.DeleteNamespacedStatefulSetAsync(StatefulSetNameFromRunId(runState.Id), _k8sOptions.Namespace, propagationPolicy: "Foreground", cancellationToken: cancellationToken);
+            }
+            catch (HttpOperationException ex) when (ex.Response.StatusCode == HttpStatusCode.NotFound)
+            {
+            }
 
-        try
-        {
-            await _client.AppsV1.DeleteNamespacedStatefulSetAsync(StatefulSetNameFromRunId(runId), _k8sOptions.Namespace, propagationPolicy: "Foreground", cancellationToken: cancellationToken);
-        }
-        catch (HttpOperationException ex) when (ex.Response.StatusCode == HttpStatusCode.NotFound)
-        {
-        }
-
-        try
-        {
-            await _client.CoreV1.DeleteNamespacedServiceAsync(ServiceNameFromRunId(runId), _k8sOptions.Namespace, propagationPolicy: "Foreground", cancellationToken: cancellationToken);
-        }
-        catch (HttpOperationException ex) when (ex.Response.StatusCode == HttpStatusCode.NotFound)
-        {
+            try
+            {
+                await _client.CoreV1.DeleteNamespacedServiceAsync(ServiceNameFromRunId(runState.Id), _k8sOptions.Namespace, propagationPolicy: "Foreground", cancellationToken: cancellationToken);
+            }
+            catch (HttpOperationException ex) when (ex.Response.StatusCode == HttpStatusCode.NotFound)
+            {
+            }
         }
     }
 }

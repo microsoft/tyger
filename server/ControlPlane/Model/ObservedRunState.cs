@@ -6,12 +6,14 @@ public record struct ObservedRunState(
     long Id,
     [property: JsonConverter(typeof(JsonStringEnumConverter))]
     [property:JsonIgnore(Condition = JsonIgnoreCondition.Never)]
-    RunStatus Status
+    RunStatus Status,
+    int SpecifiedJobReplicaCount,
+    int SpecifiedWorkerReplicaCount
     )
 {
 
     public ObservedRunState(Run run)
-        : this(run.Id!.Value, run.Status!.Value)
+        : this(run.Id!.Value, run.Status!.Value, run.Job.Replicas, run.Worker?.Replicas ?? 0)
     {
         StatusReason = run.StatusReason;
         RunningCount = run.RunningCount;

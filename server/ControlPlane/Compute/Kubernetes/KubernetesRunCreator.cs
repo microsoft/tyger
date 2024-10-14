@@ -117,32 +117,27 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
 
         jobPodTemplateSpec.Metadata.Labels = jobLabels;
 
-        var job = new V1Job
+        var jobPod = new V1Pod
         {
-            Metadata = new()
-            {
-                Name = JobNameFromRunId(run.Id!.Value),
-                Labels = jobLabels,
-                Annotations = jobCodespec.Sockets?.Count > 0 ? new Dictionary<string, string>() { { HasSocketAnnotation, "true" } } : null
-            },
-            Spec = new()
-            {
-                Parallelism = run.Job.Replicas,
-                Completions = run.Job.Replicas,
-                CompletionMode = "Indexed",
-                ManualSelector = true,
-                Selector = new() { MatchLabels = jobLabels },
-                Template = jobPodTemplateSpec,
-                ActiveDeadlineSeconds = run.TimeoutSeconds,
-                BackoffLimit = 0,
-            },
+            Metadata = jobPodTemplateSpec.Metadata,
+            Spec = jobPodTemplateSpec.Spec
         };
+        jobPod.Metadata.Name = JobPodName(run.Id!.Value, 0);
+        jobPod.Metadata.Labels = MergeDictionaries(jobPod.Metadata.Labels, jobLabels);
+        var annotations = jobPod.Metadata.Annotations == null ? [] : new Dictionary<string, string>(jobPod.Metadata.Annotations);
+        if (jobCodespec.Sockets?.Count > 0)
+        {
+            annotations[HasSocketAnnotation] = "true";
+        }
+
+        jobPod.Metadata.Annotations = annotations;
+
 
         var bufferMap = await GetBufferMap(jobCodespec.Buffers, run.Job.Buffers, cancellationToken);
 
         if (bufferMap != null)
         {
-            await AddBufferProxySidecars(job, run, bufferMap, jobCodespec, cancellationToken);
+            await AddBufferProxySidecars(jobPod, run, bufferMap, jobCodespec, cancellationToken);
         }
 
         if (run.Worker != null)
@@ -172,8 +167,8 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
                 },
             };
 
-            AddWaitForWorkerInitContainersToJob(job, run);
-            AddWorkerNodesEnvironmentVariables(job, run, workerCodespec);
+            AddWaitForWorkerInitContainersToJob(jobPod, run);
+            AddWorkerNodesEnvironmentVariables(jobPod, run, workerCodespec);
 
             await _client.AppsV1.CreateNamespacedStatefulSetAsync(workerStatefulSet, _k8sOptions.Namespace, cancellationToken: cancellationToken);
 
@@ -194,7 +189,11 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
             await _client.CoreV1.CreateNamespacedServiceAsync(headlessWorkerService, _k8sOptions.Namespace, cancellationToken: cancellationToken);
         }
 
-        await _client.BatchV1.CreateNamespacedJobAsync(job, _k8sOptions.Namespace, cancellationToken: cancellationToken);
+        await _client.CoreV1.CreateNamespacedPodAsync(jobPod, _k8sOptions.Namespace, cancellationToken: cancellationToken);
+        for (var i = 1; i < run.Job.Replicas; i++)
+        {
+            jobPod.Metadata.Name = JobPodName(run.Id!.Value, i);
+        }
 
         // Phase 4: Inform the database that the Kubernetes objects have been created in the cluster.
 
@@ -203,17 +202,39 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         return run;
     }
 
-    private void AddWaitForWorkerInitContainersToJob(V1Job job, Run run)
+    private static IDictionary<TKey, TValue>? MergeDictionaries<TKey, TValue>(IDictionary<TKey, TValue>? dict1, IDictionary<TKey, TValue>? dict2)
+     where TKey : notnull
     {
-        var initContainers = job.Spec.Template.Spec.InitContainers ??= [];
+        if (dict1 == null)
+        {
+            return dict2;
+        }
+
+        if (dict2 == null)
+        {
+            return dict1;
+        }
+
+        var result = new Dictionary<TKey, TValue>(dict1);
+        foreach (var (key, value) in dict2)
+        {
+            result[key] = value;
+        }
+
+        return result;
+    }
+
+    private void AddWaitForWorkerInitContainersToJob(V1Pod jobPod, Run run)
+    {
+        var initContainers = jobPod.Spec.InitContainers ??= [];
 
         initContainers.Add(
             new()
             {
                 Name = "imagepull",
-                Image = GetMainContainer(job.Spec.Template.Spec).Image,
+                Image = GetMainContainer(jobPod.Spec).Image,
                 Command = s_waitForWorkerCommand,
-                VolumeMounts = new V1VolumeMount[] { new("/no-op/", "no-op") }
+                VolumeMounts = [new("/no-op/", "no-op")]
             });
 
         var waitScript = new StringBuilder("set -euo pipefail").AppendLine();
@@ -228,10 +249,10 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
             {
                 Name = "waitforworker",
                 Image = _k8sOptions.WorkerWaiterImage,
-                Command = new[] { "bash", "-c", waitScript.ToString() },
+                Command = ["bash", "-c", waitScript.ToString()],
             });
 
-        (job.Spec.Template.Spec.Volumes ??= []).Add(new()
+        (jobPod.Spec.Volumes ??= []).Add(new()
         {
             Name = "no-op",
             ConfigMap = new V1ConfigMapVolumeSource
@@ -242,11 +263,11 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         });
     }
 
-    private void AddWorkerNodesEnvironmentVariables(V1Job job, Run run, WorkerCodespec? workerCodespec)
+    private void AddWorkerNodesEnvironmentVariables(V1Pod jobPod, Run run, WorkerCodespec? workerCodespec)
     {
         var dnsNames = GetWorkerDnsNames(run);
 
-        var envVars = GetMainContainer(job.Spec.Template.Spec).Env ??= [];
+        var envVars = GetMainContainer(jobPod.Spec).Env ??= [];
         envVars.Add(new("TYGER_WORKER_NODES", JsonSerializer.Serialize(dnsNames)));
         if (workerCodespec?.Endpoints != null)
         {
@@ -262,13 +283,13 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         return Enumerable.Range(0, run.Worker!.Replicas).Select(i => $"{StatefulSetNameFromRunId(run.Id!.Value)}-{i}.{StatefulSetNameFromRunId(run.Id.Value)}.{_k8sOptions.Namespace}.svc.cluster.local").ToArray();
     }
 
-    private async Task AddBufferProxySidecars(V1Job job, Run run, Dictionary<string, (bool write, Uri sasUri)> bufferMap, JobCodespec codespec, CancellationToken cancellationToken)
+    private async Task AddBufferProxySidecars(V1Pod jobPod, Run run, Dictionary<string, (bool write, Uri sasUri)> bufferMap, JobCodespec codespec, CancellationToken cancellationToken)
     {
         const string SecretMountPath = "/etc/buffer-sas-tokens";
         const string FifoMountPath = "/etc/buffer-fifos";
         const string PipeVolumeName = "pipevolume";
 
-        var mainContainer = GetMainContainer(job.Spec.Template.Spec);
+        var mainContainer = GetMainContainer(jobPod.Spec);
         mainContainer.Env ??= [];
 
         IEnumerable<string> buffersNotUsedBySockets = bufferMap.Keys;
@@ -287,19 +308,19 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
             Metadata = new()
             {
                 Name = SecretNameFromRunId(run.Id!.Value),
-                Labels = job.Labels() ?? throw new InvalidOperationException("expected job labels to be set"),
+                Labels = jobPod.Labels() ?? throw new InvalidOperationException("expected job labels to be set"),
             },
             StringData = bufferMap.ToDictionary(p => p.Key, p => p.Value.sasUri.ToString()),
         };
 
-        (job.Spec.Template.Spec.Volumes ??= []).Add(
+        (jobPod.Spec.Volumes ??= []).Add(
             new()
             {
                 Name = "buffers",
                 Secret = new() { SecretName = buffersSecret.Metadata.Name },
             });
 
-        job.Spec.Template.Spec.Volumes.Add(new() { Name = PipeVolumeName, EmptyDir = new() });
+        jobPod.Spec.Volumes.Add(new() { Name = PipeVolumeName, EmptyDir = new() });
 
         var fifoVolumeMount = new V1VolumeMount(FifoMountPath, PipeVolumeName);
         (mainContainer.VolumeMounts ??= []).Add(fifoVolumeMount);
@@ -311,7 +332,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
             mkfifoBuilder.AppendLine($"mkfifo {fifoPath}").AppendLine($"chmod 666 {fifoPath}");
         }
 
-        (job.Spec.Template.Spec.InitContainers ??= []).Add(
+        (jobPod.Spec.InitContainers ??= []).Add(
             new()
             {
                 Name = "mkfifo",
@@ -323,7 +344,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
 
         foreach ((string bufferName, (bool write, Uri sasUri)) in bufferMap)
         {
-            job.Spec.Template.Spec.Containers.Add(new()
+            jobPod.Spec.Containers.Add(new()
             {
                 Name = $"{bufferName}-buffer-sidecar",
                 Image = _bufferOptions.BufferSidecarImage,
@@ -363,7 +384,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         {
             foreach (var socket in codespec.Sockets)
             {
-                job.Spec.Template.Spec.Containers.Add(new()
+                jobPod.Spec.Containers.Add(new()
                 {
                     Name = $"socket-{socket.Port}-sidecar",
                     Image = _bufferOptions.BufferSidecarImage,
@@ -459,8 +480,13 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
             {
                 Labels = new Dictionary<string, string>
                 {
-                    { "azure.workload.identity/use", (!string.IsNullOrEmpty(codespec.Identity)).ToString().ToLowerInvariant() }
+                    { "azure.workload.identity/use", (!string.IsNullOrEmpty(codespec.Identity)).ToString().ToLowerInvariant() },
                 },
+                Annotations = new Dictionary<string, string>
+                {
+                    { JobReplicaCountAnnotation, run.Job.Replicas.ToString(CultureInfo.InvariantCulture) },
+                    { WorkerReplicaCountAnnotation, run.Worker?.Replicas.ToString(CultureInfo.InvariantCulture) ?? "0" },
+                }
             },
             Spec = new()
             {

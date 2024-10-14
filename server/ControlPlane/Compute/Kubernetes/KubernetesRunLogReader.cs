@@ -2,9 +2,9 @@
 // Licensed under the MIT License.
 
 using System.Globalization;
-using System.IO.Pipelines;
 using System.Net;
 using k8s;
+using k8s.Autorest;
 using k8s.Models;
 using Microsoft.Extensions.Options;
 using Tyger.ControlPlane.Database;
@@ -22,6 +22,7 @@ public class KubernetesRunLogReader : ILogSource
     private readonly IRepository _repository;
     private readonly ILogArchive _logArchive;
     private readonly ILoggerFactory _loggerFactory;
+    private readonly RunStateObserver _runStateObserver;
     private readonly ILogger<KubernetesRunLogReader> _logger;
     private readonly KubernetesApiOptions _k8sOptions;
 
@@ -31,12 +32,14 @@ public class KubernetesRunLogReader : ILogSource
         IOptions<KubernetesApiOptions> k8sOptions,
         ILogArchive logArchive,
         ILoggerFactory loggerFactory,
+        RunStateObserver runStateObserver,
         ILogger<KubernetesRunLogReader> logger)
     {
         _client = client;
         _repository = repository;
         _logArchive = logArchive;
         _loggerFactory = loggerFactory;
+        _runStateObserver = runStateObserver;
         _logger = logger;
         _k8sOptions = k8sOptions.Value;
     }
@@ -51,28 +54,23 @@ public class KubernetesRunLogReader : ILogSource
 
         async Task<Pipeline?> InnerGetLogs()
         {
-            if (run.LogsArchivedAt is null)
+            if (run.LogsArchivedAt is not null)
             {
-                if (!options.Follow || run.Status == RunStatus.Canceling)
-                {
-                    return await GetLogsSnapshot(run, options, cancellationToken);
-                }
-
-                var jobs = await _client.BatchV1.ListNamespacedJobAsync(_k8sOptions.Namespace, fieldSelector: $"metadata.name={JobNameFromRunId(run.Id!.Value)}", cancellationToken: cancellationToken);
-                if (jobs.Items.Count == 0)
-                {
-                    return null;
-                }
-
-                if (run.Status.IsTerminal())
-                {
-                    return await GetLogsSnapshot(run, options, cancellationToken);
-                }
-
-                return await FollowLogs(run, jobs, options, cancellationToken);
+                return await _logArchive.GetLogs(runId, options, cancellationToken);
             }
 
-            return await _logArchive.GetLogs(runId, options, cancellationToken);
+            if (!options.Follow || run.Status.IsTerminal())
+            {
+                return await GetLogsSnapshot(run, options, cancellationToken);
+            }
+
+            var jobs = await _client.BatchV1.ListNamespacedJobAsync(_k8sOptions.Namespace, fieldSelector: $"metadata.name={JobNameFromRunId(run.Id!.Value)}", cancellationToken: cancellationToken);
+            if (jobs.Items.Count == 0)
+            {
+                return null;
+            }
+
+            return await FollowLogs(run, jobs, options, cancellationToken);
         }
 
         return (await InnerGetLogs()) ?? s_emptyPipeline;
@@ -273,21 +271,68 @@ Finished:
 
     private async Task<Pipeline?> GetLogsSnapshot(Run run, GetLogsOptions options, CancellationToken cancellationToken)
     {
-        var podLogOptions = options with { Follow = false };
-        var pods = await _client.EnumeratePodsInNamespace(_k8sOptions.Namespace, labelSelector: $"{RunLabel}={run.Id}", cancellationToken: cancellationToken).ToArrayAsync(cancellationToken);
+        var jobPodNames = Enumerable.Range(0, run.Job.Replicas).Select(i => JobPodName(run.Id!.Value, i)).ToList();
+        var workerPodNames = run.Worker is not null ? Enumerable.Range(0, run.Worker.Replicas).Select(i => WorkerPodName(run.Id!.Value, i)).ToList() : [];
 
-        if (pods is [var singlePod] && pods[0].Spec.Containers is [var singleContainer])
+        List<string>? jobContainerNames = null;
+        List<string>? workerContainerNames = null;
+
+        if (_runStateObserver.TryGetRunObjectSnapshot(run.Id!.Value, out var runObjects))
+        {
+            jobContainerNames = runObjects!.JobPods.FirstOrDefault(p => p != null)?.Spec.Containers.Select(c => c.Name).ToList();
+            workerContainerNames = runObjects!.WorkerPods?.FirstOrDefault(p => p != null)?.Spec.Containers.Select(c => c.Name).ToList();
+        }
+
+        if (jobContainerNames is null)
+        {
+            foreach (var jobPodName in jobPodNames)
+            {
+                try
+                {
+                    var jobPod = await _client.CoreV1.ReadNamespacedPodAsync(jobPodName, _k8sOptions.Namespace, cancellationToken: cancellationToken);
+                    jobContainerNames = jobPod.Spec.Containers.Select(c => c.Name).ToList();
+                    break;
+                }
+                catch (HttpOperationException e) when (e.Response.StatusCode == HttpStatusCode.NotFound)
+                {
+                }
+            }
+        }
+
+        if (workerContainerNames is null && workerPodNames.Count > 0)
+        {
+            foreach (var workerPodName in workerPodNames)
+            {
+                try
+                {
+                    var workerPod = await _client.CoreV1.ReadNamespacedPodAsync(workerPodName, _k8sOptions.Namespace, cancellationToken: cancellationToken);
+                    workerContainerNames = workerPod.Spec.Containers.Select(c => c.Name).ToList();
+                    break;
+                }
+                catch (HttpOperationException e) when (e.Response.StatusCode == HttpStatusCode.NotFound)
+                {
+                }
+            }
+        }
+
+        var jobsAndContainers = jobContainerNames is not null ? jobPodNames.SelectMany(j => jobContainerNames.Select(c => (j, c))) : [];
+        var workersAndContainers = workerContainerNames is not null ? workerPodNames.SelectMany(j => workerContainerNames.Select(c => (j, c))) : [];
+
+        List<(string pod, string container)> podAndContainers = [.. jobsAndContainers, .. workersAndContainers];
+
+        var podLogOptions = options with { Follow = false };
+
+        if (podAndContainers is [(var singlePod, var singleContainer)])
         {
             // simple case where no merging or transforming is required.
-            return await GetLogsFromPod(singlePod.Name(), singleContainer.Name, GetPrefix(run, singlePod, singleContainer), podLogOptions, cancellationToken);
+            return await GetLogsFromPod(singlePod, singleContainer, GetPrefix(run, singlePod, singleContainer, podAndContainers), podLogOptions, cancellationToken);
         }
 
         podLogOptions = podLogOptions with { IncludeTimestamps = true };
 
-        var pipelines = await pods
-            .SelectMany(p => p.Spec.Containers.Select(c => (pod: p, container: c)))
+        var pipelines = await podAndContainers
             .ToAsyncEnumerable()
-            .SelectAwait(async p => (await GetLogsFromPod(p.pod.Name(), p.container.Name, GetPrefix(run, p.pod, p.container), podLogOptions, cancellationToken))!)
+            .SelectAwait(async pc => (await GetLogsFromPod(pc.pod, pc.container, GetPrefix(run, pc.pod, pc.container, podAndContainers), podLogOptions, cancellationToken))!)
             .Where(p => p != null)
             .ToArrayAsync(cancellationToken);
 
@@ -324,6 +369,36 @@ Finished:
         }
 
         return string.Concat(PodPrefix(run, pod), ContainerPrefix(container, pod.Spec.Containers.Count == 1));
+    }
+
+    private static string? GetPrefix(Run run, string podName, string containerName, List<(string pod, string container)> podAndContainers)
+    {
+        static string? PodPrefix(Run run, string podName)
+        {
+            var totalReplicas = run.Job.Replicas + (run.Worker?.Replicas ?? 0);
+            if (totalReplicas == 1)
+            {
+                return null;
+            }
+
+            if (IsWorkerPodName(podName))
+            {
+                return run.Worker!.Replicas is > 1 ? $"[{RemoveRunPrefix(podName)}]" : "[worker]";
+            }
+
+            return run.Job.Replicas is > 1 ? $"[{RemoveRunPrefix(podName)}]" : "[job]";
+        }
+
+        static string? ContainerPrefix(string podName, string containerName, List<(string pod, string container)> podAndContainers)
+        {
+            return podAndContainers.Count(pc => pc.pod == podName) switch
+            {
+                1 => null,
+                _ => $"[{containerName}]"
+            };
+        }
+
+        return string.Concat(PodPrefix(run, podName), ContainerPrefix(podName, containerName, podAndContainers));
     }
 
     // We need to do the HTTP request ourselves because the sinceTime parameter is missing https://github.com/kubernetes-client/csharp/issues/829
