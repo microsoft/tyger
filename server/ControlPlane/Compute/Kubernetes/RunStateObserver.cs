@@ -3,6 +3,7 @@ using k8s;
 using k8s.Models;
 using Microsoft.Extensions.Options;
 using Tyger.ControlPlane.Database;
+using Tyger.ControlPlane.Model;
 using static Tyger.ControlPlane.Compute.Kubernetes.KubernetesMetadata;
 
 namespace Tyger.ControlPlane.Compute.Kubernetes;
@@ -15,6 +16,7 @@ public class RunStateObserver : BackgroundService
     private readonly KubernetesApiOptions _kubernetesOptions;
     private readonly ILogger<RunStateObserver> _logger;
     private readonly Dictionary<long, RunObjects> _cache = [];
+    private readonly Dictionary<long, List<ChannelWriter<(RunObjects, WatchEventType, V1Pod)>>> _listeners = [];
     private Task? _podInformerTask;
     private readonly CancellationTokenSource _cancellationTokenSource = new();
     private readonly Channel<(WatchEventType eventType, V1Pod resource)> _podUpdatesChannel = Channel.CreateBounded<(WatchEventType, V1Pod)>(new BoundedChannelOptions(1024));
@@ -96,6 +98,38 @@ public class RunStateObserver : BackgroundService
         return res;
     }
 
+    public RunObjects? RegisterRunObjectsListener(long runId, ChannelWriter<(RunObjects, WatchEventType, V1Pod)> listener)
+    {
+        RunObjects? runObjects;
+        lock (_cache)
+        {
+            _cache.TryGetValue(runId, out runObjects);
+            if (!_listeners.TryGetValue(runId, out var listeners))
+            {
+                listeners = [];
+                _listeners[runId] = listeners;
+            }
+
+            listeners.Add(listener);
+        }
+
+        return runObjects;
+    }
+
+    public void UnregisterRunObjectsListener(long runId, ChannelWriter<(RunObjects, WatchEventType, V1Pod)> listener)
+    {
+        lock (_cache)
+        {
+            if (_listeners.TryGetValue(runId, out var listeners))
+            {
+                if (listeners.Remove(listener) && listeners.Count == 0)
+                {
+                    _listeners.Remove(runId);
+                }
+            }
+        }
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         stoppingToken.Register(_cancellationTokenSource.Cancel);
@@ -110,10 +144,12 @@ public class RunStateObserver : BackgroundService
                     continue;
                 }
 
+                List<ChannelWriter<(RunObjects, WatchEventType, V1Pod)>>? listeners;
                 RunObjects? runObjects;
                 lock (_cache)
                 {
                     _cache.TryGetValue(runId.Value, out runObjects);
+                    _listeners.TryGetValue(runId.Value, out listeners);
                 }
 
                 if (eventType == WatchEventType.Deleted)
@@ -122,25 +158,27 @@ public class RunStateObserver : BackgroundService
                     {
                         if (pod.GetLabel(WorkerLabel) is not null)
                         {
-                            if (runObjects.WorkerPods != null)
-                            {
-                                runObjects.WorkerPods[IndexFromPodName(pod.Name())] = null;
-                            }
+                            runObjects.WorkerPods[IndexFromPodName(pod.Name())] = null;
                         }
                         else
                         {
-                            if (runObjects.JobPods != null)
-                            {
-                                runObjects.JobPods[IndexFromPodName(pod.Name())] = null;
-                            }
+                            runObjects.JobPods[IndexFromPodName(pod.Name())] = null;
                         }
 
-                        if ((runObjects.JobPods == null || runObjects.JobPods.All(p => p == null)) &&
-                            (runObjects.WorkerPods == null || runObjects.WorkerPods.All(p => p == null)))
+                        if (runObjects.JobPods.All(p => p == null) &&
+                            runObjects.WorkerPods.All(p => p == null))
                         {
                             lock (_cache)
                             {
                                 _cache.Remove(runId.Value);
+                            }
+                        }
+
+                        if (listeners != null)
+                        {
+                            foreach (var listener in listeners)
+                            {
+                                await listener.WriteAsync((runObjects, eventType, pod), stoppingToken);
                             }
                         }
                     }
@@ -172,6 +210,14 @@ public class RunStateObserver : BackgroundService
                 if (!previousState.Equals(currentState))
                 {
                     await _repository.UpdateRunFromObservedState(currentState, stoppingToken); // TODO: handle failure
+                }
+
+                if (listeners != null)
+                {
+                    foreach (var listener in listeners)
+                    {
+                        await listener.WriteAsync((runObjects!, eventType, pod), stoppingToken);
+                    }
                 }
             }
         }

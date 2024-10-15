@@ -4,9 +4,11 @@
 using System.Collections.Immutable;
 using System.ComponentModel.DataAnnotations;
 using System.Globalization;
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using k8s;
+using k8s.Autorest;
 using k8s.Models;
 using Microsoft.Extensions.Options;
 using Tyger.ControlPlane.Buffers;
@@ -170,7 +172,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
             AddWaitForWorkerInitContainersToJob(jobPod, run);
             AddWorkerNodesEnvironmentVariables(jobPod, run, workerCodespec);
 
-            await _client.AppsV1.CreateNamespacedStatefulSetAsync(workerStatefulSet, _k8sOptions.Namespace, cancellationToken: cancellationToken);
+            await CreateObjectHandleAlreadyExists(() => _client.AppsV1.CreateNamespacedStatefulSetAsync(workerStatefulSet, _k8sOptions.Namespace, cancellationToken: cancellationToken));
 
             var headlessWorkerService = new V1Service
             {
@@ -186,13 +188,14 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
                 }
             };
 
-            await _client.CoreV1.CreateNamespacedServiceAsync(headlessWorkerService, _k8sOptions.Namespace, cancellationToken: cancellationToken);
+            await CreateObjectHandleAlreadyExists(() => _client.CoreV1.CreateNamespacedServiceAsync(headlessWorkerService, _k8sOptions.Namespace, cancellationToken: cancellationToken));
         }
 
-        await _client.CoreV1.CreateNamespacedPodAsync(jobPod, _k8sOptions.Namespace, cancellationToken: cancellationToken);
+        await CreateObjectHandleAlreadyExists(() => _client.CoreV1.CreateNamespacedPodAsync(jobPod, _k8sOptions.Namespace, cancellationToken: cancellationToken));
         for (var i = 1; i < run.Job.Replicas; i++)
         {
             jobPod.Metadata.Name = JobPodName(run.Id!.Value, i);
+            await CreateObjectHandleAlreadyExists(() => _client.CoreV1.CreateNamespacedPodAsync(jobPod, _k8sOptions.Namespace, cancellationToken: cancellationToken));
         }
 
         // Phase 4: Inform the database that the Kubernetes objects have been created in the cluster.
@@ -418,8 +421,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
             }
         }
 
-        await _client.CoreV1.CreateNamespacedSecretAsync(buffersSecret, _k8sOptions.Namespace, cancellationToken: cancellationToken);
-        _logger.CreatedSecret(buffersSecret.Metadata.Name);
+        await CreateObjectHandleAlreadyExists(() => _client.CoreV1.CreateNamespacedSecretAsync(buffersSecret, _k8sOptions.Namespace, cancellationToken: cancellationToken));
     }
 
     private static V1Container GetMainContainer(V1PodSpec podSpec) => podSpec.Containers.Single(c => c.Name == "main");
@@ -595,5 +597,17 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
     {
         return vmSize.StartsWith("Standard_N", StringComparison.OrdinalIgnoreCase) &&
             !vmSize.EndsWith("_v4", StringComparison.OrdinalIgnoreCase); // unsupported AMD GPU
+    }
+
+    private async Task CreateObjectHandleAlreadyExists(Func<Task> createObject)
+    {
+        try
+        {
+            await createObject();
+        }
+        catch (HttpOperationException e) when (e.Response.StatusCode == HttpStatusCode.Conflict)
+        {
+            _logger.KubernetesObjectAlreadyExists(e.Request.RequestUri!.ToString());
+        }
     }
 }

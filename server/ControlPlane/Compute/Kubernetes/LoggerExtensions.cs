@@ -5,8 +5,8 @@ namespace Tyger.ControlPlane.Compute.Kubernetes;
 
 public static partial class LoggerExtensions
 {
-    [LoggerMessage(LogLevel.Information, "Created secret {secretName}")]
-    public static partial void CreatedSecret(this ILogger logger, string secretName);
+    [LoggerMessage(LogLevel.Information, "Kubernetes object {path} already exists.")]
+    public static partial void KubernetesObjectAlreadyExists(this ILogger logger, string path);
 
     [LoggerMessage(LogLevel.Error, "The job {job} for run was not found in the cluster")]
     public static partial void RunMissingJob(this ILogger logger, string job);

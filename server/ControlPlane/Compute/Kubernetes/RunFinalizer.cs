@@ -90,7 +90,7 @@ public class RunFinalizer : BackgroundService
     private async Task ArchiveLogs(long runId, CancellationToken cancellationToken)
     {
         var pipeline = await _logSource.GetLogs(runId, new GetLogsOptions { IncludeTimestamps = true }, cancellationToken);
-        pipeline ??= new Pipeline(Array.Empty<byte>());
+        pipeline ??= new Pipeline([]);
 
         await _logArchive.ArchiveLogs(runId, pipeline, cancellationToken);
     }
@@ -101,7 +101,7 @@ public class RunFinalizer : BackgroundService
         {
             try
             {
-                await _client.CoreV1.DeleteNamespacedPodAsync(JobPodName(runState.Id, i), _k8sOptions.Namespace, cancellationToken: cancellationToken);
+                await _client.CoreV1.DeleteNamespacedPodAsync(JobPodName(runState.Id, i), _k8sOptions.Namespace, gracePeriodSeconds: 2, cancellationToken: cancellationToken);
             }
             catch (HttpOperationException ex) when (ex.Response.StatusCode == HttpStatusCode.NotFound)
             {
