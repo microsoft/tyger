@@ -31,6 +31,7 @@ public static class Buffers
                 builder.Services.AddSingleton<AzureBlobBufferProvider>();
                 builder.Services.AddSingleton<IBufferProvider>(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
                 builder.Services.AddHostedService(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
+                builder.Services.Insert(0, ServiceDescriptor.Singleton<IHostedService>(sp => sp.GetRequiredService<AzureBlobBufferProvider>())); // Other startup services depend on this, so we add it early.
                 builder.Services.AddHealthChecks().AddCheck<AzureBlobBufferProvider>("buffers");
                 break;
             case (false, true):
