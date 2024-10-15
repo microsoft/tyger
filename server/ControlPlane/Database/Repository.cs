@@ -481,7 +481,7 @@ public class Repository : IRepository
                 if (fields is { Length: 1 or 2 })
                 {
                     var id = fields[^1];
-                    sb.AppendLine($"AND id < ${++paramNumber})");
+                    sb.AppendLine($"AND id < ${++paramNumber}");
                     parameters.Add(new() { Value = id, NpgsqlDbType = NpgsqlDbType.Bigint });
                     valid = true;
                 }
