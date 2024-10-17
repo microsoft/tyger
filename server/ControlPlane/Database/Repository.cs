@@ -496,14 +496,14 @@ public class Repository : IRepository
         return res;
     }
 
-    public async Task<(IList<Run>, string? nextContinuationToken)> GetRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken)
+    public async Task<(IList<Run>, string? nextContinuationToken)> GetRuns(int limit, bool onlyResourcesCreated, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken)
     {
+        bool hasPredicate = onlyResourcesCreated;
         var sb = new StringBuilder();
-        sb.Append("""
+        sb.Append($"""
             SELECT run, final, logs_archived_at
             FROM runs
-            WHERE resources_created = true
-
+            {(onlyResourcesCreated ? "WHERE resources_created = true\n" : "")}
             """);
 
         var parameters = new List<NpgsqlParameter>();
@@ -518,9 +518,10 @@ public class Repository : IRepository
                 if (fields is { Length: 1 or 2 })
                 {
                     var id = fields[^1];
-                    sb.AppendLine($"AND id < ${++paramNumber}");
+                    sb.AppendLine($"{(hasPredicate ? "AND" : "WHERE")} id < ${++paramNumber}");
                     parameters.Add(new() { Value = id, NpgsqlDbType = NpgsqlDbType.Bigint });
                     valid = true;
+                    hasPredicate = true;
                 }
             }
             catch (Exception e) when (e is JsonException or FormatException)
@@ -535,7 +536,7 @@ public class Repository : IRepository
 
         if (since.HasValue)
         {
-            sb.AppendLine($"AND created_at > ${++paramNumber}");
+            sb.AppendLine($"{(hasPredicate ? "AND" : "WHERE")} created_at > ${++paramNumber}");
             parameters.Add(new() { Value = since.Value, NpgsqlDbType = NpgsqlDbType.TimestampTz });
         }
 
@@ -1134,7 +1135,7 @@ public class Repository : IRepository
                     {
                         Connection = connection,
                         Transaction = tx,
-                        CommandText = "SELECT COUNT(*) FROM runs WHERE resources_created = true AND final = false", // TODO: needs index
+                        CommandText = "SELECT COUNT(*) FROM runs WHERE resources_created = true AND final = false",
                     })
                     {
                         await countActiveRunsCommand.PrepareAsync(cancellationToken);
@@ -1220,7 +1221,7 @@ public class Repository : IRepository
             Connection = connection,
             CommandText = """
                 SELECT run from runs
-                WHERE final = false and status IN ('Failed', 'Succeeded', 'Canceled')
+                WHERE final = false AND (resources_created = true OR status IN ('Failed', 'Succeeded', 'Canceled'))
                 """,
         })
         {

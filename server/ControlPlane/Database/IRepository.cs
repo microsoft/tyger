@@ -21,7 +21,7 @@ public interface IRepository
     Task DeleteRun(long id, CancellationToken cancellationToken);
     Task<Run?> GetRun(long id, CancellationToken cancellationToken);
     Task<IDictionary<RunStatus, long>> GetRunCounts(DateTimeOffset? since, CancellationToken cancellationToken);
-    Task<(IList<Run>, string? nextContinuationToken)> GetRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken);
+    Task<(IList<Run>, string? nextContinuationToken)> GetRuns(int limit, bool onlyResourcesCreated, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken);
     Task<IList<Run>> GetPageOfRunsThatNeverGotResources(CancellationToken cancellationToken);
     Task<bool> CheckBuffersExist(ICollection<string> bufferIds, CancellationToken cancellationToken);
     Task<Model.Buffer?> GetBuffer(string id, string eTag, CancellationToken cancellationToken);

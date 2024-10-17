@@ -14,16 +14,13 @@ public partial class KubernetesRunReader : IRunReader
 {
     private readonly IRepository _repository;
     private readonly RunChangeFeed _changeFeed;
-    private readonly ILogger<KubernetesRunReader> _logger;
 
     public KubernetesRunReader(
         IRepository repository,
-        RunChangeFeed changeFeed,
-        ILogger<KubernetesRunReader> logger)
+        RunChangeFeed changeFeed)
     {
         _repository = repository;
         _changeFeed = changeFeed;
-        _logger = logger;
     }
 
     public async Task<IDictionary<RunStatus, long>> GetRunCounts(DateTimeOffset? since, CancellationToken cancellationToken)
@@ -33,7 +30,7 @@ public partial class KubernetesRunReader : IRunReader
 
     public async Task<(IReadOnlyList<Run>, string? nextContinuationToken)> ListRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken)
     {
-        (var partialRuns, var nextContinuationToken) = await _repository.GetRuns(limit, since, continuationToken, cancellationToken);
+        (var partialRuns, var nextContinuationToken) = await _repository.GetRuns(limit, false, since, continuationToken, cancellationToken);
 
         return (partialRuns.AsReadOnly(), nextContinuationToken);
     }

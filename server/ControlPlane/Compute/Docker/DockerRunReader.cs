@@ -55,7 +55,7 @@ public class DockerRunReader : IRunReader
 
     public async Task<(IReadOnlyList<Run>, string? nextContinuationToken)> ListRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken)
     {
-        (var partialRuns, var nextContinuationToken) = await _repository.GetRuns(limit, since, continuationToken, cancellationToken);
+        (var partialRuns, var nextContinuationToken) = await _repository.GetRuns(limit, true, since, continuationToken, cancellationToken);
         if (partialRuns.All(r => r.Final))
         {
             return (partialRuns.AsReadOnly(), nextContinuationToken);

@@ -4,7 +4,6 @@
 using System.Text.Json;
 using Npgsql;
 using Polly;
-using Tyger.ControlPlane.Compute.Kubernetes;
 using Tyger.ControlPlane.Model;
 using Buffer = Tyger.ControlPlane.Model.Buffer;
 
@@ -90,9 +89,9 @@ public class RepositoryWithRetry : IRepository
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.GetRunCounts(since, cancellationToken), cancellationToken);
     }
 
-    public async Task<(IList<Run>, string? nextContinuationToken)> GetRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken)
+    public async Task<(IList<Run>, string? nextContinuationToken)> GetRuns(int limit, bool onlyResourcesCreated, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken)
     {
-        return await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.GetRuns(limit, since, continuationToken, cancellationToken), cancellationToken);
+        return await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.GetRuns(limit, onlyResourcesCreated, since, continuationToken, cancellationToken), cancellationToken);
     }
 
     public async Task<Buffer?> UpdateBufferById(string id, string eTag, IDictionary<string, string>? tags, CancellationToken cancellationToken)
