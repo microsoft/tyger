@@ -89,6 +89,11 @@ public class RepositoryWithRetry : IRepository
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.GetRunCounts(since, cancellationToken), cancellationToken);
     }
 
+    public async Task<IDictionary<RunStatus, long>> GetRunCountsWithCallbackForNonFinal(DateTimeOffset? since, Func<Run, CancellationToken, Task<Run>> updateRun, CancellationToken cancellationToken)
+    {
+        return await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.GetRunCountsWithCallbackForNonFinal(since, updateRun, cancellationToken), cancellationToken);
+    }
+
     public async Task<(IList<Run>, string? nextContinuationToken)> GetRuns(int limit, bool onlyResourcesCreated, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.GetRuns(limit, onlyResourcesCreated, since, continuationToken, cancellationToken), cancellationToken);

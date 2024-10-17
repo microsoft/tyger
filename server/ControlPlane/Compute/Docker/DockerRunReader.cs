@@ -23,9 +23,9 @@ public class DockerRunReader : IRunReader
         _repository = repository;
     }
 
-    public Task<IDictionary<RunStatus, long>> GetRunCounts(DateTimeOffset? since, CancellationToken cancellationToken)
+    public async Task<IDictionary<RunStatus, long>> GetRunCounts(DateTimeOffset? since, CancellationToken cancellationToken)
     {
-        throw new ValidationException("Not implemented");
+        return await _repository.GetRunCountsWithCallbackForNonFinal(since, UpdateRunFromContainers, cancellationToken);
     }
 
     public async Task<Run?> GetRun(long id, CancellationToken cancellationToken)
@@ -36,6 +36,11 @@ public class DockerRunReader : IRunReader
             return run;
         }
 
+        return await UpdateRunFromContainers(run, cancellationToken);
+    }
+
+    private async Task<Run> UpdateRunFromContainers(Run run, CancellationToken cancellationToken)
+    {
         var containers = await (await _client.Containers
             .ListContainersAsync(
                 new ContainersListParameters()
@@ -43,7 +48,7 @@ public class DockerRunReader : IRunReader
                     All = true,
                     Filters = new Dictionary<string, IDictionary<string, bool>>
                     {
-                        {"label", new Dictionary<string, bool>{{ $"tyger-run={id}", true } } }
+                        {"label", new Dictionary<string, bool>{{ $"tyger-run={run.Id!.Value}", true } } }
                     }
                 }, cancellationToken))
             .ToAsyncEnumerable()

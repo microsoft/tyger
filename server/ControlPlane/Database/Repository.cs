@@ -496,6 +496,64 @@ public class Repository : IRepository
         return res;
     }
 
+    public async Task<IDictionary<RunStatus, long>> GetRunCountsWithCallbackForNonFinal(DateTimeOffset? since, Func<Run, CancellationToken, Task<Run>> updateRun, CancellationToken cancellationToken)
+    {
+        var res = new Dictionary<RunStatus, long>();
+        await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var tx = await conn.BeginTransactionAsync(cancellationToken);
+        await using (var finalsCommand =
+            since == null
+            ? new NpgsqlCommand("""
+                SELECT status, count(*)
+                FROM runs
+                WHERE final = true
+                GROUP BY status
+                """, conn, tx)
+            : new NpgsqlCommand("""
+                SELECT status, count(*)
+                FROM runs
+                WHERE final = true AND created_at > $1
+                GROUP BY status
+                """, conn, tx)
+            {
+                Parameters = { new() { Value = since.Value, NpgsqlDbType = NpgsqlDbType.TimestampTz } }
+            })
+        {
+            await finalsCommand.PrepareAsync(cancellationToken);
+            await using var finalsReader = await finalsCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+            while (await finalsReader.ReadAsync(cancellationToken))
+            {
+                var status = finalsReader.GetString(0);
+                var count = finalsReader.GetInt64(1);
+                res.Add(Enum.Parse<RunStatus>(status), count);
+            }
+        }
+
+        await using var nonFinalsCommand = new NpgsqlCommand("""
+            SELECT run
+            FROM runs
+            WHERE final = false
+            """, conn, tx);
+
+        await nonFinalsCommand.PrepareAsync(cancellationToken);
+        await using var nonFinalsReader = await nonFinalsCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+        while (await nonFinalsReader.ReadAsync(cancellationToken))
+        {
+            var runJson = nonFinalsReader.GetString(0);
+            var run = JsonSerializer.Deserialize<Run>(runJson, _serializerOptions) ?? throw new InvalidOperationException("Failed to deserialize run.");
+            var updatedRun = await updateRun(run, cancellationToken);
+            if (!res.TryGetValue(updatedRun.Status!.Value, out var count))
+            {
+                count = 0;
+            }
+
+            res[updatedRun.Status!.Value] = count + 1;
+        }
+
+        return res;
+    }
+
+
     public async Task<(IList<Run>, string? nextContinuationToken)> GetRuns(int limit, bool onlyResourcesCreated, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken)
     {
         bool hasPredicate = onlyResourcesCreated;
