@@ -28,7 +28,7 @@ public class DockerRunUpdater : IRunUpdater
     {
         var run = await _repository.GetRun(id, cancellationToken);
 
-        if (run is null or { Final: true } or { Status: RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceling or RunStatus.Canceled })
+        if (run is null or { Final: true } || run.Status.IsTerminal())
         {
             return run;
         }

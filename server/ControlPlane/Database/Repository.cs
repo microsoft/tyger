@@ -3,13 +3,11 @@
 
 using System.ComponentModel.DataAnnotations;
 using System.Data;
-using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using Npgsql;
 using NpgsqlTypes;
 using SimpleBase;
-using Tyger.ControlPlane.Compute.Kubernetes;
 using Tyger.ControlPlane.Model;
 using Buffer = Tyger.ControlPlane.Model.Buffer;
 
@@ -355,7 +353,7 @@ public class Repository : IRepository
             SELECT run
             FROM runs
             WHERE id = $1
-                AND run->>'status' NOT IN ('Failed', 'Succeeded', 'Canceled')
+                AND status NOT IN ('Failed', 'Succeeded', 'Canceled')
             FOR UPDATE
             """, conn)
         {
@@ -410,6 +408,12 @@ public class Repository : IRepository
         await notifyCommand.ExecuteNonQueryAsync(cancellationToken);
 
         await tx.CommitAsync(cancellationToken);
+
+        if (updatedRun.Status.IsTerminal())
+        {
+            var timeToDetect = DateTimeOffset.UtcNow - updatedRun.FinishedAt!.Value;
+            _logger.TerminalStateRecorded(state.Id, timeToDetect);
+        }
     }
 
     public async Task DeleteRun(long id, CancellationToken cancellationToken)
@@ -457,6 +461,39 @@ public class Repository : IRepository
         var logsArchivedAt = reader.IsDBNull(2) ? (DateTime?)null : reader.GetDateTime(2);
         var run = JsonSerializer.Deserialize<Run>(runJson, _serializerOptions) ?? throw new InvalidOperationException("Failed to deserialize run.");
         return run with { Id = id, Final = final, LogsArchivedAt = logsArchivedAt };
+    }
+
+    public async Task<IDictionary<RunStatus, long>> GetRunCounts(DateTimeOffset? since, CancellationToken cancellationToken)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var cmd =
+            since == null
+            ? new NpgsqlCommand("""
+                SELECT status, count(*)
+                FROM runs
+                GROUP BY status
+                """, conn)
+            : new NpgsqlCommand("""
+                SELECT status, count(*)
+                FROM runs
+                WHERE created_at > $1
+                GROUP BY status
+                """, conn)
+            {
+                Parameters = { new() { Value = since.Value, NpgsqlDbType = NpgsqlDbType.TimestampTz } }
+            };
+
+        await cmd.PrepareAsync(cancellationToken);
+        await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+        var res = new Dictionary<RunStatus, long>();
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var status = reader.GetString(0);
+            var count = reader.GetInt64(1);
+            res.Add(Enum.Parse<RunStatus>(status), count);
+        }
+
+        return res;
     }
 
     public async Task<(IList<Run>, string? nextContinuationToken)> GetRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken)
@@ -1183,7 +1220,7 @@ public class Repository : IRepository
             Connection = connection,
             CommandText = """
                 SELECT run from runs
-                WHERE final = false and run->>'status' IN ('Failed', 'Succeeded', 'Canceled')
+                WHERE final = false and status IN ('Failed', 'Succeeded', 'Canceled')
                 """,
         })
         {
@@ -1202,8 +1239,10 @@ public class Repository : IRepository
 
         while (true)
         {
-            await connection.WaitAsync(cancellationToken);
-            await ProcessPayloads();
+            if (await connection.WaitAsync(TimeSpan.FromMinutes(1), cancellationToken))
+            {
+                await ProcessPayloads();
+            }
         }
     }
 }

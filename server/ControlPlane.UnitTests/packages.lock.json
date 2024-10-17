@@ -212,8 +212,8 @@
       },
       "Microsoft.Extensions.AmbientMetadata.Application": {
         "type": "Transitive",
-        "resolved": "8.7.0",
-        "contentHash": "Rz2ZAmDxyZ33IwtGvgHFvpRkYAmOWTIjpUeGUX83mWtjnjxFTeq3R5QxQNWBdL3THnaYzk6Ylkgr6NQE9eYjPw==",
+        "resolved": "8.9.1",
+        "contentHash": "9na5Z6N+Yq6KQGaX+4JrpNYSU/huXSNHwx1EcMkBU7hpKk6vkyDFixBNM0ttxxmo7KMCvpvzo8MnYH38y7oadQ==",
         "dependencies": {
           "Microsoft.Extensions.Configuration": "8.0.0",
           "Microsoft.Extensions.Hosting.Abstractions": "8.0.0",
@@ -227,11 +227,11 @@
       },
       "Microsoft.Extensions.Compliance.Abstractions": {
         "type": "Transitive",
-        "resolved": "8.7.0",
-        "contentHash": "3VWIQcw2rrej4RJISIGJA5TNFvkCOPN/vlgf0eFvpjQ2YclWakBrWmEMC+9uuBBvnr5r85H3WiWZlr+2JWqnLg==",
+        "resolved": "8.9.1",
+        "contentHash": "fRTBd6+GourfQ+WMC7vYzyH9dHPH0mvnI9+zMo7MpmI1y17MLqB0HvjKOG9dmak4Cm1KL+I2kYmH3joXLkQknw==",
         "dependencies": {
           "Microsoft.Extensions.DependencyInjection.Abstractions": "8.0.1",
-          "Microsoft.Extensions.ObjectPool": "8.0.7"
+          "Microsoft.Extensions.ObjectPool": "8.0.8"
         }
       },
       "Microsoft.Extensions.Configuration": {
@@ -253,8 +253,8 @@
       },
       "Microsoft.Extensions.Configuration.Binder": {
         "type": "Transitive",
-        "resolved": "8.0.1",
-        "contentHash": "2UKFJnLiBt7Od6nCnTqP9rTIUNhzmn9Hv1l2FchyKbz8xieB9ULwZTbQZMw+M24Qw3F5dzzH1U9PPleN0LNLOQ==",
+        "resolved": "8.0.2",
+        "contentHash": "7IQhGK+wjyGrNsPBjJcZwWAr+Wf6D4+TwOptUt77bWtgNkiV8tDEbhFS+dDamtQFZ2X7kWG9m71iZQRj2x3zgQ==",
         "dependencies": {
           "Microsoft.Extensions.Configuration.Abstractions": "8.0.0"
         }
@@ -274,8 +274,8 @@
       },
       "Microsoft.Extensions.DependencyInjection.AutoActivation": {
         "type": "Transitive",
-        "resolved": "8.7.0",
-        "contentHash": "jfIh9IL5RTF+BYLpkk63xChQBJyodArzTjF6U12Gke78KVL01HW/tYf73SuQpJ20/LBNO/L6PzVBNFqHNbzraQ==",
+        "resolved": "8.9.1",
+        "contentHash": "BH/s2h0IkRJQhMlNmG58YE2T1pRe8qBsB46SoWLNnjWTQb4rPWZ0nycz7phFAgZOhGuMvGLDM2oX3Tn6T9uTpA==",
         "dependencies": {
           "Microsoft.Extensions.Hosting.Abstractions": "8.0.0"
         }
@@ -302,8 +302,8 @@
       },
       "Microsoft.Extensions.Diagnostics.ExceptionSummarization": {
         "type": "Transitive",
-        "resolved": "8.7.0",
-        "contentHash": "duqgZC2+Dymgw0FFQX9TWpr/FWc8bPZyzgye7W4qGRMG6d4VlD+jnZLFCW/OqFzyMa+hnYD8/sJNLSpinYQwCA==",
+        "resolved": "8.9.1",
+        "contentHash": "GwaU9Bljz4/yV5tk7lOyOo6ssW/3/jS6cocc7OBwwrvQBL1T8PRtaAzUKIQq0yDZE02WY5dGa0f+cSJ5R0wHsA==",
         "dependencies": {
           "Microsoft.Extensions.DependencyInjection.Abstractions": "8.0.1"
         }
@@ -343,25 +343,25 @@
       },
       "Microsoft.Extensions.Http.Diagnostics": {
         "type": "Transitive",
-        "resolved": "8.7.0",
-        "contentHash": "YQi1U9CAKEx0vLt0by94HSGnlLRlM6bQQ2J9gnDpMnz3lrEe74RxJKDtsneFoKLFRGPttdRzvFzfSsSF7t9sZg==",
+        "resolved": "8.9.1",
+        "contentHash": "OADwu5OBdV7xfCeqLY8oMGDkLo25jBFWRQz5pFia+IomcGQrB3xqKyfHA5yEcFnKQDe3r/hKOSLtRd4vnldK+w==",
         "dependencies": {
-          "Microsoft.Extensions.DependencyInjection.AutoActivation": "8.7.0",
+          "Microsoft.Extensions.DependencyInjection.AutoActivation": "8.9.1",
           "Microsoft.Extensions.Http": "8.0.0",
           "Microsoft.Extensions.Options.ConfigurationExtensions": "8.0.0",
-          "Microsoft.Extensions.Telemetry": "8.7.0",
+          "Microsoft.Extensions.Telemetry": "8.9.1",
           "Microsoft.IO.RecyclableMemoryStream": "3.0.0"
         }
       },
       "Microsoft.Extensions.Http.Resilience": {
         "type": "Transitive",
-        "resolved": "8.7.0",
-        "contentHash": "vrFhj5GD9g0q4jtt+Xb6X3alu4d7g5LrDD6mPCmz3VE4wW4T7WSXzio9sXLbv5cptvdO09jOU1HQ0ey96iSbzQ==",
+        "resolved": "8.9.1",
+        "contentHash": "WDoMPYEoVwb4cfKMpYFmeqEhSP1BclrskmvE9d2Ia8DDEDiX1ZZHbSiGtSiuR0J5+ubwyKeWZW2GaKkm05hCAA==",
         "dependencies": {
-          "Microsoft.Extensions.Configuration.Binder": "8.0.1",
-          "Microsoft.Extensions.Http.Diagnostics": "8.7.0",
-          "Microsoft.Extensions.ObjectPool": "8.0.7",
-          "Microsoft.Extensions.Resilience": "8.7.0"
+          "Microsoft.Extensions.Configuration.Binder": "8.0.2",
+          "Microsoft.Extensions.Http.Diagnostics": "8.9.1",
+          "Microsoft.Extensions.ObjectPool": "8.0.8",
+          "Microsoft.Extensions.Resilience": "8.9.1"
         }
       },
       "Microsoft.Extensions.Logging": {
@@ -399,8 +399,8 @@
       },
       "Microsoft.Extensions.ObjectPool": {
         "type": "Transitive",
-        "resolved": "8.0.7",
-        "contentHash": "2yLweyqmpuuFSRo+I3sLHMxmnAgNcI537kBJiyv49U2ZEqo00jZcG8lrnD8uCiOJp9IklYyTZULtbsXoFVzsjQ=="
+        "resolved": "8.0.8",
+        "contentHash": "wnjTFjEvvSbOs3iMfl6CeJcUgPHZMYUB9uAQbGQGxGwVRl4GydNpMSkVntTzoi7AqQeYumU9yDSNeVbpq+ebow=="
       },
       "Microsoft.Extensions.Options": {
         "type": "Transitive",
@@ -430,37 +430,37 @@
       },
       "Microsoft.Extensions.Resilience": {
         "type": "Transitive",
-        "resolved": "8.7.0",
-        "contentHash": "gUEr6idOLtR9oGZVkqgMnjkJ+5Bd8NpBY0H4sgZka3f16OiERSdyzJuXJyV0aEZUVY4Y90GxmaXcjS6HX9+AkA==",
+        "resolved": "8.9.1",
+        "contentHash": "tTEGuAvFFIfnjRUOokDdnh91WM/3pWfhgl7DsUFx9kAbXo6eF9G4i77eCLWtnBfqU977AUDQMaQuCM/KEXBtrg==",
         "dependencies": {
           "Microsoft.Extensions.Diagnostics": "8.0.0",
-          "Microsoft.Extensions.Diagnostics.ExceptionSummarization": "8.7.0",
+          "Microsoft.Extensions.Diagnostics.ExceptionSummarization": "8.9.1",
           "Microsoft.Extensions.Options.ConfigurationExtensions": "8.0.0",
-          "Microsoft.Extensions.Telemetry.Abstractions": "8.7.0",
+          "Microsoft.Extensions.Telemetry.Abstractions": "8.9.1",
           "Polly.Extensions": "8.4.1",
           "Polly.RateLimiting": "8.4.1"
         }
       },
       "Microsoft.Extensions.Telemetry": {
         "type": "Transitive",
-        "resolved": "8.7.0",
-        "contentHash": "SEm4GK+HW5XFy7hEXu56sGF3gPdbTu4iYBj+P7KinhrmZ2VqzdoR4wHMierCq2D+5VM0vHOTPX+9TsGEVnQJrQ==",
+        "resolved": "8.9.1",
+        "contentHash": "dV9rjWv7mHQGhTPhJfFweMRiPQoG34lx4v2TcWK5F3u5Os09OVyp+V55F0a0bQPH+XM16aH5P6nzPnHjUGYKDw==",
         "dependencies": {
-          "Microsoft.Extensions.AmbientMetadata.Application": "8.7.0",
-          "Microsoft.Extensions.DependencyInjection.AutoActivation": "8.7.0",
+          "Microsoft.Extensions.AmbientMetadata.Application": "8.9.1",
+          "Microsoft.Extensions.DependencyInjection.AutoActivation": "8.9.1",
           "Microsoft.Extensions.Logging.Configuration": "8.0.0",
-          "Microsoft.Extensions.ObjectPool": "8.0.7",
-          "Microsoft.Extensions.Telemetry.Abstractions": "8.7.0"
+          "Microsoft.Extensions.ObjectPool": "8.0.8",
+          "Microsoft.Extensions.Telemetry.Abstractions": "8.9.1"
         }
       },
       "Microsoft.Extensions.Telemetry.Abstractions": {
         "type": "Transitive",
-        "resolved": "8.7.0",
-        "contentHash": "gW0GQNGVoIKQqnfHx40M5Y2JltXjUv6sG+tIBQkLSJe18M80h38HNgPBhP2tTEwVBhiETrbxPQEyFe1mugaCdQ==",
+        "resolved": "8.9.1",
+        "contentHash": "bENN4kCy6f1SokJqwIrYba0Y/qa02j68GYMtvnbzks1JUWJmdHoylC9siI3R3duzQ0E2T1ugD0xdBiIMD0Rpiw==",
         "dependencies": {
-          "Microsoft.Extensions.Compliance.Abstractions": "8.7.0",
+          "Microsoft.Extensions.Compliance.Abstractions": "8.9.1",
           "Microsoft.Extensions.Logging.Abstractions": "8.0.1",
-          "Microsoft.Extensions.ObjectPool": "8.0.7",
+          "Microsoft.Extensions.ObjectPool": "8.0.8",
           "Microsoft.Extensions.Options": "8.0.2"
         }
       },
@@ -808,7 +808,7 @@
           "KubernetesClient": "[15.0.1, )",
           "Microsoft.AspNetCore.Authentication.JwtBearer": "[8.0.7, )",
           "Microsoft.AspNetCore.OpenApi": "[8.0.7, )",
-          "Microsoft.Extensions.Http.Resilience": "[8.7.0, )",
+          "Microsoft.Extensions.Http.Resilience": "[8.9.1, )",
           "Microsoft.IdentityModel.Protocols.OpenIdConnect": "[8.0.0, )",
           "Microsoft.OpenApi": "[1.6.15, )",
           "Npgsql": "[8.0.3, )",

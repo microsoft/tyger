@@ -41,7 +41,7 @@ public sealed class RunController : BackgroundService
 
     private async Task ProcessPageOfNewRuns(IReadOnlyList<Run> runs, CancellationToken cancellationToken)
     {
-        await Parallel.ForEachAsync(runs, cancellationToken, async (run, ct) =>
+        await Parallel.ForEachAsync(runs, new ParallelOptions { MaxDegreeOfParallelism = runs.Count, CancellationToken = cancellationToken }, async (run, ct) =>
         {
             try
             {

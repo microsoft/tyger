@@ -95,7 +95,7 @@ public sealed class DockerRunSweeper : BackgroundService, IRunSweeper
                     await _repository.DeleteRun(runId, cancellationToken);
                     await DeleteRunResources(runId, cancellationToken);
                     continue;
-                case { Status: RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceling or RunStatus.Canceled } run:
+                case var run when run.Status.IsTerminal():
 
                     switch (run)
                     {

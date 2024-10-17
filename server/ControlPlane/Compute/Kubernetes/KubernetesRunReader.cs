@@ -26,6 +26,11 @@ public partial class KubernetesRunReader : IRunReader
         _logger = logger;
     }
 
+    public async Task<IDictionary<RunStatus, long>> GetRunCounts(DateTimeOffset? since, CancellationToken cancellationToken)
+    {
+        return await _repository.GetRunCounts(since, cancellationToken);
+    }
+
     public async Task<(IReadOnlyList<Run>, string? nextContinuationToken)> ListRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken)
     {
         (var partialRuns, var nextContinuationToken) = await _repository.GetRuns(limit, since, continuationToken, cancellationToken);

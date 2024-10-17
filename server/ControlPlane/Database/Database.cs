@@ -30,7 +30,7 @@ public static class Database
                 ShouldHandle = new PredicateBuilder().Handle<NpgsqlException>(e => e.IsTransient),
                 BackoffType = DelayBackoffType.Exponential,
                 UseJitter = true,
-                MaxRetryAttempts = 4,
+                MaxRetryAttempts = 6,
                 Delay = TimeSpan.FromMilliseconds(250),
                 OnRetry = args =>
                 {
@@ -58,6 +58,7 @@ public static class Database
             }
 
             dataSourceBuilder.ConnectionStringBuilder.Username = databaseOptions.Username;
+            dataSourceBuilder.ConnectionStringBuilder.MaxPoolSize = 10000;
 
             if (string.IsNullOrEmpty(databaseOptions.PasswordFile))
             {

@@ -23,7 +23,7 @@ cloud:
           - name: cpunp
             vmSize: ${TYGER_CPU_NODE_SKU}
             minCount: ${TYGER_MIN_CPU_NODE_COUNT}
-            maxCount: 10
+            maxCount: 20
           - name: gpunp
             vmSize: ${TYGER_GPU_NODE_SKU}
             minCount: ${TYGER_MIN_GPU_NODE_COUNT}

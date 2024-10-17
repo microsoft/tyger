@@ -87,11 +87,15 @@ public class RequestLogging
         }
         finally
         {
-            _logger.RequestCompleted(
-                SanitizeUserInputForLogging(context.Request.Method),
-                SanitizeUserInputForLogging(context.Request.Path.ToString()),
-                RedactQueryStringValues(context.Request.Query),
-                context.Response.StatusCode, (Stopwatch.GetTimestamp() - start) * 1000.0 / Stopwatch.Frequency);
+            var end = Stopwatch.GetTimestamp();
+            if (context.Request.Path != "/healthcheck" || context.Response.StatusCode != 200)
+            {
+                _logger.RequestCompleted(
+                    SanitizeUserInputForLogging(context.Request.Method),
+                    SanitizeUserInputForLogging(context.Request.Path.ToString()),
+                    RedactQueryStringValues(context.Request.Query),
+                    context.Response.StatusCode, (end - start) * 1000.0 / Stopwatch.Frequency);
+            }
         }
     }
 

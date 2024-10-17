@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-using Tyger.ControlPlane.Compute.Kubernetes;
 using Tyger.ControlPlane.Model;
 
 namespace Tyger.ControlPlane.Database;
@@ -21,6 +20,7 @@ public interface IRepository
     Task UpdateRunFromObservedState(ObservedRunState state, CancellationToken cancellationToken);
     Task DeleteRun(long id, CancellationToken cancellationToken);
     Task<Run?> GetRun(long id, CancellationToken cancellationToken);
+    Task<IDictionary<RunStatus, long>> GetRunCounts(DateTimeOffset? since, CancellationToken cancellationToken);
     Task<(IList<Run>, string? nextContinuationToken)> GetRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken);
     Task<IList<Run>> GetPageOfRunsThatNeverGotResources(CancellationToken cancellationToken);
     Task<bool> CheckBuffersExist(ICollection<string> bufferIds, CancellationToken cancellationToken);

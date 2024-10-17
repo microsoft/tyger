@@ -70,6 +70,13 @@ public static class Runs
             return new RunPage(items, nextLink == null ? null : new Uri(nextLink));
         });
 
+        app.MapGet("/v1/runs/counts", async (IRunReader runReader, DateTimeOffset? since, HttpContext context) =>
+        {
+            var runs = await runReader.GetRunCounts(since, context.RequestAborted);
+            return Results.Ok(runs);
+        })
+        .Produces<IDictionary<RunStatus, long>>(StatusCodes.Status200OK);
+
         app.MapGet("/v1/runs/{runId}", async (
             string runId,
             bool? watch,
@@ -322,6 +329,7 @@ public interface IRunCreator
 
 public interface IRunReader
 {
+    Task<IDictionary<RunStatus, long>> GetRunCounts(DateTimeOffset? since, CancellationToken cancellationToken);
     Task<(IReadOnlyList<Run>, string? nextContinuationToken)> ListRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken);
     Task<Run?> GetRun(long id, CancellationToken cancellationToken);
     IAsyncEnumerable<Run> WatchRun(long id, CancellationToken cancellationToken);

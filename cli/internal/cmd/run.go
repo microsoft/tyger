@@ -61,6 +61,7 @@ func NewRunCommand() *cobra.Command {
 	cmd.AddCommand(newRunWatchCommand())
 	cmd.AddCommand(newRunLogsCommand())
 	cmd.AddCommand(newRunListCommand())
+	cmd.AddCommand(newRunCountsCommand())
 	cmd.AddCommand(newRunCancelCommand())
 
 	return cmd
@@ -622,6 +623,45 @@ func newRunListCommand() *cobra.Command {
 
 	cmd.Flags().StringVarP(&flags.since, "since", "s", "", "Results before this datetime (specified in local time) are not included")
 	cmd.Flags().IntVarP(&flags.limit, "limit", "l", 1000, "The maximum number of runs to list. Default 1000")
+
+	return cmd
+}
+
+func newRunCountsCommand() *cobra.Command {
+	var flags struct {
+		since string
+	}
+
+	cmd := &cobra.Command{
+		Use:                   "counts [--since DATE/TIME]",
+		Short:                 "Shows the count of runs by status",
+		Aliases:               []string{"count"},
+		DisableFlagsInUseLine: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			queryOptions := url.Values{}
+			if flags.since != "" {
+				now := time.Now()
+				tm, err := timeparser.ParseTimeStr(flags.since, &now)
+				if err != nil {
+					return fmt.Errorf("failed to parse time %s", flags.since)
+				}
+				queryOptions.Add("since", tm.UTC().Format(time.RFC3339Nano))
+			}
+
+			relativeUri := fmt.Sprintf("v1/runs/counts?%s", queryOptions.Encode())
+			results := map[string]int{}
+			if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, relativeUri, nil, &results); err != nil {
+				return err
+			}
+
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			enc.Encode(results)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&flags.since, "since", "s", "", "Results before this datetime (specified in local time) are not included")
 
 	return cmd
 }

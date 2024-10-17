@@ -5,7 +5,9 @@ using System.ComponentModel.DataAnnotations;
 using System.Diagnostics;
 using System.Net;
 using k8s;
+using Microsoft.Extensions.Http.Resilience;
 using Microsoft.Extensions.Options;
+using Polly;
 using Tyger.ControlPlane.Buffers;
 using Tyger.ControlPlane.Database;
 using Tyger.ControlPlane.Logging;
@@ -27,7 +29,18 @@ public static class Kubernetes
             var config = string.IsNullOrEmpty(kubernetesOptions.KubeconfigPath)
                 ? KubernetesClientConfiguration.InClusterConfig()
                 : KubernetesClientConfiguration.BuildConfigFromConfigFile(kubernetesOptions.KubeconfigPath);
-            return new k8s.Kubernetes(config, sp.GetRequiredService<LoggingHandler>());
+
+            var resilienceOptions = new HttpStandardResilienceOptions();
+            var pipeline = new ResiliencePipelineBuilder<HttpResponseMessage>()
+                .AddTimeout(resilienceOptions.TotalRequestTimeout)
+                .AddRetry(resilienceOptions.Retry)
+                .Build();
+
+#pragma warning disable EXTEXP0001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+            var resilienceHander = new ResilienceHandler(pipeline);
+#pragma warning restore EXTEXP0001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+
+            return new k8s.Kubernetes(config, sp.GetRequiredService<LoggingHandler>(), resilienceHander);
         });
         builder.Services.AddSingleton<IKubernetes>(sp => sp.GetRequiredService<k8s.Kubernetes>());
 

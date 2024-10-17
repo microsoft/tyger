@@ -133,7 +133,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         }
 
         jobPod.Metadata.Annotations = annotations;
-
+        jobPod.Spec.ActiveDeadlineSeconds = run.TimeoutSeconds;
 
         var bufferMap = await GetBufferMap(jobCodespec.Buffers, run.Job.Buffers, cancellationToken);
 

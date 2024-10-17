@@ -23,4 +23,6 @@ public static partial class LoggerExtensions
     [LoggerMessage(LogLevel.Information, "Duplicate idempotency key {idempotencyKey} received")]
     public static partial void DuplicateIdempotencyKeyReceived(this ILogger logger, string idempotencyKey);
 
+    [LoggerMessage(LogLevel.Information, "Terminal state recorded for {runid} with latency {timeToDetect}")]
+    public static partial void TerminalStateRecorded(this ILogger logger, long runId, TimeSpan timeToDetect);
 }

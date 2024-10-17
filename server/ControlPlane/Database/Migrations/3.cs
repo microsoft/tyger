@@ -12,7 +12,7 @@ public class Migrator3 : Migrator
         {
             batch.BatchCommands.Add(new(
                 """
-                CREATE TABLE run_idempotency_keys (
+                CREATE TABLE IF NOT EXISTS run_idempotency_keys (
                     idempotency_key text PRIMARY KEY NOT NULL,
                     run_id bigint NULL
                 );
@@ -27,6 +27,15 @@ public class Migrator3 : Migrator
             await batch.ExecuteNonQueryAsync(cancellationToken);
         }
 
+        using (var cmd = dataSource.CreateCommand("""
+            ALTER TABLE runs
+            ADD IF NOT EXISTS status text GENERATED ALWAYS AS (run->>'status') STORED;
+            """))
+        {
+            logger.LogInformation("Adding status column to runs");
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
         using (var cmd = dataSource.CreateCommand(
             """
             DROP INDEX IF EXISTS idx_runs_created_at_id;
@@ -36,26 +45,37 @@ public class Migrator3 : Migrator
             await cmd.ExecuteNonQueryAsync(cancellationToken);
         }
 
-        // await using var batch = dataSource.CreateBatch();
+        using (var cmd = dataSource.CreateCommand(
+            """
+            CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_runs_not_final
+            ON runs (created_at)
+            INCLUDE (status)
+            WHERE final = false;
+            """))
+        {
+            logger.LogInformation("Creating idx_runs_not_final");
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
 
-        // batch.BatchCommands.Add(new("""
-        //     CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_runs_status_not_final
-        //     ON runs ((run->>'status'), created_at)
-        //     WHERE final = false;
-        //     """));
+        using (var cmd = dataSource.CreateCommand(
+            """
+            CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_runs_created_at
+            ON runs (created_at)
+            INCLUDE (status);
+            """))
+        {
+            logger.LogInformation("Creating idx_runs_created_at");
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
 
-        // batch.BatchCommands.Add(new("""
-        //     CREATE INDEX idx_runs_pending_resources_not_created
-        //     ON runs (resources_created, created_at)
-        //     WHERE resources_created = false AND final = false and (run->>'status') = 'pending';
-        //     """));
-
-        // batch.BatchCommands.Add(new("""
-        //     CREATE INDEX idx_runs_pending_resources_not_created
-        //     ON runs (created_at)
-        //     WHERE resources_created = true AND final = false and (run->>'status') = 'pending';
-        //     """));
-
-        // await batch.ExecuteNonQueryAsync(cancellationToken);
+        using (var cmd = dataSource.CreateCommand(
+            """
+            CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_runs_status
+            ON runs (status);
+            """))
+        {
+            logger.LogInformation("Creating idx_runs_status");
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
     }
 }

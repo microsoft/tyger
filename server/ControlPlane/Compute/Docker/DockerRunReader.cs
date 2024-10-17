@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+using System.ComponentModel.DataAnnotations;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using Docker.DotNet;
@@ -20,6 +21,11 @@ public class DockerRunReader : IRunReader
     {
         _client = client;
         _repository = repository;
+    }
+
+    public Task<IDictionary<RunStatus, long>> GetRunCounts(DateTimeOffset? since, CancellationToken cancellationToken)
+    {
+        throw new ValidationException("Not implemented");
     }
 
     public async Task<Run?> GetRun(long id, CancellationToken cancellationToken)
