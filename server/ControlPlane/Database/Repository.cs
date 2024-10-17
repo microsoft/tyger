@@ -232,13 +232,9 @@ public class Repository : IRepository
             Transaction = tx,
             CommandText = """
                 INSERT INTO runs (run)
-                VALUES ($1)
+                VALUES ('{}')
                 RETURNING id, created_at
-                """,
-            Parameters =
-            {
-                new() { Value = JsonSerializer.Serialize(newRun, _serializerOptions), NpgsqlDbType = NpgsqlDbType.Jsonb },
-            }
+                """
         };
 
         await insertCommand.PrepareAsync(cancellationToken);
@@ -255,13 +251,12 @@ public class Repository : IRepository
         {
             CommandText = """
                 UPDATE runs
-                SET run = $1, created_at = $2
-                WHERE id = $3
+                SET run = $1
+                WHERE id = $2
                 """,
             Parameters =
             {
                 new() { Value = JsonSerializer.Serialize(run, _serializerOptions), NpgsqlDbType = NpgsqlDbType.Jsonb },
-                new() { Value = run.CreatedAt, NpgsqlDbType = NpgsqlDbType.TimestampTz },
                 new() { Value = run.Id, NpgsqlDbType = NpgsqlDbType.Bigint },
             },
         });

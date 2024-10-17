@@ -8,7 +8,7 @@ namespace Tyger.ControlPlane.Compute;
 public static partial class LoggerExtensions
 {
 
-    [LoggerMessage(LogLevel.Information, "Created run new {runId}")]
+    [LoggerMessage(LogLevel.Information, "Created new run {runId}")]
     public static partial void CreatedRun(this ILogger logger, long runId);
 
     [LoggerMessage(LogLevel.Information, "Created run {runId} resources")]
