@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -42,15 +43,13 @@ func main() {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				fmt.Print("\033[?25l")
-				defer fmt.Print("\033[?25h")
+				// fmt.Print("\033[?25l")
+				// defer fmt.Print("\033[?25h")
 
 				getCountsString := func() (string, bool) {
 					cmd := exec.Command("tyger", "run", "counts", "--since", startString)
 					b, err := cmd.Output()
-					if err != nil {
-						panic(err)
-					}
+					exitOnCmdError(err)
 
 					countByStatus := map[string]int64{}
 					if err := json.Unmarshal(b, &countByStatus); err != nil {
@@ -112,10 +111,8 @@ func main() {
 
 						limiter.Take()
 						cmd := exec.Command("tyger", "run", "create", "-f", f)
-						err := cmd.Run()
-						if err != nil {
-							panic(err)
-						}
+						_, err := cmd.Output()
+						exitOnCmdError(err)
 
 						i = postCount.Add(1)
 
@@ -154,4 +151,19 @@ type progress struct {
 	n         int32
 	timestamp time.Time
 	cycleRps  int
+}
+
+func exitOnCmdError(err error) {
+	if err == nil {
+		return
+	}
+
+	var exitError *exec.ExitError
+	if errors.As(err, &exitError) {
+		fmt.Fprintln(os.Stderr, string(exitError.Stderr))
+	} else {
+		fmt.Fprintln(os.Stderr, err)
+	}
+
+	os.Exit(1)
 }

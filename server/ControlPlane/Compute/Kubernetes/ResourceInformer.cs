@@ -78,6 +78,7 @@ public abstract class ResourceInformer<TResource, TListResource>
                     {
                         if (string.Equals(kubernetesError.Status.Reason, "Expired", StringComparison.Ordinal))
                         {
+                            _lastResourceVersion = null;
                             shouldSync = true;
                         }
                     }
