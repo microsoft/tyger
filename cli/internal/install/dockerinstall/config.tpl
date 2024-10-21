@@ -35,4 +35,3 @@ signingKeys:
 # dataPlaneImage:
 # bufferSidecarImage:
 # gatewayImage:
-# gatewayImage:

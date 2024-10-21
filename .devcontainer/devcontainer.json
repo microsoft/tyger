@@ -101,7 +101,6 @@
   "containerEnv": {
     "DOCKER_BUIKDKIT": "1",
     "DEVCONTAINER_HOST_HOME": "${localEnv:HOME}",
-    "WSL_DISTRO_NAME": "${localEnv:WSL_DISTRO_NAME}",
     "TYGER_ACCESSING_FROM_DOCKER": "1"
   },
 

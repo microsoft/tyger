@@ -18,3 +18,14 @@ fi
 if [ ! -d /tmp/tyger ]; then
     mkdir -m 777 /tmp/tyger
 fi
+
+if [ -n "${WSL_DISTRO_NAME:-}" ]; then
+    minimum_docker_desktop_version="4.31.0"
+
+    docker_version=$(docker.exe version | grep -oP 'Server: Docker Desktop \d+\.\d+(\.\d+)?')
+    docker_version=$(echo "$docker_version" | grep -oP '\d+\.\d+(\.\d+)?')
+    if [ "$(printf '%s\n' $minimum_docker_desktop_version "$docker_version" | sort -V | head -n1)" != $minimum_docker_desktop_version ]; then
+        echo "Docker Desktop version $docker_version is not supported. Please upgrade to version $minimum_docker_desktop_version or later."
+        exit 1
+    fi
+fi

@@ -13,7 +13,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -32,6 +34,7 @@ import (
 	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/psanford/memfs"
 	"github.com/rs/zerolog/log"
+	"k8s.io/apimachinery/pkg/util/version"
 )
 
 const (
@@ -89,6 +92,28 @@ func (inst *Installer) InstallTyger(ctx context.Context) error {
 	if runtime.GOOS == "windows" {
 		log.Error().Msg("Installing Tyger in Docker on Windows must be done from a WSL shell. Once installed, other commands can be run from within Windows.")
 		return install.ErrAlreadyLoggedError
+	}
+
+	if os.Getenv("WSL_DISTRO_NAME") != "" {
+		// Check Windows Docker Desktop version for compatibility
+		versionInfo, err := exec.Command("docker.exe", "version").Output()
+		if err == nil {
+			re := regexp.MustCompile(`Server: Docker Desktop (\d+\.\d+(\.\d+)?)`)
+			matches := re.FindStringSubmatch(string(versionInfo))
+			if len(matches) > 1 {
+				if dockerDesktopVersion, err := version.ParseGeneric(matches[1]); err == nil {
+					// versions  in range [4.28, 4.31) are known to not work
+					warnIfLessThan := version.MustParseGeneric("4.28.0")
+					minimumKnownGoodVersion := version.MustParseGeneric("4.31.0")
+					if dockerDesktopVersion.LessThan(warnIfLessThan) {
+						log.Warn().Msgf("Tyger may not be compatible with this version of Docker Desktop. You may need to upgrade to version %v or later.", minimumKnownGoodVersion)
+					} else if dockerDesktopVersion.LessThan(minimumKnownGoodVersion) {
+						log.Error().Msgf("Tyger is not compatible with Docker Desktop version %v. Please upgrade to version %v or later.", dockerDesktopVersion, minimumKnownGoodVersion)
+						return install.ErrAlreadyLoggedError
+					}
+				}
+			}
+		}
 	}
 
 	if err := inst.ensureDirectoryExists(inst.Config.InstallationPath); err != nil {
@@ -198,6 +223,10 @@ func (inst *Installer) createControlPlaneContainer(ctx context.Context, checkGpu
 		return install.ErrDependencyFailed
 	}
 
+	if !gpuAvailable {
+		log.Warn().Msg("GPU support is not available.")
+	}
+
 	containerSpec := containerSpec{
 		ContainerConfig: &container.Config{
 			Image: image,
@@ -209,7 +238,6 @@ func (inst *Installer) createControlPlaneContainer(ctx context.Context, checkGpu
 				fmt.Sprintf("Compute__Docker__RunSecretsPath=%s/control-plane/run-secrets/", inst.Config.InstallationPath),
 				fmt.Sprintf("Compute__Docker__EphemeralBuffersPath=%s/control-plane/ephemeral-buffers/", inst.Config.InstallationPath),
 				fmt.Sprintf("Compute__Docker__GpuSupport=%t", gpuAvailable),
-				fmt.Sprintf("Compute__Docker__WslDistroName=%s", os.Getenv("WSL_DISTRO_NAME")),
 				fmt.Sprintf("Compute__Docker__NetworkName=%s", inst.resourceName("network")),
 				"LogArchive__LocalStorage__LogsDirectory=/app/logs",
 				"Buffers__BufferSidecarImage=" + inst.Config.BufferSidecarImage,
@@ -652,7 +680,6 @@ func (inst *Installer) createContainer(
 	waitForHealthy bool,
 	postCreateActions ...func(containerName string) error,
 ) error {
-	adjustBindMountsForWsl(containerSpec)
 	specHash := containerSpec.computeHash()
 	if containerSpec.ContainerConfig.Labels == nil {
 		containerSpec.ContainerConfig.Labels = make(map[string]string)
@@ -838,7 +865,7 @@ func (inst *Installer) checkGpuAvailability(ctx context.Context) (bool, error) {
 
 	if err := inst.client.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		// this will return an error if the nvidia runtime is not available
-		log.Warn().Err(err).Msg("Error starting container with GPU")
+		log.Debug().Msgf("Error starting test container with GPU: %v", err)
 		return false, nil
 	}
 
@@ -1013,30 +1040,4 @@ func compareVersions(v1, v2 string) int {
 	}
 
 	return 0
-}
-
-// Ensures that the source path of bind mounts are rooted in the right WSL filesystem.
-func adjustBindMountsForWsl(containerSpec *containerSpec) {
-	if containerSpec.HostConfig == nil || containerSpec.HostConfig.Mounts == nil {
-		return
-	}
-
-	for i := range containerSpec.HostConfig.Mounts {
-		mount := &containerSpec.HostConfig.Mounts[i]
-		if mount.Type != "bind" || mount.Source == dockerSocketPath {
-			continue
-		}
-
-		mount.Source = toWslHostPath(mount.Source)
-	}
-}
-
-func toWslHostPath(hostPath string) string {
-	distroName := os.Getenv("WSL_DISTRO_NAME")
-	if distroName == "" {
-		return hostPath
-	}
-
-	hostPath = strings.ReplaceAll(hostPath, "/", "\\")
-	return fmt.Sprintf(`\\wsl$\%s%s`, distroName, hostPath)
 }
