@@ -322,7 +322,6 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                 }
             }
 
-            AdjustMountsForWsl(sidecarContainerParameters);
             startContainersTasks.Add(CreateAndStartContainer(sidecarContainerParameters, cancellationToken));
         }
 
@@ -372,7 +371,6 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                     },
                 };
 
-                AdjustMountsForWsl(sidecarContainerParameters);
                 startContainersTasks.Add(CreateAndStartContainer(sidecarContainerParameters, cancellationToken));
             }
         }
@@ -414,8 +412,6 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                 NetworkMode = jobCodespec.Sockets?.Count > 0 ? _dockerOptions.NetworkName : null,
             }
         };
-
-        AdjustMountsForWsl(mainContainerParameters);
 
         var mainContainerCreateResponse = await _client.Containers.CreateContainerAsync(mainContainerParameters, cancellationToken);
         var mainContainerId = mainContainerCreateResponse.ID;
@@ -552,40 +548,6 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         {
             await _client.Containers.RemoveContainerAsync(createResp.ID, new() { Force = true }, cancellationToken);
         }
-    }
-
-    /// <summary>
-    /// If a container is launched from WSL, as is the case when we install the control plane on Windows,
-    /// bind mounts will sourced from the WSL filesystem.
-    /// However, when this container launches another container, the bind mount will no longer
-    /// be based on the WSL filesystem, but an internal Docker desktop filesystem. To avoid this,
-    /// we need to prepend the path with \\wsl$\distroName and use Windows-style paths.
-    /// </summary>
-    public void AdjustMountsForWsl(CreateContainerParameters containerParameters)
-    {
-        if (string.IsNullOrEmpty(_dockerOptions.WslDistroName))
-        {
-            return;
-        }
-
-        if (containerParameters.HostConfig?.Mounts is { } mounts)
-        {
-            foreach (var mount in mounts)
-            {
-                mount.Source = ToWslHostPath(mount.Source);
-            }
-        }
-    }
-
-    private string ToWslHostPath(string hostPath)
-    {
-        if (string.IsNullOrEmpty(_dockerOptions.WslDistroName))
-        {
-            return hostPath;
-        }
-
-        hostPath = hostPath.Replace('/', '\\');
-        return @$"\\wsl$\{_dockerOptions.WslDistroName}{hostPath.Replace('/', '\\')}";
     }
 
     private static MemoryStream GetPublicPemStream(string path)

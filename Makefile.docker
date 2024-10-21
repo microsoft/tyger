@@ -24,7 +24,6 @@ set-localsettings: ensure-data-plane-cert
 				"docker": {
 					"runSecretsPath": "$${run_secrets_path}",
 					"ephemeralBuffersPath": "$${ephemeral_buffers_path}",
-					"wslDistroName": "$${WSL_DISTRO_NAME}",
 					"networkName": "tyger-local-network"
 				}
 			},
@@ -43,6 +42,7 @@ set-localsettings: ensure-data-plane-cert
 			},
 			"database": {
 				"host": "/opt/tyger/database",
+				"username": "tyger-server",
 				"databaseName": "tyger-server",
 				"autoMigrate": "true",
 				"tygerServerRoleName": "tyger-server"

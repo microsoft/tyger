@@ -29,19 +29,6 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-wsl_host_path() {
-    if [[ -z "${WSL_DISTRO_NAME:-}" ]]; then
-        echo "$1"
-        return
-    fi
-
-    # replace / with \
-    path=${1//\//\\}
-
-    # shellcheck disable=SC2028
-    echo "\\\\wsl$\\${WSL_DISTRO_NAME}${path}"
-}
-
 cleanup_ssh_config() {
     if [[ -f "${HOME}/.ssh/config" ]]; then
         sed -i "/$start_marker/,/$end_marker/d" "${HOME}/.ssh/config"
@@ -63,8 +50,8 @@ docker create \
     -p $ssh_port:22 \
     -e "SSH_ENABLE_ROOT=true" \
     -e "TCP_FORWARDING=true" \
-    -v "$(wsl_host_path "/opt/tyger"):/opt/tyger" \
-    -v "$(wsl_host_path "/var/run/docker.sock"):/var/run/docker.sock" \
+    -v "/opt/tyger:/opt/tyger" \
+    -v "/var/run/docker.sock:/var/run/docker.sock" \
     --name $container_name \
     quay.io/panubo/sshd:1.8.0 >/dev/null
 
