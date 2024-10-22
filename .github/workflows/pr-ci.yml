@@ -503,6 +503,8 @@ jobs:
     environment:
       name: publish-container-images
 
+    runs-on: ubuntu-latest
+
     steps:
       - name: Dummy release
         run: echo "Dummy release"
