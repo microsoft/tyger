@@ -31,12 +31,13 @@ public class RepositoryWithRetry : IRepository
 
     public async Task<Run> CreateRunWithIdempotencyKeyGuard(Run newRun, string idempotencyKey, Func<Run, CancellationToken, Task<Run>> createRun, CancellationToken cancellationToken)
     {
-        return await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.CreateRunWithIdempotencyKeyGuard(newRun, idempotencyKey, createRun, cancellationToken), cancellationToken);
+        // NOTE: not retrying for this method, because we don't want createRun to be called multiple times
+        return await _repository.CreateRunWithIdempotencyKeyGuard(newRun, idempotencyKey, createRun, cancellationToken);
     }
 
-    public async Task<Run> CreateRun(Run newRun, CancellationToken cancellationToken)
+    public async Task<Run> CreateRun(Run newRun, string? idempotencyKey, CancellationToken cancellationToken)
     {
-        return await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.CreateRun(newRun, cancellationToken), cancellationToken);
+        return await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.CreateRun(newRun, idempotencyKey, cancellationToken), cancellationToken);
     }
 
     public async Task DeleteRun(long id, CancellationToken cancellationToken)
@@ -99,9 +100,19 @@ public class RepositoryWithRetry : IRepository
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.GetRuns(limit, onlyResourcesCreated, since, continuationToken, cancellationToken), cancellationToken);
     }
 
+    public async Task<Run?> CancelRun(long id, CancellationToken cancellationToken)
+    {
+        return await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.CancelRun(id, cancellationToken), cancellationToken);
+    }
+
     public async Task<Buffer?> UpdateBufferById(string id, string eTag, IDictionary<string, string>? tags, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.UpdateBufferById(id, eTag, tags, cancellationToken), cancellationToken);
+    }
+
+    public async Task UpdateRunAsResourcesCreated(long id, CancellationToken cancellationToken)
+    {
+        await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.UpdateRunAsResourcesCreated(id, cancellationToken), cancellationToken);
     }
 
     public async Task UpdateRunAsFinal(long id, CancellationToken cancellationToken)
@@ -119,9 +130,9 @@ public class RepositoryWithRetry : IRepository
         await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.UpdateRun(run, cancellationToken, resourcesCreated), cancellationToken);
     }
 
-    public async Task UpdateRunFromObservedState(ObservedRunState state, CancellationToken cancellationToken)
+    public async Task UpdateRunFromObservedState(ObservedRunState state, (string leaseName, string holder)? leaseHeldCondition, CancellationToken cancellationToken)
     {
-        await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.UpdateRunFromObservedState(state, cancellationToken), cancellationToken);
+        await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.UpdateRunFromObservedState(state, leaseHeldCondition, cancellationToken), cancellationToken);
     }
 
     public async Task<Codespec> UpsertCodespec(string name, Codespec newcodespec, CancellationToken cancellationToken)
@@ -137,5 +148,10 @@ public class RepositoryWithRetry : IRepository
     public async Task ListenForRunUpdates(Func<ObservedRunState, CancellationToken, Task> processRunUpdates, CancellationToken cancellationToken)
     {
         await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.ListenForRunUpdates(processRunUpdates, cancellationToken), cancellationToken);
+    }
+
+    public async Task AcquireAndHoldLease(string leaseName, string holder, Func<bool, ValueTask> onLockStateChange, CancellationToken cancellationToken)
+    {
+        await _resiliencePipeline.ExecuteAsync(async cancellationToken => await _repository.AcquireAndHoldLease(leaseName, holder, onLockStateChange, cancellationToken), cancellationToken);
     }
 }

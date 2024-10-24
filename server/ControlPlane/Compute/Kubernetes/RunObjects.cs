@@ -43,6 +43,11 @@ public sealed partial class RunObjects
         return CachedMetadata = metadata;
     }
 
+    public void ClearCachedMetadata()
+    {
+        CachedMetadata = default;
+    }
+
     private ObservedRunState GetStatus()
     {
         if (GetFailureTimeAndReason() is (var failureTime, var reason))
@@ -125,9 +130,8 @@ public sealed partial class RunObjects
                 pod.Spec.Containers.All(c =>
                     pod.Status?.ContainerStatuses?.Any(cs =>
                         cs.Name == c.Name &&
-                        (cs.Name == "main" && pod.GetAnnotation(HasSocketAnnotation) == "true"
-                            ? cs.State.Running != null
-                            : cs.State.Terminated?.ExitCode == 0)) == true)))
+                        (cs.State.Terminated?.ExitCode == 0 ||
+                         (cs.Name == "main" && pod.GetAnnotation(HasSocketAnnotation) == "true" && cs.State.Running != null))) == true)))
         {
             var finishedTime = JobPods.SelectMany(p => p!.Status.ContainerStatuses).Select(cs => cs.State.Terminated?.FinishedAt).Where(t => t != null).Max();
             return finishedTime ?? GetStartedTime();

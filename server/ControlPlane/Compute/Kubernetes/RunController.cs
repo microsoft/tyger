@@ -45,7 +45,7 @@ public sealed class RunController : BackgroundService
         {
             try
             {
-                await _runCreator.CreateRun(run, ct);
+                await _runCreator.CreateRun(run, null, ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {

@@ -13,11 +13,13 @@ public interface IRepository
 
     Task<(IList<Codespec>, string? nextContinuationToken)> GetCodespecs(int limit, string? prefix, string? continuationToken, CancellationToken cancellationToken);
     Task<Run> CreateRunWithIdempotencyKeyGuard(Run newRun, string idempotencyKey, Func<Run, CancellationToken, Task<Run>> createRun, CancellationToken cancellationToken);
-    Task<Run> CreateRun(Run newRun, CancellationToken cancellationToken);
+    Task<Run> CreateRun(Run newRun, string? idempotencyKey, CancellationToken cancellationToken);
+    Task<Run?> CancelRun(long id, CancellationToken cancellationToken);
     Task UpdateRun(Run run, CancellationToken cancellationToken, bool? resourcesCreated = null);
+    Task UpdateRunAsResourcesCreated(long id, CancellationToken cancellationToken);
     Task UpdateRunAsFinal(long id, CancellationToken cancellationToken);
     Task UpdateRunAsLogsArchived(long id, CancellationToken cancellationToken);
-    Task UpdateRunFromObservedState(ObservedRunState state, CancellationToken cancellationToken);
+    Task UpdateRunFromObservedState(ObservedRunState state, (string leaseName, string holder)? leaseHeldCondition, CancellationToken cancellationToken);
     Task DeleteRun(long id, CancellationToken cancellationToken);
     Task<Run?> GetRun(long id, CancellationToken cancellationToken);
     Task<IDictionary<RunStatus, long>> GetRunCounts(DateTimeOffset? since, CancellationToken cancellationToken);
@@ -31,4 +33,5 @@ public interface IRepository
     Task<Model.Buffer> CreateBuffer(Model.Buffer newBuffer, CancellationToken cancellationToken);
     Task ListenForNewRuns(Func<IReadOnlyList<Run>, CancellationToken, Task> processRuns, CancellationToken cancellationToken);
     Task ListenForRunUpdates(Func<ObservedRunState, CancellationToken, Task> processRunUpdates, CancellationToken cancellationToken);
+    Task AcquireAndHoldLease(string leaseName, string holder, Func<bool, ValueTask> onLockStateChange, CancellationToken cancellationToken);
 }

@@ -63,7 +63,7 @@ paths:
             type: string
       responses:
         '200':
-          description: Success
+          description: OK
           content:
             application/json:
               schema:
@@ -95,7 +95,7 @@ paths:
         required: true
       responses:
         '200':
-          description: Success
+          description: OK
           content:
             application/json:
               schema:
@@ -107,7 +107,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '412':
-          description: Client Error
+          description: Precondition Failed
           content:
             application/json:
               schema:
@@ -205,7 +205,7 @@ paths:
         required: true
       responses:
         '200':
-          description: Success
+          description: OK
           content:
             application/json:
               schema:
@@ -239,7 +239,7 @@ paths:
             type: string
       responses:
         '200':
-          description: Success
+          description: OK
           content:
             application/json:
               schema:
@@ -267,7 +267,7 @@ paths:
             type: string
       responses:
         '200':
-          description: Success
+          description: OK
           content:
             application/json:
               schema:
@@ -289,7 +289,7 @@ paths:
             type: string
       responses:
         '200':
-          description: Success
+          description: OK
           content:
             application/json:
               schema:
@@ -340,11 +340,48 @@ paths:
             type: string
       responses:
         '200':
-          description: Success
+          description: OK
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/RunPage'
+  /v1/runs/counts:
+    get:
+      tags:
+        - tyger-server
+      parameters:
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  Pending:
+                    type: integer
+                    format: int64
+                  Running:
+                    type: integer
+                    format: int64
+                  Failed:
+                    type: integer
+                    format: int64
+                  Succeeded:
+                    type: integer
+                    format: int64
+                  Canceling:
+                    type: integer
+                    format: int64
+                  Canceled:
+                    type: integer
+                    format: int64
+                additionalProperties: false
   '/v1/runs/{runId}':
     get:
       tags:
@@ -361,7 +398,7 @@ paths:
             type: boolean
       responses:
         '200':
-          description: Success
+          description: OK
           content:
             application/json:
               schema:
@@ -402,7 +439,7 @@ paths:
             type: boolean
       responses:
         '200':
-          description: Success
+          description: OK
         '404':
           description: Not Found
           content:
@@ -438,7 +475,7 @@ paths:
         - tyger-server
       responses:
         '200':
-          description: Success
+          description: OK
           content:
             application/json:
               schema:
@@ -449,7 +486,7 @@ paths:
         - tyger-server
       responses:
         '200':
-          description: Success
+          description: OK
           content:
             application/json:
               schema:
@@ -629,35 +666,37 @@ components:
       type: object
       additionalProperties: false
     JobCodespec:
-      type: object
       allOf:
         - $ref: '#/components/schemas/Codespec'
-      properties:
-        buffers:
-          $ref: '#/components/schemas/BufferParameters'
-        sockets:
-          type: array
-          items:
-            $ref: '#/components/schemas/Socket'
-          nullable: true
+        - type: object
+          properties:
+            buffers:
+              $ref: '#/components/schemas/BufferParameters'
+            sockets:
+              type: array
+              items:
+                $ref: '#/components/schemas/Socket'
+              nullable: true
+          additionalProperties: { }
       additionalProperties: false
     JobRunCodeTarget:
-      type: object
       allOf:
         - $ref: '#/components/schemas/RunCodeTarget'
-      properties:
-        buffers:
-          type: object
-          additionalProperties:
-            type: string
-          description: The IDs of buffers to provide as arguments to the buffer parameters defined in the job codespec.
-          nullable: true
-        tags:
-          type: object
-          additionalProperties:
-            type: string
-          description: Tags to add to any buffer created for a job
-          nullable: true
+        - type: object
+          properties:
+            buffers:
+              type: object
+              additionalProperties:
+                type: string
+              description: The IDs of buffers to provide as arguments to the buffer parameters defined in the job codespec.
+              nullable: true
+            tags:
+              type: object
+              additionalProperties:
+                type: string
+              description: Tags to add to any buffer created for a job
+              nullable: true
+          additionalProperties: { }
       additionalProperties: false
     OvercommittableResources:
       type: object
@@ -795,16 +834,17 @@ components:
           nullable: true
       additionalProperties: false
     WorkerCodespec:
-      type: object
       allOf:
         - $ref: '#/components/schemas/Codespec'
-      properties:
-        endpoints:
-          type: object
-          additionalProperties:
-            type: integer
-            format: int32
-            nullable: true
-          description: The name and port of the endpoints that the worker exposes.
-          nullable: true
+        - type: object
+          properties:
+            endpoints:
+              type: object
+              additionalProperties:
+                type: integer
+                format: int32
+                nullable: true
+              description: The name and port of the endpoints that the worker exposes.
+              nullable: true
+          additionalProperties: { }
       additionalProperties: false

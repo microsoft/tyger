@@ -32,7 +32,7 @@ public record struct ObservedRunState(
 
     public string? WorkerNodePool { get; init; }
 
-    public readonly Run UpdateRun(Run run)
+    public readonly Run ApplyToRun(Run run)
     {
         return run with
         {

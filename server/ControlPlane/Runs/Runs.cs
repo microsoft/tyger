@@ -33,11 +33,11 @@ public static class Runs
             Run createdRun;
             if (context.Request.Headers.TryGetValue("Idempotency-Key", out var idempotencyKey))
             {
-                createdRun = await repository.CreateRunWithIdempotencyKeyGuard(newRun, idempotencyKey.ToString(), async (run, ct) => await runCreator.CreateRun(run, ct), context.RequestAborted);
+                createdRun = await repository.CreateRunWithIdempotencyKeyGuard(newRun, idempotencyKey.ToString(), async (run, ct) => await runCreator.CreateRun(run, idempotencyKey, ct), context.RequestAborted);
             }
             else
             {
-                createdRun = await runCreator.CreateRun(newRun, context.RequestAborted);
+                createdRun = await runCreator.CreateRun(newRun, idempotencyKey, context.RequestAborted);
             }
 
             return Results.Created($"/v1/runs/{createdRun.Id}", createdRun);
@@ -182,9 +182,12 @@ public static class Runs
         .Produces<ErrorBody>(StatusCodes.Status404NotFound);
 
         // this endpoint is for testing purposes only, to force the background pod sweep
-        app.MapPost("/v1/runs/_sweep", async (IRunSweeper runSweeper, CancellationToken cancellationToken) =>
+        app.MapPost("/v1/runs/_sweep", async (IRunSweeper? runSweeper, CancellationToken cancellationToken) =>
         {
-            await runSweeper.SweepRuns(cancellationToken);
+            if (runSweeper is not null)
+            {
+                await runSweeper.SweepRuns(cancellationToken);
+            }
         }).ExcludeFromDescription();
     }
 }
@@ -324,7 +327,7 @@ public abstract class RunCreatorBase
 
 public interface IRunCreator
 {
-    Task<Run> CreateRun(Run run, CancellationToken cancellationToken);
+    Task<Run> CreateRun(Run run, string? idempotencyKey, CancellationToken cancellationToken);
 }
 
 public interface IRunReader

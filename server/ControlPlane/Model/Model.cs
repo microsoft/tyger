@@ -393,7 +393,6 @@ public enum RunStatus
     /// <summary>
     /// The run is in the process of being canceled.
     /// </summary>
-    [Obsolete("This state is no longer used")]
     Canceling,
 
     /// <summary>

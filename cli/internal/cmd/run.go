@@ -551,6 +551,7 @@ func newRunWatchCommand() *cobra.Command {
 			consecutiveErrors := 0
 		start:
 			eventChan, errChan := watchRun(cmd.Context(), runId)
+			var lastBytes []byte
 			for {
 				select {
 				case err := <-errChan:
@@ -579,7 +580,10 @@ func newRunWatchCommand() *cobra.Command {
 					if err != nil {
 						return err
 					}
-					fmt.Println(string(bytes))
+					if !slices.Equal(bytes, lastBytes) {
+						fmt.Println(string(bytes))
+						lastBytes = bytes
+					}
 				}
 			}
 		},

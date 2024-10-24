@@ -220,7 +220,7 @@ public class Repository : IRepository
         }
     }
 
-    public async Task<Run> CreateRun(Run newRun, CancellationToken cancellationToken)
+    public async Task<Run> CreateRun(Run newRun, string? idempotencyKey, CancellationToken cancellationToken)
     {
         newRun = newRun.WithoutSystemProperties() with { Status = RunStatus.Pending };
 
@@ -261,6 +261,22 @@ public class Repository : IRepository
             },
         });
 
+        if (!string.IsNullOrEmpty(idempotencyKey))
+        {
+            batch.BatchCommands.Add(new NpgsqlBatchCommand
+            {
+                CommandText = """
+                    INSERT INTO run_idempotency_keys (idempotency_key, run_id)
+                    VALUES ($1, $2)
+                    """,
+                Parameters =
+                {
+                    new() { Value = idempotencyKey, NpgsqlDbType = NpgsqlDbType.Text },
+                    new() { Value = run.Id, NpgsqlDbType = NpgsqlDbType.Bigint },
+                },
+            });
+        }
+
         batch.BatchCommands.Add(new NpgsqlBatchCommand
         {
             CommandText = $"NOTIFY {NewRunChannelName};",
@@ -270,6 +286,92 @@ public class Repository : IRepository
         await batch.ExecuteNonQueryAsync(cancellationToken);
         await tx.CommitAsync(cancellationToken);
         return run;
+    }
+
+    public async Task UpdateRunAsResourcesCreated(long id, CancellationToken cancellationToken)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var tx = await conn.BeginTransactionAsync(cancellationToken);
+
+        await using (var readRun = new NpgsqlCommand($"""
+            UPDATE runs
+            SET resources_created = true
+            WHERE id = $1 AND status != 'Canceling'
+            """, conn, tx)
+        {
+            Parameters =
+            {
+                new() { Value = id, NpgsqlDbType = NpgsqlDbType.Bigint },
+            }
+        })
+        {
+            await readRun.PrepareAsync(cancellationToken);
+            if (await readRun.ExecuteNonQueryAsync(cancellationToken) == 1)
+            {
+                await tx.CommitAsync(cancellationToken);
+                return;
+            }
+        }
+
+        // read run and update state to Canceled
+
+        Run run;
+        await using (var readRun = new NpgsqlCommand($"""
+            SELECT run
+            FROM runs
+            WHERE id = $1
+            FOR UPDATE
+            """, conn, tx)
+        {
+            Parameters =
+            {
+                new() { Value = id, NpgsqlDbType = NpgsqlDbType.Bigint },
+            }
+        })
+        {
+            await readRun.PrepareAsync(cancellationToken);
+            await using var reader = await readRun.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                return;
+            }
+
+            var runJson = reader.GetString(0);
+            run = JsonSerializer.Deserialize<Run>(runJson, _serializerOptions) ?? throw new InvalidOperationException("Failed to deserialize run.");
+            if (run.Status != RunStatus.Canceling)
+            {
+                throw new InvalidOperationException($"Expected run {id} to be in Canceling state, but it is in {run.Status} state.");
+            }
+        }
+
+        var updatedRun = run with
+        {
+            Status = RunStatus.Canceled,
+        };
+
+        await using (var updateRun = new NpgsqlCommand($"""
+            UPDATE runs
+            SET run = $2, resources_created = true
+            WHERE id = $1
+            """, conn, tx)
+        {
+            Parameters =
+                {
+                    new() { Value = id, NpgsqlDbType = NpgsqlDbType.Bigint },
+                    new() { Value = JsonSerializer.Serialize(updatedRun, _serializerOptions), NpgsqlDbType = NpgsqlDbType.Jsonb },
+                }
+        })
+        {
+            await updateRun.PrepareAsync(cancellationToken);
+            await updateRun.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using var notifyCommand = new NpgsqlCommand($"SELECT pg_notify('{RunChangedChannelName}', $1);", conn, tx);
+        notifyCommand.Parameters.Add(new() { Value = JsonSerializer.Serialize(new ObservedRunState(updatedRun), _serializerOptions), NpgsqlDbType = NpgsqlDbType.Text });
+        await notifyCommand.PrepareAsync(cancellationToken);
+        await notifyCommand.ExecuteNonQueryAsync(cancellationToken);
+
+        await tx.CommitAsync(cancellationToken);
     }
 
     public async Task UpdateRunAsFinal(long id, CancellationToken cancellationToken)
@@ -302,6 +404,76 @@ public class Repository : IRepository
 
         await command.PrepareAsync(cancellationToken);
         await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task<Run?> CancelRun(long id, CancellationToken cancellationToken)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var tx = await conn.BeginTransactionAsync(cancellationToken);
+        Run run;
+        bool resourcesCreated;
+        await using (var readRun = new NpgsqlCommand($"""
+            SELECT run, resources_created
+            FROM runs
+            WHERE id = $1
+            FOR UPDATE
+            """, conn, tx)
+        {
+            Parameters =
+            {
+                new() { Value = id, NpgsqlDbType = NpgsqlDbType.Bigint },
+            }
+        })
+        {
+            await readRun.PrepareAsync(cancellationToken);
+            await using var reader = await readRun.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                return null;
+            }
+
+            var runJson = reader.GetString(0);
+            run = JsonSerializer.Deserialize<Run>(runJson, _serializerOptions) ?? throw new InvalidOperationException("Failed to deserialize run.");
+            if (run.Final || run.Status.IsTerminal())
+            {
+                return run;
+            }
+
+            resourcesCreated = reader.GetBoolean(1);
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var updatedRun = run with
+        {
+            Status = resourcesCreated ? RunStatus.Canceled : RunStatus.Canceling,
+            StatusReason = "Canceled by user",
+            FinishedAt = new DateTimeOffset(now.Year, now.Month, now.Day, now.Hour, now.Minute, now.Second, now.Offset),
+        };
+
+        await using (var updateRun = new NpgsqlCommand($"""
+            UPDATE runs
+            SET run = $2
+            WHERE id = $1
+            """, conn, tx)
+        {
+            Parameters =
+                {
+                    new() { Value = id, NpgsqlDbType = NpgsqlDbType.Bigint },
+                    new() { Value = JsonSerializer.Serialize(updatedRun, _serializerOptions), NpgsqlDbType = NpgsqlDbType.Jsonb },
+                }
+        })
+        {
+            await updateRun.PrepareAsync(cancellationToken);
+            await updateRun.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using var notifyCommand = new NpgsqlCommand($"SELECT pg_notify('{RunChangedChannelName}', $1);", conn, tx);
+        notifyCommand.Parameters.Add(new() { Value = JsonSerializer.Serialize(new ObservedRunState(updatedRun), _serializerOptions), NpgsqlDbType = NpgsqlDbType.Text });
+        await notifyCommand.PrepareAsync(cancellationToken);
+        await notifyCommand.ExecuteNonQueryAsync(cancellationToken);
+
+        await tx.CommitAsync(cancellationToken);
+        return updatedRun;
     }
 
     public async Task UpdateRun(Run run, CancellationToken cancellationToken, bool? resourcesCreated = null)
@@ -340,11 +512,13 @@ public class Repository : IRepository
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    public async Task UpdateRunFromObservedState(ObservedRunState state, CancellationToken cancellationToken)
+    public async Task UpdateRunFromObservedState(ObservedRunState state, (string leaseName, string holder)? leaseHeldCondition, CancellationToken cancellationToken)
     {
         await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
         await using var tx = await conn.BeginTransactionAsync(cancellationToken);
-        await using var readRun = new NpgsqlCommand("""
+
+        Run updatedRun;
+        await using (var readRun = new NpgsqlCommand($"""
             SELECT run
             FROM runs
             WHERE id = $1
@@ -358,15 +532,13 @@ public class Repository : IRepository
             {
                 new() { Value = state.Id, NpgsqlDbType = NpgsqlDbType.Bigint },
             }
-        };
-
-        Run updatedRun;
-        await readRun.PrepareAsync(cancellationToken);
-        await using (var reader = await readRun.ExecuteReaderAsync(cancellationToken))
+        })
         {
+            await readRun.PrepareAsync(cancellationToken);
+            await using var reader = await readRun.ExecuteReaderAsync(cancellationToken);
             if (!await reader.ReadAsync(cancellationToken))
             {
-                // The run is already in a terminal state, so we don't do anything
+                // The run is already in a terminal state so we don't do anything
                 return;
             }
 
@@ -379,23 +551,36 @@ public class Repository : IRepository
             }
         }
 
-        await using var updateRun = new NpgsqlCommand("""
+        await using (var updateRun = new NpgsqlCommand($"""
             UPDATE runs
             SET run = $2
             WHERE id = $1
-            """, conn)
+            {(leaseHeldCondition != null ? "AND EXISTS (SELECT 1 FROM leases WHERE lease_name = $3 AND holder = $4)" : "")}
+            """,
+            conn)
         {
             Connection = conn,
             Transaction = tx,
             Parameters =
+                {
+                    new() { Value = state.Id, NpgsqlDbType = NpgsqlDbType.Bigint },
+                    new() { Value = JsonSerializer.Serialize(updatedRun, _serializerOptions), NpgsqlDbType = NpgsqlDbType.Jsonb },
+                }
+        })
+        {
+            if (leaseHeldCondition != null)
             {
-                new() { Value = state.Id, NpgsqlDbType = NpgsqlDbType.Bigint },
-                new() { Value = JsonSerializer.Serialize(updatedRun, _serializerOptions), NpgsqlDbType = NpgsqlDbType.Jsonb },
+                updateRun.Parameters.Add(new() { Value = leaseHeldCondition.Value.leaseName, NpgsqlDbType = NpgsqlDbType.Text });
+                updateRun.Parameters.Add(new() { Value = leaseHeldCondition.Value.holder, NpgsqlDbType = NpgsqlDbType.Text });
             }
-        };
 
-        await updateRun.PrepareAsync(cancellationToken);
-        await updateRun.ExecuteNonQueryAsync(cancellationToken);
+            await updateRun.PrepareAsync(cancellationToken);
+            if (await updateRun.ExecuteNonQueryAsync(cancellationToken) == 0)
+            {
+                // Lost the lease
+                return;
+            }
+        }
 
         await using var notifyCommand = new NpgsqlCommand($"SELECT pg_notify('{RunChangedChannelName}', $1);", conn, tx);
         notifyCommand.Parameters.Add(new() { Value = JsonSerializer.Serialize(state, _serializerOptions), NpgsqlDbType = NpgsqlDbType.Text });
@@ -404,7 +589,7 @@ public class Repository : IRepository
 
         await tx.CommitAsync(cancellationToken);
 
-        if (updatedRun.Status.IsTerminal())
+        if (updatedRun.Status is RunStatus.Succeeded or RunStatus.Failed)
         {
             var timeToDetect = DateTimeOffset.UtcNow - updatedRun.FinishedAt!.Value;
             _logger.TerminalStateRecorded(state.Id, timeToDetect);
@@ -547,7 +732,6 @@ public class Repository : IRepository
 
         return res;
     }
-
 
     public async Task<(IList<Run>, string? nextContinuationToken)> GetRuns(int limit, bool onlyResourcesCreated, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken)
     {
@@ -1028,77 +1212,48 @@ public class Repository : IRepository
     public async Task<Run> CreateRunWithIdempotencyKeyGuard(Run newRun, string idempotencyKey, Func<Run, CancellationToken, Task<Run>> createRun, CancellationToken cancellationToken)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
-        await using var tx = await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
 
-        using var insertCommand = new NpgsqlCommand
+        using (var lockCommand = new NpgsqlCommand
         {
             Connection = connection,
             Transaction = tx,
-            CommandText = """
-                INSERT INTO run_idempotency_keys (idempotency_key)
-                VALUES ($1)
-                ON CONFLICT (idempotency_key) DO NOTHING
-                RETURNING run_id
-                """,
+            CommandText = "SELECT pg_advisory_xact_lock(hashtext($1))",
             Parameters =
                 {
                     new() { Value = idempotencyKey, NpgsqlDbType = NpgsqlDbType.Text },
                 }
-        };
-
-        await insertCommand.PrepareAsync(cancellationToken);
-
-        if (await insertCommand.ExecuteScalarAsync(cancellationToken) is null)
+        })
         {
-            _logger.DuplicateIdempotencyKeyReceived(idempotencyKey);
-
-            // This should be a rare case so doesn't need to be very efficient.
-            using var selectCommand = new NpgsqlCommand
-            {
-                Connection = connection,
-                Transaction = tx,
-                CommandText = """
-                    SELECT run_id
-                    FROM run_idempotency_keys
-                    WHERE idempotency_key = $1
-                    """,
-                Parameters =
-                    {
-                        new() { Value = idempotencyKey, NpgsqlDbType = NpgsqlDbType.Text },
-                    }
-            };
-
-            await selectCommand.PrepareAsync(cancellationToken);
-            await using var reader = await selectCommand.ExecuteReaderAsync(cancellationToken);
-            await reader.ReadAsync(cancellationToken);
-            long runId = reader.GetInt64(0);
-
-            return await GetRun(runId, cancellationToken) ?? throw new InvalidOperationException("Failed to get run with existing idempotency key.");
+            await lockCommand.PrepareAsync(cancellationToken);
+            await lockCommand.ExecuteNonQueryAsync(cancellationToken);
         }
 
-        var createdRun = await createRun(newRun, cancellationToken);
-
-        using var updateCommand = new NpgsqlCommand
+        using (var selectCommand = new NpgsqlCommand
         {
             Connection = connection,
             Transaction = tx,
             CommandText = """
-                UPDATE run_idempotency_keys
-                SET run_id = $1
-                WHERE idempotency_key = $2
+                SELECT run_id
+                FROM run_idempotency_keys
+                WHERE idempotency_key = $1
                 """,
             Parameters =
                 {
-                    new() { Value = createdRun.Id, NpgsqlDbType = NpgsqlDbType.Bigint },
                     new() { Value = idempotencyKey, NpgsqlDbType = NpgsqlDbType.Text },
                 }
-        };
+        })
+        {
+            await selectCommand.PrepareAsync(cancellationToken);
+            await using var reader = await selectCommand.ExecuteReaderAsync(cancellationToken);
+            if (await reader.ReadAsync(cancellationToken))
+            {
+                long runId = reader.GetInt64(0);
+                return await GetRun(runId, cancellationToken) ?? throw new InvalidOperationException("Failed to get run with existing idempotency key.");
+            }
+        }
 
-        await updateCommand.PrepareAsync(cancellationToken);
-        await updateCommand.ExecuteNonQueryAsync(cancellationToken);
-
-        await tx.CommitAsync(cancellationToken);
-        return createdRun;
+        return await createRun(newRun, cancellationToken);
     }
 
     public async Task<Buffer> CreateBuffer(Buffer newBuffer, CancellationToken cancellationToken)
@@ -1296,6 +1451,154 @@ public class Repository : IRepository
             if (await connection.WaitAsync(TimeSpan.FromMinutes(1), cancellationToken))
             {
                 await ProcessPayloads();
+            }
+        }
+    }
+
+    public async Task AcquireAndHoldLease(string leaseName, string holder, Func<bool, ValueTask> onLockStateChange, CancellationToken cancellationToken)
+    {
+        var leaseDuration = TimeSpan.FromSeconds(60);
+        var renewInterval = TimeSpan.FromSeconds(5);
+
+        var leaseHeld = false;
+
+        async ValueTask<bool> UpdateLeaseHeld(bool newHeld)
+        {
+            if (newHeld == leaseHeld)
+            {
+                return leaseHeld;
+            }
+
+            leaseHeld = newHeld;
+            if (leaseHeld)
+            {
+                _logger.LeaseAcquired(leaseName);
+            }
+            else
+            {
+                _logger.LeaseLost(leaseName);
+            }
+
+            await onLockStateChange(leaseHeld);
+            return leaseHeld;
+        }
+
+        try
+        {
+            while (true)
+            {
+                try
+                {
+                    await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+
+                    await using (var insertCommand = new NpgsqlCommand("""
+                    WITH upsert AS (
+                        INSERT INTO leases (lease_name, holder, expiration)
+                        VALUES ($1, $2, now() AT TIME ZONE 'utc' + $3)
+                        ON CONFLICT (lease_name)
+                        DO UPDATE SET holder = $2, expiration = now() AT TIME ZONE 'utc' + $3
+                        WHERE leases.lease_name = $1 AND (leases.expiration < now() AT TIME ZONE 'utc' OR leases.holder = $2)
+                        RETURNING true, expiration
+                    )
+                    SELECT * FROM upsert
+                    UNION ALL
+                    SELECT false, expiration
+                    FROM leases
+                    WHERE lease_name = $1
+                    """, connection))
+                    {
+                        insertCommand.Parameters.Add(new() { Value = leaseName, NpgsqlDbType = NpgsqlDbType.Text });
+                        insertCommand.Parameters.Add(new() { Value = holder, NpgsqlDbType = NpgsqlDbType.Text });
+                        insertCommand.Parameters.Add(new() { Value = leaseDuration, NpgsqlDbType = NpgsqlDbType.Interval });
+
+                        await insertCommand.PrepareAsync(cancellationToken);
+                        await using var reader = await insertCommand.ExecuteReaderAsync(cancellationToken);
+                        await reader.ReadAsync(cancellationToken);
+                        await UpdateLeaseHeld(reader.GetBoolean(0));
+                        var expiration = reader.GetDateTime(1);
+                        if (!leaseHeld)
+                        {
+                            var timeToExpiration = expiration - DateTimeOffset.UtcNow;
+                            if (timeToExpiration > TimeSpan.Zero)
+                            {
+                                var toWait = TimeSpan.FromSeconds(Math.Min(30, timeToExpiration.TotalSeconds)) + TimeSpan.FromSeconds(Random.Shared.NextDouble());
+                                await Task.Delay(toWait, cancellationToken);
+                                continue;
+                            }
+                        }
+                    }
+
+                    while (true)
+                    {
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            return;
+                        }
+
+                        await Task.Delay(renewInterval, cancellationToken);
+                        await using var renewCommand = new NpgsqlCommand("""
+                            UPDATE leases
+                            SET expiration = now() AT TIME ZONE 'utc' + $1
+                            WHERE lease_name = $2 AND holder = $3
+                            """, connection)
+                        {
+                            Parameters =
+                                {
+                                    new() { Value = leaseDuration, NpgsqlDbType = NpgsqlDbType.Interval },
+                                    new() { Value = leaseName, NpgsqlDbType = NpgsqlDbType.Text },
+                                    new() { Value = holder, NpgsqlDbType = NpgsqlDbType.Text },
+                                }
+                        };
+
+                        await renewCommand.PrepareAsync(cancellationToken);
+                        if (!await UpdateLeaseHeld(await renewCommand.ExecuteNonQueryAsync(cancellationToken) == 1))
+                        {
+                            break;
+                        }
+                    }
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
+                catch (Exception e)
+                {
+                    _logger.LeaseException(leaseName, e);
+                    await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+                }
+            }
+        }
+        finally
+        {
+            if (leaseHeld)
+            {
+                try
+                {
+                    var releaseCancellationToken = new CancellationTokenSource(TimeSpan.FromSeconds(5)).Token;
+                    await using var connection = await _dataSource.OpenConnectionAsync(releaseCancellationToken);
+                    await using var releaseCommand = new NpgsqlCommand("""
+                        DELETE FROM leases
+                        WHERE lease_name = $1 AND holder = $2
+                        """, connection)
+                    {
+                        Parameters =
+                                {
+                                    new() { Value = leaseName, NpgsqlDbType = NpgsqlDbType.Text },
+                                    new() { Value = holder, NpgsqlDbType = NpgsqlDbType.Text },
+                                }
+                    };
+
+                    await releaseCommand.PrepareAsync(releaseCancellationToken);
+                    await releaseCommand.ExecuteNonQueryAsync(releaseCancellationToken);
+                    await UpdateLeaseHeld(false);
+                }
+                catch (OperationCanceledException)
+                {
+                }
+                catch (Exception e)
+                {
+                    _logger.LeaseReleaseException(leaseName, e);
+                }
             }
         }
     }

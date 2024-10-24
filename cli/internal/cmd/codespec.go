@@ -257,7 +257,7 @@ func newCodespecCreateCommand() *cobra.Command {
 				newCodespec.Resources.Gpu = &q
 			}
 
-			resp, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPut, fmt.Sprintf("v1/codespecs/%s", newCodespec.Name), newCodespec, &newCodespec)
+			resp, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPut, fmt.Sprintf("v1/codespecs/%s", *newCodespec.Name), newCodespec, &newCodespec)
 			if err != nil {
 				return err
 			}

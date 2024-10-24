@@ -24,6 +24,16 @@ public class Migrator3 : Migrator
                 ADD COLUMN IF NOT EXISTS etag bigint NOT NULL DEFAULT 0;
                 """));
 
+            batch.BatchCommands.Add(new(
+                """
+                CREATE TABLE IF NOT EXISTS leases (
+                    lease_name text PRIMARY KEY,
+                    holder text NOT NULL,
+                    expiration timestamp with time zone NOT NULL
+                )
+                """
+            ));
+
             await batch.ExecuteNonQueryAsync(cancellationToken);
         }
 

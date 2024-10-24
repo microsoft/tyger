@@ -65,7 +65,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         Capabilities.Docker |
         (_dockerOptions.GpuSupport ? Capabilities.Gpu : Capabilities.None);
 
-    public async Task<Run> CreateRun(Run run, CancellationToken cancellationToken)
+    public async Task<Run> CreateRun(Run run, string? idempotencyKey, CancellationToken cancellationToken)
     {
         if (run.Worker != null)
         {
@@ -117,7 +117,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
         await ProcessBufferArguments(jobCodespec.Buffers, run.Job.Buffers, run.Job.Tags, cancellationToken);
 
-        run = await Repository.CreateRun(run, cancellationToken);
+        run = await Repository.CreateRun(run, idempotencyKey, cancellationToken);
 
         var bufferMap = await GetBufferMap(jobCodespec.Buffers, run.Job.Buffers!, cancellationToken);
 

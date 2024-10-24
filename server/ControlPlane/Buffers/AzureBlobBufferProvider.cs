@@ -150,7 +150,7 @@ public sealed class AzureBlobBufferProvider : BackgroundService, IBufferProvider
             TimeoutSeconds = (int)TimeSpan.FromDays(7).TotalSeconds,
         };
 
-        return await _runCreator.Value.CreateRun(newRun, cancellationToken);
+        return await _runCreator.Value.CreateRun(newRun, null, cancellationToken);
     }
 
     public async Task<Run> ImportBuffers(CancellationToken cancellationToken)
@@ -192,7 +192,7 @@ public sealed class AzureBlobBufferProvider : BackgroundService, IBufferProvider
             TimeoutSeconds = (int)TimeSpan.FromDays(7).TotalSeconds,
         };
 
-        return await _runCreator.Value.CreateRun(newRun, cancellationToken);
+        return await _runCreator.Value.CreateRun(newRun, null, cancellationToken);
     }
 
     public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken)

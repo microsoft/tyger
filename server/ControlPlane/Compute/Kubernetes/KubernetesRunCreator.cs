@@ -45,7 +45,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
 
     public Capabilities GetCapabilities() => Capabilities.Kubernetes | Capabilities.DistributedRuns | Capabilities.NodePools;
 
-    public async Task<Run> CreateRun(Run run, CancellationToken cancellationToken)
+    public async Task<Run> CreateRun(Run run, string? idempotencyKey, CancellationToken cancellationToken)
     {
         // Phase 1: Validate newRun and create the leaf building blocks.
 
@@ -102,7 +102,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         if (run.Status == null)
         {
             // Phase 2: now that we have performed validation, create a record for this run in the database
-            run = await Repository.CreateRun(run, cancellationToken);
+            run = await Repository.CreateRun(run, idempotencyKey, cancellationToken);
             _logger.CreatedRun(run.Id!.Value);
             return run;
         }
@@ -200,7 +200,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
 
         // Phase 4: Inform the database that the Kubernetes objects have been created in the cluster.
 
-        await Repository.UpdateRun(run, resourcesCreated: true, cancellationToken: cancellationToken);
+        await Repository.UpdateRunAsResourcesCreated(run.Id!.Value, cancellationToken: cancellationToken);
         _logger.CreatedRunResources(run.Id.Value);
         return run;
     }

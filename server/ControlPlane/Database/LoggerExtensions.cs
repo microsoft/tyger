@@ -25,4 +25,20 @@ public static partial class LoggerExtensions
 
     [LoggerMessage(LogLevel.Information, "Terminal state recorded for {runid} with latency {timeToDetect}")]
     public static partial void TerminalStateRecorded(this ILogger logger, long runId, TimeSpan timeToDetect);
+
+    [LoggerMessage(LogLevel.Warning, "Exception occured while acquiring or renewing lease {leaseName}")]
+    public static partial void LeaseException(this ILogger logger, string leaseName, Exception exception);
+
+    [LoggerMessage(LogLevel.Warning, "Exception occured while releasing lease {leaseName}")]
+    public static partial void LeaseReleaseException(this ILogger logger, string leaseName, Exception exception);
+
+    [LoggerMessage(LogLevel.Information, "Acquired lease {leaseName}")]
+    public static partial void LeaseAcquired(this ILogger logger, string leaseName);
+
+    [LoggerMessage(LogLevel.Information, "Lost lease {leaseName}")]
+    public static partial void LeaseLost(this ILogger logger, string leaseName);
+
+    [LoggerMessage(LogLevel.Information, "Released lease {leaseName}")]
+    public static partial void LeaseReleased(this ILogger logger, string leaseName);
+
 }

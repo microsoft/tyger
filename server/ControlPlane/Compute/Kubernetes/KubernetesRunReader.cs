@@ -60,7 +60,7 @@ public partial class KubernetesRunReader : IRunReader
 
             await foreach (var state in channel.Reader.ReadAllAsync(cancellationToken))
             {
-                var updatedRun = state.UpdateRun(run);
+                var updatedRun = state.ApplyToRun(run);
                 if (!updatedRun.Equals(run))
                 {
                     run = updatedRun;

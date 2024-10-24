@@ -3,23 +3,29 @@ using k8s;
 using k8s.Models;
 using Microsoft.Extensions.Options;
 using Tyger.ControlPlane.Database;
-using Tyger.ControlPlane.Model;
 using static Tyger.ControlPlane.Compute.Kubernetes.KubernetesMetadata;
 
 namespace Tyger.ControlPlane.Compute.Kubernetes;
 
 public class RunStateObserver : BackgroundService
 {
+    private const string LeaseName = "run-state-observer";
+
     private readonly IKubernetes _kubernetesClient;
     private readonly IRepository _repository;
     private readonly ILoggerFactory _loggingFactory;
     private readonly KubernetesApiOptions _kubernetesOptions;
-    private readonly ILogger<RunStateObserver> _logger;
     private readonly Dictionary<long, RunObjects> _cache = [];
     private readonly Dictionary<long, List<ChannelWriter<(RunObjects, WatchEventType, V1Pod)>>> _listeners = [];
     private Task? _podInformerTask;
     private readonly CancellationTokenSource _cancellationTokenSource = new();
     private readonly Channel<(WatchEventType eventType, V1Pod resource)> _podUpdatesChannel = Channel.CreateBounded<(WatchEventType, V1Pod)>(new BoundedChannelOptions(10240));
+    private readonly Channel<int> _onLeaseOwnershipAcquiredChannel = Channel.CreateUnbounded<int>();
+
+    private int _latestLeaseToken = 1;
+    private int _acquiredLeaseToken;
+    private Task? _acquireAndHoldLeaseTask;
+    private readonly string _thisLeaseHolderId = Environment.MachineName;
 
     public RunStateObserver(IKubernetes kubernetesClient, IOptions<KubernetesApiOptions> kubernetesOptions, IRepository repository, ILoggerFactory loggingFactory)
     {
@@ -27,11 +33,19 @@ public class RunStateObserver : BackgroundService
         _repository = repository;
         _kubernetesOptions = kubernetesOptions.Value;
         _loggingFactory = loggingFactory;
-        _logger = loggingFactory.CreateLogger<RunStateObserver>();
     }
 
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
+        _acquireAndHoldLeaseTask = _repository.AcquireAndHoldLease(LeaseName, _thisLeaseHolderId, async hasLease =>
+            {
+                var incrementedLeaseToken = Interlocked.Increment(ref _latestLeaseToken);
+                if (hasLease)
+                {
+                    await _onLeaseOwnershipAcquiredChannel.Writer.WriteAsync(incrementedLeaseToken);
+                }
+            }, _cancellationTokenSource.Token);
+
         var initialPodChannel = Channel.CreateBounded<V1Pod>(new BoundedChannelOptions(1024));
 
         var podInformer = new PodInformer(_kubernetesClient, _kubernetesOptions.Namespace, RunLabel, initialPodChannel.Writer, _podUpdatesChannel.Writer, _loggingFactory.CreateLogger<PodInformer>());
@@ -67,19 +81,148 @@ public class RunStateObserver : BackgroundService
                     runObjects.JobPods[index] = pod;
                 }
             }
-
-            await Parallel.ForEachAsync(
-                _cache.Values,
-                new ParallelOptions { MaxDegreeOfParallelism = 10, CancellationToken = cancellationToken },
-                async (runObjects, ct) =>
-                {
-                    var observedState = runObjects.GetObservedState();
-                    await _repository.UpdateRunFromObservedState(observedState, ct); // TODO: handle failure
-                });
         }, CancellationToken.None);
 
         await Task.WhenAny(_podInformerTask, initialPopulationTask);
         await base.StartAsync(cancellationToken);
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        stoppingToken.Register(_cancellationTokenSource.Cancel);
+
+        async Task ProcessUpdates()
+        {
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                while (_onLeaseOwnershipAcquiredChannel.Reader.TryRead(out var acquiredLeaseToken))
+                {
+                    await OnAcquireLease(acquiredLeaseToken, stoppingToken);
+                }
+
+                while (!_onLeaseOwnershipAcquiredChannel.Reader.TryPeek(out _) && _podUpdatesChannel.Reader.TryRead(out var update))
+                {
+                    await OnPodUpdated(update.eventType, update.resource, stoppingToken);
+                }
+
+                await Task.WhenAny(_onLeaseOwnershipAcquiredChannel.Reader.WaitToReadAsync(stoppingToken).AsTask(), _podUpdatesChannel.Reader.WaitToReadAsync(stoppingToken).AsTask());
+            }
+        }
+
+        var processUpdatesTask = ProcessUpdates();
+
+        // fail if any fail
+        await await Task.WhenAny(_podInformerTask!, processUpdatesTask);
+
+        await _podInformerTask!;
+        await processUpdatesTask;
+        await _acquireAndHoldLeaseTask!;
+    }
+
+    private async Task OnAcquireLease(int acquiredLeaseToken, CancellationToken cancellationToken)
+    {
+        await Parallel.ForEachAsync(
+            _cache.Values,
+            new ParallelOptions { MaxDegreeOfParallelism = 10, CancellationToken = cancellationToken },
+            async (runObjects, ct) =>
+            {
+                if (acquiredLeaseToken == _latestLeaseToken)
+                {
+                    var observedState = runObjects.GetObservedState();
+                    await _repository.UpdateRunFromObservedState(observedState, (LeaseName, _thisLeaseHolderId), ct);
+                }
+            });
+
+        _acquiredLeaseToken = acquiredLeaseToken;
+    }
+
+    private async Task OnPodUpdated(WatchEventType eventType, V1Pod pod, CancellationToken stoppingToken)
+    {
+        var runId = GetRunId(pod);
+        if (runId == null)
+        {
+            return;
+        }
+
+        List<ChannelWriter<(RunObjects, WatchEventType, V1Pod)>>? listeners;
+        RunObjects? runObjects;
+        lock (_cache)
+        {
+            _cache.TryGetValue(runId.Value, out runObjects);
+            _listeners.TryGetValue(runId.Value, out listeners);
+        }
+
+        if (eventType == WatchEventType.Deleted)
+        {
+            if (runObjects != null)
+            {
+                if (pod.GetLabel(WorkerLabel) is not null)
+                {
+                    runObjects.WorkerPods[IndexFromPodName(pod.Name())] = null;
+                }
+                else
+                {
+                    runObjects.JobPods[IndexFromPodName(pod.Name())] = null;
+                }
+
+                if (runObjects.JobPods.All(p => p == null) &&
+                    runObjects.WorkerPods.All(p => p == null))
+                {
+                    lock (_cache)
+                    {
+                        _cache.Remove(runId.Value);
+                    }
+                }
+
+                if (listeners != null)
+                {
+                    foreach (var listener in listeners)
+                    {
+                        await listener.WriteAsync((runObjects, eventType, pod), stoppingToken);
+                    }
+                }
+            }
+
+            return;
+        }
+
+        if (runObjects == null)
+        {
+            var (jobReplicaCount, workerReplicaCount) = pod.GetReplicaCounts();
+            runObjects = new RunObjects(runId.Value, jobReplicaCount, workerReplicaCount);
+            lock (_cache)
+            {
+                _cache[runId.Value] = runObjects;
+            }
+        }
+
+        if (pod.GetLabel(WorkerLabel) is not null)
+        {
+            runObjects.WorkerPods[IndexFromPodName(pod.Name())] = pod;
+        }
+        else
+        {
+            runObjects.JobPods[IndexFromPodName(pod.Name())] = pod;
+        }
+
+        if (_acquiredLeaseToken == _latestLeaseToken)
+        {
+            var previousState = runObjects.CachedMetadata;
+            var currentState = runObjects.GetObservedState();
+
+            if (!previousState.Equals(currentState))
+            {
+                await _repository.UpdateRunFromObservedState(currentState, (LeaseName, _thisLeaseHolderId), stoppingToken);
+            }
+        }
+
+        if (listeners != null)
+        {
+            foreach (var listener in listeners)
+            {
+                await listener.WriteAsync((runObjects!, eventType, pod), stoppingToken);
+            }
+        }
     }
 
     public bool TryGetRunObjectSnapshot(long runId, out RunObjects? runObjects)
@@ -128,107 +271,6 @@ public class RunStateObserver : BackgroundService
                 }
             }
         }
-    }
-
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        stoppingToken.Register(_cancellationTokenSource.Cancel);
-
-        async Task ProcessUpdates()
-        {
-            await foreach ((var eventType, var pod) in _podUpdatesChannel.Reader.ReadAllAsync(stoppingToken))
-            {
-                var runId = GetRunId(pod);
-                if (runId == null)
-                {
-                    continue;
-                }
-
-                List<ChannelWriter<(RunObjects, WatchEventType, V1Pod)>>? listeners;
-                RunObjects? runObjects;
-                lock (_cache)
-                {
-                    _cache.TryGetValue(runId.Value, out runObjects);
-                    _listeners.TryGetValue(runId.Value, out listeners);
-                }
-
-                if (eventType == WatchEventType.Deleted)
-                {
-                    if (runObjects != null)
-                    {
-                        if (pod.GetLabel(WorkerLabel) is not null)
-                        {
-                            runObjects.WorkerPods[IndexFromPodName(pod.Name())] = null;
-                        }
-                        else
-                        {
-                            runObjects.JobPods[IndexFromPodName(pod.Name())] = null;
-                        }
-
-                        if (runObjects.JobPods.All(p => p == null) &&
-                            runObjects.WorkerPods.All(p => p == null))
-                        {
-                            lock (_cache)
-                            {
-                                _cache.Remove(runId.Value);
-                            }
-                        }
-
-                        if (listeners != null)
-                        {
-                            foreach (var listener in listeners)
-                            {
-                                await listener.WriteAsync((runObjects, eventType, pod), stoppingToken);
-                            }
-                        }
-                    }
-
-                    continue;
-                }
-
-                if (runObjects == null)
-                {
-                    var (jobReplicaCount, workerReplicaCount) = pod.GetReplicaCounts();
-                    runObjects = new RunObjects(runId.Value, jobReplicaCount, workerReplicaCount);
-                    lock (_cache)
-                    {
-                        _cache[runId.Value] = runObjects;
-                    }
-                }
-
-                if (pod.GetLabel(WorkerLabel) is not null)
-                {
-                    runObjects.WorkerPods[IndexFromPodName(pod.Name())] = pod;
-                }
-                else
-                {
-                    runObjects.JobPods[IndexFromPodName(pod.Name())] = pod;
-                }
-
-                var previousState = runObjects.CachedMetadata;
-                var currentState = runObjects.GetObservedState();
-                if (!previousState.Equals(currentState))
-                {
-                    await _repository.UpdateRunFromObservedState(currentState, stoppingToken); // TODO: handle failure
-                }
-
-                if (listeners != null)
-                {
-                    foreach (var listener in listeners)
-                    {
-                        await listener.WriteAsync((runObjects!, eventType, pod), stoppingToken);
-                    }
-                }
-            }
-        }
-
-        var processUpdatesTask = ProcessUpdates();
-
-        // fail if any fail
-        await await Task.WhenAny(_podInformerTask!, processUpdatesTask);
-
-        await _podInformerTask!;
-        await processUpdatesTask;
     }
 
     private static long? GetRunId(IKubernetesObject<V1ObjectMeta> job)
