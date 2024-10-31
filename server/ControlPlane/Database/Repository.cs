@@ -392,6 +392,14 @@ public class Repository : IRepository
 
         await command.PrepareAsync(cancellationToken);
         await command.ExecuteNonQueryAsync(cancellationToken);
+
+        await using var notifyCommand = new NpgsqlCommand($"SELECT pg_notify('{RunFinalizedChannelName}', $1);", conn)
+        {
+            Parameters = { new() { Value = id.ToString(), NpgsqlDbType = NpgsqlDbType.Text } }
+        };
+
+        await notifyCommand.PrepareAsync(cancellationToken);
+        await notifyCommand.ExecuteNonQueryAsync(cancellationToken);
     }
 
     public async Task UpdateRunAsLogsArchived(long id, CancellationToken cancellationToken)
