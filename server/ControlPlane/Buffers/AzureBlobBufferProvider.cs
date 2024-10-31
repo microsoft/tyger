@@ -86,7 +86,6 @@ public sealed class AzureBlobBufferProvider : BackgroundService, IBufferProvider
         }
         catch (RequestFailedException e) when (e.ErrorCode == "InvalidResourceName")
         {
-            _logger.InvalidResourceName(id);
             return false;
         }
     }

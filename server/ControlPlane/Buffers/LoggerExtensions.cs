@@ -8,9 +8,6 @@ public static partial class LogingExtensions
     [LoggerMessage(LogLevel.Information, "Creating buffer {bufferId}")]
     public static partial void CreatingBuffer(this ILogger logger, string bufferId);
 
-    [LoggerMessage(LogLevel.Warning, "GetBlobContainerClient returned InvalidResourceName for {bufferId}")]
-    public static partial void InvalidResourceName(this ILogger logger, string bufferId);
-
     [LoggerMessage(LogLevel.Warning, "Failed to refresh user delegation key")]
     public static partial void FailedToRefreshUserDelegationKey(this ILogger logger, Exception ex);
 
