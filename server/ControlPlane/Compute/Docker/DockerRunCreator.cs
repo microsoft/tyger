@@ -65,14 +65,14 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         Capabilities.Docker |
         (_dockerOptions.GpuSupport ? Capabilities.Gpu : Capabilities.None);
 
-    public async Task<Run> CreateRun(Run newRun, CancellationToken cancellationToken)
+    public async Task<Run> CreateRun(Run run, string? idempotencyKey, CancellationToken cancellationToken)
     {
-        if (newRun.Worker != null)
+        if (run.Worker != null)
         {
             throw new ValidationException("Runs with workers are only supported on Kubernetes");
         }
 
-        if (await GetCodespec(newRun.Job.Codespec, cancellationToken) is not JobCodespec jobCodespec)
+        if (await GetCodespec(run.Job.Codespec, cancellationToken) is not JobCodespec jobCodespec)
         {
             throw new ArgumentException($"The codespec for the job is required to be a job codespec");
         }
@@ -96,39 +96,41 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             }
         }
 
-        newRun = newRun with
+        run = run with
         {
             Cluster = null,
-            Job = newRun.Job with
+            Job = run.Job with
             {
                 Codespec = jobCodespec.ToCodespecRef()
             }
         };
 
-        if (newRun.Job.Buffers == null)
+        if (run.Job.Buffers == null)
         {
-            newRun = newRun with { Job = newRun.Job with { Buffers = [] } };
+            run = run with { Job = run.Job with { Buffers = [] } };
         }
 
-        if (newRun.Job.Tags == null)
+        if (run.Job.Tags == null)
         {
-            newRun = newRun with { Job = newRun.Job with { Tags = [] } };
+            run = run with { Job = run.Job with { Tags = [] } };
         }
 
-        var bufferMap = await GetBufferMap(jobCodespec.Buffers, newRun.Job.Buffers, newRun.Job.Tags, cancellationToken);
+        await ProcessBufferArguments(jobCodespec.Buffers, run.Job.Buffers, run.Job.Tags, cancellationToken);
 
-        var run = await Repository.CreateRun(newRun, cancellationToken);
+        run = await Repository.CreateRun(run, idempotencyKey, cancellationToken);
+
+        var bufferMap = await GetBufferMap(jobCodespec.Buffers, run.Job.Buffers!, cancellationToken);
 
         string mainContainerName = $"tyger-run-{run.Id}-main";
 
-        if (newRun.Job.Buffers != null)
+        if (run.Job.Buffers != null)
         {
-            foreach ((var bufferParameterName, var bufferId) in newRun.Job.Buffers)
+            foreach ((var bufferParameterName, var bufferId) in run.Job.Buffers)
             {
                 if (bufferId.StartsWith("temp-", StringComparison.Ordinal))
                 {
                     var newBufferId = $"run-{run.Id}-{bufferId}";
-                    newRun.Job.Buffers[bufferParameterName] = newBufferId;
+                    run.Job.Buffers[bufferParameterName] = newBufferId;
                     (var write, _) = bufferMap[bufferParameterName];
                     var unqualifiedBufferId = BufferManager.GetUnqualifiedBufferId(newBufferId);
                     var sasQueryString = _ephemeralBufferProvider.GetSasQueryString(unqualifiedBufferId, write);
@@ -463,7 +465,8 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             throw;
         }
 
-        await Repository.UpdateRun(run, resourcesCreated: true, cancellationToken: cancellationToken);
+        await Repository.UpdateRunAsResourcesCreated(run.Id!.Value, run, cancellationToken: cancellationToken);
+
         _logger.CreatedRun(run.Id!.Value);
         return run with { Status = RunStatus.Running };
     }
@@ -498,13 +501,15 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         });
     }
 
-    public async Task StartAsync(CancellationToken cancellationToken)
+    public override async Task StartAsync(CancellationToken cancellationToken)
     {
         Directory.CreateDirectory(_dockerOptions.RunSecretsPath);
         Directory.CreateDirectory(_dockerOptions.EphemeralBuffersPath);
 
         await AddPublicSigningKeyToBufferSidecarImage(cancellationToken);
     }
+
+    protected override Task ExecuteAsync(CancellationToken stoppingToken) => Task.CompletedTask;
 
     private async Task AddPublicSigningKeyToBufferSidecarImage(CancellationToken cancellationToken)
     {
@@ -563,6 +568,4 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         pemStream.Position = 0;
         return pemStream;
     }
-
-    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }

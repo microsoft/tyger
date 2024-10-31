@@ -590,7 +590,7 @@ maxReplicas: 1
 	var receivedSpec model.Codespec
 	require.NoError(t, json.Unmarshal([]byte(receivedSpecString), &receivedSpec))
 
-	require.Equal(t, codespecName, receivedSpec.Name)
+	require.Equal(t, codespecName, *receivedSpec.Name)
 	require.Equal(t, parsedSpec.Buffers, receivedSpec.Buffers)
 	require.Equal(t, parsedSpec.Image, receivedSpec.Image)
 	require.Equal(t, parsedSpec.Command, receivedSpec.Command)
@@ -607,7 +607,7 @@ maxReplicas: 1
 	receivedSpecString = runTygerSucceeds(t, "codespec", "show", codespec2Name)
 	require.NoError(t, json.Unmarshal([]byte(receivedSpecString), &receivedSpec))
 
-	require.Equal(t, codespec2Name, receivedSpec.Name)
+	require.Equal(t, codespec2Name, *receivedSpec.Name)
 
 	// now override the spec name and image
 	codespec3Name := strings.ToLower(t.Name() + "3")
@@ -616,7 +616,7 @@ maxReplicas: 1
 	receivedSpecString = runTygerSucceeds(t, "codespec", "show", codespec3Name)
 	require.NoError(t, json.Unmarshal([]byte(receivedSpecString), &receivedSpec))
 
-	require.Equal(t, codespec3Name, receivedSpec.Name)
+	require.Equal(t, codespec3Name, *receivedSpec.Name)
 	require.Equal(t, "ubuntu", receivedSpec.Image)
 }
 func TestInvalidCodespecNames(t *testing.T) {
@@ -937,9 +937,9 @@ func TestListCodespecsFromCli(t *testing.T) {
 	sort.Strings(codespecNames[:])
 	var csIdx int = 0
 	for _, cs := range returnedCodespecs {
-		if _, ok := codespecMap[cs.Name]; ok {
-			require.Equal(t, codespecNames[csIdx], cs.Name)
-			require.Equal(t, codespecMap[cs.Name], strconv.Itoa(cs.Version))
+		if _, ok := codespecMap[*cs.Name]; ok {
+			require.Equal(t, codespecNames[csIdx], *cs.Name)
+			require.Equal(t, codespecMap[*cs.Name], strconv.Itoa(*cs.Version))
 			csIdx++
 		}
 	}
@@ -998,15 +998,15 @@ func TestListCodespecsPaging(t *testing.T) {
 		_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, uri, nil, &page)
 		require.Nil(t, err)
 		for _, cs := range page.Items {
-			if _, ok := codespecs[cs.Name]; ok {
+			if _, ok := codespecs[*cs.Name]; ok {
 				if expectedIdx < 5 {
-					returnedNames1[expectedIdx] = cs.Name
+					returnedNames1[expectedIdx] = *cs.Name
 					expectedIdx++
-					if cs.Name == prefix+"klamath" {
-						currentKlamathVersion = cs.Version
+					if *cs.Name == prefix+"klamath" {
+						currentKlamathVersion = *cs.Version
 					}
 				} else {
-					returnedNames2[expectedIdx-5] = cs.Name
+					returnedNames2[expectedIdx-5] = *cs.Name
 					expectedIdx++
 				}
 			}
@@ -1086,8 +1086,8 @@ func TestListCodespecsWithPrefix(t *testing.T) {
 	_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, uri, nil, &page)
 	require.Nil(t, err)
 	for _, cs := range page.Items {
-		require.Equal(t, strings.HasPrefix(cs.Name, "3d_"), true)
-		delete(codespecMap, cs.Name)
+		require.Equal(t, strings.HasPrefix(*cs.Name, "3d_"), true)
+		delete(codespecMap, *cs.Name)
 	}
 	require.Equal(t, len(codespecMap), 2)
 

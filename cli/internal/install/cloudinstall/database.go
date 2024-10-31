@@ -6,6 +6,7 @@ package cloudinstall
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -127,16 +128,57 @@ func (inst *Installer) createDatabase(ctx context.Context, tygerServerManagedIde
 
 	if serverNeedsUpdate {
 		log.Info().Msg("Creating or updating PostgreSQL server")
+
 		poller, err := client.BeginCreate(ctx, inst.Config.Cloud.ResourceGroup, serverName, serverParameters, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create PostgreSQL server: %w", err)
 		}
 
 		createdDatabaseServer, err := poller.PollUntilDone(ctx, nil)
-		existingServer = &createdDatabaseServer.Server
 		if err != nil {
 			return nil, fmt.Errorf("failed to create PostgreSQL server: %w", err)
 		}
+
+		if existingServer != nil {
+			if *serverParameters.SKU.Tier != *existingServer.SKU.Tier || *serverParameters.SKU.Name != *existingServer.SKU.Name {
+
+				// We have scaled the server down or up. The `max_connections` parameter should be updated to match the new size according to
+				// the table in https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/concepts-limits#maximum-connections.
+				// There are two problems with this:
+				// 1. Setting the parameter requires a server restart, which causes downtime, so we shouldn't do this automatically.
+				// 2. The call to set the config (a call to the RP) does not always stick. If it doesn't, restarting the server and trying again seems to do the trick.
+
+				// What we do is print out a bash one-liner to that uses the Azure CLI to set the parameter and restart the server. Not pretty, but it seems to be
+				// better than `tyger cloud install` causing downtime.
+
+				configClient, err := armpostgresqlflexibleservers.NewConfigurationsClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
+				if err != nil {
+					return nil, fmt.Errorf("failed to create PostgreSQL server configuration client: %w", err)
+				}
+
+				configResponse, err := configClient.Get(ctx, inst.Config.Cloud.ResourceGroup, serverName, "max_connections", nil)
+				if err != nil {
+					return nil, fmt.Errorf("failed to get PostgreSQL server max_connections configuration: %w", err)
+				}
+
+				if *configResponse.Properties.Value != *configResponse.Properties.DefaultValue || *configResponse.Properties.IsConfigPendingRestart {
+					commandToRun := fmt.Sprintf(
+						`DESIRED_VALUE=%s; RESOURCE_GROUP="%s"; SERVER_NAME="%s"; SUBSCRIPTION_ID="%s"; `+
+							`until [ "$(az postgres flexible-server parameter set --name max_connections --value $DESIRED_VALUE --resource-group $RESOURCE_GROUP --server-name $SERVER_NAME --subscription $SUBSCRIPTION_ID  -o tsv --query 'value')" = "$DESIRED_VALUE" ] && echo "Parameter set successfully to $DESIRED_VALUE."; `+
+							`do echo "Failed to set parameter. Restarting server and retrying..."; `+
+							`az postgres flexible-server restart --resource-group $RESOURCE_GROUP --name $SERVER_NAME --subscription $SUBSCRIPTION_ID; `+
+							`done; `+
+							`echo "Restarting the server to apply changes..."; `+
+							`az postgres flexible-server restart --resource-group $RESOURCE_GROUP --name $SERVER_NAME --subscription $SUBSCRIPTION_ID`,
+						*configResponse.Properties.DefaultValue, inst.Config.Cloud.ResourceGroup, serverName, inst.Config.Cloud.SubscriptionID)
+					log.Warn().Msgf("The database server size has been changed. It is recommended to update the max_connections parameter suitable for the new server size.")
+					log.Warn().Msgf("Run the following command to update the parameter and restart the server: `%s` ", commandToRun)
+					log.Warn().Msg("Note that running the above command will restart the database server and cause downtime.")
+				}
+			}
+		}
+
+		existingServer = &createdDatabaseServer.Server
 	} else {
 		log.Info().Msgf("PostgreSQL server '%s' appears to be up to date", *existingServer.Name)
 	}
@@ -432,7 +474,14 @@ func getCurrentPrincipalForDatabase(ctx context.Context, cred azcore.TokenCreden
 // determine whether we need to update the database server by comparing the existing state and the desired state
 func databaseServerNeedsUpdate(newServer, existingServer armpostgresqlflexibleservers.Server) (merged armpostgresqlflexibleservers.Server, needsUpdate bool) {
 	needsUpdate = false
-	merged = existingServer
+	// make a deep copy of existingServer
+	existingJson, err := json.Marshal(existingServer)
+	if err != nil {
+		panic(fmt.Sprintf("failed to marshal existing database server JSON: %v", err))
+	}
+	if err := json.Unmarshal(existingJson, &merged); err != nil {
+		panic(fmt.Sprintf("failed to unmarshal existing database server JSON: %v", err))
+	}
 
 	if *existingServer.Properties.Storage.Type == armpostgresqlflexibleservers.StorageTypePremiumLRS {
 		// trying to update with these fields set will result in an error

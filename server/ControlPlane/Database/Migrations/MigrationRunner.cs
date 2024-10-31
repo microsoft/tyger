@@ -87,13 +87,14 @@ public class MigrationRunner : IHostedService
                     for (int i = 0; ; i++)
                     {
                         var allReady = true;
+                        var requiredVersion = version - 1;
                         try
                         {
                             await foreach ((var replicaUri, var replicaDatabaseVersion) in _replicaDatabaseVersionProvider.GetDatabaseVersionsOfReplicas(cancellationToken))
                             {
-                                if (replicaDatabaseVersion < version)
+                                if (replicaDatabaseVersion < requiredVersion)
                                 {
-                                    _logger.WaitingForReplicaToUseRequiredVersion(replicaUri.ToString(), (int)version, (int)replicaDatabaseVersion);
+                                    _logger.WaitingForReplicaToUseRequiredVersion(replicaUri.ToString(), (int)requiredVersion, (int)replicaDatabaseVersion);
                                     allReady = false;
                                 }
                             }
@@ -160,7 +161,7 @@ public class MigrationRunner : IHostedService
         await LogCurrentOrAvailableDatabaseVersions(knownVersions, cancellationToken);
     }
 
-    private async Task LogCurrentOrAvailableDatabaseVersions(List<(DatabaseVersion version, Type migrator)> knownVersions, CancellationToken cancellationToken)
+    private async Task LogCurrentOrAvailableDatabaseVersions(List<(DatabaseVersion version, Type migrator, bool isMinimumVersion)> knownVersions, CancellationToken cancellationToken)
     {
         if (!await _databaseVersions.DoesMigrationsTableExist(cancellationToken))
         {
@@ -175,7 +176,14 @@ public class MigrationRunner : IHostedService
 
         if (knownVersions.Any(kv => (int)kv.version > (int)currentVersion))
         {
-            _logger.NewerDatabaseVersionsExist();
+            if (knownVersions.FirstOrDefault(v => v.isMinimumVersion) is (var minimumVersion, var _, var _) && currentVersion < minimumVersion)
+            {
+                _logger.DatabaseMigrationRequired((int)minimumVersion, (int)currentVersion);
+            }
+            else
+            {
+                _logger.NewerDatabaseVersionsExist();
+            }
         }
         else
         {
@@ -190,7 +198,9 @@ public class MigrationRunner : IHostedService
             await using var batch = _dataSource.CreateBatch();
 
             batch.BatchCommands.Add(new($"GRANT ALL ON ALL TABLES IN SCHEMA {DatabaseNamespace} TO \"{OwnersRole}\""));
-            batch.BatchCommands.Add(new($"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"{_databaseOptions.TygerServerRoleName}\""));
+            batch.BatchCommands.Add(new($"GRANT ALL ON ALL SEQUENCES IN SCHEMA {DatabaseNamespace} TO \"{OwnersRole}\""));
+            batch.BatchCommands.Add(new($"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA {DatabaseNamespace} TO \"{_databaseOptions.TygerServerRoleName}\""));
+            batch.BatchCommands.Add(new($"GRANT USAGE ON ALL SEQUENCES IN SCHEMA {DatabaseNamespace} TO \"{_databaseOptions.TygerServerRoleName}\""));
 
             await batch.ExecuteNonQueryAsync(cancellationToken);
         }, cancellationToken);

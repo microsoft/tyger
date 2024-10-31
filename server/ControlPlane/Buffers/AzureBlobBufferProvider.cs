@@ -15,7 +15,7 @@ using Tyger.ControlPlane.Runs;
 
 namespace Tyger.ControlPlane.Buffers;
 
-public sealed class AzureBlobBufferProvider : IBufferProvider, IHealthCheck, IHostedService, IDisposable
+public sealed class AzureBlobBufferProvider : BackgroundService, IBufferProvider, IHealthCheck, IDisposable
 {
     private static readonly TimeSpan s_userDelegationKeyDuration = TimeSpan.FromDays(1);
 
@@ -24,7 +24,6 @@ public sealed class AzureBlobBufferProvider : IBufferProvider, IHealthCheck, IHo
     private readonly DatabaseOptions _databaseOptions;
     private readonly Lazy<IRunCreator> _runCreator;
     private readonly ILogger<BufferManager> _logger;
-    private readonly CancellationTokenSource _backgroundCancellationTokenSource = new();
     private UserDelegationKey? _userDelegationKey;
 
     public AzureBlobBufferProvider(
@@ -151,7 +150,7 @@ public sealed class AzureBlobBufferProvider : IBufferProvider, IHealthCheck, IHo
             TimeoutSeconds = (int)TimeSpan.FromDays(7).TotalSeconds,
         };
 
-        return await _runCreator.Value.CreateRun(newRun, cancellationToken);
+        return await _runCreator.Value.CreateRun(newRun, null, cancellationToken);
     }
 
     public async Task<Run> ImportBuffers(CancellationToken cancellationToken)
@@ -193,7 +192,7 @@ public sealed class AzureBlobBufferProvider : IBufferProvider, IHealthCheck, IHo
             TimeoutSeconds = (int)TimeSpan.FromDays(7).TotalSeconds,
         };
 
-        return await _runCreator.Value.CreateRun(newRun, cancellationToken);
+        return await _runCreator.Value.CreateRun(newRun, null, cancellationToken);
     }
 
     public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken)
@@ -207,21 +206,27 @@ public sealed class AzureBlobBufferProvider : IBufferProvider, IHealthCheck, IHo
         return HealthCheckResult.Healthy();
     }
 
-    async Task IHostedService.StartAsync(CancellationToken cancellationToken)
+    public override async Task StartAsync(CancellationToken cancellationToken)
     {
-        async Task BackgroundLoop(CancellationToken cancellationToken)
+        await RefreshUserDelegationKey(cancellationToken);
+        await base.StartAsync(cancellationToken);
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        try
         {
-            while (!cancellationToken.IsCancellationRequested)
+            while (!stoppingToken.IsCancellationRequested)
             {
-                await Task.Delay(s_userDelegationKeyDuration * 0.75, cancellationToken);
+                await Task.Delay(s_userDelegationKeyDuration * 0.75, stoppingToken);
                 while (true)
                 {
                     try
                     {
-                        await RefreshUserDelegationKey(cancellationToken);
+                        await RefreshUserDelegationKey(stoppingToken);
                         break;
                     }
-                    catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
+                    catch (TaskCanceledException) when (stoppingToken.IsCancellationRequested)
                     {
                         return;
                     }
@@ -236,30 +241,20 @@ public sealed class AzureBlobBufferProvider : IBufferProvider, IHealthCheck, IHo
                             _logger.FailedToRefreshUserDelegationKey(e);
                         }
 
-                        await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
+                        await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
                     }
                 }
             }
         }
-
-        await RefreshUserDelegationKey(cancellationToken);
-        _ = BackgroundLoop(_backgroundCancellationTokenSource.Token);
-    }
-
-    Task IHostedService.StopAsync(CancellationToken cancellationToken)
-    {
-        _backgroundCancellationTokenSource.Cancel();
-        return Task.CompletedTask;
+        catch (TaskCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            return;
+        }
     }
 
     private async Task RefreshUserDelegationKey(CancellationToken cancellationToken)
     {
         var start = DateTimeOffset.UtcNow.AddMinutes(-5);
         _userDelegationKey = await _serviceClient.GetUserDelegationKeyAsync(start, start.Add(s_userDelegationKeyDuration), cancellationToken);
-    }
-
-    public void Dispose()
-    {
-        _backgroundCancellationTokenSource.Dispose();
     }
 }

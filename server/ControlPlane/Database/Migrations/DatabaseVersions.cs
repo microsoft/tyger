@@ -22,15 +22,18 @@ public enum DatabaseVersion
     [Migrator(typeof(Migrator2))]
     [Description("Adding an index to the codespecs table")]
     AddCodespecsIndex = 2,
+
+    [Migrator(typeof(Migrator3))]
+    [Description("Making run management more scalable")]
+    [MinimumSupportedVersion]
+    RunScalability = 3,
 }
 
-public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable
+public sealed class DatabaseVersions : BackgroundService, IHealthCheck
 {
     private readonly NpgsqlDataSource _dataSource;
     private readonly ResiliencePipeline _resiliencePipeline;
     private readonly ILogger<DatabaseVersions> _logger;
-    private readonly CancellationTokenSource _backgroundCancellationTokenSource = new();
-    private Task? _backgroundTask;
 
     public DatabaseVersions(NpgsqlDataSource dataSource, ResiliencePipeline resiliencePipeline, ILogger<DatabaseVersions> logger)
     {
@@ -44,12 +47,13 @@ public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable
     /// </summary>
     public DatabaseVersion CachedCurrentVersion { get; private set; }
 
-    public List<(DatabaseVersion version, Type migrator)> GetKnownVersions() =>
+    public List<(DatabaseVersion version, Type migrator, bool minimumSupported)> GetKnownVersions() =>
         (from version in Enum.GetValues<DatabaseVersion>()
-         let att = typeof(DatabaseVersion).GetField(version.ToString())!.GetCustomAttribute<MigratorAttribute>()
+         let migrationAtt = typeof(DatabaseVersion).GetField(version.ToString())!.GetCustomAttribute<MigratorAttribute>()
              ?? throw new InvalidOperationException($"{nameof(DatabaseVersion)} value must have a {nameof(MigratorAttribute)}")
+         let minSupportedAtt = typeof(DatabaseVersion).GetField(version.ToString())!.GetCustomAttribute<MinimumSupportedVersionAttribute>()
          orderby (int)version
-         select (version, att.MigratorType))
+         select (version, migrationAtt.MigratorType, minSupportedAtt != null))
         .ToList();
 
     public async Task<DatabaseVersion?> ReadCurrentDatabaseVersion(CancellationToken cancellationToken)
@@ -70,7 +74,7 @@ public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable
             {
                 null => (DatabaseVersion?)null,
                 int i when Enum.IsDefined(typeof(DatabaseVersion), i) => (DatabaseVersion)i,
-                int i => throw new InvalidOperationException($"Database version {i} is not supported. This version of Tyger supports versions {Enum.GetValues<DatabaseVersion>().Min()} to {Enum.GetValues<DatabaseVersion>().Max()}"),
+                int i => throw new InvalidOperationException($"Database version {i} is not supported. This version of Tyger supports versions {(int)Enum.GetValues<DatabaseVersion>().Min()} to {(int)Enum.GetValues<DatabaseVersion>().Max()}"),
                 _ => throw new InvalidOperationException("Unexpected type returned from database")
             };
         }, cancellationToken);
@@ -149,7 +153,7 @@ public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable
         }, cancellationToken);
     }
 
-    async Task IHostedService.StartAsync(CancellationToken cancellationToken)
+    public override async Task StartAsync(CancellationToken cancellationToken)
     {
         while (true)
         {
@@ -157,6 +161,12 @@ public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable
             {
                 if (await ReadAndUpdateCachedDatabaseVersion(cancellationToken))
                 {
+                    if (GetKnownVersions().FirstOrDefault(v => v.minimumSupported) is (var minimumVersion, var _, var _) && CachedCurrentVersion < minimumVersion)
+                    {
+                        _logger.DatabaseMigrationRequired((int)minimumVersion, (int)CachedCurrentVersion);
+                        throw new DatabaseMigrationRequiredException($"This version of Tyger requires the database to be migrated to at least version {(int)minimumVersion}. The current version is {(int)CachedCurrentVersion}.");
+                    }
+
                     break;
                 }
             }
@@ -165,36 +175,30 @@ public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable
             await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
         }
 
-        async Task BackgroundLoop(CancellationToken cancellationToken)
-        {
-            while (!cancellationToken.IsCancellationRequested)
-            {
-                try
-                {
-                    await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
-                    if (!await ReadAndUpdateCachedDatabaseVersion(cancellationToken))
-                    {
-                        throw new InvalidOperationException("Current database version information is not available");
-                    }
-                }
-                catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    return;
-                }
-                catch (Exception e)
-                {
-                    _logger.FailedToReadDatabaseVersion(e);
-                }
-            }
-        }
-
-        _backgroundTask = BackgroundLoop(_backgroundCancellationTokenSource.Token);
+        await base.StartAsync(cancellationToken);
     }
 
-    Task IHostedService.StopAsync(CancellationToken cancellationToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _backgroundCancellationTokenSource.Cancel();
-        return Task.CompletedTask;
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+                if (!await ReadAndUpdateCachedDatabaseVersion(stoppingToken))
+                {
+                    throw new InvalidOperationException("Current database version information is not available");
+                }
+            }
+            catch (TaskCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception e)
+            {
+                _logger.FailedToReadDatabaseVersion(e);
+            }
+        }
     }
 
     private async Task<bool> ReadAndUpdateCachedDatabaseVersion(CancellationToken cancellationToken)
@@ -232,14 +236,17 @@ public sealed class DatabaseVersions : IHostedService, IHealthCheck, IDisposable
 
         return HealthCheckResult.Healthy();
     }
-
-    public void Dispose() => _backgroundCancellationTokenSource.Dispose();
 }
 
 [AttributeUsage(AttributeTargets.Field, Inherited = false, AllowMultiple = false)]
 public sealed class MigratorAttribute(Type migratorType) : Attribute
 {
     public Type MigratorType { get; } = migratorType;
+}
+
+[AttributeUsage(AttributeTargets.Field, Inherited = false, AllowMultiple = false)]
+public sealed class MinimumSupportedVersionAttribute : Attribute
+{
 }
 
 public enum DatabaseVersionState
@@ -251,3 +258,5 @@ public enum DatabaseVersionState
 }
 
 public record DatabaseVersionInfo(int Id, string Description, DatabaseVersionState State);
+
+public class DatabaseMigrationRequiredException(string message) : Exception(message);

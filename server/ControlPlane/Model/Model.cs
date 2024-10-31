@@ -401,6 +401,19 @@ public enum RunStatus
     Canceled,
 }
 
+public static class RunStatusExtensions
+{
+    public static bool IsTerminal(this RunStatus status)
+    {
+        return status is RunStatus.Failed or RunStatus.Succeeded or RunStatus.Canceled;
+    }
+
+    public static bool IsTerminal(this RunStatus? status)
+    {
+        return status is not null && status.Value.IsTerminal();
+    }
+}
+
 public enum RunKind
 {
     User = 0,
@@ -459,12 +472,6 @@ public record Run : ModelBase
     /// </summary>
     public int? TimeoutSeconds { get; init; } = (int)TimeSpan.FromHours(12).TotalSeconds;
 
-    [JsonIgnore]
-    public bool Final { get; init; } = false;
-
-    [JsonIgnore]
-    public DateTimeOffset? LogsArchivedAt { get; init; }
-
     /// <summary>
     /// The name of target cluster.
     /// </summary>
@@ -474,7 +481,7 @@ public record Run : ModelBase
     {
         return this with
         {
-            Id = 0,
+            Id = null,
             Status = null,
             StatusReason = null,
             RunningCount = null,

@@ -87,7 +87,7 @@ logPath: /logs
 	// Test tyger using the Squid proxy
 	_, _, err = s.ShellExec("tyger-proxy", fmt.Sprintf("curl --fail %s/v1/metadata", tygerUri))
 	require.Error(t, err, "curl should fail because the proxy is not used")
-	s.ShellExecSucceeds("tyger-proxy", fmt.Sprintf("curl --proxy %s --fail %s/v1/metadata", squidProxy, tygerUri))
+	s.ShellExecSucceeds("tyger-proxy", fmt.Sprintf("curl --retry 5 --proxy %s --fail %s/v1/metadata", squidProxy, tygerUri))
 
 	// Specify the proxy via environment variable
 	s.ShellExecSucceeds("tyger-proxy", fmt.Sprintf("export HTTPS_PROXY=%s && tyger login -f /creds.yml && tyger buffer read %s > /dev/null", squidProxy, bufferId))
@@ -113,7 +113,7 @@ logPath: /logs
 
 	_, _, err = s.ShellExec("tyger-proxy", fmt.Sprintf("curl --proxy %s --fail %s/v1/metadata", squidProxy, tygerUri))
 	require.Error(t, err, "curl should fail because the root CA certificates have been removed")
-	s.ShellExecSucceeds("tyger-proxy", fmt.Sprintf("curl --proxy %s --insecure --fail %s/v1/metadata", squidProxy, tygerUri))
+	s.ShellExecSucceeds("tyger-proxy", fmt.Sprintf("curl --retry 5 --proxy %s --insecure --fail %s/v1/metadata", squidProxy, tygerUri))
 
 	// disable TLS certificate validation in the config file
 	s.ShellExecSucceeds("tyger-proxy", fmt.Sprintf("echo 'disableTlsCertificateValidation: true' >> /creds.yml"))

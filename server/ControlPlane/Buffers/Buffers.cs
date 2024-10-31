@@ -30,7 +30,8 @@ public static class Buffers
                 builder.Services.AddOptions<CloudBufferStorageOptions>().BindConfiguration("buffers:cloudStorage").ValidateDataAnnotations().ValidateOnStart();
                 builder.Services.AddSingleton<AzureBlobBufferProvider>();
                 builder.Services.AddSingleton<IBufferProvider>(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
-                builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
+                builder.Services.AddHostedService(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
+                builder.Services.Insert(0, ServiceDescriptor.Singleton<IHostedService>(sp => sp.GetRequiredService<AzureBlobBufferProvider>())); // Other startup services depend on this, so we add it early.
                 builder.Services.AddHealthChecks().AddCheck<AzureBlobBufferProvider>("buffers");
                 break;
             case (false, true):
@@ -178,7 +179,7 @@ public static class Buffers
 
         app.MapPost("/v1/buffers/{id}/access", async (BufferManager manager, string id, bool? writeable, bool? preferTcp, bool? fromDocker, CancellationToken cancellationToken) =>
             {
-                var bufferAccess = await manager.CreateBufferAccessUrl(id, writeable == true, preferTcp == true, fromDocker == true, cancellationToken);
+                var bufferAccess = await manager.CreateBufferAccessUrl(id, writeable == true, preferTcp == true, fromDocker == true, checkExists: true, cancellationToken);
                 if (bufferAccess is null)
                 {
                     return Responses.NotFound();

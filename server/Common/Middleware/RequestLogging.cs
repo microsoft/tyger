@@ -87,11 +87,15 @@ public class RequestLogging
         }
         finally
         {
-            _logger.RequestCompleted(
-                SanitizeUserInputForLogging(context.Request.Method),
-                SanitizeUserInputForLogging(context.Request.Path.ToString()),
-                RedactQueryStringValues(context.Request.Query),
-                context.Response.StatusCode, (Stopwatch.GetTimestamp() - start) * 1000.0 / Stopwatch.Frequency);
+            var end = Stopwatch.GetTimestamp();
+            if (context.Request.Path != "/healthcheck" || context.Response.StatusCode != 200)
+            {
+                _logger.RequestCompleted(
+                    SanitizeUserInputForLogging(context.Request.Method),
+                    SanitizeUserInputForLogging(context.Request.Path.ToString()),
+                    RedactQueryStringValues(context.Request.Query),
+                    context.Response.StatusCode, (end - start) * 1000.0 / Stopwatch.Frequency);
+            }
         }
     }
 
@@ -135,7 +139,7 @@ public class RequestLogging
 
 public static partial class LoggerExtensions
 {
-    [LoggerMessage(0, LogLevel.Information, "Request {method} {path}{query} completed with status {statusCode} in {milliseconds} ms.")]
+    [LoggerMessage(LogLevel.Information, "Request {method} {path}{query} completed with status {statusCode} in {milliseconds} ms.")]
     public static partial void RequestCompleted(this ILogger logger, string method, string path, string? query, int statusCode, double milliseconds);
 
 }

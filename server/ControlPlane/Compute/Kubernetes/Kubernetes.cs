@@ -2,8 +2,12 @@
 // Licensed under the MIT License.
 
 using System.ComponentModel.DataAnnotations;
+using System.Diagnostics;
+using System.Net;
 using k8s;
+using Microsoft.Extensions.Http.Resilience;
 using Microsoft.Extensions.Options;
+using Polly;
 using Tyger.ControlPlane.Buffers;
 using Tyger.ControlPlane.Database;
 using Tyger.ControlPlane.Logging;
@@ -25,7 +29,18 @@ public static class Kubernetes
             var config = string.IsNullOrEmpty(kubernetesOptions.KubeconfigPath)
                 ? KubernetesClientConfiguration.InClusterConfig()
                 : KubernetesClientConfiguration.BuildConfigFromConfigFile(kubernetesOptions.KubeconfigPath);
-            return new k8s.Kubernetes(config, sp.GetRequiredService<LoggingHandler>());
+
+            var resilienceOptions = new HttpStandardResilienceOptions();
+            var pipeline = new ResiliencePipelineBuilder<HttpResponseMessage>()
+                .AddTimeout(resilienceOptions.TotalRequestTimeout)
+                .AddRetry(resilienceOptions.Retry)
+                .Build();
+
+#pragma warning disable EXTEXP0001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+            var resilienceHander = new ResilienceHandler(pipeline);
+#pragma warning restore EXTEXP0001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+
+            return new k8s.Kubernetes(config, sp.GetRequiredService<LoggingHandler>(), resilienceHander);
         });
         builder.Services.AddSingleton<IKubernetes>(sp => sp.GetRequiredService<k8s.Kubernetes>());
 
@@ -37,6 +52,7 @@ public static class Kubernetes
             builder.Services.AddOptions<KubernetesApiOptions>().BindConfiguration("compute:kubernetes").ValidateDataAnnotations().ValidateOnStart();
             builder.Services.AddSingleton<KubernetesRunCreator>();
             builder.Services.AddSingleton<IRunCreator>(sp => sp.GetRequiredService<KubernetesRunCreator>());
+            builder.Services.AddHostedService(sp => sp.GetRequiredService<KubernetesRunCreator>());
             builder.Services.AddSingleton(sp => new Lazy<IRunCreator>(() => sp.GetRequiredService<KubernetesRunCreator>()));
             builder.Services.AddSingleton<ICapabilitiesContributor>(sp => sp.GetRequiredService<KubernetesRunCreator>());
             builder.Services.AddSingleton<KubernetesRunReader>();
@@ -44,11 +60,12 @@ public static class Kubernetes
             builder.Services.AddSingleton<KubernetesRunUpdater>();
             builder.Services.AddSingleton<IRunUpdater>(sp => sp.GetRequiredService<KubernetesRunUpdater>());
             builder.Services.AddSingleton<ILogSource, KubernetesRunLogReader>();
-            builder.Services.AddSingleton<KubernetesRunSweeper>();
-            builder.Services.AddSingleton<IHostedService, KubernetesRunSweeper>(sp => sp.GetRequiredService<KubernetesRunSweeper>());
-            builder.Services.AddSingleton<KubernetesRunSweeper>();
-            builder.Services.AddSingleton<IRunSweeper>(sp => sp.GetRequiredService<KubernetesRunSweeper>());
             builder.Services.AddSingleton<IEphemeralBufferProvider, KubernetesEphemeralBufferProvider>();
+            builder.Services.AddSingleton<RunStateObserver>();
+            builder.Services.AddHostedService(sp => sp.GetRequiredService<RunStateObserver>());
+            builder.Services.AddSingleton<RunChangeFeed>();
+            builder.Services.AddHostedService(sp => sp.GetRequiredService<RunChangeFeed>());
+            builder.Services.AddHostedService<RunFinalizer>();
         }
     }
 }
@@ -119,15 +136,19 @@ public class LoggingHandler : DelegatingHandler
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
+        var start = Stopwatch.GetTimestamp();
         var resp = await base.SendAsync(request, cancellationToken);
+        var end = Stopwatch.GetTimestamp();
+        var elapsed = (end - start) * 1000.0 / Stopwatch.Frequency;
+
         string? errorBody = "";
-        if (!resp.IsSuccessStatusCode)
+        if (!resp.IsSuccessStatusCode && !(request.Method == HttpMethod.Delete && resp.StatusCode == HttpStatusCode.NotFound))
         {
             await resp.Content.LoadIntoBufferAsync();
             errorBody = await resp.Content.ReadAsStringAsync(cancellationToken);
         }
 
-        _logger.ExecutedKubernetesRequest(request.Method, request?.RequestUri?.ToString(), (int)resp.StatusCode, errorBody);
+        _logger.ExecutedKubernetesRequest(request.Method, request?.RequestUri?.ToString(), elapsed, (int)resp.StatusCode, errorBody);
         return resp;
     }
 }

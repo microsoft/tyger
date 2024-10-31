@@ -31,7 +31,7 @@ func (inst *Installer) InstallCloud(ctx context.Context) (err error) {
 	}
 
 	if err := inst.preflightCheck(ctx); err != nil {
-		if err != install.ErrAlreadyLoggedError {
+		if !errors.Is(err, install.ErrAlreadyLoggedError) {
 			logError(err, "")
 			return install.ErrAlreadyLoggedError
 		}

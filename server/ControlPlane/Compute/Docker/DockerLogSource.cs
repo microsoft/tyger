@@ -28,12 +28,11 @@ public class DockerLogSource : ILogSource
 
     public async Task<Pipeline?> GetLogs(long runId, GetLogsOptions options, CancellationToken cancellationToken)
     {
-        var run = await _repository.GetRun(runId, cancellationToken);
-        switch (run)
+        switch (await _repository.GetRun(runId, cancellationToken))
         {
             case null:
                 return null;
-            case { LogsArchivedAt: null }:
+            case (var run, _, var logsArchivedAt, _) when logsArchivedAt is null:
                 var containers = await _client.Containers.ListContainersAsync(new ContainersListParameters()
                 {
                     All = true,
@@ -73,7 +72,7 @@ public class DockerLogSource : ILogSource
                         {
                             await foreach (var x in _runReader.WatchRun(runId, cancellationToken))
                             {
-                                if (x.Status is RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceled)
+                                if (x.Status.IsTerminal())
                                 {
                                     mainSocketContainerTerminablePipelineElement.Terminate();
                                     break;

@@ -36,10 +36,10 @@ return await rootCommand.InvokeAsync(args);
 void AddCommonServices(IHostApplicationBuilder builder)
 {
     builder.AddConfigurationSources();
+    builder.AddDatabase();
     builder.AddCompute();
     builder.ConfigureLogging();
     builder.AddManagedIdentity();
-    builder.AddDatabase();
     builder.AddJsonFormatting();
 }
 
@@ -51,6 +51,7 @@ void RunServer()
     builder.AddLogArchive();
     builder.AddAuth();
     builder.AddBuffers();
+    builder.AddRuns();
     builder.AddOpenApi();
     builder.ConfigureUnixDomainSockets();
 

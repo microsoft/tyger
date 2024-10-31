@@ -40,13 +40,7 @@
       "mode": "auto",
       "program": "cli/cmd/tyger",
       "cwd": "${workspaceFolder}",
-      "args": [],
-      "substitutePath": [
-        {
-          "from": "/workspaces/tyger-docker",
-          "to": "/workspaces/tyger"
-        }
-      ]
+      "args": []
     },
     {
       "name": "CLI Docker",

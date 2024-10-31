@@ -216,7 +216,7 @@ func insertBatch(ctx context.Context, pool *pgxpool.Pool, containerBatch []*serv
 			INNER JOIN inserted_buffers ON temp_tags.id = inserted_buffers.id
 			INNER JOIN tag_keys ON temp_tags.key = tag_keys.name
 		), inserted_tags AS (
-			INSERT INTO tags (id, created_at, key, value)
+			INSERT INTO buffer_tags (id, created_at, key, value)
 			SELECT id, created_at, key, value
 			FROM mapped_tags
 		)

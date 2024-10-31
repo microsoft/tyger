@@ -83,8 +83,8 @@ func newCodespecCreateCommand() *cobra.Command {
 				}
 
 				if len(args) > 0 && cmd.ArgsLenAtDash() != 0 {
-					newCodespec.Name = args[0]
-				} else if newCodespec.Name == "" {
+					newCodespec.Name = &args[0]
+				} else if newCodespec.Name == nil || *newCodespec.Name == "" {
 					return errors.New("a name for the codespec must be required")
 				}
 			} else {
@@ -92,7 +92,7 @@ func newCodespecCreateCommand() *cobra.Command {
 					return errors.New("if -f|--file is not provided, a name for the codespec is required")
 				}
 
-				newCodespec.Name = args[0]
+				newCodespec.Name = &args[0]
 			}
 
 			if len(args) > 1 && cmd.ArgsLenAtDash() == -1 {
@@ -109,7 +109,7 @@ func newCodespecCreateCommand() *cobra.Command {
 			}
 
 			var isValidName = regexp.MustCompile(`^[a-z0-9\-._]*$`).MatchString
-			if !isValidName(newCodespec.Name) {
+			if newCodespec.Name == nil || !isValidName(*newCodespec.Name) {
 				return errors.New("codespec names must contain only lower case letters (a-z), numbers (0-9), dashes (-), underscores (_), and dots (.)")
 			}
 
@@ -257,7 +257,7 @@ func newCodespecCreateCommand() *cobra.Command {
 				newCodespec.Resources.Gpu = &q
 			}
 
-			resp, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPut, fmt.Sprintf("v1/codespecs/%s", newCodespec.Name), newCodespec, &newCodespec)
+			resp, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPut, fmt.Sprintf("v1/codespecs/%s", *newCodespec.Name), newCodespec, &newCodespec)
 			if err != nil {
 				return err
 			}

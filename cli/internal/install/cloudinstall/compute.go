@@ -389,16 +389,20 @@ func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCl
 				if *np.VMSize != *existingNp.VMSize {
 					return true, false
 				}
-				if *np.MinCount != *existingNp.MinCount {
-					hasChanges = true
-					if *np.MinCount > *existingNp.MinCount {
-						onlyScaleDown = false
+				if existingNp.EnableAutoScaling == nil || *np.EnableAutoScaling != *existingNp.EnableAutoScaling {
+					return true, false
+				} else {
+					if *np.MinCount != *existingNp.MinCount {
+						hasChanges = true
+						if *np.MinCount > *existingNp.MinCount {
+							onlyScaleDown = false
+						}
 					}
-				}
-				if *np.MaxCount != *existingNp.MaxCount {
-					hasChanges = true
-					if *np.MaxCount > *existingNp.MaxCount {
-						onlyScaleDown = false
+					if *np.MaxCount != *existingNp.MaxCount {
+						hasChanges = true
+						if *np.MaxCount > *existingNp.MaxCount {
+							onlyScaleDown = false
+						}
 					}
 				}
 				if *np.OrchestratorVersion != *existingNp.OrchestratorVersion {
@@ -543,6 +547,10 @@ func (inst *Installer) getAdminRESTConfig(ctx context.Context) (*rest.Config, er
 }
 
 func (inst *Installer) GetUserRESTConfig(ctx context.Context) (*rest.Config, error) {
+	if inst.cachedRESTConfig != nil {
+		return inst.cachedRESTConfig, nil
+	}
+
 	clustersClient, err := armcontainerservice.NewManagedClustersClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create clusters client: %w", err)
@@ -589,5 +597,10 @@ func (inst *Installer) GetUserRESTConfig(ctx context.Context) (*rest.Config, err
 		return nil, fmt.Errorf("failed to write kubeconfig: %w", err)
 	}
 
-	return clientcmd.RESTConfigFromKubeConfig(bytes)
+	config, err := clientcmd.RESTConfigFromKubeConfig(bytes)
+	if err == nil {
+		inst.cachedRESTConfig = config
+	}
+
+	return config, err
 }

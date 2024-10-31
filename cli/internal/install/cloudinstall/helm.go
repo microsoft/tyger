@@ -4,12 +4,12 @@
 package cloudinstall
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -204,9 +204,62 @@ func (inst *Installer) InstallTyger(ctx context.Context) error {
 		return err
 	}
 
-	manifest, _, err := inst.InstallTygerHelmChart(ctx, restConfig, false)
+	clientset, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
+
+	revision, err := inst.GetTygerInstallationRevision(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get Tyger installation revision: %w", err)
+	}
+
+	logsCtx, cancel := context.WithCancel(ctx)
+	logsMapChan := make(chan map[string][]byte, 1)
+	go func() {
+		results, err := followPodsLogsUntilContextCanceled(logsCtx, clientset, TygerNamespace, fmt.Sprintf("tyger-helm-revision=%d", revision+1))
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to follow Tyger server logs")
+		}
+		logsMapChan <- results
+	}()
+	_, _, err = inst.InstallTygerHelmChart(ctx, false)
+	cancel()
+	logsMap := <-logsMapChan
+	if err != nil {
+		for _, logs := range logsMap {
+			parsedLogLines, err := install.ParseJsonLogs(logs)
+			if err != nil {
+				continue
+			}
+
+			for _, parsedLogLine := range parsedLogLines {
+				if category, ok := parsedLogLine["category"].(string); ok {
+					if category == "Tyger.ControlPlane.Database.Migrations.DatabaseVersions[DatabaseMigrationRequired]" {
+						if message, ok := parsedLogLine["message"].(string); ok {
+							log.Error().Msg(message)
+						}
+						if args, ok := parsedLogLine["args"].(map[string]any); ok {
+							if version, ok := args["requiredVersion"].(float64); ok {
+								log.Error().Msgf("Run `tyger api uninstall -f <CONFIG_PATH>` followed by `tyger api migrations apply --target-version %d --offline --wait -f <CONFIG_PATH>` followed by `tyger api install -f <CONFIG_PATH>` ", int(version))
+								return install.ErrAlreadyLoggedError
+							}
+						}
+					}
+				}
+			}
+		}
+
+		log.Error().Err(err).Msg("Failed to install Tyger Helm chart")
+
+		for podName, logs := range logsMap {
+			if len(logs) > 0 {
+				log.Info().Str("pod", podName).Msg("Pod logs:")
+				fmt.Fprintln(os.Stderr, string(logs))
+			}
+		}
+
+		return install.ErrAlreadyLoggedError
 	}
 
 	baseEndpoint := fmt.Sprintf("https://%s", inst.Config.Api.DomainName)
@@ -247,70 +300,31 @@ func (inst *Installer) InstallTyger(ctx context.Context) error {
 		time.Sleep(time.Second)
 	}
 
-	migrationRunnerJob, err := getMigrationRunnerJobDefinitionFromManifest(manifest)
-	if err != nil {
-		return fmt.Errorf("failed to get migration worker job from manifest: %w", err)
-	}
-
-	clientset, err := kubernetes.NewForConfig(restConfig)
-	if err != nil {
-		return fmt.Errorf("failed to create kubernetes client: %w", err)
-	}
-
-	migrationRunnerJob, err = clientset.BatchV1().Jobs(TygerNamespace).Get(ctx, migrationRunnerJob.Name, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to get migration worker job: %w", err)
-	}
-
-	podList, err := clientset.CoreV1().Pods(migrationRunnerJob.Namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: metav1.FormatLabelSelector(migrationRunnerJob.Spec.Selector),
-	})
-	if err != nil {
-		return fmt.Errorf("failed to list migration runner pods: %w", err)
-	}
-
-	if len(podList.Items) == 0 {
-		return errors.New("no migration runner pods found")
-	}
-
-	sort.Slice(podList.Items, func(i, j int) bool {
-		return podList.Items[i].CreationTimestamp.Before(&podList.Items[j].CreationTimestamp)
-	})
-
-	pod := podList.Items[len(podList.Items)-1]
-	logsRequest := clientset.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{})
-	logsReader, err := logsRequest.Stream(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get migration runner logs: %w", err)
-	}
-	defer logsReader.Close()
-
 	found := false
-	scanner := bufio.NewScanner(logsReader)
-	for scanner.Scan() {
-		line := scanner.Text()
-		var parsedLine map[string]any
-
-		if err := json.Unmarshal([]byte(line), &parsedLine); err != nil {
-			return fmt.Errorf("failed to parse migration runner log line: %w", err)
+	for _, logs := range logsMap {
+		if found {
+			break
+		}
+		parsedLines, err := install.ParseJsonLogs(logs)
+		if err != nil {
+			continue
 		}
 
-		if category, ok := parsedLine["category"].(string); ok {
-			if category == "Tyger.ControlPlane.Database.Migrations.MigrationRunner[NewerDatabaseVersionsExist]" {
-				log.Warn().Msgf("The database schema should be upgraded. Run `tyger api migrations list` to see the available migrations and `tyger api migrations apply` to apply them.")
-				found = true
-				break
-			}
+		for _, parsedLine := range parsedLines {
+			if category, ok := parsedLine["category"].(string); ok {
+				if category == "Tyger.ControlPlane.Database.Migrations.MigrationRunner[NewerDatabaseVersionsExist]" {
+					log.Warn().Msgf("The database schema should be upgraded. Run `tyger api migrations list` to see the available migrations and `tyger api migrations apply` to apply them.")
+					found = true
+					break
+				}
 
-			if category == "Tyger.ControlPlane.Database.Migrations.MigrationRunner[UsingMostRecentDatabaseVersion]" {
-				log.Debug().Msg("Database schema is up to date")
-				found = true
-				break
+				if category == "Tyger.ControlPlane.Database.Migrations.MigrationRunner[UsingMostRecentDatabaseVersion]" {
+					log.Debug().Msg("Database schema is up to date")
+					found = true
+					break
+				}
 			}
 		}
-	}
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("failed to split logsResult into lines: %w", err)
 	}
 
 	if !found {
@@ -320,7 +334,45 @@ func (inst *Installer) InstallTyger(ctx context.Context) error {
 	return nil
 }
 
-func (inst *Installer) InstallTygerHelmChart(ctx context.Context, restConfig *rest.Config, dryRun bool) (manifest string, valuesYaml string, err error) {
+// 0 means not installed.
+func (inst *Installer) GetTygerInstallationRevision(ctx context.Context) (int, error) {
+	restConfig, err := inst.GetUserRESTConfig(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	helmOptions := helmclient.RestConfClientOptions{
+		RestConfig: restConfig,
+		Options: &helmclient.Options{
+			DebugLog: func(format string, v ...interface{}) {
+				log.Debug().Msgf(format, v...)
+			},
+			Namespace: DefaultTygerReleaseName,
+		},
+	}
+
+	helmClient, err := helmclient.NewClientFromRestConf(&helmOptions)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create helm client: %w", err)
+	}
+
+	r, err := helmClient.GetRelease(DefaultTygerReleaseName)
+	if err != nil {
+		if err == driver.ErrReleaseNotFound {
+			return 0, nil
+		}
+		return 0, err
+	}
+
+	return r.Version, nil
+}
+
+func (inst *Installer) InstallTygerHelmChart(ctx context.Context, dryRun bool) (manifest string, valuesYaml string, err error) {
+	restConfig, err := inst.GetUserRESTConfig(ctx)
+	if err != nil {
+		return "", "", err
+	}
+
 	clustersConfigJson, err := json.Marshal(inst.Config.Cloud.Compute.Clusters)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to marshal cluster configuration: %w", err)
@@ -466,9 +518,9 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, restConfig *re
 	return manifest, valuesYaml, nil
 }
 
-func (inst *Installer) getMigrationRunnerJobDefinition(ctx context.Context, restConfig *rest.Config) (*batchv1.Job, error) {
+func (inst *Installer) getMigrationRunnerJobDefinition(ctx context.Context) (*batchv1.Job, error) {
 	dryRun := true
-	manifest, _, err := inst.InstallTygerHelmChart(ctx, restConfig, dryRun)
+	manifest, _, err := inst.InstallTygerHelmChart(ctx, dryRun)
 	if err != nil {
 		return nil, err
 	}
@@ -541,6 +593,9 @@ func installHelmChart(
 		var release *release.Release
 		release, err = helmClient.InstallOrUpgradeChart(ctx, &chartSpec, nil)
 		if err == nil || i == 30 {
+			if err == nil && i > 0 {
+				log.Info().Msg("Transient Helm error resolved")
+			}
 			if release != nil {
 				manifest = release.Manifest
 			}
@@ -549,7 +604,7 @@ func installHelmChart(
 
 		if strings.Contains(err.Error(), "the server could not find the requested resource") {
 			// we get this transient error from time to time, related to the installation of CRDs
-			log.Info().Err(err).Msg("Possible transient error. Will retry...")
+			log.Info().Err(err).Msg("Possible transient Helm error. Will retry...")
 			time.Sleep(10 * time.Second)
 		} else {
 			return "", "", err

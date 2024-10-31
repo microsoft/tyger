@@ -28,7 +28,7 @@ public static class Logs
                     builder.Services.AddOptions<CloudLogArchiveOptions>().BindConfiguration("logArchive:cloudStorage").ValidateDataAnnotations().ValidateOnStart();
                     builder.Services.AddSingleton<AzureStorageLogArchiveProvider>();
                     builder.Services.AddSingleton<ILogArchiveProvider>(sp => sp.GetRequiredService<AzureStorageLogArchiveProvider>());
-                    builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<AzureStorageLogArchiveProvider>());
+                    builder.Services.AddHostedService(sp => sp.GetRequiredService<AzureStorageLogArchiveProvider>());
                     builder.Services.AddHealthChecks().AddCheck<AzureStorageLogArchiveProvider>("logArchive");
                     return;
                 case (cloud: false, local: true):

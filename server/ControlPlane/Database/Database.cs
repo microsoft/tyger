@@ -30,7 +30,7 @@ public static class Database
                 ShouldHandle = new PredicateBuilder().Handle<NpgsqlException>(e => e.IsTransient),
                 BackoffType = DelayBackoffType.Exponential,
                 UseJitter = true,
-                MaxRetryAttempts = 4,
+                MaxRetryAttempts = 6,
                 Delay = TimeSpan.FromMilliseconds(250),
                 OnRetry = args =>
                 {
@@ -58,6 +58,7 @@ public static class Database
             }
 
             dataSourceBuilder.ConnectionStringBuilder.Username = databaseOptions.Username;
+            dataSourceBuilder.ConnectionStringBuilder.MaxPoolSize = 250;
 
             if (string.IsNullOrEmpty(databaseOptions.PasswordFile))
             {
@@ -98,10 +99,10 @@ public static class Database
         });
 
         builder.Services.AddSingleton<MigrationRunner>();
-        builder.Services.AddSingleton<IHostedService, MigrationRunner>(sp => sp.GetRequiredService<MigrationRunner>());
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<MigrationRunner>());
 
         builder.Services.AddSingleton<DatabaseVersions>();
-        builder.Services.AddSingleton<IHostedService, DatabaseVersions>(sp => sp.GetRequiredService<DatabaseVersions>());
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<DatabaseVersions>());
         builder.Services.AddHealthChecks().AddCheck<DatabaseVersions>("database");
     }
 
