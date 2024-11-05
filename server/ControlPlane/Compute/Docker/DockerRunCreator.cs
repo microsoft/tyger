@@ -3,6 +3,7 @@
 
 using System.Collections.Immutable;
 using System.ComponentModel.DataAnnotations;
+using System.Diagnostics;
 using System.Formats.Tar;
 using System.Web;
 using Docker.DotNet;
@@ -149,9 +150,10 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
         var env = jobCodespec.Env ?? [];
 
-        Directory.CreateDirectory(Path.Combine(absoluteSecretsBase, relativePipesPath));
-        Directory.CreateDirectory(Path.Combine(absoluteSecretsBase, relativeAccessFilesPath));
-        Directory.CreateDirectory(Path.Combine(absoluteSecretsBase, relativeTombstonePath));
+        Debug.Assert(OperatingSystem.IsLinux());
+        Directory.CreateDirectory(Path.Combine(absoluteSecretsBase, relativePipesPath), UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        Directory.CreateDirectory(Path.Combine(absoluteSecretsBase, relativeAccessFilesPath), UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        Directory.CreateDirectory(Path.Combine(absoluteSecretsBase, relativeTombstonePath), UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
 
         var labels = ImmutableDictionary<string, string>.Empty.Add("tyger-run", run.Id?.ToString()!);
 
@@ -183,7 +185,18 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
             var accessFileName = bufferParameterName + ".access";
             var accessFilePath = Path.Combine(absoluteSecretsBase, relativeAccessFilesPath, accessFileName);
-            File.WriteAllText(accessFilePath, accessUri.ToString());
+            var fileStreamOptions = new FileStreamOptions
+            {
+                Mode = FileMode.CreateNew,
+                Access = FileAccess.Write,
+                UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite,
+            };
+
+            using (var sw = new StreamWriter(new FileStream(accessFilePath, fileStreamOptions)))
+            {
+                sw.Write(accessUri.ToString());
+            }
+
             var containerAccessFilePath = Path.Combine(absoluteContainerSecretsBase, relativeAccessFilesPath, accessFileName);
 
             var args = new List<string>();
@@ -428,7 +441,15 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             {
             }
 
-            File.WriteAllText(Path.Combine(absoluteSecretsBase, relativeTombstonePath, "tombstone.txt"), "tombstone");
+            var fileStreamOptions = new FileStreamOptions
+            {
+                Mode = FileMode.CreateNew,
+                Access = FileAccess.Write,
+                UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite,
+            };
+
+            using var sw = new StreamWriter(new FileStream(Path.Combine(absoluteSecretsBase, relativeTombstonePath, "tombstone.txt"), fileStreamOptions));
+            sw.Write("tombstone");
         }
 
         _ = _client.System.MonitorEventsAsync(new ContainerEventsParameters()
@@ -500,8 +521,9 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        Directory.CreateDirectory(_dockerOptions.RunSecretsPath);
-        Directory.CreateDirectory(_dockerOptions.EphemeralBuffersPath);
+        Debug.Assert(OperatingSystem.IsLinux());
+        Directory.CreateDirectory(_dockerOptions.RunSecretsPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        Directory.CreateDirectory(_dockerOptions.EphemeralBuffersPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
 
         await AddPublicSigningKeyToBufferSidecarImage(cancellationToken);
     }

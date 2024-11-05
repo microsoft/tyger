@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -297,21 +298,16 @@ public partial class DataPlaneStorageHandler : IHealthCheck
 
     private static FileStreamOptions CreateFileStreamOptions()
     {
-        var options = new FileStreamOptions
+        Debug.Assert(OperatingSystem.IsLinux());
+        return new()
         {
             Mode = FileMode.CreateNew,
             Access = FileAccess.Write,
             Share = FileShare.None,
             BufferSize = 4096,
             Options = FileOptions.Asynchronous | FileOptions.SequentialScan,
+            UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite,
         };
-
-        if (OperatingSystem.IsLinux())
-        {
-            options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-        }
-
-        return options;
     }
 
     [GeneratedRegex(@"^[a-zA-Z0-9]{3,63}$")]

@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/user"
 	"path"
 	"regexp"
 	"runtime"
@@ -50,6 +51,9 @@ const (
 	runLogsVolumeSuffix  = "run-logs"
 
 	dockerSocketPath = "/var/run/docker.sock"
+
+	pgDataDir   = "/data/postgres"
+	pgSocketDir = "/sockets/postgres"
 )
 
 type containerSpec struct {
@@ -177,7 +181,7 @@ func (inst *Installer) InstallTyger(ctx context.Context) error {
 
 func (inst *Installer) ensureDirectoryExists(path string) error {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		if err := os.MkdirAll(path, 0755); err != nil {
+		if err := os.MkdirAll(path, 0700); err != nil {
 			return fmt.Errorf("error creating directory %s: %w", path, err)
 		}
 
@@ -474,15 +478,34 @@ func (inst *Installer) createDatabaseContainer(ctx context.Context) error {
 		return err
 	}
 
+	var u *user.User
+	var err error
+	if u, err = user.LookupId(inst.Config.UserId); err != nil {
+		u, err = user.Lookup(inst.Config.UserId)
+		if err != nil {
+			return fmt.Errorf("error looking up user: %w", err)
+		}
+	}
+
+	// if err := inst.chownDataVolume(ctx, u); err != nil {
+	// 	return fmt.Errorf("error chowning data volume: %w", err)
+	// }
+
 	if err := inst.ensureDirectoryExists(fmt.Sprintf("%s/database", inst.Config.InstallationPath)); err != nil {
 		return err
 	}
 
-	image := inst.Config.PostgresImage
-
 	containerSpec := containerSpec{
 		ContainerConfig: &container.Config{
-			Image: image,
+			Image: inst.Config.PostgresImage,
+			Entrypoint: []string{
+				"bash", "-c",
+				fmt.Sprintf(
+					"usermod -u %s postgres && groupmod -g %s postgres && "+
+						"exec docker-entrypoint.sh "+
+						"-c listen_addresses= "+
+						"-c unix_socket_permissions=0700",
+					u.Uid, u.Gid)},
 			Cmd: []string{
 				"-c", "listen_addresses=", // only unix socket
 			},
@@ -518,6 +541,59 @@ func (inst *Installer) createDatabaseContainer(ctx context.Context) error {
 
 	if err := inst.createContainer(ctx, inst.resourceName(databaseContainerSuffix), &containerSpec, true); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (inst *Installer) chownDataVolume(ctx context.Context, u *user.User) error {
+	containerSpec := containerSpec{
+		ContainerConfig: &container.Config{
+			Image: inst.Config.MarinerImage,
+			Cmd:   []string{"chown", "-R", fmt.Sprintf("%s:%s", u.Uid, u.Gid), pgDataDir},
+		},
+		HostConfig: &container.HostConfig{
+			Mounts: []mount.Mount{
+				{
+					Type:   "volume",
+					Source: inst.resourceName(databaseVolumeSuffix),
+					Target: pgDataDir,
+				},
+			},
+			NetworkMode: "none",
+		},
+	}
+
+	if err := inst.pullImage(ctx, containerSpec.ContainerConfig.Image, false); err != nil {
+		return fmt.Errorf("error pulling image: %w", err)
+	}
+
+	resp, err := inst.client.ContainerCreate(ctx, containerSpec.ContainerConfig, containerSpec.HostConfig, nil, nil, "")
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		if err := inst.client.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true}); err != nil {
+			panic(err)
+		}
+	}()
+
+	if err := inst.client.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+		return err
+	}
+
+	// Wait for the container to finish
+	statusCh, errCh := inst.client.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
+	select {
+	case err := <-errCh:
+		if err != nil {
+			return err
+		}
+	case r := <-statusCh:
+		if r.StatusCode != 0 {
+			return fmt.Errorf("unable to chown data volume: container exited with status %d", r.StatusCode)
+		}
 	}
 
 	return nil

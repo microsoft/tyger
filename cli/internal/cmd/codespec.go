@@ -85,7 +85,7 @@ func newCodespecCreateCommand() *cobra.Command {
 				if len(args) > 0 && cmd.ArgsLenAtDash() != 0 {
 					newCodespec.Name = args[0]
 				} else if newCodespec.Name == "" {
-					return errors.New("a name for the codespec must be required")
+					return errors.New("a name for the codespec is required")
 				}
 			} else {
 				if len(args) == 0 || cmd.ArgsLenAtDash() == 0 {
