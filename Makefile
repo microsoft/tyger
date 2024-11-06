@@ -85,6 +85,9 @@ docker-build-buffer-sidecar: login-wip-acr
 docker-build-worker-waiter: login-wip-acr
 	$(MAKE) _docker-build DOCKER_BUILD_TARGET=worker-waiter
 
+docker-build-helm: login-wip-acr
+	$(MAKE) _docker-build DOCKER_BUILD_TARGET=helm
+
 docker-build: docker-build-test docker-build-tyger-server docker-build-buffer-sidecar docker-build-worker-waiter
 
 publish-official-images:
@@ -96,6 +99,12 @@ publish-official-images:
 	tag=$$(git describe --tags)
 	scripts/build-images.sh --push --push-force --arch amd64 --arch arm64 --tyger-server --worker-waiter --buffer-sidecar --helm --tag "$${tag}" --registry "$${registry}" --registry-directory "$${registry_directory}"
 
+prepare-wip-binaries:
+	tag="$$(git describe --tags)-$$(date +'%Y%m%d%H%M%S')"
+	export EXPLICIT_IMAGE_TAG=$${tag}
+	$(MAKE) DOCKER_BUILD_ARCH_FLAGS="--arch amd64 --arch arm64" docker-build docker-build-helm
+	$(MAKE) install-cli
+	
 integration-test-no-up-prereqs:
 
 integration-test-no-up: integration-test-no-up-prereqs cli-ready
@@ -127,9 +136,12 @@ install-cli:
 	container_registry=$$(echo "$${dev_config}" | jq -r '.wipContainerRegistry.fqdn')
 	container_registry_directory=$$(echo "$${dev_config}" | jq -r '.wipContainerRegistry.directory // ""')
 	cd cli
-	tag=$$(git describe --tags 2> /dev/null || echo "0.0.0")
+	tag="$${EXPLICIT_IMAGE_TAG:-$$(git describe --tags 2> /dev/null || echo "0.0.0")}"
 	CGO_ENABLED=0 go install -buildvcs=false -ldflags="-s -w \
-		-X main.version=$${tag}" \
+		-X main.version=$${tag} \
+		-X github.com/microsoft/tyger/cli/internal/install.ContainerRegistry=$${container_registry} \
+      	-X github.com/microsoft/tyger/cli/internal/install.ContainerRegistryDirectory=$${container_registry_directory} \
+      	-X github.com/microsoft/tyger/cli/internal/install.ContainerImageTag=$${tag}" \
 		./cmd/tyger ./cmd/buffer-sidecar ./cmd/tyger-proxy
 
 cli-ready: install-cli

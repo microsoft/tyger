@@ -24,7 +24,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-const DefaultKubernetesVersion = "1.27" // LTS
+const DefaultKubernetesVersion = "1.30" // LTS
 
 func (inst *Installer) createCluster(ctx context.Context, clusterConfig *ClusterConfig) (*armcontainerservice.ManagedCluster, error) {
 	clustersClient, err := armcontainerservice.NewManagedClustersClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
