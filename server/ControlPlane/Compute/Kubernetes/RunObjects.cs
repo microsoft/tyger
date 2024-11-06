@@ -73,6 +73,29 @@ public sealed partial class RunObjects
             };
         }
 
+        foreach (var pod in JobPods.Concat(WorkerPods))
+        {
+            if (pod == null)
+            {
+                continue;
+            }
+
+            if (pod.Status?.Phase == "Pending")
+            {
+                var containerStatuses = (pod.Status.ContainerStatuses ??= Array.Empty<V1ContainerStatus>()).Concat(pod.Status.InitContainerStatuses ?? Array.Empty<V1ContainerStatus>());
+
+                var pullErrorStatus = containerStatuses.FirstOrDefault(cs => cs.State.Waiting?.Reason == "ImagePullBackOff");
+                if (pullErrorStatus != null)
+                {
+                    return new(Id, RunStatus.Failed, JobPods.Length, WorkerPods.Length)
+                    {
+                        FinishedAt = pod.Status.StartTime ?? pod.Metadata.CreationTimestamp ?? DateTimeOffset.UtcNow,
+                        StatusReason = $"{pullErrorStatus.State.Waiting.Reason}: {pullErrorStatus.State.Waiting.Message}",
+                    };
+                }
+            }
+        }
+
         var runningCount = JobPods.Count(p => p?.Status?.Phase == "Running");
 
         if (runningCount > 0)
@@ -89,7 +112,7 @@ public sealed partial class RunObjects
             .Where(p => p?.Status?.ContainerStatuses != null)
             .SelectMany(p => p!.Status.ContainerStatuses)
             .Where(cs => cs.State?.Terminated?.ExitCode is not null and not 0)
-            .MinBy(cs => cs.State.Terminated.FinishedAt!.Value);
+            .MinBy(cs => cs.State.Terminated.FinishedAt ?? DateTimeOffset.MaxValue);
 
         if (containerStatus != null)
         {
