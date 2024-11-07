@@ -314,7 +314,7 @@ func readInBlocksWithMaximumInterval(ctx context.Context, inputReader io.Reader,
 					return
 				}
 
-				i = (i + 1) % 2
+				i = (i + 1) % len(bufs)
 			}
 		}()
 
@@ -339,8 +339,9 @@ func readInBlocksWithMaximumInterval(ctx context.Context, inputReader io.Reader,
 				}
 
 				if len(data) > len(remaining) {
+					// data is larger than the remaining buffer; flush the buffer
+					ticker.Reset(interval)
 					dataReturnedThisCycle = true
-					// Data is larger than the remaining buffer; flush the buffer
 					if !yield(buffer[:bytesFilled], nil) {
 						return
 					}
@@ -358,6 +359,8 @@ func readInBlocksWithMaximumInterval(ctx context.Context, inputReader io.Reader,
 
 				if len(remaining) == 0 {
 					// Buffer is full; flush it
+					ticker.Reset(interval)
+					dataReturnedThisCycle = true
 					if !yield(buffer, nil) {
 						return
 					}
