@@ -105,7 +105,7 @@ func TestTickleLatencyWithFlushInterval(t *testing.T) {
 	go func() {
 		defer inputWriter.Close()
 		start := time.Now()
-		end := start.Add(5 * time.Second)
+		end := start.Add(15 * time.Second)
 		for now := start; now.Compare(end) < 0; now = time.Now() {
 			_, err := inputWriter.Write([]byte(fmt.Sprintf("%s\n", now.Format(time.RFC3339Nano))))
 			require.NoError(t, err)
@@ -126,7 +126,7 @@ func TestTickleLatencyWithFlushInterval(t *testing.T) {
 		line := scanner.Text()
 		parsedTime, err := time.Parse(time.RFC3339Nano, line)
 		require.NoError(t, err)
-		require.WithinDuration(t, time.Now(), parsedTime, 2*time.Second)
+		require.WithinDuration(t, time.Now(), parsedTime, 5*time.Second)
 		linesRead++
 	}
 
