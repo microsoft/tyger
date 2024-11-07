@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"net/http"
 	"net/url"
 	"sync"
@@ -32,12 +33,14 @@ const (
 )
 
 var (
-	errBlobOverwrite = fmt.Errorf("unauthorized blob overwrite")
+	DefaultFlushInterval = 1 * time.Second
+	errBlobOverwrite     = fmt.Errorf("unauthorized blob overwrite")
 )
 
 type writeOptions struct {
 	dop                     int
 	blockSize               int
+	flushInterval           time.Duration
 	httpClient              *retryablehttp.Client
 	metadataEndWriteTimeout time.Duration
 	connectionType          client.TygerConnectionType
@@ -54,6 +57,12 @@ func WithWriteDop(dop int) WriteOption {
 func WithWriteBlockSize(blockSize int) WriteOption {
 	return func(o *writeOptions) {
 		o.blockSize = blockSize
+	}
+}
+
+func WithWriteFlushInterval(flushInterval time.Duration) WriteOption {
+	return func(o *writeOptions) {
+		o.flushInterval = flushInterval
 	}
 }
 
@@ -76,6 +85,7 @@ func Write(ctx context.Context, uri *url.URL, inputReader io.Reader, options ...
 	writeOptions := &writeOptions{
 		dop:                     DefaultWriteDop,
 		blockSize:               DefaultBlockSize,
+		flushInterval:           DefaultFlushInterval,
 		metadataEndWriteTimeout: 3 * time.Second,
 	}
 	for _, o := range options {
@@ -174,37 +184,33 @@ func Write(ctx context.Context, uri *url.URL, inputReader io.Reader, options ...
 
 		failed := false
 
-		for {
+		var blockSequence iter.Seq2[[]byte, error]
+		if writeOptions.flushInterval > 0 {
+			blockSequence = readInBlocksWithMaximumInterval(ctx, inputReader, writeOptions.blockSize, writeOptions.flushInterval)
+		} else {
+			blockSequence = readInBlocks(inputReader, writeOptions.blockSize)
+		}
 
-			buffer := pool.Get(writeOptions.blockSize)
-			bytesRead, err := io.ReadFull(inputReader, buffer)
-
-			if bytesRead > 0 {
-				currentHashChannel := make(chan string, 1)
-
-				blob := BufferBlob{
-					BlobNumber:             blobNumber,
-					Contents:               buffer[:bytesRead],
-					PreviousCumulativeHash: previousHashChannel,
-					CurrentCumulativeHash:  currentHashChannel,
-				}
-				select {
-				case outputChannel <- blob:
-				case <-ctx.Done():
-					failed = true
-				}
-
-				if failed {
-					break
-				}
-
-				previousHashChannel = currentHashChannel
-				blobNumber++
+		for buffer, err := range blockSequence {
+			currentHashChannel := make(chan string, 1)
+			blob := BufferBlob{
+				BlobNumber:             blobNumber,
+				Contents:               buffer,
+				PreviousCumulativeHash: previousHashChannel,
+				CurrentCumulativeHash:  currentHashChannel,
+			}
+			select {
+			case outputChannel <- blob:
+			case <-ctx.Done():
+				failed = true
 			}
 
-			if err == io.EOF || err == io.ErrUnexpectedEOF {
+			if failed {
 				break
 			}
+
+			previousHashChannel = currentHashChannel
+			blobNumber++
 
 			if err != nil {
 				errorChannel <- fmt.Errorf("error reading from input: %w", err)
@@ -247,6 +253,139 @@ func Write(ctx context.Context, uri *url.URL, inputReader io.Reader, options ...
 	writeEndMetadata(ctx, httpClient, container, BufferStatusComplete)
 	metrics.Stop()
 	return nil
+}
+
+func readInBlocks(inputReader io.Reader, blockSize int) iter.Seq2[[]byte, error] {
+	return func(yield func([]byte, error) bool) {
+		for {
+			buf := pool.Get(blockSize)
+			n, err := io.ReadFull(inputReader, buf)
+			if n > 0 {
+				if !yield(buf[:n], nil) {
+					return
+				}
+			}
+
+			if err != nil {
+				if err == io.EOF || err == io.ErrUnexpectedEOF {
+					return
+				}
+
+				yield(nil, err)
+				return
+			}
+		}
+	}
+}
+
+func readInBlocksWithMaximumInterval(ctx context.Context, inputReader io.Reader, blockSize int, interval time.Duration) iter.Seq2[[]byte, error] {
+	return func(yield func([]byte, error) bool) {
+		dataCh := make(chan []byte)
+		errCh := make(chan error)
+
+		go func() {
+			readBufferSize := 64 * 1024
+			if blockSize < readBufferSize {
+				readBufferSize = blockSize
+			}
+
+			bufs := [][]byte{make([]byte, readBufferSize), make([]byte, readBufferSize)}
+			i := 0
+			for {
+				buf := bufs[i]
+				n, err := inputReader.Read(buf)
+				if n > 0 {
+					select {
+					case dataCh <- buf[:n]:
+					case <-ctx.Done():
+						return
+					}
+				}
+				if err != nil {
+					if err == io.EOF {
+						close(dataCh)
+					} else {
+						select {
+						case errCh <- err:
+						case <-ctx.Done():
+							return
+						}
+					}
+					return
+				}
+
+				i = (i + 1) % 2
+			}
+		}()
+
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		buffer := pool.Get(blockSize)
+		remaining := buffer
+		bytesFilled := 0
+		dataReturnedThisCycle := false
+
+		for {
+			select {
+			case data, ok := <-dataCh:
+				if !ok {
+					// No more data; flush the buffer if it has data
+					if bytesFilled > 0 {
+						if !yield(buffer[:bytesFilled], nil) {
+							return
+						}
+					}
+					return
+				}
+
+				if len(data) > len(remaining) {
+					dataReturnedThisCycle = true
+					// Data is larger than the remaining buffer; flush the buffer
+					if !yield(buffer[:bytesFilled], nil) {
+						return
+					}
+					buffer = pool.Get(blockSize)
+					remaining = buffer
+					bytesFilled = 0
+				}
+				if len(data) > len(remaining) {
+					panic("data is larger than the buffer")
+				}
+
+				copy(remaining, data)
+				remaining = remaining[len(data):]
+				bytesFilled += len(data)
+
+				if len(remaining) == 0 {
+					// Buffer is full; flush it
+					if !yield(buffer, nil) {
+						return
+					}
+					buffer = pool.Get(blockSize)
+					remaining = buffer
+					bytesFilled = 0
+				}
+
+			case <-ticker.C:
+				if dataReturnedThisCycle {
+					dataReturnedThisCycle = false
+				} else {
+					if bytesFilled > 0 {
+						if !yield(buffer[:bytesFilled], nil) {
+							return
+						}
+						buffer = pool.Get(blockSize)
+						remaining = buffer
+						bytesFilled = 0
+					}
+				}
+			case err := <-errCh:
+				// An error occurred; return it
+				yield(nil, err)
+				return
+			}
+		}
+	}
 }
 
 func writeStartMetadata(ctx context.Context, httpClient *retryablehttp.Client, container *Container) error {

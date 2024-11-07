@@ -6,6 +6,7 @@
 package integrationtest
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/md5"
@@ -73,6 +74,69 @@ func TestReadingWhileWriting(t *testing.T) {
 	t.Log(readStdErr.String())
 
 	assert.Equal(t, inputHasher.Sum(nil), outputHasher.Sum(nil), "hashes do not match")
+}
+
+func TestTickleLatencyWithFlushInterval(t *testing.T) {
+	t.Parallel()
+
+	bufferName := runTygerSucceeds(t, "buffer", "create")
+	writeSasUri := runTygerSucceeds(t, "buffer", "access", bufferName, "--write")
+	readSasUri := runTygerSucceeds(t, "buffer", "access", bufferName)
+
+	// start the read process
+	readCommand := exec.Command("tyger", "buffer", "read", readSasUri)
+	outputReader, err := readCommand.StdoutPipe()
+	require.NoError(t, err)
+	readStdErr := &bytes.Buffer{}
+	readCommand.Stderr = readStdErr
+
+	assert.NoError(t, readCommand.Start(), "read command failed to start")
+
+	// start the write process
+	writeCommand := exec.Command("tyger", "buffer", "write", writeSasUri, "--flush-interval", "1s")
+	inputWriter, err := writeCommand.StdinPipe()
+	require.NoError(t, err)
+
+	writeStdErr := &bytes.Buffer{}
+	writeCommand.Stderr = writeStdErr
+
+	linesWritten := 0
+
+	go func() {
+		defer inputWriter.Close()
+		start := time.Now()
+		end := start.Add(5 * time.Second)
+		for now := start; now.Compare(end) < 0; now = time.Now() {
+			_, err := inputWriter.Write([]byte(fmt.Sprintf("%s\n", now.Format(time.RFC3339Nano))))
+			require.NoError(t, err)
+			linesWritten++
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+
+	writeCommandErrChan := make(chan error)
+	go func() {
+		writeCommandErrChan <- writeCommand.Run()
+	}()
+
+	linesRead := 0
+	// read the output line by line
+	scanner := bufio.NewScanner(outputReader)
+	for scanner.Scan() {
+		line := scanner.Text()
+		parsedTime, err := time.Parse(time.RFC3339Nano, line)
+		require.NoError(t, err)
+		require.WithinDuration(t, time.Now(), parsedTime, 2*time.Second)
+		linesRead++
+	}
+
+	t.Log(writeStdErr.String())
+
+	assert.NoError(t, <-writeCommandErrChan, "write command failed")
+
+	assert.Nil(t, readCommand.Wait(), "read command failed")
+	require.Equal(t, linesWritten, linesRead, "number of lines written and read do not match")
+	t.Log(readStdErr.String())
 }
 
 func TestAccessStringIsFile(t *testing.T) {
