@@ -14,6 +14,6 @@ public static partial class LoggerExtensions
     [LoggerMessage(LogLevel.Information, "Resuming logs after exception.")]
     public static partial void ResumingLogsAfterException(this ILogger logger, Exception exception);
 
-    [LoggerMessage(LogLevel.Warning, "Local log file is does not have expected name '{name}'.")]
+    [LoggerMessage(LogLevel.Warning, "Local log file does not have expected name '{name}'.")]
     public static partial void LocalLogFileDoesNotHaveExpectedName(this ILogger logger, string name);
 }

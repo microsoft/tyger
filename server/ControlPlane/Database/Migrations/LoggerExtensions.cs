@@ -44,6 +44,6 @@ public static partial class LoggerExtensions
     [LoggerMessage(LogLevel.Information, "Using most recent database version")]
     public static partial void UsingMostRecentDatabaseVersion(this ILogger logger);
 
-    [LoggerMessage(LogLevel.Error, "This version of Tyger requires the database to be migrated to at least version {requiredVersion} and the server must be take onffline for this migration. The current version is {currentVersion}.")]
+    [LoggerMessage(LogLevel.Error, "This version of Tyger requires the database to be migrated to at least version {requiredVersion} and the server must be take offline for this migration. The current version is {currentVersion}.")]
     public static partial void DatabaseMigrationRequired(this ILogger logger, int requiredVersion, int currentVersion);
 }

@@ -1194,6 +1194,7 @@ public class Repository : IRepository
 
     public async Task<Run> CreateRunWithIdempotencyKeyGuard(Run newRun, string idempotencyKey, Func<Run, CancellationToken, Task<Run>> createRun, CancellationToken cancellationToken)
     {
+        const int BaseAdvisoryLockId = 864555;
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
         await using var tx = await connection.BeginTransactionAsync(cancellationToken);
 
@@ -1201,7 +1202,7 @@ public class Repository : IRepository
         {
             Connection = connection,
             Transaction = tx,
-            CommandText = "SELECT pg_advisory_xact_lock(hashtext($1))",
+            CommandText = $"SELECT pg_advisory_xact_lock({BaseAdvisoryLockId}, hashtext($1))",
             Parameters =
                 {
                     new() { Value = idempotencyKey, NpgsqlDbType = NpgsqlDbType.Text },
