@@ -524,12 +524,12 @@ jobs:
           echo "OFFICIAL_PULL_CONTAINER_REGISTRY=$(echo $official_pull_container_registry)" >> $GITHUB_ENV
           official_pull_container_registry_directory=$(echo "$DEVELOPER_CONFIG_BASE64" | base64 -d | jq -r '.officialPullContainerRegistry.directory // ""')
           echo "OFFICIAL_PULL_CONTAINER_REGISTRY_DIRECTORY=$(echo $official_pull_container_registry_directory)" >> $GITHUB_ENV
-        
+
       - name: test image published
         run: |
           set -euo pipefail
-          docker pull "${OFFICIAL_PULL_CONTAINER_REGISTRY}/${OFFICIAL_PULL_CONTAINER_REGISTRY_DIRECTORY}/tyger-server:$(git describe --tags)"
-          
+          docker pull "${OFFICIAL_PULL_CONTAINER_REGISTRY}${OFFICIAL_PULL_CONTAINER_REGISTRY_DIRECTORY}/tyger-server:$(git describe --tags)"
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v5
         env:
