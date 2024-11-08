@@ -26,6 +26,7 @@ subjects:
   - kind: ServiceAccount
     name: {{ .Values.identity.migrationRunner.name }}
 ---
+{{- if not (.Values.onlyMigrationDependencies) }}
 {{- $suffix := randAlphaNum 4 | lower -}}
 {{- $jobName := printf "%s-database-init-%s" .Release.Name $suffix -}}
 apiVersion: batch/v1
@@ -39,12 +40,13 @@ spec:
     metadata:
       name: {{ $jobName }}
       labels:
+        tyger-helm-revision: "{{ .Release.Revision }}"
         azure.workload.identity/use: "true"
     spec:
       restartPolicy: Never
       containers:
         - name: database-init
-          image: "{{ .Values.image | default (printf "eminence.azurecr.io/tyger-server:%s" .Chart.AppVersion) }}"
+          image: "{{ .Values.image | default (printf "mcr.microsoft.com/tyger/tyger-server:%s" .Chart.AppVersion) }}"
           imagePullPolicy: {{ .Values.pullPolicy }}
           args:
             - database
@@ -86,3 +88,4 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+{{- end }}

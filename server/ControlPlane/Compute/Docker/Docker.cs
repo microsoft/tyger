@@ -25,14 +25,14 @@ public static class Docker
         builder.Services.AddSingleton<IReplicaDatabaseVersionProvider, DockerReplicaDatabaseVersionProvider>();
         builder.Services.AddSingleton<DockerRunCreator>();
         builder.Services.AddSingleton<IRunCreator>(sp => sp.GetRequiredService<DockerRunCreator>());
-        builder.Services.AddSingleton(sp => (IHostedService)sp.GetRequiredService<IRunCreator>());
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<DockerRunCreator>());
         builder.Services.AddSingleton<ICapabilitiesContributor>(sp => sp.GetRequiredService<DockerRunCreator>());
         builder.Services.AddSingleton<IRunReader, DockerRunReader>();
         builder.Services.AddSingleton<IRunUpdater, DockerRunUpdater>();
         builder.Services.AddSingleton<ILogSource, DockerLogSource>();
         builder.Services.AddSingleton<DockerRunSweeper>();
         builder.Services.AddSingleton<IRunSweeper>(sp => sp.GetRequiredService<DockerRunSweeper>());
-        builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<DockerRunSweeper>());
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<DockerRunSweeper>());
         builder.Services.AddSingleton<DockerEphemeralBufferProvider>();
         builder.Services.AddSingleton<IEphemeralBufferProvider>(sp => sp.GetRequiredService<DockerEphemeralBufferProvider>());
     }

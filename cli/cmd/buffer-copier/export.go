@@ -294,7 +294,7 @@ func getBufferIdsAndTags(ctx context.Context, dbFlags *databaseFlags, filter map
 
 			var matchTable string
 			if len(filter) > 0 {
-				matchTable = "tags"
+				matchTable = "buffer_tags"
 			} else {
 				matchTable = "buffers"
 			}
@@ -309,7 +309,7 @@ func getBufferIdsAndTags(ctx context.Context, dbFlags *databaseFlags, filter map
 			if len(filter) > 0 {
 				for i := range len(filter) - 1 {
 					aliasNumber := i + 1
-					queryBuilder.WriteString(fmt.Sprintf("INNER JOIN tags AS t%d ON t0.created_at = t%d.created_at AND t0.id = t%d.id\n", aliasNumber, aliasNumber, aliasNumber))
+					queryBuilder.WriteString(fmt.Sprintf("INNER JOIN buffer_tags AS t%d ON t0.created_at = t%d.created_at AND t0.id = t%d.id\n", aliasNumber, aliasNumber, aliasNumber))
 				}
 
 				queryBuilder.WriteString("WHERE\n")
@@ -334,11 +334,11 @@ func getBufferIdsAndTags(ctx context.Context, dbFlags *databaseFlags, filter map
 				ORDER BY t0.created_at ASC, t0.id ASC
 				LIMIT $3
 			)
-			SELECT matches.created_at, matches.id, tag_keys.name, tags.value
+			SELECT matches.created_at, matches.id, tag_keys.name, buffer_tags.value
 				FROM matches
-				LEFT JOIN tags ON
-					matches.created_at = tags.created_at AND matches.id = tags.id
-				LEFT JOIN tag_keys on tags.key = tag_keys.id
+				LEFT JOIN buffer_tags ON
+					matches.created_at = buffer_tags.created_at AND matches.id = buffer_tags.id
+				LEFT JOIN tag_keys on buffer_tags.key = tag_keys.id
 				ORDER BY matches.created_at ASC, matches.id ASC`)
 			return queryBuilder.String(), params
 		}()

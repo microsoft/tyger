@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -31,7 +32,7 @@ func (inst *Installer) InstallCloud(ctx context.Context) (err error) {
 	}
 
 	if err := inst.preflightCheck(ctx); err != nil {
-		if err != install.ErrAlreadyLoggedError {
+		if !errors.Is(err, install.ErrAlreadyLoggedError) {
 			logError(err, "")
 			return install.ErrAlreadyLoggedError
 		}
@@ -165,7 +166,21 @@ func GetDefaultApiVersionForResource(ctx context.Context, resourceId string, pro
 	var apiVersion string
 	for _, t := range provider.Provider.ResourceTypes {
 		if *t.ResourceType == resourceType {
-			apiVersion = *t.DefaultAPIVersion
+			if t.DefaultAPIVersion != nil {
+				apiVersion = *t.DefaultAPIVersion
+			} else {
+				// take the most recent non-preview API version
+				slices.SortFunc(t.APIVersions, func(a, b *string) int {
+					return -strings.Compare(*a, *b)
+				})
+
+				for _, v := range t.APIVersions {
+					if !strings.Contains(*v, "preview") {
+						apiVersion = *v
+						break
+					}
+				}
+			}
 			break
 		}
 	}

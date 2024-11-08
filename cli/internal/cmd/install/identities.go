@@ -63,7 +63,7 @@ func newIdentitiesInstallCommand() *cobra.Command {
 			log.Info().Msg("Starting identities install")
 
 			if err := cloudInstaller.InstallIdentities(ctx, cred); err != nil {
-				if err != install.ErrAlreadyLoggedError {
+				if !errors.Is(err, install.ErrAlreadyLoggedError) {
 					log.Fatal().Err(err).Send()
 				}
 				os.Exit(1)

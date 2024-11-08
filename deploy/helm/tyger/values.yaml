@@ -42,6 +42,8 @@ buffers:
 logArchive:
   storageAccountEndpoint:
 
+onlyMigrationDependencies: false
+
 bufferSidecarImage:
 bufferCopierImage:
 workerWaiterImage:

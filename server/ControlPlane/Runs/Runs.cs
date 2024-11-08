@@ -2,13 +2,11 @@
 // Licensed under the MIT License.
 
 using System.ComponentModel.DataAnnotations;
-using System.Globalization;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Primitives;
 using Tyger.Common.Api;
-using Tyger.ControlPlane.Buffers;
 using Tyger.ControlPlane.Database;
 using Tyger.ControlPlane.Json;
 using Tyger.ControlPlane.Logging;
@@ -20,17 +18,31 @@ public static class Runs
 {
     private static readonly ReadOnlyMemory<byte> s_newline = new("\n"u8.ToArray());
 
+    public static void AddRuns(this IHostApplicationBuilder builder)
+    {
+        builder.Services.AddHostedService<RunIndexPruner>();
+    }
+
     public static void MapRuns(this WebApplication app)
     {
-        app.MapPost("/v1/runs", async (IRunCreator runCreator, HttpContext context) =>
+        app.MapPost("/v1/runs", async (IRunCreator runCreator, IRepository repository, HttpContext context) =>
         {
-            var run = await context.Request.ReadAndValidateJson<Run>(context.RequestAborted);
-            if (run.Kind == RunKind.System)
+            var newRun = (await context.Request.ReadAndValidateJson<Run>(context.RequestAborted)).WithoutSystemProperties();
+            if (newRun.Kind == RunKind.System)
             {
                 throw new ValidationException("System runs cannot be created directly");
             }
 
-            Run createdRun = await runCreator.CreateRun(run, context.RequestAborted);
+            Run createdRun;
+            if (context.Request.Headers.TryGetValue("Idempotency-Key", out var idempotencyKey))
+            {
+                createdRun = await repository.CreateRunWithIdempotencyKeyGuard(newRun, idempotencyKey.ToString(), async (run, ct) => await runCreator.CreateRun(run, idempotencyKey, ct), context.RequestAborted);
+            }
+            else
+            {
+                createdRun = await runCreator.CreateRun(newRun, idempotencyKey, context.RequestAborted);
+            }
+
             return Results.Created($"/v1/runs/{createdRun.Id}", createdRun);
         })
         .Accepts<Run>("application/json")
@@ -61,6 +73,13 @@ public static class Runs
             return new RunPage(items, nextLink == null ? null : new Uri(nextLink));
         });
 
+        app.MapGet("/v1/runs/counts", async (IRunReader runReader, DateTimeOffset? since, HttpContext context) =>
+        {
+            var runs = await runReader.GetRunCounts(since, context.RequestAborted);
+            return Results.Ok(runs);
+        })
+        .Produces<IDictionary<RunStatus, long>>(StatusCodes.Status200OK);
+
         app.MapGet("/v1/runs/{runId}", async (
             string runId,
             bool? watch,
@@ -75,7 +94,7 @@ public static class Runs
 
             if (!watch.GetValueOrDefault())
             {
-                if (await runReader.GetRun(parsedRunId, context.RequestAborted) is not Run run)
+                if (await runReader.GetRun(parsedRunId, context.RequestAborted) is not var (run, _, _, _))
                 {
                     return Responses.NotFound();
                 }
@@ -166,109 +185,26 @@ public static class Runs
         .Produces<ErrorBody>(StatusCodes.Status404NotFound);
 
         // this endpoint is for testing purposes only, to force the background pod sweep
-        app.MapPost("/v1/runs/_sweep", async (IRunSweeper runSweeper, CancellationToken cancellationToken) =>
+        app.MapPost("/v1/runs/_sweep", async (IRunSweeper? runSweeper, CancellationToken cancellationToken) =>
         {
-            await runSweeper.SweepRuns(cancellationToken);
+            if (runSweeper is not null)
+            {
+                await runSweeper.SweepRuns(cancellationToken);
+            }
         }).ExcludeFromDescription();
-    }
-}
-
-public abstract class RunCreatorBase
-{
-    protected RunCreatorBase(IRepository repository, BufferManager bufferManager)
-    {
-        Repository = repository;
-        BufferManager = bufferManager;
-    }
-
-    protected IRepository Repository { get; init; }
-
-    protected BufferManager BufferManager { get; init; }
-
-    protected async Task<Codespec> GetCodespec(ICodespecRef codespecRef, CancellationToken cancellationToken)
-    {
-        if (codespecRef is Codespec inlineCodespec)
-        {
-            return inlineCodespec;
-        }
-
-        if (codespecRef is not CommittedCodespecRef committedCodespecRef)
-        {
-            throw new InvalidOperationException("Invalid codespec reference");
-        }
-
-        if (committedCodespecRef.Version == null)
-        {
-            return await Repository.GetLatestCodespec(committedCodespecRef.Name, cancellationToken)
-                ?? throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The codespec '{0}' was not found", committedCodespecRef.Name));
-        }
-
-        var codespec = await Repository.GetCodespecAtVersion(committedCodespecRef.Name, committedCodespecRef.Version.Value, cancellationToken);
-        if (codespec == null)
-        {
-            // See if it's just the version number that was not found
-            var latestCodespec = await Repository.GetLatestCodespec(committedCodespecRef.Name, cancellationToken)
-                ?? throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The codespec '{0}' was not found", committedCodespecRef.Name));
-
-            throw new ValidationException(
-                string.Format(
-                    CultureInfo.InvariantCulture,
-                    "The version '{0}' of codespec '{1}' was not found. The latest version is '{2}'.",
-                    committedCodespecRef.Version, committedCodespecRef.Name, latestCodespec.Version));
-        }
-
-        return codespec;
-    }
-
-    protected async Task<Dictionary<string, (bool write, Uri sasUri)>> GetBufferMap(BufferParameters? parameters, Dictionary<string, string> arguments, Dictionary<string, string> tags, CancellationToken cancellationToken)
-    {
-        Dictionary<string, string> argumentsClone = arguments == null ? new(StringComparer.OrdinalIgnoreCase) : new(arguments, StringComparer.OrdinalIgnoreCase);
-        IEnumerable<(string param, bool writeable)> combinedParameters = (parameters?.Inputs?.Select(param => (param, false)) ?? Enumerable.Empty<(string, bool)>())
-            .Concat(parameters?.Outputs?.Select(param => (param, true)) ?? Enumerable.Empty<(string, bool)>());
-
-        var outputMap = new Dictionary<string, (bool write, Uri sasUri)>();
-
-        foreach (var param in combinedParameters)
-        {
-            if (!argumentsClone.TryGetValue(param.param, out var bufferId))
-            {
-                var newTags = new Dictionary<string, string>(tags) { ["bufferName"] = param.param };
-                var newBuffer = new Model.Buffer() { Tags = newTags };
-
-                var buffer = await BufferManager.CreateBuffer(newBuffer, cancellationToken);
-                bufferId = buffer.Id!;
-                arguments![param.param] = bufferId;
-            }
-            else if (bufferId == "_")
-            {
-                bufferId = $"temp-{UniqueId.Create()}";
-                arguments![param.param] = bufferId;
-            }
-
-            var bufferAccess = await BufferManager.CreateBufferAccessUrl(bufferId, param.writeable, false, false, cancellationToken)
-                ?? throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The buffer '{0}' was not found", bufferId));
-            outputMap[param.param] = (param.writeable, bufferAccess.Uri);
-            argumentsClone.Remove(param.param);
-        }
-
-        foreach (var arg in argumentsClone)
-        {
-            throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "Buffer argument '{0}' does not correspond to a buffer parameter on the codespec", arg));
-        }
-
-        return outputMap;
     }
 }
 
 public interface IRunCreator
 {
-    Task<Run> CreateRun(Run newRun, CancellationToken cancellationToken);
+    Task<Run> CreateRun(Run run, string? idempotencyKey, CancellationToken cancellationToken);
 }
 
 public interface IRunReader
 {
+    Task<IDictionary<RunStatus, long>> GetRunCounts(DateTimeOffset? since, CancellationToken cancellationToken);
     Task<(IReadOnlyList<Run>, string? nextContinuationToken)> ListRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken);
-    Task<Run?> GetRun(long id, CancellationToken cancellationToken);
+    Task<(Run run, DateTimeOffset? modifiedAt, DateTimeOffset? logsArchivedAt, bool final)?> GetRun(long id, CancellationToken cancellationToken);
     IAsyncEnumerable<Run> WatchRun(long id, CancellationToken cancellationToken);
 }
 

@@ -1,4 +1,5 @@
 {{- $tygerName := include "tyger.fullname" . -}}
+{{- if not (.Values.onlyMigrationDependencies) }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -91,6 +92,7 @@ spec:
     metadata:
       labels:
         component: {{ $tygerName }}-server
+        tyger-helm-revision: "{{ .Release.Revision }}"
         azure.workload.identity/use: "true"
     spec:
       containers:
@@ -275,3 +277,4 @@ spec:
     services:
     - name: {{ $tygerName }}-server
       port: 8080
+{{- end }}

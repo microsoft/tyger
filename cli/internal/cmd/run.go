@@ -27,6 +27,7 @@ import (
 	dockerimage "github.com/docker/docker/api/types/image"
 	dockerclient "github.com/docker/docker/client"
 	"github.com/dustin/go-humanize"
+	"github.com/google/uuid"
 	"github.com/hashicorp/go-cleanhttp"
 	"github.com/kaz-yamam0t0/go-timeparser/timeparser"
 	"github.com/microsoft/tyger/cli/internal/client"
@@ -60,6 +61,7 @@ func NewRunCommand() *cobra.Command {
 	cmd.AddCommand(newRunWatchCommand())
 	cmd.AddCommand(newRunLogsCommand())
 	cmd.AddCommand(newRunListCommand())
+	cmd.AddCommand(newRunCountsCommand())
 	cmd.AddCommand(newRunCancelCommand())
 
 	return cmd
@@ -264,6 +266,7 @@ beginWatch:
 	var runFailedErr error
 	eventChan, errChan := watchRun(ctx, run.Id)
 
+	lastStatus := model.RunStatus(-1)
 	for {
 		select {
 		case err := <-errChan:
@@ -280,13 +283,15 @@ beginWatch:
 				goto end
 			}
 			consecutiveErrors = 0
-
 			if event.Status != nil {
-				logEntry := log.Info().Str("status", event.Status.String())
-				if event.RunningCount != nil {
-					logEntry = logEntry.Int("runningCount", *event.RunningCount)
+				if *event.Status != lastStatus {
+					lastStatus = *event.Status
+					logEntry := log.Info().Str("status", event.Status.String())
+					if event.RunningCount != nil {
+						logEntry = logEntry.Int("runningCount", *event.RunningCount)
+					}
+					logEntry.Msg("Run status changed")
 				}
-				logEntry.Msg("Run status changed")
 
 				switch *event.Status {
 				case model.Succeeded:
@@ -461,7 +466,8 @@ func newRunCreateCommandCore(
 			}
 
 			committedRun := model.Run{}
-			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/runs", newRun, &committedRun)
+			customHeaders := controlplane.WithHeaders(http.Header{"Idempotency-Key": []string{uuid.New().String()}})
+			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/runs", newRun, &committedRun, customHeaders)
 			if err != nil {
 				return err
 			}
@@ -545,6 +551,7 @@ func newRunWatchCommand() *cobra.Command {
 			consecutiveErrors := 0
 		start:
 			eventChan, errChan := watchRun(cmd.Context(), runId)
+			var lastBytes []byte
 			for {
 				select {
 				case err := <-errChan:
@@ -573,7 +580,10 @@ func newRunWatchCommand() *cobra.Command {
 					if err != nil {
 						return err
 					}
-					fmt.Println(string(bytes))
+					if !slices.Equal(bytes, lastBytes) {
+						fmt.Println(string(bytes))
+						lastBytes = bytes
+					}
 				}
 			}
 		},
@@ -617,6 +627,45 @@ func newRunListCommand() *cobra.Command {
 
 	cmd.Flags().StringVarP(&flags.since, "since", "s", "", "Results before this datetime (specified in local time) are not included")
 	cmd.Flags().IntVarP(&flags.limit, "limit", "l", 1000, "The maximum number of runs to list. Default 1000")
+
+	return cmd
+}
+
+func newRunCountsCommand() *cobra.Command {
+	var flags struct {
+		since string
+	}
+
+	cmd := &cobra.Command{
+		Use:                   "counts [--since DATE/TIME]",
+		Short:                 "Shows the count of runs by status",
+		Aliases:               []string{"count"},
+		DisableFlagsInUseLine: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			queryOptions := url.Values{}
+			if flags.since != "" {
+				now := time.Now()
+				tm, err := timeparser.ParseTimeStr(flags.since, &now)
+				if err != nil {
+					return fmt.Errorf("failed to parse time %s", flags.since)
+				}
+				queryOptions.Add("since", tm.UTC().Format(time.RFC3339Nano))
+			}
+
+			relativeUri := fmt.Sprintf("v1/runs/counts?%s", queryOptions.Encode())
+			results := map[string]int{}
+			if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, relativeUri, nil, &results); err != nil {
+				return err
+			}
+
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			enc.Encode(results)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&flags.since, "since", "s", "", "Results before this datetime (specified in local time) are not included")
 
 	return cmd
 }

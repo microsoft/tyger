@@ -26,21 +26,12 @@ public class DockerRunUpdater : IRunUpdater
     }
     public async Task<Run?> CancelRun(long id, CancellationToken cancellationToken)
     {
-        var run = await _repository.GetRun(id, cancellationToken);
-
-        if (run is null or { Final: true } or { Status: RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceling or RunStatus.Canceled })
-        {
-            return run;
-        }
-
-        Run updatedRun = run with
-        {
-            Status = RunStatus.Canceled,
-            StatusReason = "Canceled by user"
-        };
-
-        await _repository.UpdateRun(updatedRun, cancellationToken: cancellationToken);
         _logger.CancelingRun(id);
+        var updatedRun = await _repository.CancelRun(id, cancellationToken: cancellationToken);
+        if (updatedRun is null)
+        {
+            return null;
+        }
 
         var containers = await _client.Containers.ListContainersAsync(new ContainersListParameters()
         {

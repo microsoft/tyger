@@ -73,6 +73,6 @@ public class ExceptionHandlerMiddleware
 
 public static partial class LoggerExtensions
 {
-    [LoggerMessage(1, LogLevel.Error, "Request failed with an unhandled exception. {innerResponseBody}")]
+    [LoggerMessage(LogLevel.Error, "Request failed with an unhandled exception. {innerResponseBody}")]
     public static partial void UnhandledException(this ILogger logger, Exception exception, string? innerResponseBody = null);
 }

@@ -22,14 +22,25 @@ public class DockerRunReader : IRunReader
         _repository = repository;
     }
 
-    public async Task<Run?> GetRun(long id, CancellationToken cancellationToken)
+    public async Task<IDictionary<RunStatus, long>> GetRunCounts(DateTimeOffset? since, CancellationToken cancellationToken)
     {
-        var run = await _repository.GetRun(id, cancellationToken);
-        if (run is null or { Final: true })
+        return await _repository.GetRunCountsWithCallbackForNonFinal(since, UpdateRunFromContainers, cancellationToken);
+    }
+
+    public async Task<(Run run, DateTimeOffset? modifiedAt, DateTimeOffset? logsArchivedAt, bool final)?> GetRun(long id, CancellationToken cancellationToken)
+    {
+        if (await _repository.GetRun(id, cancellationToken) is not var (run, modifiedAt, logsArchivedAt, final))
         {
-            return run;
+            return null;
         }
 
+        return final
+            ? (run, modifiedAt, logsArchivedAt, final)
+            : (await UpdateRunFromContainers(run, cancellationToken), modifiedAt, logsArchivedAt, final);
+    }
+
+    private async Task<Run> UpdateRunFromContainers(Run run, CancellationToken cancellationToken)
+    {
         var containers = await (await _client.Containers
             .ListContainersAsync(
                 new ContainersListParameters()
@@ -37,7 +48,7 @@ public class DockerRunReader : IRunReader
                     All = true,
                     Filters = new Dictionary<string, IDictionary<string, bool>>
                     {
-                        {"label", new Dictionary<string, bool>{{ $"tyger-run={id}", true } } }
+                        {"label", new Dictionary<string, bool>{{ $"tyger-run={run.Id}", true } } }
                     }
                 }, cancellationToken))
             .ToAsyncEnumerable()
@@ -49,35 +60,27 @@ public class DockerRunReader : IRunReader
 
     public async Task<(IReadOnlyList<Run>, string? nextContinuationToken)> ListRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken)
     {
-        (var partialRuns, var nextContinuationToken) = await _repository.GetRuns(limit, since, continuationToken, cancellationToken);
-        if (partialRuns.All(r => r.Final))
-        {
-            return (partialRuns.AsReadOnly(), nextContinuationToken);
-        }
-
+        (var partialRuns, var nextContinuationToken) = await _repository.GetRuns(limit, true, since, continuationToken, cancellationToken);
+        var runs = new Run[partialRuns.Count];
         for (int i = 0; i < partialRuns.Count; i++)
         {
-            var run = partialRuns[i];
-            if (!run.Final)
-            {
-                partialRuns[i] = await GetRun(run.Id!.Value, cancellationToken) ?? run;
-            }
+            var (run, final) = partialRuns[i];
+            runs[i] = final ? run : await UpdateRunFromContainers(run, cancellationToken);
         }
 
-        return (partialRuns.AsReadOnly(), nextContinuationToken);
+        return (runs, nextContinuationToken);
     }
 
     public async IAsyncEnumerable<Run> WatchRun(long id, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var run = await GetRun(id, cancellationToken);
-        if (run is null)
+        if (await GetRun(id, cancellationToken) is not var (run, _, _, _))
         {
             yield break;
         }
 
         yield return run;
 
-        if (run.Status is RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceled)
+        if (run.Status.IsTerminal())
         {
             yield break;
         }
@@ -113,8 +116,7 @@ public class DockerRunReader : IRunReader
 
             await foreach (var _ in channel.Reader.ReadAllAsync(cancellationToken))
             {
-                var updatedRun = await GetRun(id, cancellationToken);
-                if (updatedRun is null)
+                if (await GetRun(id, cancellationToken) is not (var updatedRun, _, _, _))
                 {
                     yield break;
                 }
@@ -125,7 +127,7 @@ public class DockerRunReader : IRunReader
                     yield return updatedRun;
                 }
 
-                if (run.Status is RunStatus.Succeeded or RunStatus.Failed or RunStatus.Canceled)
+                if (run.Status.IsTerminal())
                 {
                     yield break;
                 }

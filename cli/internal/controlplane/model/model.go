@@ -70,9 +70,9 @@ type Codespec struct {
 }
 
 type CodespecMetadata struct {
-	Name      string    `json:"name"`
-	Version   int       `json:"version"`
-	CreatedAt time.Time `json:"createdAt"`
+	Name      *string    `json:"name,omitempty"`
+	Version   *int       `json:"version,omitempty"`
+	CreatedAt *time.Time `json:"createdAt,omitempty"`
 }
 
 type Page[T any] struct {

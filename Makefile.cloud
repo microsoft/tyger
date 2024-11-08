@@ -18,7 +18,8 @@ pim-elevate:
 	justification=$${justification:-$${default_justification}}
 
 	subscription=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.cloud.subscriptionId')
-	az-pim activate role --subscription "$${subscription}" Owner "$${justification}"
+	subscription_name=$$(az account show --subscription "$${subscription}" --query name -o tsv)
+	az-pim-cli activate --name "$${subscription_name}" --role "Owner" --reason "$${justification}"
 
 ensure-environment: check-az-login install-cli
 	tyger cloud install -f <(scripts/get-config.sh)
@@ -88,7 +89,8 @@ set-localsettings: set-context
 					"noOpConfigMap": "${HELM_RELEASE}-no-op",
 					"workerWaiterImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.workerWaiterImage')",
 					"clusters": $$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -c '.cloud.compute.clusters'),
-					"currentPodUid": "00000000-0000-0000-0000-000000000000"
+					"currentPodUid": "00000000-0000-0000-0000-000000000000",
+					"customIdentities":  $$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq '.cloud.compute.identities |  map({(.): ("tyger-custom-" + . + "-job")}) | add')
 				}
 			},
 			"logArchive": {
@@ -200,12 +202,7 @@ connect-db: set-context
 		--dbname="$$(echo $${helm_values} | jq -r '.database.databaseName')"
 
 purge-runs: set-context
-	for pod in $$(kubectl get pod -n "${HELM_NAMESPACE}" -l tyger-run -o go-template='{{range .items}}{{.metadata.name}}{{"\n"}}{{end}}'); do
-		kubectl patch pod -n "${HELM_NAMESPACE}" "$${pod}" \
-			--type json \
-			--patch='[ { "op": "remove", "path": "/metadata/finalizers" } ]'
-	done
-	kubectl delete job,statefulset,secret,service -n "${HELM_NAMESPACE}" -l tyger-run --cascade=foreground
+	kubectl delete pod,statefulset,secret,service -n "${HELM_NAMESPACE}" -l tyger-run --cascade=foreground
 
 variant-test:
 	# No variant tests for cloud configuration

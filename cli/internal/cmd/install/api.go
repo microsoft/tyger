@@ -50,7 +50,7 @@ func newApiInstallCommand() *cobra.Command {
 
 			err := installer.InstallTyger(ctx)
 			if err != nil {
-				if err != install.ErrAlreadyLoggedError {
+				if !errors.Is(err, install.ErrAlreadyLoggedError) {
 					log.Fatal().Err(err).Send()
 				}
 				os.Exit(1)
@@ -79,7 +79,7 @@ func newApiUninstallCommand() *cobra.Command {
 			log.Info().Msg("Starting Tyger API uninstall")
 
 			if err := installer.UninstallTyger(ctx, deleteData); err != nil {
-				if err != install.ErrAlreadyLoggedError {
+				if !errors.Is(err, install.ErrAlreadyLoggedError) {
 					log.Fatal().Err(err).Send()
 				}
 				os.Exit(1)

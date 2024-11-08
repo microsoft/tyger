@@ -4,9 +4,11 @@
 using System.Collections.Immutable;
 using System.ComponentModel.DataAnnotations;
 using System.Globalization;
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using k8s;
+using k8s.Autorest;
 using k8s.Models;
 using Microsoft.Extensions.Options;
 using Tyger.ControlPlane.Buffers;
@@ -43,65 +45,116 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
 
     public Capabilities GetCapabilities() => Capabilities.Kubernetes | Capabilities.DistributedRuns | Capabilities.NodePools;
 
-    public async Task<Run> CreateRun(Run newRun, CancellationToken cancellationToken)
+    public async Task<Run> CreateRun(Run run, string? idempotencyKey, CancellationToken cancellationToken)
+    {
+        return await CreateRunCore(run, idempotencyKey, cancellationToken);
+    }
+
+    public async Task<Run> CreateRunResources(Run run, CancellationToken cancellationToken)
+    {
+        return await CreateRunCore(run, null, cancellationToken);
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                await Repository.ListenForNewRuns(ProcessPageOfNewRuns, stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                _logger.ErrorListeningForNewRuns(ex);
+            }
+        }
+    }
+
+    private async Task ProcessPageOfNewRuns(IReadOnlyList<Run> runs, CancellationToken cancellationToken)
+    {
+        await Parallel.ForEachAsync(runs, new ParallelOptions { MaxDegreeOfParallelism = runs.Count, CancellationToken = cancellationToken }, async (run, ct) =>
+        {
+            try
+            {
+                await CreateRunResources(run, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+            }
+            catch (Exception ex)
+            {
+                _logger.ErrorCreatingRunResources(run.Id!.Value, ex);
+            }
+        });
+    }
+
+    private async Task<Run> CreateRunCore(Run run, string? idempotencyKey, CancellationToken cancellationToken)
     {
         // Phase 1: Validate newRun and create the leaf building blocks.
 
-        ClusterOptions targetCluster = GetTargetCluster(newRun);
+        ClusterOptions targetCluster = GetTargetCluster(run);
 
-        if (await GetCodespec(newRun.Job.Codespec, cancellationToken) is not JobCodespec jobCodespec)
+        if (await GetCodespec(run.Job.Codespec, cancellationToken) is not JobCodespec jobCodespec)
         {
             throw new ArgumentException($"The codespec for the job is required to be a job codespec");
         }
 
-        newRun = newRun with
+        run = run with
         {
             Cluster = targetCluster.Name,
-            Job = newRun.Job with
+            Job = run.Job with
             {
                 Codespec = jobCodespec.ToCodespecRef()
             }
         };
 
-        var jobPodTemplateSpec = CreatePodTemplateSpec(jobCodespec, newRun.Job, targetCluster, newRun, "Never");
+        var jobPodTemplateSpec = CreatePodTemplateSpec(jobCodespec, run.Job, targetCluster, run, "Never");
 
         V1PodTemplateSpec? workerPodTemplateSpec = null;
         WorkerCodespec? workerCodespec = null;
-        if (newRun.Worker != null)
+        if (run.Worker != null)
         {
-            workerCodespec = await GetCodespec(newRun.Worker.Codespec, cancellationToken) as WorkerCodespec;
+            workerCodespec = await GetCodespec(run.Worker.Codespec, cancellationToken) as WorkerCodespec;
             if (workerCodespec == null)
             {
                 throw new ArgumentException($"The codespec for the worker is required to be a worker codespec");
             }
 
-            newRun = newRun with
+            run = run with
             {
-                Worker = newRun.Worker with
+                Worker = run.Worker with
                 {
                     Codespec = workerCodespec.ToCodespecRef()
                 }
             };
-            workerPodTemplateSpec = CreatePodTemplateSpec(workerCodespec, newRun.Worker, targetCluster, newRun, "Always");
+            workerPodTemplateSpec = CreatePodTemplateSpec(workerCodespec, run.Worker, targetCluster, run, "Always");
         }
 
-        if (newRun.Job.Buffers == null)
+        if (run.Job.Buffers == null)
         {
-            newRun = newRun with { Job = newRun.Job with { Buffers = [] } };
+            run = run with { Job = run.Job with { Buffers = [] } };
         }
 
-        if (newRun.Job.Tags == null)
+        if (run.Job.Tags == null)
         {
-            newRun = newRun with { Job = newRun.Job with { Tags = [] } };
+            run = run with { Job = run.Job with { Tags = [] } };
         }
 
-        var bufferMap = await GetBufferMap(jobCodespec.Buffers, newRun.Job.Buffers, newRun.Job.Tags, cancellationToken);
+        await ProcessBufferArguments(jobCodespec.Buffers, run.Job.Buffers, run.Job.Tags, cancellationToken);
 
-        // Phase 2: now that we have performed validation, create a record for this run in the database
+        if (run.Id == null)
+        {
+            // Create a database record for this run
+            run = await Repository.CreateRun(run, idempotencyKey, cancellationToken);
+            _logger.CreatedRun(run.Id!.Value);
+            return run;
+        }
 
-        var run = await Repository.CreateRun(newRun, cancellationToken);
-
-        // Phase 3: assemble and create Kubernetes objects
+        // Create Kubernetes objects
 
         var commonLabels = ImmutableDictionary<string, string>.Empty.Add(RunLabel, $"{run.Id}");
 
@@ -113,33 +166,30 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
 
         jobPodTemplateSpec.Metadata.Labels = jobLabels;
 
-        var job = new V1Job
+        var jobPod = new V1Pod
         {
-            Metadata = new()
-            {
-                Name = JobNameFromRunId(run.Id!.Value),
-                Labels = jobLabels,
-                Annotations = jobCodespec.Sockets?.Count > 0 ? new Dictionary<string, string>() { { HasSocketAnnotation, "true" } } : null
-            },
-            Spec = new()
-            {
-                Parallelism = run.Job.Replicas,
-                Completions = run.Job.Replicas,
-                CompletionMode = "Indexed",
-                ManualSelector = true,
-                Selector = new() { MatchLabels = jobLabels },
-                Template = jobPodTemplateSpec,
-                ActiveDeadlineSeconds = run.TimeoutSeconds,
-                BackoffLimit = 0,
-            },
+            Metadata = jobPodTemplateSpec.Metadata,
+            Spec = jobPodTemplateSpec.Spec
         };
+        jobPod.Metadata.Name = JobPodName(run.Id!.Value, 0);
+        jobPod.Metadata.Labels = MergeDictionaries(jobPod.Metadata.Labels, jobLabels);
+        var annotations = jobPod.Metadata.Annotations == null ? [] : new Dictionary<string, string>(jobPod.Metadata.Annotations);
+        if (jobCodespec.Sockets?.Count > 0)
+        {
+            annotations[HasSocketAnnotation] = "true";
+        }
+
+        jobPod.Metadata.Annotations = annotations;
+        jobPod.Spec.ActiveDeadlineSeconds = run.TimeoutSeconds;
+
+        var bufferMap = await GetBufferMap(jobCodespec.Buffers, run.Job.Buffers, cancellationToken);
 
         if (bufferMap != null)
         {
-            await AddBufferProxySidecars(job, run, bufferMap, jobCodespec, cancellationToken);
+            await AddBufferProxySidecars(jobPod, run, bufferMap, jobCodespec, cancellationToken);
         }
 
-        if (newRun.Worker != null)
+        if (run.Worker != null)
         {
             var workerLabels = commonLabels.Add(WorkerLabel, $"{run.Id}");
             if (workerPodTemplateSpec!.Metadata.Labels != null)
@@ -159,23 +209,23 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
                 Spec = new()
                 {
                     PodManagementPolicy = "Parallel",
-                    Replicas = newRun.Worker.Replicas,
+                    Replicas = run.Worker.Replicas,
                     Template = workerPodTemplateSpec,
                     Selector = new() { MatchLabels = workerLabels },
                     ServiceName = StatefulSetNameFromRunId(run.Id.Value)
                 },
             };
 
-            AddWaitForWorkerInitContainersToJob(job, run);
-            AddWorkerNodesEnvironmentVariables(job, run, workerCodespec);
+            AddWaitForWorkerInitContainersToJob(jobPod, run);
+            AddWorkerNodesEnvironmentVariables(jobPod, run, workerCodespec);
 
-            await _client.AppsV1.CreateNamespacedStatefulSetAsync(workerStatefulSet, _k8sOptions.Namespace, cancellationToken: cancellationToken);
+            await CreateObjectHandleAlreadyExists(() => _client.AppsV1.CreateNamespacedStatefulSetAsync(workerStatefulSet, _k8sOptions.Namespace, cancellationToken: cancellationToken));
 
             var headlessWorkerService = new V1Service
             {
                 Metadata = new()
                 {
-                    Name = StatefulSetNameFromRunId(run.Id.Value),
+                    Name = ServiceNameFromRunId(run.Id.Value),
                     Labels = workerLabels,
                 },
                 Spec = new()
@@ -185,29 +235,56 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
                 }
             };
 
-            await _client.CoreV1.CreateNamespacedServiceAsync(headlessWorkerService, _k8sOptions.Namespace, cancellationToken: cancellationToken);
+            await CreateObjectHandleAlreadyExists(() => _client.CoreV1.CreateNamespacedServiceAsync(headlessWorkerService, _k8sOptions.Namespace, cancellationToken: cancellationToken));
         }
 
-        await _client.BatchV1.CreateNamespacedJobAsync(job, _k8sOptions.Namespace, cancellationToken: cancellationToken);
+        await CreateObjectHandleAlreadyExists(() => _client.CoreV1.CreateNamespacedPodAsync(jobPod, _k8sOptions.Namespace, cancellationToken: cancellationToken));
+        for (var i = 1; i < run.Job.Replicas; i++)
+        {
+            jobPod.Metadata.Name = JobPodName(run.Id!.Value, i);
+            await CreateObjectHandleAlreadyExists(() => _client.CoreV1.CreateNamespacedPodAsync(jobPod, _k8sOptions.Namespace, cancellationToken: cancellationToken));
+        }
 
         // Phase 4: Inform the database that the Kubernetes objects have been created in the cluster.
 
-        await Repository.UpdateRun(run, resourcesCreated: true, cancellationToken: cancellationToken);
-        _logger.CreatedRun(run.Id.Value);
+        await Repository.UpdateRunAsResourcesCreated(run.Id!.Value, run: null, cancellationToken: cancellationToken);
+        _logger.CreatedRunResources(run.Id.Value);
         return run;
     }
 
-    private void AddWaitForWorkerInitContainersToJob(V1Job job, Run run)
+    private static IDictionary<TKey, TValue>? MergeDictionaries<TKey, TValue>(IDictionary<TKey, TValue>? dict1, IDictionary<TKey, TValue>? dict2)
+     where TKey : notnull
     {
-        var initContainers = job.Spec.Template.Spec.InitContainers ??= [];
+        if (dict1 == null)
+        {
+            return dict2;
+        }
+
+        if (dict2 == null)
+        {
+            return dict1;
+        }
+
+        var result = new Dictionary<TKey, TValue>(dict1);
+        foreach (var (key, value) in dict2)
+        {
+            result[key] = value;
+        }
+
+        return result;
+    }
+
+    private void AddWaitForWorkerInitContainersToJob(V1Pod jobPod, Run run)
+    {
+        var initContainers = jobPod.Spec.InitContainers ??= [];
 
         initContainers.Add(
             new()
             {
                 Name = "imagepull",
-                Image = GetMainContainer(job.Spec.Template.Spec).Image,
+                Image = GetMainContainer(jobPod.Spec).Image,
                 Command = s_waitForWorkerCommand,
-                VolumeMounts = new V1VolumeMount[] { new("/no-op/", "no-op") }
+                VolumeMounts = [new("/no-op/", "no-op")]
             });
 
         var waitScript = new StringBuilder("set -euo pipefail").AppendLine();
@@ -222,10 +299,10 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
             {
                 Name = "waitforworker",
                 Image = _k8sOptions.WorkerWaiterImage,
-                Command = new[] { "bash", "-c", waitScript.ToString() },
+                Command = ["bash", "-c", waitScript.ToString()],
             });
 
-        (job.Spec.Template.Spec.Volumes ??= []).Add(new()
+        (jobPod.Spec.Volumes ??= []).Add(new()
         {
             Name = "no-op",
             ConfigMap = new V1ConfigMapVolumeSource
@@ -236,11 +313,11 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         });
     }
 
-    private void AddWorkerNodesEnvironmentVariables(V1Job job, Run run, WorkerCodespec? workerCodespec)
+    private void AddWorkerNodesEnvironmentVariables(V1Pod jobPod, Run run, WorkerCodespec? workerCodespec)
     {
         var dnsNames = GetWorkerDnsNames(run);
 
-        var envVars = GetMainContainer(job.Spec.Template.Spec).Env ??= [];
+        var envVars = GetMainContainer(jobPod.Spec).Env ??= [];
         envVars.Add(new("TYGER_WORKER_NODES", JsonSerializer.Serialize(dnsNames)));
         if (workerCodespec?.Endpoints != null)
         {
@@ -256,13 +333,13 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         return Enumerable.Range(0, run.Worker!.Replicas).Select(i => $"{StatefulSetNameFromRunId(run.Id!.Value)}-{i}.{StatefulSetNameFromRunId(run.Id.Value)}.{_k8sOptions.Namespace}.svc.cluster.local").ToArray();
     }
 
-    private async Task AddBufferProxySidecars(V1Job job, Run run, Dictionary<string, (bool write, Uri sasUri)> bufferMap, JobCodespec codespec, CancellationToken cancellationToken)
+    private async Task AddBufferProxySidecars(V1Pod jobPod, Run run, Dictionary<string, (bool write, Uri sasUri)> bufferMap, JobCodespec codespec, CancellationToken cancellationToken)
     {
         const string SecretMountPath = "/etc/buffer-sas-tokens";
         const string FifoMountPath = "/etc/buffer-fifos";
         const string PipeVolumeName = "pipevolume";
 
-        var mainContainer = GetMainContainer(job.Spec.Template.Spec);
+        var mainContainer = GetMainContainer(jobPod.Spec);
         mainContainer.Env ??= [];
 
         IEnumerable<string> buffersNotUsedBySockets = bufferMap.Keys;
@@ -281,19 +358,19 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
             Metadata = new()
             {
                 Name = SecretNameFromRunId(run.Id!.Value),
-                Labels = job.Labels() ?? throw new InvalidOperationException("expected job labels to be set"),
+                Labels = jobPod.Labels() ?? throw new InvalidOperationException("expected job labels to be set"),
             },
             StringData = bufferMap.ToDictionary(p => p.Key, p => p.Value.sasUri.ToString()),
         };
 
-        (job.Spec.Template.Spec.Volumes ??= []).Add(
+        (jobPod.Spec.Volumes ??= []).Add(
             new()
             {
                 Name = "buffers",
                 Secret = new() { SecretName = buffersSecret.Metadata.Name },
             });
 
-        job.Spec.Template.Spec.Volumes.Add(new() { Name = PipeVolumeName, EmptyDir = new() });
+        jobPod.Spec.Volumes.Add(new() { Name = PipeVolumeName, EmptyDir = new() });
 
         var fifoVolumeMount = new V1VolumeMount(FifoMountPath, PipeVolumeName);
         (mainContainer.VolumeMounts ??= []).Add(fifoVolumeMount);
@@ -305,7 +382,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
             mkfifoBuilder.AppendLine($"mkfifo {fifoPath}").AppendLine($"chmod 666 {fifoPath}");
         }
 
-        (job.Spec.Template.Spec.InitContainers ??= []).Add(
+        (jobPod.Spec.InitContainers ??= []).Add(
             new()
             {
                 Name = "mkfifo",
@@ -317,7 +394,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
 
         foreach ((string bufferName, (bool write, Uri sasUri)) in bufferMap)
         {
-            job.Spec.Template.Spec.Containers.Add(new()
+            jobPod.Spec.Containers.Add(new()
             {
                 Name = $"{bufferName}-buffer-sidecar",
                 Image = _bufferOptions.BufferSidecarImage,
@@ -357,7 +434,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         {
             foreach (var socket in codespec.Sockets)
             {
-                job.Spec.Template.Spec.Containers.Add(new()
+                jobPod.Spec.Containers.Add(new()
                 {
                     Name = $"socket-{socket.Port}-sidecar",
                     Image = _bufferOptions.BufferSidecarImage,
@@ -391,8 +468,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
             }
         }
 
-        await _client.CoreV1.CreateNamespacedSecretAsync(buffersSecret, _k8sOptions.Namespace, cancellationToken: cancellationToken);
-        _logger.CreatedSecret(buffersSecret.Metadata.Name);
+        await CreateObjectHandleAlreadyExists(() => _client.CoreV1.CreateNamespacedSecretAsync(buffersSecret, _k8sOptions.Namespace, cancellationToken: cancellationToken));
     }
 
     private static V1Container GetMainContainer(V1PodSpec podSpec) => podSpec.Containers.Single(c => c.Name == "main");
@@ -451,11 +527,15 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         {
             Metadata = new()
             {
-                Finalizers = [FinalizerName],
                 Labels = new Dictionary<string, string>
                 {
-                    { "azure.workload.identity/use", (!string.IsNullOrEmpty(codespec.Identity)).ToString().ToLowerInvariant() }
+                    { "azure.workload.identity/use", (!string.IsNullOrEmpty(codespec.Identity)).ToString().ToLowerInvariant() },
                 },
+                Annotations = new Dictionary<string, string>
+                {
+                    { JobReplicaCountAnnotation, run.Job.Replicas.ToString(CultureInfo.InvariantCulture) },
+                    { WorkerReplicaCountAnnotation, run.Worker?.Replicas.ToString(CultureInfo.InvariantCulture) ?? "0" },
+                }
             },
             Spec = new()
             {
@@ -564,5 +644,17 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
     {
         return vmSize.StartsWith("Standard_N", StringComparison.OrdinalIgnoreCase) &&
             !vmSize.EndsWith("_v4", StringComparison.OrdinalIgnoreCase); // unsupported AMD GPU
+    }
+
+    private async Task CreateObjectHandleAlreadyExists(Func<Task> createObject)
+    {
+        try
+        {
+            await createObject();
+        }
+        catch (HttpOperationException e) when (e.Response.StatusCode == HttpStatusCode.Conflict)
+        {
+            _logger.KubernetesObjectAlreadyExists(e.Request.RequestUri!.ToString());
+        }
     }
 }

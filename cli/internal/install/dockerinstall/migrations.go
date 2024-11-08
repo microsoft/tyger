@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -26,6 +27,10 @@ const (
 )
 
 func (inst *Installer) ListDatabaseVersions(ctx context.Context, allVersions bool) ([]install.DatabaseVersion, error) {
+	if err := inst.createDatabaseContainer(ctx); err != nil {
+		return nil, fmt.Errorf("error creating database container: %w", err)
+	}
+
 	containerName := inst.resourceName("tyger-migration-list-versions")
 
 	if err := inst.startMigrationRunner(ctx, containerName, []string{"database", "list-versions"}, nil); err != nil {
@@ -72,6 +77,10 @@ func (inst *Installer) ListDatabaseVersions(ctx context.Context, allVersions boo
 }
 
 func (inst *Installer) ApplyMigrations(ctx context.Context, targetVersion int, latest, offline, waitForCompletion bool) error {
+	if err := inst.createDatabaseContainer(ctx); err != nil {
+		return fmt.Errorf("error creating database container: %w", err)
+	}
+
 	versions, err := inst.ListDatabaseVersions(ctx, true)
 	if err != nil {
 		return err
@@ -142,6 +151,10 @@ func (inst *Installer) ApplyMigrations(ctx context.Context, targetVersion int, l
 }
 
 func (inst *Installer) GetMigrationLogs(ctx context.Context, id int, destination io.Writer) error {
+	if err := inst.createDatabaseContainer(ctx); err != nil {
+		return fmt.Errorf("error creating database container: %w", err)
+	}
+
 	logsNotAvailableErr := fmt.Errorf("logs for migration %d are not available", id)
 	migrationContainer, err := inst.client.ContainerInspect(ctx, inst.resourceName(migrationRunnerContainerSuffix))
 	if err != nil {
@@ -219,13 +232,51 @@ func (inst *Installer) initializeDatabase(ctx context.Context) error {
 		return fmt.Errorf("error waiting for migration runner to complete: %w", err)
 	}
 
-	if exitCode == 0 {
-		return nil
-	}
-
 	stdOut, stdErr := &bytes.Buffer{}, &bytes.Buffer{}
 	if err := inst.getContainerLogs(ctx, containerName, stdOut, stdErr); err != nil {
 		return fmt.Errorf("error getting container logs: %w", err)
+	}
+
+	parsedLines, err := install.ParseJsonLogs(stdErr.Bytes())
+	if err != nil {
+		return fmt.Errorf("error parsing logs: %w", err)
+	}
+
+	found := false
+	for _, parsedLine := range parsedLines {
+		if category, ok := parsedLine["category"].(string); ok {
+
+			if category == "Tyger.ControlPlane.Database.Migrations.MigrationRunner[DatabaseMigrationRequired]" {
+				if message, ok := parsedLine["message"].(string); ok {
+					log.Error().Msg(message)
+				}
+				if args, ok := parsedLine["args"].(map[string]any); ok {
+					if version, ok := args["requiredVersion"].(float64); ok {
+						log.Error().Msgf("Run `tyger api uninstall -f <CONFIG_PATH>` followed by `tyger api migrations apply --target-version %d --offline --wait -f <CONFIG_PATH>` followed by `tyger api install -f <CONFIG_PATH>` ", int(version))
+						return install.ErrAlreadyLoggedError
+					}
+				}
+			}
+
+			if category == "Tyger.ControlPlane.Database.Migrations.MigrationRunner[NewerDatabaseVersionsExist]" {
+				log.Warn().Msgf("The database schema should be upgraded. Run `tyger api migrations list` to see the available migrations and `tyger api migrations apply` to apply them.")
+				found = true
+				break
+			}
+
+			if category == "Tyger.ControlPlane.Database.Migrations.MigrationRunner[UsingMostRecentDatabaseVersion]" {
+				log.Debug().Msg("Database schema is up to date")
+				found = true
+				break
+			}
+		}
+	}
+
+	if exitCode == 0 {
+		if !found {
+			return errors.New("failed to find expected migration log message")
+		}
+		return nil
 	}
 
 	return fmt.Errorf("migration runner failed with exit code %d: %s", exitCode, stdErr.String())

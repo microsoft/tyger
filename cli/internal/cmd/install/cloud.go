@@ -45,7 +45,7 @@ func newCloudInstallCommand() *cobra.Command {
 
 			log.Info().Msg("Starting cloud install")
 			if err := cloudInstaller.InstallCloud(ctx); err != nil {
-				if err != install.ErrAlreadyLoggedError {
+				if !errors.Is(err, install.ErrAlreadyLoggedError) {
 					log.Fatal().Err(err).Send()
 				}
 				os.Exit(1)
@@ -73,7 +73,7 @@ func newCloudUninstallCommand() *cobra.Command {
 			log.Info().Msg("Starting cloud uninstall")
 
 			if err := cloudInstaller.UninstallCloud(ctx); err != nil {
-				if err != install.ErrAlreadyLoggedError {
+				if !errors.Is(err, install.ErrAlreadyLoggedError) {
 					log.Fatal().Err(err).Send()
 				}
 				os.Exit(1)
