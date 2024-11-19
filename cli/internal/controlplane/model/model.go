@@ -207,6 +207,7 @@ type RunMetadata struct {
 	StatusReason string     `json:"statusReason,omitempty"`
 	RunningCount *int       `json:"runningCount,omitempty"`
 	CreatedAt    time.Time  `json:"createdAt,omitempty"`
+	StartedAt    *time.Time `json:"startedAt,omitempty"`
 	FinishedAt   *time.Time `json:"finishedAt,omitempty"`
 }
 

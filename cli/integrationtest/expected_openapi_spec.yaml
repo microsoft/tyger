@@ -747,6 +747,11 @@ components:
           description: The time the run was created. Populated by the system.
           format: date-time
           nullable: true
+        startedAt:
+          type: string
+          description: The time the run's job started. Populated by the system.
+          format: date-time
+          nullable: true
         finishedAt:
           type: string
           description: The time the run finished. Populated by the system.

@@ -103,11 +103,16 @@ func TestEndToEnd(t *testing.T) {
 		"-b", fmt.Sprintf("input=%s", inputBufferId),
 		"-b", fmt.Sprintf("output=%s", outputBufferId))
 
-	waitForRunSuccess(t, runId)
+	run := waitForRunSuccess(t, runId)
 
 	output := runCommandSucceeds(t, "sh", "-c", fmt.Sprintf(`tyger buffer read "%s"`, outputSasUri))
 
 	require.Equal("Hello: Bonjour", output)
+
+	require.NotNil(run.StartedAt)
+	require.GreaterOrEqual(*run.StartedAt, run.CreatedAt)
+	require.NotNil(run.FinishedAt)
+	require.GreaterOrEqual(*run.FinishedAt, *run.StartedAt)
 }
 
 func TestEndToEndWithAutomaticallyCreatedBuffers(t *testing.T) {

@@ -452,6 +452,11 @@ public record Run : ModelBase
     public DateTimeOffset? CreatedAt { get; init; }
 
     /// <summary>
+    /// The time the run's job started. Populated by the system.
+    /// </summary>
+    public DateTimeOffset? StartedAt { get; init; }
+
+    /// <summary>
     /// The time the run finished. Populated by the system.
     /// </summary>
     public DateTimeOffset? FinishedAt { get; init; }
@@ -486,6 +491,7 @@ public record Run : ModelBase
             StatusReason = null,
             RunningCount = null,
             CreatedAt = default,
+            StartedAt = default,
             FinishedAt = null,
         };
     }
