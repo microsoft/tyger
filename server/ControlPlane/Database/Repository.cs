@@ -523,7 +523,7 @@ public class Repository : IRepository
 
             var runJson = reader.GetString(0);
             var run = JsonSerializer.Deserialize<Run>(runJson, _serializerOptions) ?? throw new InvalidOperationException("Failed to deserialize run.");
-            updatedRun = run with { Status = state.Status, StatusReason = state.StatusReason, RunningCount = state.RunningCount, FinishedAt = state.FinishedAt, Job = run.Job with { NodePool = state.JobNodePool }, Worker = run.Worker == null ? null : run.Worker with { NodePool = state.WorkerNodePool } };
+            updatedRun = state.ApplyToRun(run);
             if (updatedRun.Equals(run))
             {
                 return;

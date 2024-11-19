@@ -120,8 +120,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         run = await Repository.CreateRun(run, idempotencyKey, cancellationToken);
 
         var bufferMap = await GetBufferMap(jobCodespec.Buffers, run.Job.Buffers!, cancellationToken);
-
-        string mainContainerName = $"tyger-run-{run.Id}-main";
+        string mainContainerName = MainContainerName(run.Id!.Value);
 
         if (run.Job.Buffers != null)
         {
@@ -469,6 +468,11 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
         _logger.CreatedRun(run.Id!.Value);
         return run with { Status = RunStatus.Running };
+    }
+
+    internal static string MainContainerName(long runId)
+    {
+        return $"tyger-run-{runId}-main";
     }
 
     private async Task CreateAndStartContainer(CreateContainerParameters sidecarContainerParameters, CancellationToken cancellationToken)

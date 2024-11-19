@@ -141,9 +141,17 @@ public class DockerRunReader : IRunReader
 
     public static Run UpdateRunFromContainers(Run run, IReadOnlyList<ContainerInspectResponse> containers)
     {
+        var mainContainerName = $"/{DockerRunCreator.MainContainerName(run.Id!.Value)}"; // inspect always returns names with a leading slash
+
+        var mainContainer = containers.FirstOrDefault(c => c.Name == mainContainerName);
+        if (mainContainer != null)
+        {
+            run = run with { StartedAt = mainContainer?.State.StartedAt == null ? null : DateTimeOffset.Parse(mainContainer.State.StartedAt) };
+        }
+
         if (run.Status is RunStatus.Canceled)
         {
-            return run;
+            return run with { Status = RunStatus.Canceled };
         }
 
         var socketCount = containers.Aggregate(
@@ -159,14 +167,15 @@ public class DockerRunReader : IRunReader
             return run with { Status = RunStatus.Failed };
         }
 
-        if (containers.Any(c => c.State.Status == "exited" && c.State.ExitCode != 0))
+        ContainerInspectResponse? exited;
+        if ((exited = containers.FirstOrDefault(c => c.State.Status == "exited" && c.State.ExitCode != 0)) != null)
         {
-            return run with { Status = RunStatus.Failed };
+            return run with { Status = RunStatus.Failed, FinishedAt = DateTimeOffset.Parse(exited.State.FinishedAt) };
         }
 
         if (containers.All(c => c.State.Status == "exited" && c.State.ExitCode == 0))
         {
-            return run with { Status = RunStatus.Succeeded };
+            return run with { Status = RunStatus.Succeeded, FinishedAt = DateTimeOffset.Parse(containers.Max(c => c.State.FinishedAt)!) };
         }
 
         if (socketCount > 0)
@@ -175,7 +184,7 @@ public class DockerRunReader : IRunReader
             // If the main container has opened a socket, we consider the run successful if all other containers have exited successfully
             if (mainSocketContainer != null && containers.Where(c => c.ID != mainSocketContainer.ID).All(c => c.State.Status == "exited" && c.State.ExitCode == 0))
             {
-                return run with { Status = RunStatus.Succeeded };
+                return run with { Status = RunStatus.Succeeded, FinishedAt = DateTimeOffset.Parse(containers.Max(c => c.State.FinishedAt)!) };
             }
         }
 

@@ -56,11 +56,14 @@ public sealed partial class RunObjects
 
     private ObservedRunState GetStatus()
     {
+        var startedAt = GetStartedTime();
+
         if (GetFailureTimeAndReason() is (var failureTime, var reason))
         {
             return new(Id, RunStatus.Failed, JobPods.Length, WorkerPods.Length)
             {
                 StatusReason = reason,
+                StartedAt = startedAt,
                 FinishedAt = failureTime,
             };
         }
@@ -69,6 +72,7 @@ public sealed partial class RunObjects
         {
             return new(Id, RunStatus.Succeeded, JobPods.Length, WorkerPods.Length)
             {
+                StartedAt = startedAt,
                 FinishedAt = successTime,
             };
         }
@@ -77,24 +81,25 @@ public sealed partial class RunObjects
 
         if (runningCount > 0)
         {
-            return new(Id, RunStatus.Running, JobPods.Length, WorkerPods.Length) { RunningCount = runningCount };
+            return new(Id, RunStatus.Running, JobPods.Length, WorkerPods.Length) { StartedAt = startedAt, RunningCount = runningCount };
         }
 
-        return new(Id, RunStatus.Pending, JobPods.Length, WorkerPods.Length);
+        return new(Id, RunStatus.Pending, JobPods.Length, WorkerPods.Length) { StartedAt = startedAt };
     }
 
     private (DateTimeOffset, string)? GetFailureTimeAndReason()
     {
+        var fallbackTime = DateTimeOffset.UtcNow;
         var containerStatus = JobPods
             .Where(p => p?.Status?.ContainerStatuses != null)
             .SelectMany(p => p!.Status.ContainerStatuses)
             .Where(cs => cs.State?.Terminated?.ExitCode is not null and not 0)
-            .MinBy(cs => cs.State.Terminated.FinishedAt!.Value);
+            .MinBy(cs => cs.State.Terminated.FinishedAt ?? fallbackTime); // sometimes FinishedAt is null https://github.com/kubernetes/kubernetes/issues/104107
 
         if (containerStatus != null)
         {
             var reason = $"{(containerStatus.Name == "main" ? "Main" : "Sidecar")} exited with code {containerStatus.State.Terminated.ExitCode}";
-            return (containerStatus.State.Terminated.FinishedAt!.Value, reason);
+            return (containerStatus.State.Terminated.FinishedAt ?? fallbackTime, reason);
         }
 
         return null;
@@ -105,7 +110,7 @@ public sealed partial class RunObjects
         DateTimeOffset? startedTime = null;
         foreach (var pod in JobPods)
         {
-            if (pod == null)
+            if (pod?.Status?.ContainerStatuses == null)
             {
                 continue;
             }

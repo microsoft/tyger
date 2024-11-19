@@ -25,6 +25,7 @@ public partial record struct ObservedRunState(
     {
         StatusReason = run.StatusReason;
         RunningCount = run.RunningCount;
+        StartedAt = run.StartedAt;
         FinishedAt = run.FinishedAt;
         JobNodePool = run.Job.NodePool;
         WorkerNodePool = run.Worker?.NodePool;
@@ -34,6 +35,8 @@ public partial record struct ObservedRunState(
     public string? StatusReason { get; init; }
 
     public int? RunningCount { get; init; }
+
+    public DateTimeOffset? StartedAt { get; init; }
 
     public DateTimeOffset? FinishedAt { get; init; }
 
@@ -51,6 +54,7 @@ public partial record struct ObservedRunState(
             Status = Status,
             StatusReason = StatusReason,
             RunningCount = RunningCount,
+            StartedAt = StartedAt,
             FinishedAt = FinishedAt,
             Job = run.Job with { NodePool = JobNodePool },
             Worker = run.Worker == null ? null : run.Worker with { NodePool = WorkerNodePool }

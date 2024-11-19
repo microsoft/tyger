@@ -58,6 +58,14 @@ func RelayInputServer(
 			}
 
 			defer complete()
+
+			defer func() {
+				flusher, ok := w.(http.Flusher)
+				if ok {
+					flusher.Flush()
+				}
+			}()
+
 			if outputWriter == io.Discard {
 				log.Warn().Msg("Discarding input data")
 				w.WriteHeader(http.StatusAccepted)
@@ -119,6 +127,13 @@ func RelayOutputServer(
 				return
 			}
 			defer complete()
+
+			defer func() {
+				flusher, ok := w.(http.Flusher)
+				if ok {
+					flusher.Flush()
+				}
+			}()
 
 			_, err := io.Copy(w, inputReader)
 			if err != nil {
