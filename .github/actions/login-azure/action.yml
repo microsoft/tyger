@@ -57,3 +57,4 @@ runs:
           az account get-access-token --scope https://storage.azure.com/.default --output none
           az account get-access-token --scope https://vault.azure.net/.default --output none
           az account get-access-token --resource https://ossrdbms-aad.database.windows.net --output none
+          az account get-access-token --resource 6dae42f8-4368-4678-94ff-3960e28e3630 --output none # AKS https://azure.github.io/kubelogin/concepts/aks.html
