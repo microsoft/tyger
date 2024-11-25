@@ -18,7 +18,7 @@ namespace Tyger.ControlPlane.Compute.Kubernetes;
 /// </summary>
 public class RunFinalizer : BackgroundService
 {
-    private readonly IRepository _repository;
+    private readonly Repository _repository;
     private readonly RunChangeFeed _changeFeed;
 
     private readonly IKubernetes _client;
