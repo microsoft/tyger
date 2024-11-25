@@ -16,16 +16,20 @@ namespace Tyger.ControlPlane.Compute.Kubernetes;
 public class RunStateObserver : BackgroundService
 {
     private const string LeaseName = "run-state-observer";
+    private const int PartitionCount = 8;
+    private const int ParitionChannelSize = 1024;
 
     private readonly IKubernetes _kubernetesClient;
     private readonly Repository _repository;
     private readonly ILoggerFactory _loggingFactory;
+    private readonly ILogger<RunStateObserver> _logger;
     private readonly KubernetesApiOptions _kubernetesOptions;
     private readonly Dictionary<long, RunObjects> _cache = [];
     private readonly Dictionary<long, List<ChannelWriter<(RunObjects, WatchEventType, V1Pod)>>> _listeners = [];
+    private readonly List<Channel<(WatchEventType, V1Pod)>> _partitionedPodUpdateChannels = Enumerable.Range(0, PartitionCount).Select(_ => Channel.CreateBounded<(WatchEventType, V1Pod)>(ParitionChannelSize)).ToList();
     private Task? _podInformerTask;
     private readonly CancellationTokenSource _cancellationTokenSource = new();
-    private readonly Channel<(WatchEventType eventType, V1Pod resource)> _podUpdatesChannel = Channel.CreateBounded<(WatchEventType, V1Pod)>(new BoundedChannelOptions(10240));
+    private readonly Channel<(WatchEventType eventType, V1Pod resource)> _podUpdatesChannel = Channel.CreateBounded<(WatchEventType, V1Pod)>(PartitionCount * ParitionChannelSize);
     private readonly Channel<int> _onLeaseOwnershipAcquiredChannel = Channel.CreateUnbounded<int>();
 
     private int _latestLeaseToken = 1;
@@ -39,6 +43,7 @@ public class RunStateObserver : BackgroundService
         _repository = repository;
         _kubernetesOptions = kubernetesOptions.Value;
         _loggingFactory = loggingFactory;
+        _logger = loggingFactory.CreateLogger<RunStateObserver>();
     }
 
     public override async Task StartAsync(CancellationToken cancellationToken)
@@ -108,7 +113,9 @@ public class RunStateObserver : BackgroundService
 
                 while (!_onLeaseOwnershipAcquiredChannel.Reader.TryPeek(out _) && _podUpdatesChannel.Reader.TryRead(out var update))
                 {
-                    await OnPodUpdated(update.eventType, update.resource, stoppingToken);
+                    var runIdString = update.resource.GetLabel(RunLabel);
+                    int partitionIndex = int.Parse(runIdString) % PartitionCount;
+                    await _partitionedPodUpdateChannels[partitionIndex].Writer.WriteAsync(update, stoppingToken);
                 }
 
                 await Task.WhenAny(_onLeaseOwnershipAcquiredChannel.Reader.WaitToReadAsync(stoppingToken).AsTask(), _podUpdatesChannel.Reader.WaitToReadAsync(stoppingToken).AsTask());
@@ -117,12 +124,30 @@ public class RunStateObserver : BackgroundService
 
         var processUpdatesTask = ProcessUpdates();
 
-        // fail if any fail
-        await await Task.WhenAny(_podInformerTask!, processUpdatesTask);
+        var partitionedProcessors = Enumerable.Range(0, PartitionCount).Select(async partitionIndex =>
+        {
+            var channel = _partitionedPodUpdateChannels[partitionIndex];
+            await foreach (var (eventType, pod) in channel.Reader.ReadAllAsync(stoppingToken))
+            {
+                var count = channel.Reader.Count;
+                if (count > 100)
+                {
+                    _logger.RunStateObserverHighQueueLength(partitionIndex, count);
+                }
 
-        await _podInformerTask!;
-        await processUpdatesTask;
-        await _acquireAndHoldLeaseTask!;
+                await OnPodUpdated(eventType, pod, stoppingToken);
+            }
+        }).ToList();
+
+        var allTasks = new List<Task>(partitionedProcessors) { processUpdatesTask, _podInformerTask!, _acquireAndHoldLeaseTask! };
+
+        // fail if any fail
+        await await Task.WhenAny(allTasks);
+
+        foreach (var task in allTasks)
+        {
+            await task;
+        }
     }
 
     private async Task OnAcquireLease(int acquiredLeaseToken, CancellationToken cancellationToken)

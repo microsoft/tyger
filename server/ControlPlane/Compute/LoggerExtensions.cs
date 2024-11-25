@@ -43,4 +43,7 @@ public static partial class LoggerExtensions
 
     [LoggerMessage(LogLevel.Information, "Restarting watch after exception")]
     public static partial void RestartingWatchAfterException(this ILogger logger, Exception exception);
+
+    [LoggerMessage(LogLevel.Warning, "RunStateObserver channel {partition} has high count of {count}")]
+    public static partial void RunStateObserverHighQueueLength(this ILogger logger, int partition, int count);
 }
