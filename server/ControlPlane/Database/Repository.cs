@@ -219,7 +219,6 @@ public class Repository
             {
                 try
                 {
-                    _logger.UpsertingCodespec(name);
                     await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
                     await reader.ReadAsync(cancellationToken);
                     var version = reader.GetInt32(0);
@@ -228,7 +227,6 @@ public class Repository
                 }
                 catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.UniqueViolation)
                 {
-                    _logger.UpsertingCodespecConflict(name);
                     if (i == 5)
                     {
                         throw;

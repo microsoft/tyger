@@ -5,12 +5,6 @@ namespace Tyger.ControlPlane.Database;
 
 public static partial class LoggerExtensions
 {
-    [LoggerMessage(LogLevel.Information, "Upserting codespec {name}")]
-    public static partial void UpsertingCodespec(this ILogger logger, string name);
-
-    [LoggerMessage(LogLevel.Information, "Conflict when upserting codespec {name}")]
-    public static partial void UpsertingCodespecConflict(this ILogger logger, string name);
-
     [LoggerMessage(LogLevel.Warning, "Retrying database operation. SqlState: {sqlState}, Message: {message}")]
     public static partial void RetryingDatabaseOperation(this ILogger logger, string? sqlState, string? message);
 
