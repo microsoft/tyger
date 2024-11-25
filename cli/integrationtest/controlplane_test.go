@@ -1311,10 +1311,6 @@ func TestCancelJob(t *testing.T) {
 
 	runTygerSucceeds(t, "run", "cancel", runId)
 
-	// force the sweep to run to terminate the pod
-	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPost, "v1/runs/_sweep", nil, nil)
-	require.NoError(err)
-
 	waitForRunCanceled(t, runId)
 
 	// Check that the run failed because it was canceled.

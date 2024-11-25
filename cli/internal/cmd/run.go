@@ -311,7 +311,9 @@ beginWatch:
 	}
 
 end:
-	mainWg.Wait()
+	if runFailedErr == nil {
+		mainWg.Wait()
+	}
 
 	if logs {
 		// The run has completed and we have received all data. We just need to wait for the logs to finish streaming,
