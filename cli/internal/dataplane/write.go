@@ -360,6 +360,14 @@ func uploadBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, 
 			return fmt.Errorf("buffer cannot be overwritten")
 		case errBufferDoesNotExist:
 			return err
+		case errServerBusy, errOperationTimeout:
+			// These errors indicate that we have hit the limit of what the Azure Storage service can handle.
+			// Note that the retryablehttp client will already have retried the request a number of times.
+			if i < 100 {
+				continue
+			}
+
+			fallthrough
 		default:
 			return fmt.Errorf("failed to upload blob: %w", client.RedactHttpError(err))
 		}
@@ -403,6 +411,12 @@ func handleWriteResponse(resp *http.Response) error {
 			return errBlobOverwrite
 		}
 		fallthrough
+	case http.StatusInternalServerError:
+		io.Copy(io.Discard, resp.Body)
+		return errOperationTimeout
+	case http.StatusServiceUnavailable:
+		io.Copy(io.Discard, resp.Body)
+		return errServerBusy
 	default:
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
