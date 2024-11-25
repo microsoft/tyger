@@ -25,7 +25,7 @@ public static class Runs
 
     public static void MapRuns(this WebApplication app)
     {
-        app.MapPost("/v1/runs", async (IRunCreator runCreator, IRepository repository, HttpContext context) =>
+        app.MapPost("/v1/runs", async (IRunCreator runCreator, Repository repository, HttpContext context) =>
         {
             var newRun = (await context.Request.ReadAndValidateJson<Run>(context.RequestAborted)).WithoutSystemProperties();
             if (newRun.Kind == RunKind.System)

@@ -12,11 +12,11 @@ namespace Tyger.ControlPlane.Compute.Kubernetes;
 public partial class KubernetesRunReader : IRunReader
 
 {
-    private readonly IRepository _repository;
+    private readonly Repository _repository;
     private readonly RunChangeFeed _changeFeed;
 
     public KubernetesRunReader(
-        IRepository repository,
+        Repository repository,
         RunChangeFeed changeFeed)
     {
         _repository = repository;

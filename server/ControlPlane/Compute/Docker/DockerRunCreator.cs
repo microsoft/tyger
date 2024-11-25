@@ -36,7 +36,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
     public DockerRunCreator(
         DockerClient client,
-        IRepository repository,
+        Repository repository,
         BufferManager bufferManager,
         DockerEphemeralBufferProvider ephemeralBufferProvider,
         IOptions<BufferOptions> bufferOptions,

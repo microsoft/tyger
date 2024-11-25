@@ -10,10 +10,10 @@ namespace Tyger.ControlPlane.Runs;
 /// </summary>
 public class RunIndexPruner : BackgroundService
 {
-    private readonly IRepository _repository;
+    private readonly Repository _repository;
     private readonly ILogger<RunIndexPruner> _logger;
 
-    public RunIndexPruner(IRepository repository, ILogger<RunIndexPruner> logger)
+    public RunIndexPruner(Repository repository, ILogger<RunIndexPruner> logger)
     {
         _repository = repository;
         _logger = logger;

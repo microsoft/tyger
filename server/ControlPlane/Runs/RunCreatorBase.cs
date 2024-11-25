@@ -11,13 +11,13 @@ namespace Tyger.ControlPlane.Runs;
 
 public abstract class RunCreatorBase : BackgroundService
 {
-    protected RunCreatorBase(IRepository repository, BufferManager bufferManager)
+    protected RunCreatorBase(Repository repository, BufferManager bufferManager)
     {
         Repository = repository;
         BufferManager = bufferManager;
     }
 
-    protected IRepository Repository { get; init; }
+    protected Repository Repository { get; init; }
 
     protected BufferManager BufferManager { get; init; }
 

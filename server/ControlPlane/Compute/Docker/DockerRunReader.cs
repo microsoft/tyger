@@ -14,9 +14,9 @@ namespace Tyger.ControlPlane.Compute.Docker;
 public class DockerRunReader : IRunReader
 {
     private readonly DockerClient _client;
-    private readonly IRepository _repository;
+    private readonly Repository _repository;
 
-    public DockerRunReader(DockerClient client, IRepository repository)
+    public DockerRunReader(DockerClient client, Repository repository)
     {
         _client = client;
         _repository = repository;

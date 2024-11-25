@@ -9,11 +9,11 @@ namespace Tyger.ControlPlane.Compute.Kubernetes;
 
 public class KubernetesRunUpdater : IRunUpdater
 {
-    private readonly IRepository _repository;
+    private readonly Repository _repository;
     private readonly ILogger<KubernetesRunUpdater> _logger;
 
     public KubernetesRunUpdater(
-        IRepository repository,
+        Repository repository,
         ILogger<KubernetesRunUpdater> logger)
     {
         _repository = repository;

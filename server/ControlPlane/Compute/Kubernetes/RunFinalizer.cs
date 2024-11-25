@@ -27,7 +27,7 @@ public class RunFinalizer : BackgroundService
     private readonly KubernetesApiOptions _k8sOptions;
     private readonly ILogger<RunFinalizer> _logger;
 
-    public RunFinalizer(IRepository repository, RunChangeFeed changeFeed, ILogger<RunFinalizer> logger, IKubernetes client, IOptions<KubernetesApiOptions> kubernetesOptions, ILogSource logSource, ILogArchive logArchive)
+    public RunFinalizer(Repository repository, RunChangeFeed changeFeed, ILogger<RunFinalizer> logger, IKubernetes client, IOptions<KubernetesApiOptions> kubernetesOptions, ILogSource logSource, ILogArchive logArchive)
     {
         _repository = repository;
         _changeFeed = changeFeed;

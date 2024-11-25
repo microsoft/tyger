@@ -30,7 +30,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
 
     public KubernetesRunCreator(
         IKubernetes client,
-        IRepository repository,
+        Repository repository,
         BufferManager bufferManager,
         IOptions<KubernetesApiOptions> k8sOptions,
         IOptions<BufferOptions> bufferOptions,
