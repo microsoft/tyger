@@ -788,7 +788,7 @@ public class Repository
                     if (fields is { Length: 1 or 2 })
                     {
                         var id = fields[^1];
-                        sb.AppendLine($"{(hasPredicate ? "AND" : "WHERE")} id < ${++paramNumber}");
+                        sb.AppendLine($"{(hasPredicate ? "AND" : "WHERE")} id <= ${++paramNumber}");
                         parameters.Add(new() { Value = id, NpgsqlDbType = NpgsqlDbType.Bigint });
                         valid = true;
                         hasPredicate = true;
@@ -836,7 +836,7 @@ public class Repository
 
             if (results.Count == limit + 1)
             {
-                results.RemoveAt(limit);
+                1`.RemoveAt(limit);
                 var (run, final) = results[^1];
                 string newToken = Base32.ZBase32.Encode(Encoding.ASCII.GetBytes(JsonSerializer.Serialize(new[] { run.Id!.Value }, _serializerOptions)));
                 return (results, newToken);
