@@ -27,6 +27,10 @@ public enum DatabaseVersion
     [Description("Making run management more scalable")]
     [MinimumSupportedVersion]
     RunScalability = 3,
+
+    [Migrator(typeof(Migrator4))]
+    [Description("Adjusting run indexes")]
+    AddRunsIndexForPaging = 4,
 }
 
 public sealed class DatabaseVersions : BackgroundService, IHealthCheck
