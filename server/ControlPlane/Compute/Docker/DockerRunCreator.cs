@@ -281,7 +281,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                 // Write out a 0-byte file at the socket path. This will help the client
                 // distinguish between the case of the relay server not having started
                 // vs exited.
-                File.WriteAllBytes(relaySocketPath!, Array.Empty<byte>());
+                File.WriteAllBytes(relaySocketPath!, []);
                 var socketDir = Path.GetDirectoryName(relaySocketPath)!;
                 sidecarContainerParameters.HostConfig.Mounts.Add(new()
                 {

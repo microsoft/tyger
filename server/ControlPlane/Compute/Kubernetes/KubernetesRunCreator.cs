@@ -26,7 +26,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
     private readonly BufferOptions _bufferOptions;
     private readonly KubernetesApiOptions _k8sOptions;
     private readonly ILogger<KubernetesRunCreator> _logger;
-    private static readonly string[] s_waitForWorkerCommand = { "/no-op/no-op" };
+    private static readonly string[] s_waitForWorkerCommand = ["/no-op/no-op"];
 
     public KubernetesRunCreator(
         IKubernetes client,
@@ -386,9 +386,9 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
             new()
             {
                 Name = "mkfifo",
-                Image = "mcr.microsoft.com/cbl-mariner/base/core:2.0-nonroot",
-                Command = new[] { "bash", "-c", mkfifoBuilder.ToString() },
-                VolumeMounts = new[] { fifoVolumeMount }
+                Image = "mcr.microsoft.com/azurelinux/base/core:3.0",
+                Command = ["bash", "-c", mkfifoBuilder.ToString()],
+                VolumeMounts = [fifoVolumeMount]
             }
         );
 

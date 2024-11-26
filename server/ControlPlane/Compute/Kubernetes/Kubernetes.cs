@@ -143,7 +143,7 @@ public class LoggingHandler : DelegatingHandler
         string? errorBody = "";
         if (!resp.IsSuccessStatusCode && !(request.Method == HttpMethod.Delete && resp.StatusCode == HttpStatusCode.NotFound))
         {
-            await resp.Content.LoadIntoBufferAsync();
+            await resp.Content.LoadIntoBufferAsync(cancellationToken);
             errorBody = await resp.Content.ReadAsStringAsync(cancellationToken);
         }
 

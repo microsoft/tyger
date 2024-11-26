@@ -166,7 +166,7 @@ public sealed class DockerRunSweeper : BackgroundService, IRunSweeper
     private async Task ArchiveLogs(Run run, CancellationToken cancellationToken)
     {
         var pipeline = await _logSource.GetLogs(run.Id!.Value, new GetLogsOptions { IncludeTimestamps = true }, cancellationToken);
-        pipeline ??= new Pipeline(Array.Empty<byte>());
+        pipeline ??= new Pipeline([]);
 
         await _logArchive.ArchiveLogs(run.Id.Value, pipeline, cancellationToken);
         await _repository.UpdateRunAsLogsArchived(run.Id!.Value, cancellationToken);

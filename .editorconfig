@@ -99,6 +99,7 @@ dotnet_diagnostic.IDE0170.severity = warning # SimplifyPropertyPattern
 dotnet_diagnostic.IDE0180.severity = warning # UseTupleSwap
 dotnet_diagnostic.IDE0190.severity = warning # UseParameterNullCheckingId
 dotnet_diagnostic.IDE0200.severity = warning # RemoveUnnecessaryLambdaExpression
+dotnet_diagnostic.IDE0290.severity = none    # PreferPrimaryConstructors
 dotnet_diagnostic.IDE1001.severity = warning # AnalyzerChangedId
 dotnet_diagnostic.IDE1002.severity = warning # AnalyzerDependencyConflictId
 dotnet_diagnostic.IDE1003.severity = warning # MissingAnalyzerReferenceId

@@ -848,7 +848,6 @@ components:
               additionalProperties:
                 type: integer
                 format: int32
-                nullable: true
               description: The name and port of the endpoints that the worker exposes.
               nullable: true
           additionalProperties: { }
