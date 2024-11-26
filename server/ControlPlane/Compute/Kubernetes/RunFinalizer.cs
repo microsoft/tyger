@@ -18,6 +18,10 @@ namespace Tyger.ControlPlane.Compute.Kubernetes;
 /// </summary>
 public class RunFinalizer : BackgroundService
 {
+    // A value that is too high will put a lot of load on the Kubernetes API server
+    // because retrieving logs is a relatively expensive operation.
+    private const int MaxConcurrentFinalizations = 10;
+
     private readonly Repository _repository;
     private readonly RunChangeFeed _changeFeed;
 
@@ -40,13 +44,13 @@ public class RunFinalizer : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var channel = Channel.CreateBounded<ObservedRunState>(256);
+        var channel = Channel.CreateBounded<ObservedRunState>(1024);
         _changeFeed.RegisterObserver(channel.Writer);
 
         // Keep track of retry counts for failed finalizations
         var failedRuns = new Dictionary<long, int>();
 
-        var allTasks = Enumerable.Range(0, 100).Select(async _ =>
+        var allTasks = Enumerable.Range(0, MaxConcurrentFinalizations).Select(async _ =>
         {
             try
             {

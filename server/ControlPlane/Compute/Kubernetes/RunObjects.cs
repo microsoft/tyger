@@ -102,6 +102,19 @@ public sealed partial class RunObjects
             return (containerStatus.State.Terminated.FinishedAt ?? fallbackTime, reason);
         }
 
+        // Recognize other failure reasons, such as the pod being evicted.
+        V1Pod? failedPod = JobPods.FirstOrDefault(p => p?.Status?.Phase == "Failed");
+        if (failedPod != null)
+        {
+            return (failedPod.Status.Reason, failedPod.Status.Message) switch
+            {
+                ("" or null, "" or null) => (fallbackTime, "Failed"),
+                ("" or null, var message) => (fallbackTime, message),
+                (var reason, "" or null) => (fallbackTime, reason),
+                (var reason, var message) => (fallbackTime, $"{reason}: {message}"),
+            };
+        }
+
         return null;
     }
 

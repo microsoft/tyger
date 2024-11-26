@@ -16,7 +16,7 @@ namespace Tyger.ControlPlane.Database;
 
 public class Repository
 {
-    private const int MaxActiveRuns = 2000;
+    private const int MaxActiveRuns = 5000;
     private const string NewRunChannelName = "new_run";
     private const string RunFinalizedChannelName = "run_finalized";
     private const string RunChangedChannelName = "run_changed";
@@ -1442,7 +1442,7 @@ public class Repository
                     continue;
                 }
 
-                if (!await connection.WaitAsync(TimeSpan.FromMinutes(1), cancellationToken))
+                if (!await connection.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken))
                 {
                     break;
                 }
@@ -1509,8 +1509,17 @@ public class Repository
 
         while (true)
         {
-            if (await connection.WaitAsync(TimeSpan.FromMinutes(1), cancellationToken))
+            if (await connection.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken))
             {
+                await ProcessPayloads();
+            }
+            else
+            {
+                // Ensure the connection is still alive
+                using var cmd = new NpgsqlCommand("SELECT 1", connection);
+                await cmd.PrepareAsync(cancellationToken);
+                await cmd.ExecuteScalarAsync(cancellationToken);
+
                 await ProcessPayloads();
             }
         }

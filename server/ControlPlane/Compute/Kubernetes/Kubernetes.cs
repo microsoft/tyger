@@ -30,10 +30,9 @@ public static class Kubernetes
                 ? KubernetesClientConfiguration.InClusterConfig()
                 : KubernetesClientConfiguration.BuildConfigFromConfigFile(kubernetesOptions.KubeconfigPath);
 
-            var resilienceOptions = new HttpStandardResilienceOptions();
             var pipeline = new ResiliencePipelineBuilder<HttpResponseMessage>()
-                .AddTimeout(resilienceOptions.TotalRequestTimeout)
-                .AddRetry(resilienceOptions.Retry)
+                .AddRetry(new HttpStandardResilienceOptions().Retry)
+                .AddTimeout(TimeSpan.FromSeconds(100))
                 .Build();
 
 #pragma warning disable EXTEXP0001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
