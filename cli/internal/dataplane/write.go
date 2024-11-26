@@ -301,7 +301,7 @@ func writeEndMetadata(ctx context.Context, httpClient *retryablehttp.Client, con
 
 func uploadBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, blobUrl string, body any, encodedMD5Hash string, encodedHashChain string) error {
 	start := time.Now()
-	for i := 0; ; i++ {
+	for retryCount := 0; ; retryCount++ {
 		req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodPut, blobUrl, body)
 		if err != nil {
 			return fmt.Errorf("unable to create request: %w", err)
@@ -326,7 +326,7 @@ func uploadBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, 
 
 		switch err {
 		case errMd5Mismatch:
-			if i < 5 {
+			if retryCount < 5 {
 				log.Ctx(ctx).Debug().Msg("MD5 mismatch, retrying")
 				continue
 			} else {
@@ -363,7 +363,7 @@ func uploadBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, 
 		case errServerBusy, errOperationTimeout:
 			// These errors indicate that we have hit the limit of what the Azure Storage service can handle.
 			// Note that the retryablehttp client will already have retried the request a number of times.
-			if i < 100 {
+			if retryCount < 100 {
 				continue
 			}
 
