@@ -9,22 +9,25 @@ COPY . .
 RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${BUILDOS} GOARCH=${TARGETARCH} go build -ldflags="-s -w -X main.version=${TYGER_VERSION}" -v -o /go/bin/dist/${BUILDOS}/${TARGETARCH}/ ./cmd/buffer-sidecar ./cmd/tyger ./cmd/buffer-copier
 
-FROM mcr.microsoft.com/cbl-mariner/distroless/minimal:2.0-nonroot.20240112 as buffer-sidecar
+FROM mcr.microsoft.com/azurelinux/distroless/minimal:3.0.20241101 as buffer-sidecar
 ARG TARGETARCH BUILDOS
 
 COPY --from=go-build /go/bin/dist/${BUILDOS}/${TARGETARCH}/buffer-sidecar /
+USER nonroot:nonroot
 ENTRYPOINT ["/buffer-sidecar"]
 
-FROM mcr.microsoft.com/cbl-mariner/distroless/minimal:2.0-nonroot.20240112 as tyger-cli
+FROM mcr.microsoft.com/azurelinux/distroless/minimal:3.0.20241101 as tyger-cli
 ARG TARGETARCH BUILDOS
 
 WORKDIR /app
 COPY --from=go-build /go/bin/dist/${BUILDOS}/${TARGETARCH}/tyger .
+USER nonroot:nonroot
 ENTRYPOINT ["/app/tyger"]
 
-FROM mcr.microsoft.com/cbl-mariner/distroless/minimal:2.0-nonroot.20240112 as buffer-copier
+FROM mcr.microsoft.com/azurelinux/distroless/minimal:3.0.20241101 as buffer-copier
 ARG TARGETARCH BUILDOS
 
 WORKDIR /app
 COPY --from=go-build /go/bin/dist/${BUILDOS}/${TARGETARCH}/buffer-copier .
+USER nonroot:nonroot
 ENTRYPOINT ["/app/buffer-copier"]

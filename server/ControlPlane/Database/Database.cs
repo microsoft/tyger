@@ -59,6 +59,7 @@ public static class Database
 
             dataSourceBuilder.ConnectionStringBuilder.Username = databaseOptions.Username;
             dataSourceBuilder.ConnectionStringBuilder.MaxPoolSize = 250;
+            dataSourceBuilder.ConnectionStringBuilder.CheckCertificateRevocation = true;
 
             if (string.IsNullOrEmpty(databaseOptions.PasswordFile))
             {

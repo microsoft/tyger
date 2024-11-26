@@ -20,7 +20,7 @@ var (
 
 	DefaultEnvironmentName = "local"
 	DefaultPostgresImage   = "postgres:16.2"
-	DefaultMarinerImage    = "mcr.microsoft.com/cbl-mariner/base/core:2.0"
+	DefaultMarinerImage    = "mcr.microsoft.com/azurelinux/base/core:3.0"
 )
 
 func (inst *Installer) QuickValidateConfig() bool {

@@ -386,7 +386,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
             new()
             {
                 Name = "mkfifo",
-                Image = "mcr.microsoft.com/cbl-mariner/base/core:2.0-nonroot",
+                Image = "mcr.microsoft.com/azurelinux/base/core:3.0",
                 Command = new[] { "bash", "-c", mkfifoBuilder.ToString() },
                 VolumeMounts = new[] { fifoVolumeMount }
             }

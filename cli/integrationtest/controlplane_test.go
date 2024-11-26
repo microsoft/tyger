@@ -38,7 +38,7 @@ import (
 )
 
 const (
-	BasicImage = "mcr.microsoft.com/cbl-mariner/base/core:2.0"
+	BasicImage = "mcr.microsoft.com/azurelinux/base/core:3.0"
 	GpuImage   = "nvidia/cuda:11.0.3-base-ubuntu20.04"
 	AzCliImage = "mcr.microsoft.com/azure-cli:2.64.0"
 )
@@ -822,7 +822,7 @@ func TestInvalidCodespecMissingRequiredFieldsRejected(t *testing.T) {
 	codespec := model.Codespec{}
 	requestBody := map[string]string{"kind": "job"}
 	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
-	require.ErrorContains(err, "missing required properties, including the following: image")
+	require.ErrorContains(err, "missing required properties including: 'image'")
 }
 
 func TestResponseContainsRequestIdHeader(t *testing.T) {
