@@ -19,7 +19,7 @@ public class KubernetesRunLogReader : ILogSource
 {
     private static readonly Pipeline s_emptyPipeline = new([]);
     private readonly k8s.Kubernetes _client;
-    private readonly IRepository _repository;
+    private readonly Repository _repository;
     private readonly ILogArchive _logArchive;
     private readonly ILoggerFactory _loggerFactory;
     private readonly RunStateObserver _runStateObserver;
@@ -27,7 +27,7 @@ public class KubernetesRunLogReader : ILogSource
 
     public KubernetesRunLogReader(
         k8s.Kubernetes client,
-        IRepository repository,
+        Repository repository,
         IOptions<KubernetesApiOptions> k8sOptions,
         ILogArchive logArchive,
         ILoggerFactory loggerFactory,

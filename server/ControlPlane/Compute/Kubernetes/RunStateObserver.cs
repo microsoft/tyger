@@ -18,7 +18,7 @@ public class RunStateObserver : BackgroundService
     private const string LeaseName = "run-state-observer";
 
     private readonly IKubernetes _kubernetesClient;
-    private readonly IRepository _repository;
+    private readonly Repository _repository;
     private readonly ILoggerFactory _loggingFactory;
     private readonly KubernetesApiOptions _kubernetesOptions;
     private readonly Dictionary<long, RunObjects> _cache = [];
@@ -33,7 +33,7 @@ public class RunStateObserver : BackgroundService
     private Task? _acquireAndHoldLeaseTask;
     private readonly string _thisLeaseHolderId = Environment.MachineName;
 
-    public RunStateObserver(IKubernetes kubernetesClient, IOptions<KubernetesApiOptions> kubernetesOptions, IRepository repository, ILoggerFactory loggingFactory)
+    public RunStateObserver(IKubernetes kubernetesClient, IOptions<KubernetesApiOptions> kubernetesOptions, Repository repository, ILoggerFactory loggingFactory)
     {
         _kubernetesClient = kubernetesClient;
         _repository = repository;

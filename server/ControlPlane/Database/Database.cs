@@ -43,7 +43,7 @@ public static class Database
             }).Build();
         });
 
-        builder.Services.AddSingleton<IRepository, RepositoryWithRetry>();
+        builder.Services.AddSingleton<Repository>();
 
         builder.Services.AddSingleton(sp =>
         {

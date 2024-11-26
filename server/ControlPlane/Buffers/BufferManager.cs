@@ -11,12 +11,12 @@ namespace Tyger.ControlPlane.Buffers;
 
 public sealed partial class BufferManager
 {
-    private readonly IRepository _repository;
+    private readonly Repository _repository;
     private readonly IBufferProvider _bufferProvider;
     private readonly IEphemeralBufferProvider _ephemeralBufferProvider;
     private readonly ILogger<BufferManager> _logger;
 
-    public BufferManager(IRepository repository, IBufferProvider bufferProvider, IEphemeralBufferProvider ephemeralBufferProvider, ILogger<BufferManager> logger)
+    public BufferManager(Repository repository, IBufferProvider bufferProvider, IEphemeralBufferProvider ephemeralBufferProvider, ILogger<BufferManager> logger)
     {
         _repository = repository;
         _bufferProvider = bufferProvider;

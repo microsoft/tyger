@@ -15,10 +15,10 @@ public class DockerLogSource : ILogSource
 {
     private readonly DockerClient _client;
     private readonly ILogArchive _logArchive;
-    private readonly IRepository _repository;
+    private readonly Repository _repository;
     private readonly IRunReader _runReader;
 
-    public DockerLogSource(DockerClient client, ILogArchive logArchive, IRepository repository, IRunReader runReader)
+    public DockerLogSource(DockerClient client, ILogArchive logArchive, Repository repository, IRunReader runReader)
     {
         _client = client;
         _logArchive = logArchive;

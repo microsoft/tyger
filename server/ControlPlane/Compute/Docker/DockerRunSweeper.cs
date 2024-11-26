@@ -18,12 +18,12 @@ public sealed class DockerRunSweeper : BackgroundService, IRunSweeper
     private readonly ILogSource _logSource;
     private readonly DockerOptions _dockerSecretOptions;
     private readonly ILogArchive _logArchive;
-    private readonly IRepository _repository;
+    private readonly Repository _repository;
     private readonly DockerClient _client;
     private readonly IRunReader _runReader;
     private readonly ILogger<DockerRunSweeper> _logger;
 
-    public DockerRunSweeper(IRepository repository, DockerClient client, IRunReader runReader, ILogSource logSource, ILogArchive logArchive, IOptions<DockerOptions> dockerSecretOptions, ILogger<DockerRunSweeper> logger)
+    public DockerRunSweeper(Repository repository, DockerClient client, IRunReader runReader, ILogSource logSource, ILogArchive logArchive, IOptions<DockerOptions> dockerSecretOptions, ILogger<DockerRunSweeper> logger)
     {
         _repository = repository;
         _client = client;

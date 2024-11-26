@@ -11,12 +11,12 @@ namespace Tyger.ControlPlane.Compute.Docker;
 
 public class DockerRunUpdater : IRunUpdater
 {
-    private readonly IRepository _repository;
+    private readonly Repository _repository;
     private readonly DockerClient _client;
     private readonly ILogger<DockerRunUpdater> _logger;
 
     public DockerRunUpdater(
-    IRepository repository,
+    Repository repository,
     DockerClient client,
     ILogger<DockerRunUpdater> logger)
     {

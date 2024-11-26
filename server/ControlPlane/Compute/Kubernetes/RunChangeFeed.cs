@@ -14,14 +14,14 @@ namespace Tyger.ControlPlane.Compute.Kubernetes;
 /// </summary>
 public class RunChangeFeed : BackgroundService
 {
-    private readonly IRepository _repository;
+    private readonly Repository _repository;
     private readonly ILogger<RunChangeFeed> _logger;
 
     private ImmutableArray<ChannelWriter<ObservedRunState>> _unfilteredObservers = [];
 
     private ImmutableDictionary<long, ImmutableArray<ChannelWriter<ObservedRunState>>> _filteredObservers = ImmutableDictionary<long, ImmutableArray<ChannelWriter<ObservedRunState>>>.Empty;
 
-    public RunChangeFeed(IRepository repository, ILogger<RunChangeFeed> logger)
+    public RunChangeFeed(Repository repository, ILogger<RunChangeFeed> logger)
     {
         _repository = repository;
         _logger = logger;
