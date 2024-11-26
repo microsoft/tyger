@@ -306,7 +306,7 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 			return nil, fmt.Errorf("unable to create control plane client: %w", err)
 		}
 
-		dpClient, err := client.NewDataPlaneClient(&controlPlaneOptions)
+		dpClient, err := client.NewDataPlaneClient(&dataPlaneOptions)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create data plane client: %w", err)
 		}

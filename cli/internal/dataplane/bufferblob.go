@@ -32,6 +32,8 @@ const (
 var (
 	errMd5Mismatch        = errors.New("MD5 mismatch")
 	errBufferDoesNotExist = errors.New("the buffer does not exist")
+	errServerBusy         = errors.New("server is busy")
+	errOperationTimeout   = errors.New("operation timeout")
 )
 
 type BufferBlob struct {

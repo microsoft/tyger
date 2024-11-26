@@ -381,6 +381,13 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUri
 			}
 			return nil, err
 		}
+		if err == errServerBusy || err == errOperationTimeout {
+			// These errors indicate that we have hit the limit of what the Azure Storage service can handle.
+			// Note that the retryablehttp client will already have retried the request a number of times.
+			if retryCount < 100 {
+				continue
+			}
+		}
 
 		if errors.Is(err, ctx.Err()) {
 			// the context has been canceled
@@ -465,6 +472,12 @@ func handleReadResponse(ctx context.Context, resp *http.Response) (*readData, er
 			return nil, errBufferDoesNotExist
 		}
 		fallthrough
+	case http.StatusInternalServerError:
+		io.Copy(io.Discard, resp.Body)
+		return nil, errOperationTimeout
+	case http.StatusServiceUnavailable:
+		io.Copy(io.Discard, resp.Body)
+		return nil, errServerBusy
 	default:
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
