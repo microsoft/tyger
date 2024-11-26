@@ -785,13 +785,14 @@ public class Repository
                 try
                 {
                     var fields = JsonSerializer.Deserialize<long[]>(Encoding.ASCII.GetString(Base32.ZBase32.Decode(continuationToken)), _serializerOptions);
-                    if (fields is { Length: 1 or 2 })
+                    if (fields is { Length: 2 })
                     {
-                        var id = fields[^1];
-                        sb.AppendLine($"{(hasPredicate ? "AND" : "WHERE")} id < ${++paramNumber}");
+                        var createdAt = new DateTimeOffset(fields[0], TimeSpan.Zero);
+                        var id = fields[1];
+                        sb.AppendLine($"{(hasPredicate ? "AND" : "WHERE")} (created_at, id) < (${++paramNumber}, ${++paramNumber})");
+                        parameters.Add(new() { Value = createdAt, NpgsqlDbType = NpgsqlDbType.TimestampTz });
                         parameters.Add(new() { Value = id, NpgsqlDbType = NpgsqlDbType.Bigint });
                         valid = true;
-                        hasPredicate = true;
                     }
                 }
                 catch (Exception e) when (e is JsonException or FormatException)
@@ -838,7 +839,7 @@ public class Repository
             {
                 results.RemoveAt(limit);
                 var (run, final) = results[^1];
-                string newToken = Base32.ZBase32.Encode(Encoding.ASCII.GetBytes(JsonSerializer.Serialize(new[] { run.Id!.Value }, _serializerOptions)));
+                string newToken = Base32.ZBase32.Encode(Encoding.ASCII.GetBytes(JsonSerializer.Serialize(new[] { run.CreatedAt!.Value.UtcTicks, run.Id!.Value }, _serializerOptions)));
                 return (results, newToken);
             }
 
