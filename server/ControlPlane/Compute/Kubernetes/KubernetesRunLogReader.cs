@@ -122,7 +122,7 @@ public class KubernetesRunLogReader : ILogSource
         if (initialPipelines.Count > 0)
         {
             rootMerger = new LiveLogMerger();
-            rootMerger.Activate(cancellationToken, new IPipelineSource[] { leafMerger }.Concat(initialPipelines).ToArray());
+            rootMerger.Activate(cancellationToken, [leafMerger, .. initialPipelines]);
         }
         else
         {

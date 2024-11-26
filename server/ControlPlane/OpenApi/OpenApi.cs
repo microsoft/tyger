@@ -60,7 +60,7 @@ public static class OpenApi
                     return [typeof(JobRunCodeTarget)];
                 }
 
-                return Array.Empty<Type>();
+                return [];
 
             });
             c.SchemaFilter<ModelBaseSchemaFilter>();

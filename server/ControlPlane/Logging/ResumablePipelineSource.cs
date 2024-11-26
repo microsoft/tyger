@@ -150,7 +150,7 @@ public class ResumablePipelineSource : IPipelineSource
 
     private static void WriteNewline(PipeWriter writer)
     {
-        Span<byte> newline = stackalloc[] { (byte)'\n' };
+        Span<byte> newline = [(byte)'\n'];
         writer.Write(newline);
     }
 }

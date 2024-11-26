@@ -77,7 +77,7 @@ public abstract class RunCreatorBase : BackgroundService
         var combinedParameters = (parameters?.Inputs is null
                 ? parameters?.Outputs
                 : (parameters?.Outputs is null ? parameters?.Inputs : parameters.Inputs.Concat(parameters.Outputs))
-            ) ?? Enumerable.Empty<string>();
+            ) ?? [];
 
         foreach (var param in combinedParameters)
         {
