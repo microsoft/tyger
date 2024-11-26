@@ -534,7 +534,7 @@ public class Repository
                 SELECT run
                 FROM runs
                 WHERE id = $1
-                    AND status NOT IN ('Failed', 'Succeeded', 'Canceled')
+                    AND status NOT IN ('Failed', 'Succeeded', 'Canceled', 'Canceling')
                 FOR UPDATE
                 """, conn)
             {
@@ -550,7 +550,7 @@ public class Repository
                 await using var reader = await readRun.ExecuteReaderAsync(cancellationToken);
                 if (!await reader.ReadAsync(cancellationToken))
                 {
-                    // The run is already in a terminal state so we don't do anything
+                    // The run is already in a terminal or canceling state so we don't do anything
                     return;
                 }
 
