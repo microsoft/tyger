@@ -281,110 +281,121 @@ func readInBlocks(inputReader io.Reader, blockSize int) iter.Seq2[[]byte, error]
 func readInBlocksWithMaximumInterval(ctx context.Context, inputReader io.Reader, blockSize int, interval time.Duration) iter.Seq2[[]byte, error] {
 	return func(yield func([]byte, error) bool) {
 		dataCh := make(chan []byte)
-		errCh := make(chan error)
+		errCh := make(chan error, 1)
+		mut := sync.Mutex{}
 
+		// start a goroutine to read from the inputReader and write to the dataCh
 		go func() {
-			readBufferSize := 64 * 1024
-			if blockSize < readBufferSize {
-				readBufferSize = blockSize
-			}
+			defer close(dataCh)
+			buf := make([]byte, blockSize)
+			bufPos := 0
 
-			bufs := [][]byte{make([]byte, readBufferSize), make([]byte, readBufferSize)}
-			i := 0
-			for {
-				buf := bufs[i]
-				n, err := inputReader.Read(buf)
-				if n > 0 {
+			// start a timer to flush the buffer every interval by writing to dataCh
+			var timer *time.Timer
+			timer = time.AfterFunc(interval, func() {
+				mut.Lock()
+				if bufPos == 0 {
+					mut.Unlock()
+				} else {
+					// get a new slice from the pool and copy the contents of the buf into it.
+					// reset bufPos to 0
+					readSoFarBuf := pool.Get(bufPos)
+					copy(readSoFarBuf, buf[:bufPos])
+					bufPos = 0
+
 					select {
-					case dataCh <- buf[:n]:
+					case dataCh <- readSoFarBuf:
+						mut.Unlock()
 					case <-ctx.Done():
+						mut.Unlock()
 						return
 					}
+
+					log.Trace().Msg("Flushed buffer")
 				}
-				if err != nil {
-					if err == io.EOF {
-						close(dataCh)
-					} else {
+
+				timer.Reset(interval)
+			})
+
+			defer timer.Stop()
+
+			for {
+				var bufPosSnapshot int
+				mut.Lock()
+				bufPos = 0
+				bufPosSnapshot = bufPos
+				mut.Unlock()
+
+				var err error
+				for bufPosSnapshot < blockSize && err == nil {
+					var n int
+					n, err = inputReader.Read(buf[bufPosSnapshot:])
+					if n > 0 {
+						// check if the timer function fired and flushed the buffer while we were reading
+						mut.Lock()
+						if bufPos != bufPosSnapshot {
+							if bufPos != 0 {
+								panic("expected bufPos to be 0 after apparent flush")
+							}
+							// the buffer has been flushed, so we should not write to it
+							copy(buf, buf[bufPosSnapshot:bufPosSnapshot+n])
+						}
+						bufPos += n
+						bufPosSnapshot = bufPos
+						mut.Unlock()
+					}
+				}
+
+				// done reading from the inputReader
+
+				if bufPosSnapshot > 0 {
+					mut.Lock()
+					bufPosSnapshot = bufPos
+					// set bufPos to 0 so that the timer function does not also try to flush
+					bufPos = 0
+
+					if bufPosSnapshot > 0 {
+						timer.Stop()
+						block := pool.Get(blockSize)
+						copy(block, buf[:bufPosSnapshot])
+
 						select {
-						case errCh <- err:
+						case dataCh <- block[:bufPosSnapshot]:
+							mut.Unlock()
 						case <-ctx.Done():
+							mut.Unlock()
 							return
 						}
 					}
+				}
+
+				if err != nil {
+					if err != io.EOF {
+						errCh <- err
+					}
+
 					return
 				}
 
-				i = (i + 1) % len(bufs)
+				// Restart/reset the timer
+				timer.Reset(interval)
 			}
 		}()
 
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		buffer := pool.Get(blockSize)
-		remaining := buffer
-		bytesFilled := 0
-		dataReturnedThisCycle := false
+		// yield from the data and/or error channels
 
 		for {
 			select {
 			case data, ok := <-dataCh:
 				if !ok {
-					// No more data; flush the buffer if it has data
-					if bytesFilled > 0 {
-						if !yield(buffer[:bytesFilled], nil) {
-							return
-						}
-					}
+					return
+				}
+				if !yield(data, nil) {
 					return
 				}
 
-				if len(data) > len(remaining) {
-					// data is larger than the remaining buffer; flush the buffer
-					ticker.Reset(interval)
-					dataReturnedThisCycle = true
-					if !yield(buffer[:bytesFilled], nil) {
-						return
-					}
-					buffer = pool.Get(blockSize)
-					remaining = buffer
-					bytesFilled = 0
-				}
-				if len(data) > len(remaining) {
-					panic("data is larger than the buffer")
-				}
-
-				copy(remaining, data)
-				remaining = remaining[len(data):]
-				bytesFilled += len(data)
-
-				if len(remaining) == 0 {
-					// Buffer is full; flush it
-					ticker.Reset(interval)
-					dataReturnedThisCycle = true
-					if !yield(buffer, nil) {
-						return
-					}
-					buffer = pool.Get(blockSize)
-					remaining = buffer
-					bytesFilled = 0
-				}
-
-			case <-ticker.C:
-				if dataReturnedThisCycle {
-					dataReturnedThisCycle = false
-				} else {
-					if bytesFilled > 0 {
-						if !yield(buffer[:bytesFilled], nil) {
-							return
-						}
-						buffer = pool.Get(blockSize)
-						remaining = buffer
-						bytesFilled = 0
-					}
-				}
-			case err := <-errCh:
-				// An error occurred; return it
-				yield(nil, err)
+			case <-ctx.Done():
+				yield(nil, ctx.Err())
 				return
 			}
 		}
