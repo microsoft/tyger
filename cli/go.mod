@@ -46,6 +46,7 @@ require (
 	github.com/psanford/memfs v0.0.0-20230130182539-4dbf7e3e865e
 	github.com/spf13/cobra v1.8.0
 	github.com/stretchr/testify v1.9.0
+	github.com/sunshineplan/limiter v1.0.0
 	go.opentelemetry.io/otel v1.28.0
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/sync v0.8.0

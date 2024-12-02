@@ -38,9 +38,12 @@ In cases of high latency to the Azure region hosting the storage account,
 increase parallelism with the `--dop` parameter (by default, up to 16 blobs are
 uploaded concurrently).
 
-Additionally, you can specify the blob size with `--block-size`, for example,
-`--block-size 16M`. The default block size is 4MB. No data is sent until the
-specified block size is reached or the stream ends.
+The `--flush-interval` parameter specifies the maximum time interval that data
+ is accumulated before being sent to the remote service. This is to avoid
+ buffering for an excessive amount of time when the incoming data rate is low.
+
+You can specify the block size with `--block-size`, for example,
+`--block-size 16M`. The default block size is 4MB.
 
 Instead of standard in, you can use `-i|--input` to read from a file or named
 pipe.
