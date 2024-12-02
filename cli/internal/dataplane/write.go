@@ -346,7 +346,7 @@ func readInBlocksWithMaximumInterval(ctx context.Context, inputReader io.Reader,
 					}
 				}
 
-				// done reading from the inputReader
+				// Yield if there is data in the buffer
 
 				if bufPosSnapshot > 0 {
 					mut.Lock()
@@ -354,7 +354,9 @@ func readInBlocksWithMaximumInterval(ctx context.Context, inputReader io.Reader,
 					// set bufPos to 0 so that the timer function does not also try to flush
 					bufPos = 0
 
-					if bufPosSnapshot > 0 {
+					if bufPosSnapshot == 0 {
+						mut.Unlock()
+					} else {
 						timer.Stop()
 						block := pool.Get(blockSize)
 						copy(block, buf[:bufPosSnapshot])
@@ -393,7 +395,9 @@ func readInBlocksWithMaximumInterval(ctx context.Context, inputReader io.Reader,
 				if !yield(data, nil) {
 					return
 				}
-
+			case err := <-errCh:
+				yield(nil, err)
+				return
 			case <-ctx.Done():
 				yield(nil, ctx.Err())
 				return
