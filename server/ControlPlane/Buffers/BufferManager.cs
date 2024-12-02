@@ -52,8 +52,8 @@ public sealed partial class BufferManager
 
         string id = UniqueId.Create();
         _logger.CreatingBuffer(id);
+
         await _bufferProvider.CreateBuffer(id, cancellationToken);
-        return await _repository.CreateBuffer(newBuffer with { Id = id }, cancellationToken);
     }
 
     public async Task<Buffer?> GetBufferById(string id, CancellationToken cancellationToken)

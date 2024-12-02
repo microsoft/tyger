@@ -31,6 +31,10 @@ public enum DatabaseVersion
     [Migrator(typeof(Migrator4))]
     [Description("Adjusting run indexes")]
     AddRunsIndexForPaging = 4,
+
+    [Migrator(typeof(Migrator5))]
+    [Description("Support multiple storage accounts")]
+    MultipleStorageAccounts = 5,
 }
 
 public sealed class DatabaseVersions : BackgroundService, IHealthCheck

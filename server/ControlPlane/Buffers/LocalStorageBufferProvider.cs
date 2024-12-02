@@ -12,6 +12,9 @@ namespace Tyger.ControlPlane.Buffers;
 
 public sealed class LocalStorageBufferProvider : IBufferProvider, IHealthCheck, IDisposable
 {
+    public const string AccountName = "local";
+    public const string AccountLocation = "local";
+
     private readonly LocalBufferStorageOptions _storageOptions;
     private readonly Uri _baseUrl;
     private readonly Uri _baseTcpUrl;

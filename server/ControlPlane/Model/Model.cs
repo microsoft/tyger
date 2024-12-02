@@ -36,6 +36,8 @@ public record Buffer : ModelBase
 {
     public string Id { get; init; } = "";
 
+    public string? Location { get; init; }
+
     public string ETag { get; init; } = "";
 
     public DateTimeOffset CreatedAt { get; init; }

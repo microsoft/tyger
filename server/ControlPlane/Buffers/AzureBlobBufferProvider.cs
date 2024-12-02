@@ -12,6 +12,7 @@ using Microsoft.Extensions.Options;
 using Tyger.ControlPlane.Database;
 using Tyger.ControlPlane.Model;
 using Tyger.ControlPlane.Runs;
+using Buffer = Tyger.ControlPlane.Model.Buffer;
 
 namespace Tyger.ControlPlane.Buffers;
 
@@ -42,8 +43,9 @@ public sealed class AzureBlobBufferProvider : BackgroundService, IBufferProvider
         _databaseOptions = databaseOptions.Value;
     }
 
-    public async Task CreateBuffer(string id, CancellationToken cancellationToken)
+    public async Task CreateBuffer(Buffer buffer, CancellationToken cancellationToken)
     {
+
         await _serviceClient.CreateBlobContainerAsync(id, cancellationToken: cancellationToken);
     }
 
@@ -208,6 +210,9 @@ public sealed class AzureBlobBufferProvider : BackgroundService, IBufferProvider
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
         await RefreshUserDelegationKey(cancellationToken);
+
+
+
         await base.StartAsync(cancellationToken);
     }
 

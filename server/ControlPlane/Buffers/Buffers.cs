@@ -19,7 +19,10 @@ public static class Buffers
     {
         builder.Services.AddOptions<BufferOptions>().BindConfiguration("buffers").ValidateDataAnnotations().ValidateOnStart();
 
-        builder.Services.AddSingleton<BufferManager>();
+        if (builder is WebApplicationBuilder)
+        {
+            builder.Services.AddSingleton<BufferManager>();
+        }
 
         bool cloudStorageEnabled = builder.Configuration.GetSection("buffers:cloudStorage").Exists();
         bool localStorageEnabled = builder.Configuration.GetSection("buffers:localStorage").Exists();
@@ -28,17 +31,25 @@ public static class Buffers
         {
             case (true, false):
                 builder.Services.AddOptions<CloudBufferStorageOptions>().BindConfiguration("buffers:cloudStorage").ValidateDataAnnotations().ValidateOnStart();
-                builder.Services.AddSingleton<AzureBlobBufferProvider>();
-                builder.Services.AddSingleton<IBufferProvider>(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
-                builder.Services.AddHostedService(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
-                builder.Services.Insert(0, ServiceDescriptor.Singleton<IHostedService>(sp => sp.GetRequiredService<AzureBlobBufferProvider>())); // Other startup services depend on this, so we add it early.
-                builder.Services.AddHealthChecks().AddCheck<AzureBlobBufferProvider>("buffers");
+                if (builder is WebApplicationBuilder)
+                {
+                    builder.Services.AddSingleton<AzureBlobBufferProvider>();
+                    builder.Services.AddSingleton<IBufferProvider>(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
+                    builder.Services.AddHostedService(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
+                    builder.Services.Insert(0, ServiceDescriptor.Singleton<IHostedService>(sp => sp.GetRequiredService<AzureBlobBufferProvider>())); // Other startup services depend on this, so we add it early.
+                    builder.Services.AddHealthChecks().AddCheck<AzureBlobBufferProvider>("buffers");
+                }
+
                 break;
             case (false, true):
                 builder.Services.AddOptions<LocalBufferStorageOptions>().BindConfiguration("buffers:localStorage").ValidateDataAnnotations().ValidateOnStart();
-                builder.Services.AddSingleton<LocalStorageBufferProvider>();
-                builder.Services.AddSingleton<IBufferProvider>(sp => sp.GetRequiredService<LocalStorageBufferProvider>());
-                builder.Services.AddHealthChecks().AddCheck<LocalStorageBufferProvider>("data plane");
+                if (builder is WebApplicationBuilder)
+                {
+                    builder.Services.AddSingleton<LocalStorageBufferProvider>();
+                    builder.Services.AddSingleton<IBufferProvider>(sp => sp.GetRequiredService<LocalStorageBufferProvider>());
+                    builder.Services.AddHealthChecks().AddCheck<LocalStorageBufferProvider>("data plane");
+                }
+
                 break;
             case (false, false):
                 throw new InvalidOperationException("One of `buffers.localStorage` and `buffers.cloudStorage` must be enabled.");
@@ -222,6 +233,9 @@ public class BufferOptions
 
 public class CloudBufferStorageOptions
 {
+    [Required]
+    public string CurrentLocation { get; init; } = null!;
+
     [Required, MinLength(1)]
     public IList<BufferStorageAccountOptions> StorageAccounts { get; } = [];
 }

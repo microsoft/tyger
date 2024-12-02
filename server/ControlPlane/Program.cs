@@ -38,6 +38,7 @@ void AddCommonServices(IHostApplicationBuilder builder)
     builder.AddConfigurationSources();
     builder.AddDatabase();
     builder.AddCompute();
+    builder.AddBuffers();
     builder.ConfigureLogging();
     builder.AddManagedIdentity();
     builder.AddJsonFormatting();
@@ -50,7 +51,6 @@ void RunServer()
     AddCommonServices(builder);
     builder.AddLogArchive();
     builder.AddAuth();
-    builder.AddBuffers();
     builder.AddRuns();
     builder.AddOpenApi();
     builder.ConfigureUnixDomainSockets();
