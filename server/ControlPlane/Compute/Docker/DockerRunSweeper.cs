@@ -13,14 +13,14 @@ namespace Tyger.ControlPlane.Compute.Docker;
 
 public sealed class DockerRunSweeper : BackgroundService, IRunSweeper
 {
-    private static readonly TimeSpan s_minDurationAfterArchivingBeforeDeletingPod = TimeSpan.FromSeconds(30);
-
     private readonly ILogSource _logSource;
     private readonly DockerOptions _dockerSecretOptions;
     private readonly ILogArchive _logArchive;
     private readonly Repository _repository;
     private readonly DockerClient _client;
     private readonly IRunReader _runReader;
+
+    private readonly SemaphoreSlim _sweepLock = new(1);
     private readonly ILogger<DockerRunSweeper> _logger;
 
     public DockerRunSweeper(Repository repository, DockerClient client, IRunReader runReader, ILogSource logSource, ILogArchive logArchive, IOptions<DockerOptions> dockerSecretOptions, ILogger<DockerRunSweeper> logger)
@@ -56,57 +56,66 @@ public sealed class DockerRunSweeper : BackgroundService, IRunSweeper
 
     public async Task SweepRuns(CancellationToken cancellationToken)
     {
-        _logger.StartingBackgroundSweep();
-
-        // first clear out runs that never got a pod created
-        while (true)
+        await _sweepLock.WaitAsync(cancellationToken);
+        try
         {
-            var runs = await _repository.GetPageOfRunsWhereResourcesNotCreated(cancellationToken);
-            if (runs.Count == 0)
+            _logger.StartingBackgroundSweep();
+
+            // first clear out runs that never got a pod created
+            while (true)
             {
-                break;
+                var runs = await _repository.GetPageOfRunsWhereResourcesNotCreated(cancellationToken);
+                if (runs.Count == 0)
+                {
+                    break;
+                }
+
+                foreach (var run in runs)
+                {
+                    _logger.DeletingRunThatNeverCreatedResources(run.Id!.Value);
+                    await DeleteRunResources(run.Id.Value, cancellationToken);
+                    await _repository.DeleteRun(run.Id.Value, cancellationToken);
+                }
             }
 
-            foreach (var run in runs)
+            var containerGroups = (await _client.Containers.ListContainersAsync(new ContainersListParameters()
             {
-                _logger.DeletingRunThatNeverCreatedResources(run.Id!.Value);
-                await DeleteRunResources(run.Id.Value, cancellationToken);
-                await _repository.DeleteRun(run.Id.Value, cancellationToken);
-            }
-        }
-
-        var containerGroups = (await _client.Containers.ListContainersAsync(new ContainersListParameters()
-        {
-            All = true,
-            Filters = new Dictionary<string, IDictionary<string, bool>>
+                All = true,
+                Filters = new Dictionary<string, IDictionary<string, bool>>
             {
                 {"label", new Dictionary<string, bool>{{ "tyger-run", true } } },
                 {"status", new Dictionary<string, bool>{{ "exited", true }, {"removing", true}, {"dead", true} } }
             },
-        }, cancellationToken))
-        .GroupBy(c => c.Labels["tyger-run"]);
+            }, cancellationToken))
+            .GroupBy(c => c.Labels["tyger-run"]);
 
-        foreach (var group in containerGroups)
-        {
-            var runId = long.Parse(group.Key);
-            switch (await _runReader.GetRun(runId, cancellationToken))
+            foreach (var group in containerGroups)
             {
-                case null:
-                    await _repository.DeleteRun(runId, cancellationToken);
-                    await DeleteRunResources(runId, cancellationToken);
-                    continue;
-                case var (run, _, logsArchivedAt, _) when run.Status.IsTerminal() && logsArchivedAt is null:
-                    await ArchiveLogs(run, cancellationToken);
-                    break;
-                case var (run, _, logsArchivedAt, _) when run.Status.IsTerminal() && DateTimeOffset.UtcNow - logsArchivedAt > s_minDurationAfterArchivingBeforeDeletingPod:
-                    _logger.FinalizingTerminatedRun(run.Id!.Value, run.Status!.Value);
-                    await DeleteRunResources(run.Id!.Value, cancellationToken);
-                    await _repository.UpdateRunAsFinal(run.Id!.Value, cancellationToken);
-                    break;
+                var runId = long.Parse(group.Key);
+                switch (await _runReader.GetRun(runId, cancellationToken))
+                {
+                    case null:
+                        await _repository.DeleteRun(runId, cancellationToken);
+                        await DeleteRunResources(runId, cancellationToken);
+                        continue;
+                    case var (run, _, logsArchivedAt, _) when run.Status.IsTerminal() && logsArchivedAt is null:
+                        await ArchiveLogs(run, cancellationToken);
+                        break;
+                    case var (run, _, logsArchivedAt, _) when run.Status.IsTerminal() && logsArchivedAt is not null:
+                        _logger.FinalizingTerminatedRun(run.Id!.Value, run.Status!.Value);
+                        await _repository.ForceUpdateRun(run, cancellationToken);
+                        await DeleteRunResources(run.Id!.Value, cancellationToken);
+                        await _repository.UpdateRunAsFinal(run.Id!.Value, cancellationToken);
+                        break;
+                }
             }
-        }
 
-        _logger.BackgroundSweepCompleted();
+            _logger.BackgroundSweepCompleted();
+        }
+        finally
+        {
+            _sweepLock.Release();
+        }
     }
 
     private async Task DeleteRunResources(long runId, CancellationToken cancellationToken)

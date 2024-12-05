@@ -157,6 +157,61 @@ func TestEndToEndWithAutomaticallyCreatedBuffers(t *testing.T) {
 	require.Equal("Hello: Bonjour", output)
 }
 
+func TestStatusAfterFinalization(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+
+	// create a codespec
+	const codespecName = "testcodespecwithbuffercreation"
+
+	runTygerSucceeds(t,
+		"codespec",
+		"create", codespecName,
+		"-i=input", "-o=output",
+		"--image", BasicImage,
+		"--command",
+		"--",
+		"sh", "-c",
+		`
+		set -euo pipefail
+		inp=$(cat "$INPUT_PIPE")
+		echo "${inp}: Bonjour" > "$OUTPUT_PIPE"
+		`,
+	)
+
+	// create run
+	runId := runTygerSucceeds(t, "run", "create", "--codespec", codespecName, "--timeout", "10m")
+
+	runJson := runTygerSucceeds(t, "run", "show", runId)
+
+	var run model.Run
+	require.NoError(json.Unmarshal([]byte(runJson), &run))
+
+	inputBufferId := run.Job.Buffers["input"]
+	outputBufferId := run.Job.Buffers["output"]
+
+	runCommandSucceeds(t, "sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, inputBufferId))
+
+	waitForRunSuccess(t, runId)
+
+	output := runCommandSucceeds(t, "sh", "-c", fmt.Sprintf(`tyger buffer read "%s"`, outputBufferId))
+
+	require.Equal("Hello: Bonjour", output)
+
+	// force logs to be archived
+	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPost, "v1/runs/_sweep", nil, nil)
+	require.Nil(err)
+
+	// force finalization
+	_, err = controlplane.InvokeRequest(context.Background(), http.MethodPost, "v1/runs/_sweep", nil, nil)
+	require.Nil(err)
+
+	// get run
+	runJson = runTygerSucceeds(t, "run", "show", runId)
+	require.NoError(json.Unmarshal([]byte(runJson), &run))
+	require.Equal(model.Succeeded.String(), run.Status.String())
+}
+
 func TestEndToEndWithYamlSpecAndAutomaticallyCreatedBuffers(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
@@ -434,7 +489,7 @@ timeoutSeconds: 600`, getTestConnectivityImage(t))
 	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
 	require.NoError(os.WriteFile(runSpecPath, []byte(runSpec), 0644))
 
-	execStdOut := NewTygerCmdBuilder("run", "exec", "--file", runSpecPath, "--log-level", "trace").
+	execStdOut := NewTygerCmdBuilder("run", "exec", "--file", runSpecPath, "--logs", "--log-level", "trace").
 		Stdin("0123").
 		RunSucceeds(t)
 

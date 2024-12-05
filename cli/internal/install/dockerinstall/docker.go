@@ -393,7 +393,7 @@ func (inst *Installer) getContainerLogs(ctx context.Context, containerName strin
 	return err
 }
 
-func (inst *Installer) UninstallTyger(ctx context.Context, deleteData bool) error {
+func (inst *Installer) UninstallTyger(ctx context.Context, deleteData bool, preserveRunContainers bool) error {
 	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return fmt.Errorf("error creating docker client: %w", err)
@@ -419,20 +419,22 @@ func (inst *Installer) UninstallTyger(ctx context.Context, deleteData bool) erro
 		return fmt.Errorf("error removing gateway container: %w", err)
 	}
 
-	runContainers, err := dockerClient.ContainerList(
-		ctx,
-		container.ListOptions{
-			All:     true,
-			Filters: filters.NewArgs(filters.Arg("label", "tyger-run")),
-		})
+	if !preserveRunContainers {
+		runContainers, err := dockerClient.ContainerList(
+			ctx,
+			container.ListOptions{
+				All:     true,
+				Filters: filters.NewArgs(filters.Arg("label", "tyger-run")),
+			})
 
-	if err != nil {
-		return fmt.Errorf("error listing run containers: %w", err)
-	}
+		if err != nil {
+			return fmt.Errorf("error listing run containers: %w", err)
+		}
 
-	for _, runContainer := range runContainers {
-		if err := inst.removeContainer(ctx, runContainer.ID); err != nil {
-			return fmt.Errorf("error removing run container: %w", err)
+		for _, runContainer := range runContainers {
+			if err := inst.removeContainer(ctx, runContainer.ID); err != nil {
+				return fmt.Errorf("error removing run container: %w", err)
+			}
 		}
 	}
 

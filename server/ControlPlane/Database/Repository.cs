@@ -614,6 +614,38 @@ public class Repository
         }, cancellationToken);
     }
 
+    public async Task ForceUpdateRun(Run run, CancellationToken cancellationToken)
+    {
+        await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
+        {
+            await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+            await using var tx = await conn.BeginTransactionAsync(cancellationToken);
+            await using var updateRunCommand = new NpgsqlCommand("""
+                UPDATE runs
+                SET run = $2, modified_at = now() AT TIME ZONE 'utc'
+                WHERE id = $1
+                RETURNING modified_at
+                """, conn, tx)
+            {
+                Parameters =
+                {
+                    new() { Value = run.Id, NpgsqlDbType = NpgsqlDbType.Bigint },
+                    new() { Value = JsonSerializer.Serialize(run, _serializerOptions), NpgsqlDbType = NpgsqlDbType.Jsonb },
+                }
+            };
+
+            await updateRunCommand.PrepareAsync(cancellationToken);
+            var modifiedAt = (DateTime)(await updateRunCommand.ExecuteScalarAsync(cancellationToken))!;
+
+            await using var notifyCommand = new NpgsqlCommand($"SELECT pg_notify('{RunChangedChannelName}', $1);", conn, tx);
+            notifyCommand.Parameters.Add(new() { Value = JsonSerializer.Serialize(new ObservedRunState(run, modifiedAt), _serializerOptions), NpgsqlDbType = NpgsqlDbType.Text });
+            await notifyCommand.PrepareAsync(cancellationToken);
+            await notifyCommand.ExecuteNonQueryAsync(cancellationToken);
+
+            await tx.CommitAsync(cancellationToken);
+        }, cancellationToken);
+    }
+
     public async Task DeleteRun(long id, CancellationToken cancellationToken)
     {
         await _resiliencePipeline.ExecuteAsync(async cancellationToken =>

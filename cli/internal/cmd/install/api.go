@@ -67,6 +67,7 @@ func newApiInstallCommand() *cobra.Command {
 func newApiUninstallCommand() *cobra.Command {
 	flags := commonFlags{}
 	deleteData := false
+	preserveRunContainers := false
 	cmd := cobra.Command{
 		Use:                   "uninstall -f CONFIG.yml",
 		Short:                 "Uninstall the Typer API",
@@ -78,7 +79,7 @@ func newApiUninstallCommand() *cobra.Command {
 
 			log.Info().Msg("Starting Tyger API uninstall")
 
-			if err := installer.UninstallTyger(ctx, deleteData); err != nil {
+			if err := installer.UninstallTyger(ctx, deleteData, preserveRunContainers); err != nil {
 				if !errors.Is(err, install.ErrAlreadyLoggedError) {
 					log.Fatal().Err(err).Send()
 				}
@@ -91,6 +92,8 @@ func newApiUninstallCommand() *cobra.Command {
 
 	addCommonFlags(&cmd, &flags)
 	cmd.Flags().BoolVar(&deleteData, "delete-data", deleteData, "Permanently delete data (Docker only)")
+	cmd.Flags().BoolVar(&preserveRunContainers, "preserve-run-containers", preserveRunContainers, "Preserve run containers (Docker only)") // for testing purposes only
+	cmd.Flags().MarkHidden("preserve-run-containers")
 	return &cmd
 }
 
