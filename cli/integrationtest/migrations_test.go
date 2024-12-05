@@ -166,7 +166,7 @@ func TestDockerOnlineMigrations(t *testing.T) {
 	require.NoError(t, err)
 
 	defer func() {
-		runCommandSucceeds(t, "sudo", tygerPath, "api", "uninstall", "-f", configPath, "--delete-data")
+		runCommandSucceeds(t, "sudo", tygerPath, "api", "uninstall", "-f", configPath, "--delete-data", "--preserve-run-containers")
 	}()
 
 	runCommandSucceeds(t, "sudo", tygerPath, "api", "install", "-f", configPath)
@@ -232,7 +232,7 @@ func TestDockerOfflineMigrations(t *testing.T) {
 	require.NoError(t, err)
 
 	defer func() {
-		runCommandSucceeds(t, "sudo", tygerPath, "api", "uninstall", "-f", previousConfigPath, "--delete-data")
+		runCommandSucceeds(t, "sudo", tygerPath, "api", "uninstall", "-f", previousConfigPath, "--delete-data", "--preserve-run-containers")
 	}()
 
 	runCommandSucceeds(t, "sudo", tygerPath, "api", "install", "-f", previousConfigPath)

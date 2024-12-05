@@ -43,7 +43,7 @@ func runWithMinimalTygerInstallation[T any](ctx context.Context, inst *Installer
 		inst.Config.Api.Helm.Tyger.Values["onlyMigrationDependencies"] = false
 
 		defer func() {
-			inst.UninstallTyger(ctx, false)
+			inst.UninstallTyger(ctx, false, false)
 		}()
 	}
 

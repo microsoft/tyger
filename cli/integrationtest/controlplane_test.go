@@ -489,7 +489,7 @@ timeoutSeconds: 600`, getTestConnectivityImage(t))
 	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
 	require.NoError(os.WriteFile(runSpecPath, []byte(runSpec), 0644))
 
-	execStdOut := NewTygerCmdBuilder("run", "exec", "--file", runSpecPath, "--log-level", "trace").
+	execStdOut := NewTygerCmdBuilder("run", "exec", "--file", runSpecPath, "--logs", "--log-level", "trace").
 		Stdin("0123").
 		RunSucceeds(t)
 
