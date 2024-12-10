@@ -6,6 +6,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -159,29 +160,28 @@ func newRootCommand() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				readerChan := make(chan io.ReadCloser, 1)
-				errorChan := make(chan error, 1)
+				readerChan := make(chan dataplane.ValueOrError[io.ReadCloser], 1)
 				go func() {
+					defer close(readerChan)
 					if inputFilePath == "" {
-						readerChan <- os.Stdin
+						readerChan <- dataplane.ValueOrError[io.ReadCloser]{Value: os.Stdin}
 					}
-					log.Info().Msgf("Opening file %s for reading", inputFilePath)
 					inputFile, err := openFileFunc(inputFilePath, os.O_RDONLY, 0)
 					if err != nil {
-						if err == context.Canceled {
-							log.Warn().Msg("OpenFile operation canceled. Will return an empty response body.")
-							readerChan <- io.NopCloser(bytes.NewReader([]byte{}))
+						if errors.Is(err, context.Canceled) {
+							log.Warn().Msg("OpenFile operation canceled.")
+							readerChan <- dataplane.ValueOrError[io.ReadCloser]{Err: fmt.Errorf("waiting for file canceled: %w", err)}
 							go func() {
 								// give some time for a client to connect and observe the empty reponse instead of just closing the listener
 								time.Sleep(time.Minute)
 								cancel()
 							}()
 						} else {
-							errorChan <- err
+							readerChan <- dataplane.ValueOrError[io.ReadCloser]{Err: err}
 						}
 					} else {
 						log.Info().Str("file", inputFilePath).Msg("Opened file for reading")
-						readerChan <- inputFile
+						readerChan <- dataplane.ValueOrError[io.ReadCloser]{Value: inputFile}
 					}
 				}()
 
@@ -195,7 +195,7 @@ func newRootCommand() *cobra.Command {
 					listeners = append(listeners, listener)
 				}
 
-				return dataplane.RelayOutputServer(ctx, listeners, bufferId, readerChan, errorChan, validateSignatureFunc)
+				return dataplane.RelayOutputServer(ctx, listeners, bufferId, readerChan, validateSignatureFunc)
 			}
 
 			if err := impl(); err != nil {

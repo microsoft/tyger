@@ -23,7 +23,17 @@ import (
 )
 
 const (
-	errorCodeHeaderName = "x-ms-error-code"
+	errorCodeHeaderName    = "x-ms-error-code"
+	errorMessageHeaderName = "x-ms-error-message"
+)
+
+const (
+	authenticationFailedErrorCode            = "AuthenticationFailed"
+	AuthorizationPermissionMismatchErrorCode = "AuthorizationPermissionMismatch"
+	alreadyCalledErrorCode                   = "AlreadyCalled"
+	failedToOpenReaderErrorCode              = "FailedToOpenReader"
+	transferFailedErrorCode                  = "TransferFailed"
+	contextCancelledErrorCode                = "ContextCancelled"
 )
 
 func RelayInputServer(
@@ -39,11 +49,11 @@ func RelayInputServer(
 			if err := ValidateSas(bufferId, SasActionCreate, r.URL.Query(), validateSignatureFunc); err != nil {
 				switch err {
 				case ErrInvalidSas:
-					w.Header().Set(errorCodeHeaderName, "AuthenticationFailed")
+					w.Header().Set(errorCodeHeaderName, authenticationFailedErrorCode)
 					w.WriteHeader(http.StatusForbidden)
 					return
 				case ErrSasActionNotAllowed:
-					w.Header().Set(errorCodeHeaderName, "AuthorizationPermissionMismatch")
+					w.Header().Set(errorCodeHeaderName, AuthorizationPermissionMismatchErrorCode)
 					w.WriteHeader(http.StatusForbidden)
 					return
 				default:
@@ -89,21 +99,20 @@ func RelayOutputServer(
 	ctx context.Context,
 	listeners []net.Listener,
 	containerId string,
-	inputReaderChan <-chan io.ReadCloser,
-	errorChan <-chan error,
+	inputReaderChan <-chan ValueOrError[io.ReadCloser],
 	validateSignatureFunc ValidateSignatureFunc,
 ) error {
 	addRoutes := func(r *chi.Mux, complete context.CancelFunc) {
-		reading := atomic.Bool{}
 		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+			flusher, _ := w.(http.Flusher)
 			if err := ValidateSas(containerId, SasActionRead, r.URL.Query(), validateSignatureFunc); err != nil {
 				switch err {
 				case ErrInvalidSas:
-					w.Header().Set(errorCodeHeaderName, "AuthenticationFailed")
+					w.Header().Set(errorCodeHeaderName, authenticationFailedErrorCode)
 					w.WriteHeader(http.StatusForbidden)
 					return
 				case ErrSasActionNotAllowed:
-					w.Header().Set(errorCodeHeaderName, "AuthorizationPermissionMismatch")
+					w.Header().Set(errorCodeHeaderName, AuthorizationPermissionMismatchErrorCode)
 					w.WriteHeader(http.StatusForbidden)
 					return
 				default:
@@ -111,26 +120,55 @@ func RelayOutputServer(
 				}
 			}
 
+			// Do a non-blocking read from the inputReaderChan to see if there is an error
 			var inputReader io.ReadCloser
 			select {
-			case inputReader = <-inputReaderChan:
-			case err := <-errorChan:
-				log.Error().Err(err).Msg("failed to open reader")
-				w.WriteHeader(http.StatusInternalServerError)
-				return
+			case valOrErr, ok := <-inputReaderChan:
+				if !ok {
+					w.Header().Set(errorCodeHeaderName, alreadyCalledErrorCode)
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				if valOrErr.Err != nil {
+					log.Error().Err(valOrErr.Err).Msg("failed to open reader")
+					w.Header().Set(errorCodeHeaderName, failedToOpenReaderErrorCode)
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+
+				inputReader = valOrErr.Value
+			default:
+			}
+
+			w.Header().Set("Trailer", errorCodeHeaderName)
+			w.WriteHeader(http.StatusOK)
+			if flusher != nil {
+				flusher.Flush()
+			}
+
+			if inputReader == nil {
+				select {
+				case valOrErr, ok := <-inputReaderChan:
+					if !ok {
+						w.Header().Set(errorCodeHeaderName, alreadyCalledErrorCode)
+						return
+					}
+					if valOrErr.Err != nil {
+						log.Error().Err(valOrErr.Err).Msg("failed to open reader")
+						w.Header().Set(errorCodeHeaderName, failedToOpenReaderErrorCode)
+						return
+					}
+				case <-ctx.Done():
+					w.Header().Set(errorCodeHeaderName, contextCancelledErrorCode)
+					return
+				}
 			}
 
 			defer inputReader.Close()
-			if reading.Swap(true) {
-				log.Error().Msg("concurrent reads are not supported")
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
 			defer complete()
 
 			defer func() {
-				flusher, ok := w.(http.Flusher)
-				if ok {
+				if flusher != nil {
 					flusher.Flush()
 				}
 			}()
@@ -138,7 +176,7 @@ func RelayOutputServer(
 			_, err := io.Copy(w, inputReader)
 			if err != nil {
 				log.Error().Err(err).Msg("transfer failed")
-				w.WriteHeader(http.StatusInternalServerError)
+				w.Header().Set(errorCodeHeaderName, transferFailedErrorCode)
 				return
 			}
 		})
@@ -295,4 +333,9 @@ func ValidateSas(containerId string, action SasAction, queryString url.Values, v
 	}
 
 	return nil
+}
+
+type ValueOrError[A any] struct {
+	Value A
+	Err   error
 }
