@@ -23,8 +23,7 @@ import (
 )
 
 const (
-	errorCodeHeaderName    = "x-ms-error-code"
-	errorMessageHeaderName = "x-ms-error-message"
+	errorCodeHeaderName = "x-ms-error-code"
 )
 
 const (
@@ -158,10 +157,16 @@ func RelayOutputServer(
 						w.Header().Set(errorCodeHeaderName, failedToOpenReaderErrorCode)
 						return
 					}
+
+					inputReader = valOrErr.Value
 				case <-ctx.Done():
 					w.Header().Set(errorCodeHeaderName, contextCancelledErrorCode)
 					return
 				}
+			}
+
+			if inputReader == nil {
+				panic("inputReader is nil")
 			}
 
 			defer inputReader.Close()
