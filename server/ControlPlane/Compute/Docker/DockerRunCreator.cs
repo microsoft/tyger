@@ -208,7 +208,6 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                 // case of the relay server not having started vs exited.
                 File.Create(relaySocketPath).Close();
 
-
                 sidecarLabels = sidecarLabels.Add(EphemeralBufferSocketPathLabelKey, relaySocketPath);
 
                 args.AddRange([
