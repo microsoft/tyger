@@ -60,6 +60,15 @@ func relayWrite(ctx context.Context, httpClient *retryablehttp.Client, connectio
 
 		io.Copy(io.Discard, resp.Body)
 		if resp.StatusCode != http.StatusAccepted {
+			if resp.StatusCode == http.StatusMethodNotAllowed {
+				return fmt.Errorf("the buffer is an output buffer and cannot be read from")
+			}
+
+			err := relayErrorCodeToErr(resp.Header.Get(errorCodeHeaderName))
+			if err != nil {
+				return fmt.Errorf("error writing to relay: %w", err)
+			}
+
 			return fmt.Errorf("error writing to relay: %s", resp.Status)
 		}
 
@@ -89,6 +98,15 @@ func readRelay(ctx context.Context, httpClient *retryablehttp.Client, connection
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		io.Copy(io.Discard, resp.Body)
+		if resp.StatusCode == http.StatusMethodNotAllowed {
+			return fmt.Errorf("the buffer is an input buffer and cannot be written to")
+		}
+
+		err := relayErrorCodeToErr(resp.Header.Get(errorCodeHeaderName))
+		if err != nil {
+			return fmt.Errorf("error reading from relay: %w", err)
+		}
+
 		return fmt.Errorf("error reading from relay: %s", resp.Status)
 	}
 
@@ -96,11 +114,34 @@ func readRelay(ctx context.Context, httpClient *retryablehttp.Client, connection
 
 	_, err = io.Copy(outputWriter, &ReaderWithMetrics{transferMetrics: metrics, reader: resp.Body})
 
-	if err == nil {
+	trailerErrorCode := resp.Trailer.Get(errorCodeHeaderName)
+
+	if err == nil && trailerErrorCode != "" {
+		err = relayErrorCodeToErr(trailerErrorCode)
+	}
+
+	if err != nil {
+		err = fmt.Errorf("error reading from relay: %w", err)
+	} else {
 		metrics.Stop()
 	}
 
 	return client.RedactHttpError(err)
+}
+
+func relayErrorCodeToErr(errorCode string) error {
+	switch errorCode {
+	case "":
+		return nil
+	case alreadyCalledErrorCode:
+		return errors.New("the buffer endpoint can only be called once")
+	case failedToOpenReaderErrorCode:
+		return errors.New("failed to open reader")
+	case contextCancelledErrorCode:
+		return errors.New("context cancelled")
+	default:
+		return errors.New(errorCode)
+	}
 }
 
 func pingRelay(ctx context.Context, containerUrl *Container, httpClient *retryablehttp.Client, connectionType client.TygerConnectionType) error {
