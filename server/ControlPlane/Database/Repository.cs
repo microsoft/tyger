@@ -1227,66 +1227,67 @@ public class Repository
                 await reader.ReadAsync(cancellationToken);
             }
 
-            // Delete old tags
-            using var deleteCommand = new NpgsqlCommand
-            {
-                Connection = connection,
-                Transaction = tx,
-                CommandText = """
-                        DELETE FROM buffer_tags WHERE
-                        id = $1 AND created_at = $2
-                        """,
-                Parameters =
-                    {
-                        new() { Value = id, NpgsqlDbType = NpgsqlDbType.Text },
-                        new() { Value = createdAt, NpgsqlDbType = NpgsqlDbType.TimestampTz },
-                    }
-            };
-
-            await deleteCommand.PrepareAsync(cancellationToken);
-            await deleteCommand.ExecuteNonQueryAsync(cancellationToken);
-
-            if (tags != null)
-            {
-                // Add the new tags
-                foreach (var tag in tags)
-                {
-                    await InsertTag(tx, id, createdAt, tag, cancellationToken);
-                }
-            }
+            await UpsertTags(tx, id, createdAt, true, tags);
 
             await tx.CommitAsync(cancellationToken);
             return new Buffer() { Id = id, ETag = newETag, CreatedAt = createdAt, Tags = tags };
         }, cancellationToken);
     }
 
-    private static async Task InsertTag(NpgsqlTransaction tx, string id, DateTimeOffset createdAt, KeyValuePair<string, string> tag, CancellationToken cancellationToken)
+    private static async Task UpsertTags(NpgsqlTransaction tx, string bufferId, DateTimeOffset createdAt, bool update, IDictionary<string, string>? tags)
     {
-        using var insertTagCommand = new NpgsqlCommand
+        var batch = new NpgsqlBatch(connection: tx.Connection, transaction: tx);
+        if (update)
         {
-            Connection = tx.Connection,
-            Transaction = tx,
-            CommandText = """
-                        WITH INS AS (INSERT INTO tag_keys (name) VALUES ($4) ON CONFLICT DO NOTHING RETURNING id)
-                        INSERT INTO buffer_tags (id, created_at, key, value)
-                        (SELECT $1, $2, id, $3 FROM INS UNION
-                        SELECT $1, $2, tag_keys.id, $3 FROM tag_keys WHERE name = $4)
-                        """,
+            batch.BatchCommands.Add(new($"""
+                DELETE FROM buffer_tags
+                WHERE id = $1 and created_at = $2
+                """)
+            {
+                Parameters =
+                {
+                    new() { Value = bufferId, NpgsqlDbType = NpgsqlDbType.Text },
+                    new() { Value = createdAt, NpgsqlDbType = NpgsqlDbType.TimestampTz }
+                },
+            });
+        }
 
+        if (tags is null || tags.Count == 0)
+        {
+            return;
+        }
+
+        batch.BatchCommands.Add(new($"""
+            WITH temp_tags AS (
+                SELECT * FROM UNNEST($1::text[], $2::text[]) AS t(key, value)
+            ),
+            inserted_keys AS (
+                INSERT INTO tag_keys (name)
+                SELECT DISTINCT key FROM temp_tags
+                ON CONFLICT (name) DO NOTHING
+                RETURNING id, name
+            ),
+            all_keys AS (
+                SELECT id, name FROM inserted_keys
+                UNION
+                SELECT id, name FROM tag_keys WHERE name IN (SELECT key FROM temp_tags)
+            )
+            INSERT INTO buffer_tags (id, created_at, key, value)
+            SELECT $3, $4, all_keys.id, temp_tags.value
+            FROM temp_tags
+            JOIN all_keys ON all_keys.name = temp_tags.key;
+            """)
+        {
             Parameters =
             {
-                new() { Value = id, NpgsqlDbType = NpgsqlDbType.Text },
+                new() { Value = tags.Keys.ToArray(), NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Text },
+                new() { Value = tags.Values.ToArray(), NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Text },
+                new() { Value = bufferId, NpgsqlDbType = NpgsqlDbType.Text },
                 new() { Value = createdAt, NpgsqlDbType = NpgsqlDbType.TimestampTz },
-                new() { Value = tag.Value, NpgsqlDbType = NpgsqlDbType.Text },
-                new() { Value = tag.Key, NpgsqlDbType = NpgsqlDbType.Text },
             }
-        };
+        });
 
-        await insertTagCommand.PrepareAsync(cancellationToken);
-        if (await insertTagCommand.ExecuteNonQueryAsync(cancellationToken) != 1)
-        {
-            throw new InvalidOperationException("Failed to insert tag: incorrect number of rows inserted");
-        }
+        await batch.ExecuteNonQueryAsync();
     }
 
     public async Task<Run> CreateRunWithIdempotencyKeyGuard(Run newRun, string idempotencyKey, Func<Run, CancellationToken, Task<Run>> createRun, CancellationToken cancellationToken)
@@ -1374,13 +1375,7 @@ public class Repository
                 buffer = buffer with { CreatedAt = reader.GetDateTime(0), ETag = eTag };
             }
 
-            if (buffer.Tags != null)
-            {
-                foreach (var tag in buffer.Tags)
-                {
-                    await InsertTag(tx, buffer.Id, buffer.CreatedAt, tag, cancellationToken);
-                }
-            }
+            await UpsertTags(tx, newBuffer.Id, buffer.CreatedAt, false, newBuffer.Tags);
 
             await tx.CommitAsync(cancellationToken);
             return buffer;

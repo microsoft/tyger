@@ -11,6 +11,7 @@ namespace Tyger.ControlPlane.Buffers;
 
 public sealed partial class BufferManager
 {
+    private const int MaxTags = 100;
     private readonly Repository _repository;
     private readonly IBufferProvider _bufferProvider;
     private readonly IEphemeralBufferProvider _ephemeralBufferProvider;
@@ -28,25 +29,22 @@ public sealed partial class BufferManager
     {
         if (newBuffer.Tags != null)
         {
-            string keyPattern = @"^[a-zA-Z0-9-_.]{1,128}$";
-            string valuePattern = @"^[a-zA-Z0-9-_.]{0,256}$";
+            if (newBuffer.Tags.Count > MaxTags)
+            {
+                throw new ValidationException($"No more than {MaxTags} tags can be set on a buffer");
+            }
 
             foreach (var tag in newBuffer.Tags)
             {
-                if (!Regex.IsMatch(tag.Key, keyPattern))
+                if (!TagKeyRegex().IsMatch(tag.Key))
                 {
                     throw new ValidationException("Tag keys must contain up to 128 letters (a-z, A-Z), numbers (0-9) and underscores (_)");
                 }
 
-                if (!Regex.IsMatch(tag.Value, valuePattern))
+                if (!TagValueRegex().IsMatch(tag.Value))
                 {
                     throw new ValidationException("Tag values can contain up to 256 letters (a-z, A-Z), numbers (0-9) and underscores (_)");
                 }
-            }
-
-            if (newBuffer.Tags.Count > 10)
-            {
-                throw new ValidationException("Only 10 tags can be set on a buffer");
             }
         }
 
@@ -151,4 +149,10 @@ public sealed partial class BufferManager
 
     [GeneratedRegex(@"^(?<TEMP>(run-(?<RUNID>\d+)-)?temp-)?(?<BUFFERID>\w+)$")]
     private static partial Regex BufferIdRegex();
+
+    [GeneratedRegex(@"^[a-zA-Z0-9-_.]{1,128}$")]
+    private static partial Regex TagKeyRegex();
+
+    [GeneratedRegex(@"^[a-zA-Z0-9-_.]{0,256}$")]
+    private static partial Regex TagValueRegex();
 }
