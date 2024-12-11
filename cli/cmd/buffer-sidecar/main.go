@@ -64,6 +64,9 @@ func newRootCommand() *cobra.Command {
 		var listener net.Listener
 		switch u.Scheme {
 		case "unix":
+			// Listen on a temporary socket file and rename it to the final
+			// path, which allows listening on a socket if even if the socket
+			// path already exists.
 			tempPath := u.Path + "." + "temp"
 			defer os.Remove(tempPath)
 			listener, err = net.Listen(u.Scheme, tempPath)
@@ -72,6 +75,9 @@ func newRootCommand() *cobra.Command {
 					return nil, fmt.Errorf("failed to move socket: %w", err)
 				}
 			}
+
+			// wrap the listener so that the socket is deleted when the listener is closed
+			listener = &deletingSocketListener{Listener: listener, path: u.Path}
 		case "http":
 			listener, err = net.Listen("tcp", u.Host)
 		default:
@@ -106,7 +112,7 @@ func newRootCommand() *cobra.Command {
 							log.Warn().Msg("OpenFile operation canceled. Will discard input")
 							outputWriter = io.Discard
 							go func() {
-								// give some time for a client to connect and pass in the data that will be discarded instead of just closing the listner.
+								// give some time for a client to connect and pass in the data that will be discarded instead of just closing the listener.
 								time.Sleep(time.Minute)
 								cancel()
 							}()
@@ -335,4 +341,14 @@ func main() {
 	if err != nil {
 		os.Exit(1)
 	}
+}
+
+type deletingSocketListener struct {
+	net.Listener
+	path string
+}
+
+func (l *deletingSocketListener) Close() error {
+	defer os.Remove(l.path)
+	return l.Listener.Close()
 }
