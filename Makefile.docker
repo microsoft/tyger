@@ -81,7 +81,7 @@ run-data-plane: set-data-plane-localsettings
 	dotnet run -v m --no-restore
 
 login:
-	tyger login --local
+	tyger login unix://install/local/api.sock
 
 connect-db:
 	docker exec -it tyger-local-db psql -U tyger-server tyger-server

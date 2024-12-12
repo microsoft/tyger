@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -31,6 +32,7 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/go-connections/nat"
+	tygerclient "github.com/microsoft/tyger/cli/internal/client"
 	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/psanford/memfs"
 	"github.com/rs/zerolog/log"
@@ -69,8 +71,9 @@ func (s *containerSpec) computeHash() string {
 }
 
 type Installer struct {
-	Config *DockerEnvironmentConfig
-	client *client.Client
+	Config               *DockerEnvironmentConfig
+	client               *client.Client
+	hostPathTranslations map[string]string
 }
 
 func NewInstaller(config *DockerEnvironmentConfig) (*Installer, error) {
@@ -78,14 +81,51 @@ func NewInstaller(config *DockerEnvironmentConfig) (*Installer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error creating docker client: %w", err)
 	}
+
+	hostPathTranslations := map[string]string{}
+	translationsEnvVar := os.Getenv("TYGER_DOCKER_PATH_TRANSLATIONS")
+	if translationsEnvVar != "" {
+		for _, spec := range strings.Split(translationsEnvVar, ":") {
+			tokens := strings.Split(spec, "=")
+			if len(tokens) == 2 {
+				source := tokens[0]
+				if !strings.HasSuffix(source, "/") {
+					source += "/"
+				}
+
+				dest := tokens[1]
+				if !strings.HasSuffix(dest, "/") {
+					dest += "/"
+				}
+
+				hostPathTranslations[source] = dest
+			}
+		}
+	}
+
 	return &Installer{
-		Config: config,
-		client: dockerClient,
+		Config:               config,
+		client:               dockerClient,
+		hostPathTranslations: hostPathTranslations,
 	}, nil
 }
 
 func (inst *Installer) resourceName(suffix string) string {
 	return fmt.Sprintf("tyger-%s-%s", inst.Config.EnvironmentName, suffix)
+}
+
+func (inst *Installer) translateToHostPath(path string) string {
+	for source, dest := range inst.hostPathTranslations {
+		if strings.HasPrefix(path, source) {
+			return dest + strings.TrimPrefix(path, source)
+		}
+
+		if len(path)+1 == len(source) && path == source[:len(source)-1] {
+			return dest[:len(dest)-1]
+		}
+	}
+
+	return path
 }
 
 func (inst *Installer) InstallTyger(ctx context.Context) error {
@@ -227,6 +267,7 @@ func (inst *Installer) createControlPlaneContainer(ctx context.Context, checkGpu
 		log.Warn().Msg("GPU support is not available.")
 	}
 
+	hostInstallationPath := inst.translateToHostPath(inst.Config.InstallationPath)
 	containerSpec := containerSpec{
 		ContainerConfig: &container.Config{
 			Image: image,
@@ -270,17 +311,17 @@ func (inst *Installer) createControlPlaneContainer(ctx context.Context, checkGpu
 				},
 				{
 					Type:   "bind",
-					Source: fmt.Sprintf("%s/control-plane", inst.Config.InstallationPath),
+					Source: fmt.Sprintf("%s/control-plane", hostInstallationPath),
 					Target: fmt.Sprintf("%s/control-plane", inst.Config.InstallationPath),
 				},
 				{
 					Type:   "bind",
-					Source: fmt.Sprintf("%s/data-plane", inst.Config.InstallationPath),
+					Source: fmt.Sprintf("%s/data-plane", hostInstallationPath),
 					Target: fmt.Sprintf("%s/data-plane", inst.Config.InstallationPath),
 				},
 				{
 					Type:   "bind",
-					Source: fmt.Sprintf("%s/database", inst.Config.InstallationPath),
+					Source: fmt.Sprintf("%s/database", hostInstallationPath),
 					Target: fmt.Sprintf("%s/database", inst.Config.InstallationPath),
 				},
 				{
@@ -294,6 +335,10 @@ func (inst *Installer) createControlPlaneContainer(ctx context.Context, checkGpu
 				Name: container.RestartPolicyUnlessStopped,
 			},
 		},
+	}
+
+	for source, dest := range inst.hostPathTranslations {
+		containerSpec.ContainerConfig.Env = append(containerSpec.ContainerConfig.Env, fmt.Sprintf("Compute__Docker__HostPathTranslations__%s=%s", source, dest))
 	}
 
 	// See if there is a group that has access to the docker socket.
@@ -343,11 +388,34 @@ func (inst *Installer) createControlPlaneContainer(ctx context.Context, checkGpu
 		return err
 	}
 
-	if err := os.Symlink(fmt.Sprintf("%s/control-plane/tyger.sock", inst.Config.InstallationPath), fmt.Sprintf("%s/api.sock", inst.Config.InstallationPath)); err != nil && !os.IsExist(err) {
+	linkPath, err := inst.getApiSocketPath()
+	if err != nil {
+		return err
+	}
+
+	relativeTargetPath := "control-plane/tyger.sock"
+
+	if existingTarget, err := os.Readlink(linkPath); err == nil {
+		if existingTarget == relativeTargetPath {
+			return nil
+		}
+		if err := os.Remove(linkPath); err != nil {
+			return fmt.Errorf("error removing existing symlink: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("error reading existing symlink: %w", err)
+	}
+
+	if err := os.Symlink(relativeTargetPath, linkPath); err != nil {
 		return fmt.Errorf("error creating symlink: %w", err)
 	}
 
 	return nil
+}
+
+func (inst *Installer) getApiSocketPath() (string, error) {
+	path := fmt.Sprintf("%s/api.sock", inst.Config.InstallationPath)
+	return filepath.Abs(path)
 }
 
 func fileHash(path string) (string, error) {
@@ -507,7 +575,7 @@ func (inst *Installer) createDatabaseContainer(ctx context.Context) error {
 				},
 				{
 					Type:   "bind",
-					Source: fmt.Sprintf("%s/database", inst.Config.InstallationPath),
+					Source: fmt.Sprintf("%s/database", inst.translateToHostPath(inst.Config.InstallationPath)),
 					Target: "/var/run/postgresql/",
 				},
 			},
@@ -587,7 +655,7 @@ func (inst *Installer) createDataPlaneContainer(ctx context.Context) error {
 				},
 				{
 					Type:   "bind",
-					Source: fmt.Sprintf("%s/data-plane", inst.Config.InstallationPath),
+					Source: fmt.Sprintf("%s/data-plane", inst.translateToHostPath(inst.Config.InstallationPath)),
 					Target: fmt.Sprintf("%s/data-plane", inst.Config.InstallationPath),
 				},
 			},
@@ -645,19 +713,25 @@ func (inst *Installer) createDataPlaneContainer(ctx context.Context) error {
 }
 
 func (inst *Installer) createGatewayContainer(ctx context.Context) error {
-	image := inst.Config.GatewayImage
+	socketPath, err := inst.getApiSocketPath()
+	if err != nil {
+		return err
+	}
 
 	spec := containerSpec{
 		ContainerConfig: &container.Config{
-			Image: image,
+			Image: inst.Config.GatewayImage,
 			User:  inst.Config.UserId,
 			Cmd:   []string{"stdio-proxy", "sleep"},
+			Env: []string{
+				fmt.Sprintf("%s=%s", tygerclient.DefaultControlPlaneSocketPathEnvVar, socketPath),
+			},
 		},
 		HostConfig: &container.HostConfig{
 			Mounts: []mount.Mount{
 				{
 					Type:   "bind",
-					Source: inst.Config.InstallationPath,
+					Source: inst.translateToHostPath(inst.Config.InstallationPath),
 					Target: inst.Config.InstallationPath,
 				},
 			},

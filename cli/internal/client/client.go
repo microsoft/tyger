@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -21,8 +22,8 @@ import (
 )
 
 const (
-	DefaultControlPlaneUnixSocketPath = "/opt/tyger/api.sock"
-	DefaultControlPlaneUnixSocketUrl  = "http+unix://" + DefaultControlPlaneUnixSocketPath + ":"
+	DefaultControlPlaneSocketPathEnvVar = "TYGER_SOCKET_PATH"
+	defaultControlPlaneUnixSocketPath   = "/opt/tyger/api.sock"
 )
 
 var (
@@ -30,6 +31,15 @@ var (
 	DefaultClient           *Client
 	DefaultRetryableClient  *retryablehttp.Client
 )
+
+func GetDefaultSocketUrl() string {
+	path := os.Getenv(DefaultControlPlaneSocketPathEnvVar)
+	if path == "" {
+		path = defaultControlPlaneUnixSocketPath
+	}
+
+	return "http+unix://" + path + ":"
+}
 
 type MakeRoundTripper func(next http.RoundTripper) http.RoundTripper
 

@@ -45,13 +45,18 @@ if [[ -z ${start_only:-} ]]; then
     trap cleanup SIGINT SIGTERM EXIT
 fi
 
+# Copy  bind mounts from tyger-local-gateway
+gateway_bind_mounts=$(docker inspect -f '{{range .Mounts}}{{if eq .Type "bind"}}-v {{.Source}}:{{.Destination}} {{end}}{{end}}' tyger-local-gateway)
+
 docker rm -f $container_name &>/dev/null
+
+# shellcheck disable=SC2086
 docker create \
     -p $ssh_port:22 \
     -e "SSH_ENABLE_ROOT=true" \
     -e "TCP_FORWARDING=true" \
-    -v "/opt/tyger:/opt/tyger" \
     -v "/var/run/docker.sock:/var/run/docker.sock" \
+    $gateway_bind_mounts \
     --name $container_name \
     quay.io/panubo/sshd:1.8.0 >/dev/null
 
@@ -106,7 +111,7 @@ $end_marker"
 mkdir -p "${HOME}/.ssh"
 
 cleanup_ssh_config
-echo "$host_config" >> "${HOME}/.ssh/config"
+echo "$host_config" >>"${HOME}/.ssh/config"
 
 touch "${HOME}/.ssh/known_hosts"
 ssh-keygen -f "${HOME}/.ssh/known_hosts" -R "$ssh_connection_host"
@@ -126,10 +131,14 @@ fi
 
 echo "SSH server is ready"
 
-TYGER_CACHE_FILE=$(mktemp)
-export TYGER_CACHE_FILE
+if [[ -z ${start_only:-} ]]; then
+    TYGER_CACHE_FILE=$(mktemp)
+    export TYGER_CACHE_FILE
+fi
 
-tyger login "ssh://$ssh_host?option[StrictHostKeyChecking]=no"
+tyger_socket_path="$(realpath "$(dirname "$0")/../install/local")/api.sock"
+
+tyger login "ssh://${ssh_host}${tyger_socket_path}?option[StrictHostKeyChecking]=no"
 tyger login status
 
 if [[ -z ${start_only:-} ]]; then

@@ -18,9 +18,10 @@ import (
 var (
 	NameRegex = regexp.MustCompile(`^[a-z][a-z\-0-9]{1,23}$`)
 
-	DefaultEnvironmentName = "local"
-	DefaultPostgresImage   = "postgres:16.2"
-	DefaultMarinerImage    = "mcr.microsoft.com/azurelinux/base/core:3.0"
+	DefaultEnvironmentName  = "local"
+	DefaultInstallationPath = "/opt/tyger"
+	DefaultPostgresImage    = "postgres:16.2"
+	DefaultMarinerImage     = "mcr.microsoft.com/azurelinux/base/core:3.0"
 )
 
 func (inst *Installer) QuickValidateConfig() bool {
@@ -33,7 +34,7 @@ func (inst *Installer) QuickValidateConfig() bool {
 	}
 
 	if inst.Config.InstallationPath == "" {
-		inst.Config.InstallationPath = "/opt/tyger"
+		inst.Config.InstallationPath = DefaultInstallationPath
 	} else if inst.Config.InstallationPath[len(inst.Config.InstallationPath)-1] == '/' {
 		inst.Config.InstallationPath = inst.Config.InstallationPath[:len(inst.Config.InstallationPath)-1]
 	}

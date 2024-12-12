@@ -1,5 +1,7 @@
 kind: docker
 
+
+installationPath: ${TYGER_INSTALLATION_PATH}
 dataPlanePort: 46339
 
 signingKeys:

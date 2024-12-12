@@ -75,6 +75,9 @@ if [[ "$dev" == true ]]; then
 else
   if [[ "$docker" == true ]]; then
     config_path="${config_dir}/dockerconfig.yml"
+
+    TYGER_INSTALLATION_PATH="$(realpath "${this_dir}/../install/local")"
+    export TYGER_INSTALLATION_PATH
   else
     config_path="${config_dir}/cloudconfig.yml"
 

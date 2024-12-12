@@ -249,21 +249,21 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                     [
                         new()
                         {
-                            Source = Path.Combine(absoluteSecretsBase, relativePipesPath),
+                            Source = TranslateToHostPath(Path.Combine(absoluteSecretsBase, relativePipesPath)),
                             Target = Path.Combine(absoluteContainerSecretsBase, relativePipesPath),
                             Type = "bind",
                             ReadOnly = false,
                         },
                         new()
                         {
-                            Source = Path.Combine(absoluteSecretsBase, relativeAccessFilesPath, accessFileName),
+                            Source = TranslateToHostPath(Path.Combine(absoluteSecretsBase, relativeAccessFilesPath, accessFileName)),
                             Target = Path.Combine(absoluteContainerSecretsBase, relativeAccessFilesPath, accessFileName),
                             Type = "bind",
                             ReadOnly = true,
                         },
                         new()
                         {
-                            Source = Path.Combine(absoluteSecretsBase, relativeTombstonePath),
+                            Source = TranslateToHostPath(Path.Combine(absoluteSecretsBase, relativeTombstonePath)),
                             Target = Path.Combine(absoluteContainerSecretsBase, relativeTombstonePath),
                             Type = "bind",
                             ReadOnly = true,
@@ -285,7 +285,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                 var socketDir = Path.GetDirectoryName(relaySocketPath)!;
                 sidecarContainerParameters.HostConfig.Mounts.Add(new()
                 {
-                    Source = socketDir,
+                    Source = TranslateToHostPath(socketDir),
                     Target = socketDir,
                     Type = "bind",
                     ReadOnly = false,
@@ -302,7 +302,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                 var dataPlaneSocket = accessUri.AbsolutePath.Split(':')[0];
                 sidecarContainerParameters.HostConfig.Mounts.Add(new()
                 {
-                    Source = dataPlaneSocket,
+                    Source = TranslateToHostPath(dataPlaneSocket),
                     Target = dataPlaneSocket,
                     Type = "bind",
                     ReadOnly = false,
@@ -355,14 +355,14 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                         [
                             new()
                             {
-                                Source = Path.Combine(absoluteSecretsBase, relativePipesPath),
+                                Source = TranslateToHostPath(Path.Combine(absoluteSecretsBase, relativePipesPath)),
                                 Target = Path.Combine(absoluteContainerSecretsBase, relativePipesPath),
                                 Type = "bind",
                                 ReadOnly = false,
                             },
                             new()
                             {
-                                Source = Path.Combine(absoluteSecretsBase, relativeTombstonePath),
+                                Source = TranslateToHostPath(Path.Combine(absoluteSecretsBase, relativeTombstonePath)),
                                 Target = Path.Combine(absoluteContainerSecretsBase, relativeTombstonePath),
                                 Type = "bind",
                                 ReadOnly = true,
@@ -404,7 +404,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                 [
                     new()
                     {
-                        Source = Path.Combine(absoluteSecretsBase, relativePipesPath),
+                        Source = TranslateToHostPath(Path.Combine(absoluteSecretsBase, relativePipesPath)),
                         Target = Path.Combine(absoluteContainerSecretsBase, relativePipesPath),
                         Type = "bind",
                         ReadOnly = false,
@@ -571,5 +571,24 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
         pemStream.Position = 0;
         return pemStream;
+    }
+
+    private string TranslateToHostPath(string path)
+    {
+        foreach (var (source, dest) in _dockerOptions.HostPathTranslations)
+        {
+            if (path.StartsWith(source, StringComparison.Ordinal))
+            {
+                return path.Replace(source, dest);
+            }
+
+            // source ends with a '/'
+            if (path.Length + 1 == source.Length && path.Equals(source[..^1], StringComparison.Ordinal))
+            {
+                return dest[..^1];
+            }
+        }
+
+        return path;
     }
 }
