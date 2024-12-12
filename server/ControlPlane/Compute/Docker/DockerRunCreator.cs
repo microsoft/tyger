@@ -204,6 +204,11 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
                 relaySocketPath = accessUri.AbsolutePath.Split(':')[0];
 
+                // Create a placeholder file for the relay socket. This is so that attempts to connect to the socket will return
+                // a connection refused error instead of a file not found error, so that the client can distinguish between the
+                // case of the relay server not having started vs exited.
+                File.Create(relaySocketPath).Close();
+
                 sidecarLabels = sidecarLabels.Add(EphemeralBufferSocketPathLabelKey, relaySocketPath);
 
                 args.AddRange([
