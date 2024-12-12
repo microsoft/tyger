@@ -178,7 +178,7 @@ func newRootCommand() *cobra.Command {
 							log.Warn().Msg("OpenFile operation canceled.")
 							readerChan <- dataplane.ValueOrError[io.ReadCloser]{Err: fmt.Errorf("waiting for file canceled: %w", err)}
 							go func() {
-								// give some time for a client to connect and observe the empty reponse instead of just closing the listener
+								// give some time for a client to connect and observe the empty response instead of just closing the listener
 								time.Sleep(time.Minute)
 								cancel()
 							}()
