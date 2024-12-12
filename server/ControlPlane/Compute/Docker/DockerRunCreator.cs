@@ -128,12 +128,13 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             {
                 if (bufferId.StartsWith("temp-", StringComparison.Ordinal))
                 {
+                    var bufferIdWithoutPrefix = bufferId[5..];
                     var newBufferId = $"run-{run.Id}-{bufferId}";
                     run.Job.Buffers[bufferParameterName] = newBufferId;
                     (var write, _) = bufferMap[bufferParameterName];
                     var unqualifiedBufferId = BufferManager.GetUnqualifiedBufferId(newBufferId);
                     var sasQueryString = _ephemeralBufferProvider.GetSasQueryString(unqualifiedBufferId, write);
-                    var accessUri = new Uri($"http+unix://{_dockerOptions.EphemeralBuffersPath}/{bufferId}.sock:{sasQueryString}");
+                    var accessUri = new Uri($"http+unix://{_dockerOptions.EphemeralBuffersPath}/{bufferIdWithoutPrefix}:{sasQueryString}");
                     bufferMap[bufferParameterName] = (write, accessUri);
                 }
             }
@@ -508,7 +509,6 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
         Directory.CreateDirectory(_dockerOptions.RunSecretsPath);
-        Directory.CreateDirectory(_dockerOptions.EphemeralBuffersPath);
 
         await AddPublicSigningKeyToBufferSidecarImage(cancellationToken);
     }

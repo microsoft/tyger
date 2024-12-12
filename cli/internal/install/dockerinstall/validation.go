@@ -22,6 +22,8 @@ var (
 	DefaultInstallationPath = "/opt/tyger"
 	DefaultPostgresImage    = "postgres:16.2"
 	DefaultMarinerImage     = "mcr.microsoft.com/azurelinux/base/core:3.0"
+
+	InstallationPathMaxLength = 70
 )
 
 func (inst *Installer) QuickValidateConfig() bool {
@@ -37,6 +39,10 @@ func (inst *Installer) QuickValidateConfig() bool {
 		inst.Config.InstallationPath = DefaultInstallationPath
 	} else if inst.Config.InstallationPath[len(inst.Config.InstallationPath)-1] == '/' {
 		inst.Config.InstallationPath = inst.Config.InstallationPath[:len(inst.Config.InstallationPath)-1]
+	}
+
+	if len(inst.Config.InstallationPath) > InstallationPathMaxLength {
+		validationError(&success, "The `installationPath` field must be at most %d characters long", InstallationPathMaxLength)
 	}
 
 	if _, err := strconv.Atoi(inst.Config.UserId); err != nil {

@@ -236,6 +236,10 @@ func (inst *Installer) createControlPlaneContainer(ctx context.Context, checkGpu
 		return err
 	}
 
+	if err := inst.ensureDirectoryExists(fmt.Sprintf("%s/ephemeral", inst.Config.InstallationPath)); err != nil {
+		return err
+	}
+
 	if err := inst.pullImage(ctx, inst.Config.BufferSidecarImage, false); err != nil {
 		return fmt.Errorf("error pulling buffer sidecar image: %w", err)
 	}
@@ -276,8 +280,8 @@ func (inst *Installer) createControlPlaneContainer(ctx context.Context, checkGpu
 				fmt.Sprintf("Urls=http://unix:%s/control-plane/tyger.sock", inst.Config.InstallationPath),
 				"SocketPermissions=660",
 				"Auth__Enabled=false",
-				fmt.Sprintf("Compute__Docker__RunSecretsPath=%s/control-plane/run-secrets/", inst.Config.InstallationPath),
-				fmt.Sprintf("Compute__Docker__EphemeralBuffersPath=%s/control-plane/ephemeral-buffers/", inst.Config.InstallationPath),
+				fmt.Sprintf("Compute__Docker__RunSecretsPath=%s/control-plane/run-secrets", inst.Config.InstallationPath),
+				fmt.Sprintf("Compute__Docker__EphemeralBuffersPath=%s/ephemeral", inst.Config.InstallationPath),
 				fmt.Sprintf("Compute__Docker__GpuSupport=%t", gpuAvailable),
 				fmt.Sprintf("Compute__Docker__NetworkName=%s", inst.resourceName("network")),
 				"LogArchive__LocalStorage__LogsDirectory=/app/logs",
@@ -313,6 +317,11 @@ func (inst *Installer) createControlPlaneContainer(ctx context.Context, checkGpu
 					Type:   "bind",
 					Source: fmt.Sprintf("%s/control-plane", hostInstallationPath),
 					Target: fmt.Sprintf("%s/control-plane", inst.Config.InstallationPath),
+				},
+				{
+					Type:   "bind",
+					Source: fmt.Sprintf("%s/ephemeral", hostInstallationPath),
+					Target: fmt.Sprintf("%s/ephemeral", inst.Config.InstallationPath),
 				},
 				{
 					Type:   "bind",
