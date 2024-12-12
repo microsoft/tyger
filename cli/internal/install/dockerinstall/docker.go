@@ -83,7 +83,7 @@ func NewInstaller(config *DockerEnvironmentConfig) (*Installer, error) {
 	}
 
 	hostPathTranslations := map[string]string{}
-	translationsEnvVar := os.Getenv("TYGER_DOCKER_PATH_TRANSLATIONS")
+	translationsEnvVar := os.Getenv("TYGER_DOCKER_HOST_PATH_TRANSLATIONS")
 	if translationsEnvVar != "" {
 		for _, spec := range strings.Split(translationsEnvVar, ":") {
 			tokens := strings.Split(spec, "=")
