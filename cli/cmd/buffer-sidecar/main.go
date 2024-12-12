@@ -6,6 +6,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -63,6 +64,9 @@ func newRootCommand() *cobra.Command {
 		var listener net.Listener
 		switch u.Scheme {
 		case "unix":
+			// Listen on a temporary socket file and rename it to the final
+			// path, which allows listening on a socket if even if the socket
+			// path already exists.
 			tempPath := u.Path + "." + "temp"
 			defer os.Remove(tempPath)
 			listener, err = net.Listen(u.Scheme, tempPath)
@@ -71,6 +75,9 @@ func newRootCommand() *cobra.Command {
 					return nil, fmt.Errorf("failed to move socket: %w", err)
 				}
 			}
+
+			// wrap the listener so that the socket is deleted when the listener is closed
+			listener = &deletingSocketListener{Listener: listener, path: u.Path}
 		case "http":
 			listener, err = net.Listen("tcp", u.Host)
 		default:
@@ -105,7 +112,7 @@ func newRootCommand() *cobra.Command {
 							log.Warn().Msg("OpenFile operation canceled. Will discard input")
 							outputWriter = io.Discard
 							go func() {
-								// give some time for a client to connect and pass in the data that will be discarded instead of just closing the listner.
+								// give some time for a client to connect and pass in the data that will be discarded instead of just closing the listener.
 								time.Sleep(time.Minute)
 								cancel()
 							}()
@@ -159,29 +166,28 @@ func newRootCommand() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				readerChan := make(chan io.ReadCloser, 1)
-				errorChan := make(chan error, 1)
+				readerChan := make(chan dataplane.ValueOrError[io.ReadCloser], 1)
 				go func() {
+					defer close(readerChan)
 					if inputFilePath == "" {
-						readerChan <- os.Stdin
+						readerChan <- dataplane.ValueOrError[io.ReadCloser]{Value: os.Stdin}
 					}
-					log.Info().Msgf("Opening file %s for reading", inputFilePath)
 					inputFile, err := openFileFunc(inputFilePath, os.O_RDONLY, 0)
 					if err != nil {
-						if err == context.Canceled {
-							log.Warn().Msg("OpenFile operation canceled. Will return an empty response body.")
-							readerChan <- io.NopCloser(bytes.NewReader([]byte{}))
+						if errors.Is(err, context.Canceled) {
+							log.Warn().Msg("OpenFile operation canceled.")
+							readerChan <- dataplane.ValueOrError[io.ReadCloser]{Err: fmt.Errorf("waiting for file canceled: %w", err)}
 							go func() {
-								// give some time for a client to connect and observe the empty reponse instead of just closing the listener
+								// give some time for a client to connect and observe the empty response instead of just closing the listener
 								time.Sleep(time.Minute)
 								cancel()
 							}()
 						} else {
-							errorChan <- err
+							readerChan <- dataplane.ValueOrError[io.ReadCloser]{Err: err}
 						}
 					} else {
 						log.Info().Str("file", inputFilePath).Msg("Opened file for reading")
-						readerChan <- inputFile
+						readerChan <- dataplane.ValueOrError[io.ReadCloser]{Value: inputFile}
 					}
 				}()
 
@@ -195,7 +201,7 @@ func newRootCommand() *cobra.Command {
 					listeners = append(listeners, listener)
 				}
 
-				return dataplane.RelayOutputServer(ctx, listeners, bufferId, readerChan, errorChan, validateSignatureFunc)
+				return dataplane.RelayOutputServer(ctx, listeners, bufferId, readerChan, validateSignatureFunc)
 			}
 
 			if err := impl(); err != nil {
@@ -335,4 +341,14 @@ func main() {
 	if err != nil {
 		os.Exit(1)
 	}
+}
+
+type deletingSocketListener struct {
+	net.Listener
+	path string
+}
+
+func (l *deletingSocketListener) Close() error {
+	defer os.Remove(l.path)
+	return l.Listener.Close()
 }
