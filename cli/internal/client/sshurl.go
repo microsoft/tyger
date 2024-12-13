@@ -173,7 +173,7 @@ func (sp *SshParams) FormatLoginArgs(add ...string) []string {
 	args := []string{"login"}
 
 	if sp.SocketPath != "" {
-		args = append(args, "--socket-path", sp.SocketPath)
+		args = append(args, "--server-url", fmt.Sprintf("http+unix://%s", sp.SocketPath))
 	}
 
 	args = append(args, add...)

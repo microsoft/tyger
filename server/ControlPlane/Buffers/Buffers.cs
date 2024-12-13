@@ -54,7 +54,7 @@ public static class Buffers
                 var newBuffer = await context.Request.ReadAndValidateJson<Buffer>(context.RequestAborted);
                 var buffer = await manager.CreateBuffer(newBuffer, cancellationToken);
                 context.Response.Headers.ETag = buffer.ETag;
-                return Results.CreatedAtRoute("getBufferById", new { buffer.Id }, buffer);
+                return Results.Created($"/v1/buffers/{buffer.Id}", buffer);
             })
             .Accepts<Buffer>("application/json")
             .WithName("createBuffer")

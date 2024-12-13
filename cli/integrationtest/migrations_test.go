@@ -126,23 +126,33 @@ func TestCloudMigrations(t *testing.T) {
 	assert.Contains(t, logs, "Migration 2 complete")
 }
 
+func getTempDockerInstallationPath(t *testing.T) string {
+	lowercaseTestName := strings.ToLower(t.Name())
+
+	installationPath := fmt.Sprintf("../../install/%s", lowercaseTestName)
+	require.NoError(t, os.MkdirAll(installationPath, 0755))
+	installationPath, err := filepath.Abs(installationPath)
+	require.NoError(t, err)
+	installationPath, err = filepath.EvalSymlinks(installationPath)
+	require.NoError(t, err)
+
+	return installationPath
+}
+
 func TestDockerOnlineMigrations(t *testing.T) {
 	t.Parallel()
 	skipUnlessUsingUnixSocket(t)
 	skipIfNotUsingUnixSocketDirectly(t)
 
+	installationPath := getTempDockerInstallationPath(t)
+	defer os.RemoveAll(installationPath)
+
+	environmentConfig := runCommandSucceeds(t, "../../scripts/get-config.sh", "--docker")
+
 	lowercaseTestName := strings.ToLower(t.Name())
 	if len(lowercaseTestName) > 23 {
 		lowercaseTestName = lowercaseTestName[:23]
 	}
-
-	environmentConfig := runCommandSucceeds(t, "../../scripts/get-config.sh", "--docker")
-
-	installationPath := fmt.Sprintf("/tmp/tyger/%s", lowercaseTestName)
-	defer func() {
-		os.RemoveAll(installationPath)
-	}()
-
 	configMap := make(map[string]any)
 	require.NoError(t, yaml.Unmarshal([]byte(environmentConfig), &configMap))
 	configMap["environmentName"] = lowercaseTestName
@@ -193,10 +203,8 @@ func TestDockerOfflineMigrations(t *testing.T) {
 	environmentConfig := runCommandSucceeds(t, "../../scripts/get-config.sh", "--docker")
 	devConfig := getDevConfig(t)
 
-	installationPath := fmt.Sprintf("/tmp/tyger/%s", lowercaseTestName)
-	defer func() {
-		os.RemoveAll(installationPath)
-	}()
+	installationPath := getTempDockerInstallationPath(t)
+	defer os.RemoveAll(installationPath)
 
 	configMap := make(map[string]any)
 	require.NoError(t, yaml.Unmarshal([]byte(environmentConfig), &configMap))

@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -80,7 +81,7 @@ type serviceInfo struct {
 func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error) {
 	if options.ServerUri == LocalUriSentinel {
 		optionsClone := options
-		optionsClone.ServerUri = client.DefaultControlPlaneUnixSocketUrl
+		optionsClone.ServerUri = client.GetDefaultSocketUrl()
 		c, errUnix := Login(ctx, optionsClone)
 		if errUnix == nil {
 			return c, nil
@@ -344,7 +345,26 @@ func NormalizeServerUri(uri string) (*url.URL, error) {
 	}
 
 	if parsedUrl.Scheme == "http+unix" || parsedUrl.Scheme == "https+unix" {
-		if !strings.HasSuffix(uri, ":") {
+		// Turn a relative path into an absolute path
+		// If the path is already absolute, Host will be empty
+		// Otherwise, host will be the first path segment.
+		if parsedUrl.Host != "" {
+			if parsedUrl.Path == "" {
+				parsedUrl.Path = parsedUrl.Host
+			} else {
+				parsedUrl.Path = parsedUrl.Host + parsedUrl.Path
+			}
+			parsedUrl.Host = ""
+		}
+
+		if !path.IsAbs(parsedUrl.Path) {
+			parsedUrl.Path, err = filepath.Abs(parsedUrl.Path)
+			if err != nil {
+				return nil, fmt.Errorf("failed to make path absolute: %w", err)
+			}
+		}
+
+		if !strings.HasSuffix(parsedUrl.Path, ":") {
 			parsedUrl.Path += ":"
 		}
 	}

@@ -96,7 +96,7 @@ func writeResponseForError(err error) {
 }
 
 func newStdioProxyLoginCommand() *cobra.Command {
-	serverUrl := client.DefaultControlPlaneUnixSocketUrl
+	serverUrl := client.GetDefaultSocketUrl()
 	preflight := false
 	cmd := &cobra.Command{
 		Use:    "login",

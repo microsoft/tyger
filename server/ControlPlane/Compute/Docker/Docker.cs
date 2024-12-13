@@ -17,7 +17,10 @@ public static class Docker
     {
         if (builder is WebApplicationBuilder)
         {
-            builder.Services.AddOptions<DockerOptions>().BindConfiguration("compute:docker").ValidateDataAnnotations().ValidateOnStart();
+            builder.Services.AddOptions<DockerOptions>().BindConfiguration("compute:docker").ValidateDataAnnotations().ValidateOnStart().PostConfigure(options =>
+            {
+                options.HostPathTranslations = options.HostPathTranslations.ToDictionary(kvp => kvp.Key.EndsWith('/') ? kvp.Key : kvp.Key + "/", kvp => kvp.Value.EndsWith('/') ? kvp.Value : kvp.Value + "/");
+            });
         }
 
         builder.Services.AddSingleton(sp => new DockerClientConfiguration().CreateClient());
@@ -50,4 +53,6 @@ public class DockerOptions
 
     [Required]
     public required string NetworkName { get; set; }
+
+    public Dictionary<string, string> HostPathTranslations { get; set; } = [];
 }

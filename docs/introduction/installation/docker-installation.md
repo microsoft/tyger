@@ -42,6 +42,9 @@ The installation configuration file typically looks like this:
 ```yaml
 kind: docker
 
+# The installation path. Defaults to /opt/tyger.
+installationPath:
+
 # Optionally specify the user id that the services will run as
 userId:
 
@@ -97,14 +100,36 @@ tyger api install -f config.yml
 If using Windows, you will need to run this command from a WSL prompt.
 :::
 
-Tyger requires the directory `/opt/tyger` to exist. You many run the command
-with `sudo` in order to create it. This path is currently not configurable.
+If using the default `installationDirectory` (`/opt/tyger`), you will probably
+need to create it using ahead of time using `sudo`. For example:
+
+```bash
+uid=$(id -u)
+gid=$(id -g)
+sudo mkdir /opt/tyger
+sudo chown -R "$uid":"$gid" /opt/tyger
+```
+
+We have an open [issue](https://github.com/microsoft/tyger/issues/146) to reduce the permissions of the installation directory.
 
 ## Testing it out
 
-Log in with the `tyger` CLI using
+If using the default installation directory, you can log in with the `tyger` CLI using:
 
 ```bash
+tyger login --local
+```
+
+If using a different directory, you can log specifying the socket path:
+
+```bash
+tyger login unix:///path/to/installation/dir/api.sock
+```
+
+Or you can set the `TYGER_SOCKET_PATH` environment variable:
+
+```bash
+export TYGER_SOCKET_PATH=/path/to/installation/dir/api.sock
 tyger login --local
 ```
 
@@ -149,12 +174,16 @@ not a password.
 The format of the SSH URL is:
 
 ```
-ssh://[user@]host[:port][?key1=value1&key2=value2]
+ssh://[user@]host[:port][/path/to/installation/directory/api.sock][?key1=value1&key2=value2]
 ```
 
 All values in `[]` are optional. The user and port default values will come from
-your SSH config file (~/.ssh/config). Additional parameters can be passed in
-as query parameters (after the `?`). These are:
+your SSH config file (~/.ssh/config). The API socket path can be omitted if the
+socket path is the default `/opt/tyger/api.sock` or if the `TYGER_SOCKET_PATH`
+environment variable is set on the SSH host.
+
+Additional parameters can be passed in as query parameters (after the `?`).
+These are:
 
  - `cliPath`, to speciy that path to the `tyger` CLI on the host. This is only
 necessary if the localtion is not part of the `PATH` variable.

@@ -283,6 +283,8 @@ func (inst *Installer) initializeDatabase(ctx context.Context) error {
 }
 
 func (inst *Installer) startMigrationRunner(ctx context.Context, containerName string, args []string, labels map[string]string) error {
+	translatedInstallationPath := inst.translateToHostPath(inst.Config.InstallationPath)
+
 	containerSpec := containerSpec{
 		ContainerConfig: &container.Config{
 			Image: inst.Config.ControlPlaneImage,
@@ -302,7 +304,7 @@ func (inst *Installer) startMigrationRunner(ctx context.Context, containerName s
 			Mounts: []mount.Mount{
 				{
 					Type:   "bind",
-					Source: inst.Config.InstallationPath,
+					Source: translatedInstallationPath,
 					Target: inst.Config.InstallationPath,
 				},
 			},
