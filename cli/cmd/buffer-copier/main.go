@@ -160,6 +160,15 @@ func createDatabaseConnectionPool(ctx context.Context, commonFlags *databaseFlag
 	return pool, nil
 }
 
+func getStorageAccountEndpointFromId(ctx context.Context, pool *pgxpool.Pool, storageAccountId int) (string, error) {
+	var sourceStorageEndpoint string
+	if err := pool.QueryRow(ctx, `SELECT endpoint FROM storage_accounts WHERE id = $1`, storageAccountId).Scan(&sourceStorageEndpoint); err != nil {
+		return "", err
+	}
+
+	return sourceStorageEndpoint, nil
+}
+
 type RoundripTransporter struct {
 	inner http.RoundTripper
 }

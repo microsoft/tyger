@@ -6,21 +6,28 @@ using System.Net.Sockets;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using Tyger.Common.Buffers;
+using Tyger.ControlPlane.Database;
 using Tyger.ControlPlane.Model;
+using Buffer = Tyger.ControlPlane.Model.Buffer;
 
 namespace Tyger.ControlPlane.Buffers;
 
 public sealed class LocalStorageBufferProvider : IBufferProvider, IHealthCheck, IDisposable
 {
+    public const string AccountName = "local";
+    public const string AccountLocation = "local";
+
     private readonly LocalBufferStorageOptions _storageOptions;
     private readonly Uri _baseUrl;
     private readonly Uri _baseTcpUrl;
     private readonly HttpClient _dataPlaneClient;
     private readonly SignDataFunc _signData;
+    private readonly Repository _repository;
 
-    public LocalStorageBufferProvider(IOptions<LocalBufferStorageOptions> storageOptions, IOptions<BufferOptions> bufferOptions)
+    public LocalStorageBufferProvider(IOptions<LocalBufferStorageOptions> storageOptions, IOptions<BufferOptions> bufferOptions, Repository repository)
     {
         _storageOptions = storageOptions.Value;
+        _repository = repository;
 
         var baseUrl = _storageOptions.DataPlaneEndpoint.ToString();
         if (_storageOptions.DataPlaneEndpoint.Scheme is "http+unix" or "https+unix")
@@ -122,18 +129,36 @@ public sealed class LocalStorageBufferProvider : IBufferProvider, IHealthCheck, 
         return HealthCheckResult.Healthy();
     }
 
-    public async Task CreateBuffer(string id, CancellationToken cancellationToken)
+    public async Task<Buffer> CreateBuffer(Buffer buffer, CancellationToken cancellationToken)
     {
-        var queryString = LocalSasHandler.GetSasQueryString(id, SasResourceType.Container, SasAction.Create, _signData);
-        var resp = await _dataPlaneClient.PutAsync($"v1/containers/{id}{queryString}", null, cancellationToken);
+        var queryString = LocalSasHandler.GetSasQueryString(buffer.Id, SasResourceType.Container, SasAction.Create, _signData);
+        var resp = await _dataPlaneClient.PutAsync($"v1/containers/{buffer.Id}{queryString}", null, cancellationToken);
         resp.EnsureSuccessStatusCode();
+        return await _repository.CreateBuffer(buffer, cancellationToken);
     }
 
-    public Uri CreateBufferAccessUrl(string id, bool writeable, bool preferTcp)
+    public async Task<IList<(string id, bool writeable, BufferAccess? bufferAccess)>> CreateBufferAccessUrls(IList<(string id, bool writeable)> requests, bool preferTcp, bool checkExists, CancellationToken cancellationToken)
     {
-        var action = writeable ? SasAction.Create | SasAction.Read : SasAction.Read;
-        var queryString = LocalSasHandler.GetSasQueryString(id, SasResourceType.Blob, action, _signData);
-        return new Uri(preferTcp ? _baseTcpUrl : _baseUrl, $"v1/containers/{id}{queryString}");
+        var responses = new List<(string id, bool writeable, BufferAccess? bufferAccess)>(requests.Count);
+        foreach (var (id, writeable) in requests)
+        {
+            if (checkExists && !await BufferExists(id, cancellationToken))
+            {
+                responses.Add((id, writeable, null));
+                continue;
+            }
+
+            var action = writeable ? SasAction.Create | SasAction.Read : SasAction.Read;
+            var queryString = LocalSasHandler.GetSasQueryString(id, SasResourceType.Blob, action, _signData);
+            responses.Add((id, writeable, new BufferAccess(new Uri(preferTcp ? _baseTcpUrl : _baseUrl, $"v1/containers/{id}{queryString}"))));
+        }
+
+        return responses;
+    }
+
+    public IList<StorageAccountInfo> GetStorageAccounts()
+    {
+        return [new(AccountName, AccountLocation, _baseUrl.ToString())];
     }
 
     public Task<Run> ExportBuffers(ExportBuffersRequest exportBufferRequest, CancellationToken cancellationToken)
@@ -141,7 +166,7 @@ public sealed class LocalStorageBufferProvider : IBufferProvider, IHealthCheck, 
         throw new ValidationException("Exporting buffers is not supported with local storage.");
     }
 
-    public Task<Run> ImportBuffers(CancellationToken cancellationToken)
+    public Task<Run> ImportBuffers(ImportBuffersRequest importBuffersRequest, CancellationToken cancellationToken)
     {
         throw new ValidationException("Importing buffers is not supported with local storage.");
     }

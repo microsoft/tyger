@@ -58,6 +58,10 @@ spec:
           env:
             - name: AZURE_CLIENT_ID
               value: {{ .Values.identity.migrationRunner.clientId }}
+            - name: Compute__Kubernetes__Namespace
+              value: {{ .Release.Namespace }}
+            - name: Compute__Kubernetes__JobServiceAccount
+              value: {{ include "tyger.fullname" . }}-job
             - name: Database__Host
               value: {{ .Values.database.host }}
             - name: Database__DatabaseName
@@ -70,10 +74,16 @@ spec:
               value: {{ .Values.identity.tygerServer.name }}
             - name: Database__TygerServerIdentity
               value: {{ .Values.identity.tygerServer.name }}
-            - name: Compute__Kubernetes__Namespace
-              value: {{ .Release.Namespace }}
-            - name: Compute__Kubernetes__JobServiceAccount
-              value: {{ include "tyger.fullname" . }}-job
+            - name: Buffers__CloudStorage__DefaultLocation
+              value: "{{ .Values.location }}"
+            {{- range $index, $element := .Values.buffers.storageAccounts }}
+            - name: Buffers__CloudStorage__StorageAccounts__{{ $index }}__name
+              value: "{{ $element.name }}"
+            - name: Buffers__CloudStorage__StorageAccounts__{{ $index }}__location
+              value: "{{ $element.location }}"
+            - name: Buffers__CloudStorage__StorageAccounts__{{ $index }}__endpoint
+              value: "{{ $element.endpoint }}"
+            {{- end }}
 
       serviceAccount: {{ .Values.identity.migrationRunner.name }}
       {{- with .Values.nodeSelector }}

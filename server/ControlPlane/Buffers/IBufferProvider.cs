@@ -2,19 +2,22 @@
 // Licensed under the MIT License.
 
 using Tyger.ControlPlane.Model;
+using Buffer = Tyger.ControlPlane.Model.Buffer;
 
 namespace Tyger.ControlPlane.Buffers;
 
 public interface IBufferProvider
 {
-    Task CreateBuffer(string id, CancellationToken cancellationToken);
-    Task<bool> BufferExists(string id, CancellationToken cancellationToken);
+    Task<Buffer> CreateBuffer(Buffer buffer, CancellationToken cancellationToken);
 
-    Uri CreateBufferAccessUrl(string id, bool writeable, bool preferTcp);
+    Task<IList<(string id, bool writeable, BufferAccess? bufferAccess)>> CreateBufferAccessUrls(IList<(string id, bool writeable)> requests, bool preferTcp, bool checkExists, CancellationToken cancellationToken);
+    IList<StorageAccountInfo> GetStorageAccounts();
 
     Task<Run> ExportBuffers(ExportBuffersRequest exportBufferRequest, CancellationToken cancellationToken);
-    Task<Run> ImportBuffers(CancellationToken cancellationToken);
+    Task<Run> ImportBuffers(ImportBuffersRequest importBuffersRequest, CancellationToken cancellationToken);
 }
+
+public record StorageAccountInfo(string Name, string Location, string Endpoint);
 
 public interface IEphemeralBufferProvider
 {
