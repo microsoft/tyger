@@ -148,6 +148,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
+  /v1/buffers/storage-accounts:
+    get:
+      tags:
+        - tyger-server
+      operationId: getStorageAccounts
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StorageAccount'
   /v1/buffers/export:
     post:
       tags:
@@ -498,6 +512,9 @@ components:
       properties:
         id:
           type: string
+        location:
+          type: string
+          nullable: true
         eTag:
           type: string
         createdAt:
@@ -654,6 +671,9 @@ components:
     ExportBuffersRequest:
       type: object
       properties:
+        sourceStorageAccountName:
+          type: string
+          nullable: true
         destinationStorageEndpoint:
           type: string
         filters:
@@ -664,6 +684,10 @@ components:
       additionalProperties: false
     ImportBuffersRequest:
       type: object
+      properties:
+        storageAccountName:
+          type: string
+          nullable: true
       additionalProperties: false
     JobCodespec:
       allOf:
@@ -837,6 +861,16 @@ components:
         outputBuffer:
           type: string
           nullable: true
+      additionalProperties: false
+    StorageAccount:
+      type: object
+      properties:
+        name:
+          type: string
+        location:
+          type: string
+        endpoint:
+          type: string
       additionalProperties: false
     WorkerCodespec:
       allOf:

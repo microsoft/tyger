@@ -19,7 +19,10 @@ public static class Buffers
     {
         builder.Services.AddOptions<BufferOptions>().BindConfiguration("buffers").ValidateDataAnnotations().ValidateOnStart();
 
-        builder.Services.AddSingleton<BufferManager>();
+        if (builder is WebApplicationBuilder)
+        {
+            builder.Services.AddSingleton<BufferManager>();
+        }
 
         bool cloudStorageEnabled = builder.Configuration.GetSection("buffers:cloudStorage").Exists();
         bool localStorageEnabled = builder.Configuration.GetSection("buffers:localStorage").Exists();
@@ -28,17 +31,25 @@ public static class Buffers
         {
             case (true, false):
                 builder.Services.AddOptions<CloudBufferStorageOptions>().BindConfiguration("buffers:cloudStorage").ValidateDataAnnotations().ValidateOnStart();
-                builder.Services.AddSingleton<AzureBlobBufferProvider>();
-                builder.Services.AddSingleton<IBufferProvider>(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
-                builder.Services.AddHostedService(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
-                builder.Services.Insert(0, ServiceDescriptor.Singleton<IHostedService>(sp => sp.GetRequiredService<AzureBlobBufferProvider>())); // Other startup services depend on this, so we add it early.
-                builder.Services.AddHealthChecks().AddCheck<AzureBlobBufferProvider>("buffers");
+                if (builder is WebApplicationBuilder)
+                {
+                    builder.Services.AddSingleton<AzureBlobBufferProvider>();
+                    builder.Services.AddSingleton<IBufferProvider>(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
+                    builder.Services.AddHostedService(sp => sp.GetRequiredService<AzureBlobBufferProvider>());
+                    builder.Services.Insert(0, ServiceDescriptor.Singleton<IHostedService>(sp => sp.GetRequiredService<AzureBlobBufferProvider>())); // Other startup services depend on this, so we add it early.
+                    builder.Services.AddHealthChecks().AddCheck<AzureBlobBufferProvider>("buffers");
+                }
+
                 break;
             case (false, true):
                 builder.Services.AddOptions<LocalBufferStorageOptions>().BindConfiguration("buffers:localStorage").ValidateDataAnnotations().ValidateOnStart();
-                builder.Services.AddSingleton<LocalStorageBufferProvider>();
-                builder.Services.AddSingleton<IBufferProvider>(sp => sp.GetRequiredService<LocalStorageBufferProvider>());
-                builder.Services.AddHealthChecks().AddCheck<LocalStorageBufferProvider>("data plane");
+                if (builder is WebApplicationBuilder)
+                {
+                    builder.Services.AddSingleton<LocalStorageBufferProvider>();
+                    builder.Services.AddSingleton<IBufferProvider>(sp => sp.GetRequiredService<LocalStorageBufferProvider>());
+                    builder.Services.AddHealthChecks().AddCheck<LocalStorageBufferProvider>("data plane");
+                }
+
                 break;
             case (false, false):
                 throw new InvalidOperationException("One of `buffers.localStorage` and `buffers.cloudStorage` must be enabled.");
@@ -179,32 +190,43 @@ public static class Buffers
 
         app.MapPost("/v1/buffers/{id}/access", async (BufferManager manager, string id, bool? writeable, bool? preferTcp, bool? fromDocker, CancellationToken cancellationToken) =>
             {
-                var bufferAccess = await manager.CreateBufferAccessUrl(id, writeable == true, preferTcp == true, fromDocker == true, checkExists: true, cancellationToken);
-                if (bufferAccess is null)
+                var bufferAccess = await manager.CreateBufferAccessUrls([(id, writeable == true)], preferTcp == true, fromDocker == true, checkExists: true, cancellationToken);
+                if (bufferAccess is [(_, _, null)])
                 {
-                    return Responses.NotFound();
+                    return Results.NotFound();
                 }
 
-                return Results.Json(bufferAccess, statusCode: StatusCodes.Status201Created);
+                return Results.Json(bufferAccess[0].bufferAccess, statusCode: StatusCodes.Status201Created);
             })
             .WithName("getBufferAccessString")
             .Produces<BufferAccess>(StatusCodes.Status201Created)
             .Produces<ErrorBody>(StatusCodes.Status404NotFound);
 
-        app.MapPost("/v1/buffers/export", async (BufferManager manager, ExportBuffersRequest exportRequest, CancellationToken cancellationToken) =>
+        app.MapGet("v1/buffers/storage-accounts", (BufferManager manager, CancellationToken cancellationToken) =>
             {
+                return Results.Ok(manager.GetStorageAccounts());
+            })
+            .WithName("getStorageAccounts")
+            .Produces<IList<StorageAccount>>(StatusCodes.Status200OK);
+
+        app.MapPost("/v1/buffers/export", async (HttpContext context, BufferManager manager, CancellationToken cancellationToken) =>
+            {
+                var exportRequest = await context.Request.ReadAndValidateJson<ExportBuffersRequest>(context.RequestAborted);
                 var run = await manager.ExportBuffers(exportRequest, cancellationToken);
                 return Results.Json(run, statusCode: StatusCodes.Status201Created);
             })
             .WithName("exportBuffers")
+            .Accepts<ExportBuffersRequest>("application/json")
             .Produces<Run>(StatusCodes.Status202Accepted);
 
-        app.MapPost("/v1/buffers/import", async (BufferManager manager, ImportBuffersRequest exportRequest, CancellationToken cancellationToken) =>
+        app.MapPost("/v1/buffers/import", async (HttpContext context, BufferManager manager, CancellationToken cancellationToken) =>
             {
-                var run = await manager.ImportBuffers(cancellationToken);
+                var importRequest = await context.Request.ReadAndValidateJson<ImportBuffersRequest>(context.RequestAborted);
+                var run = await manager.ImportBuffers(importRequest, cancellationToken);
                 return Results.Json(run, statusCode: StatusCodes.Status201Created);
             })
             .WithName("importBuffers")
+            .Accepts<ImportBuffersRequest>("application/json")
             .Produces<Run>(StatusCodes.Status202Accepted);
     }
 }
@@ -222,6 +244,9 @@ public class BufferOptions
 
 public class CloudBufferStorageOptions
 {
+    [Required]
+    public string DefaultLocation { get; init; } = null!;
+
     [Required, MinLength(1)]
     public IList<BufferStorageAccountOptions> StorageAccounts { get; } = [];
 }

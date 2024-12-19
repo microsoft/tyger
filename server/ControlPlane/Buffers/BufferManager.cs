@@ -50,8 +50,10 @@ public sealed partial class BufferManager
 
         string id = UniqueId.Create();
         _logger.CreatingBuffer(id);
-        await _bufferProvider.CreateBuffer(id, cancellationToken);
-        return await _repository.CreateBuffer(newBuffer with { Id = id }, cancellationToken);
+
+        var buffer = newBuffer with { Id = id };
+
+        return await _bufferProvider.CreateBuffer(buffer, cancellationToken);
     }
 
     public async Task<Buffer?> GetBufferById(string id, CancellationToken cancellationToken)
@@ -61,24 +63,8 @@ public sealed partial class BufferManager
 
     public async Task<Buffer?> GetBufferById(string id, string eTag, CancellationToken cancellationToken)
     {
-        var buffer = await _repository.GetBuffer(id, eTag, cancellationToken);
+        return await _repository.GetBuffer(id, eTag, cancellationToken);
 
-        if (buffer == null)
-        {
-            return null;
-        }
-
-        if (await _bufferProvider.BufferExists(id, cancellationToken))
-        {
-            return buffer;
-        }
-
-        return null;
-    }
-
-    public async Task<bool> BufferExists(string id, CancellationToken cancellationToken)
-    {
-        return await _bufferProvider.BufferExists(id, cancellationToken);
     }
 
     public async Task<bool> CheckBuffersExist(ICollection<string> ids, CancellationToken cancellationToken)
@@ -96,34 +82,68 @@ public sealed partial class BufferManager
         return await _repository.GetBuffers(tags, limit, continuationToken, cancellationToken);
     }
 
-    internal async Task<BufferAccess?> CreateBufferAccessUrl(string id, bool writeable, bool preferTcp, bool fromDocker, bool checkExists, CancellationToken cancellationToken)
+    internal async Task<IList<(string id, bool writeable, BufferAccess? bufferAccess)>> CreateBufferAccessUrls(IList<(string id, bool writeable)> requests, bool preferTcp, bool fromDocker, bool checkExists, CancellationToken cancellationToken)
     {
-        var match = BufferIdRegex().Match(id);
-        if (!match.Success)
-        {
-            return null;
-        }
+        IList<(string id, bool writeable)> nonEphemeralRequests = requests;
+        List<(string id, bool writeable, BufferAccess? bufferAccess)>? responses = null;
 
-        id = match.Groups["BUFFERID"].Value;
-
-        if (match.Groups["TEMP"].Success)
+        for (int i = 0; i < requests.Count; i++)
         {
-            var runIdGroup = match.Groups["RUNID"];
-            if (runIdGroup.Success)
+            var (fullId, writeable) = requests[i];
+            var match = BufferIdRegex().Match(fullId);
+            if (!match.Success)
             {
-                var url = await _ephemeralBufferProvider.CreateBufferAccessUrl(id, writeable, preferTcp, fromDocker, cancellationToken);
-                return url == null ? null : new BufferAccess(url);
+                (responses ??= []).Add((fullId, writeable, null));
+                continue;
             }
 
-            return new BufferAccess(new Uri("temporary", UriKind.Relative));
+            var id = match.Groups["BUFFERID"].Value;
+
+            if (match.Groups["TEMP"].Success)
+            {
+                if (nonEphemeralRequests == requests)
+                {
+                    nonEphemeralRequests = new List<(string id, bool writeable)>(requests.Count);
+                    for (int j = 0; j < i; j++)
+                    {
+                        nonEphemeralRequests.Add(requests[j]);
+                    }
+                }
+
+                var runIdGroup = match.Groups["RUNID"];
+                responses ??= [];
+                if (runIdGroup.Success)
+                {
+                    var url = await _ephemeralBufferProvider.CreateBufferAccessUrl(id, writeable, preferTcp, fromDocker, cancellationToken);
+                    responses.Add((fullId, writeable, url == null ? null : new BufferAccess(url)));
+                }
+                else
+                {
+                    responses.Add((fullId, writeable, new BufferAccess(new Uri("temporary", UriKind.Relative))));
+                }
+            }
+            else
+            {
+                if (nonEphemeralRequests != requests)
+                {
+                    nonEphemeralRequests.Add(requests[i]);
+                }
+            }
         }
 
-        if (checkExists && await GetBufferById(id, cancellationToken) is null)
+        if (nonEphemeralRequests.Count > 0)
         {
-            return null;
+            var nonEphemeralResponses = await _bufferProvider.CreateBufferAccessUrls(nonEphemeralRequests, preferTcp, checkExists, cancellationToken);
+            if (responses == null)
+            {
+                return nonEphemeralResponses;
+            }
+
+            responses.AddRange(nonEphemeralResponses);
+            return responses;
         }
 
-        return new BufferAccess(_bufferProvider.CreateBufferAccessUrl(id, writeable, preferTcp));
+        return responses ?? [];
     }
 
     public string GetUnqualifiedBufferId(string id)
@@ -142,9 +162,14 @@ public sealed partial class BufferManager
         return await _bufferProvider.ExportBuffers(exportBufferRequest, cancellationToken);
     }
 
-    public async Task<Run> ImportBuffers(CancellationToken cancellationToken)
+    public async Task<Run> ImportBuffers(ImportBuffersRequest importBuffersRequest, CancellationToken cancellationToken)
     {
-        return await _bufferProvider.ImportBuffers(cancellationToken);
+        return await _bufferProvider.ImportBuffers(importBuffersRequest, cancellationToken);
+    }
+
+    internal IList<StorageAccount> GetStorageAccounts()
+    {
+        return _bufferProvider.GetStorageAccounts();
     }
 
     [GeneratedRegex(@"^(?<TEMP>(run-(?<RUNID>\d+)-)?temp-)?(?<BUFFERID>\w+)$")]

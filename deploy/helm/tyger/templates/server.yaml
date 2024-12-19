@@ -166,6 +166,8 @@ spec:
               value: {{ .Values.identity.tygerServer.name }}
             - name: Database__AutoMigrate
               value: "{{ .Values.database.autoMigrate }}"
+            - name: Buffers__CloudStorage__DefaultLocation
+              value: "{{ .Values.location }}"
             {{- range $index, $element := .Values.buffers.storageAccounts }}
             - name: Buffers__CloudStorage__StorageAccounts__{{ $index }}__name
               value: "{{ $element.name }}"

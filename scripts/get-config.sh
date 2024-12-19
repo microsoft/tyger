@@ -104,10 +104,14 @@ else
       export TYGER_SYSTEM_NODE_SKU="${TYGER_SYSTEM_NODE_SKU:-Standard_e2s_v3}"
       export TYGER_CPU_NODE_SKU="${TYGER_CPU_NODE_SKU:-Standard_E8s_v3}"
       export TYGER_GPU_NODE_SKU="${TYGER_GPU_NODE_SKU:-Standard_NC6s_v3}"
+
+      export TYGER_SECONDARY_LOCATION="${TYGER_SECONDARY_LOCATION:-westus2}"
     else
       export TYGER_SYSTEM_NODE_SKU="${TYGER_SYSTEM_NODE_SKU:-Standard_DS2_v2}"
       export TYGER_CPU_NODE_SKU="${TYGER_CPU_NODE_SKU:-Standard_DS12_v2}"
       export TYGER_GPU_NODE_SKU="${TYGER_GPU_NODE_SKU:-Standard_NC6s_v3}"
+
+      export TYGER_SECONDARY_LOCATION="${TYGER_SECONDARY_LOCATION:-eastus}"
     fi
 
   fi
