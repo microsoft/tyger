@@ -89,15 +89,15 @@ public sealed partial class BufferManager
 
         for (int i = 0; i < requests.Count; i++)
         {
-            var (id, writeable) = requests[i];
-            var match = BufferIdRegex().Match(id);
+            var (fullId, writeable) = requests[i];
+            var match = BufferIdRegex().Match(fullId);
             if (!match.Success)
             {
-                (responses ??= []).Add((id, writeable, null));
+                (responses ??= []).Add((fullId, writeable, null));
                 continue;
             }
 
-            id = match.Groups["BUFFERID"].Value;
+            var id = match.Groups["BUFFERID"].Value;
 
             if (match.Groups["TEMP"].Success)
             {
@@ -115,11 +115,11 @@ public sealed partial class BufferManager
                 if (runIdGroup.Success)
                 {
                     var url = await _ephemeralBufferProvider.CreateBufferAccessUrl(id, writeable, preferTcp, fromDocker, cancellationToken);
-                    responses.Add((id, writeable, url == null ? null : new BufferAccess(url)));
+                    responses.Add((fullId, writeable, url == null ? null : new BufferAccess(url)));
                 }
                 else
                 {
-                    responses.Add((id, writeable, new BufferAccess(new Uri("temporary", UriKind.Relative))));
+                    responses.Add((fullId, writeable, new BufferAccess(new Uri("temporary", UriKind.Relative))));
                 }
             }
             else

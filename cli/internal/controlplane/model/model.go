@@ -24,7 +24,7 @@ type Buffer struct {
 	Id        string            `json:"id"`
 	ETag      string            `json:"etag"`
 	CreatedAt time.Time         `json:"createdAt"`
-	Location  string            `json:"location"`
+	Location  string            `json:"location,omitempty"`
 	Tags      map[string]string `json:"tags,omitempty"`
 }
 

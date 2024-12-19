@@ -12,7 +12,7 @@ using Buffer = Tyger.ControlPlane.Model.Buffer;
 
 namespace Tyger.ControlPlane.Buffers;
 
-public sealed class LocalStorageBufferProvider : IBufferProvider, IHealthCheck, IDisposable
+public sealed class LocalStorageBufferProvider : IBufferProvider, IHostedService, IHealthCheck, IDisposable
 {
     public const string AccountName = "local";
     public const string AccountLocation = "local";
@@ -23,6 +23,7 @@ public sealed class LocalStorageBufferProvider : IBufferProvider, IHealthCheck, 
     private readonly HttpClient _dataPlaneClient;
     private readonly SignDataFunc _signData;
     private readonly Repository _repository;
+    private int _storageAccountId;
 
     public LocalStorageBufferProvider(IOptions<LocalBufferStorageOptions> storageOptions, IOptions<BufferOptions> bufferOptions, Repository repository)
     {
@@ -131,6 +132,13 @@ public sealed class LocalStorageBufferProvider : IBufferProvider, IHealthCheck, 
 
     public async Task<Buffer> CreateBuffer(Buffer buffer, CancellationToken cancellationToken)
     {
+        if (!string.IsNullOrEmpty(buffer.Location) && !buffer.Location.Equals(AccountLocation, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ValidationException($"Buffer location can only be '{AccountLocation}.");
+        }
+
+        buffer = buffer with { Location = AccountLocation, StorageAccountId = _storageAccountId };
+
         var queryString = LocalSasHandler.GetSasQueryString(buffer.Id, SasResourceType.Container, SasAction.Create, _signData);
         var resp = await _dataPlaneClient.PutAsync($"v1/containers/{buffer.Id}{queryString}", null, cancellationToken);
         resp.EnsureSuccessStatusCode();
@@ -172,4 +180,17 @@ public sealed class LocalStorageBufferProvider : IBufferProvider, IHealthCheck, 
     }
 
     public void Dispose() => _dataPlaneClient.Dispose();
+
+    public async Task StartAsync(CancellationToken cancellationToken)
+    {
+        var accounts = await _repository.UpsertStorageAccounts([new(AccountName, _baseUrl.ToString(), AccountLocation)], cancellationToken);
+        if (accounts.Count != 1)
+        {
+            throw new InvalidOperationException("Failed to upsert storage account.");
+        }
+
+        _storageAccountId = accounts.Single().Key;
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }

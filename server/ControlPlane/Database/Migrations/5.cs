@@ -9,11 +9,11 @@ namespace Tyger.ControlPlane.Database.Migrations;
 
 public class Migrator5 : Migrator
 {
-    private readonly CloudBufferStorageOptions? _cloudBufferStorageOptions;
+    private readonly CloudBufferStorageOptions _cloudBufferStorageOptions;
 
-    public Migrator5(IOptions<CloudBufferStorageOptions>? cloudBufferStorageOptions = null)
+    public Migrator5(IOptions<CloudBufferStorageOptions> cloudBufferStorageOptions)
     {
-        _cloudBufferStorageOptions = cloudBufferStorageOptions?.Value;
+        _cloudBufferStorageOptions = cloudBufferStorageOptions.Value;
     }
 
     public override async Task Apply(Npgsql.NpgsqlDataSource dataSource, ILogger logger, CancellationToken cancellationToken)
@@ -65,7 +65,7 @@ public class Migrator5 : Migrator
             {
                 string name;
                 string location;
-                if (_cloudBufferStorageOptions != null)
+                if (_cloudBufferStorageOptions.StorageAccounts.Count > 0) // if running in the cloud, this is validated to be non-empty
                 {
                     name = _cloudBufferStorageOptions.StorageAccounts[0].Name;
                     location = _cloudBufferStorageOptions.StorageAccounts[0].Location;

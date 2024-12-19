@@ -1,8 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+using System.Collections;
 using System.CommandLine;
 using System.CommandLine.Parsing;
+using Microsoft.Extensions.Options;
 using Tyger.Common.Api;
 using Tyger.Common.Configuration;
 using Tyger.Common.Logging;

@@ -25,7 +25,6 @@ public enum DatabaseVersion
 
     [Migrator(typeof(Migrator3))]
     [Description("Making run management more scalable")]
-    [MinimumSupportedVersion]
     RunScalability = 3,
 
     [Migrator(typeof(Migrator4))]
@@ -34,6 +33,7 @@ public enum DatabaseVersion
 
     [Migrator(typeof(Migrator5))]
     [Description("Support multiple storage accounts")]
+    [MinimumSupportedVersion]
     MultipleStorageAccounts = 5,
 }
 
