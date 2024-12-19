@@ -32,8 +32,8 @@ type commonFlags struct {
 }
 
 func commonPrerun(ctx context.Context, flags *commonFlags) (context.Context, install.Installer) {
-	utilruntime.ErrorHandlers = []func(error){
-		func(err error) {
+	utilruntime.ErrorHandlers = []utilruntime.ErrorHandler{
+		func(ctx context.Context, err error, msg string, keysAndValues ...interface{}) {
 			log.Debug().Err(err).Msg("Kubernetes client runtime error")
 		},
 	}
