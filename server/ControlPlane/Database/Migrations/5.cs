@@ -10,10 +10,12 @@ namespace Tyger.ControlPlane.Database.Migrations;
 public class Migrator5 : Migrator
 {
     private readonly CloudBufferStorageOptions _cloudBufferStorageOptions;
+    private readonly LocalBufferStorageOptions _localBufferStorageOptions;
 
-    public Migrator5(IOptions<CloudBufferStorageOptions> cloudBufferStorageOptions)
+    public Migrator5(IOptions<CloudBufferStorageOptions> cloudBufferStorageOptions, IOptions<LocalBufferStorageOptions> localBufferStorageOptions)
     {
         _cloudBufferStorageOptions = cloudBufferStorageOptions.Value;
+        _localBufferStorageOptions = localBufferStorageOptions.Value;
     }
 
     public override async Task Apply(Npgsql.NpgsqlDataSource dataSource, ILogger logger, CancellationToken cancellationToken)
@@ -25,8 +27,8 @@ public class Migrator5 : Migrator
                 CREATE TABLE IF NOT EXISTS storage_accounts (
                     id int NOT NULL PRIMARY KEY GENERATED ALWAYS AS IDENTITY (MINVALUE 0 START WITH 0 INCREMENT BY 1),
                     name text NOT NULL,
-                    location text,
-                    endpoint text
+                    location text NOT NULL,
+                    endpoint text NOT NULL
                 )
                 """));
 
@@ -65,26 +67,35 @@ public class Migrator5 : Migrator
             {
                 string name;
                 string location;
-                if (_cloudBufferStorageOptions.StorageAccounts.Count > 0) // if running in the cloud, this is validated to be non-empty
+                string endpoint;
+
+                // Note that both options will be non-null.
+                // We tell if we are using cloud storage by checking if the cloud storage options has any storage accounts.
+                // If using cloud, the count has been validated to be greater than 0.
+
+                if (_cloudBufferStorageOptions.StorageAccounts.Count > 0)
                 {
                     name = _cloudBufferStorageOptions.StorageAccounts[0].Name;
                     location = _cloudBufferStorageOptions.StorageAccounts[0].Location;
+                    endpoint = _cloudBufferStorageOptions.StorageAccounts[0].Endpoint;
                 }
                 else
                 {
                     name = LocalStorageBufferProvider.AccountName;
                     location = LocalStorageBufferProvider.AccountLocation;
+                    endpoint = _localBufferStorageOptions.DataPlaneEndpoint.ToString();
                 }
 
                 await using var insertStorageAccountCmd = dataSource.CreateCommand(
                     """
                     INSERT INTO storage_accounts
-                    (name, location)
-                    VALUES ($1, $2)
+                    (name, location, endpoint)
+                    VALUES ($1, $2, $3)
                     RETURNING id
                     """);
                 insertStorageAccountCmd.Parameters.Add(new() { Value = name.ToLowerInvariant(), NpgsqlDbType = NpgsqlDbType.Text });
                 insertStorageAccountCmd.Parameters.Add(new() { Value = location.ToLowerInvariant(), NpgsqlDbType = NpgsqlDbType.Text });
+                insertStorageAccountCmd.Parameters.Add(new() { Value = endpoint, NpgsqlDbType = NpgsqlDbType.Text });
 
                 defaultStorageAccountId = (int)(await insertStorageAccountCmd.ExecuteScalarAsync(cancellationToken))!;
             }
