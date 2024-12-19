@@ -47,6 +47,7 @@ public static class Buffers
                 {
                     builder.Services.AddSingleton<LocalStorageBufferProvider>();
                     builder.Services.AddSingleton<IBufferProvider>(sp => sp.GetRequiredService<LocalStorageBufferProvider>());
+                    builder.Services.AddHostedService(sp => sp.GetRequiredService<LocalStorageBufferProvider>());
                     builder.Services.AddHealthChecks().AddCheck<LocalStorageBufferProvider>("data plane");
                 }
 
