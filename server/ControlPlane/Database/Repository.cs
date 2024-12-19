@@ -935,14 +935,46 @@ public class Repository
         }, cancellationToken);
     }
 
+    public async Task<IList<(string bufferId, int? accountId)>> GetBufferStorageAccountIds(IList<string> ids, CancellationToken cancellationToken)
+    {
+        return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
+        {
+            await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+            await using var cmd = new NpgsqlCommand("""
+                SELECT b.id, sa.id
+                FROM unnest($1::text[]) AS b(id)
+                LEFT JOIN buffers AS buf ON buf.id = b.id
+                LEFT JOIN storage_accounts AS sa ON sa.id = buf.storage_account_id
+                """, conn)
+            {
+                Parameters =
+                {
+                    new() { Value = ids.ToArray(), NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Text }
+                }
+            };
+
+            await cmd.PrepareAsync(cancellationToken);
+            var results = new List<(string bufferId, int? accountId)>(ids.Count);
+            await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                results.Add((reader.GetString(0), reader.IsDBNull(1) ? null : reader.GetInt32(1)));
+            }
+
+            return results;
+        }, cancellationToken);
+    }
+
     public async Task<Buffer?> GetBuffer(string id, string eTag, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
             await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
             await using var command = new NpgsqlCommand("""
-                SELECT buffers.created_at, buffers.etag, tag_keys.name, buffer_tags.value
+                SELECT buffers.created_at, buffers.etag, storage_accounts.location, tag_keys.name, buffer_tags.value
                 FROM buffers
+                INNER JOIN storage_accounts
+                    on storage_accounts.id = buffers.storage_account_id
                 LEFT JOIN buffer_tags
                     on buffers.id = buffer_tags.id
                     and buffer_tags.created_at = buffers.created_at
@@ -965,6 +997,7 @@ public class Repository
 
             var tags = new Dictionary<string, string>();
             string currentETag = "";
+            string location = "";
             DateTimeOffset createdAt = DateTimeOffset.MinValue;
 
             await command.PrepareAsync(cancellationToken);
@@ -981,10 +1014,15 @@ public class Repository
                     currentETag = reader.GetString(1);
                 }
 
-                if (!reader.IsDBNull(2) && !reader.IsDBNull(3))
+                if (string.IsNullOrEmpty(location))
                 {
-                    var name = reader.GetString(2);
-                    var value = reader.GetString(3);
+                    location = reader.GetString(2);
+                }
+
+                if (!reader.IsDBNull(3) && !reader.IsDBNull(4))
+                {
+                    var name = reader.GetString(3);
+                    var value = reader.GetString(4);
                     tags.Add(name, value);
                 }
             }
@@ -994,7 +1032,7 @@ public class Repository
                 return null;
             }
 
-            return new Buffer { Id = id, ETag = currentETag, CreatedAt = createdAt, Tags = tags };
+            return new Buffer { Id = id, ETag = currentETag, CreatedAt = createdAt, Location = location, Tags = tags };
         }, cancellationToken);
     }
 
@@ -1040,25 +1078,25 @@ public class Repository
             string table = tags?.Count > 0 ? "buffer_tags" : "buffers";
             commandText.AppendLine($"""
                 WITH matches AS (
-                SELECT t1.id, t1.created_at
-                FROM {table} AS t1
+                SELECT buffers.id, buffers.created_at, buffers.etag, buffers.storage_account_id
+                FROM buffers
                 """);
 
             int param = 2;
 
             if (tags?.Count > 0)
             {
-                for (int x = 0; x < tags.Count - 1; x++)
+                for (int x = 0; x < tags.Count; x++)
                 {
-                    commandText.AppendLine($"INNER JOIN buffer_tags AS t{x + 2} ON t1.created_at = t{x + 2}.created_at and t1.id = t{x + 2}.id");
+                    commandText.AppendLine($"INNER JOIN buffer_tags AS t{x} ON buffers.created_at = t{x}.created_at and buffers.id = t{x}.id");
                 }
 
                 commandText.AppendLine("WHERE");
 
-                int index = 1;
+                int index = 0;
                 foreach (var tag in tags)
                 {
-                    if (index != 1)
+                    if (index > 0)
                     {
                         commandText.Append(" AND ");
                     }
@@ -1094,7 +1132,7 @@ public class Repository
                             commandText.Append(" AND ");
                         }
 
-                        commandText.Append($"(t1.created_at, t1.id) < (${param}, ${param + 1})\n");
+                        commandText.Append($"(buffers.created_at, buffers.id) < (${param}, ${param + 1})\n");
                         command.Parameters.Add(new() { Value = new DateTimeOffset(fields[0].GetInt64(), TimeSpan.Zero), NpgsqlDbType = NpgsqlDbType.TimestampTz });
                         command.Parameters.Add(new() { Value = fields[1].GetString(), NpgsqlDbType = NpgsqlDbType.Text });
                         param += 2;
@@ -1112,15 +1150,15 @@ public class Repository
             }
 
             commandText.AppendLine("""
-                ORDER BY t1.created_at DESC, t1.id DESC
+                ORDER BY buffers.created_at DESC, buffers.id DESC
                     LIMIT $1
                 )
-                SELECT matches.id, matches.created_at, tag_keys.name, buffer_tags.value, buffers.etag
+                SELECT matches.id, matches.created_at, tag_keys.name, buffer_tags.value, matches.etag, storage_accounts.location
                 FROM matches
+                INNER JOIN storage_accounts ON matches.storage_account_id = storage_accounts.id
                 LEFT JOIN buffer_tags
                     ON matches.id = buffer_tags.id AND matches.created_at = buffer_tags.created_at
                 LEFT JOIN tag_keys ON buffer_tags.key = tag_keys.id
-                LEFT JOIN buffers ON matches.id = buffers.id AND matches.created_at = buffers.created_at
                 ORDER BY matches.created_at DESC, matches.id DESC
                 """);
 
@@ -1137,6 +1175,7 @@ public class Repository
                 var id = reader.GetString(0);
                 var createdAt = reader.GetDateTime(1);
                 var etag = reader.GetString(4);
+                var location = reader.GetString(5);
 
                 if (currentBuffer.Id != id)
                 {
@@ -1145,7 +1184,7 @@ public class Repository
                         results.Add(currentBuffer with { Tags = currentTags });
                     }
 
-                    currentBuffer = currentBuffer with { Id = id, CreatedAt = createdAt, ETag = etag };
+                    currentBuffer = currentBuffer with { Id = id, CreatedAt = createdAt, ETag = etag, Location = location };
                     currentTags = [];
                 }
 
@@ -1340,7 +1379,7 @@ public class Repository
         return await createRun(newRun, cancellationToken);
     }
 
-    public async Task<Buffer> CreateBuffer(Buffer newBuffer, CancellationToken cancellationToken)
+    public async Task<Buffer> CreateBuffer(Buffer newBuffer, int storageAccountId, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
@@ -1354,14 +1393,15 @@ public class Repository
                 Connection = connection,
                 Transaction = tx,
                 CommandText = """
-                        INSERT INTO buffers (id, created_at, etag)
-                        VALUES ($1, now() AT TIME ZONE 'utc', $2)
+                        INSERT INTO buffers (id, created_at, etag, storage_account_id)
+                        VALUES ($1, now() AT TIME ZONE 'utc', $2, $3)
                         RETURNING created_at
                         """,
                 Parameters =
                     {
                         new() { Value = newBuffer.Id, NpgsqlDbType = NpgsqlDbType.Text },
                         new() { Value = eTag, NpgsqlDbType = NpgsqlDbType.Text },
+                        new() { Value = storageAccountId, NpgsqlDbType = NpgsqlDbType.Integer },
                     }
             };
 
@@ -1718,5 +1758,92 @@ public class Repository
                 }
             }
         }
+    }
+
+    public async Task<Dictionary<int, string>> UpsertStorageAccounts(IList<StorageAccount> storageAccounts, CancellationToken cancellationToken)
+    {
+        return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
+        {
+            await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+
+            var results = new Dictionary<int, string>();
+            var names = storageAccounts.Select(sa => sa.Name.ToLowerInvariant()).ToArray();
+            var endpoints = storageAccounts.Select(sa => sa.Endpoint).ToArray();
+            var locations = storageAccounts.Select(sa => sa.Location).ToArray();
+
+            var commandText = """
+                WITH inserted AS (
+                    INSERT INTO storage_accounts (name, endpoint, location)
+                    SELECT unnest($1::text[]), unnest($2::text[]), unnest($3::text[])
+                    ON CONFLICT (name) DO NOTHING
+                    RETURNING id, name
+                ),
+                existing AS (
+                    SELECT id, name FROM storage_accounts WHERE name = ANY($1)
+                )
+                SELECT id, name FROM inserted
+                UNION ALL
+                SELECT id, name FROM existing
+                """;
+
+            using var upsertCommand = new NpgsqlCommand(commandText, connection);
+            upsertCommand.Parameters.Add(new() { Value = names, NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Text });
+            upsertCommand.Parameters.Add(new() { Value = endpoints, NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Text });
+            upsertCommand.Parameters.Add(new() { Value = locations, NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Text });
+
+            await upsertCommand.PrepareAsync(cancellationToken);
+            await using var reader = await upsertCommand.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                results.Add(reader.GetInt32(0), reader.GetString(1));
+            }
+
+            return results;
+        }, cancellationToken);
+    }
+
+    public async Task<string> GetStorageAccountEndpoint(int id, CancellationToken cancellationToken)
+    {
+        return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
+        {
+            await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+            await using var command = new NpgsqlCommand("""
+                SELECT endpoint
+                FROM storage_accounts
+                WHERE id = $1
+                """, connection)
+            {
+                Parameters = { new() { Value = id, NpgsqlDbType = NpgsqlDbType.Integer } }
+            };
+
+            await command.PrepareAsync(cancellationToken);
+            return (string?)await command.ExecuteScalarAsync(cancellationToken) ?? throw new ValidationException($"Storage account with id '{id}' not found.");
+        }, cancellationToken);
+    }
+
+    public async Task<IList<(int id, string endpoint)>> GetStorageAccountsByLocation(string location, CancellationToken cancellationToken)
+    {
+        return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
+        {
+            await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+            await using var command = new NpgsqlCommand("""
+                SELECT id, endpoint
+                FROM storage_accounts
+                WHERE location = $1
+                """, connection)
+            {
+                Parameters = { new() { Value = location.ToLowerInvariant(), NpgsqlDbType = NpgsqlDbType.Text } }
+            };
+
+            await command.PrepareAsync(cancellationToken);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            var results = new List<(int id, string endpoint)>();
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                results.Add((reader.GetInt32(0), reader.GetString(1)));
+            }
+
+            return results;
+        }, cancellationToken);
     }
 }

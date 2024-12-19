@@ -45,6 +45,9 @@ cloud:
   storage:
     buffers:
       - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}tygerbuf
+      - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}tygerbuf2
+      - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}tygerbuf3
+        location: ${TYGER_SECONDARY_LOCATION}
     logs:
       name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}tygerlog
 

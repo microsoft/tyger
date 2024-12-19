@@ -1,8 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+using System.Collections.Immutable;
 using System.ComponentModel.DataAnnotations;
-using Azure;
+using System.Globalization;
 using Azure.Core;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
@@ -12,19 +13,21 @@ using Microsoft.Extensions.Options;
 using Tyger.ControlPlane.Database;
 using Tyger.ControlPlane.Model;
 using Tyger.ControlPlane.Runs;
+using Buffer = Tyger.ControlPlane.Model.Buffer;
 
 namespace Tyger.ControlPlane.Buffers;
 
-public sealed class AzureBlobBufferProvider : BackgroundService, IBufferProvider, IHealthCheck, IDisposable
+public sealed class AzureBlobBufferProvider : IHostedService, IBufferProvider, IHealthCheck
 {
-    private static readonly TimeSpan s_userDelegationKeyDuration = TimeSpan.FromDays(1);
-
-    private readonly BlobServiceClient _serviceClient;
     private readonly BufferOptions _bufferOptions;
     private readonly DatabaseOptions _databaseOptions;
+    private readonly TokenCredential _credential;
+    private readonly CloudBufferStorageOptions _storageOptions;
     private readonly Lazy<IRunCreator> _runCreator;
-    private readonly ILogger<BufferManager> _logger;
-    private UserDelegationKey? _userDelegationKey;
+    private readonly Repository _repository;
+    private readonly ILoggerFactory _loggerFactory;
+    private ImmutableDictionary<int, BlobServiceClientWithRefreshingCredentials>? _storageAccountClients;
+    private ImmutableDictionary<string, StorageAccountSet>? _roundRobinCounters;
 
     public AzureBlobBufferProvider(
         TokenCredential credential,
@@ -32,62 +35,79 @@ public sealed class AzureBlobBufferProvider : BackgroundService, IBufferProvider
         IOptions<BufferOptions> bufferOptions,
         IOptions<DatabaseOptions> databaseOptions,
         Lazy<IRunCreator> runCreator,
-        ILogger<BufferManager> logger)
+        Repository repository,
+        ILoggerFactory loggerFactory)
     {
+        _credential = credential;
+        _storageOptions = storageOptions.Value;
         _runCreator = runCreator;
-        _logger = logger;
-        var bufferStorageAccountOptions = storageOptions.Value.StorageAccounts[0];
-        _serviceClient = new BlobServiceClient(new Uri(bufferStorageAccountOptions.Endpoint), credential);
         _bufferOptions = bufferOptions.Value;
         _databaseOptions = databaseOptions.Value;
+        _repository = repository;
+        _loggerFactory = loggerFactory;
     }
 
-    public async Task CreateBuffer(string id, CancellationToken cancellationToken)
+    public async Task<Buffer> CreateBuffer(Buffer buffer, CancellationToken cancellationToken)
     {
-        await _serviceClient.CreateBlobContainerAsync(id, cancellationToken: cancellationToken);
+        var location = string.IsNullOrEmpty(buffer.Location) ? _storageOptions.DefaultLocation : buffer.Location;
+        if (!_roundRobinCounters!.TryGetValue(location, out var roundRobinCounter))
+        {
+            throw new ValidationException($"No storage accounts configured for location '{location}'");
+        }
+
+        var storageAccountId = roundRobinCounter.GetNextId();
+        var client = _storageAccountClients![storageAccountId];
+
+        await client.ServiceClient.CreateBlobContainerAsync(buffer.Id, cancellationToken: cancellationToken);
+
+        buffer = buffer with { Location = location };
+        return await _repository.CreateBuffer(buffer, storageAccountId, cancellationToken);
     }
 
-    public Uri CreateBufferAccessUrl(string id, bool writeable, bool preferTcp)
+    public async Task<IList<(string id, bool writeable, BufferAccess? bufferAccess)>> CreateBufferAccessUrls(IList<(string id, bool writeable)> requests, bool preferTcp, bool checkExists, CancellationToken cancellationToken)
     {
-        var permissions = BlobContainerSasPermissions.Read;
-        if (writeable)
+        var storageAccountIds = await _repository.GetBufferStorageAccountIds(requests.Select(r => r.id).ToArray(), cancellationToken);
+        var results = new List<(string id, bool writeable, BufferAccess? bufferAccess)>(requests.Count);
+        foreach (var (id, writeable) in requests)
         {
-            permissions |= BlobContainerSasPermissions.Create;
+            var storageAccountId = storageAccountIds.First(sa => sa.bufferId == id).accountId;
+            if (!storageAccountId.HasValue)
+            {
+                results.Add((id, writeable, null));
+                continue;
+            }
+
+            var refreshingClient = await GetRefreshingServiceClient(storageAccountId.Value, cancellationToken);
+
+            var permissions = BlobContainerSasPermissions.Read;
+            if (writeable)
+            {
+                permissions |= BlobContainerSasPermissions.Create;
+            }
+
+            var containerClient = refreshingClient.ServiceClient.GetBlobContainerClient(id);
+
+            // Create a SAS token that's valid for one hour.
+            var start = DateTimeOffset.UtcNow;
+            BlobSasBuilder sasBuilder = new()
+            {
+                BlobContainerName = containerClient.Name,
+                Resource = "c",
+                StartsOn = start,
+                ExpiresOn = start.AddHours(1),
+                Protocol = SasProtocol.Https
+            };
+            sasBuilder.SetPermissions(permissions);
+
+            var uriBuilder = new BlobUriBuilder(containerClient.Uri)
+            {
+                Sas = sasBuilder.ToSasQueryParameters(refreshingClient.UserDelegationKey, containerClient.AccountName)
+            };
+
+            results.Add((id, writeable, new(uriBuilder.ToUri())));
         }
 
-        var containerClient = _serviceClient.GetBlobContainerClient(id);
-
-        // Create a SAS token that's valid for one hour.
-        var start = DateTimeOffset.UtcNow;
-        BlobSasBuilder sasBuilder = new()
-        {
-            BlobContainerName = containerClient.Name,
-            Resource = "c",
-            StartsOn = start,
-            ExpiresOn = start.AddHours(1),
-            Protocol = SasProtocol.Https
-        };
-        sasBuilder.SetPermissions(permissions);
-
-        var uriBuilder = new BlobUriBuilder(containerClient.Uri)
-        {
-            Sas = sasBuilder.ToSasQueryParameters(_userDelegationKey, containerClient.AccountName)
-        };
-
-        return uriBuilder.ToUri();
-    }
-
-    public async Task<bool> BufferExists(string id, CancellationToken cancellationToken)
-    {
-        var containerClient = _serviceClient.GetBlobContainerClient(id);
-        try
-        {
-            return await containerClient.ExistsAsync(cancellationToken);
-        }
-        catch (RequestFailedException e) when (e.ErrorCode == "InvalidResourceName")
-        {
-            return false;
-        }
+        return results;
     }
 
     public async Task<Run> ExportBuffers(ExportBuffersRequest exportBufferRequest, CancellationToken cancellationToken)
@@ -97,11 +117,40 @@ public sealed class AzureBlobBufferProvider : BackgroundService, IBufferProvider
             throw new ValidationException("Destination storage endpoint is required.");
         }
 
+        int storageAccountId = -1;
+        if (string.IsNullOrEmpty(exportBufferRequest.SourceStorageAccountName))
+        {
+            if (_storageAccountClients!.Count > 1)
+            {
+                throw new ValidationException("A source storage account name is required when multiple storage accounts are configured.");
+            }
+
+            storageAccountId = _storageAccountClients!.Keys.Single();
+        }
+        else
+        {
+            bool found = false;
+            foreach (var kvp in _storageAccountClients!)
+            {
+                if (kvp.Value.ServiceClient.AccountName.Equals(exportBufferRequest.SourceStorageAccountName, StringComparison.OrdinalIgnoreCase))
+                {
+                    storageAccountId = kvp.Key;
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found)
+            {
+                throw new ValidationException($"Source storage account '{exportBufferRequest.SourceStorageAccountName}' not found.");
+            }
+        }
+
         var args = new List<string>
         {
             "export",
             "--log-format", "json",
-            "--source-storage-endpoint", _serviceClient.Uri.ToString(),
+            "--source-storage-account-id", storageAccountId.ToString(CultureInfo.InvariantCulture),
             "--destination-storage-endpoint", exportBufferRequest.DestinationStorageEndpoint.ToString(),
             "--db-host", _databaseOptions.Host,
             "--db-user", _databaseOptions.Username,
@@ -152,13 +201,42 @@ public sealed class AzureBlobBufferProvider : BackgroundService, IBufferProvider
         return await _runCreator.Value.CreateRun(newRun, null, cancellationToken);
     }
 
-    public async Task<Run> ImportBuffers(CancellationToken cancellationToken)
+    public async Task<Run> ImportBuffers(ImportBuffersRequest importBuffersRequest, CancellationToken cancellationToken)
     {
+        int storageAccountId = -1;
+        if (string.IsNullOrEmpty(importBuffersRequest.StorageAccountName))
+        {
+            if (_storageAccountClients!.Count > 1)
+            {
+                throw new InvalidOperationException("A storage account name is required when multiple storage accounts are configured.");
+            }
+
+            storageAccountId = _storageAccountClients!.Keys.Single();
+        }
+        else
+        {
+            var found = false;
+            foreach (var kvp in _storageAccountClients!)
+            {
+                if (kvp.Value.ServiceClient.AccountName.Equals(importBuffersRequest.StorageAccountName, StringComparison.OrdinalIgnoreCase))
+                {
+                    storageAccountId = kvp.Key;
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found)
+            {
+                throw new ValidationException($"Storage account '{importBuffersRequest.StorageAccountName}' not found.");
+            }
+        }
+
         var args = new List<string>
         {
             "import",
             "--log-format", "json",
-            "--storage-endpoint", _serviceClient.Uri.ToString(),
+            "--storage-account-id", storageAccountId.ToString(CultureInfo.InvariantCulture),
             "--db-host", _databaseOptions.Host,
             "--db-user", _databaseOptions.Username,
         };
@@ -196,14 +274,133 @@ public sealed class AzureBlobBufferProvider : BackgroundService, IBufferProvider
 
     public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken)
     {
-        await _serviceClient.GetBlobContainerClient("healthcheck").ExistsAsync(cancellationToken);
-        if (_userDelegationKey is null || _userDelegationKey.SignedExpiresOn < DateTimeOffset.UtcNow)
+        async Task<HealthCheckResult> InnerCheck(BlobServiceClientWithRefreshingCredentials client)
         {
-            return HealthCheckResult.Unhealthy("User delegation key is not valid");
+            await client.ServiceClient.GetBlobContainerClient("healthcheck").ExistsAsync(cancellationToken);
+            if (client.UserDelegationKey is null || client.UserDelegationKey.SignedExpiresOn < DateTimeOffset.UtcNow)
+            {
+                return HealthCheckResult.Unhealthy("User delegation key is not valid");
+            }
+
+            return HealthCheckResult.Healthy();
+        }
+
+        var clients = _storageAccountClients;
+        if (clients is null)
+        {
+            return HealthCheckResult.Unhealthy("Storage account clients not initialized");
+        }
+
+        var remainingChecks = clients.Values.Select(InnerCheck).ToList();
+        while (remainingChecks.Count > 0)
+        {
+            var completed = await Task.WhenAny(remainingChecks);
+            remainingChecks.Remove(completed);
+            var result = await completed;
+            if (result.Status != HealthStatus.Healthy)
+            {
+                return result;
+            }
         }
 
         return HealthCheckResult.Healthy();
     }
+
+    public async Task StartAsync(CancellationToken cancellationToken)
+    {
+        if (_storageOptions.StorageAccounts.Count == 0)
+        {
+            throw new InvalidOperationException("No storage accounts configured");
+        }
+
+        Dictionary<int, string> idToNameMap = await _repository.UpsertStorageAccounts(GetStorageAccounts(), cancellationToken);
+
+        _storageAccountClients = idToNameMap.ToImmutableDictionary(
+            kvp => kvp.Key,
+            kvp => new BlobServiceClientWithRefreshingCredentials(
+                new BlobServiceClient(new Uri(_storageOptions.StorageAccounts.Single(sa => sa.Name.Equals(kvp.Value, StringComparison.OrdinalIgnoreCase)).Endpoint), _credential),
+                _loggerFactory.CreateLogger<BlobServiceClientWithRefreshingCredentials>()));
+
+        foreach (var client in _storageAccountClients.Values)
+        {
+            await client.StartAsync(cancellationToken);
+        }
+
+        _roundRobinCounters = _storageOptions.StorageAccounts.GroupBy(sa => sa.Location, StringComparer.OrdinalIgnoreCase).ToImmutableDictionary(
+            g => g.Key,
+            g => new StorageAccountSet(g.Select(sa => idToNameMap.Single(kvp => kvp.Value.Equals(sa.Name, StringComparison.OrdinalIgnoreCase)).Key).ToArray()),
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    public async Task StopAsync(CancellationToken cancellationToken)
+    {
+        if (_storageAccountClients is not null)
+        {
+            foreach (var client in _storageAccountClients.Values)
+            {
+                await client.StopAsync(cancellationToken);
+            }
+        }
+    }
+
+    public IList<StorageAccount> GetStorageAccounts()
+    {
+        return _storageOptions.StorageAccounts.Select(sa => new StorageAccount(sa.Name, sa.Location, sa.Endpoint)).ToList();
+    }
+
+    private sealed class StorageAccountSet
+    {
+        private readonly int[] _ids;
+
+        private uint _counter;
+
+        public StorageAccountSet(int[] ids)
+        {
+            _ids = ids;
+        }
+
+        public int GetNextId() => _ids.Length switch
+        {
+            1 => _ids[0],
+            _ => _ids[(int)(Interlocked.Increment(ref _counter) % _ids.Length)]
+        };
+    }
+
+    private async ValueTask<BlobServiceClientWithRefreshingCredentials> GetRefreshingServiceClient(int storageAccountId, CancellationToken cancellationToken)
+    {
+        if (_storageAccountClients!.TryGetValue(storageAccountId, out var client))
+        {
+            return client;
+        }
+
+        var endpoint = await _repository.GetStorageAccountEndpoint(storageAccountId, cancellationToken);
+        var serviceClient = new BlobServiceClient(new Uri(endpoint), _credential);
+        var refreshingClient = new BlobServiceClientWithRefreshingCredentials(serviceClient, _loggerFactory.CreateLogger<BlobServiceClientWithRefreshingCredentials>());
+        await refreshingClient.StartAsync(cancellationToken);
+
+        var returnResult = ImmutableInterlocked.GetOrAdd(ref _storageAccountClients, storageAccountId, refreshingClient);
+        if (!ReferenceEquals(returnResult, refreshingClient))
+        {
+            await refreshingClient.StopAsync(cancellationToken);
+        }
+
+        return returnResult;
+    }
+}
+
+public class BlobServiceClientWithRefreshingCredentials : BackgroundService
+{
+    private static readonly TimeSpan s_userDelegationKeyDuration = TimeSpan.FromDays(1);
+    private readonly ILogger<BlobServiceClientWithRefreshingCredentials> _logger;
+
+    public BlobServiceClientWithRefreshingCredentials(BlobServiceClient client, ILogger<BlobServiceClientWithRefreshingCredentials> logger)
+    {
+        ServiceClient = client;
+        _logger = logger;
+    }
+
+    public BlobServiceClient ServiceClient { get; }
+    public UserDelegationKey? UserDelegationKey { get; set; }
 
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -231,7 +428,7 @@ public sealed class AzureBlobBufferProvider : BackgroundService, IBufferProvider
                     }
                     catch (Exception e)
                     {
-                        if (_userDelegationKey is not null && _userDelegationKey.SignedExpiresOn > DateTimeOffset.UtcNow)
+                        if (UserDelegationKey is not null && UserDelegationKey.SignedExpiresOn > DateTimeOffset.UtcNow)
                         {
                             _logger.FailedToRefreshExpiredUserDelegationKey(e);
                         }
@@ -254,6 +451,6 @@ public sealed class AzureBlobBufferProvider : BackgroundService, IBufferProvider
     private async Task RefreshUserDelegationKey(CancellationToken cancellationToken)
     {
         var start = DateTimeOffset.UtcNow.AddMinutes(-5);
-        _userDelegationKey = await _serviceClient.GetUserDelegationKeyAsync(start, start.Add(s_userDelegationKeyDuration), cancellationToken);
+        UserDelegationKey = await ServiceClient.GetUserDelegationKeyAsync(start, start.Add(s_userDelegationKeyDuration), cancellationToken);
     }
 }

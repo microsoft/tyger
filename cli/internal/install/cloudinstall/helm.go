@@ -426,7 +426,7 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, dryRun bool) (
 
 		accountValues := map[string]any{
 			"name":     accountConfig.Name,
-			"location": accountConfig.Location,
+			"location": *acc.Properties.PrimaryLocation,
 			"endpoint": *acc.Properties.PrimaryEndpoints.Blob,
 		}
 
@@ -464,6 +464,7 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, dryRun bool) (
 			"bufferCopierImage":  fmt.Sprintf("%s%sbuffer-copier:%s", install.ContainerRegistry, install.GetNormalizedContainerRegistryDirectory(), install.ContainerImageTag),
 			"workerWaiterImage":  fmt.Sprintf("%s%sworker-waiter:%s", install.ContainerRegistry, install.GetNormalizedContainerRegistryDirectory(), install.ContainerImageTag),
 			"hostname":           inst.Config.Api.DomainName,
+			"location":           inst.Config.Cloud.DefaultLocation,
 			"identity": map[string]any{
 				"tygerServer": map[string]any{
 					"name":     tygerServerIdentity.Name,

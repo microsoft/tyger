@@ -52,6 +52,7 @@ func NewBufferCommand() *cobra.Command {
 	cmd.AddCommand(newBufferShowCommand())
 	cmd.AddCommand(newBufferSetCommand())
 	cmd.AddCommand(newBufferListCommand())
+	cmd.AddCommand(newStorageAccountCommand())
 	cmd.AddCommand(newBufferExportCommand())
 	cmd.AddCommand(newBufferImportCommand())
 
@@ -61,13 +62,14 @@ func NewBufferCommand() *cobra.Command {
 func newBufferCreateCommand() *cobra.Command {
 	full := false
 	tagEntries := make(map[string]string)
+	location := ""
 	cmd := &cobra.Command{
-		Use:                   "create [--tag key=value ...]",
+		Use:                   "create [--location LOCATION] [--tag KEY=VALUE ...]",
 		Short:                 "Create a buffer",
 		Long:                  `Create a buffer. Writes the buffer ID to stdout on success.`,
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			newBuffer := model.Buffer{Tags: tagEntries}
+			newBuffer := model.Buffer{Tags: tagEntries, Location: location}
 			buffer := model.Buffer{}
 			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/buffers", newBuffer, &buffer)
 			if err != nil {
@@ -87,6 +89,7 @@ func newBufferCreateCommand() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&location, "location", location, "the location of the buffer. If not specified, the buffer is created in the default location.")
 	cmd.Flags().StringToStringVar(&tagEntries, "tag", nil, "add a key-value tag to the buffer. Can be specified multiple times.")
 	cmd.Flags().BoolVar(&full, "full-resource", false, "return the full buffer resource and not just the buffer ID")
 
@@ -502,13 +505,53 @@ func newBufferListCommand() *cobra.Command {
 	return cmd
 }
 
+func newStorageAccountCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:                   "storage-account",
+		Aliases:               []string{"storage-accounts"},
+		Short:                 "Manage storage accounts",
+		Long:                  `Manage storage accounts.`,
+		DisableFlagsInUseLine: true,
+		Args:                  cobra.NoArgs,
+		RunE: func(*cobra.Command, []string) error {
+			return errors.New("a command is required")
+		},
+	}
+
+	cmd.AddCommand(newStorageAccountListCommand())
+
+	return cmd
+}
+
+func newStorageAccountListCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:                   "list",
+		Short:                 "List storage accounts",
+		Long:                  `List storage accounts.`,
+		DisableFlagsInUseLine: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			storageAccounts := []model.StorageAccount{}
+			if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, "v1/buffers/storage-accounts", nil, &storageAccounts); err != nil {
+				return err
+			}
+
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			enc.Encode(storageAccounts)
+			return nil
+		},
+	}
+
+	return cmd
+}
+
 func newBufferExportCommand() *cobra.Command {
 	request := model.ExportBuffersRequest{
 		Filters: make(map[string]string),
 	}
 
 	cmd := &cobra.Command{
-		Use:                   "export DESTINATION_STORAGE_ENDPOINT [--tag KEY=VALUE ...]",
+		Use:                   "export DESTINATION_STORAGE_ENDPOINT [--source-storage-account NAME] [--tag KEY=VALUE ...]",
 		Short:                 "Export buffers to a storage account belonging to another Tyger instance. Note that the Tyger server's managed identity must have the necessary permissions to write to the destination storage account. Only supported in cloud environments.",
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.ExactArgs(1),
@@ -526,6 +569,7 @@ func newBufferExportCommand() *cobra.Command {
 		},
 	}
 
+	cmd.Flags().StringVar(&request.SourceStorageAccountName, "source-storage-account", request.SourceStorageAccountName, "The name of the storage account to use as the source. Required if more than one storage account is part of the source Tyger installation.")
 	cmd.Flags().StringToStringVar(&request.Filters, "tag", nil, "Only include buffers with the given tag. Can be specified multiple times.")
 	cmd.Flags().BoolVar(&request.HashIds, "hash-ids", false, "Hash the buffer IDs.")
 	cmd.Flags().MarkHidden("hash-ids")
@@ -534,14 +578,15 @@ func newBufferExportCommand() *cobra.Command {
 }
 
 func newBufferImportCommand() *cobra.Command {
+	request := model.ImportBuffersRequest{}
 	cmd := &cobra.Command{
-		Use:                   "import",
+		Use:                   "import [--storage-account NAME]",
 		Short:                 "Import buffers into the local Tyger instance. This command is intended to be run after `tyger buffer export` on another Tyger instance has exported to this instance's storage accounts.",
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.ExactArgs(0),
 		Run: func(cmd *cobra.Command, args []string) {
 			run := model.Run{}
-			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/buffers/import", struct{}{}, &run)
+			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/buffers/import", request, &run)
 			if err != nil {
 				log.Fatal().Err(err).Msg("Failed to import buffers")
 			}
@@ -551,6 +596,8 @@ func newBufferImportCommand() *cobra.Command {
 			}
 		},
 	}
+
+	cmd.Flags().StringVar(&request.StorageAccountName, "storage-account", request.StorageAccountName, "The name of the storage account to use as the source. Required if more than one storage account is part of the Tyger installation.")
 
 	return cmd
 }

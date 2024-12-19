@@ -14,11 +14,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/microsoft/tyger/cli/internal/dataplane"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -32,7 +32,7 @@ const (
 )
 
 func newExportCommand(dbFlags *databaseFlags) *cobra.Command {
-	sourceStorageEndpoint := ""
+	var sourceStorageAccountId int
 	destinationStorageEndpoint := ""
 	bufferIdTransform := func(id string) string { return id }
 	filter := make(map[string]string)
@@ -42,13 +42,27 @@ func newExportCommand(dbFlags *databaseFlags) *cobra.Command {
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
+
 			ctx := cmd.Context()
 			if runId := os.Getenv("TYGER_RUN_ID"); runId != "" {
 				ctx = log.Ctx(ctx).With().Str("runId", runId).Logger().WithContext(ctx)
 			}
+
 			cred, err := createCredential()
 			if err != nil {
 				log.Ctx(cmd.Context()).Fatal().Err(err).Msg("Failed to create credentials")
+			}
+
+			pool, err := createDatabaseConnectionPool(ctx, dbFlags, cred)
+			if err != nil {
+				log.Ctx(ctx).Fatal().Err(err).Msg("Failed to create database connection pool")
+				return
+			}
+			defer pool.Close()
+
+			sourceStorageEndpoint, err := getStorageAccountEndpointFromId(ctx, pool, sourceStorageAccountId)
+			if err != nil {
+				log.Ctx(ctx).Fatal().Err(err).Msg("Failed to get storage account endpoint")
 			}
 
 			if hashIds, err := cmd.Flags().GetBool("hash-ids"); err != nil {
@@ -97,7 +111,7 @@ func newExportCommand(dbFlags *databaseFlags) *cobra.Command {
 				}()
 			}
 
-			for page, err := range getBufferIdsAndTags(ctx, dbFlags, filter, cred) {
+			for page, err := range getBufferIdsAndTags(ctx, pool, sourceStorageAccountId, filter) {
 				if err != nil {
 					cancel(fmt.Errorf("failed to get buffer IDs and tags: %w", err))
 					break
@@ -135,7 +149,8 @@ func newExportCommand(dbFlags *databaseFlags) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&sourceStorageEndpoint, "source-storage-endpoint", "", "The storage account to export buffers from")
+	cmd.Flags().IntVar(&sourceStorageAccountId, "source-storage-account-id", sourceStorageAccountId, "The integer id of the storage account to export buffers from")
+	cmd.MarkFlagRequired("source-storage-account-id")
 	cmd.Flags().StringVar(&destinationStorageEndpoint, "destination-storage-endpoint", "", "The storage account to export buffers to")
 	cmd.Flags().StringToStringVar(&filter, "filter", filter, "key-value tags to filter the buffers to export")
 	cmd.Flags().Bool("hash-ids", false, "Hash the buffer IDs before exporting them")
@@ -244,15 +259,8 @@ func copyBuffer(ctx context.Context,
 	return err
 }
 
-func getBufferIdsAndTags(ctx context.Context, dbFlags *databaseFlags, filter map[string]string, cred azcore.TokenCredential) iter.Seq2[[]bufferIdAndTags, error] {
+func getBufferIdsAndTags(ctx context.Context, pool *pgxpool.Pool, sourceStorageAccountId int, filter map[string]string) iter.Seq2[[]bufferIdAndTags, error] {
 	return func(yield func([]bufferIdAndTags, error) bool) {
-		pool, err := createDatabaseConnectionPool(ctx, dbFlags, cred)
-		if err != nil {
-			yield(nil, fmt.Errorf("failed to create database connection pool: %w", err))
-			return
-		}
-		defer pool.Close()
-
 		filterTagIds := make(map[string]int)
 		if len(filter) > 0 {
 			tagNames := make([]string, 0, len(filter))
@@ -264,7 +272,7 @@ func getBufferIdsAndTags(ctx context.Context, dbFlags *databaseFlags, filter map
 
 			var name string
 			var id int
-			_, err = pgx.ForEachRow(keyRows, []any{&name, &id}, func() error {
+			_, err := pgx.ForEachRow(keyRows, []any{&name, &id}, func() error {
 				filterTagIds[name] = id
 				return nil
 			})
@@ -285,31 +293,22 @@ func getBufferIdsAndTags(ctx context.Context, dbFlags *databaseFlags, filter map
 		// we fetch the results in pages because otherwise this reader could be open for many hours.
 		query, params := func() (string, []any) {
 			queryBuilder := strings.Builder{}
-			params := []any{lastCreatedAt, lastBufferId, exportPageSize}
+			params := []any{sourceStorageAccountId, lastCreatedAt, lastBufferId, exportPageSize}
 			paramOffset := len(params)
 			for k, v := range filter {
 				params = append(params, filterTagIds[k])
 				params = append(params, v)
 			}
 
-			var matchTable string
-			if len(filter) > 0 {
-				matchTable = "buffer_tags"
-			} else {
-				matchTable = "buffers"
-			}
-
 			queryBuilder.WriteString(`
 			WITH matches AS (
-				SELECT t0.created_at, t0.id
-				FROM `)
-			queryBuilder.WriteString(matchTable)
-			queryBuilder.WriteString(" AS t0\n")
+				SELECT buffers.created_at, buffers.id
+				FROM buffers
+				`)
 
 			if len(filter) > 0 {
-				for i := range len(filter) - 1 {
-					aliasNumber := i + 1
-					queryBuilder.WriteString(fmt.Sprintf("INNER JOIN buffer_tags AS t%d ON t0.created_at = t%d.created_at AND t0.id = t%d.id\n", aliasNumber, aliasNumber, aliasNumber))
+				for i := range len(filter) {
+					queryBuilder.WriteString(fmt.Sprintf("INNER JOIN buffer_tags AS t%d ON buffers.created_at = t%d.created_at AND buffers.id = t%d.id\n", i, i, i))
 				}
 
 				queryBuilder.WriteString("WHERE\n")
@@ -330,9 +329,9 @@ func getBufferIdsAndTags(ctx context.Context, dbFlags *databaseFlags, filter map
 			}
 
 			queryBuilder.WriteString(`
-				(t0.created_at, t0.id) > ($1, $2)
-				ORDER BY t0.created_at ASC, t0.id ASC
-				LIMIT $3
+				buffers.storage_account_id = $1 AND (buffers.created_at, buffers.id) > ($2, $3)
+				ORDER BY buffers.created_at ASC, buffers.id ASC
+				LIMIT $4
 			)
 			SELECT matches.created_at, matches.id, tag_keys.name, buffer_tags.value
 				FROM matches
@@ -344,8 +343,8 @@ func getBufferIdsAndTags(ctx context.Context, dbFlags *databaseFlags, filter map
 		}()
 
 		for {
-			params[0] = lastCreatedAt
-			params[1] = lastBufferId
+			params[1] = lastCreatedAt
+			params[2] = lastBufferId
 
 			rows, _ := pool.Query(ctx, query, params...)
 

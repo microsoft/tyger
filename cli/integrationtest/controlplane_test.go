@@ -1709,11 +1709,44 @@ func TestExport(t *testing.T) {
 	t.Parallel()
 	skipIfUsingUnixSocket(t)
 
+	saString := runTygerSucceeds(t, "buffer", "storage-account", "list")
+	var saList []model.StorageAccount
+	require.NoError(t, json.Unmarshal([]byte(saString), &saList))
+
+	location1 := saList[0].Location
+	location1AccountNames := []string{}
+	for _, sa := range saList {
+		if sa.Location == location1 {
+			location1AccountNames = append(location1AccountNames, sa.Name)
+		}
+	}
+
+	var location2AccountName string
+	var location2Endpoint string
+	var location2 string
+	for _, sa := range saList {
+		if sa.Location != location1 {
+			location2 = sa.Location
+			location2AccountName = sa.Name
+			location2Endpoint = sa.Endpoint
+			break
+		}
+	}
+
+	require.NotEmpty(t, location1)
+
 	testId := uuid.NewString()
 
 	originalBufferIds := []string{}
-	for i := range 10 {
-		id := runTygerSucceeds(t, "buffer", "create", "--tag", fmt.Sprintf("exporttestindex=%d", i), "--tag", fmt.Sprintf("exporttest=%s", testId))
+	for i := range 20 {
+		var location string
+		if i%4 == 0 {
+			location = location1
+		} else {
+			location = location2
+		}
+
+		id := runTygerSucceeds(t, "buffer", "create", "--location", location, "--tag", fmt.Sprintf("exporttestindex=%d", i), "--tag", fmt.Sprintf("exporttest=%s", testId))
 		originalBufferIds = append(originalBufferIds, id)
 
 		writeCommand := exec.Command("tyger", "buffer", "write", id)
@@ -1725,19 +1758,16 @@ func TestExport(t *testing.T) {
 		assert.NoError(t, writeCommand.Run())
 	}
 
-	sas := runTygerSucceeds(t, "buffer", "access", originalBufferIds[0])
-	sasUrl, err := url.Parse(sas)
-	require.NoError(t, err)
-	storageEndpoint := fmt.Sprintf("https://%s", sasUrl.Host)
+	for _, sourceAccountName := range location1AccountNames {
+		runTygerSucceeds(t, "buffer", "export", location2Endpoint, "--source-storage-account", sourceAccountName, "--tag", fmt.Sprintf("exporttest=%s", testId), "--hash-ids")
+	}
 
-	runTygerSucceeds(t, "buffer", "export", storageEndpoint, "--tag", fmt.Sprintf("exporttest=%s", testId), "--hash-ids")
-
-	runTygerSucceeds(t, "buffer", "import")
+	runTygerSucceeds(t, "buffer", "import", "--storage-account", location2AccountName)
 
 	jsonOutput := runTygerSucceeds(t, "buffer", "list", "--tag", fmt.Sprintf("exporttest=%s", testId))
 	var buffers []model.Buffer
 	require.NoError(t, json.Unmarshal([]byte(jsonOutput), &buffers))
-	assert.Len(t, buffers, len(originalBufferIds)*2)
+	assert.Len(t, buffers, len(originalBufferIds)*5/4)
 	for _, buffer := range buffers {
 		assert.Len(t, buffer.Tags, 2)
 	}

@@ -296,6 +296,8 @@ func (inst *Installer) startMigrationRunner(ctx context.Context, containerName s
 				"Database__AutoMigrate=true",
 				"Database__TygerServerRoleName=tyger-server",
 				"Compute__Docker__Enabled=true",
+				fmt.Sprintf("Buffers__LocalStorage__DataPlaneEndpoint=http+unix://%s/data-plane/tyger.data.sock", inst.Config.InstallationPath),
+				fmt.Sprintf("Buffers__LocalStorage__TcpDataPlaneEndpoint=http://localhost:%d", inst.Config.DataPlanePort),
 			},
 			Cmd:    args,
 			Labels: labels,

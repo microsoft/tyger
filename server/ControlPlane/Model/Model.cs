@@ -36,6 +36,8 @@ public record Buffer : ModelBase
 {
     public string Id { get; init; } = "";
 
+    public string? Location { get; init; }
+
     public string ETag { get; init; } = "";
 
     public DateTimeOffset CreatedAt { get; init; }
@@ -46,6 +48,8 @@ public record Buffer : ModelBase
 public record BufferAccess(Uri Uri) : ModelBase;
 
 public record ServiceMetadata(string? Authority = null, string? Audience = null, string? CliAppUri = null, IEnumerable<string>? Capabilities = null) : ModelBase;
+
+public record StorageAccount(string Name, string Location, string Endpoint) : ModelBase;
 
 [Equatable]
 public partial record BufferParameters(
@@ -509,9 +513,9 @@ public record Cluster(string Name, string Location, IReadOnlyList<NodePool> Node
 
 public record NodePool(string Name, string VmSize);
 
-public record ExportBuffersRequest(string DestinationStorageEndpoint, Dictionary<string, string>? Filters, [property: OpenApiExclude] bool HashIds) : ModelBase;
+public record ExportBuffersRequest(string? SourceStorageAccountName, string DestinationStorageEndpoint, Dictionary<string, string>? Filters, [property: OpenApiExclude] bool HashIds) : ModelBase;
 
-public record ImportBuffersRequest() : ModelBase;
+public record ImportBuffersRequest(string? StorageAccountName) : ModelBase;
 
 [AttributeUsage(AttributeTargets.Property)]
 public class OpenApiExcludeAttribute : Attribute

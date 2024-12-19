@@ -63,9 +63,11 @@ public abstract class RunCreatorBase : BackgroundService
             var nonEphemeralArguments = arguments.Values.Where(a => a != "_").ToList();
             if (!await BufferManager.CheckBuffersExist(nonEphemeralArguments, cancellationToken))
             {
+                var singleIdArray = new string[1];
                 foreach (var bufferId in nonEphemeralArguments)
                 {
-                    if (!await BufferManager.BufferExists(bufferId, cancellationToken))
+                    singleIdArray[0] = bufferId;
+                    if (!await BufferManager.CheckBuffersExist(singleIdArray, cancellationToken))
                     {
                         throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The buffer '{0}' was not found", bufferId));
                     }
@@ -113,20 +115,13 @@ public abstract class RunCreatorBase : BackgroundService
             return [];
         }
 
-        var outputMap = new Dictionary<string, (bool write, Uri sasUri)>();
-
-        async Task AddAccessUrl(string parameter, string bufferId, bool writeable, CancellationToken cancellationToken)
-        {
-            var bufferAccess = await BufferManager.CreateBufferAccessUrl(bufferId, writeable, preferTcp: false, fromDocker: false, checkExists: false, cancellationToken)
-                ?? throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The buffer '{0}' was not found", bufferId));
-            outputMap[parameter] = (writeable, bufferAccess.Uri);
-        }
+        var requests = new List<(string id, bool writeable)>();
 
         if (parameters?.Inputs is not null)
         {
             foreach (var param in parameters.Inputs)
             {
-                await AddAccessUrl(param, arguments[param], false, cancellationToken);
+                requests.Add((arguments[param], false));
             }
         }
 
@@ -134,7 +129,22 @@ public abstract class RunCreatorBase : BackgroundService
         {
             foreach (var param in parameters.Outputs)
             {
-                await AddAccessUrl(param, arguments[param], true, cancellationToken);
+                requests.Add((arguments[param], true));
+            }
+        }
+
+        var responses = await BufferManager.CreateBufferAccessUrls(requests, preferTcp: false, fromDocker: false, checkExists: false, cancellationToken);
+        var outputMap = new Dictionary<string, (bool write, Uri sasUri)>();
+        foreach (var (id, writeable, bufferAccess) in responses)
+        {
+            if (bufferAccess is not null)
+            {
+                var paramName = writeable ? parameters!.Outputs!.First(p => arguments[p] == id) : parameters!.Inputs!.First(p => arguments[p] == id);
+                outputMap[paramName] = (writeable, bufferAccess.Uri);
+            }
+            else
+            {
+                throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The buffer '{0}' was not found", id));
             }
         }
 

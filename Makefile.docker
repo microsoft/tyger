@@ -24,7 +24,7 @@ set-localsettings: ensure-data-plane-cert
 
 	jq <<- EOF > ${CONTROL_PLANE_SERVER_PATH}/appsettings.local.json
 		{
-			"urls": "http://unix:$${install_path}/api.sock",
+			"urls": "http://unix:$${install_path}/control-plane/tyger.sock",
 			"logging": { "Console": {"FormatterName": "simple" } },
 			"auth": {
 				"enabled": "false"
