@@ -27,7 +27,8 @@ public sealed class AzureBlobBufferProvider : IHostedService, IBufferProvider, I
     private readonly Repository _repository;
     private readonly ILoggerFactory _loggerFactory;
     private ImmutableDictionary<int, BlobServiceClientWithRefreshingCredentials>? _storageAccountClients;
-    private ImmutableDictionary<string, StorageAccountSet>? _roundRobinCounters;
+    private ImmutableDictionary<string, RoundRobinCounter>? _roundRobinCounters;
+    private string? _defaultLocation;
 
     public AzureBlobBufferProvider(
         TokenCredential credential,
@@ -49,7 +50,21 @@ public sealed class AzureBlobBufferProvider : IHostedService, IBufferProvider, I
 
     public async Task<Buffer> CreateBuffer(Buffer buffer, CancellationToken cancellationToken)
     {
-        var location = string.IsNullOrEmpty(buffer.Location) ? _storageOptions.DefaultLocation : buffer.Location;
+        string location;
+        if (!string.IsNullOrEmpty(buffer.Location))
+        {
+            location = buffer.Location;
+        }
+        else
+        {
+            if (string.IsNullOrEmpty(_defaultLocation))
+            {
+                throw new ValidationException("A location must be specified for this buffer because there is no default location.");
+            }
+
+            location = _defaultLocation;
+        }
+
         if (!_roundRobinCounters!.TryGetValue(location, out var roundRobinCounter))
         {
             throw new ValidationException($"No storage accounts configured for location '{location}'");
@@ -328,8 +343,17 @@ public sealed class AzureBlobBufferProvider : IHostedService, IBufferProvider, I
 
         _roundRobinCounters = _storageOptions.StorageAccounts.GroupBy(sa => sa.Location, StringComparer.OrdinalIgnoreCase).ToImmutableDictionary(
             g => g.Key,
-            g => new StorageAccountSet(g.Select(sa => idToNameMap.Single(kvp => kvp.Value.Equals(sa.Name, StringComparison.OrdinalIgnoreCase)).Key).ToArray()),
+            g => new RoundRobinCounter(g.Select(sa => idToNameMap.Single(kvp => kvp.Value.Equals(sa.Name, StringComparison.OrdinalIgnoreCase)).Key).ToArray()),
             StringComparer.OrdinalIgnoreCase);
+
+        if (_roundRobinCounters.ContainsKey(_storageOptions.DefaultLocation))
+        {
+            _defaultLocation = _storageOptions.DefaultLocation;
+        }
+        else if (_roundRobinCounters.Count == 1)
+        {
+            _defaultLocation = _roundRobinCounters.Keys.Single();
+        }
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
@@ -346,24 +370,6 @@ public sealed class AzureBlobBufferProvider : IHostedService, IBufferProvider, I
     public IList<StorageAccount> GetStorageAccounts()
     {
         return _storageOptions.StorageAccounts.Select(sa => new StorageAccount(sa.Name, sa.Location, sa.Endpoint)).ToList();
-    }
-
-    private sealed class StorageAccountSet
-    {
-        private readonly int[] _ids;
-
-        private uint _counter;
-
-        public StorageAccountSet(int[] ids)
-        {
-            _ids = ids;
-        }
-
-        public int GetNextId() => _ids.Length switch
-        {
-            1 => _ids[0],
-            _ => _ids[(int)(Interlocked.Increment(ref _counter) % _ids.Length)]
-        };
     }
 
     private async ValueTask<BlobServiceClientWithRefreshingCredentials> GetRefreshingServiceClient(int storageAccountId, CancellationToken cancellationToken)
@@ -386,71 +392,88 @@ public sealed class AzureBlobBufferProvider : IHostedService, IBufferProvider, I
 
         return returnResult;
     }
-}
-
-public class BlobServiceClientWithRefreshingCredentials : BackgroundService
-{
-    private static readonly TimeSpan s_userDelegationKeyDuration = TimeSpan.FromDays(1);
-    private readonly ILogger<BlobServiceClientWithRefreshingCredentials> _logger;
-
-    public BlobServiceClientWithRefreshingCredentials(BlobServiceClient client, ILogger<BlobServiceClientWithRefreshingCredentials> logger)
+    private sealed class RoundRobinCounter
     {
-        ServiceClient = client;
-        _logger = logger;
-    }
+        private readonly int[] _ids;
 
-    public BlobServiceClient ServiceClient { get; }
-    public UserDelegationKey? UserDelegationKey { get; set; }
+        private uint _counter;
 
-    public override async Task StartAsync(CancellationToken cancellationToken)
-    {
-        await RefreshUserDelegationKey(cancellationToken);
-        await base.StartAsync(cancellationToken);
-    }
-
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        try
+        public RoundRobinCounter(int[] ids)
         {
-            while (!stoppingToken.IsCancellationRequested)
-            {
-                await Task.Delay(s_userDelegationKeyDuration * 0.75, stoppingToken);
-                while (true)
-                {
-                    try
-                    {
-                        await RefreshUserDelegationKey(stoppingToken);
-                        break;
-                    }
-                    catch (TaskCanceledException) when (stoppingToken.IsCancellationRequested)
-                    {
-                        return;
-                    }
-                    catch (Exception e)
-                    {
-                        if (UserDelegationKey is not null && UserDelegationKey.SignedExpiresOn > DateTimeOffset.UtcNow)
-                        {
-                            _logger.FailedToRefreshExpiredUserDelegationKey(e);
-                        }
-                        else
-                        {
-                            _logger.FailedToRefreshUserDelegationKey(e);
-                        }
+            _ids = ids;
+        }
 
-                        await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+        public int GetNextId() => _ids.Length switch
+        {
+            1 => _ids[0],
+            _ => _ids[(int)(Interlocked.Increment(ref _counter) % _ids.Length)]
+        };
+    }
+
+    private sealed class BlobServiceClientWithRefreshingCredentials : BackgroundService
+    {
+        private static readonly TimeSpan s_userDelegationKeyDuration = TimeSpan.FromDays(1);
+        private readonly ILogger<BlobServiceClientWithRefreshingCredentials> _logger;
+
+        public BlobServiceClientWithRefreshingCredentials(BlobServiceClient client, ILogger<BlobServiceClientWithRefreshingCredentials> logger)
+        {
+            ServiceClient = client;
+            _logger = logger;
+        }
+
+        public BlobServiceClient ServiceClient { get; }
+        public UserDelegationKey? UserDelegationKey { get; set; }
+
+        public override async Task StartAsync(CancellationToken cancellationToken)
+        {
+            await RefreshUserDelegationKey(cancellationToken);
+            await base.StartAsync(cancellationToken);
+        }
+
+        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+        {
+            try
+            {
+                while (!stoppingToken.IsCancellationRequested)
+                {
+                    await Task.Delay(s_userDelegationKeyDuration * 0.75, stoppingToken);
+                    while (true)
+                    {
+                        try
+                        {
+                            await RefreshUserDelegationKey(stoppingToken);
+                            break;
+                        }
+                        catch (TaskCanceledException) when (stoppingToken.IsCancellationRequested)
+                        {
+                            return;
+                        }
+                        catch (Exception e)
+                        {
+                            if (UserDelegationKey is not null && UserDelegationKey.SignedExpiresOn > DateTimeOffset.UtcNow)
+                            {
+                                _logger.FailedToRefreshExpiredUserDelegationKey(e);
+                            }
+                            else
+                            {
+                                _logger.FailedToRefreshUserDelegationKey(e);
+                            }
+
+                            await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+                        }
                     }
                 }
             }
+            catch (TaskCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                return;
+            }
         }
-        catch (TaskCanceledException) when (stoppingToken.IsCancellationRequested)
-        {
-            return;
-        }
-    }
 
-    private async Task RefreshUserDelegationKey(CancellationToken cancellationToken)
-    {
-        var start = DateTimeOffset.UtcNow.AddMinutes(-5);
-        UserDelegationKey = await ServiceClient.GetUserDelegationKeyAsync(start, start.Add(s_userDelegationKeyDuration), cancellationToken);
+        private async Task RefreshUserDelegationKey(CancellationToken cancellationToken)
+        {
+            var start = DateTimeOffset.UtcNow.AddMinutes(-5);
+            UserDelegationKey = await ServiceClient.GetUserDelegationKeyAsync(start, start.Add(s_userDelegationKeyDuration), cancellationToken);
+        }
     }
 }
