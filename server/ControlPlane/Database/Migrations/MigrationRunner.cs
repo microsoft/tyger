@@ -19,6 +19,7 @@ public class MigrationRunner : IHostedService
     private readonly ResiliencePipeline _resiliencePipeline;
     private readonly DatabaseOptions _databaseOptions;
     private readonly IReplicaDatabaseVersionProvider _replicaDatabaseVersionProvider;
+    private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<MigrationRunner> _logger;
     private readonly ILoggerFactory _loggerFactory;
 
@@ -28,6 +29,7 @@ public class MigrationRunner : IHostedService
         IOptions<DatabaseOptions> databaseOptions,
         ResiliencePipeline resiliencePipeline,
         IReplicaDatabaseVersionProvider replicaDatabaseVersionProvider,
+        IServiceProvider serviceProvider,
         ILogger<MigrationRunner> logger,
         ILoggerFactory loggerFactory)
     {
@@ -36,6 +38,7 @@ public class MigrationRunner : IHostedService
         _resiliencePipeline = resiliencePipeline;
         _databaseOptions = databaseOptions.Value;
         _replicaDatabaseVersionProvider = replicaDatabaseVersionProvider;
+        _serviceProvider = serviceProvider;
         _logger = logger;
         _loggerFactory = loggerFactory;
     }
@@ -73,7 +76,7 @@ public class MigrationRunner : IHostedService
 
         var migrations = knownVersions
             .Where(pair => (current == null || (int)pair.version > (int)current) && (targetVersion == null || (int)pair.version <= targetVersion))
-            .Select(pair => (pair.version, (Migrator)Activator.CreateInstance(pair.migrator)!))
+            .Select(pair => (pair.version, (Migrator)ActivatorUtilities.CreateInstance(_serviceProvider, pair.migrator)!))
             .ToList();
 
         using var httpClient = new HttpClient();

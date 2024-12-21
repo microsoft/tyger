@@ -24,6 +24,7 @@ type Buffer struct {
 	Id        string            `json:"id"`
 	ETag      string            `json:"etag"`
 	CreatedAt time.Time         `json:"createdAt"`
+	Location  string            `json:"location,omitempty"`
 	Tags      map[string]string `json:"tags,omitempty"`
 }
 
@@ -34,6 +35,12 @@ type BufferAccess struct {
 type BufferParameters struct {
 	Inputs  []string `json:"inputs,omitempty"`
 	Outputs []string `json:"outputs,omitempty"`
+}
+
+type StorageAccount struct {
+	Name     string `json:"name"`
+	Location string `json:"location"`
+	Endpoint string `json:"endpoint"`
 }
 
 type OvercommittableResources struct {
@@ -232,7 +239,12 @@ type Cluster struct {
 }
 
 type ExportBuffersRequest struct {
+	SourceStorageAccountName   string            `json:"sourceStorageAccountName"`
 	DestinationStorageEndpoint string            `json:"destinationStorageEndpoint"`
 	Filters                    map[string]string `json:"filters,omitempty"`
 	HashIds                    bool              `json:"hashIds,omitempty"`
+}
+
+type ImportBuffersRequest struct {
+	StorageAccountName string `json:"storageAccountName"`
 }

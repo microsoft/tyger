@@ -139,53 +139,55 @@ func getTempDockerInstallationPath(t *testing.T) string {
 	return installationPath
 }
 
-func TestDockerOnlineMigrations(t *testing.T) {
-	t.Parallel()
-	skipUnlessUsingUnixSocket(t)
-	skipIfNotUsingUnixSocketDirectly(t)
+// TODO: Re-enable this test when we have a current database version that supports online migrations
 
-	installationPath := getTempDockerInstallationPath(t)
-	defer os.RemoveAll(installationPath)
+// func TestDockerOnlineMigrations(t *testing.T) {
+// 	t.Parallel()
+// 	skipUnlessUsingUnixSocket(t)
+// 	skipIfNotUsingUnixSocketDirectly(t)
 
-	environmentConfig := runCommandSucceeds(t, "../../scripts/get-config.sh", "--docker")
+// 	installationPath := getTempDockerInstallationPath(t)
+// 	defer os.RemoveAll(installationPath)
 
-	lowercaseTestName := strings.ToLower(t.Name())
-	if len(lowercaseTestName) > 23 {
-		lowercaseTestName = lowercaseTestName[:23]
-	}
-	configMap := make(map[string]any)
-	require.NoError(t, yaml.Unmarshal([]byte(environmentConfig), &configMap))
-	configMap["environmentName"] = lowercaseTestName
-	configMap["installationPath"] = installationPath
-	configMap["initialDatabaseVersion"] = 3
-	p, err := dataplane.GetFreePort()
-	require.NoError(t, err)
-	configMap["dataPlanePort"] = p
-	configMap["network"] = map[string]any{"subnet": "172.255.0.0/24"}
+// 	environmentConfig := runCommandSucceeds(t, "../../scripts/get-config.sh", "--docker")
 
-	updatedEnvironmentConfigBytes, err := yaml.Marshal(configMap)
-	require.NoError(t, err)
+// 	lowercaseTestName := strings.ToLower(t.Name())
+// 	if len(lowercaseTestName) > 23 {
+// 		lowercaseTestName = lowercaseTestName[:23]
+// 	}
+// 	configMap := make(map[string]any)
+// 	require.NoError(t, yaml.Unmarshal([]byte(environmentConfig), &configMap))
+// 	configMap["environmentName"] = lowercaseTestName
+// 	configMap["installationPath"] = installationPath
+// 	configMap["initialDatabaseVersion"] = 3
+// 	p, err := dataplane.GetFreePort()
+// 	require.NoError(t, err)
+// 	configMap["dataPlanePort"] = p
+// 	configMap["network"] = map[string]any{"subnet": "172.255.0.0/24"}
 
-	tempDir := t.TempDir()
-	configPath := fmt.Sprintf("%s/environment-config.yaml", tempDir)
-	require.NoError(t, os.WriteFile(configPath, updatedEnvironmentConfigBytes, 0644))
+// 	updatedEnvironmentConfigBytes, err := yaml.Marshal(configMap)
+// 	require.NoError(t, err)
 
-	tygerPath, err := exec.LookPath("tyger")
-	require.NoError(t, err)
-	tygerPath, err = filepath.Abs(tygerPath)
-	require.NoError(t, err)
+// 	tempDir := t.TempDir()
+// 	configPath := fmt.Sprintf("%s/environment-config.yaml", tempDir)
+// 	require.NoError(t, os.WriteFile(configPath, updatedEnvironmentConfigBytes, 0644))
 
-	defer func() {
-		runCommandSucceeds(t, "sudo", tygerPath, "api", "uninstall", "-f", configPath, "--delete-data", "--preserve-run-containers")
-	}()
+// 	tygerPath, err := exec.LookPath("tyger")
+// 	require.NoError(t, err)
+// 	tygerPath, err = filepath.Abs(tygerPath)
+// 	require.NoError(t, err)
 
-	runCommandSucceeds(t, "sudo", tygerPath, "api", "install", "-f", configPath)
+// 	defer func() {
+// 		runCommandSucceeds(t, "sudo", tygerPath, "api", "uninstall", "-f", configPath, "--delete-data", "--preserve-run-containers")
+// 	}()
 
-	runTygerSucceeds(t, "api", "migrations", "apply", "--latest", "--offline", "--wait", "-f", configPath)
+// 	runCommandSucceeds(t, "sudo", tygerPath, "api", "install", "-f", configPath)
 
-	logs := runTygerSucceeds(t, "api", "migrations", "logs", "4", "-f", configPath)
-	assert.Contains(t, logs, "Migration 4 complete")
-}
+// 	runTygerSucceeds(t, "api", "migrations", "apply", "--latest", "--offline", "--wait", "-f", configPath)
+
+// 	logs := runTygerSucceeds(t, "api", "migrations", "logs", "4", "-f", configPath)
+// 	assert.Contains(t, logs, "Migration 4 complete")
+// }
 
 func TestDockerOfflineMigrations(t *testing.T) {
 	t.Parallel()

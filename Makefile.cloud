@@ -100,6 +100,7 @@ set-localsettings: set-context
 			},
 			"buffers": {
 				"cloudStorage": {
+					"defaultLocation": "$$(echo $${helm_values} | jq -r '.location')",
 					"storageAccounts": $$(echo $${helm_values} | jq -c '.buffers.storageAccounts')
 				},
 				"bufferSidecarImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.bufferSidecarImage')",

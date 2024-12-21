@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/service"
 	"github.com/dustin/go-humanize"
@@ -28,7 +27,8 @@ const (
 )
 
 func newImportCommand(dbFlags *databaseFlags) *cobra.Command {
-	storageEndpoint := ""
+	var storageAccountId int
+
 	cmd := &cobra.Command{
 		Use:                   "import",
 		Short:                 "Imports buffers in a storage account to the current Tyger instance",
@@ -42,6 +42,17 @@ func newImportCommand(dbFlags *databaseFlags) *cobra.Command {
 			cred, err := createCredential()
 			if err != nil {
 				log.Ctx(ctx).Fatal().Err(err).Msg("Failed to create credentials")
+			}
+
+			pool, err := createDatabaseConnectionPool(ctx, dbFlags, cred)
+			if err != nil {
+				log.Ctx(ctx).Fatal().Err(err).Msg("failed to create database connection pool")
+			}
+			defer pool.Close()
+
+			storageEndpoint, err := getStorageAccountEndpointFromId(ctx, pool, storageAccountId)
+			if err != nil {
+				log.Ctx(ctx).Fatal().Err(err).Msg("failed to get storage account endpoint")
 			}
 
 			blobServiceClient, err := azblob.NewClient(storageEndpoint, cred, &blobClientOptions)
@@ -86,7 +97,7 @@ func newImportCommand(dbFlags *databaseFlags) *cobra.Command {
 				close(containerChannel)
 			}()
 
-			err = bulkInsert(ctx, dbFlags, cred, dbBatchSize, containerChannel)
+			err = bulkInsert(ctx, pool, dbBatchSize, storageAccountId, containerChannel)
 			if ctxCause := context.Cause(ctx); ctxCause != nil {
 				err = ctxCause
 			}
@@ -97,18 +108,13 @@ func newImportCommand(dbFlags *databaseFlags) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&storageEndpoint, "storage-endpoint", "", "The storage account to import buffers from")
-	cmd.MarkFlagRequired("storage-endpoint")
+	cmd.Flags().IntVar(&storageAccountId, "storage-account-id", storageAccountId, "The integer id of the storage account to export buffers from")
+	cmd.MarkFlagRequired("storage-account-id")
 
 	return cmd
 }
 
-func bulkInsert(ctx context.Context, dbFlags *databaseFlags, cred azcore.TokenCredential, batchSize int, containers <-chan *service.ContainerItem) error {
-	pool, err := createDatabaseConnectionPool(ctx, dbFlags, cred)
-	if err != nil {
-		log.Ctx(ctx).Fatal().Err(err).Msg("failed to create database connection pool")
-	}
-
+func bulkInsert(ctx context.Context, pool *pgxpool.Pool, batchSize int, storageAccountId int, containers <-chan *service.ContainerItem) error {
 	totalCount := int64(0)
 	page := make([]*service.ContainerItem, 0, batchSize)
 
@@ -116,7 +122,7 @@ func bulkInsert(ctx context.Context, dbFlags *databaseFlags, cred azcore.TokenCr
 		totalCount++
 		page = append(page, container)
 		if len(page) == batchSize {
-			if err := insertBatch(ctx, pool, page, totalCount); err != nil {
+			if err := insertBatch(ctx, pool, page, totalCount, storageAccountId); err != nil {
 				return fmt.Errorf("failed to insert batch: %w", err)
 			}
 			page = page[:0]
@@ -124,14 +130,14 @@ func bulkInsert(ctx context.Context, dbFlags *databaseFlags, cred azcore.TokenCr
 	}
 
 	if len(page) > 0 {
-		if err := insertBatch(ctx, pool, page, totalCount); err != nil {
+		if err := insertBatch(ctx, pool, page, totalCount, storageAccountId); err != nil {
 			return fmt.Errorf("failed to insert batch: %w", err)
 		}
 	}
 	return nil
 }
 
-func insertBatch(ctx context.Context, pool *pgxpool.Pool, containerBatch []*service.ContainerItem, totalCount int64) error {
+func insertBatch(ctx context.Context, pool *pgxpool.Pool, containerBatch []*service.ContainerItem, totalCount int64, storageAccountId int) error {
 	start := time.Now()
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
@@ -157,7 +163,6 @@ func insertBatch(ctx context.Context, pool *pgxpool.Pool, containerBatch []*serv
 		id TEXT,
 		key TEXT,
 		value TEXT
-
 	)
 	ON COMMIT DROP;
 	`)
@@ -201,8 +206,8 @@ func insertBatch(ctx context.Context, pool *pgxpool.Pool, containerBatch []*serv
 	newBufferCount := 0
 	commandBatch.Queue(`
 		WITH inserted_buffers AS (
-			INSERT INTO buffers (id, created_at, etag)
-			SELECT id, created_at, '0'
+			INSERT INTO buffers (id, created_at, etag, storage_account_id)
+			SELECT id, created_at, '0', $1
 			FROM temp_buffers
 			ON CONFLICT (id) DO NOTHING
 			RETURNING id, created_at
@@ -221,7 +226,7 @@ func insertBatch(ctx context.Context, pool *pgxpool.Pool, containerBatch []*serv
 			FROM mapped_tags
 		)
 		SELECT COUNT(*) FROM inserted_buffers;
-	`).QueryRow(func(row pgx.Row) error {
+	`, storageAccountId).QueryRow(func(row pgx.Row) error {
 		return row.Scan(&newBufferCount)
 	})
 

@@ -18,8 +18,26 @@ To create a buffer, run:
 tyger buffer create
 ```
 
+
 This command will output the new buffer's ID, which is used for operations like
 buffer reading, buffer writing, and creating runs.
+
+### Specifying the location of a buffer
+
+In a cloud installation, you can use multiple storage accounts for buffer
+storage. If those accounts are in different cloud locations (regions), you can
+specify the location that that you would like the buffer to be crated in with
+the `--location` parameter. The location is the lowercase name of the cloud
+location with spaces removed, such as `eastus` or `westus2`. If multiple storage
+accounts are in the same location, accounts are selected in a round-robin
+fashion.
+
+The available regions for a tyger installation can fetched with:
+
+```bash
+tyger buffer storage-account list
+```
+
 
 ## Writing to a buffer
 
@@ -101,6 +119,7 @@ The response looks like:
   "id": "yf4sx2aqzitepjhmxjhanomn5e",
   "etag": "638418036499348393",
   "createdAt": "2024-01-25T18:20:49.951262Z",
+  "location": "eastus",
   "tags": {
     "mykey1": "myvalue1",
     "mykey2": "myvalue2"
@@ -119,6 +138,7 @@ tyger buffer set $buffer_id --tag myKey1=myvalue1Updated --tag mykey3=myvalue3
   "id": "yf4sx2aqzitepjhmxjhanomn5e",
   "etag": "638418039170119977",
   "createdAt": "2024-01-25T18:20:49.951262Z",
+  "location": "eastus",
   "tags": {
     "myKey1": "myvalue1Updated",
     "mykey2": "myvalue2",
@@ -138,6 +158,7 @@ tyger buffer set $buffer_id --clear-tags --tag myKey1=yetAnotherValue
   "id": "yf4sx2aqzitepjhmxjhanomn5e",
   "etag": "638418039170119988",
   "createdAt": "2024-01-25T18:20:49.951262Z",
+  "location": "eastus",
   "tags": {
     "myKey1": "yetAnotherValue",
   }
@@ -171,6 +192,7 @@ tyger buffer list --tag mykey1=myvalue1
     "id": "yf4sx2aqzitepjhmxjhanomn5e",
     "etag": "638418036499348393",
     "createdAt": "2024-01-25T18:20:49.951262Z",
+    "location": "eastus",
     "tags": {
       "mykey1": "myvalue1",
       "mykey2": "myvalue2"
@@ -191,6 +213,7 @@ tyger buffer list --tag mykey1=myvalue1 --tag mykey2=myvalue2
     "id": "yf4sx2aqzitepjhmxjhanomn5e",
     "etag": "638418036499348393",
     "createdAt": "2024-01-25T18:20:49.951262Z",
+    "location": "eastus",
     "tags": {
       "mykey1": "myvalue1",
       "mykey2": "myvalue2"
@@ -218,12 +241,18 @@ their tags from one instance to another. This can be accomplished in two steps.
 ### Export the buffers
 
 ```bash
-tyger buffer export DESTINATION_STORAGE_ENDPOINT [--tag KEY=VALUE ...]
+tyger buffer export DESTINATION_STORAGE_ENDPOINT [--source-storage-account SOURCE_ACCOUNT_NAME] [--tag KEY=VALUE ...]
 ```
 
 `DESTINATION_STORAGE_ENDPOINT` should be the blob endpoint of the destination
 Tyger instance's storage account. The Tyger server's managed identity needs to have
 `Storage Blob Data Contributor` access on this storage account.
+
+
+If multiple storage accounts are configured for the source Tyger installation
+`--source-storage-account` must be provided. The export command will only export
+from a single storage account. The available storage accounts can be listed with
+the command `tyger buffer storage-account list`.
 
 To only export a subset of buffer, you can filter the buffers to be exported by
 tags.
@@ -236,9 +265,14 @@ Once the export run has completed successfully, you can import these buffers
 into the destination Tyger instance's database with the command:
 
 ```bash
-tyger buffer import
+tyger buffer import [--storage-account STORAGE_ACCOUNT_NAME]
 ```
 
 This starts a run that scans though the instance's storage account and imports
 new buffers. Note that existing buffers are not touched and their tags will not
 be updated.
+
+If multiple storage accounts are configured for the Tyger installation
+`--storage-account` must be provided. The import command will only import from a
+from a single storage account. The available storage accounts can be listed with
+the command `tyger buffer storage-account list`.
