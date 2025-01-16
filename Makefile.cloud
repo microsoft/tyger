@@ -209,4 +209,4 @@ variant-test:
 	# No variant tests for cloud configuration
 
 get-last-server-exception: set-context
-	kubectl logs -l component=tyger-server | grep Exception || true | tac | head -n 1 | jq -r '.exception'
+	(kubectl logs -l component=tyger-server | grep Exception || true) | tac | head -n 1 | jq -r '.exception'

@@ -45,8 +45,8 @@ public static class Normalizer
             foreach (var property in value.GetType().GetProperties())
             {
                 if (Attribute.IsDefined(property, typeof(CompilerGeneratedAttribute)) ||
-                (property.GetCustomAttribute<JsonIgnoreAttribute>() is JsonIgnoreAttribute ignoreAttribute &&
-                ignoreAttribute.Condition == JsonIgnoreCondition.Always))
+                    (property.GetCustomAttribute<JsonIgnoreAttribute>() is JsonIgnoreAttribute ignoreAttribute &&
+                    ignoreAttribute.Condition == JsonIgnoreCondition.Always))
                 {
                     continue;
                 }

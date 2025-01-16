@@ -522,7 +522,7 @@ timeoutSeconds: 600`, BasicImage)
 
 	uniqueId := uuid.New().String()
 
-	execStdOut := NewTygerCmdBuilder("run", "exec", "--file", runSpecPath, "--tag", "testName=TestCodespecBufferTagsWithYamlSpec", "--tag", "testtagX="+uniqueId, "--log-level", "trace").
+	execStdOut := NewTygerCmdBuilder("run", "exec", "--file", runSpecPath, "--buffer-tag", "testName=TestCodespecBufferTagsWithYamlSpec", "--buffer-tag", "testtagX="+uniqueId, "--log-level", "trace").
 		Stdin("Hello").
 		RunSucceeds(t)
 

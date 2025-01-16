@@ -37,6 +37,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"github.com/thediveo/enumflag"
 	"sigs.k8s.io/yaml"
 )
 
@@ -61,6 +62,7 @@ func NewRunCommand() *cobra.Command {
 	cmd.AddCommand(newRunWatchCommand())
 	cmd.AddCommand(newRunLogsCommand())
 	cmd.AddCommand(newRunListCommand())
+	cmd.AddCommand(newRunSetCommand())
 	cmd.AddCommand(newRunCountsCommand())
 	cmd.AddCommand(newRunCancelCommand())
 
@@ -266,7 +268,7 @@ beginWatch:
 	var runFailedErr error
 	eventChan, errChan := watchRun(ctx, run.Id)
 
-	lastStatus := model.RunStatus(-1)
+	lastStatus := model.RunStatus(math.MaxUint)
 	for {
 		select {
 		case err := <-errChan:
@@ -347,7 +349,7 @@ func newRunCreateCommandCore(
 		codespec        string
 		codespecVersion string
 		buffers         map[string]string
-		tags            map[string]string
+		bufferTags      map[string]string
 		nodePool        string
 		replicas        int
 	}
@@ -358,6 +360,7 @@ func newRunCreateCommandCore(
 		cluster  string
 		timeout  string
 		pull     bool
+		tags     map[string]string
 	}
 
 	getCodespecRef := func(ctf codeTargetFlags) model.CodespecRef {
@@ -405,11 +408,11 @@ func newRunCreateCommandCore(
 					newRun.Job.Buffers[k] = v
 				}
 			}
-			if len(flags.job.tags) > 0 {
+			if len(flags.job.bufferTags) > 0 {
 				if newRun.Job.Tags == nil {
 					newRun.Job.Tags = map[string]string{}
 				}
-				for k, v := range flags.job.tags {
+				for k, v := range flags.job.bufferTags {
 					newRun.Job.Tags[k] = v
 				}
 			}
@@ -454,6 +457,15 @@ func newRunCreateCommandCore(
 				newRun.TimeoutSeconds = &seconds
 			}
 
+			if len(flags.tags) > 0 {
+				if newRun.Tags == nil {
+					newRun.Tags = map[string]string{}
+				}
+				for k, v := range flags.tags {
+					newRun.Tags[k] = v
+				}
+			}
+
 			if preValidate != nil {
 				err := preValidate(cmd.Context(), newRun)
 				if err != nil {
@@ -491,7 +503,7 @@ func newRunCreateCommandCore(
 	cmd.Flags().IntVarP(&flags.job.replicas, "replicas", "r", 1, "The number of parallel job replicas. Defaults to 1.")
 	cmd.Flags().StringVar(&flags.job.nodePool, "node-pool", "", "The name of the nodepool to execute the job in")
 	cmd.Flags().StringToStringVarP(&flags.job.buffers, "buffer", "b", nil, "maps a codespec buffer parameter to a buffer ID")
-	cmd.Flags().StringToStringVar(&flags.job.tags, "tag", nil, "add a key-value tag to be applied to any buffer created by the job")
+	cmd.Flags().StringToStringVar(&flags.job.bufferTags, "buffer-tag", nil, "add a key-value tag to be applied to any buffer created by the job")
 
 	cmd.Flags().StringVar(&flags.worker.codespec, "worker-codespec", "", "The name of the optional worker codespec to execute")
 	cmd.Flags().StringVar(&flags.worker.codespecVersion, "worker-version", "", "The version of the optional worker codespec to execute")
@@ -500,6 +512,7 @@ func newRunCreateCommandCore(
 
 	cmd.Flags().StringVar(&flags.cluster, "cluster", "", "The name of the cluster to execute in")
 	cmd.Flags().StringVar(&flags.timeout, "timeout", "", `How log before the run times out. Specified in a sequence of decimal numbers, each with optional fraction and a unit suffix, such as "300s", "1.5h" or "2h45m". Valid time units are "s", "m", "h"`)
+	cmd.Flags().StringToStringVar(&flags.tags, "tag", nil, "A key-value tag to the added to the run. Can be specified multiple times.")
 
 	cmd.Flags().BoolVar(&flags.pull, "pull", false, "Pull container images. Applies only to Tyger running in Docker.")
 
@@ -597,12 +610,14 @@ func newRunWatchCommand() *cobra.Command {
 
 func newRunListCommand() *cobra.Command {
 	var flags struct {
-		limit int
-		since string
+		limit    int
+		since    string
+		tags     map[string]string
+		statuses []model.RunStatus
 	}
 
 	cmd := &cobra.Command{
-		Use:                   "list [--since DATE/TIME] [--limit COUNT]",
+		Use:                   "list [--since DATE/TIME] [--tag key=value ...] [--status STATUS] [--limit COUNT]",
 		Short:                 "List runs",
 		Long:                  `List runs. Runs are sorted by descending created time.`,
 		DisableFlagsInUseLine: true,
@@ -622,13 +637,54 @@ func newRunListCommand() *cobra.Command {
 				queryOptions.Add("since", tm.UTC().Format(time.RFC3339Nano))
 			}
 
+			for k, v := range flags.tags {
+				queryOptions.Add(fmt.Sprintf("tag[%s]", k), v)
+			}
+
+			for _, status := range flags.statuses {
+				queryOptions.Add("status", status.String())
+			}
+
 			relativeUri := fmt.Sprintf("v1/runs?%s", queryOptions.Encode())
 			return controlplane.InvokePageRequests[model.Run](cmd.Context(), relativeUri, flags.limit, !cmd.Flags().Lookup("limit").Changed)
 		},
 	}
 
+	runStatuses := map[model.RunStatus][]string{}
+	for _, status := range model.RunStatuses {
+		runStatuses[status] = []string{status.String()}
+	}
+
 	cmd.Flags().StringVarP(&flags.since, "since", "s", "", "Results before this datetime (specified in local time) are not included")
+	cmd.Flags().StringToStringVar(&flags.tags, "tag", nil, "Only include runs with the given tag. Can be specified multiple times.")
+	cmd.Flags().Var(
+		enumflag.NewSlice(&flags.statuses, "status", runStatuses, enumflag.EnumCaseInsensitive),
+		"status",
+		"Only include runs with the given status. When specified multiple times, any of the given statuses are matched.")
 	cmd.Flags().IntVarP(&flags.limit, "limit", "l", 1000, "The maximum number of runs to list. Default 1000")
+
+	return cmd
+}
+
+func newRunSetCommand() *cobra.Command {
+	var etag string
+	tags := make(map[string]string)
+	clearTags := false
+	cmd := &cobra.Command{
+		Use:                   "set ID [--clear-tags] [--tag key=value ...] [--etag ETAG]",
+		Short:                 "Updates or replaces tags set on a run",
+		Long:                  "Updates or replaces tags set on a run",
+		Args:                  exactlyOneArg("Run ID"),
+		DisableFlagsInUseLine: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			output := model.Run{}
+			return controlplane.SetTagsOnEntity(cmd.Context(), fmt.Sprintf("v1/runs/%s", args[0]), etag, clearTags, tags, &output)
+		},
+	}
+
+	cmd.Flags().BoolVar(&clearTags, "clear-tags", clearTags, "clear all existing tags from the buffer and replace them with the new tags. If not specified, the existing tags are preserved and updated.")
+	cmd.Flags().StringToStringVar(&tags, "tag", nil, "add or update a key-value tag to the buffer. Can be specified multiple times.")
+	cmd.Flags().StringVar(&etag, "etag", etag, "the ETag read ETag to guard against concurrent updates, ")
 
 	return cmd
 }
@@ -636,6 +692,7 @@ func newRunListCommand() *cobra.Command {
 func newRunCountsCommand() *cobra.Command {
 	var flags struct {
 		since string
+		tags  map[string]string
 	}
 
 	cmd := &cobra.Command{
@@ -654,6 +711,10 @@ func newRunCountsCommand() *cobra.Command {
 				queryOptions.Add("since", tm.UTC().Format(time.RFC3339Nano))
 			}
 
+			for k, v := range flags.tags {
+				queryOptions.Add(fmt.Sprintf("tag[%s]", k), v)
+			}
+
 			relativeUri := fmt.Sprintf("v1/runs/counts?%s", queryOptions.Encode())
 			results := map[string]int{}
 			if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, relativeUri, nil, &results); err != nil {
@@ -668,6 +729,7 @@ func newRunCountsCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&flags.since, "since", "s", "", "Results before this datetime (specified in local time) are not included")
+	cmd.Flags().StringToStringVar(&flags.tags, "tag", nil, "Only include runs with the given tag. Can be specified multiple times.")
 
 	return cmd
 }

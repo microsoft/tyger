@@ -12,6 +12,10 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="dunet" Version="1.11.2" />
+  </ItemGroup>
+
 
 
 </Project>

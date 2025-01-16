@@ -98,10 +98,10 @@ public sealed class DockerRunSweeper : BackgroundService, IRunSweeper
                         await _repository.DeleteRun(runId, cancellationToken);
                         await DeleteRunResources(runId, cancellationToken);
                         continue;
-                    case var (run, _, logsArchivedAt, _) when run.Status.IsTerminal() && logsArchivedAt is null:
+                    case var (run, _, logsArchivedAt, _, _) when run.Status.IsTerminal() && logsArchivedAt is null:
                         await ArchiveLogs(run, cancellationToken);
                         break;
-                    case var (run, _, logsArchivedAt, _) when run.Status.IsTerminal() && logsArchivedAt is not null:
+                    case var (run, _, logsArchivedAt, _, _) when run.Status.IsTerminal() && logsArchivedAt is not null:
                         _logger.FinalizingTerminatedRun(run.Id!.Value, run.Status!.Value);
                         await _repository.ForceUpdateRun(run, cancellationToken);
                         await DeleteRunResources(run.Id!.Value, cancellationToken);

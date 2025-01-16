@@ -43,7 +43,7 @@ public class KubernetesRunLogReader : ILogSource
 
     public async Task<Pipeline?> GetLogs(long runId, GetLogsOptions options, CancellationToken cancellationToken)
     {
-        if (await _repository.GetRun(runId, cancellationToken) is not var (run, _, logsArchivedAt, _))
+        if (await _repository.GetRun(runId, cancellationToken) is not var (run, _, logsArchivedAt, _, _))
         {
             return null;
         }

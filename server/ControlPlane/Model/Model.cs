@@ -3,6 +3,7 @@
 
 using System.ComponentModel.DataAnnotations;
 using System.Globalization;
+using System.IO.Hashing;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
@@ -32,17 +33,52 @@ public record ModelBase : IJsonOnDeserialized
     }
 }
 
+public interface IResourceWithTags<TId>
+{
+    TId Id { get; }
+    DateTimeOffset? CreatedAt { get; init; }
+    IReadOnlyDictionary<string, string>? Tags { get; }
+}
+
 public record Buffer : ModelBase
 {
+    private string? _etag;
+
     public string Id { get; init; } = "";
 
     public string? Location { get; init; }
 
-    public string ETag { get; init; } = "";
+    public DateTimeOffset? CreatedAt { get; init; }
 
-    public DateTimeOffset CreatedAt { get; init; }
+    public IReadOnlyDictionary<string, string>? Tags { get; init; }
 
-    public IDictionary<string, string>? Tags { get; init; }
+    public string? ETag
+    {
+        get => _etag ??= ComputeEtagCore(new()); set => _etag = value;
+    }
+
+    public string ComputeEtag(XxHash3 hash)
+    {
+        return _etag = ComputeEtagCore(hash);
+    }
+
+    private string ComputeEtagCore(XxHash3 hash)
+    {
+        hash.Append(Id);
+        hash.Append(Tags);
+        var hashUInt64 = hash.GetCurrentHashAsUInt64();
+        hash.Reset();
+        return hashUInt64.ToString(CultureInfo.InvariantCulture);
+    }
+}
+
+public record BufferUpdate : IResourceWithTags<string?>
+{
+    public string? Id { get; init; }
+
+    [JsonIgnore]
+    public DateTimeOffset? CreatedAt { get; init; }
+    public IReadOnlyDictionary<string, string>? Tags { get; init; }
 }
 
 public record BufferAccess(Uri Uri) : ModelBase;
@@ -424,8 +460,10 @@ public enum RunKind
     System,
 }
 
-public record Run : ModelBase
+public partial record Run : ModelBase
 {
+    private string? _etag;
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public RunKind Kind { get; init; } = RunKind.User;
 
@@ -433,6 +471,14 @@ public record Run : ModelBase
     /// The run ID. Populated by the system.
     /// </summary>
     public long? Id { get; init; }
+
+    /// <summary>
+    /// The ETag that can be used for optimistic concurrency. Populated by the system.
+    /// </summary>
+    public string? ETag
+    {
+        get => _etag ??= ComputeEtagCore(new()); set => _etag = value;
+    }
 
     /// <summary>
     /// The status of the run. Populated by the system.
@@ -486,11 +532,57 @@ public record Run : ModelBase
     /// </summary>
     public string? Cluster { get; init; }
 
+    /// <summary>
+    /// The tags associated with the run.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? Tags { get; init; }
+
+    public string ComputeEtag(XxHash3 hash)
+    {
+        return _etag = ComputeEtagCore(hash);
+    }
+
+    private string ComputeEtagCore(XxHash3 hash)
+    {
+        static void AppendStringOrEmpty(XxHash3 hash, string? value)
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                hash.Append([byte.MaxValue]);
+            }
+            else
+            {
+                hash.Append(value);
+            }
+        }
+
+        hash.Append(Id ?? 0);
+        hash.Append([Status.HasValue ? (byte)Status.Value : byte.MaxValue]);
+        AppendStringOrEmpty(hash, StatusReason);
+
+        hash.Append(RunningCount ?? 0);
+        hash.Append(StartedAt?.Ticks ?? 0);
+        hash.Append(FinishedAt?.Ticks ?? 0);
+        AppendStringOrEmpty(hash, Cluster);
+        AppendStringOrEmpty(hash, Job.NodePool);
+        if (Worker is not null)
+        {
+            AppendStringOrEmpty(hash, Worker.NodePool);
+        }
+
+        hash.Append(Tags);
+
+        var hashUInt64 = hash.GetCurrentHashAsUInt64();
+        hash.Reset();
+        return hashUInt64.ToString(CultureInfo.InvariantCulture);
+    }
+
     public Run WithoutSystemProperties()
     {
         return this with
         {
             Id = null,
+            ETag = null,
             Status = null,
             StatusReason = null,
             RunningCount = null,
@@ -499,6 +591,15 @@ public record Run : ModelBase
             FinishedAt = null,
         };
     }
+}
+
+public record RunUpdate : IResourceWithTags<long?>
+{
+    public long? Id { get; init; }
+
+    [JsonIgnore]
+    public DateTimeOffset? CreatedAt { get; init; }
+    public IReadOnlyDictionary<string, string>? Tags { get; init; }
 }
 
 public record DatabaseVersionInUse(int Id) : ModelBase;

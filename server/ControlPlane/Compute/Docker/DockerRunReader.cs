@@ -11,35 +11,30 @@ using Tyger.ControlPlane.Runs;
 
 namespace Tyger.ControlPlane.Compute.Docker;
 
-public class DockerRunReader : IRunReader
+public class DockerRunReader : IRunReader, IRunAugmenter
 {
     private readonly DockerClient _client;
     private readonly Repository _repository;
+    private readonly DockerRunUpdater _runUpdater;
 
-    public DockerRunReader(DockerClient client, Repository repository)
+    public DockerRunReader(DockerClient client, Repository repository, DockerRunUpdater runUpdater)
     {
         _client = client;
         _repository = repository;
+        _runUpdater = runUpdater;
     }
 
-    public async Task<IDictionary<RunStatus, long>> GetRunCounts(DateTimeOffset? since, CancellationToken cancellationToken)
+    public async Task<IDictionary<RunStatus, long>> GetRunCounts(DateTimeOffset? since, Dictionary<string, string>? tags, CancellationToken cancellationToken)
     {
-        return await _repository.GetRunCountsWithCallbackForNonFinal(since, UpdateRunFromContainers, cancellationToken);
+        return await _repository.GetRunCounts(since, tags, cancellationToken);
     }
 
-    public async Task<(Run run, DateTimeOffset? modifiedAt, DateTimeOffset? logsArchivedAt, bool final)?> GetRun(long id, CancellationToken cancellationToken)
+    public async Task<(Run run, DateTimeOffset? modifiedAt, DateTimeOffset? logsArchivedAt, bool final, int tagsVersion)?> GetRun(long id, CancellationToken cancellationToken)
     {
-        if (await _repository.GetRun(id, cancellationToken) is not var (run, modifiedAt, logsArchivedAt, final))
-        {
-            return null;
-        }
-
-        return final
-            ? (run, modifiedAt, logsArchivedAt, final)
-            : (await UpdateRunFromContainers(run, cancellationToken), modifiedAt, logsArchivedAt, final);
+        return await _repository.GetRun(id, cancellationToken);
     }
 
-    private async Task<Run> UpdateRunFromContainers(Run run, CancellationToken cancellationToken)
+    public async Task<Run> AugmentRun(Run run, CancellationToken cancellationToken)
     {
         var containers = await (await _client.Containers
             .ListContainersAsync(
@@ -58,22 +53,15 @@ public class DockerRunReader : IRunReader
         return UpdateRunFromContainers(run, containers);
     }
 
-    public async Task<(IReadOnlyList<Run>, string? nextContinuationToken)> ListRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken)
+    public async Task<(IReadOnlyList<Run>, string? nextContinuationToken)> ListRuns(GetRunsOptions options, CancellationToken cancellationToken)
     {
-        (var partialRuns, var nextContinuationToken) = await _repository.GetRuns(limit, true, since, continuationToken, cancellationToken);
-        var runs = new Run[partialRuns.Count];
-        for (int i = 0; i < partialRuns.Count; i++)
-        {
-            var (run, final) = partialRuns[i];
-            runs[i] = final ? run : await UpdateRunFromContainers(run, cancellationToken);
-        }
-
-        return (runs, nextContinuationToken);
+        var (runInfos, nextContinuationToken) = await _repository.GetRuns(options with { OnlyResourcesCreated = true }, cancellationToken);
+        return (runInfos.Select(er => er.run).ToList(), nextContinuationToken);
     }
 
     public async IAsyncEnumerable<Run> WatchRun(long id, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        if (await GetRun(id, cancellationToken) is not var (run, _, _, _))
+        if (await GetRun(id, cancellationToken) is not var (run, _, _, _, _))
         {
             yield break;
         }
@@ -85,8 +73,19 @@ public class DockerRunReader : IRunReader
             yield break;
         }
 
-        var channel = Channel.CreateUnbounded<object?>();
+        var tagsUpdateChannel = Channel.CreateUnbounded<Run>();
+        var eventsChannel = Channel.CreateUnbounded<object?>();
         var cancellation = new CancellationTokenSource();
+
+        _runUpdater.RegisterTagUpdateObserver(id, tagsUpdateChannel.Writer);
+        _ = Task.Run(async () =>
+        {
+            await foreach (var run in tagsUpdateChannel.Reader.ReadAllAsync(cancellation.Token))
+            {
+                await eventsChannel.Writer.WriteAsync(run, cancellation.Token);
+            }
+        }, cancellation.Token);
+
         try
         {
 
@@ -100,28 +99,28 @@ public class DockerRunReader : IRunReader
                 }
             }, new Progress<Message>(m =>
             {
-                if (!channel.Writer.TryWrite(null))
+                if (!eventsChannel.Writer.TryWrite(null))
                 {
-                    channel.Writer.WriteAsync(m).AsTask().Wait(cancellationToken);
+                    eventsChannel.Writer.WriteAsync(m).AsTask().Wait(cancellationToken);
                 }
             }), cancellation.Token);
 
             async Task ScheduleFirstUpdate()
             {
                 await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
-                await channel.Writer.WriteAsync(null, cancellationToken);
+                await eventsChannel.Writer.WriteAsync(null, cancellationToken);
             }
 
             _ = ScheduleFirstUpdate();
 
-            await foreach (var _ in channel.Reader.ReadAllAsync(cancellationToken))
+            await foreach (var _ in eventsChannel.Reader.ReadAllAsync(cancellationToken))
             {
-                if (await GetRun(id, cancellationToken) is not (var updatedRun, _, _, _))
+                if (await GetRun(id, cancellationToken) is not (var updatedRun, _, _, _, _))
                 {
                     yield break;
                 }
 
-                if (updatedRun.Status != run.Status)
+                if (!updatedRun.Equals(run))
                 {
                     run = updatedRun;
                     yield return updatedRun;
@@ -135,11 +134,12 @@ public class DockerRunReader : IRunReader
         }
         finally
         {
+            _runUpdater.UnregisterTagUpdateObserver(id, tagsUpdateChannel.Writer);
             cancellation.Cancel();
         }
     }
 
-    public static Run UpdateRunFromContainers(Run run, IReadOnlyList<ContainerInspectResponse> containers)
+    private static Run UpdateRunFromContainers(Run run, List<ContainerInspectResponse> containers)
     {
         var mainContainerName = $"/{DockerRunCreator.MainContainerName(run.Id!.Value)}"; // inspect always returns names with a leading slash
 

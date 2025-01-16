@@ -30,8 +30,11 @@ public static class Docker
         builder.Services.AddSingleton<IRunCreator>(sp => sp.GetRequiredService<DockerRunCreator>());
         builder.Services.AddHostedService(sp => sp.GetRequiredService<DockerRunCreator>());
         builder.Services.AddSingleton<ICapabilitiesContributor>(sp => sp.GetRequiredService<DockerRunCreator>());
-        builder.Services.AddSingleton<IRunReader, DockerRunReader>();
-        builder.Services.AddSingleton<IRunUpdater, DockerRunUpdater>();
+        builder.Services.AddSingleton<DockerRunReader>();
+        builder.Services.AddSingleton<IRunReader>(sp => sp.GetRequiredService<DockerRunReader>());
+        builder.Services.AddSingleton(sp => new Lazy<IRunAugmenter>(() => sp.GetRequiredService<DockerRunReader>()));
+        builder.Services.AddSingleton<DockerRunUpdater>();
+        builder.Services.AddSingleton<IRunUpdater>(sp => sp.GetRequiredService<DockerRunUpdater>());
         builder.Services.AddSingleton<ILogSource, DockerLogSource>();
         builder.Services.AddSingleton<DockerRunSweeper>();
         builder.Services.AddSingleton<IRunSweeper>(sp => sp.GetRequiredService<DockerRunSweeper>());

@@ -47,6 +47,9 @@ public partial record struct ObservedRunState(
     [IgnoreEquality]
     public DateTimeOffset? DatabaseUpdatedAt { get; init; }
 
+    [IgnoreEquality]
+    public int? TagsVersion { get; init; }
+
     public readonly Run ApplyToRun(Run run)
     {
         return run with

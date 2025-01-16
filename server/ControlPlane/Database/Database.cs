@@ -3,8 +3,10 @@
 
 using System.CommandLine;
 using System.ComponentModel.DataAnnotations;
+using System.IO.Hashing;
 using System.Text.Json;
 using Azure.Core;
+using Microsoft.Extensions.ObjectPool;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using Polly;
@@ -44,6 +46,7 @@ public static class Database
         });
 
         builder.Services.AddSingleton<Repository>();
+        builder.Services.AddSingleton(sp => new DefaultObjectPoolProvider().Create<XxHash3>());
 
         builder.Services.AddSingleton(sp =>
         {

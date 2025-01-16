@@ -38,9 +38,7 @@ public static class OpenApi
             c.MapType<RunStatus>(() => new OpenApiSchema
             {
                 Type = "string",
-                Enum = typeof(RunStatus).GetEnumNames()
-                            .Select(value => new OpenApiString(value))
-                            .ToList<IOpenApiAny>()
+                Enum = [.. typeof(RunStatus).GetEnumNames().Select(value => new OpenApiString(value))]
             });
 
             c.SelectSubTypesUsing(type =>
@@ -104,5 +102,38 @@ internal sealed class OpenApiExcludeSchemaFilter : ISchemaFilter
             var keyToRemove = schema.Properties.Keys.Single(k => k.Equals(excludedProperty.Name, StringComparison.OrdinalIgnoreCase));
             schema.Properties.Remove(keyToRemove);
         }
+    }
+}
+
+public static class EndpointConventionBuilderExtensions
+{
+    public static TBuilder WithTagsQueryParameters<TBuilder>(this TBuilder builder) where TBuilder : IEndpointConventionBuilder
+    {
+        return builder.WithOpenApi(c =>
+        {
+            // Specify that the query parameter "tag" is a "deep object"
+            // and can be used like this `tag[key1]=value1&tag[key2]=value2`.
+            c.Parameters.Add(new OpenApiParameter
+            {
+                Name = "tag",
+                In = ParameterLocation.Query,
+                Required = false,
+                Schema = new OpenApiSchema
+                {
+                    Type = "object",
+                    AdditionalProperties = new OpenApiSchema
+                    {
+                        Type = "string",
+                    },
+                },
+                Style = ParameterStyle.DeepObject,
+                Explode = true,
+            });
+
+            // For some reason the text is changed to "OK" when we implement this,
+            // so we need to set it back to "Success".
+            c.Responses["200"].Description = "Success";
+            return c;
+        });
     }
 }

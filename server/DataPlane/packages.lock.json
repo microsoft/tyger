@@ -2,8 +2,16 @@
   "version": 1,
   "dependencies": {
     "net9.0": {
+      "Dunet": {
+        "type": "Transitive",
+        "resolved": "1.11.2",
+        "contentHash": "T6dfqSJ9+gSqnopeuBv6gtnpHlC0lru6XK3NtQQ9fTeDQQa1ynuI8AmDfEcpQu/rWFYJTbu8ZYR5ED8IScVK7A=="
+      },
       "tyger.common": {
-        "type": "Project"
+        "type": "Project",
+        "dependencies": {
+          "dunet": "[1.11.2, )"
+        }
       }
     }
   }

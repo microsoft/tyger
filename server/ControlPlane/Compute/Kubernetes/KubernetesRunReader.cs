@@ -23,18 +23,18 @@ public partial class KubernetesRunReader : IRunReader
         _changeFeed = changeFeed;
     }
 
-    public async Task<IDictionary<RunStatus, long>> GetRunCounts(DateTimeOffset? since, CancellationToken cancellationToken)
+    public async Task<IDictionary<RunStatus, long>> GetRunCounts(DateTimeOffset? since, Dictionary<string, string>? tags, CancellationToken cancellationToken)
     {
-        return await _repository.GetRunCounts(since, cancellationToken);
+        return await _repository.GetRunCounts(since, tags, cancellationToken);
     }
 
-    public async Task<(IReadOnlyList<Run>, string? nextContinuationToken)> ListRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken)
+    public async Task<(IReadOnlyList<Run>, string? nextContinuationToken)> ListRuns(GetRunsOptions options, CancellationToken cancellationToken)
     {
-        var (runInfos, nextContinuationToken) = await _repository.GetRuns(limit, false, since, continuationToken, cancellationToken);
+        var (runInfos, nextContinuationToken) = await _repository.GetRuns(options, cancellationToken);
         return (runInfos.Select(er => er.run).ToList(), nextContinuationToken);
     }
 
-    public async Task<(Run run, DateTimeOffset? modifiedAt, DateTimeOffset? logsArchivedAt, bool final)?> GetRun(long id, CancellationToken cancellationToken)
+    public async Task<(Run run, DateTimeOffset? modifiedAt, DateTimeOffset? logsArchivedAt, bool final, int tagsVersion)?> GetRun(long id, CancellationToken cancellationToken)
     {
         return await _repository.GetRun(id, cancellationToken);
     }
@@ -45,7 +45,7 @@ public partial class KubernetesRunReader : IRunReader
         _changeFeed.RegisterRunObserver(id, channel.Writer);
         try
         {
-            if (await _repository.GetRun(id, cancellationToken) is not var (run, lastModifiedAt, _, final))
+            if (await _repository.GetRun(id, cancellationToken) is not var (run, lastModifiedAt, _, final, tagsVersion))
             {
                 yield break;
             }
@@ -72,7 +72,23 @@ public partial class KubernetesRunReader : IRunReader
                     }
                 }
 
-                var updatedRun = state.ApplyToRun(run);
+                Run updatedRun;
+                if (state.TagsVersion > tagsVersion)
+                {
+                    if (await _repository.GetRun(run.Id!.Value, cancellationToken) is not var (latestRun, latestLastModifiedAt, _, _, latestTagsVersion))
+                    {
+                        yield break;
+                    }
+
+                    updatedRun = latestRun;
+                    lastModifiedAt = latestLastModifiedAt;
+                    tagsVersion = latestTagsVersion;
+                }
+                else
+                {
+                    updatedRun = state.ApplyToRun(run);
+                }
+
                 if (!updatedRun.Equals(run))
                 {
                     run = updatedRun;
