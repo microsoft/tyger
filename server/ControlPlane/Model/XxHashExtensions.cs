@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 using System.Buffers.Binary;
 using System.IO.Hashing;
 using System.Text;

@@ -126,7 +126,8 @@ func TestTickleLatencyWithFlushInterval(t *testing.T) {
 		line := scanner.Text()
 		parsedTime, err := time.Parse(time.RFC3339Nano, line)
 		require.NoError(t, err)
-		require.WithinDuration(t, time.Now(), parsedTime, 5*time.Second)
+		// on GitHub Actions runners, there can be significant latency when this is running in Docker mode and all tests are running in parallel
+		require.WithinDuration(t, time.Now(), parsedTime, 10*time.Second)
 		linesRead++
 	}
 
