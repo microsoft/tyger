@@ -25,7 +25,7 @@ expected_notice_metadata_path="/tmp/expected-notice-metadata.txt"
 this_script_relative_path=$(realpath --relative-to="$repo_root" "$0")
 
 generate_expected_notice_metadata() {
-    sha256sum "$go_sum_relative_path" "$csharp_control_plane_package_lock_relative_path" "$csharp_data_plane_package_lock_relative_path" "$this_script_relative_path" "$notice_relative_path" > "$expected_notice_metadata_path"
+    sha256sum "$go_sum_relative_path" "$csharp_control_plane_package_lock_relative_path" "$csharp_data_plane_package_lock_relative_path" "$this_script_relative_path" "$notice_relative_path" >"$expected_notice_metadata_path"
 }
 
 generate_expected_notice_metadata
@@ -66,7 +66,7 @@ go-licenses save ./... \
     --ignore "github.com/microsoft/tyger/cli" \
     --ignore "github.com/mattn/go-localereader" \
     --save_path=$save_dir --force \
-     2> >(grep -Pv "$known_non_go_dependency_patterns")
+    2> >(grep -Pv "$known_non_go_dependency_patterns")
 
 # license and notice files will be in directories named after the import path of each library
 
@@ -103,10 +103,19 @@ for lib in $(jq -r '.libraries | to_entries | map(select(.value.type == "package
     {
         echo -e "================================================================================\n"
 
-        curl -sS --fail -X POST "https://api.clearlydefined.io/notices" -H "accept: application/json" -H "Content-Type: application/json" -d "{\"coordinates\":[\"nuget/nuget/-/$lib\"],\"options\":{}}" \
-            | jq -r '.content'
+        for _ in {1..50}; do
+            set +e
+            response=$(curl -sS --fail -X POST "https://api.clearlydefined.io/notices" -H "accept: application/json" -H "Content-Type: application/json" -d "{\"coordinates\":[\"nuget/nuget/-/$lib\"],\"options\":{}}")
+            set -e
+            if [ $? -eq 0 ]; then
+                echo "$response" | jq -r '.content'
+                break
+            fi
+            sleep 5
+        done
 
         echo ""
+        sleep 5
 
     } >>"$notice_path"
 done

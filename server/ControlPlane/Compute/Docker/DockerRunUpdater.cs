@@ -29,7 +29,6 @@ public class DockerRunUpdater : IRunUpdater
         _client = client;
     }
 
-
     public async Task<Run?> CancelRun(long id, CancellationToken cancellationToken)
     {
         _logger.CancelingRun(id);
