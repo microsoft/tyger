@@ -140,11 +140,7 @@ func TestEndToEndWithAutomaticallyCreatedBuffers(t *testing.T) {
 	// create run
 	runId := runTygerSucceeds(t, "run", "create", "--codespec", codespecName, "--timeout", "10m", "--tag", "testName=TestEndToEndWithAutomaticallyCreatedBuffers")
 
-	runJson := runTygerSucceeds(t, "run", "show", runId)
-
-	var run model.Run
-	require.NoError(json.Unmarshal([]byte(runJson), &run))
-
+	run := getRun(t, runId)
 	inputBufferId := run.Job.Buffers["input"]
 	outputBufferId := run.Job.Buffers["output"]
 
@@ -181,11 +177,7 @@ func TestStatusAfterFinalization(t *testing.T) {
 
 	// create run
 	runId := runTygerSucceeds(t, "run", "create", "--codespec", codespecName, "--timeout", "10m")
-
-	runJson := runTygerSucceeds(t, "run", "show", runId)
-
-	var run model.Run
-	require.NoError(json.Unmarshal([]byte(runJson), &run))
+	run := getRun(t, runId)
 
 	inputBufferId := run.Job.Buffers["input"]
 	outputBufferId := run.Job.Buffers["output"]
@@ -207,8 +199,7 @@ func TestStatusAfterFinalization(t *testing.T) {
 	require.Nil(err)
 
 	// get run
-	runJson = runTygerSucceeds(t, "run", "show", runId)
-	require.NoError(json.Unmarshal([]byte(runJson), &run))
+	run = getRun(t, runId)
 	require.Equal(model.Succeeded.String(), run.Status.String())
 }
 
@@ -240,11 +231,7 @@ timeoutSeconds: 600`, BasicImage)
 
 	// create run
 	runId := runTygerSucceeds(t, "run", "create", "--file", runSpecPath)
-
-	runJson := runTygerSucceeds(t, "run", "show", runId)
-
-	var run model.Run
-	require.NoError(json.Unmarshal([]byte(runJson), &run))
+	run := getRun(t, runId)
 
 	inputBufferId := run.Job.Buffers["input"]
 	inputSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
@@ -528,11 +515,7 @@ timeoutSeconds: 600`, BasicImage)
 
 	require.Equal("Hello: Bonjour", execStdOut)
 
-	bufferJson := runTygerSucceeds(t, "buffer", "list", "--tag", "testName=TestCodespecBufferTagsWithYamlSpec", "--tag", "testtagX="+uniqueId)
-
-	var buffers []model.Buffer
-	require.NoError(json.Unmarshal([]byte(bufferJson), &buffers))
-
+	buffers := listBuffers(t, "--tag", "testName=TestCodespecBufferTagsWithYamlSpec", "--tag", "testtagX="+uniqueId)
 	require.Equal(2, len(buffers))
 }
 
@@ -718,6 +701,7 @@ func TestCodespecNameRequirements(t *testing.T) {
 // is scheduled on a node with one.
 func TestGpuResourceRequirement(t *testing.T) {
 	t.Parallel()
+	skipIfOnlyFastTests(t)
 	skipIfGpuNotSupported(t)
 
 	const codespecName = "gputestcodespec"
@@ -734,8 +718,6 @@ func TestGpuResourceRequirement(t *testing.T) {
 	runId := runTygerSucceeds(t, "run", "create", "--codespec", codespecName, "--timeout", "10m")
 
 	run := waitForRunSuccess(t, runId)
-
-	require.NoError(t, json.Unmarshal([]byte(runTygerSucceeds(t, "run", "show", runId)), &run))
 	if supportsNodePools(t) {
 		require.NotEmpty(t, run.Cluster)
 		require.Equal(t, "gpunp", run.Job.NodePool)
@@ -764,6 +746,7 @@ func TestNoGpuResourceRequirement(t *testing.T) {
 
 func TestTargetGpuNodePool(t *testing.T) {
 	t.Parallel()
+	skipIfOnlyFastTests(t)
 	skipIfNodePoolsNotSupported(t)
 
 	codespecName := strings.ToLower(t.Name())
@@ -1110,10 +1093,7 @@ func TestListRunsSince(t *testing.T) {
 	midId := runTygerSucceeds(t, "run", "create", "--codespec", codespecName, "--timeout", "10m")
 	lastId := runTygerSucceeds(t, "run", "create", "--codespec", codespecName, "--timeout", "10m")
 
-	midRunJson := runTygerSucceeds(t, "run", "show", midId)
-	midRun := model.Run{}
-	err := json.Unmarshal([]byte(midRunJson), &midRun)
-	require.Nil(t, err)
+	midRun := getRun(t, midId)
 
 	listJson := runTygerSucceeds(t, "run", "list", "--since", midRun.CreatedAt.Format(time.RFC3339Nano))
 	list := make([]model.Run, 0)
@@ -1130,6 +1110,96 @@ func TestListRunsSince(t *testing.T) {
 	}
 
 	require.Fail(t, "last run not found")
+}
+
+func TestListAndCountRunsWithFilters(t *testing.T) {
+	t.Parallel()
+
+	tag1 := fmt.Sprintf("testtag1=%s", uuid.NewString())
+	tag2 := fmt.Sprintf("testtag2=%s", uuid.NewString())
+
+	successfulCodespecName := strings.ToLower(t.Name()) + "success"
+	runTygerSucceeds(t,
+		"codespec",
+		"create", successfulCodespecName,
+		"--image", BasicImage,
+		"--command",
+		"--",
+		"echo", "hi")
+
+	runTygerSucceeds(t, "run", "create", "--codespec", successfulCodespecName, "--timeout", "10m")
+	succeedingTestId := runTygerSucceeds(t, "run", "create", "--codespec", successfulCodespecName, "--timeout", "10m", "--tag", tag1, "--tag", tag2)
+
+	hangingCodespecName := strings.ToLower(t.Name()) + "hang"
+	runTygerSucceeds(t,
+		"codespec",
+		"create", hangingCodespecName,
+		"--image", BasicImage,
+		"--command",
+		"--",
+		"sleep", "60")
+
+	runTygerSucceeds(t, "run", "create", "--codespec", hangingCodespecName, "--timeout", "10m")
+	hangingRunId := runTygerSucceeds(t, "run", "create", "--codespec", hangingCodespecName, "--timeout", "10m", "--tag", tag1, "--tag", tag2)
+
+	successRun := waitForRunSuccess(t, succeedingTestId)
+	hangingRun := waitForRunStarted(t, hangingRunId)
+
+	timeBeforeFirstRun := successRun.CreatedAt.Add(-time.Millisecond)
+	timeAfterFirstRun := successRun.CreatedAt.Add(time.Millisecond)
+	timeAfterSecondRun := hangingRun.CreatedAt.Add(time.Millisecond)
+
+	listResult := listRuns(t, "--tag", tag1, "--tag", tag2)
+	require.Len(t, listResult, 2)
+
+	listResult = listRuns(t, "--tag", tag1, "--tag", tag2, "--since", timeBeforeFirstRun.Format(time.RFC3339Nano))
+	require.Len(t, listResult, 2)
+
+	listResult = listRuns(t, "--tag", tag1, "--tag", tag2, "--since", timeAfterFirstRun.Format(time.RFC3339Nano))
+	require.Len(t, listResult, 1)
+
+	listResult = listRuns(t, "--tag", tag1, "--tag", tag2, "--since", timeAfterSecondRun.Format(time.RFC3339Nano))
+	require.Len(t, listResult, 0)
+
+	listResult = listRuns(t, "--tag", tag1)
+	require.Len(t, listResult, 2)
+
+	listResult = listRuns(t, "--tag", tag1, "--tag", "x=y")
+	require.Len(t, listResult, 0)
+
+	listResult = listRuns(t, "--tag", tag1, "--tag", tag2, "--status", "succeeded")
+	require.Len(t, listResult, 1)
+
+	listResult = listRuns(t, "--tag", tag1, "--tag", tag2, "--status", "succeeded", "--status", "running")
+	require.Len(t, listResult, 2)
+
+	listResult = listRuns(t, "--tag", tag1, "--tag", tag2, "--status", "succeeded", "--status", "running", "--status", "canceled")
+	require.Len(t, listResult, 2)
+
+	counts := getRunCounts(t, "--tag", tag1, "--tag", tag2)
+	require.Len(t, counts, 2)
+	require.Equal(t, 1, counts["succeeded"])
+	require.Equal(t, 1, counts["running"])
+
+	counts = getRunCounts(t, "--tag", tag1, "--tag", tag2, "--since", timeBeforeFirstRun.Format(time.RFC3339Nano))
+	require.Len(t, counts, 2)
+	require.Equal(t, 1, counts["succeeded"])
+	require.Equal(t, 1, counts["running"])
+
+	counts = getRunCounts(t, "--tag", tag1, "--tag", tag2, "--since", timeAfterFirstRun.Format(time.RFC3339Nano))
+	require.Len(t, counts, 1)
+	require.Equal(t, 1, counts["running"])
+
+	counts = getRunCounts(t, "--tag", tag1, "--tag", tag2, "--since", timeAfterSecondRun.Format(time.RFC3339Nano))
+	require.Len(t, counts, 0)
+
+	counts = getRunCounts(t, "--tag", tag1)
+	require.Len(t, counts, 2)
+	require.Equal(t, 1, counts["succeeded"])
+	require.Equal(t, 1, counts["running"])
+
+	counts = getRunCounts(t, "--tag", tag1, "--tag", "x=y")
+	require.Len(t, counts, 0)
 }
 
 func TestListCodespecsWithPrefix(t *testing.T) {
@@ -1348,7 +1418,7 @@ func TestSpecifyingCacheFileAsEnvironmentVariable(t *testing.T) {
 		RunSucceeds(t)
 }
 
-func TestCancelJob(t *testing.T) {
+func TestCancelRun(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
 
@@ -1369,10 +1439,7 @@ func TestCancelJob(t *testing.T) {
 	waitForRunCanceled(t, runId)
 
 	// Check that the run failed because it was canceled.
-	runJson := runTygerSucceeds(t, "run", "show", runId)
-
-	var run model.Run
-	require.NoError(json.Unmarshal([]byte(runJson), &run))
+	run := getRun(t, runId)
 
 	require.Equal(model.Canceled, *run.Status)
 	require.Equal("Canceled by user", run.StatusReason)
@@ -1385,11 +1452,7 @@ func TestBufferWithoutTags(t *testing.T) {
 	bufferId := runTygerSucceeds(t, "buffer", "create")
 	t.Logf("Buffer ID: %s", bufferId)
 
-	bufferJson := runTygerSucceeds(t, "buffer", "show", bufferId)
-
-	var buffer model.Buffer
-	require.NoError(json.Unmarshal([]byte(bufferJson), &buffer))
-
+	buffer := getBuffer(t, bufferId)
 	require.Equal(0, len(buffer.Tags))
 }
 
@@ -1400,10 +1463,7 @@ func TestBufferWithTags(t *testing.T) {
 	bufferId := runTygerSucceeds(t, "buffer", "create", "--tag", "testtag1=testvalue1", "--tag", "testtag2=testvalue2")
 	t.Logf("Buffer ID: %s", bufferId)
 
-	bufferJson := runTygerSucceeds(t, "buffer", "show", bufferId)
-
-	var buffer model.Buffer
-	require.NoError(json.Unmarshal([]byte(bufferJson), &buffer))
+	buffer := getBuffer(t, bufferId)
 
 	require.Equal(2, len(buffer.Tags))
 	require.Equal("testvalue1", buffer.Tags["testtag1"])
@@ -1417,10 +1477,8 @@ func TestBufferSetTags(t *testing.T) {
 	bufferId := runTygerSucceeds(t, "buffer", "create", "--tag", "testtag1=testvalue1", "--tag", "testtag2=testvalue2")
 	t.Logf("Buffer ID: %s", bufferId)
 
-	bufferJson := runTygerSucceeds(t, "buffer", "set", bufferId, "--tag", "testtag2=testvalue2updated", "--tag", "testtag3=testvalue3")
-
-	var buffer model.Buffer
-	require.NoError(json.Unmarshal([]byte(bufferJson), &buffer))
+	buffer, err := setBuffer(t, bufferId, "--tag", "testtag2=testvalue2updated", "--tag", "testtag3=testvalue3")
+	require.NoError(err)
 
 	require.Equal(map[string]string{"testtag1": "testvalue1", "testtag2": "testvalue2updated", "testtag3": "testvalue3"}, buffer.Tags)
 }
@@ -1432,10 +1490,8 @@ func TestBufferSetTagsWithClear(t *testing.T) {
 	bufferId := runTygerSucceeds(t, "buffer", "create", "--tag", "testtag1=testvalue1", "--tag", "testtag2=testvalue2")
 	t.Logf("Buffer ID: %s", bufferId)
 
-	bufferJson := runTygerSucceeds(t, "buffer", "set", bufferId, "--clear-tags", "--tag", "testtag3=testvalue3", "--tag", "testtag4=testvalue4")
-
-	var buffer model.Buffer
-	require.NoError(json.Unmarshal([]byte(bufferJson), &buffer))
+	buffer, err := setBuffer(t, bufferId, "--clear-tags", "--tag", "testtag3=testvalue3", "--tag", "testtag4=testvalue4")
+	require.NoError(err)
 
 	require.Equal(map[string]string{"testtag3": "testvalue3", "testtag4": "testvalue4"}, buffer.Tags)
 }
@@ -1451,10 +1507,8 @@ func TestBufferSetTagsClearWithETag(t *testing.T) {
 
 	t.Logf("Buffer ID: %s eTag: %s", bufferETag.Id, bufferETag.ETag)
 
-	bufferJson = runTygerSucceeds(t, "buffer", "set", bufferETag.Id, "--clear-tags", "--tag", "testtag3=testvalue3", "--tag", "testtag4=testvalue4", "--etag", bufferETag.ETag)
-
-	var buffer model.Buffer
-	require.NoError(json.Unmarshal([]byte(bufferJson), &buffer))
+	buffer, err := setBuffer(t, bufferETag.Id, "--clear-tags", "--tag", "testtag3=testvalue3", "--tag", "testtag4=testvalue4", "--etag", bufferETag.ETag)
+	require.NoError(err)
 
 	require.Equal(map[string]string{"testtag3": "testvalue3", "testtag4": "testvalue4"}, buffer.Tags)
 	require.NotEqual(bufferETag.ETag, buffer.ETag)
@@ -1471,10 +1525,8 @@ func TestBufferSetTagsWithETag(t *testing.T) {
 
 	t.Logf("Buffer ID: %s eTag: %s", bufferETag.Id, bufferETag.ETag)
 
-	bufferJson = runTygerSucceeds(t, "buffer", "set", bufferETag.Id, "--tag", "testtag2=testvalue2updated", "--tag", "testtag4=testvalue4", "--etag", bufferETag.ETag)
-
-	var buffer model.Buffer
-	require.NoError(json.Unmarshal([]byte(bufferJson), &buffer))
+	buffer, err := setBuffer(t, bufferETag.Id, "--tag", "testtag2=testvalue2updated", "--tag", "testtag4=testvalue4", "--etag", bufferETag.ETag)
+	require.NoError(err)
 
 	require.Equal(map[string]string{"testtag1": "testvalue1", "testtag2": "testvalue2updated", "testtag4": "testvalue4"}, buffer.Tags)
 	require.NotEqual(bufferETag.ETag, buffer.ETag)
@@ -1503,11 +1555,8 @@ func TestBufferSetClearTags(t *testing.T) {
 	bufferId := runTygerSucceeds(t, "buffer", "create", "--tag", "testtag1=testvalue1", "--tag", "testtag2=testvalue2")
 	t.Logf("Buffer ID: %s", bufferId)
 
-	bufferJson := runTygerSucceeds(t, "buffer", "set", bufferId, "--clear-tags")
-
-	var buffer model.Buffer
-	require.NoError(json.Unmarshal([]byte(bufferJson), &buffer))
-
+	buffer, err := setBuffer(t, bufferId, "--clear-tags")
+	require.NoError(err)
 	require.Equal(0, len(buffer.Tags))
 }
 
@@ -1521,10 +1570,7 @@ func TestBufferList(t *testing.T) {
 	bufferId2 := runTygerSucceeds(t, "buffer", "create", "--tag", "testtag2=testvalue2", "--tag", "testtag3=testvalue3", "--tag", "testtagX="+uniqueId)
 	bufferId3 := runTygerSucceeds(t, "buffer", "create", "--tag", "testtag1=testvalue1", "--tag", "testtag3=testvalue3", "--tag", "testtagX="+uniqueId)
 
-	bufferJson := runTygerSucceeds(t, "buffer", "list", "--tag", "testtag1=testvalue1", "--tag", "testtag2=testvalue2", "--tag", "testtagX="+uniqueId)
-	var buffers []model.Buffer
-	require.NoError(json.Unmarshal([]byte(bufferJson), &buffers))
-
+	buffers := listBuffers(t, "--tag", "testtag1=testvalue1", "--tag", "testtag2=testvalue2", "--tag", "testtagX="+uniqueId)
 	require.Equal(1, len(buffers))
 	require.Equal(3, len(buffers[0].Tags))
 	require.Equal(bufferId1, buffers[0].Id)
@@ -1532,10 +1578,7 @@ func TestBufferList(t *testing.T) {
 	require.Equal("testvalue1", buffers[0].Tags["testtag1"])
 	require.Equal("testvalue2", buffers[0].Tags["testtag2"])
 
-	bufferJson = runTygerSucceeds(t, "buffer", "list", "--tag", "testtag2=testvalue2", "--tag", "testtag3=testvalue3", "--tag", "testtagX="+uniqueId)
-	buffers = nil
-	require.NoError(json.Unmarshal([]byte(bufferJson), &buffers))
-
+	buffers = listBuffers(t, "--tag", "testtag2=testvalue2", "--tag", "testtag3=testvalue3", "--tag", "testtagX="+uniqueId)
 	require.Equal(1, len(buffers))
 	require.Equal(3, len(buffers[0].Tags))
 	require.Equal(bufferId2, buffers[0].Id)
@@ -1543,10 +1586,7 @@ func TestBufferList(t *testing.T) {
 	require.Equal("testvalue2", buffers[0].Tags["testtag2"])
 	require.Equal("testvalue3", buffers[0].Tags["testtag3"])
 
-	bufferJson = runTygerSucceeds(t, "buffer", "list", "--tag", "testtag1=testvalue1", "--tag", "testtag3=testvalue3", "--tag", "testtagX="+uniqueId)
-	buffers = nil
-	require.NoError(json.Unmarshal([]byte(bufferJson), &buffers))
-
+	buffers = listBuffers(t, "buffer", "list", "--tag", "testtag1=testvalue1", "--tag", "testtag3=testvalue3", "--tag", "testtagX="+uniqueId)
 	require.Equal(1, len(buffers))
 	require.Equal(3, len(buffers[0].Tags))
 	require.Equal(bufferId3, buffers[0].Id)
@@ -1554,9 +1594,7 @@ func TestBufferList(t *testing.T) {
 	require.Equal("testvalue1", buffers[0].Tags["testtag1"])
 	require.Equal("testvalue3", buffers[0].Tags["testtag3"])
 
-	bufferJson = runTygerSucceeds(t, "buffer", "list", "--tag", "testtag1=testvalue1", "--tag", "testtagX="+uniqueId)
-	require.NoError(json.Unmarshal([]byte(bufferJson), &buffers))
-
+	buffers = listBuffers(t, "buffer", "list", "--tag", "testtag1=testvalue1", "--tag", "testtagX="+uniqueId)
 	require.Equal(2, len(buffers))
 }
 
@@ -1570,22 +1608,13 @@ func TestBufferListWithLimit(t *testing.T) {
 	runTygerSucceeds(t, "buffer", "create", "--tag", "testtagX="+uniqueId)
 	runTygerSucceeds(t, "buffer", "create", "--tag", "testtagX="+uniqueId)
 
-	bufferJson := runTygerSucceeds(t, "buffer", "list", "--limit", "1", "--tag", "testtagX="+uniqueId)
-	var buffers []model.Buffer
-	require.NoError(json.Unmarshal([]byte(bufferJson), &buffers))
-
+	buffers := listBuffers(t, "--limit", "1", "--tag", "testtagX="+uniqueId)
 	require.Equal(1, len(buffers))
 
-	bufferJson = runTygerSucceeds(t, "buffer", "list", "--limit", "2", "--tag", "testtagX="+uniqueId)
-	buffers = nil
-	require.NoError(json.Unmarshal([]byte(bufferJson), &buffers))
-
+	buffers = listBuffers(t, "--limit", "2", "--tag", "testtagX="+uniqueId)
 	require.Equal(2, len(buffers))
 
-	bufferJson = runTygerSucceeds(t, "buffer", "list", "--limit", "3", "--tag", "testtagX="+uniqueId)
-	buffers = nil
-	require.NoError(json.Unmarshal([]byte(bufferJson), &buffers))
-
+	buffers = listBuffers(t, "--limit", "3", "--tag", "testtagX="+uniqueId)
 	require.Equal(3, len(buffers))
 }
 
@@ -1707,6 +1736,7 @@ timeoutSeconds: 600`, BasicImage)
 
 func TestExport(t *testing.T) {
 	t.Parallel()
+	skipIfOnlyFastTests(t)
 	skipIfUsingUnixSocket(t)
 
 	saString := runTygerSucceeds(t, "buffer", "storage-account", "list")
@@ -1764,13 +1794,78 @@ func TestExport(t *testing.T) {
 
 	runTygerSucceeds(t, "buffer", "import", "--storage-account", location2AccountName)
 
-	jsonOutput := runTygerSucceeds(t, "buffer", "list", "--tag", fmt.Sprintf("exporttest=%s", testId))
-	var buffers []model.Buffer
-	require.NoError(t, json.Unmarshal([]byte(jsonOutput), &buffers))
+	buffers := listBuffers(t, "--tag", fmt.Sprintf("exporttest=%s", testId))
 	assert.Len(t, buffers, len(originalBufferIds)*5/4)
 	for _, buffer := range buffers {
 		assert.Len(t, buffer.Tags, 2)
 	}
+}
+
+func TestTagRun(t *testing.T) {
+	t.Parallel()
+
+	codespecName := strings.ToLower(t.Name())
+
+	runTygerSucceeds(t,
+		"codespec",
+		"create", codespecName,
+		"--image", BasicImage,
+		"--command",
+		"--",
+		"echo", "hi")
+
+	runId := runTygerSucceeds(t, "run", "create", "--codespec", codespecName, "--timeout", "10m", "--tag", "a=1")
+
+	run := getRun(t, runId)
+	require.Len(t, run.Tags, 1)
+
+	var err error
+	run, err = setRun(t, runId, "--tag", "b=2")
+	require.NoError(t, err)
+	require.Len(t, run.Tags, 2)
+
+	run, err = setRun(t, runId, "--clear-tags", "--tag", "c=3")
+	require.NoError(t, err)
+	require.Len(t, run.Tags, 1)
+	require.Equal(t, "3", run.Tags["c"])
+
+	run, err = setRun(t, runId, "--tag", "d=4", "--etag", run.ETag)
+	require.NoError(t, err)
+	require.Len(t, run.Tags, 2)
+
+	run, err = setRun(t, runId, "--tag", "e=5", "--etag", "999999")
+	require.ErrorContains(t, err, "the server's ETag does not match the provided ETag")
+
+	run, err = setRun(t, runId, "--tag", "e=5", "--etag", "banana")
+	require.ErrorContains(t, err, "the server's ETag does not match the provided ETag")
+}
+
+func TestRunETagChanges(t *testing.T) {
+	hangingCodespecName := strings.ToLower(t.Name())
+	runTygerSucceeds(t,
+		"codespec",
+		"create", hangingCodespecName,
+		"--image", BasicImage,
+		"--command",
+		"--",
+		"sleep", "60")
+
+	runTygerSucceeds(t, "run", "create", "--codespec", hangingCodespecName, "--timeout", "10m")
+	runId := runTygerSucceeds(t, "run", "create", "--codespec", hangingCodespecName, "--timeout", "10m")
+
+	run := waitForRunStarted(t, runId)
+	etag := run.ETag
+
+	var err error
+	run, err = setRun(t, runId, "--tag", "a=1")
+	require.NoError(t, err)
+	require.NotEqual(t, etag, run.ETag)
+	etag = run.ETag
+
+	runTygerSucceeds(t, "run", "cancel", runId)
+
+	run = getRun(t, runId)
+	require.NotEqual(t, etag, run.ETag)
 }
 
 func waitForRunStarted(t *testing.T, runId string) model.Run {

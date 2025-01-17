@@ -8,7 +8,9 @@ package integrationtest
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"net/http"
 	"os/exec"
@@ -21,6 +23,10 @@ import (
 	"github.com/microsoft/tyger/cli/internal/install/dockerinstall"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
+)
+
+var (
+	runOnlyFastTestsFlag = flag.Bool("fast", false, "only run \"fast\" tests")
 )
 
 type CmdBuilder struct {
@@ -133,6 +139,69 @@ func runTygerSucceeds(t *testing.T, args ...string) string {
 	return runCommandSucceeds(t, "tyger", args...)
 }
 
+func runTygerSucceedsUnmarshal[TOut any](t *testing.T, args ...string) TOut {
+	t.Helper()
+	outString := runTygerSucceeds(t, args...)
+	var out TOut
+	require.NoError(t, json.Unmarshal([]byte(outString), &out))
+	return out
+}
+
+func getRun(t *testing.T, runId string) model.Run {
+	t.Helper()
+	return runTygerSucceedsUnmarshal[model.Run](t, "run", "show", runId)
+}
+
+func listRuns(t *testing.T, args ...string) []model.Run {
+	t.Helper()
+	return runTygerSucceedsUnmarshal[[]model.Run](t, append([]string{"run", "list"}, args...)...)
+}
+
+func getRunCounts(t *testing.T, args ...string) map[string]int {
+	t.Helper()
+	return runTygerSucceedsUnmarshal[map[string]int](t, append([]string{"run", "count"}, args...)...)
+}
+
+func getBuffer(t *testing.T, bufferId string) model.Buffer {
+	t.Helper()
+	return runTygerSucceedsUnmarshal[model.Buffer](t, "buffer", "show", bufferId)
+}
+
+func setRun(t *testing.T, runId string, args ...string) (model.Run, error) {
+	t.Helper()
+	stdOut, stdErr, err := runTyger(append([]string{"run", "set", runId}, args...)...)
+	if err != nil {
+		if stdErr != "" {
+			return model.Run{}, errors.New(stdErr)
+		}
+		return model.Run{}, err
+	}
+
+	run := model.Run{}
+	require.NoError(t, json.Unmarshal([]byte(stdOut), &run))
+	return run, nil
+}
+
+func setBuffer(t *testing.T, bufferId string, args ...string) (model.Buffer, error) {
+	t.Helper()
+	stdOut, stdErr, err := runTyger(append([]string{"buffer", "set", bufferId}, args...)...)
+	if err != nil {
+		if stdErr != "" {
+			return model.Buffer{}, errors.New(stdErr)
+		}
+		return model.Buffer{}, err
+	}
+
+	buffer := model.Buffer{}
+	require.NoError(t, json.Unmarshal([]byte(stdOut), &buffer))
+	return buffer, nil
+}
+
+func listBuffers(t *testing.T, args ...string) []model.Buffer {
+	t.Helper()
+	return runTygerSucceedsUnmarshal[[]model.Buffer](t, append([]string{"buffer", "list"}, args...)...)
+}
+
 func getCloudConfig(t *testing.T) cloudinstall.CloudEnvironmentConfig {
 	config := cloudinstall.CloudEnvironmentConfig{}
 	require.NoError(t, yaml.UnmarshalStrict([]byte(runCommandSucceeds(t, "../../scripts/get-config.sh")), &config))
@@ -236,5 +305,11 @@ func skipUnlessUsingUnixSocket(t *testing.T) {
 func skipIfNotUsingUnixSocketDirectly(t *testing.T) {
 	if !isUsingUnixSocketDirectly() {
 		t.Skip("Skipping test because the control plane is not using a local Unix socket directly")
+	}
+}
+
+func skipIfOnlyFastTests(t *testing.T) {
+	if *runOnlyFastTestsFlag {
+		t.Skip("Skipping test because --fast flag is set")
 	}
 }

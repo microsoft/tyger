@@ -12,6 +12,8 @@ DATA_PLANE_SERVER_PATH=server/DataPlane
 
 DEVELOPER_CONFIG_JSON = $(shell scripts/get-config.sh --dev -o json | jq -c)
 
+INTEGRATION_TEST_FLAGS = ""
+
 ifeq ($(TYGER_ENVIRONMENT_TYPE),)
 include Makefile.cloud
 else ifeq ($(TYGER_ENVIRONMENT_TYPE),cloud)
@@ -114,10 +116,16 @@ integration-test-no-up: integration-test-no-up-prereqs cli-ready
 	fi
 
 	pushd cli/integrationtest
-	go test -tags=integrationtest
+	go test -tags=integrationtest ${INTEGRATION_TEST_FLAGS}
+
+integration-test-no-up-fast-only:
+	$(MAKE) integration-test-no-up INTEGRATION_TEST_FLAGS="-fast"
 
 integration-test: up integration-test-no-up-prereqs
 	$(MAKE) integration-test-no-up-prereqs integration-test-no-up
+
+integration-test-fast-only:
+	$(MAKE) integration-test INTEGRATION_TEST_FLAGS="-fast"
 
 test: up unit-test integration-test
 	$(MAKE) variant-test

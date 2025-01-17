@@ -76,7 +76,7 @@ func TestReadingWhileWriting(t *testing.T) {
 	assert.Equal(t, inputHasher.Sum(nil), outputHasher.Sum(nil), "hashes do not match")
 }
 
-func TestTickleLatencyWithFlushInterval(t *testing.T) {
+func TestTrickleLatencyWithFlushInterval(t *testing.T) {
 	t.Parallel()
 
 	bufferName := runTygerSucceeds(t, "buffer", "create")
@@ -105,7 +105,7 @@ func TestTickleLatencyWithFlushInterval(t *testing.T) {
 	go func() {
 		defer inputWriter.Close()
 		start := time.Now()
-		end := start.Add(15 * time.Second)
+		end := start.Add(6 * time.Second)
 		for now := start; now.Compare(end) < 0; now = time.Now() {
 			_, err := inputWriter.Write([]byte(fmt.Sprintf("%s\n", now.Format(time.RFC3339Nano))))
 			require.NoError(t, err)
