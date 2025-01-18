@@ -73,11 +73,10 @@ public class Repository
                 return null;
             }
 
-            var specJson = reader.GetString(0);
+            var codespec = reader.GetFieldValue<Codespec>(0);
             var createdAt = reader.GetDateTime(1);
 
-            return JsonSerializer.Deserialize<Codespec>(specJson, _serializerOptions)
-                !.WithSystemProperties(name, version, createdAt);
+            return codespec!.WithSystemProperties(name, version, createdAt);
         }, cancellationToken);
     }
 
@@ -116,12 +115,11 @@ public class Repository
                 return null;
             }
 
-            var specJson = reader.GetString(0);
+            var codespec = reader.GetFieldValue<Codespec>(0);
             var version = reader.GetInt32(1);
             var createdAt = reader.GetDateTime(2);
 
-            return JsonSerializer.Deserialize<Codespec>(specJson, _serializerOptions)
-                !.WithSystemProperties(name, version, createdAt);
+            return codespec.WithSystemProperties(name, version, createdAt);
         }, cancellationToken);
     }
 
@@ -178,7 +176,7 @@ public class Repository
                 var name = reader.GetString(0);
                 var version = reader.GetInt32(1);
                 var createdAt = reader.GetDateTime(2);
-                Codespec spec = JsonSerializer.Deserialize<Codespec>(reader.GetString(3), _serializerOptions)!;
+                var spec = reader.GetFieldValue<Codespec>(3);
                 results.Add(spec.WithSystemProperties(name, version, createdAt));
             }
 
@@ -355,8 +353,7 @@ public class Repository
                 while (await reader.ReadAsync(cancellationToken))
                 {
                     any = true;
-                    var runJson = reader.GetString(0);
-                    run = JsonSerializer.Deserialize<Run>(runJson, _serializerOptions) ?? throw new InvalidOperationException("Failed to deserialize run.");
+                    run = reader.GetFieldValue<Run>(0);
                     run = run with { Tags = runUpdate.Tags, CreatedAt = reader.GetDateTime(1) };
                     runUpdate = runUpdate with { CreatedAt = run.CreatedAt };
                     final = reader.GetBoolean(2);
@@ -477,8 +474,7 @@ public class Repository
                     return;
                 }
 
-                var runJson = reader.GetString(0);
-                run = JsonSerializer.Deserialize<Run>(runJson, _serializerOptions) ?? throw new InvalidOperationException("Failed to deserialize run.");
+                run = reader.GetFieldValue<Run>(0);
                 if (run.Status != RunStatus.Canceling)
                 {
                     throw new InvalidOperationException($"Expected run {id} to be in Canceling state, but it is in {run.Status} state.");
@@ -595,8 +591,7 @@ public class Repository
                     return null;
                 }
 
-                var runJson = reader.GetString(0);
-                run = JsonSerializer.Deserialize<Run>(runJson, _serializerOptions) ?? throw new InvalidOperationException("Failed to deserialize run.");
+                run = reader.GetFieldValue<Run>(0);
                 resourcesCreated = reader.GetBoolean(1);
                 var final = reader.GetBoolean(2);
 
@@ -677,8 +672,7 @@ public class Repository
                     return;
                 }
 
-                var runJson = reader.GetString(0);
-                var run = JsonSerializer.Deserialize<Run>(runJson, _serializerOptions) ?? throw new InvalidOperationException("Failed to deserialize run.");
+                var run = reader.GetFieldValue<Run>(0);
                 updatedRun = state.ApplyToRun(run);
                 if (updatedRun.Equals(run))
                 {
@@ -830,10 +824,9 @@ public class Repository
             {
                 if (run == null)
                 {
-                    var runJson = reader.GetString(0);
+                    run = reader.GetFieldValue<Run>(0);
                     final = reader.GetBoolean(1);
                     logsArchivedAt = reader.IsDBNull(2) ? (DateTime?)null : reader.GetDateTime(2);
-                    run = JsonSerializer.Deserialize<Run>(runJson, _serializerOptions) ?? throw new InvalidOperationException("Failed to deserialize run.");
                     modifiedAt = reader.IsDBNull(4) ? (DateTime?)null : reader.GetDateTime(4);
                     if (!final && (options & GetRunOptions.SkipAugmentation) == 0 && _runAugmenter != null)
                     {
@@ -973,8 +966,7 @@ public class Repository
                 await using var nonFinalsReader = await nonFinalsCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
                 while (await nonFinalsReader.ReadAsync(cancellationToken))
                 {
-                    var runJson = nonFinalsReader.GetString(0);
-                    var run = JsonSerializer.Deserialize<Run>(runJson, _serializerOptions) ?? throw new InvalidOperationException("Failed to deserialize run.");
+                    var run = nonFinalsReader.GetFieldValue<Run>(0);
                     var updatedRun = await _runAugmenter.Value.AugmentRun(run, cancellationToken);
                     if (!res.TryGetValue(updatedRun.Status!.Value, out var count))
                     {
@@ -1013,7 +1005,7 @@ public class Repository
                 queryLimit += (int)Math.Min(nonFinalCount, 1000);
                 if (nonFinalCount > 0)
                 {
-                    inMemoryStatusFilter = options.Statuses.Select(status => Enum.Parse<RunStatus>(status)).ToHashSet();
+                    inMemoryStatusFilter = [.. options.Statuses.Select(status => Enum.Parse<RunStatus>(status))];
                 }
             }
 
@@ -1135,13 +1127,12 @@ public class Repository
             {
                 while (await reader.ReadAsync(cancellationToken))
                 {
-                    var runJson = reader.GetString(0);
+                    var run = reader.GetFieldValue<Run>(0);
                     var final = reader.GetBoolean(1);
-                    var run = JsonSerializer.Deserialize<Run>(runJson, _serializerOptions) ?? throw new InvalidOperationException("Failed to deserialize run.");
                     if (!reader.IsDBNull(2))
                     {
-                        var tagsJson = reader.GetString(2);
-                        run = run with { Tags = JsonSerializer.Deserialize<Dictionary<string, string>>(tagsJson, _serializerOptions) };
+                        var tags = reader.GetFieldValue<Dictionary<string, string>>(2);
+                        run = run with { Tags = tags };
                     }
 
                     if (!final && _runAugmenter != null)
@@ -1204,8 +1195,7 @@ public class Repository
             var results = new List<Run>();
             while (await reader.ReadAsync(cancellationToken))
             {
-                var runJson = reader.GetString(0);
-                results.Add(JsonSerializer.Deserialize<Run>(runJson, _serializerOptions)!);
+                results.Add(reader.GetFieldValue<Run>(0));
             }
 
             return results;
@@ -1847,7 +1837,7 @@ public class Repository
                             await using var reader = await getPageCommand.ExecuteReaderAsync(cancellationToken);
                             while (await reader.ReadAsync(cancellationToken))
                             {
-                                runs.Add(JsonSerializer.Deserialize<Run>(reader.GetString(0), _serializerOptions)!);
+                                runs.Add(reader.GetFieldValue<Run>(0));
                             }
                         }
 
@@ -1920,10 +1910,9 @@ public class Repository
             await using var reader = await readExistingCommand.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
             {
-                var runString = reader.GetString(0);
+                var run = reader.GetFieldValue<Run>(0);
                 var modifiedAt = reader.IsDBNull(1) ? (DateTime?)null : reader.GetDateTime(1);
                 var tagsVersion = reader.GetInt32(2);
-                var run = JsonSerializer.Deserialize<Run>(runString, _serializerOptions);
                 await processRunUpdates(new ObservedRunState(run!, modifiedAt) { TagsVersion = tagsVersion }, cancellationToken);
             }
         }
@@ -2202,7 +2191,7 @@ public class Repository
         }, cancellationToken);
     }
 
-    private NpgsqlParameter CreateJsonbParameter(object value)
+    private static NpgsqlParameter CreateJsonbParameter(object value)
     {
         var updatedValue = value switch
         {
@@ -2210,7 +2199,7 @@ public class Repository
             _ => value,
         };
 
-        return new() { Value = JsonSerializer.Serialize(updatedValue, _serializerOptions), NpgsqlDbType = NpgsqlDbType.Jsonb };
+        return new() { Value = updatedValue, NpgsqlDbType = NpgsqlDbType.Jsonb };
     }
 }
 

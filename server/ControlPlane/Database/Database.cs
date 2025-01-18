@@ -93,6 +93,9 @@ public static class Database
                         TimeSpan.FromMinutes(30),
                         TimeSpan.FromMinutes(1));
                 }
+
+                dataSourceBuilder.EnableDynamicJson();
+                dataSourceBuilder.ConfigureJsonOptions(sp.GetRequiredService<JsonSerializerOptions>());
             }
             else
             {
