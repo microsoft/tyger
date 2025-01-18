@@ -927,41 +927,47 @@ public class Repository
                 parameters.Add(finalParameter = new() { Value = true, NpgsqlDbType = NpgsqlDbType.Boolean });
             }
 
-            await using var cmd = new NpgsqlCommand($"""
+            await using (var cmd = new NpgsqlCommand($"""
                     SELECT runs.status, count(*)
                     FROM runs
                     {commonClauses}
                     GROUP BY runs.status
-                    """, conn, tx);
-
-            foreach (var parameter in parameters)
+                    """, conn, tx))
             {
-                cmd.Parameters.Add(parameter);
-            }
 
-            await cmd.PrepareAsync(cancellationToken);
-            await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
-            while (await reader.ReadAsync(cancellationToken))
-            {
-                var status = reader.GetString(0);
-                var count = reader.GetInt64(1);
-                res.Add(Enum.Parse<RunStatus>(status), count);
+                foreach (var parameter in parameters)
+                {
+                    cmd.Parameters.Add(parameter);
+                }
+
+                await cmd.PrepareAsync(cancellationToken);
+                await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    var status = reader.GetString(0);
+                    var count = reader.GetInt64(1);
+                    res.Add(Enum.Parse<RunStatus>(status), count);
+                }
             }
 
             if (_runAugmenter != null)
             {
                 await using var nonFinalsCommand = new NpgsqlCommand($"""
                     SELECT runs.run
-                    {commonClauses}
                     FROM runs
+                    {commonClauses}
                     """, conn, tx);
 
                 foreach (var parameter in parameters)
                 {
-                    nonFinalsCommand.Parameters.Add(parameter);
-                }
+                    var clonedParameter = parameter.Clone();
+                    if (parameter == finalParameter)
+                    {
+                        clonedParameter.Value = false;
+                    }
 
-                finalParameter!.Value = false;
+                    nonFinalsCommand.Parameters.Add(clonedParameter);
+                }
 
                 await nonFinalsCommand.PrepareAsync(cancellationToken);
                 await using var nonFinalsReader = await nonFinalsCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
@@ -989,6 +995,28 @@ public class Repository
         return await _resiliencePipeline.ExecuteAsync<(IList<(Run run, bool final)>, string? nextContinuationToken)>(async cancellationToken =>
         {
             await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+            await using var tx = await conn.BeginTransactionAsync(cancellationToken);
+
+            int queryLimit = options.Limit + 1;
+            HashSet<RunStatus>? inMemoryStatusFilter = null;
+            if (_runAugmenter != null && options.Statuses is { Length: > 0 })
+            {
+                // Get an estimate of the number of non-final runs.
+                // We could consider taking the tag filters and continuation token into account here.
+                await using var nonFinalCountQuery = new NpgsqlCommand($"""
+                    SELECT count(*)
+                    FROM runs
+                    WHERE final = false
+                    """, conn, tx);
+                await nonFinalCountQuery.PrepareAsync(cancellationToken);
+                var nonFinalCount = (long)(await nonFinalCountQuery.ExecuteScalarAsync(cancellationToken))!;
+                queryLimit += (int)Math.Min(nonFinalCount, 1000);
+                if (nonFinalCount > 0)
+                {
+                    inMemoryStatusFilter = options.Statuses.Select(status => Enum.Parse<RunStatus>(status)).ToHashSet();
+                }
+            }
+
             var sb = new StringBuilder();
             sb.AppendLine($"""
                 WITH matches AS (
@@ -1063,7 +1091,7 @@ public class Repository
 
             if (options.Statuses?.Length > 0)
             {
-                sb.AppendLine($"    {(paramNumber > 0 ? "AND" : "WHERE")} runs.status = ANY(${++paramNumber})");
+                sb.AppendLine($"    {(paramNumber > 0 ? "AND" : "WHERE")} ({(inMemoryStatusFilter != null ? "NOT final OR " : "")}runs.status = ANY(${++paramNumber}))");
                 parameters.Add(new() { Value = options.Statuses, NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Text });
             }
 
@@ -1074,7 +1102,7 @@ public class Repository
 
             sb.AppendLine("    ORDER BY created_at DESC, id DESC");
             sb.AppendLine($"    LIMIT ${++paramNumber}");
-            parameters.Add(new() { Value = options.Limit + 1, NpgsqlDbType = NpgsqlDbType.Integer });
+            parameters.Add(new() { Value = queryLimit, NpgsqlDbType = NpgsqlDbType.Integer });
             sb.AppendLine(")");
 
             sb.AppendLine($"""
@@ -1092,7 +1120,7 @@ public class Repository
                 ORDER BY matches.created_at DESC, matches.id DESC
                 """);
 
-            await using var cmd = new NpgsqlCommand(sb.ToString(), conn);
+            await using var cmd = new NpgsqlCommand(sb.ToString(), conn, tx);
             foreach (var parameter in parameters)
             {
                 cmd.Parameters.Add(parameter);
@@ -1116,14 +1144,22 @@ public class Repository
                         run = run with { Tags = JsonSerializer.Deserialize<Dictionary<string, string>>(tagsJson, _serializerOptions) };
                     }
 
-                    if (!final && _runAugmenter != null && results.Count < options.Limit)
+                    if (!final && _runAugmenter != null)
                     {
                         run = await _runAugmenter.Value.AugmentRun(run, cancellationToken);
                     }
 
-                    run.ComputeEtag(hash);
+                    if (!final && inMemoryStatusFilter != null && !inMemoryStatusFilter.Contains(run.Status!.Value))
+                    {
+                        continue;
+                    }
 
+                    run.ComputeEtag(hash);
                     results.Add((run, final));
+                    if (results.Count == options.Limit + 1)
+                    {
+                        break;
+                    }
                 }
             }
             finally
