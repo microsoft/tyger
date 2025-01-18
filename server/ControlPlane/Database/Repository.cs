@@ -230,7 +230,7 @@ public class Repository
             {
                 try
                 {
-                    await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+                    await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
                     await reader.ReadAsync(cancellationToken);
                     var version = reader.GetInt32(0);
                     var createdAt = reader.GetDateTime(1);
@@ -347,7 +347,7 @@ public class Repository
 
             Run? run = null;
             bool final = false;
-            await using (var reader = await bufferCommand.ExecuteReaderAsync(cancellationToken))
+            await using (var reader = await bufferCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken))
             {
                 bool any = false;
                 while (await reader.ReadAsync(cancellationToken))
@@ -468,7 +468,7 @@ public class Repository
             })
             {
                 await readRun.PrepareAsync(cancellationToken);
-                await using var reader = await readRun.ExecuteReaderAsync(cancellationToken);
+                await using var reader = await readRun.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
                 if (!await reader.ReadAsync(cancellationToken))
                 {
                     return;
@@ -585,7 +585,7 @@ public class Repository
             })
             {
                 await readRun.PrepareAsync(cancellationToken);
-                await using var reader = await readRun.ExecuteReaderAsync(cancellationToken);
+                await using var reader = await readRun.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
                 if (!await reader.ReadAsync(cancellationToken))
                 {
                     return null;
@@ -665,7 +665,7 @@ public class Repository
             })
             {
                 await readRun.PrepareAsync(cancellationToken);
-                await using var reader = await readRun.ExecuteReaderAsync(cancellationToken);
+                await using var reader = await readRun.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
                 if (!await reader.ReadAsync(cancellationToken))
                 {
                     // The run is already in a terminal or canceling state so we don't do anything
@@ -705,7 +705,7 @@ public class Repository
                 }
 
                 await updateRun.PrepareAsync(cancellationToken);
-                await using var reader = await updateRun.ExecuteReaderAsync(cancellationToken);
+                await using var reader = await updateRun.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
                 if (!await reader.ReadAsync(cancellationToken))
                 {
                     // Lost the lease
@@ -754,7 +754,7 @@ public class Repository
             await updateRunCommand.PrepareAsync(cancellationToken);
             DateTime modifiedAt;
             int tagsVersion;
-            await using (var reader = await updateRunCommand.ExecuteReaderAsync(cancellationToken))
+            await using (var reader = await updateRunCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken))
             {
                 await reader.ReadAsync(cancellationToken);
                 modifiedAt = reader.GetDateTime(0);
@@ -1431,7 +1431,7 @@ public class Repository
                     ORDER BY buffers.created_at DESC, buffers.id DESC
                     LIMIT $1
                 )
-                SELECT matches.id, matches.created_at, tag_keys.name, buffer_tags.value, storage_accounts.location
+                SELECT matches.id, matches.created_at, storage_accounts.location, tag_keys.name, buffer_tags.value
                 FROM matches
                 INNER JOIN storage_accounts ON matches.storage_account_id = storage_accounts.id
                 LEFT JOIN buffer_tags
@@ -1449,12 +1449,12 @@ public class Repository
             var hash = _xxHash3Pool.Get();
             try
             {
-                using var reader = (await command.ExecuteReaderAsync(cancellationToken))!;
+                using var reader = (await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken))!;
                 while (await reader.ReadAsync(cancellationToken))
                 {
                     var id = reader.GetString(0);
                     var createdAt = reader.GetDateTime(1);
-                    var location = reader.GetString(4);
+                    var location = reader.GetString(2);
 
                     if (currentBuffer.Id != id)
                     {
@@ -1469,10 +1469,10 @@ public class Repository
                         currentTags = [];
                     }
 
-                    if (!reader.IsDBNull(2) && !reader.IsDBNull(3))
+                    if (!reader.IsDBNull(3))
                     {
-                        var tagName = reader.GetString(2);
-                        var tagValue = reader.GetString(3);
+                        var tagName = reader.GetString(3);
+                        var tagValue = reader.GetString(4);
 
                         currentTags[tagName] = tagValue;
                     }
@@ -1530,7 +1530,7 @@ public class Repository
 
             await bufferCommand.PrepareAsync(cancellationToken);
 
-            await using (var reader = await bufferCommand.ExecuteReaderAsync(cancellationToken))
+            await using (var reader = await bufferCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken))
             {
                 bool any = false;
                 while (await reader.ReadAsync(cancellationToken))
@@ -1627,7 +1627,7 @@ public class Repository
 
                 await readAndDeleteExistingCommand.PrepareAsync(cancellationToken);
 
-                await using var reader = await readAndDeleteExistingCommand.ExecuteReaderAsync(cancellationToken);
+                await using var reader = await readAndDeleteExistingCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
                 while (await reader.ReadAsync(cancellationToken))
                 {
                     var tagName = reader.GetFieldValue<string>(0);
@@ -1715,7 +1715,7 @@ public class Repository
         })
         {
             await selectCommand.PrepareAsync(cancellationToken);
-            await using var reader = await selectCommand.ExecuteReaderAsync(cancellationToken);
+            await using var reader = await selectCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
             if (await reader.ReadAsync(cancellationToken))
             {
                 long runId = reader.GetInt64(0);
@@ -1753,7 +1753,7 @@ public class Repository
 
             await insertCommand.PrepareAsync(cancellationToken);
 
-            await using (var reader = await insertCommand.ExecuteReaderAsync(cancellationToken))
+            await using (var reader = await insertCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken))
             {
                 await reader.ReadAsync(cancellationToken);
                 newBuffer = newBuffer with { CreatedAt = reader.GetDateTime(0) };
@@ -1834,7 +1834,7 @@ public class Repository
                         })
                         {
                             await getPageCommand.PrepareAsync(cancellationToken);
-                            await using var reader = await getPageCommand.ExecuteReaderAsync(cancellationToken);
+                            await using var reader = await getPageCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
                             while (await reader.ReadAsync(cancellationToken))
                             {
                                 runs.Add(reader.GetFieldValue<Run>(0));
@@ -1907,7 +1907,7 @@ public class Repository
 
             await readExistingCommand.PrepareAsync(cancellationToken);
 
-            await using var reader = await readExistingCommand.ExecuteReaderAsync(cancellationToken);
+            await using var reader = await readExistingCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
             {
                 var run = reader.GetFieldValue<Run>(0);
@@ -2013,7 +2013,7 @@ public class Repository
                         insertCommand.Parameters.Add(new() { Value = leaseDuration, NpgsqlDbType = NpgsqlDbType.Interval });
 
                         await insertCommand.PrepareAsync(cancellationToken);
-                        await using var reader = await insertCommand.ExecuteReaderAsync(cancellationToken);
+                        await using var reader = await insertCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
                         await reader.ReadAsync(cancellationToken);
                         await UpdateLeaseHeld(reader.GetBoolean(0));
                         var expiration = reader.GetDateTime(1);
@@ -2136,7 +2136,7 @@ public class Repository
             upsertCommand.Parameters.Add(new() { Value = locations, NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Text });
 
             await upsertCommand.PrepareAsync(cancellationToken);
-            await using var reader = await upsertCommand.ExecuteReaderAsync(cancellationToken);
+            await using var reader = await upsertCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
             {
                 results.Add(reader.GetInt32(0), reader.GetString(1));
@@ -2180,7 +2180,7 @@ public class Repository
             };
 
             await command.PrepareAsync(cancellationToken);
-            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            await using var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
             var results = new List<(int id, string endpoint)>();
             while (await reader.ReadAsync(cancellationToken))
             {
