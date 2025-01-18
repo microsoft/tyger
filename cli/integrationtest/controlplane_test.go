@@ -1815,6 +1815,7 @@ func TestTagRun(t *testing.T) {
 		"echo", "hi")
 
 	runId := runTygerSucceeds(t, "run", "create", "--codespec", codespecName, "--timeout", "10m", "--tag", "a=1")
+	waitForRunSuccess(t, runId)
 
 	run := getRun(t, runId)
 	require.Len(t, run.Tags, 1)
