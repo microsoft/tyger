@@ -220,13 +220,13 @@ Runs can be tagged with key-value metadata pairs just like
 run when creating it like this:
 
 ```bash
-buffer_id=$(tyger buffer create [...] --tag mykey1=myvalue1 --tag mykey2=myvalue2)
+run_id=$(tyger run create [...] --tag mykey1=myvalue1 --tag mykey2=myvalue2)
 ```
 
 or
 
 ```bash
-buffer_id=$(tyger run create [...] --tag mykey1=myvalue1,mykey2=myvalue2 )
+run_id=$(tyger run create [...] --tag mykey1=myvalue1,mykey2=myvalue2 )
 ```
 
 The tags are included in the response when [showing](#showing-runs) and
@@ -242,7 +242,7 @@ tyger run set $run_id --tag myKey1=myvalue1Updated --tag mykey3=myvalue3
 To replace the **entire** set of tags, specify `--clear-tags`:
 
 ```bash
-tyger run set $buffer_id --clear-tags --tag myKey1=yetAnotherValue
+tyger run set $run_id --clear-tags --tag myKey1=yetAnotherValue
 ```
 
 Use the `--etag` parameter to ensure the set command only succeeds if there have
