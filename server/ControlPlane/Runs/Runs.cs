@@ -11,6 +11,7 @@ using Tyger.ControlPlane.Database;
 using Tyger.ControlPlane.Json;
 using Tyger.ControlPlane.Logging;
 using Tyger.ControlPlane.Model;
+using Tyger.ControlPlane.OpenApi;
 
 namespace Tyger.ControlPlane.Runs;
 
@@ -33,6 +34,8 @@ public static class Runs
                 throw new ValidationException("System runs cannot be created directly");
             }
 
+            Tags.Validate(newRun.Tags);
+
             Run createdRun;
             if (context.Request.Headers.TryGetValue("Idempotency-Key", out var idempotencyKey))
             {
@@ -49,10 +52,34 @@ public static class Runs
         .Produces<Run>(StatusCodes.Status201Created)
         .Produces<ErrorBody>(StatusCodes.Status400BadRequest);
 
-        app.MapGet("/v1/runs", async (IRunReader runReader, int? limit, DateTimeOffset? since, [FromQuery(Name = "_ct")] string? continuationToken, HttpContext context) =>
+        app.MapGet("/v1/runs", async (IRunReader runReader, int? limit, DateTimeOffset? since, [FromQuery(Name = "status")] string[]? statuses, [FromQuery(Name = "_ct")] string? continuationToken, HttpContext context) =>
         {
             limit = limit is null ? 20 : Math.Min(limit.Value, 200);
-            (var items, var nextContinuationToken) = await runReader.ListRuns(limit.Value, since, continuationToken, context.RequestAborted);
+
+            if (statuses != null)
+            {
+                for (int i = 0; i < statuses.Length; i++)
+                {
+                    if (Enum.TryParse<RunStatus>(statuses[i], true, out var statusEnum))
+                    {
+                        statuses[i] = statusEnum.ToString();
+                    }
+                    else
+                    {
+                        throw new ValidationException($"Invalid status: {statuses[i]}");
+                    }
+                }
+            }
+
+            var options = new GetRunsOptions(limit.Value)
+            {
+                ContinuationToken = continuationToken,
+                Since = since,
+                Tags = context.GetTagQueryParameters(),
+                Statuses = statuses,
+            };
+
+            (var items, var nextContinuationToken) = await runReader.ListRuns(options, context.RequestAborted);
 
             string? nextLink;
             if (nextContinuationToken is null)
@@ -71,13 +98,15 @@ public static class Runs
             }
 
             return new RunPage(items, nextLink == null ? null : new Uri(nextLink));
-        });
+        })
+        .WithTagsQueryParameters();
 
         app.MapGet("/v1/runs/counts", async (IRunReader runReader, DateTimeOffset? since, HttpContext context) =>
         {
-            var runs = await runReader.GetRunCounts(since, context.RequestAborted);
+            var runs = await runReader.GetRunCounts(since, context.GetTagQueryParameters(), context.RequestAborted);
             return Results.Ok(runs);
         })
+        .WithTagsQueryParameters()
         .Produces<IDictionary<RunStatus, long>>(StatusCodes.Status200OK);
 
         app.MapGet("/v1/runs/{runId}", async (
@@ -94,7 +123,7 @@ public static class Runs
 
             if (!watch.GetValueOrDefault())
             {
-                if (await runReader.GetRun(parsedRunId, context.RequestAborted) is not var (run, _, _, _))
+                if (await runReader.GetRun(parsedRunId, context.RequestAborted) is not var (run, _, _, _, _))
                 {
                     return Responses.NotFound();
                 }
@@ -184,6 +213,44 @@ public static class Runs
         .Produces<Run>(StatusCodes.Status202Accepted)
         .Produces<ErrorBody>(StatusCodes.Status404NotFound);
 
+        app.MapPut("/v1/runs/{runId}", async (IRunUpdater updater, string runId, HttpContext context, CancellationToken cancellationToken) =>
+        {
+            if (!long.TryParse(runId, out var parsedRunId))
+            {
+                return Results.NotFound();
+            }
+
+            var runUpdate = await context.Request.ReadAndValidateJson<RunUpdate>(context.RequestAborted, allowEmpty: true);
+            if (runUpdate.Id != null && runUpdate.Id != parsedRunId)
+            {
+                return Results.BadRequest("The run ID in the URL does not match the run ID in the request body.");
+            }
+
+            runUpdate = runUpdate with { Id = parsedRunId };
+
+            string eTagPrecondition = context.Request.Headers.IfMatch.FirstOrDefault() ?? "";
+            if (eTagPrecondition == "*") // if-match: * matches everything
+            {
+                eTagPrecondition = "";
+            }
+
+            var result = await updater.UpdateRunTags(runUpdate, eTagPrecondition, cancellationToken);
+
+            return result.Match(
+                updated: updated =>
+                {
+                    context.Response.Headers.ETag = updated.Value.ETag;
+                    return Results.Ok(updated.Value);
+                },
+                notFound: _ => Results.NotFound(),
+                preconditionFailed: _ => Results.StatusCode(StatusCodes.Status412PreconditionFailed));
+        })
+        .WithName("setRunTags")
+        .Accepts<RunUpdate>("application/json")
+        .Produces<Run>(StatusCodes.Status200OK)
+        .Produces<ErrorBody>(StatusCodes.Status404NotFound)
+        .Produces<ErrorBody>(StatusCodes.Status412PreconditionFailed);
+
         // this endpoint is for testing purposes only, to force the background pod sweep
         app.MapPost("/v1/runs/_sweep", async (IRunSweeper? runSweeper, CancellationToken cancellationToken) =>
         {
@@ -202,15 +269,16 @@ public interface IRunCreator
 
 public interface IRunReader
 {
-    Task<IDictionary<RunStatus, long>> GetRunCounts(DateTimeOffset? since, CancellationToken cancellationToken);
-    Task<(IReadOnlyList<Run>, string? nextContinuationToken)> ListRuns(int limit, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken);
-    Task<(Run run, DateTimeOffset? modifiedAt, DateTimeOffset? logsArchivedAt, bool final)?> GetRun(long id, CancellationToken cancellationToken);
+    Task<IDictionary<RunStatus, long>> GetRunCounts(DateTimeOffset? since, Dictionary<string, string>? tags, CancellationToken cancellationToken);
+    Task<(IReadOnlyList<Run>, string? nextContinuationToken)> ListRuns(GetRunsOptions options, CancellationToken cancellationToken);
+    Task<(Run run, DateTimeOffset? modifiedAt, DateTimeOffset? logsArchivedAt, bool final, int tagsVersion)?> GetRun(long id, CancellationToken cancellationToken);
     IAsyncEnumerable<Run> WatchRun(long id, CancellationToken cancellationToken);
 }
 
 public interface IRunUpdater
 {
     Task<Run?> CancelRun(long id, CancellationToken cancellationToken);
+    Task<UpdateWithPreconditionResult<Run>> UpdateRunTags(RunUpdate runUpdate, string? eTagPrecondition, CancellationToken cancellationToken);
 }
 
 public interface IRunSweeper

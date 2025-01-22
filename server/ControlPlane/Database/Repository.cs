@@ -3,8 +3,11 @@
 
 using System.ComponentModel.DataAnnotations;
 using System.Data;
+using System.IO.Hashing;
 using System.Text;
 using System.Text.Json;
+using Dunet;
+using Microsoft.Extensions.ObjectPool;
 using Npgsql;
 using NpgsqlTypes;
 using Polly;
@@ -23,13 +26,23 @@ public class Repository
 
     private readonly NpgsqlDataSource _dataSource;
     private readonly ResiliencePipeline _resiliencePipeline;
+    private readonly ObjectPool<XxHash3> _xxHash3Pool;
+    private readonly Lazy<IRunAugmenter>? _runAugmenter;
     private readonly JsonSerializerOptions _serializerOptions;
     private readonly ILogger<Repository> _logger;
 
-    public Repository(NpgsqlDataSource dataSource, ResiliencePipeline resiliencePipeline, JsonSerializerOptions serializerOptions, ILogger<Repository> logger)
+    public Repository(
+        NpgsqlDataSource dataSource,
+        ResiliencePipeline resiliencePipeline,
+        IEnumerable<Lazy<IRunAugmenter>> runAugmenter,
+        ObjectPool<XxHash3> xxHash3Pool,
+        JsonSerializerOptions serializerOptions,
+        ILogger<Repository> logger)
     {
         _dataSource = dataSource;
         _resiliencePipeline = resiliencePipeline;
+        _xxHash3Pool = xxHash3Pool;
+        _runAugmenter = runAugmenter.FirstOrDefault();
         _serializerOptions = serializerOptions;
         _logger = logger;
     }
@@ -60,11 +73,10 @@ public class Repository
                 return null;
             }
 
-            var specJson = reader.GetString(0);
+            var codespec = reader.GetFieldValue<Codespec>(0);
             var createdAt = reader.GetDateTime(1);
 
-            return JsonSerializer.Deserialize<Codespec>(specJson, _serializerOptions)
-                !.WithSystemProperties(name, version, createdAt);
+            return codespec!.WithSystemProperties(name, version, createdAt);
         }, cancellationToken);
     }
 
@@ -103,12 +115,11 @@ public class Repository
                 return null;
             }
 
-            var specJson = reader.GetString(0);
+            var codespec = reader.GetFieldValue<Codespec>(0);
             var version = reader.GetInt32(1);
             var createdAt = reader.GetDateTime(2);
 
-            return JsonSerializer.Deserialize<Codespec>(specJson, _serializerOptions)
-                !.WithSystemProperties(name, version, createdAt);
+            return codespec.WithSystemProperties(name, version, createdAt);
         }, cancellationToken);
     }
 
@@ -165,7 +176,7 @@ public class Repository
                 var name = reader.GetString(0);
                 var version = reader.GetInt32(1);
                 var createdAt = reader.GetDateTime(2);
-                Codespec spec = JsonSerializer.Deserialize<Codespec>(reader.GetString(3), _serializerOptions)!;
+                var spec = reader.GetFieldValue<Codespec>(3);
                 results.Add(spec.WithSystemProperties(name, version, createdAt));
             }
 
@@ -209,7 +220,7 @@ public class Repository
                 Parameters =
                 {
                     new() { NpgsqlDbType = NpgsqlDbType.Text, Value = name },
-                    new() { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = JsonSerializer.Serialize(newcodespec, _serializerOptions) },
+                    CreateJsonbParameter(newcodespec),
                 }
             };
 
@@ -219,7 +230,7 @@ public class Repository
             {
                 try
                 {
-                    await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+                    await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
                     await reader.ReadAsync(cancellationToken);
                     var version = reader.GetInt32(0);
                     var createdAt = reader.GetDateTime(1);
@@ -272,10 +283,12 @@ public class Repository
                 Parameters =
                 {
                     new() { Value = run.Id, NpgsqlDbType = NpgsqlDbType.Bigint },
-                    new() { Value = JsonSerializer.Serialize(run, _serializerOptions), NpgsqlDbType = NpgsqlDbType.Jsonb },
+                    CreateJsonbParameter(run),
                     new() { Value = run.CreatedAt, NpgsqlDbType = NpgsqlDbType.TimestampTz },
                 },
             });
+
+            await UpsertTagsCore(tx, new RunUpdate { Id = run.Id, CreatedAt = run.CreatedAt, Tags = run.Tags }, false, null, cancellationToken);
 
             if (!string.IsNullOrEmpty(idempotencyKey))
             {
@@ -300,8 +313,109 @@ public class Repository
 
             await batch.PrepareAsync(cancellationToken);
             await batch.ExecuteNonQueryAsync(cancellationToken);
+
             await tx.CommitAsync(cancellationToken);
             return run;
+        }, cancellationToken);
+    }
+
+    public async Task<UpdateWithPreconditionResult<Run>> UpdateRunTags(RunUpdate runUpdate, string? eTagPrecondition, CancellationToken cancellationToken)
+    {
+        return await _resiliencePipeline.ExecuteAsync<UpdateWithPreconditionResult<Run>>(async cancellationToken =>
+        {
+            await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+            await using var tx = await connection.BeginTransactionAsync(cancellationToken);
+
+            int tagsVersion = -1;
+            // Update and validate the buffer
+            using var bufferCommand = new NpgsqlCommand
+            {
+                Connection = connection,
+                Transaction = tx,
+                CommandText = """
+                    SELECT run, created_at, final, tags_version FROM runs
+                    WHERE id = $1
+                    FOR UPDATE
+                    """,
+                Parameters =
+                    {
+                        new() { Value = runUpdate.Id, NpgsqlDbType = NpgsqlDbType.Bigint },
+                    }
+            };
+
+            await bufferCommand.PrepareAsync(cancellationToken);
+
+            Run? run = null;
+            bool final = false;
+            await using (var reader = await bufferCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken))
+            {
+                bool any = false;
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    any = true;
+                    run = reader.GetFieldValue<Run>(0);
+                    run = run with { Tags = runUpdate.Tags, CreatedAt = reader.GetDateTime(1) };
+                    runUpdate = runUpdate with { CreatedAt = run.CreatedAt };
+                    final = reader.GetBoolean(2);
+                    tagsVersion = reader.GetInt32(3);
+                }
+
+                if (!any)
+                {
+                    return new UpdateWithPreconditionResult<Run>.NotFound();
+                }
+            }
+
+            if (!final && _runAugmenter != null)
+            {
+                run = await _runAugmenter.Value.AugmentRun(run!, cancellationToken);
+            }
+
+            var hash = _xxHash3Pool.Get();
+            try
+            {
+                var existingTags = await UpsertTagsCore(tx, runUpdate, true, eTagPrecondition, cancellationToken);
+                if (!string.IsNullOrEmpty(eTagPrecondition))
+                {
+                    var existingRun = run! with { Tags = existingTags };
+                    if (!string.Equals(existingRun.ComputeEtag(hash), eTagPrecondition, StringComparison.Ordinal))
+                    {
+                        await tx.RollbackAsync(cancellationToken);
+                        return new UpdateWithPreconditionResult<Run>.PreconditionFailed();
+                    }
+                }
+
+                run!.ComputeEtag(hash);
+            }
+            finally
+            {
+                hash.Reset();
+                _xxHash3Pool.Return(hash);
+            }
+
+            await using var updateTagsVersionCommand = new NpgsqlCommand("""
+                UPDATE runs
+                SET tags_version = tags_version + 1, modified_at = now() AT TIME ZONE 'utc'
+                WHERE id = $1
+                RETURNING modified_at
+                """, connection, tx)
+            {
+                Parameters =
+                {
+                    new() { Value = runUpdate.Id, NpgsqlDbType = NpgsqlDbType.Integer },
+                }
+            };
+
+            await updateTagsVersionCommand.PrepareAsync(cancellationToken);
+            var modifiedAt = (DateTime)(await updateTagsVersionCommand.ExecuteScalarAsync(cancellationToken))!;
+
+            await using var notifyCommand = new NpgsqlCommand($"SELECT pg_notify('{RunChangedChannelName}', $1);", connection, tx);
+            notifyCommand.Parameters.Add(new() { Value = JsonSerializer.Serialize(new ObservedRunState(run, modifiedAt) { TagsVersion = tagsVersion + 1 }, _serializerOptions), NpgsqlDbType = NpgsqlDbType.Text });
+            await notifyCommand.PrepareAsync(cancellationToken);
+            await notifyCommand.ExecuteNonQueryAsync(cancellationToken);
+
+            await tx.CommitAsync(cancellationToken);
+            return new UpdateWithPreconditionResult<Run>.Updated(run);
         }, cancellationToken);
     }
 
@@ -327,7 +441,7 @@ public class Repository
 
                 if (run != null)
                 {
-                    readRun.Parameters.Add(new() { Value = JsonSerializer.Serialize(run, _serializerOptions), NpgsqlDbType = NpgsqlDbType.Jsonb });
+                    readRun.Parameters.Add(CreateJsonbParameter(run));
                 }
 
                 await readRun.PrepareAsync(cancellationToken);
@@ -338,9 +452,10 @@ public class Repository
                 }
             }
 
+            int tagsVersion;
             // read run and update state to Canceled
             await using (var readRun = new NpgsqlCommand($"""
-                SELECT run
+                SELECT run, tags_version
                 FROM runs
                 WHERE id = $1
                 FOR UPDATE
@@ -353,18 +468,19 @@ public class Repository
             })
             {
                 await readRun.PrepareAsync(cancellationToken);
-                await using var reader = await readRun.ExecuteReaderAsync(cancellationToken);
+                await using var reader = await readRun.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
                 if (!await reader.ReadAsync(cancellationToken))
                 {
                     return;
                 }
 
-                var runJson = reader.GetString(0);
-                run = JsonSerializer.Deserialize<Run>(runJson, _serializerOptions) ?? throw new InvalidOperationException("Failed to deserialize run.");
+                run = reader.GetFieldValue<Run>(0);
                 if (run.Status != RunStatus.Canceling)
                 {
                     throw new InvalidOperationException($"Expected run {id} to be in Canceling state, but it is in {run.Status} state.");
                 }
+
+                tagsVersion = reader.GetInt32(1);
             }
 
             var updatedRun = run with
@@ -383,7 +499,7 @@ public class Repository
                 Parameters =
                    {
                         new() { Value = id, NpgsqlDbType = NpgsqlDbType.Bigint },
-                        new() { Value = JsonSerializer.Serialize(updatedRun, _serializerOptions), NpgsqlDbType = NpgsqlDbType.Jsonb },
+                        CreateJsonbParameter(updatedRun),
                    }
             })
             {
@@ -392,7 +508,7 @@ public class Repository
             }
 
             await using var notifyCommand = new NpgsqlCommand($"SELECT pg_notify('{RunChangedChannelName}', $1);", conn, tx);
-            notifyCommand.Parameters.Add(new() { Value = JsonSerializer.Serialize(new ObservedRunState(updatedRun, modifiedAt), _serializerOptions), NpgsqlDbType = NpgsqlDbType.Text });
+            notifyCommand.Parameters.Add(new() { Value = JsonSerializer.Serialize(new ObservedRunState(updatedRun, modifiedAt) { TagsVersion = tagsVersion }, _serializerOptions), NpgsqlDbType = NpgsqlDbType.Text });
             await notifyCommand.PrepareAsync(cancellationToken);
             await notifyCommand.ExecuteNonQueryAsync(cancellationToken);
 
@@ -454,8 +570,9 @@ public class Repository
             await using var tx = await conn.BeginTransactionAsync(cancellationToken);
             Run run;
             bool resourcesCreated;
+            int tagsVersion;
             await using (var readRun = new NpgsqlCommand($"""
-                SELECT run, resources_created, final
+                SELECT run, resources_created, final, tags_version
                 FROM runs
                 WHERE id = $1
                 FOR UPDATE
@@ -468,14 +585,13 @@ public class Repository
             })
             {
                 await readRun.PrepareAsync(cancellationToken);
-                await using var reader = await readRun.ExecuteReaderAsync(cancellationToken);
+                await using var reader = await readRun.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
                 if (!await reader.ReadAsync(cancellationToken))
                 {
                     return null;
                 }
 
-                var runJson = reader.GetString(0);
-                run = JsonSerializer.Deserialize<Run>(runJson, _serializerOptions) ?? throw new InvalidOperationException("Failed to deserialize run.");
+                run = reader.GetFieldValue<Run>(0);
                 resourcesCreated = reader.GetBoolean(1);
                 var final = reader.GetBoolean(2);
 
@@ -483,6 +599,8 @@ public class Repository
                 {
                     return run;
                 }
+
+                tagsVersion = reader.GetInt32(3);
             }
 
             var now = DateTimeOffset.UtcNow;
@@ -504,7 +622,7 @@ public class Repository
                 Parameters =
                     {
                         new() { Value = id, NpgsqlDbType = NpgsqlDbType.Bigint },
-                        new() { Value = JsonSerializer.Serialize(updatedRun, _serializerOptions), NpgsqlDbType = NpgsqlDbType.Jsonb },
+                        CreateJsonbParameter(updatedRun),
                     }
             })
             {
@@ -513,7 +631,7 @@ public class Repository
             }
 
             await using var notifyCommand = new NpgsqlCommand($"SELECT pg_notify('{RunChangedChannelName}', $1);", conn, tx);
-            notifyCommand.Parameters.Add(new() { Value = JsonSerializer.Serialize(new ObservedRunState(updatedRun, modifiedAt), _serializerOptions), NpgsqlDbType = NpgsqlDbType.Text });
+            notifyCommand.Parameters.Add(new() { Value = JsonSerializer.Serialize(new ObservedRunState(updatedRun, modifiedAt) { TagsVersion = tagsVersion }, _serializerOptions), NpgsqlDbType = NpgsqlDbType.Text });
             await notifyCommand.PrepareAsync(cancellationToken);
             await notifyCommand.ExecuteNonQueryAsync(cancellationToken);
 
@@ -547,15 +665,14 @@ public class Repository
             })
             {
                 await readRun.PrepareAsync(cancellationToken);
-                await using var reader = await readRun.ExecuteReaderAsync(cancellationToken);
+                await using var reader = await readRun.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
                 if (!await reader.ReadAsync(cancellationToken))
                 {
                     // The run is already in a terminal or canceling state so we don't do anything
                     return;
                 }
 
-                var runJson = reader.GetString(0);
-                var run = JsonSerializer.Deserialize<Run>(runJson, _serializerOptions) ?? throw new InvalidOperationException("Failed to deserialize run.");
+                var run = reader.GetFieldValue<Run>(0);
                 updatedRun = state.ApplyToRun(run);
                 if (updatedRun.Equals(run))
                 {
@@ -577,7 +694,7 @@ public class Repository
                 Parameters =
                     {
                         new() { Value = state.Id, NpgsqlDbType = NpgsqlDbType.Bigint },
-                        new() { Value = JsonSerializer.Serialize(updatedRun, _serializerOptions), NpgsqlDbType = NpgsqlDbType.Jsonb },
+                        CreateJsonbParameter(updatedRun),
                     }
             })
             {
@@ -588,7 +705,7 @@ public class Repository
                 }
 
                 await updateRun.PrepareAsync(cancellationToken);
-                await using var reader = await updateRun.ExecuteReaderAsync(cancellationToken);
+                await using var reader = await updateRun.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
                 if (!await reader.ReadAsync(cancellationToken))
                 {
                     // Lost the lease
@@ -624,21 +741,28 @@ public class Repository
                 UPDATE runs
                 SET run = $2, modified_at = now() AT TIME ZONE 'utc'
                 WHERE id = $1
-                RETURNING modified_at
+                RETURNING modified_at, tags_version
                 """, conn, tx)
             {
                 Parameters =
                 {
                     new() { Value = run.Id, NpgsqlDbType = NpgsqlDbType.Bigint },
-                    new() { Value = JsonSerializer.Serialize(run, _serializerOptions), NpgsqlDbType = NpgsqlDbType.Jsonb },
+                    CreateJsonbParameter(run),
                 }
             };
 
             await updateRunCommand.PrepareAsync(cancellationToken);
-            var modifiedAt = (DateTime)(await updateRunCommand.ExecuteScalarAsync(cancellationToken))!;
+            DateTime modifiedAt;
+            int tagsVersion;
+            await using (var reader = await updateRunCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken))
+            {
+                await reader.ReadAsync(cancellationToken);
+                modifiedAt = reader.GetDateTime(0);
+                tagsVersion = reader.GetInt32(1);
+            }
 
             await using var notifyCommand = new NpgsqlCommand($"SELECT pg_notify('{RunChangedChannelName}', $1);", conn, tx);
-            notifyCommand.Parameters.Add(new() { Value = JsonSerializer.Serialize(new ObservedRunState(run, modifiedAt), _serializerOptions), NpgsqlDbType = NpgsqlDbType.Text });
+            notifyCommand.Parameters.Add(new() { Value = JsonSerializer.Serialize(new ObservedRunState(run, modifiedAt) { TagsVersion = tagsVersion }, _serializerOptions), NpgsqlDbType = NpgsqlDbType.Text });
             await notifyCommand.PrepareAsync(cancellationToken);
             await notifyCommand.ExecuteNonQueryAsync(cancellationToken);
 
@@ -667,15 +791,17 @@ public class Repository
         }, cancellationToken);
     }
 
-    public async Task<(Run run, DateTimeOffset? modifiedAt, DateTimeOffset? logsArchivedAt, bool final)?> GetRun(long id, CancellationToken cancellationToken)
+    public async Task<(Run run, DateTimeOffset? modifiedAt, DateTimeOffset? logsArchivedAt, bool final, int tagsVersion)?> GetRun(long id, CancellationToken cancellationToken, GetRunOptions options = GetRunOptions.None)
     {
-        return await _resiliencePipeline.ExecuteAsync<(Run run, DateTimeOffset? modifiedAt, DateTimeOffset? logsArchivedAt, bool final)?>(async cancellationToken =>
+        return await _resiliencePipeline.ExecuteAsync<(Run run, DateTimeOffset? modifiedAt, DateTimeOffset? logsArchivedAt, bool final, int tagsVersion)?>(async cancellationToken =>
         {
             await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
-            await using var cmd = new NpgsqlCommand("""
-                SELECT run, final, logs_archived_at, resources_created, modified_at
+            await using var cmd = new NpgsqlCommand($"""
+                SELECT run, final, logs_archived_at, resources_created, modified_at, tags_version {((options & GetRunOptions.SkipTags) == GetRunOptions.SkipTags ? "" : ", tag_keys.name, run_tags.value")}
                 FROM runs
-                WHERE id = $1
+                {((options & GetRunOptions.SkipTags) == GetRunOptions.SkipTags ? "" : "LEFT JOIN run_tags ON runs.id = run_tags.id LEFT JOIN tag_keys ON run_tags.key = tag_keys.id")}
+                WHERE runs.id = $1
+                {((options & GetRunOptions.SkipTags) == GetRunOptions.SkipTags ? "" : "ORDER BY tag_keys.name")}
                 """, conn)
             {
                 Parameters =
@@ -686,142 +812,254 @@ public class Repository
 
             await cmd.PrepareAsync(cancellationToken);
             await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
-            if (!await reader.ReadAsync(cancellationToken))
+
+            bool final = false;
+            DateTimeOffset? logsArchivedAt = null;
+            DateTimeOffset? modifiedAt = null;
+            Run? run = null;
+            OrderedDictionary<string, string>? tags = null;
+            int tagsVersion = 0;
+
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                if (run == null)
+                {
+                    run = reader.GetFieldValue<Run>(0);
+                    final = reader.GetBoolean(1);
+                    logsArchivedAt = reader.IsDBNull(2) ? (DateTime?)null : reader.GetDateTime(2);
+                    modifiedAt = reader.IsDBNull(4) ? (DateTime?)null : reader.GetDateTime(4);
+                    if (!final && (options & GetRunOptions.SkipAugmentation) == 0 && _runAugmenter != null)
+                    {
+                        run = await _runAugmenter.Value.AugmentRun(run, cancellationToken);
+                    }
+
+                    tagsVersion = reader.GetInt32(5);
+                }
+
+                if ((options & GetRunOptions.SkipTags) == 0 && !reader.IsDBNull(6))
+                {
+                    var name = reader.GetString(6);
+                    var value = reader.GetString(7);
+                    (tags ??= []).Add(name, value);
+                }
+            }
+
+            if (run == null)
             {
                 return null;
             }
 
-            var runJson = reader.GetString(0);
-            var final = reader.GetBoolean(1);
-            var logsArchivedAt = reader.IsDBNull(2) ? (DateTime?)null : reader.GetDateTime(2);
-            var run = JsonSerializer.Deserialize<Run>(runJson, _serializerOptions) ?? throw new InvalidOperationException("Failed to deserialize run.");
-            var modifiedAt = reader.IsDBNull(4) ? (DateTime?)null : reader.GetDateTime(4);
-            return (run, modifiedAt, logsArchivedAt, final);
-        }, cancellationToken);
-    }
-
-    public async Task<IDictionary<RunStatus, long>> GetRunCounts(DateTimeOffset? since, CancellationToken cancellationToken)
-    {
-        return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
-        {
-            await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
-            await using var cmd =
-                since == null
-                ? new NpgsqlCommand("""
-                    SELECT status, count(*)
-                    FROM runs
-                    GROUP BY status
-                    """, conn)
-                : new NpgsqlCommand("""
-                    SELECT status, count(*)
-                    FROM runs
-                    WHERE created_at > $1
-                    GROUP BY status
-                    """, conn)
-                {
-                    Parameters = { new() { Value = since.Value, NpgsqlDbType = NpgsqlDbType.TimestampTz } }
-                };
-
-            await cmd.PrepareAsync(cancellationToken);
-            await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
-            var res = new Dictionary<RunStatus, long>();
-            while (await reader.ReadAsync(cancellationToken))
+            run = run with { Tags = tags };
+            var hash = _xxHash3Pool.Get();
+            try
             {
-                var status = reader.GetString(0);
-                var count = reader.GetInt64(1);
-                res.Add(Enum.Parse<RunStatus>(status), count);
+                run.ComputeEtag(hash);
+            }
+            finally
+            {
+                hash.Reset();
+                _xxHash3Pool.Return(hash);
             }
 
-            return res;
+            return (run, modifiedAt, logsArchivedAt, final, tagsVersion);
         }, cancellationToken);
     }
 
-    public async Task<IDictionary<RunStatus, long>> GetRunCountsWithCallbackForNonFinal(DateTimeOffset? since, Func<Run, CancellationToken, Task<Run>> updateRun, CancellationToken cancellationToken)
+    public async Task<IDictionary<RunStatus, long>> GetRunCounts(DateTimeOffset? since, Dictionary<string, string>? tags, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
-            var res = new Dictionary<RunStatus, long>();
             await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
             await using var tx = await conn.BeginTransactionAsync(cancellationToken);
-            await using (var finalsCommand =
-                since == null
-                ? new NpgsqlCommand("""
-                    SELECT status, count(*)
-                    FROM runs
-                    WHERE final = true
-                    GROUP BY status
-                    """, conn, tx)
-                : new NpgsqlCommand("""
-                    SELECT status, count(*)
-                    FROM runs
-                    WHERE final = true AND created_at > $1
-                    GROUP BY status
-                    """, conn, tx)
-                {
-                    Parameters = { new() { Value = since.Value, NpgsqlDbType = NpgsqlDbType.TimestampTz } }
-                })
+            var res = new Dictionary<RunStatus, long>();
+
+            var commonClauses = new StringBuilder();
+            var parameters = new List<NpgsqlParameter>();
+            var paramNumber = 0;
+            NpgsqlParameter? finalParameter = null;
+
+            if (tags?.Count > 0)
             {
-                await finalsCommand.PrepareAsync(cancellationToken);
-                await using var finalsReader = await finalsCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
-                while (await finalsReader.ReadAsync(cancellationToken))
+                for (int x = 0; x < tags.Count; x++)
                 {
-                    var status = finalsReader.GetString(0);
-                    var count = finalsReader.GetInt64(1);
+                    commonClauses.AppendLine($"INNER JOIN run_tags AS t{x} ON runs.created_at = t{x}.created_at and runs.id = t{x}.id");
+                }
+
+                commonClauses.AppendLine("WHERE");
+
+                int index = 0;
+                foreach (var tag in tags)
+                {
+                    if (index > 0)
+                    {
+                        commonClauses.Append(" AND ");
+                    }
+
+                    var id = await GetTagId(conn, tag.Key, cancellationToken);
+                    if (id == null)
+                    {
+                        return res;
+                    }
+
+                    commonClauses.AppendLine($"      t{index}.key = ${++paramNumber} and t{index}.value = ${++paramNumber}");
+                    parameters.Add(new() { Value = id.Value, NpgsqlDbType = NpgsqlDbType.Bigint });
+                    parameters.Add(new() { Value = tag.Value, NpgsqlDbType = NpgsqlDbType.Text });
+                    index++;
+                }
+            }
+
+            if (since != null)
+            {
+                commonClauses.AppendLine($"{(paramNumber > 0 ? "AND" : "WHERE")} runs.created_at > ${++paramNumber}");
+                parameters.Add(new() { Value = since.Value, NpgsqlDbType = NpgsqlDbType.TimestampTz });
+            }
+
+            if (_runAugmenter != null)
+            {
+                commonClauses.AppendLine($"{(paramNumber > 0 ? "AND" : "WHERE")} runs.final = ${++paramNumber}");
+                parameters.Add(finalParameter = new() { Value = true, NpgsqlDbType = NpgsqlDbType.Boolean });
+            }
+
+            await using (var cmd = new NpgsqlCommand($"""
+                    SELECT runs.status, count(*)
+                    FROM runs
+                    {commonClauses}
+                    GROUP BY runs.status
+                    """, conn, tx))
+            {
+
+                foreach (var parameter in parameters)
+                {
+                    cmd.Parameters.Add(parameter);
+                }
+
+                await cmd.PrepareAsync(cancellationToken);
+                await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    var status = reader.GetString(0);
+                    var count = reader.GetInt64(1);
                     res.Add(Enum.Parse<RunStatus>(status), count);
                 }
             }
 
-            await using var nonFinalsCommand = new NpgsqlCommand("""
-                SELECT run
-                FROM runs
-                WHERE final = false
-                """, conn, tx);
-
-            await nonFinalsCommand.PrepareAsync(cancellationToken);
-            await using var nonFinalsReader = await nonFinalsCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
-            while (await nonFinalsReader.ReadAsync(cancellationToken))
+            if (_runAugmenter != null)
             {
-                var runJson = nonFinalsReader.GetString(0);
-                var run = JsonSerializer.Deserialize<Run>(runJson, _serializerOptions) ?? throw new InvalidOperationException("Failed to deserialize run.");
-                var updatedRun = await updateRun(run, cancellationToken);
-                if (!res.TryGetValue(updatedRun.Status!.Value, out var count))
+                await using var nonFinalsCommand = new NpgsqlCommand($"""
+                    SELECT runs.run
+                    FROM runs
+                    {commonClauses}
+                    """, conn, tx);
+
+                foreach (var parameter in parameters)
                 {
-                    count = 0;
+                    var clonedParameter = parameter.Clone();
+                    if (parameter == finalParameter)
+                    {
+                        clonedParameter.Value = false;
+                    }
+
+                    nonFinalsCommand.Parameters.Add(clonedParameter);
                 }
 
-                res[updatedRun.Status!.Value] = count + 1;
+                await nonFinalsCommand.PrepareAsync(cancellationToken);
+                await using var nonFinalsReader = await nonFinalsCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+                while (await nonFinalsReader.ReadAsync(cancellationToken))
+                {
+                    var run = nonFinalsReader.GetFieldValue<Run>(0);
+                    var updatedRun = await _runAugmenter.Value.AugmentRun(run, cancellationToken);
+                    if (!res.TryGetValue(updatedRun.Status!.Value, out var count))
+                    {
+                        count = 0;
+                    }
+
+                    res[updatedRun.Status!.Value] = count + 1;
+                }
             }
 
             return res;
+
         }, cancellationToken);
     }
 
-    public async Task<(IList<(Run run, bool final)>, string? nextContinuationToken)> GetRuns(int limit, bool onlyResourcesCreated, DateTimeOffset? since, string? continuationToken, CancellationToken cancellationToken)
+    public async Task<(IList<(Run run, bool final)>, string? nextContinuationToken)> GetRuns(GetRunsOptions options, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync<(IList<(Run run, bool final)>, string? nextContinuationToken)>(async cancellationToken =>
         {
-            bool hasPredicate = onlyResourcesCreated;
+            await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+            await using var tx = await conn.BeginTransactionAsync(cancellationToken);
+
+            int queryLimit = options.Limit + 1;
+            HashSet<RunStatus>? inMemoryStatusFilter = null;
+            if (_runAugmenter != null && options.Statuses is { Length: > 0 })
+            {
+                // Get an estimate of the number of non-final runs.
+                // We could consider taking the tag filters and continuation token into account here.
+                await using var nonFinalCountQuery = new NpgsqlCommand($"""
+                    SELECT count(*)
+                    FROM runs
+                    WHERE final = false
+                    """, conn, tx);
+                await nonFinalCountQuery.PrepareAsync(cancellationToken);
+                var nonFinalCount = (long)(await nonFinalCountQuery.ExecuteScalarAsync(cancellationToken))!;
+                queryLimit += (int)Math.Min(nonFinalCount, 1000);
+                if (nonFinalCount > 0)
+                {
+                    inMemoryStatusFilter = [.. options.Statuses.Select(status => Enum.Parse<RunStatus>(status))];
+                }
+            }
+
             var sb = new StringBuilder();
-            sb.Append($"""
-                SELECT run, final
-                FROM runs
-                {(onlyResourcesCreated ? "WHERE resources_created = true\n" : "")}
+            sb.AppendLine($"""
+                WITH matches AS (
+                    SELECT runs.created_at, runs.id, runs.run, runs.final
+                    FROM runs
                 """);
 
             var parameters = new List<NpgsqlParameter>();
             int paramNumber = 0;
 
-            if (continuationToken != null)
+            if (options.Tags?.Count > 0)
+            {
+                for (int x = 0; x < options.Tags.Count; x++)
+                {
+                    sb.AppendLine($"    INNER JOIN run_tags AS t{x} ON runs.created_at = t{x}.created_at and runs.id = t{x}.id");
+                }
+
+                sb.AppendLine("    WHERE");
+
+                int index = 0;
+                foreach (var tag in options.Tags)
+                {
+                    if (index > 0)
+                    {
+                        sb.Append(" AND ");
+                    }
+
+                    var id = await GetTagId(conn, tag.Key, cancellationToken);
+                    if (id == null)
+                    {
+                        return ([], null);
+                    }
+
+                    sb.AppendLine($"      t{index}.key = ${++paramNumber} and t{index}.value = ${++paramNumber}");
+                    parameters.Add(new() { Value = id.Value, NpgsqlDbType = NpgsqlDbType.Bigint });
+                    parameters.Add(new() { Value = tag.Value, NpgsqlDbType = NpgsqlDbType.Text });
+                    index++;
+                }
+            }
+
+            if (!string.IsNullOrEmpty(options.ContinuationToken))
             {
                 bool valid = false;
                 try
                 {
-                    var fields = JsonSerializer.Deserialize<long[]>(Encoding.ASCII.GetString(Base32.ZBase32.Decode(continuationToken)), _serializerOptions);
+                    var fields = JsonSerializer.Deserialize<long[]>(Encoding.ASCII.GetString(Base32.ZBase32.Decode(options.ContinuationToken)), _serializerOptions);
                     if (fields is { Length: 2 })
                     {
                         var createdAt = new DateTimeOffset(fields[0], TimeSpan.Zero);
                         var id = fields[1];
-                        sb.AppendLine($"{(hasPredicate ? "AND" : "WHERE")} (created_at, id) < (${++paramNumber}, ${++paramNumber})");
+                        sb.AppendLine($"    {(paramNumber > 0 ? "AND" : "WHERE")} (runs.created_at, runs.id) < (${++paramNumber}, ${++paramNumber})");
                         parameters.Add(new() { Value = createdAt, NpgsqlDbType = NpgsqlDbType.TimestampTz });
                         parameters.Add(new() { Value = id, NpgsqlDbType = NpgsqlDbType.Bigint });
                         valid = true;
@@ -837,18 +1075,44 @@ public class Repository
                 }
             }
 
-            if (since.HasValue)
+            if (options.Since.HasValue)
             {
-                sb.AppendLine($"{(hasPredicate ? "AND" : "WHERE")} created_at > ${++paramNumber}");
-                parameters.Add(new() { Value = since.Value, NpgsqlDbType = NpgsqlDbType.TimestampTz });
+                sb.AppendLine($"    {(paramNumber > 0 ? "AND" : "WHERE")} runs.created_at > ${++paramNumber}");
+                parameters.Add(new() { Value = options.Since.Value, NpgsqlDbType = NpgsqlDbType.TimestampTz });
             }
 
-            sb.AppendLine("ORDER BY created_at DESC, id DESC");
-            sb.AppendLine($"LIMIT ${++paramNumber}");
-            parameters.Add(new() { Value = limit + 1, NpgsqlDbType = NpgsqlDbType.Integer });
+            if (options.Statuses?.Length > 0)
+            {
+                sb.AppendLine($"    {(paramNumber > 0 ? "AND" : "WHERE")} ({(inMemoryStatusFilter != null ? "NOT final OR " : "")}runs.status = ANY(${++paramNumber}))");
+                parameters.Add(new() { Value = options.Statuses, NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Text });
+            }
 
-            await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
-            await using var cmd = new NpgsqlCommand(sb.ToString(), conn);
+            if (options.OnlyResourcesCreated)
+            {
+                sb.AppendLine($"    {(paramNumber > 0 ? "AND" : "WHERE")} runs.resources_created = true");
+            }
+
+            sb.AppendLine("    ORDER BY created_at DESC, id DESC");
+            sb.AppendLine($"    LIMIT ${++paramNumber}");
+            parameters.Add(new() { Value = queryLimit, NpgsqlDbType = NpgsqlDbType.Integer });
+            sb.AppendLine(")");
+
+            sb.AppendLine($"""
+                SELECT
+                    matches.run,
+                    matches.final,
+                    jsonb_object_agg(tag_keys.name, run_tags.value) FILTER (WHERE tag_keys.name IS NOT NULL) AS tags
+                FROM matches
+                LEFT JOIN run_tags
+                    ON matches.id = run_tags.id
+                    AND run_tags.created_at = matches.created_at
+                LEFT JOIN tag_keys
+                    ON tag_keys.id = run_tags.key
+                GROUP BY matches.created_at, matches.id, matches.run, matches.final
+                ORDER BY matches.created_at DESC, matches.id DESC
+                """);
+
+            await using var cmd = new NpgsqlCommand(sb.ToString(), conn, tx);
             foreach (var parameter in parameters)
             {
                 cmd.Parameters.Add(parameter);
@@ -858,18 +1122,46 @@ public class Repository
             await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
 
             List<(Run run, bool final)> results = [];
-            while (await reader.ReadAsync(cancellationToken))
+            var hash = _xxHash3Pool.Get();
+            try
             {
-                var runJson = reader.GetString(0);
-                var final = reader.GetBoolean(1);
-                var run = JsonSerializer.Deserialize<Run>(runJson, _serializerOptions) ?? throw new InvalidOperationException("Failed to deserialize run.");
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    var run = reader.GetFieldValue<Run>(0);
+                    var final = reader.GetBoolean(1);
+                    if (!reader.IsDBNull(2))
+                    {
+                        var tags = reader.GetFieldValue<Dictionary<string, string>>(2);
+                        run = run with { Tags = tags };
+                    }
 
-                results.Add((run, final));
+                    if (!final && _runAugmenter != null)
+                    {
+                        run = await _runAugmenter.Value.AugmentRun(run, cancellationToken);
+                    }
+
+                    if (!final && inMemoryStatusFilter != null && !inMemoryStatusFilter.Contains(run.Status!.Value))
+                    {
+                        continue;
+                    }
+
+                    run.ComputeEtag(hash);
+                    results.Add((run, final));
+                    if (results.Count == options.Limit + 1)
+                    {
+                        break;
+                    }
+                }
+            }
+            finally
+            {
+                hash.Reset();
+                _xxHash3Pool.Return(hash);
             }
 
-            if (results.Count == limit + 1)
+            if (results.Count == options.Limit + 1)
             {
-                results.RemoveAt(limit);
+                results.RemoveAt(options.Limit);
                 var (run, final) = results[^1];
                 string newToken = Base32.ZBase32.Encode(Encoding.ASCII.GetBytes(JsonSerializer.Serialize(new[] { run.CreatedAt!.Value.UtcTicks, run.Id!.Value }, _serializerOptions)));
                 return (results, newToken);
@@ -903,8 +1195,7 @@ public class Repository
             var results = new List<Run>();
             while (await reader.ReadAsync(cancellationToken))
             {
-                var runJson = reader.GetString(0);
-                results.Add(JsonSerializer.Deserialize<Run>(runJson, _serializerOptions)!);
+                results.Add(reader.GetFieldValue<Run>(0));
             }
 
             return results;
@@ -965,13 +1256,13 @@ public class Repository
         }, cancellationToken);
     }
 
-    public async Task<Buffer?> GetBuffer(string id, string eTag, CancellationToken cancellationToken)
+    public async Task<Buffer?> GetBuffer(string id, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
             await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
             await using var command = new NpgsqlCommand("""
-                SELECT buffers.created_at, buffers.etag, storage_accounts.location, tag_keys.name, buffer_tags.value
+                SELECT buffers.created_at, storage_accounts.location, tag_keys.name, buffer_tags.value
                 FROM buffers
                 INNER JOIN storage_accounts
                     on storage_accounts.id = buffers.storage_account_id
@@ -981,6 +1272,7 @@ public class Repository
                 LEFT JOIN tag_keys
                     on tag_keys.id = buffer_tags.key
                 WHERE buffers.id = $1
+                ORDER BY tag_keys.name
                 """, conn)
             {
                 Parameters =
@@ -989,50 +1281,37 @@ public class Repository
                 }
             };
 
-            if (eTag != "")
-            {
-                command.CommandText += " and buffers.etag = $2";
-                command.Parameters.Add(new() { Value = eTag, NpgsqlDbType = NpgsqlDbType.Text });
-            }
-
-            var tags = new Dictionary<string, string>();
-            string currentETag = "";
+            OrderedDictionary<string, string>? tags = null;
             string location = "";
-            DateTimeOffset createdAt = DateTimeOffset.MinValue;
+            DateTimeOffset createdAt = default;
 
             await command.PrepareAsync(cancellationToken);
             await using var reader = (await command.ExecuteReaderAsync(cancellationToken))!;
+            bool any = false;
+
             while (await reader.ReadAsync(cancellationToken))
             {
-                if (createdAt == DateTimeOffset.MinValue)
+                if (!any)
                 {
+                    any = true;
                     createdAt = reader.GetDateTime(0);
+                    location = reader.GetString(1);
                 }
 
-                if (string.IsNullOrEmpty(currentETag))
+                if (!reader.IsDBNull(2) && !reader.IsDBNull(3))
                 {
-                    currentETag = reader.GetString(1);
-                }
-
-                if (string.IsNullOrEmpty(location))
-                {
-                    location = reader.GetString(2);
-                }
-
-                if (!reader.IsDBNull(3) && !reader.IsDBNull(4))
-                {
-                    var name = reader.GetString(3);
-                    var value = reader.GetString(4);
-                    tags.Add(name, value);
+                    var name = reader.GetString(2);
+                    var value = reader.GetString(3);
+                    (tags ??= []).Add(name, value);
                 }
             }
 
-            if (currentETag == "" && createdAt == DateTimeOffset.MinValue)
+            if (!any)
             {
                 return null;
             }
 
-            return new Buffer { Id = id, ETag = currentETag, CreatedAt = createdAt, Location = location, Tags = tags };
+            return new Buffer { Id = id, CreatedAt = createdAt, Location = location, Tags = tags, };
         }, cancellationToken);
     }
 
@@ -1075,11 +1354,10 @@ public class Repository
             };
 
             var commandText = new StringBuilder();
-            string table = tags?.Count > 0 ? "buffer_tags" : "buffers";
             commandText.AppendLine($"""
                 WITH matches AS (
-                SELECT buffers.id, buffers.created_at, buffers.etag, buffers.storage_account_id
-                FROM buffers
+                    SELECT buffers.id, buffers.created_at, buffers.storage_account_id
+                    FROM buffers
                 """);
 
             int param = 2;
@@ -1150,77 +1428,88 @@ public class Repository
             }
 
             commandText.AppendLine("""
-                ORDER BY buffers.created_at DESC, buffers.id DESC
+                    ORDER BY buffers.created_at DESC, buffers.id DESC
                     LIMIT $1
                 )
-                SELECT matches.id, matches.created_at, tag_keys.name, buffer_tags.value, matches.etag, storage_accounts.location
+                SELECT matches.id, matches.created_at, storage_accounts.location, tag_keys.name, buffer_tags.value
                 FROM matches
                 INNER JOIN storage_accounts ON matches.storage_account_id = storage_accounts.id
                 LEFT JOIN buffer_tags
                     ON matches.id = buffer_tags.id AND matches.created_at = buffer_tags.created_at
                 LEFT JOIN tag_keys ON buffer_tags.key = tag_keys.id
-                ORDER BY matches.created_at DESC, matches.id DESC
+                ORDER BY matches.created_at DESC, matches.id DESC, tag_keys.name ASC
                 """);
 
             command.CommandText = commandText.ToString();
             await command.PrepareAsync(cancellationToken);
 
             var results = new List<Buffer>();
-            var currentTags = new Dictionary<string, string>();
+            var currentTags = new OrderedDictionary<string, string>();
             var currentBuffer = new Buffer();
-
-            using var reader = (await command.ExecuteReaderAsync(cancellationToken))!;
-            while (await reader.ReadAsync(cancellationToken))
+            var hash = _xxHash3Pool.Get();
+            try
             {
-                var id = reader.GetString(0);
-                var createdAt = reader.GetDateTime(1);
-                var etag = reader.GetString(4);
-                var location = reader.GetString(5);
-
-                if (currentBuffer.Id != id)
+                using var reader = (await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken))!;
+                while (await reader.ReadAsync(cancellationToken))
                 {
-                    if (currentBuffer.Id != "")
+                    var id = reader.GetString(0);
+                    var createdAt = reader.GetDateTime(1);
+                    var location = reader.GetString(2);
+
+                    if (currentBuffer.Id != id)
                     {
-                        results.Add(currentBuffer with { Tags = currentTags });
+                        if (currentBuffer.Id != "")
+                        {
+                            currentBuffer = currentBuffer with { Tags = currentTags };
+                            currentBuffer.ComputeEtag(hash);
+                            results.Add(currentBuffer);
+                        }
+
+                        currentBuffer = currentBuffer with { Id = id, CreatedAt = createdAt, Location = location };
+                        currentTags = [];
                     }
 
-                    currentBuffer = currentBuffer with { Id = id, CreatedAt = createdAt, ETag = etag, Location = location };
-                    currentTags = [];
+                    if (!reader.IsDBNull(3))
+                    {
+                        var tagName = reader.GetString(3);
+                        var tagValue = reader.GetString(4);
+
+                        currentTags[tagName] = tagValue;
+                    }
                 }
 
-                if (!reader.IsDBNull(2) && !reader.IsDBNull(3))
+                if (currentBuffer.Id != "")
                 {
-                    var tagName = reader.GetString(2);
-                    var tagValue = reader.GetString(3);
-
-                    currentTags[tagName] = tagValue;
+                    currentBuffer.ComputeEtag(hash);
+                    results.Add(currentBuffer with { Tags = currentTags });
                 }
-            }
 
-            if (currentBuffer.Id != "")
+                if (results.Count == limit + 1)
+                {
+                    results.RemoveAt(limit);
+                    var last = results[^1];
+                    string newToken = Base32.ZBase32.Encode(Encoding.ASCII.GetBytes(JsonSerializer.Serialize(new object[] { last.CreatedAt!.Value.UtcTicks, last.Id }, _serializerOptions)));
+                    return (results, newToken);
+                }
+
+                return (results, null);
+            }
+            finally
             {
-                results.Add(currentBuffer with { Tags = currentTags });
+                hash.Reset();
+                _xxHash3Pool.Return(hash);
             }
-
-            if (results.Count == limit + 1)
-            {
-                results.RemoveAt(limit);
-                var last = results[^1];
-                string newToken = Base32.ZBase32.Encode(Encoding.ASCII.GetBytes(JsonSerializer.Serialize(new object[] { last.CreatedAt.UtcTicks, last.Id }, _serializerOptions)));
-                return (results, newToken);
-            }
-
-            return (results, null);
         }, cancellationToken);
     }
 
-    public async Task<Buffer?> UpdateBufferById(string id, string eTag, IDictionary<string, string>? tags, CancellationToken cancellationToken)
+    public async Task<UpdateWithPreconditionResult<Buffer>> UpdateBufferTags(BufferUpdate bufferUpdate, string? eTagPrecondition, CancellationToken cancellationToken)
     {
-        return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
+        return await _resiliencePipeline.ExecuteAsync<UpdateWithPreconditionResult<Buffer>>(async cancellationToken =>
         {
             await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
-            await using var tx = await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
-            string newETag = DateTime.UtcNow.Ticks.ToString();
+            await using var tx = await connection.BeginTransactionAsync(cancellationToken);
+
+            Buffer buffer = new() { Id = bufferUpdate.Id!, Tags = bufferUpdate.Tags };
 
             // Update and validate the buffer
             using var bufferCommand = new NpgsqlCommand
@@ -1228,105 +1517,164 @@ public class Repository
                 Connection = connection,
                 Transaction = tx,
                 CommandText = """
-                    UPDATE buffers
-                    SET etag = $1
-                    WHERE id = $2
-
+                    SELECT created_at, storage_accounts.location FROM buffers
+                    INNER JOIN storage_accounts ON storage_accounts.id = buffers.storage_account_id
+                    WHERE buffers.id = $1
+                    FOR UPDATE
                     """,
                 Parameters =
                     {
-                        new() { Value = newETag, NpgsqlDbType = NpgsqlDbType.Text },
-                        new() { Value = id, NpgsqlDbType = NpgsqlDbType.Text },
+                        new() { Value = bufferUpdate.Id, NpgsqlDbType = NpgsqlDbType.Text },
                     }
             };
 
-            if (eTag != "")
-            {
-                bufferCommand.CommandText += " AND etag = $3";
-                bufferCommand.Parameters.Add(new() { Value = eTag, NpgsqlDbType = NpgsqlDbType.Text });
-            }
-
-            bufferCommand.CommandText += " RETURNING created_at";
-
             await bufferCommand.PrepareAsync(cancellationToken);
 
-            DateTimeOffset createdAt = DateTimeOffset.MinValue;
-            await using (var reader = await bufferCommand.ExecuteReaderAsync(cancellationToken))
+            await using (var reader = await bufferCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken))
             {
-                // If the query didn't do anything, return null
-                if (!reader.HasRows)
+                bool any = false;
+                while (await reader.ReadAsync(cancellationToken))
                 {
-                    return null;
+                    any = true;
+                    buffer = buffer with { CreatedAt = reader.GetDateTime(0), Location = reader.GetString(1) };
+                    bufferUpdate = bufferUpdate with { CreatedAt = buffer.CreatedAt };
                 }
 
-                await reader.ReadAsync(cancellationToken);
-
-                createdAt = reader.GetDateTime(0);
-
-                await reader.ReadAsync(cancellationToken);
+                if (!any)
+                {
+                    return new UpdateWithPreconditionResult<Buffer>.NotFound();
+                }
             }
 
-            await UpsertTags(tx, id, createdAt, true, tags);
+            var hash = _xxHash3Pool.Get();
+            try
+            {
+                var existingTags = await UpsertTagsCore(tx, bufferUpdate, true, eTagPrecondition, cancellationToken);
+                if (!string.IsNullOrEmpty(eTagPrecondition))
+                {
+                    var existingBuffer = buffer with { Tags = existingTags };
+                    if (!string.Equals(existingBuffer.ComputeEtag(hash), eTagPrecondition, StringComparison.Ordinal))
+                    {
+                        await tx.RollbackAsync(cancellationToken);
+                        return new UpdateWithPreconditionResult<Buffer>.PreconditionFailed();
+                    }
+                }
+
+                buffer.ComputeEtag(hash);
+            }
+            finally
+            {
+                hash.Reset();
+                _xxHash3Pool.Return(hash);
+            }
 
             await tx.CommitAsync(cancellationToken);
-            return new Buffer() { Id = id, ETag = newETag, CreatedAt = createdAt, Tags = tags };
+            return new UpdateWithPreconditionResult<Buffer>.Updated(buffer);
         }, cancellationToken);
     }
 
-    private static async Task UpsertTags(NpgsqlTransaction tx, string bufferId, DateTimeOffset createdAt, bool update, IDictionary<string, string>? tags)
+    private static async Task<IReadOnlyDictionary<string, string>?> UpsertTagsCore<TId>(NpgsqlTransaction tx, IResourceWithTags<TId> resourceToUpdate, bool update, string? eTagPrecondition, CancellationToken cancellationToken)
     {
-        var batch = new NpgsqlBatch(connection: tx.Connection, transaction: tx);
+        OrderedDictionary<string, string>? existingTags = null;
+        var idNpgsqlDbType = typeof(TId) == typeof(string) ? NpgsqlDbType.Text : NpgsqlDbType.Bigint;
+        var tagTableName = resourceToUpdate switch
+        {
+            BufferUpdate => "buffer_tags",
+            RunUpdate => "run_tags",
+            _ => throw new InvalidOperationException("Unsupported resource type.")
+        };
+
         if (update)
         {
-            batch.BatchCommands.Add(new($"""
-                DELETE FROM buffer_tags
-                WHERE id = $1 and created_at = $2
-                """)
+            if (string.IsNullOrEmpty(eTagPrecondition))
+            {
+                await using var deleteExistingCommand = new NpgsqlCommand(
+                    $"""
+                    DELETE FROM {tagTableName}
+                    WHERE id = $1 and created_at = $2
+                    """, tx.Connection, tx)
+                {
+                    Parameters =
+                        {
+                            new() { Value = resourceToUpdate.Id, NpgsqlDbType = idNpgsqlDbType },
+                            new() { Value = resourceToUpdate.CreatedAt!.Value, NpgsqlDbType = NpgsqlDbType.TimestampTz }
+                        },
+                };
+
+                await deleteExistingCommand.PrepareAsync(cancellationToken);
+                await deleteExistingCommand.ExecuteNonQueryAsync(cancellationToken);
+            }
+            else
+            {
+                await using var readAndDeleteExistingCommand = new NpgsqlCommand(
+                    $"""
+                    WITH deleted AS (
+                        DELETE FROM {tagTableName}
+                        WHERE id = $1 and created_at = $2
+                        RETURNING key, value
+                    )
+                    SELECT tag_keys.name, deleted.value FROM deleted
+                    INNER JOIN tag_keys ON tag_keys.id = deleted.key
+                    ORDER BY tag_keys.name;
+                    """, tx.Connection, tx)
+                {
+                    Parameters =
+                        {
+                            new() { Value = resourceToUpdate.Id, NpgsqlDbType = idNpgsqlDbType },
+                            new() { Value = resourceToUpdate.CreatedAt!.Value, NpgsqlDbType = NpgsqlDbType.TimestampTz }
+                        },
+                };
+
+                await readAndDeleteExistingCommand.PrepareAsync(cancellationToken);
+
+                await using var reader = await readAndDeleteExistingCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    var tagName = reader.GetFieldValue<string>(0);
+                    var tagValue = reader.GetFieldValue<string>(1);
+                    (existingTags ??= [])[tagName] = tagValue;
+                }
+            }
+        }
+
+        if (resourceToUpdate.Tags is { Count: > 0 })
+        {
+            var insertCommand = new NpgsqlCommand(
+                $"""
+                WITH temp_tags AS (
+                    SELECT * FROM UNNEST($1::text[], $2::text[]) AS t(key, value)
+                ),
+                inserted_keys AS (
+                    INSERT INTO tag_keys (name)
+                    SELECT DISTINCT key FROM temp_tags
+                    ON CONFLICT (name) DO NOTHING
+                    RETURNING id, name
+                ),
+                all_keys AS (
+                    SELECT id, name FROM inserted_keys
+                    UNION
+                    SELECT id, name FROM tag_keys WHERE name IN (SELECT key FROM temp_tags)
+                )
+                INSERT INTO {tagTableName} (id, created_at, key, value)
+                SELECT $3, $4, all_keys.id, temp_tags.value
+                FROM temp_tags
+                JOIN all_keys ON all_keys.name = temp_tags.key;
+                """, tx.Connection, tx)
             {
                 Parameters =
                 {
-                    new() { Value = bufferId, NpgsqlDbType = NpgsqlDbType.Text },
-                    new() { Value = createdAt, NpgsqlDbType = NpgsqlDbType.TimestampTz }
-                },
-            });
+                    new() { Value = resourceToUpdate.Tags.Keys.ToArray(), NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Text},
+                    new() { Value = resourceToUpdate.Tags.Values.ToArray(), NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Text },
+                    new() { Value = resourceToUpdate.Id, NpgsqlDbType = idNpgsqlDbType },
+                    new() { Value = resourceToUpdate.CreatedAt!.Value, NpgsqlDbType = NpgsqlDbType.TimestampTz },
+                }
+            };
+
+            await insertCommand.PrepareAsync(cancellationToken);
+            await insertCommand.ExecuteNonQueryAsync(cancellationToken);
         }
 
-        if (tags is null || tags.Count == 0)
-        {
-            return;
-        }
-
-        batch.BatchCommands.Add(new($"""
-            WITH temp_tags AS (
-                SELECT * FROM UNNEST($1::text[], $2::text[]) AS t(key, value)
-            ),
-            inserted_keys AS (
-                INSERT INTO tag_keys (name)
-                SELECT DISTINCT key FROM temp_tags
-                ON CONFLICT (name) DO NOTHING
-                RETURNING id, name
-            ),
-            all_keys AS (
-                SELECT id, name FROM inserted_keys
-                UNION
-                SELECT id, name FROM tag_keys WHERE name IN (SELECT key FROM temp_tags)
-            )
-            INSERT INTO buffer_tags (id, created_at, key, value)
-            SELECT $3, $4, all_keys.id, temp_tags.value
-            FROM temp_tags
-            JOIN all_keys ON all_keys.name = temp_tags.key;
-            """)
-        {
-            Parameters =
-            {
-                new() { Value = tags.Keys.ToArray(), NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Text },
-                new() { Value = tags.Values.ToArray(), NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Text },
-                new() { Value = bufferId, NpgsqlDbType = NpgsqlDbType.Text },
-                new() { Value = createdAt, NpgsqlDbType = NpgsqlDbType.TimestampTz },
-            }
-        });
-
-        await batch.ExecuteNonQueryAsync();
+        return existingTags;
     }
 
     public async Task<Run> CreateRunWithIdempotencyKeyGuard(Run newRun, string idempotencyKey, Func<Run, CancellationToken, Task<Run>> createRun, CancellationToken cancellationToken)
@@ -1367,11 +1715,11 @@ public class Repository
         })
         {
             await selectCommand.PrepareAsync(cancellationToken);
-            await using var reader = await selectCommand.ExecuteReaderAsync(cancellationToken);
+            await using var reader = await selectCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
             if (await reader.ReadAsync(cancellationToken))
             {
                 long runId = reader.GetInt64(0);
-                (var run, _, _, _) = await GetRun(runId, cancellationToken) ?? throw new InvalidOperationException("Failed to get run with existing idempotency key.");
+                (var run, _, _, _, _) = await GetRun(runId, cancellationToken) ?? throw new InvalidOperationException("Failed to get run with existing idempotency key.");
                 return run;
             }
         }
@@ -1385,7 +1733,6 @@ public class Repository
         {
             await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
             await using var tx = await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
-            string eTag = DateTime.UtcNow.Ticks.ToString();
 
             // Create the buffer DB entry
             using var insertCommand = new NpgsqlCommand
@@ -1393,32 +1740,29 @@ public class Repository
                 Connection = connection,
                 Transaction = tx,
                 CommandText = """
-                        INSERT INTO buffers (id, created_at, etag, storage_account_id)
-                        VALUES ($1, now() AT TIME ZONE 'utc', $2, $3)
+                        INSERT INTO buffers (id, created_at, storage_account_id)
+                        VALUES ($1, now() AT TIME ZONE 'utc', $2)
                         RETURNING created_at
                         """,
                 Parameters =
                     {
                         new() { Value = newBuffer.Id, NpgsqlDbType = NpgsqlDbType.Text },
-                        new() { Value = eTag, NpgsqlDbType = NpgsqlDbType.Text },
                         new() { Value = storageAccountId, NpgsqlDbType = NpgsqlDbType.Integer },
                     }
             };
 
             await insertCommand.PrepareAsync(cancellationToken);
 
-            var buffer = newBuffer with { ETag = eTag };
-            await using (var reader = await insertCommand.ExecuteReaderAsync(cancellationToken))
+            await using (var reader = await insertCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken))
             {
                 await reader.ReadAsync(cancellationToken);
-
-                buffer = buffer with { CreatedAt = reader.GetDateTime(0), ETag = eTag };
+                newBuffer = newBuffer with { CreatedAt = reader.GetDateTime(0) };
             }
 
-            await UpsertTags(tx, newBuffer.Id, buffer.CreatedAt, false, newBuffer.Tags);
+            await UpsertTagsCore(tx, new BufferUpdate { Id = newBuffer.Id, CreatedAt = newBuffer.CreatedAt, Tags = newBuffer.Tags }, false, null, cancellationToken);
 
             await tx.CommitAsync(cancellationToken);
-            return buffer;
+            return newBuffer;
         }, cancellationToken);
     }
 
@@ -1490,10 +1834,10 @@ public class Repository
                         })
                         {
                             await getPageCommand.PrepareAsync(cancellationToken);
-                            await using var reader = await getPageCommand.ExecuteReaderAsync(cancellationToken);
+                            await using var reader = await getPageCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
                             while (await reader.ReadAsync(cancellationToken))
                             {
-                                runs.Add(JsonSerializer.Deserialize<Run>(reader.GetString(0), _serializerOptions)!);
+                                runs.Add(reader.GetFieldValue<Run>(0));
                             }
                         }
 
@@ -1551,7 +1895,7 @@ public class Repository
         {
             Connection = connection,
             CommandText = $"""
-                SELECT run, modified_at from runs
+                SELECT run, modified_at, tags_version from runs
                 WHERE {(since == null ? "final = false AND (resources_created = true OR status IN ('Failed', 'Succeeded', 'Canceled'))" : "modified_at > $1")}
                 """,
         })
@@ -1563,13 +1907,13 @@ public class Repository
 
             await readExistingCommand.PrepareAsync(cancellationToken);
 
-            await using var reader = await readExistingCommand.ExecuteReaderAsync(cancellationToken);
+            await using var reader = await readExistingCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
             {
-                var runString = reader.GetString(0);
+                var run = reader.GetFieldValue<Run>(0);
                 var modifiedAt = reader.IsDBNull(1) ? (DateTime?)null : reader.GetDateTime(1);
-                var run = JsonSerializer.Deserialize<Run>(runString, _serializerOptions);
-                await processRunUpdates(new ObservedRunState(run!, modifiedAt), cancellationToken);
+                var tagsVersion = reader.GetInt32(2);
+                await processRunUpdates(new ObservedRunState(run!, modifiedAt) { TagsVersion = tagsVersion }, cancellationToken);
             }
         }
 
@@ -1669,7 +2013,7 @@ public class Repository
                         insertCommand.Parameters.Add(new() { Value = leaseDuration, NpgsqlDbType = NpgsqlDbType.Interval });
 
                         await insertCommand.PrepareAsync(cancellationToken);
-                        await using var reader = await insertCommand.ExecuteReaderAsync(cancellationToken);
+                        await using var reader = await insertCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
                         await reader.ReadAsync(cancellationToken);
                         await UpdateLeaseHeld(reader.GetBoolean(0));
                         var expiration = reader.GetDateTime(1);
@@ -1792,7 +2136,7 @@ public class Repository
             upsertCommand.Parameters.Add(new() { Value = locations, NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Text });
 
             await upsertCommand.PrepareAsync(cancellationToken);
-            await using var reader = await upsertCommand.ExecuteReaderAsync(cancellationToken);
+            await using var reader = await upsertCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
             {
                 results.Add(reader.GetInt32(0), reader.GetString(1));
@@ -1836,7 +2180,7 @@ public class Repository
             };
 
             await command.PrepareAsync(cancellationToken);
-            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            await using var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
             var results = new List<(int id, string endpoint)>();
             while (await reader.ReadAsync(cancellationToken))
             {
@@ -1846,4 +2190,40 @@ public class Repository
             return results;
         }, cancellationToken);
     }
+
+    private static NpgsqlParameter CreateJsonbParameter(object value)
+    {
+        var updatedValue = value switch
+        {
+            Run run => run with { Tags = null, ETag = null },
+            _ => value,
+        };
+
+        return new() { Value = updatedValue, NpgsqlDbType = NpgsqlDbType.Jsonb };
+    }
+}
+
+[Union]
+public partial record UpdateWithPreconditionResult<T>
+{
+    public partial record Updated(T Value);
+    public partial record NotFound();
+    public partial record PreconditionFailed();
+}
+
+[Flags]
+public enum GetRunOptions
+{
+    None = 0,
+    SkipAugmentation = 1,
+    SkipTags = 2,
+}
+
+public record GetRunsOptions(int Limit)
+{
+    public bool OnlyResourcesCreated { get; init; }
+    public DateTimeOffset? Since { get; init; }
+    public string[]? Statuses { get; init; }
+    public IDictionary<string, string>? Tags { get; init; }
+    public string? ContinuationToken { get; init; }
 }

@@ -30,6 +30,7 @@ import (
 
 func TestCloudMigrations(t *testing.T) {
 	t.Parallel()
+	skipIfOnlyFastTests(t)
 	skipIfUsingUnixSocket(t)
 
 	environmentConfig := runCommandSucceeds(t, "../../scripts/get-config.sh")
@@ -143,6 +144,7 @@ func getTempDockerInstallationPath(t *testing.T) string {
 
 // func TestDockerOnlineMigrations(t *testing.T) {
 // 	t.Parallel()
+//  skipIfOnlyFastTests(t)
 // 	skipUnlessUsingUnixSocket(t)
 // 	skipIfNotUsingUnixSocketDirectly(t)
 
@@ -191,6 +193,7 @@ func getTempDockerInstallationPath(t *testing.T) string {
 
 func TestDockerOfflineMigrations(t *testing.T) {
 	t.Parallel()
+	skipIfOnlyFastTests(t)
 	skipUnlessUsingUnixSocket(t)
 	skipIfNotUsingUnixSocketDirectly(t)
 

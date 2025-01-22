@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-using System.ComponentModel.DataAnnotations;
 using System.Text.RegularExpressions;
 using Tyger.ControlPlane.Database;
 using Tyger.ControlPlane.Model;
@@ -11,7 +10,6 @@ namespace Tyger.ControlPlane.Buffers;
 
 public sealed partial class BufferManager
 {
-    private const int MaxTags = 100;
     private readonly Repository _repository;
     private readonly IBufferProvider _bufferProvider;
     private readonly IEphemeralBufferProvider _ephemeralBufferProvider;
@@ -27,26 +25,7 @@ public sealed partial class BufferManager
 
     public async Task<Buffer> CreateBuffer(Buffer newBuffer, CancellationToken cancellationToken)
     {
-        if (newBuffer.Tags != null)
-        {
-            if (newBuffer.Tags.Count > MaxTags)
-            {
-                throw new ValidationException($"No more than {MaxTags} tags can be set on a buffer");
-            }
-
-            foreach (var tag in newBuffer.Tags)
-            {
-                if (!TagKeyRegex().IsMatch(tag.Key))
-                {
-                    throw new ValidationException("Tag keys must contain up to 128 letters (a-z, A-Z), numbers (0-9) and underscores (_)");
-                }
-
-                if (!TagValueRegex().IsMatch(tag.Value))
-                {
-                    throw new ValidationException("Tag values can contain up to 256 letters (a-z, A-Z), numbers (0-9) and underscores (_)");
-                }
-            }
-        }
+        Tags.Validate(newBuffer.Tags);
 
         string id = UniqueId.Create();
         _logger.CreatingBuffer(id);
@@ -58,13 +37,7 @@ public sealed partial class BufferManager
 
     public async Task<Buffer?> GetBufferById(string id, CancellationToken cancellationToken)
     {
-        return await GetBufferById(id, "", cancellationToken);
-    }
-
-    public async Task<Buffer?> GetBufferById(string id, string eTag, CancellationToken cancellationToken)
-    {
-        return await _repository.GetBuffer(id, eTag, cancellationToken);
-
+        return await _repository.GetBuffer(id, cancellationToken);
     }
 
     public async Task<bool> CheckBuffersExist(ICollection<string> ids, CancellationToken cancellationToken)
@@ -72,9 +45,9 @@ public sealed partial class BufferManager
         return await _repository.CheckBuffersExist(ids, cancellationToken);
     }
 
-    public async Task<Buffer?> UpdateBufferById(string id, string eTag, IDictionary<string, string>? tags, CancellationToken cancellationToken)
+    public async Task<UpdateWithPreconditionResult<Buffer>> UpdateBufferTags(BufferUpdate bufferUpdate, string? eTagPrecondition, CancellationToken cancellationToken)
     {
-        return await _repository.UpdateBufferById(id, eTag, tags, cancellationToken);
+        return await _repository.UpdateBufferTags(bufferUpdate, eTagPrecondition, cancellationToken);
     }
 
     public async Task<(IList<Buffer>, string? nextContinuationToken)> GetBuffers(IDictionary<string, string>? tags, int limit, string? continuationToken, CancellationToken cancellationToken)
@@ -174,10 +147,4 @@ public sealed partial class BufferManager
 
     [GeneratedRegex(@"^(?<TEMP>(run-(?<RUNID>\d+)-)?temp-)?(?<BUFFERID>\w+)$")]
     private static partial Regex BufferIdRegex();
-
-    [GeneratedRegex(@"^[a-zA-Z0-9-_.]{1,128}$")]
-    private static partial Regex TagKeyRegex();
-
-    [GeneratedRegex(@"^[a-zA-Z0-9-_.]{0,256}$")]
-    private static partial Regex TagValueRegex();
 }

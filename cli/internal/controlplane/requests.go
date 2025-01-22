@@ -196,3 +196,68 @@ End:
 
 	return nil
 }
+
+func SetTagsOnEntity(ctx context.Context, relativeUrlPath string, etag string, clearTags bool, tags map[string]string, reponseObject any) error {
+	type Resource struct {
+		ETag string            `json:"eTag"`
+		Tags map[string]string `json:"tags"`
+	}
+
+	for {
+		resource := Resource{}
+		var headers = make(http.Header)
+		requestEtag := etag
+
+		var newTagEntries map[string]string
+		if clearTags {
+			newTagEntries = tags
+		} else {
+			_, err := InvokeRequest(ctx, http.MethodGet, relativeUrlPath, nil, &resource)
+			if err != nil {
+				return err
+			}
+
+			if etag != "" && etag != resource.ETag {
+				return fmt.Errorf("the server's ETag does not match the provided ETag")
+			}
+
+			requestEtag = resource.ETag
+
+			newTagEntries = make(map[string]string)
+			for k, v := range resource.Tags {
+				newTagEntries[k] = v
+			}
+
+			for k, v := range tags {
+				newTagEntries[k] = v
+			}
+		}
+
+		resource.Tags = newTagEntries
+
+		if etag != "" {
+			headers.Set("If-Match", requestEtag)
+		}
+
+		resp, err := InvokeRequest(ctx, http.MethodPut, relativeUrlPath, resource, &reponseObject, WithHeaders(headers))
+
+		if err != nil {
+			return err
+		}
+
+		if resp.StatusCode == http.StatusPreconditionFailed {
+			if etag == "" {
+				continue
+			}
+			return fmt.Errorf("the server's ETag does not match the provided ETag")
+		}
+
+		formattedBuffer, err := json.MarshalIndent(reponseObject, "", "  ")
+		if err != nil {
+			return err
+		}
+
+		fmt.Println(string(formattedBuffer))
+		return nil
+	}
+}

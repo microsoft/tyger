@@ -1,6 +1,13 @@
 {
   "version": 1,
   "dependencies": {
-    "net9.0": {}
+    "net9.0": {
+      "Dunet": {
+        "type": "Direct",
+        "requested": "[1.11.2, )",
+        "resolved": "1.11.2",
+        "contentHash": "T6dfqSJ9+gSqnopeuBv6gtnpHlC0lru6XK3NtQQ9fTeDQQa1ynuI8AmDfEcpQu/rWFYJTbu8ZYR5ED8IScVK7A=="
+      }
+    }
   }
 }

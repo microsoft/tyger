@@ -213,23 +213,74 @@ This will write out a JSON line whenever the status of the run changes until it
 reaches a terminal state. By default, it only includes system metadata fields.
 To print the entire resource, specify `--full-resource`.
 
+## Tagging runs
+
+Runs can be tagged with key-value metadata pairs just like
+[buffers](buffers.html#tagging-buffers).You can assign tags to a
+run when creating it like this:
+
+```bash
+run_id=$(tyger run create [...] --tag mykey1=myvalue1 --tag mykey2=myvalue2)
+```
+
+or
+
+```bash
+run_id=$(tyger run create [...] --tag mykey1=myvalue1,mykey2=myvalue2 )
+```
+
+The tags are included in the response when [showing](#showing-runs) and
+[listing](#listing-runs) runs.
+
+Update a run's tags with:
+
+```bash
+tyger run set $run_id --tag myKey1=myvalue1Updated --tag mykey3=myvalue3
+```
+
+
+To replace the **entire** set of tags, specify `--clear-tags`:
+
+```bash
+tyger run set $run_id --clear-tags --tag myKey1=yetAnotherValue
+```
+
+Use the `--etag` parameter to ensure the set command only succeeds if there have
+been no changes to the run since the last `show` or `list` command.
+
 ## Listing runs
 
 List runs with:
 
 ```bash
-tyger run list [--since DATE/TIME] [--limit COUNT]
+tyger run list [--since DATE/TIME] [--tag key=value [...]] [--status {'pending', 'running', 'succeeded', 'failed', 'canceled', 'canceling'}] [--limit COUNT]
 ```
 
 Runs are listed in descending order of creation time. If `--limit` is not
 specified, a maximum of 1000 runs are shown with a warning if the output had to
 be truncated.
 
+Use the `--since` to only include runs that were created after the given time.
+
+Use the `--tag` parameter to restrict the results can contain **all** of the given tags.
+
+Use the `--status` command to restrict the results that have **any** of the given statues.
+
 ::: info Tip
 
 Use `tyger run list --limit 1` to fetch the most recent run.
 
 :::
+
+## Displaying run counts
+
+You can fetch a summary of the counts of runs group by status using:
+
+```bash
+tyger run counts [--since DATE/TIME] [--tag key=value [...]]
+```
+
+The `--since` and `--tag` parameters behave the same way when [listing](#listing-runs) runs.
 
 ## Cancel a run
 

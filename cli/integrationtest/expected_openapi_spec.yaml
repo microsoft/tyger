@@ -74,7 +74,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
-  '/v1/buffers/{id}/tags':
     put:
       tags:
         - tyger-server
@@ -89,9 +88,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties:
-                type: string
+              $ref: '#/components/schemas/BufferUpdate'
         required: true
       responses:
         '200':
@@ -348,13 +345,27 @@ paths:
           schema:
             type: string
             format: date-time
+        - name: status
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
         - name: _ct
           in: query
           schema:
             type: string
+        - name: tag
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            additionalProperties:
+              type: string
       responses:
         '200':
-          description: OK
+          description: Success
           content:
             application/json:
               schema:
@@ -369,9 +380,17 @@ paths:
           schema:
             type: string
             format: date-time
+        - name: tag
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            additionalProperties:
+              type: string
       responses:
         '200':
-          description: OK
+          description: Success
           content:
             application/json:
               schema:
@@ -419,6 +438,41 @@ paths:
                 $ref: '#/components/schemas/Run'
         '404':
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+    put:
+      tags:
+        - tyger-server
+      operationId: setRunTags
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RunUpdate'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Run'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '412':
+          description: Precondition Failed
           content:
             application/json:
               schema:
@@ -515,15 +569,17 @@ components:
         location:
           type: string
           nullable: true
-        eTag:
-          type: string
         createdAt:
           type: string
           format: date-time
+          nullable: true
         tags:
           type: object
           additionalProperties:
             type: string
+          nullable: true
+        eTag:
+          type: string
           nullable: true
       additionalProperties: false
     BufferAccess:
@@ -556,6 +612,18 @@ components:
         outputs:
           type: array
           items:
+            type: string
+          nullable: true
+      additionalProperties: false
+    BufferUpdate:
+      type: object
+      properties:
+        id:
+          type: string
+          nullable: true
+        tags:
+          type: object
+          additionalProperties:
             type: string
           nullable: true
       additionalProperties: false
@@ -746,6 +814,10 @@ components:
           description: The run ID. Populated by the system.
           format: int64
           nullable: true
+        eTag:
+          type: string
+          description: The ETag that can be used for optimistic concurrency. Populated by the system.
+          nullable: true
         status:
           enum:
             - Pending
@@ -799,6 +871,12 @@ components:
           type: string
           description: The name of target cluster.
           nullable: true
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+          description: The tags associated with the run.
+          nullable: true
       additionalProperties: false
     RunCodeTarget:
       required:
@@ -829,6 +907,19 @@ components:
         nextLink:
           type: string
           format: uri
+          nullable: true
+      additionalProperties: false
+    RunUpdate:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          nullable: true
+        tags:
+          type: object
+          additionalProperties:
+            type: string
           nullable: true
       additionalProperties: false
     ServiceMetadata:

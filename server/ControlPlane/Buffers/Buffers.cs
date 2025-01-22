@@ -154,37 +154,36 @@ public static class Buffers
             .Produces<Buffer>(StatusCodes.Status200OK)
             .Produces<ErrorBody>(StatusCodes.Status404NotFound);
 
-        app.MapPut("/v1/buffers/{id}/tags", async (BufferManager manager, HttpContext context, string id, CancellationToken cancellationToken) =>
+        app.MapPut("/v1/buffers/{id}", async (BufferManager manager, HttpContext context, string id, CancellationToken cancellationToken) =>
             {
-                string eTag = context.Request.Headers.IfMatch.FirstOrDefault() ?? "";
-                if (eTag == "*") // if-match: * matches everything
+                var bufferUpdate = await context.Request.ReadAndValidateJson<BufferUpdate>(context.RequestAborted, allowEmpty: true);
+
+                if (!string.IsNullOrEmpty(bufferUpdate.Id) && !string.Equals(id, bufferUpdate.Id, StringComparison.Ordinal))
                 {
-                    eTag = "";
+                    return Results.BadRequest("The buffer ID in the URL does not match the buffer ID in the request body.");
                 }
 
-                var newTags = await context.Request.ReadAndValidateJson<IDictionary<string, string>>(context.RequestAborted, allowEmpty: true);
-                newTags = Normalizer.NormalizeEmptyToNull(newTags);
-
-                var buffer = await manager.UpdateBufferById(id, eTag, newTags, cancellationToken);
-
-                if (buffer != null)
+                string eTagPrecondition = context.Request.Headers.IfMatch.FirstOrDefault() ?? "";
+                if (eTagPrecondition == "*") // if-match: * matches everything
                 {
-                    context.Response.Headers.ETag = buffer.ETag;
-                    return Results.Ok(buffer);
+                    eTagPrecondition = "";
                 }
-                else if (eTag != "")
-                {
-                    buffer = await manager.GetBufferById(id, cancellationToken);
-                    if (buffer != null)
+
+                bufferUpdate = bufferUpdate with { Id = id };
+
+                var result = await manager.UpdateBufferTags(bufferUpdate, eTagPrecondition, cancellationToken);
+
+                return result.Match(
+                    updated: updated =>
                     {
-                        return Results.StatusCode(StatusCodes.Status412PreconditionFailed);
-                    }
-                }
-
-                return Results.NotFound();
+                        context.Response.Headers.ETag = updated.Value.ETag;
+                        return Results.Ok(updated.Value);
+                    },
+                    notFound: _ => Results.NotFound(),
+                    preconditionFailed: _ => Results.StatusCode(StatusCodes.Status412PreconditionFailed));
             })
             .WithName("setBufferTags")
-            .Accepts<IDictionary<string, string>>("application/json")
+            .Accepts<BufferUpdate>("application/json")
             .Produces<Buffer>(StatusCodes.Status200OK)
             .Produces<ErrorBody>(StatusCodes.Status404NotFound)
             .Produces<ErrorBody>(StatusCodes.Status412PreconditionFailed);

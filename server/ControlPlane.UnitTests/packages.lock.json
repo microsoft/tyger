@@ -100,6 +100,11 @@
           "System.IO.Hashing": "6.0.0"
         }
       },
+      "BitFaster.Caching": {
+        "type": "Transitive",
+        "resolved": "2.5.3",
+        "contentHash": "Vo/39qcam5Xe+DbyfH0JZyqPswdOoa7jv4PGtRJ6Wj8AU+aZ+TuJRlJcIe+MQjRTJwliI8k8VSQpN8sEoBIv2g=="
+      },
       "Castle.Core": {
         "type": "Transitive",
         "resolved": "5.1.1",
@@ -126,6 +131,11 @@
           "System.Buffers": "4.5.1",
           "System.Threading.Tasks.Extensions": "4.5.4"
         }
+      },
+      "Dunet": {
+        "type": "Transitive",
+        "resolved": "1.11.2",
+        "contentHash": "T6dfqSJ9+gSqnopeuBv6gtnpHlC0lru6XK3NtQQ9fTeDQQa1ynuI8AmDfEcpQu/rWFYJTbu8ZYR5ED8IScVK7A=="
       },
       "EmptyFiles": {
         "type": "Transitive",
@@ -397,8 +407,8 @@
       },
       "Microsoft.Extensions.ObjectPool": {
         "type": "Transitive",
-        "resolved": "9.0.0",
-        "contentHash": "UbsU/gYe4nv1DeqMXIVzDfNNek7Sk2kKuAOXL/Y+sLcAR0HwFUqzg1EPiU88jeHNe0g81aPvvHbvHarQr3r9IA=="
+        "resolved": "9.0.1",
+        "contentHash": "r64veU9uYILp6pYqfo3qzRab8zLMALvXZgT4VRY79tXMLu8X79uTlJ6nqPLtPIVhfCPXycRh8ILyFz/gGBDQdQ=="
       },
       "Microsoft.Extensions.Options": {
         "type": "Transitive",
@@ -686,8 +696,8 @@
       },
       "System.IO.Hashing": {
         "type": "Transitive",
-        "resolved": "6.0.0",
-        "contentHash": "Rfm2jYCaUeGysFEZjDe7j1R4x6Z6BzumS/vUT5a1AA/AWJuGX71PoGB0RmpyX3VmrGqVnAwtfMn39OHR8Y/5+g=="
+        "resolved": "9.0.0",
+        "contentHash": "seeO8icDfED/Qwl9PDFUx2Gf/7xv7dPsMnw5PnRwNZuz4EWMpy0wIVohC4MfCcTIoJgp+KUrWG4WH3NPSusQOA=="
       },
       "System.Linq.Async": {
         "type": "Transitive",
@@ -815,12 +825,14 @@
         "dependencies": {
           "Azure.Identity": "[1.13.1, )",
           "Azure.Storage.Blobs": "[12.23.0, )",
+          "BitFaster.Caching": "[2.5.3, )",
           "Docker.DotNet": "[3.125.15, )",
           "Generator.Equals": "[3.2.0, )",
           "KubernetesClient": "[15.0.1, )",
           "Microsoft.AspNetCore.Authentication.JwtBearer": "[9.0.0, )",
           "Microsoft.AspNetCore.OpenApi": "[9.0.0, )",
           "Microsoft.Extensions.Http.Resilience": "[9.0.0, )",
+          "Microsoft.Extensions.ObjectPool": "[9.0.1, )",
           "Microsoft.IdentityModel.Protocols.OpenIdConnect": "[8.2.1, )",
           "Microsoft.OpenApi": "[1.6.22, )",
           "Npgsql": "[9.0.1, )",
@@ -828,14 +840,19 @@
           "SimpleBase": "[4.0.2, )",
           "Swashbuckle.AspNetCore": "[7.1.0, )",
           "System.CommandLine": "[2.0.0-beta4.22272.1, )",
+          "System.IO.Hashing": "[9.0.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.2.1, )",
           "System.Interactive.Async": "[6.0.1, )",
           "System.Linq.Async": "[6.0.1, )",
-          "Tyger.Common": "[1.0.0, )"
+          "Tyger.Common": "[1.0.0, )",
+          "dunet": "[1.11.2, )"
         }
       },
       "tyger.common": {
-        "type": "Project"
+        "type": "Project",
+        "dependencies": {
+          "dunet": "[1.11.2, )"
+        }
       }
     }
   }

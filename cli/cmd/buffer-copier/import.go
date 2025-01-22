@@ -206,8 +206,8 @@ func insertBatch(ctx context.Context, pool *pgxpool.Pool, containerBatch []*serv
 	newBufferCount := 0
 	commandBatch.Queue(`
 		WITH inserted_buffers AS (
-			INSERT INTO buffers (id, created_at, etag, storage_account_id)
-			SELECT id, created_at, '0', $1
+			INSERT INTO buffers (id, created_at, storage_account_id)
+			SELECT id, created_at, $1
 			FROM temp_buffers
 			ON CONFLICT (id) DO NOTHING
 			RETURNING id, created_at

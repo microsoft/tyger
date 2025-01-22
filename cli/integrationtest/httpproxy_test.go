@@ -42,6 +42,7 @@ networks:
 
 func TestHttpProxy(t *testing.T) {
 	t.Parallel()
+	skipIfOnlyFastTests(t)
 	skipIfUsingUnixSocket(t)
 
 	s := NewComposeSession(t)

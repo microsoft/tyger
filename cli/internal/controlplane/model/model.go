@@ -22,10 +22,10 @@ type ServiceMetadata struct {
 
 type Buffer struct {
 	Id        string            `json:"id"`
-	ETag      string            `json:"etag"`
 	CreatedAt time.Time         `json:"createdAt"`
 	Location  string            `json:"location,omitempty"`
 	Tags      map[string]string `json:"tags,omitempty"`
+	ETag      string            `json:"eTag"`
 }
 
 type BufferAccess struct {
@@ -134,14 +134,16 @@ func (ref CodespecRef) MarshalJSON() ([]byte, error) {
 
 type Run struct {
 	RunMetadata
-	Kind           string         `json:"kind,omitempty"`
-	Job            RunCodeTarget  `json:"job,omitempty"`
-	Worker         *RunCodeTarget `json:"worker,omitempty"`
-	Cluster        string         `json:"cluster,omitempty"`
-	TimeoutSeconds *int           `json:"timeoutSeconds,omitempty"`
+	Kind           string            `json:"kind,omitempty"`
+	Job            RunCodeTarget     `json:"job,omitempty"`
+	Worker         *RunCodeTarget    `json:"worker,omitempty"`
+	Cluster        string            `json:"cluster,omitempty"`
+	TimeoutSeconds *int              `json:"timeoutSeconds,omitempty"`
+	Tags           map[string]string `json:"tags,omitempty"`
+	ETag           string            `json:"eTag"`
 }
 
-type RunStatus int
+type RunStatus uint
 
 const (
 	// The run has been created, but is waiting to start
@@ -162,6 +164,8 @@ const (
 	// The run was canceled.
 	Canceled
 )
+
+var RunStatuses = []RunStatus{Pending, Running, Failed, Succeeded, Canceling, Canceled}
 
 var stringToRunStatus = map[string]RunStatus{
 	"Pending":   Pending,
@@ -209,13 +213,14 @@ func (status *RunStatus) UnmarshalJSON(b []byte) error {
 }
 
 type RunMetadata struct {
-	Id           int64      `json:"id,omitempty"`
-	Status       *RunStatus `json:"status,omitempty"`
-	StatusReason string     `json:"statusReason,omitempty"`
-	RunningCount *int       `json:"runningCount,omitempty"`
-	CreatedAt    time.Time  `json:"createdAt,omitempty"`
-	StartedAt    *time.Time `json:"startedAt,omitempty"`
-	FinishedAt   *time.Time `json:"finishedAt,omitempty"`
+	Id           int64             `json:"id,omitempty"`
+	Status       *RunStatus        `json:"status,omitempty"`
+	StatusReason string            `json:"statusReason,omitempty"`
+	RunningCount *int              `json:"runningCount,omitempty"`
+	CreatedAt    time.Time         `json:"createdAt,omitempty"`
+	StartedAt    *time.Time        `json:"startedAt,omitempty"`
+	FinishedAt   *time.Time        `json:"finishedAt,omitempty"`
+	Tags         map[string]string `json:"tags,omitempty"`
 }
 
 type ErrorResponse struct {

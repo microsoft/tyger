@@ -33,8 +33,12 @@ public enum DatabaseVersion
 
     [Migrator(typeof(Migrator5))]
     [Description("Support multiple storage accounts")]
-    [MinimumSupportedVersion]
     MultipleStorageAccounts = 5,
+
+    [Migrator(typeof(Migrator6))]
+    [Description("Add ability to tag runs")]
+    [MinimumSupportedVersion]
+    RunTags = 6,
 }
 
 public sealed class DatabaseVersions : BackgroundService, IHealthCheck
