@@ -27,9 +27,8 @@ const (
 )
 
 var (
-	underlyingHttpTransport = http.DefaultTransport.(*http.Transport)
-	DefaultClient           *Client
-	DefaultRetryableClient  *retryablehttp.Client
+	DefaultClient          *Client
+	DefaultRetryableClient *retryablehttp.Client
 )
 
 func GetDefaultSocketUrl() string {
@@ -46,10 +45,6 @@ type MakeRoundTripper func(next http.RoundTripper) http.RoundTripper
 type MakeDialer func(next dialContextFunc) dialContextFunc
 
 type dialContextFunc func(ctx context.Context, network, address string) (net.Conn, error)
-
-type roundTripFunc func(req *http.Request) (*http.Response, error)
-
-func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
 
 type Client struct {
 	*retryablehttp.Client
@@ -93,7 +88,7 @@ func NewClient(opts *ClientOptions) (*Client, error) {
 	var roundTripper http.RoundTripper = transport
 
 	if opts.CreateTransport == nil {
-		opts.CreateTransport = makeUnixTransport
+		opts.CreateTransport = makeUnixAwareTransport
 	}
 
 	roundTripper = opts.CreateTransport(roundTripper)
@@ -196,11 +191,28 @@ func (c *TygerClient) ConnectionType() TygerConnectionType {
 
 type HttpTransportOption func(*http.Transport)
 
+func getHttpTransport(roudtripper http.RoundTripper) *http.Transport {
+	if transport, ok := roudtripper.(*http.Transport); ok {
+		return transport
+	}
+
+	if exposer, ok := roudtripper.(HttpTransportExposer); ok {
+		return exposer.GetUnderlyingTransport()
+	}
+
+	panic(fmt.Sprintf("could not get *http.Transport from %T", roudtripper))
+}
+
+type HttpTransportExposer interface {
+	GetUnderlyingTransport() *http.Transport
+}
+
 type loggingTransport struct {
 	http.RoundTripper
 }
 
 func (t *loggingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	underlyingHttpTransport := getHttpTransport(t.RoundTripper)
 	proxy, err := underlyingHttpTransport.Proxy(req)
 	if err != nil {
 		return nil, fmt.Errorf("error getting proxy: %w", err)
@@ -231,6 +243,12 @@ func (t *loggingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 
 	return resp, err
 }
+
+func (t *loggingTransport) GetUnderlyingTransport() *http.Transport {
+	return getHttpTransport(t.RoundTripper)
+}
+
+var _ HttpTransportExposer = &loggingTransport{}
 
 func ParseProxy(proxyString string) (func(r *http.Request) (*url.URL, error), error) {
 	switch proxyString {

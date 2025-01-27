@@ -11,6 +11,7 @@ import (
 	"path"
 	"testing"
 
+	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/stretchr/testify/require"
 )
 
@@ -83,19 +84,37 @@ logPath: /logs
 
 	s.CommandSucceeds("start", "tyger-proxy")
 
-	squidProxy := "squid:3128"
+	squidProxy := "http://squid:3128"
 
 	// Test tyger using the Squid proxy
-	_, _, err = s.ShellExec("tyger-proxy", fmt.Sprintf("curl --fail %s/v1/metadata", tygerUri))
+	stdOut, stdErr, err := s.ShellExec("tyger-proxy", fmt.Sprintf("curl --fail %s/v1/metadata -v", tygerUri))
+	t.Log("stdout", stdOut)
+	t.Log("stdErr", stdErr)
 	require.Error(t, err, "curl should fail because the proxy is not used")
 	s.ShellExecSucceeds("tyger-proxy", fmt.Sprintf("curl --retry 5 --proxy %s --fail %s/v1/metadata", squidProxy, tygerUri))
 
 	// Specify the proxy via environment variable
-	s.ShellExecSucceeds("tyger-proxy", fmt.Sprintf("export HTTPS_PROXY=%s && tyger login -f /creds.yml && tyger buffer read %s > /dev/null", squidProxy, bufferId))
+	s.ShellExecSucceeds("tyger-proxy", fmt.Sprintf("export HTTPS_PROXY=%s && tyger login -f /creds.yml --log-level trace && tyger buffer read %s > /dev/null", squidProxy, bufferId))
 
 	// Specify the proxy in the config file
 	s.ShellExecSucceeds("tyger-proxy", fmt.Sprintf("echo 'proxy: %s' >> /creds.yml", squidProxy))
-	s.ShellExecSucceeds("tyger-proxy", fmt.Sprintf("tyger login -f /creds.yml && tyger buffer read %s > /dev/null", bufferId))
+
+	_, stdErr, err = s.ShellExec("tyger-proxy", "tyger login -f /creds.yml --log-level trace --log-format json")
+	require.NoError(t, err, "tyger login should succeed", stdErr)
+
+	parsedLogLines, err := install.ParseJsonLogs([]byte(stdErr))
+	require.NoError(t, err, "failed to parse log lines")
+	foundCount := 0
+	for _, line := range parsedLogLines {
+		if line["message"] == "Sending request" {
+			foundCount++
+			proxyLogEntry := line["proxy"]
+			require.Equal(t, squidProxy, proxyLogEntry, "proxy argument missing from log entry")
+		}
+	}
+	require.Greater(t, foundCount, 0, "no log entries found with proxy argument")
+
+	s.ShellExecSucceeds("tyger-proxy", fmt.Sprintf("tyger buffer read %s > /dev/null", bufferId))
 
 	// Now start up the tyger proxy
 	s.ShellExecSucceeds("tyger-proxy", "tyger-proxy start -f /creds.yml")
