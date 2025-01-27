@@ -94,6 +94,12 @@ func (c *CommandTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	return resp, nil
 }
 
+func (c *CommandTransport) GetUnderlyingTransport() *http.Transport {
+	return getHttpTransport(c.next)
+}
+
+var _ HttpTransportExposer = &CommandTransport{}
+
 type cleanupOnCloseReader struct {
 	io.ReadCloser
 	cleanup func()
