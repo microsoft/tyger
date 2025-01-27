@@ -31,7 +31,7 @@ func (inst *Installer) QuickValidateConfig() bool {
 	if inst.Config.EnvironmentName == "" {
 		validationError(&success, "The `environmentName` field is required")
 	} else if !ResourceNameRegex.MatchString(inst.Config.EnvironmentName) {
-		validationError(&success, "The `environmentName` field must match the pattern "+ResourceNameRegex.String())
+		validationError(&success, "The `environmentName` field must match the pattern %s", ResourceNameRegex)
 	}
 
 	inst.quickValidateCloudConfig(&success)
@@ -58,7 +58,7 @@ func (inst *Installer) quickValidateCloudConfig(success *bool) {
 	if cloudConfig.ResourceGroup == "" {
 		cloudConfig.ResourceGroup = inst.Config.EnvironmentName
 	} else if !ResourceNameRegex.MatchString(cloudConfig.ResourceGroup) {
-		validationError(success, "The `cloud.resourceGroup` field must match the pattern "+ResourceNameRegex.String())
+		validationError(success, "The `cloud.resourceGroup` field must match the pattern %s", ResourceNameRegex)
 	}
 
 	quickValidateComputeConfig(success, cloudConfig)
@@ -83,7 +83,7 @@ func quickValidateComputeConfig(success *bool, cloudConfig *CloudConfig) {
 		if cluster.Name == "" {
 			validationError(success, "The `name` field is required on a cluster")
 		} else if !ResourceNameRegex.MatchString(cluster.Name) {
-			validationError(success, "The cluster `name` field must match the pattern "+ResourceNameRegex.String())
+			validationError(success, "The cluster `name` field must match the pattern %s", ResourceNameRegex)
 		} else {
 			if _, ok := clusterNames[cluster.Name]; ok {
 				validationError(success, "Cluster names must be unique")
@@ -181,7 +181,7 @@ func quickValidateNodePoolConfig(success *bool, np *NodePoolConfig, minNodeCount
 	if np.Name == "" {
 		validationError(success, "The `name` field is required on a node pool")
 	} else if !ResourceNameRegex.MatchString(np.Name) {
-		validationError(success, "The node pool `name` field must match the pattern "+ResourceNameRegex.String())
+		validationError(success, "The node pool `name` field must match the pattern %s", ResourceNameRegex)
 	}
 
 	if np.VMSize == "" {
@@ -230,7 +230,7 @@ func quickValidateDatabaseConfig(success *bool, cloudConfig *CloudConfig) {
 	}
 
 	if !DatabaseServerNameRegex.MatchString(databaseConfig.ServerName) {
-		validationError(success, "The `cloud.database.serverName` field must match the pattern "+DatabaseServerNameRegex.String())
+		validationError(success, "The `cloud.database.serverName` field must match the pattern %s", DatabaseServerNameRegex)
 	}
 
 	if databaseConfig.Location == "" {
@@ -291,7 +291,7 @@ func quickValidateStorageAccountConfig(success *bool, cloudConfig *CloudConfig, 
 	if storageConfig.Name == "" {
 		validationError(success, "The `%s.name` field is required", path)
 	} else if !StorageAccountNameRegex.MatchString(storageConfig.Name) {
-		validationError(success, "The `%s.name` field must match the pattern "+StorageAccountNameRegex.String())
+		validationError(success, "The `%s.name` field must match the pattern %s", path, StorageAccountNameRegex)
 	}
 
 	if storageConfig.Location == "" {
@@ -335,7 +335,7 @@ func (inst *Installer) quickValidateApiConfig(success *bool) {
 			apiHostLocation := inst.Config.Cloud.Compute.GetApiHostCluster().Location
 			domainNameRegex := GetDomainNameRegex(apiHostLocation)
 			if !domainNameRegex.MatchString(apiConfig.DomainName) {
-				validationError(success, "The `api.domainName` field must match the pattern "+domainNameRegex.String())
+				validationError(success, "The `api.domainName` field must match the pattern %s", domainNameRegex)
 			}
 		}
 	}
