@@ -30,8 +30,9 @@ public class RunFinalizer : BackgroundService
     private readonly ILogArchive _logArchive;
     private readonly KubernetesApiOptions _k8sOptions;
     private readonly ILogger<RunFinalizer> _logger;
+    private readonly Channel<(bool leaseHeld, int token)> _leaseStateChangeChannel = Channel.CreateUnbounded<(bool leaseHeld, int token)>();
 
-    public RunFinalizer(Repository repository, RunChangeFeed changeFeed, ILogger<RunFinalizer> logger, IKubernetes client, IOptions<KubernetesApiOptions> kubernetesOptions, ILogSource logSource, ILogArchive logArchive)
+    public RunFinalizer(Repository repository, RunChangeFeed changeFeed, ILogger<RunFinalizer> logger, IKubernetes client, IOptions<KubernetesApiOptions> kubernetesOptions, ILogSource logSource, LeaseManager leaseManager, ILogArchive logArchive)
     {
         _repository = repository;
         _changeFeed = changeFeed;
@@ -40,6 +41,8 @@ public class RunFinalizer : BackgroundService
         _k8sOptions = kubernetesOptions.Value;
         _logSource = logSource;
         _logArchive = logArchive;
+
+        leaseManager.RegisterListener(_leaseStateChangeChannel.Writer);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -50,13 +53,35 @@ public class RunFinalizer : BackgroundService
         // Keep track of retry counts for failed finalizations
         var failedRuns = new Dictionary<long, int>();
 
-        var allTasks = Enumerable.Range(0, MaxConcurrentFinalizations).Select(async _ =>
+        var hasLease = false;
+        var initialLeaseStateTask = new TaskCompletionSource();
+
+        var allTasks = new List<Task>
+        {
+            Task.Run(async () =>
+            {
+                await foreach ((var newHasLease, _) in _leaseStateChangeChannel.Reader.ReadAllAsync(stoppingToken))
+                {
+                    hasLease = newHasLease;
+                    bool isInitialState = initialLeaseStateTask.TrySetResult();
+                    if (newHasLease && !isInitialState)
+                    {
+                        foreach (var run in await _repository.GetFinalizableRuns(stoppingToken))
+                        {
+                            await channel.Writer.WriteAsync(new ObservedRunState(run, databaseUpdatedAt: null), stoppingToken);
+                        }
+                    }
+                }
+            }, stoppingToken)
+        };
+
+        allTasks.AddRange([.. Enumerable.Range(0, MaxConcurrentFinalizations).Select(async _ =>
         {
             try
             {
                 await foreach (var state in channel.Reader.ReadAllAsync(stoppingToken))
                 {
-                    if (!state.Status.IsTerminal())
+                    if (!hasLease || !state.Status.IsTerminal())
                     {
                         continue;
                     }
@@ -99,7 +124,7 @@ public class RunFinalizer : BackgroundService
             {
                 return;
             }
-        }).ToList();
+        })]);
 
         while (allTasks.Count != 0)
         {

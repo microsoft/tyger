@@ -51,26 +51,26 @@ RUN umask 0002 \
     && VERSION=20.11.0 bash install.sh \
     # DOCKER
     && cd /opt/features/src/docker-outside-of-docker \
-    && MOBY=false VERSION=24.0.6 DOCKERDASHCOMPOSEVERSION=none bash install.sh \
+    && MOBY=false VERSION=27.5.1 DOCKERDASHCOMPOSEVERSION=none bash install.sh \
     # AZURE CLI
     && cd /opt/features/src/azure-cli \
-    && VERSION=2.61.0 bash install.sh \
+    && VERSION=2.68.0 bash install.sh \
     # POWERSHELL
     && cd /opt/features/src/powershell \
     && VERSION=7.3.9 bash install.sh \
     # KUBECTL
     && cd /opt/features/src/kubectl-helm-minikube \
-    && VERSION=1.28.3 HELM=3.13.1 MINIKUBE=none bash install.sh \
+    && VERSION=1.31.5 HELM=3.16.4 MINIKUBE=none bash install.sh \
     # DOTNET
     && cd /opt/features/src/dotnet \
-    && VERSION=9.0.100 bash install.sh \
+    && VERSION=9.0.102 bash install.sh \
     # GO
     && cd /opt/features/src/go \
     && VERSION=1.23.1 bash install.sh \
     && chown -R "${USERNAME}" "${GOROOT}" "${GOPATH}" \
     # GitHub CLI
     && cd /opt/features/src/github-cli/ \
-    && VERSION=2.42.0 bash install.sh \
+    && VERSION=2.66.1 bash install.sh \
     # cleanup
     && rm -rf /opt/features
 

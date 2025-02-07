@@ -1679,9 +1679,10 @@ public class Repository
 
     public async Task<Run> CreateRunWithIdempotencyKeyGuard(Run newRun, string idempotencyKey, Func<Run, CancellationToken, Task<Run>> createRun, CancellationToken cancellationToken)
     {
-        // NOTE: no retrying for this method, because we don't want createRun to be called multiple times
+        // NOTE: no retrying for this method, because we don't want createRun to be called multiple times.
+        // We only retry when opening the connection.
         const int BaseAdvisoryLockId = 864555;
-        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _resiliencePipeline.ExecuteAsync(_dataSource.OpenConnectionAsync, cancellationToken);
         await using var tx = await connection.BeginTransactionAsync(cancellationToken);
 
         using (var lockCommand = new NpgsqlCommand
@@ -1937,6 +1938,36 @@ public class Repository
         }
     }
 
+    public async Task<List<Run>> GetFinalizableRuns(CancellationToken cancellationToken)
+    {
+        return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
+        {
+            await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+
+            var runs = new List<Run>();
+            using (var command = new NpgsqlCommand
+            {
+                Connection = connection,
+                CommandText = """
+                    SELECT run
+                    FROM runs
+                    WHERE final = false AND resources_created = true AND status IN ('Failed', 'Succeeded', 'Canceled')
+                    ORDER BY created_at ASC
+                    """
+            })
+            {
+                await command.PrepareAsync(cancellationToken);
+                await using var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    runs.Add(reader.GetFieldValue<Run>(0));
+                }
+            }
+
+            return runs;
+        }, cancellationToken);
+    }
+
     public async Task PruneRunModifedAtIndex(DateTimeOffset cutoff, CancellationToken cancellationToken)
     {
         await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
@@ -1961,17 +1992,17 @@ public class Repository
         var leaseDuration = TimeSpan.FromSeconds(60);
         var renewInterval = TimeSpan.FromSeconds(5);
 
-        var leaseHeld = false;
+        bool? leaseHeld = null;
 
         async ValueTask<bool> UpdateLeaseHeld(bool newHeld)
         {
             if (newHeld == leaseHeld)
             {
-                return leaseHeld;
+                return leaseHeld.Value;
             }
 
             leaseHeld = newHeld;
-            if (leaseHeld)
+            if (leaseHeld.Value)
             {
                 _logger.LeaseAcquired(leaseName);
             }
@@ -1980,8 +2011,8 @@ public class Repository
                 _logger.LeaseLost(leaseName);
             }
 
-            await onLockStateChange(leaseHeld);
-            return leaseHeld;
+            await onLockStateChange(leaseHeld.Value);
+            return leaseHeld.Value;
         }
 
         try
@@ -2017,7 +2048,7 @@ public class Repository
                         await reader.ReadAsync(cancellationToken);
                         await UpdateLeaseHeld(reader.GetBoolean(0));
                         var expiration = reader.GetDateTime(1);
-                        if (!leaseHeld)
+                        if (leaseHeld != true)
                         {
                             var timeToExpiration = expiration - DateTimeOffset.UtcNow;
                             if (timeToExpiration > TimeSpan.Zero)
@@ -2071,7 +2102,7 @@ public class Repository
         }
         finally
         {
-            if (leaseHeld)
+            if (leaseHeld == true)
             {
                 try
                 {

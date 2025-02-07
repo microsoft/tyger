@@ -7,6 +7,7 @@ using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using System.Threading.Channels;
 using k8s;
 using k8s.Autorest;
 using k8s.Models;
@@ -23,6 +24,7 @@ namespace Tyger.ControlPlane.Compute.Kubernetes;
 public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesContributor
 {
     private readonly IKubernetes _client;
+    private readonly Channel<(bool leaseHeld, int token)> _leaseStateChangeChannel = Channel.CreateUnbounded<(bool leaseHeld, int token)>();
     private readonly BufferOptions _bufferOptions;
     private readonly KubernetesApiOptions _k8sOptions;
     private readonly ILogger<KubernetesRunCreator> _logger;
@@ -34,6 +36,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         BufferManager bufferManager,
         IOptions<KubernetesApiOptions> k8sOptions,
         IOptions<BufferOptions> bufferOptions,
+        LeaseManager leaseManager,
         ILogger<KubernetesRunCreator> logger)
         : base(repository, bufferManager)
     {
@@ -41,6 +44,8 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         _bufferOptions = bufferOptions.Value;
         _k8sOptions = k8sOptions.Value;
         _logger = logger;
+
+        leaseManager.RegisterListener(_leaseStateChangeChannel.Writer);
     }
 
     public Capabilities GetCapabilities() => Capabilities.Kubernetes | Capabilities.DistributedRuns | Capabilities.NodePools;
@@ -56,6 +61,25 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        CancellationTokenSource? cts = null;
+        await foreach ((var leaseAcquired, _) in _leaseStateChangeChannel.Reader.ReadAllAsync(stoppingToken))
+        {
+            if (leaseAcquired)
+            {
+                cts = new();
+                _ = ListenLoop(CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, cts.Token).Token);
+            }
+            else
+            {
+                cts?.Cancel();
+                cts?.Dispose();
+                cts = null;
+            }
+        }
+    }
+
+    private async Task ListenLoop(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
         {
