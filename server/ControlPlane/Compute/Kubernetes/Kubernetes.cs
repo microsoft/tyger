@@ -49,6 +49,10 @@ public static class Kubernetes
         if (builder is WebApplicationBuilder)
         {
             builder.Services.AddOptions<KubernetesApiOptions>().BindConfiguration("compute:kubernetes").ValidateDataAnnotations().ValidateOnStart();
+
+            builder.Services.AddSingleton(sp => new LeaseManager(sp.GetRequiredService<Repository>(), "tyger-server-leader"));
+            builder.Services.Insert(0, ServiceDescriptor.Singleton<IHostedService>(sp => sp.GetRequiredService<LeaseManager>())); // Other startup services depend on this, so we add it early.
+
             builder.Services.AddSingleton<KubernetesRunCreator>();
             builder.Services.AddSingleton<IRunCreator>(sp => sp.GetRequiredService<KubernetesRunCreator>());
             builder.Services.AddHostedService(sp => sp.GetRequiredService<KubernetesRunCreator>());

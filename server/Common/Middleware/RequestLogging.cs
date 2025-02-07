@@ -81,14 +81,16 @@ public class RequestLogging
         }
 
         var start = Stopwatch.GetTimestamp();
+        bool hasException = true;
         try
         {
             await _next(context);
+            hasException = false;
         }
         finally
         {
             var end = Stopwatch.GetTimestamp();
-            if (context.Request.Path != "/healthcheck" || context.Response.StatusCode != 200)
+            if (context.Request.Path != "/healthcheck" || hasException || context.Response.StatusCode is < 200 or >= 400)
             {
                 _logger.RequestCompleted(
                     SanitizeUserInputForLogging(context.Request.Method),

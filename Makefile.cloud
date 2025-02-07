@@ -210,3 +210,9 @@ variant-test:
 
 get-last-server-exception: set-context
 	(kubectl logs -l component=tyger-server | grep Exception || true) | tac | head -n 1 | jq -r '.exception'
+
+get-server-logs:
+	kubectl logs deployments/tyger-server --all-pods
+
+follow-server-logs:
+	kubectl logs deployments/tyger-server --all-pods --follow

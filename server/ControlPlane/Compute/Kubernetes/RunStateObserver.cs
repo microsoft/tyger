@@ -15,48 +15,39 @@ namespace Tyger.ControlPlane.Compute.Kubernetes;
 /// </summary>
 public class RunStateObserver : BackgroundService
 {
-    private const string LeaseName = "run-state-observer";
     private const int PartitionCount = 8;
     private const int ParitionChannelSize = 1024;
 
     private readonly IKubernetes _kubernetesClient;
     private readonly Repository _repository;
+    private readonly LeaseManager _leaseManager;
     private readonly ILoggerFactory _loggingFactory;
     private readonly ILogger<RunStateObserver> _logger;
     private readonly KubernetesApiOptions _kubernetesOptions;
     private readonly Dictionary<long, RunObjects> _cache = [];
     private readonly Dictionary<long, List<ChannelWriter<(RunObjects, WatchEventType, V1Pod)>>> _listeners = [];
-    private readonly List<Channel<(WatchEventType, V1Pod)>> _partitionedPodUpdateChannels = Enumerable.Range(0, PartitionCount).Select(_ => Channel.CreateBounded<(WatchEventType, V1Pod)>(ParitionChannelSize)).ToList();
+    private readonly List<Channel<(WatchEventType, V1Pod)>> _partitionedPodUpdateChannels = [.. Enumerable.Range(0, PartitionCount).Select(_ => Channel.CreateBounded<(WatchEventType, V1Pod)>(ParitionChannelSize))];
     private Task? _podInformerTask;
     private readonly CancellationTokenSource _cancellationTokenSource = new();
     private readonly Channel<(WatchEventType eventType, V1Pod resource)> _podUpdatesChannel = Channel.CreateBounded<(WatchEventType, V1Pod)>(PartitionCount * ParitionChannelSize);
-    private readonly Channel<int> _onLeaseOwnershipAcquiredChannel = Channel.CreateUnbounded<int>();
-
-    private int _latestLeaseToken = 1;
+    private readonly Channel<(bool leaseHeld, int token)> _onLeaseOwnershipAcquiredChannel = Channel.CreateUnbounded<(bool, int)>();
     private int _acquiredLeaseToken;
-    private Task? _acquireAndHoldLeaseTask;
     private readonly string _thisLeaseHolderId = Environment.MachineName;
 
-    public RunStateObserver(IKubernetes kubernetesClient, IOptions<KubernetesApiOptions> kubernetesOptions, Repository repository, ILoggerFactory loggingFactory)
+    public RunStateObserver(IKubernetes kubernetesClient, IOptions<KubernetesApiOptions> kubernetesOptions, Repository repository, LeaseManager leaseManager, ILoggerFactory loggingFactory)
     {
         _kubernetesClient = kubernetesClient;
         _repository = repository;
+        _leaseManager = leaseManager;
         _kubernetesOptions = kubernetesOptions.Value;
         _loggingFactory = loggingFactory;
         _logger = loggingFactory.CreateLogger<RunStateObserver>();
+
+        leaseManager.RegisterListener(_onLeaseOwnershipAcquiredChannel.Writer);
     }
 
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
-        _acquireAndHoldLeaseTask = _repository.AcquireAndHoldLease(LeaseName, _thisLeaseHolderId, async hasLease =>
-            {
-                var incrementedLeaseToken = Interlocked.Increment(ref _latestLeaseToken);
-                if (hasLease)
-                {
-                    await _onLeaseOwnershipAcquiredChannel.Writer.WriteAsync(incrementedLeaseToken);
-                }
-            }, _cancellationTokenSource.Token);
-
         var initialPodChannel = Channel.CreateBounded<V1Pod>(new BoundedChannelOptions(1024));
 
         var podInformer = new PodInformer(_kubernetesClient, _kubernetesOptions.Namespace, RunLabel, initialPodChannel.Writer, _podUpdatesChannel.Writer, _loggingFactory.CreateLogger<PodInformer>());
@@ -106,9 +97,12 @@ public class RunStateObserver : BackgroundService
         {
             while (!stoppingToken.IsCancellationRequested)
             {
-                while (_onLeaseOwnershipAcquiredChannel.Reader.TryRead(out var acquiredLeaseToken))
+                while (_onLeaseOwnershipAcquiredChannel.Reader.TryRead(out var leaseHeldAndToken))
                 {
-                    await OnAcquireLease(acquiredLeaseToken, stoppingToken);
+                    if (leaseHeldAndToken.leaseHeld)
+                    {
+                        await OnAcquireLease(leaseHeldAndToken.token, stoppingToken);
+                    }
                 }
 
                 while (!_onLeaseOwnershipAcquiredChannel.Reader.TryPeek(out _) && _podUpdatesChannel.Reader.TryRead(out var update))
@@ -139,7 +133,7 @@ public class RunStateObserver : BackgroundService
             }
         }).ToList();
 
-        var allTasks = new List<Task>(partitionedProcessors) { processUpdatesTask, _podInformerTask!, _acquireAndHoldLeaseTask! };
+        var allTasks = new List<Task>(partitionedProcessors) { processUpdatesTask, _podInformerTask! };
 
         // fail if any fail
         await await Task.WhenAny(allTasks);
@@ -157,10 +151,10 @@ public class RunStateObserver : BackgroundService
             new ParallelOptions { MaxDegreeOfParallelism = 10, CancellationToken = cancellationToken },
             async (runObjects, ct) =>
             {
-                if (acquiredLeaseToken == _latestLeaseToken)
+                if (acquiredLeaseToken == _leaseManager.GetCurrentLeaseToken())
                 {
                     var observedState = runObjects.GetObservedState();
-                    await _repository.UpdateRunFromObservedState(observedState, (LeaseName, _thisLeaseHolderId), ct);
+                    await _repository.UpdateRunFromObservedState(observedState, (_leaseManager.LeaseName, _thisLeaseHolderId), ct);
                 }
             });
 
@@ -236,14 +230,14 @@ public class RunStateObserver : BackgroundService
             runObjects.JobPods[IndexFromPodName(pod.Name())] = pod;
         }
 
-        if (_acquiredLeaseToken == _latestLeaseToken)
+        if (_acquiredLeaseToken == _leaseManager.GetCurrentLeaseToken())
         {
             var previousState = runObjects.CachedMetadata;
             var currentState = runObjects.GetObservedState();
 
             if (!previousState.Equals(currentState))
             {
-                await _repository.UpdateRunFromObservedState(currentState, (LeaseName, _thisLeaseHolderId), stoppingToken);
+                await _repository.UpdateRunFromObservedState(currentState, (_leaseManager.LeaseName, _thisLeaseHolderId), stoppingToken);
             }
         }
 

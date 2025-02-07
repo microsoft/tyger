@@ -85,7 +85,7 @@ spec:
   selector:
     matchLabels:
       component: {{ $tygerName }}-server
-  replicas: {{ .Values.replicas }}
+  replicas: {{ .Values.replicaCount }}
   strategy:
     type: Recreate # For inner-loop local development. TODO: parameterize
   template:
@@ -95,6 +95,13 @@ spec:
         tyger-helm-revision: "{{ .Release.Revision }}"
         azure.workload.identity/use: "true"
     spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  component: {{ $tygerName }}-server
+              topologyKey: "kubernetes.io/hostname"
       containers:
         - name: tyger
           image: {{ required "A value for image is required" .Values.image }}
