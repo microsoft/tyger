@@ -72,7 +72,6 @@ public static class OpenApi
     public static void UseOpenApi(this WebApplication app)
     {
         app.UseSwagger();
-        app.UseSwaggerUI();
     }
 }
 
