@@ -33,6 +33,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
     private readonly BufferOptions _bufferOptions;
     private readonly DockerOptions _dockerOptions;
     private readonly string? _dataPlaneSocketPath;
+    private readonly byte[] _publicSigningKeysTarBytes;
 
     public DockerRunCreator(
         DockerClient client,
@@ -58,6 +59,35 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                 _dataPlaneSocketPath = localDpEndpoint.AbsolutePath.Split(":")[0];
             }
         }
+
+        _publicSigningKeysTarBytes = CreatePublicSigningKeyArchive();
+    }
+
+    // Create the tarball of the public signing keys that we will copy into sidecar containers
+    private byte[] CreatePublicSigningKeyArchive()
+    {
+        using var tarStream = new MemoryStream();
+        using var tw = new TarWriter(tarStream, leaveOpen: true);
+        var entry = new PaxTarEntry(TarEntryType.RegularFile, "primary-signing-key-public.pem")
+        {
+            DataStream = GetPublicPemStream(_bufferOptions.PrimarySigningPrivateKeyPath),
+            Mode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.OtherRead | UnixFileMode.OtherWrite,
+            ModificationTime = DateTimeOffset.UnixEpoch,
+        };
+        tw.WriteEntry(entry);
+
+        if (!string.IsNullOrEmpty(_bufferOptions.SecondarySigningPrivateKeyPath))
+        {
+            entry = new PaxTarEntry(TarEntryType.RegularFile, "secondary-signing-key-public.pem")
+            {
+                DataStream = GetPublicPemStream(_bufferOptions.SecondarySigningPrivateKeyPath),
+                Mode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.OtherRead | UnixFileMode.OtherWrite,
+                ModificationTime = DateTimeOffset.UnixEpoch,
+            };
+            tw.WriteEntry(entry);
+        }
+
+        return tarStream.ToArray();
     }
 
     public Capabilities GetCapabilities() =>
@@ -329,7 +359,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                 }
             }
 
-            startContainersTasks.Add(CreateAndStartContainer(sidecarContainerParameters, cancellationToken));
+            startContainersTasks.Add(CreateAndStartContainer(sidecarContainerParameters, isRelay, cancellationToken));
         }
 
         if (jobCodespec.Sockets != null)
@@ -378,7 +408,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                     },
                 };
 
-                startContainersTasks.Add(CreateAndStartContainer(sidecarContainerParameters, cancellationToken));
+                startContainersTasks.Add(CreateAndStartContainer(sidecarContainerParameters, false, cancellationToken));
             }
         }
 
@@ -481,9 +511,14 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         return $"tyger-run-{runId}-main";
     }
 
-    private async Task CreateAndStartContainer(CreateContainerParameters sidecarContainerParameters, CancellationToken cancellationToken)
+    private async Task CreateAndStartContainer(CreateContainerParameters sidecarContainerParameters, bool copySingingPublicKeys, CancellationToken cancellationToken)
     {
         var createResponse = await _client.Containers.CreateContainerAsync(sidecarContainerParameters, cancellationToken);
+        if (copySingingPublicKeys)
+        {
+            await _client.Containers.ExtractArchiveToContainerAsync(createResponse.ID, new() { Path = "/" }, new MemoryStream(_publicSigningKeysTarBytes), cancellationToken);
+        }
+
         await _client.Containers.StartContainerAsync(createResponse.ID, null, cancellationToken);
     }
 
@@ -511,58 +546,13 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         });
     }
 
-    public override async Task StartAsync(CancellationToken cancellationToken)
+    public override Task StartAsync(CancellationToken cancellationToken)
     {
         Directory.CreateDirectory(_dockerOptions.RunSecretsPath);
-
-        await AddPublicSigningKeyToBufferSidecarImage(cancellationToken);
+        return Task.CompletedTask;
     }
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken) => Task.CompletedTask;
-
-    private async Task AddPublicSigningKeyToBufferSidecarImage(CancellationToken cancellationToken)
-    {
-        var tarStream = new MemoryStream();
-        using (var tw = new TarWriter(tarStream, leaveOpen: true))
-        {
-            var entry = new PaxTarEntry(TarEntryType.RegularFile, "primary-signing-key-public.pem")
-            {
-                DataStream = GetPublicPemStream(_bufferOptions.PrimarySigningPrivateKeyPath),
-                Mode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.OtherRead | UnixFileMode.OtherWrite,
-                ModificationTime = DateTimeOffset.UnixEpoch,
-            };
-            tw.WriteEntry(entry);
-
-            if (!string.IsNullOrEmpty(_bufferOptions.SecondarySigningPrivateKeyPath))
-            {
-                entry = new PaxTarEntry(TarEntryType.RegularFile, "secondary-signing-key-public.pem")
-                {
-                    DataStream = GetPublicPemStream(_bufferOptions.SecondarySigningPrivateKeyPath),
-                    Mode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.OtherRead | UnixFileMode.OtherWrite,
-                    ModificationTime = DateTimeOffset.UnixEpoch,
-                };
-                tw.WriteEntry(entry);
-            }
-        }
-
-        tarStream.Position = 0;
-
-        var createResp = await _client.Containers.CreateContainerAsync(new CreateContainerParameters
-        {
-            Image = _bufferOptions.BufferSidecarImage,
-        }, cancellationToken);
-
-        try
-        {
-            await _client.Containers.ExtractArchiveToContainerAsync(createResp.ID, new() { Path = "/" }, tarStream, cancellationToken);
-            var commitResponse = await _client.Images.CommitContainerChangesAsync(new() { ContainerID = createResp.ID }, cancellationToken);
-            _bufferOptions.BufferSidecarImage = commitResponse.ID;
-        }
-        finally
-        {
-            await _client.Containers.RemoveContainerAsync(createResp.ID, new() { Force = true }, cancellationToken);
-        }
-    }
 
     private static MemoryStream GetPublicPemStream(string path)
     {

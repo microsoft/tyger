@@ -32,7 +32,7 @@ func (inst *Installer) QuickValidateConfig() bool {
 	if inst.Config.EnvironmentName == "" {
 		inst.Config.EnvironmentName = DefaultEnvironmentName
 	} else if !NameRegex.MatchString(inst.Config.EnvironmentName) {
-		validationError(&success, "The `environmentName` field must match the pattern "+NameRegex.String())
+		validationError(&success, "The `environmentName` field must match the pattern %s", NameRegex)
 	}
 
 	if inst.Config.InstallationPath == "" {
@@ -88,7 +88,7 @@ func (inst *Installer) QuickValidateConfig() bool {
 			validationError(&success, "The `signingKeys.primary.publicKey` field is required to be the path to a public key file PEM file")
 		} else {
 			if expanded, err := envsubst.StringRestricted(inst.Config.SigningKeys.Primary.PublicKey, true, false); err != nil {
-				validationError(&success, fmt.Sprintf("Error expanding `signingKeys.primary.publicKey`: %s", err))
+				validationError(&success, "Error expanding `signingKeys.primary.publicKey`: %s", err)
 			} else {
 				inst.Config.SigningKeys.Primary.PublicKey = expanded
 			}
@@ -97,7 +97,7 @@ func (inst *Installer) QuickValidateConfig() bool {
 			validationError(&success, "The `signingKeys.primary.privateKey` field is required to be the path to a private key PEM file")
 		} else {
 			if expanded, err := envsubst.StringRestricted(inst.Config.SigningKeys.Primary.PrivateKey, true, false); err != nil {
-				validationError(&success, fmt.Sprintf("Error expanding `signingKeys.primary.privateKey`: %s", err))
+				validationError(&success, "Error expanding `signingKeys.primary.privateKey`: %s", err)
 			} else {
 				inst.Config.SigningKeys.Primary.PrivateKey = expanded
 			}
@@ -109,7 +109,7 @@ func (inst *Installer) QuickValidateConfig() bool {
 			validationError(&success, "The `signingKeys.secondary.publicKey` field is required to be the path to a public key PEM file")
 		} else {
 			if expanded, err := envsubst.StringRestricted(inst.Config.SigningKeys.Secondary.PublicKey, true, false); err != nil {
-				validationError(&success, fmt.Sprintf("Error expanding `signingKeys.secondary.publicKey`: %s", err))
+				validationError(&success, "Error expanding `signingKeys.secondary.publicKey`: %s", err)
 			} else {
 				inst.Config.SigningKeys.Secondary.PublicKey = expanded
 			}
@@ -118,7 +118,7 @@ func (inst *Installer) QuickValidateConfig() bool {
 			validationError(&success, "The `signingKeys.secondary.privateKey` field is required to be the path to a private key PEM file")
 		} else {
 			if expanded, err := envsubst.StringRestricted(inst.Config.SigningKeys.Secondary.PrivateKey, true, false); err != nil {
-				validationError(&success, fmt.Sprintf("Error expanding `signingKeys.secondary.privateKey`: %s", err))
+				validationError(&success, "Error expanding `signingKeys.secondary.privateKey`: %s", err)
 			} else {
 				inst.Config.SigningKeys.Secondary.PrivateKey = expanded
 			}

@@ -385,7 +385,7 @@ func (inst *Installer) createControlPlaneContainer(ctx context.Context, checkGpu
 		tw.AddFS(tarFs)
 		tw.Close()
 
-		return inst.client.CopyToContainer(ctx, containerName, "/app", buf, types.CopyToContainerOptions{})
+		return inst.client.CopyToContainer(ctx, containerName, "/app", buf, container.CopyToContainerOptions{})
 	}
 
 	if err := inst.createContainer(
