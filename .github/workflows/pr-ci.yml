@@ -444,7 +444,7 @@ jobs:
           category: "/language:${{matrix.language}}"
 
   publishDocs:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'microsoft/tyger'
+    # if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'microsoft/tyger'
     needs:
       - unit-tests-and-format
       - integration-tests
