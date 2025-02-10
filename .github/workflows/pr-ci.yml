@@ -425,13 +425,15 @@ jobs:
           cache-dependency-path: cli/go.sum
 
       - uses: actions/setup-dotnet@v3
+        if: matrix.language == 'csharp'
         with:
           global-json-file: server/global.json
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v2
+        uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
+          build-mode: manual
 
       - name: "Build"
         run: |
@@ -439,7 +441,7 @@ jobs:
           make -s build-${{ matrix.language }}
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v2
+        uses: github/codeql-action/analyze@v3
         with:
           category: "/language:${{matrix.language}}"
 
