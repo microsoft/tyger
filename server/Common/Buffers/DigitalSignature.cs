@@ -40,7 +40,7 @@ public static class DigitalSignature
         return asymmetricAlgorithm switch
         {
             ECDsa ecdsa => (data) => ecdsa.SignData(data, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence),
-            RSA rsa => (data) => rsa.SignData(data, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1),
+            RSA rsa => (data) => rsa.SignData(data, HashAlgorithmName.SHA256, RSASignaturePadding.Pss),
             _ => throw new InvalidOperationException("The provided AsymmetricAlgorithm is not supported.")
         };
     }
@@ -52,7 +52,7 @@ public static class DigitalSignature
             return asymmetricAlgorithm switch
             {
                 ECDsa ecdsa => (hash, sig) => ecdsa.VerifyHash(hash, sig, DSASignatureFormat.Rfc3279DerSequence),
-                RSA rsa => (hash, sig) => rsa.VerifyHash(hash, sig, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1),
+                RSA rsa => (hash, sig) => rsa.VerifyHash(hash, sig, HashAlgorithmName.SHA256, RSASignaturePadding.Pss),
                 _ => throw new InvalidOperationException("The provided AsymmetricAlgorithm is not supported.")
             };
         }
