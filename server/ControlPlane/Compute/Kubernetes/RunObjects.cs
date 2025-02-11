@@ -13,6 +13,23 @@ namespace Tyger.ControlPlane.Compute.Kubernetes;
 /// </summary>
 public sealed partial class RunObjects
 {
+    // ErrImagePullBackOff - Container image pull failed, kubelet is backing off image pull
+    private const string ErrImagePullBackOff = "ImagePullBackOff";
+
+    // ErrImageInspect - Unable to inspect image
+    private const string ErrImageInspect = "ImageInspectError";
+
+    // ErrImagePull - General image pull error
+    private const string ErrImagePull = "ErrImagePull";
+
+    // ErrImageNeverPull - Required Image is absent on host and PullPolicy is NeverPullImage
+    private const string ErrImageNeverPull = "ErrImageNeverPull";
+
+    // ErrInvalidImageName - Unable to parse the image name.
+    private const string ErrInvalidImageName = "InvalidImageName";
+
+    private static readonly HashSet<string> s_imagePullErrorCodes = [ErrImagePullBackOff, ErrImageInspect, ErrImagePull, ErrImageNeverPull, ErrInvalidImageName,];
+
     public RunObjects(long id, int jobReplicas, int workerReplicas)
     {
         Id = id;
@@ -87,19 +104,19 @@ public sealed partial class RunObjects
         return new(Id, RunStatus.Pending, JobPods.Length, WorkerPods.Length) { StartedAt = startedAt };
     }
 
-    private (DateTimeOffset, string)? GetFailureTimeAndReason()
+    private (DateTimeOffset?, string)? GetFailureTimeAndReason()
     {
         var fallbackTime = DateTimeOffset.UtcNow;
-        var containerStatus = JobPods
+        var failedContainerStatus = JobPods
             .Where(p => p?.Status?.ContainerStatuses != null)
             .SelectMany(p => p!.Status.ContainerStatuses)
             .Where(cs => cs.State?.Terminated?.ExitCode is not null and not 0)
             .MinBy(cs => cs.State.Terminated.FinishedAt ?? fallbackTime); // sometimes FinishedAt is null https://github.com/kubernetes/kubernetes/issues/104107
 
-        if (containerStatus != null)
+        if (failedContainerStatus != null)
         {
-            var reason = $"{(containerStatus.Name == "main" ? "Main" : "Sidecar")} exited with code {containerStatus.State.Terminated.ExitCode}";
-            return (containerStatus.State.Terminated.FinishedAt ?? fallbackTime, reason);
+            var reason = $"{(failedContainerStatus.Name == "main" ? "Main" : "Sidecar")} exited with code {failedContainerStatus.State.Terminated.ExitCode}";
+            return (failedContainerStatus.State.Terminated.FinishedAt ?? fallbackTime, reason);
         }
 
         // Recognize other failure reasons, such as the pod being evicted.
@@ -113,6 +130,22 @@ public sealed partial class RunObjects
                 (var reason, "" or null) => (fallbackTime, reason),
                 (var reason, var message) => (fallbackTime, $"{reason}: {message}"),
             };
+        }
+
+        // Image pull errors
+        var pullFailedContainerStatus = JobPods.Concat(WorkerPods)
+            .Where(p => p?.Status?.ContainerStatuses != null)
+            .SelectMany(p => p!.Status.ContainerStatuses)
+            .FirstOrDefault(p => p.State.Waiting?.Reason is not null && s_imagePullErrorCodes.Contains(p.State.Waiting.Reason));
+
+        if (pullFailedContainerStatus != null)
+        {
+            if (pullFailedContainerStatus.State.Waiting?.Reason == ErrImagePullBackOff)
+            {
+                return (null, $"Failed to pull image '{pullFailedContainerStatus.Image}'");
+            }
+
+            return (null, $"Failed to pull image '{pullFailedContainerStatus.Image}': {pullFailedContainerStatus.State.Waiting?.Message}");
         }
 
         return null;

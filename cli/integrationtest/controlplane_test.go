@@ -483,6 +483,31 @@ timeoutSeconds: 600`, getTestConnectivityImage(t))
 	require.Equal("1234", execStdOut)
 }
 
+func TestInvalidImage(t *testing.T) {
+	t.Parallel()
+	skipIfUsingUnixSocket(t)
+
+	require := require.New(t)
+
+	missingImage := BasicImage + "thisisamissingtag"
+
+	runSpec := fmt.Sprintf(`
+job:
+  codespec:
+    image: %s
+tags:
+  testName: TestInvalidImage
+timeoutSeconds: 600`, missingImage)
+
+	tempDir := t.TempDir()
+	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
+	require.NoError(os.WriteFile(runSpecPath, []byte(runSpec), 0644))
+
+	_, stdErr, err := runTyger("run", "exec", "--file", runSpecPath)
+	require.Error(err)
+	require.Contains(stdErr, fmt.Sprintf("%s: not found", missingImage))
+}
+
 func TestCodespecBufferTagsWithYamlSpec(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
