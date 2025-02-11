@@ -11,6 +11,7 @@ using Microsoft.Extensions.Options;
 using Npgsql;
 using Polly;
 using Polly.Retry;
+using Tyger.Common.DependencyInjection;
 using Tyger.ControlPlane.Compute.Kubernetes;
 using Tyger.ControlPlane.Database.Migrations;
 using Tyger.ControlPlane.Model;
@@ -105,10 +106,10 @@ public static class Database
         });
 
         builder.Services.AddSingleton<MigrationRunner>();
-        builder.Services.AddHostedService(sp => sp.GetRequiredService<MigrationRunner>());
+        builder.AddServiceWithPriority(ServiceDescriptor.Singleton<IHostedService>(sp => sp.GetRequiredService<MigrationRunner>()), 200);
 
         builder.Services.AddSingleton<DatabaseVersions>();
-        builder.Services.AddHostedService(sp => sp.GetRequiredService<DatabaseVersions>());
+        builder.AddServiceWithPriority(ServiceDescriptor.Singleton<IHostedService>(sp => sp.GetRequiredService<DatabaseVersions>()), 100);
         builder.Services.AddHealthChecks().AddCheck<DatabaseVersions>("database");
     }
 
