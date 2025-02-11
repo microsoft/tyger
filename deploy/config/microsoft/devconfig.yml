@@ -14,4 +14,4 @@ pemCertSecret:
   version: f46eec43cf524c8eb08f9e88c4742473
 pkcs12CertSecret:
   name: tyger-test-client-cert-pkcs12
-  version: a9523122ebe345779c40737eb546080b
+  version: 1f9995a96c194cca92c1a2e8d7966593
