@@ -38,7 +38,7 @@ az-login-from-host:
 	scripts/az-login-from-host.sh
 
 build-csharp:
-	find . -name *csproj | xargs -L 1 dotnet build
+	dotnet build server/tyger.sln
 
 build-go:
 	cd cli
