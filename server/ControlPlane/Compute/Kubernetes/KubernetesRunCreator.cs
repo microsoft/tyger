@@ -109,9 +109,18 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
             }
+            catch (HttpOperationException e) when (e.Response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.InternalServerError or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout)
+            {
+                _logger.RetryableErrorCreatingRunResources(run.Id!.Value, e);
+            }
+            catch (IOException e)
+            {
+                _logger.RetryableErrorCreatingRunResources(run.Id!.Value, e);
+            }
             catch (Exception ex)
             {
                 _logger.ErrorCreatingRunResources(run.Id!.Value, ex);
+                await Repository.ForceUpdateRun(run with { Status = RunStatus.Failed, StatusReason = "Failed to create Kubernetes objects. See server logs." }, cancellationToken);
             }
         });
     }
@@ -126,6 +135,8 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         {
             throw new ArgumentException($"The codespec for the job is required to be a job codespec");
         }
+
+        Validator.ValidateObject(jobCodespec, new(jobCodespec));
 
         run = run with
         {

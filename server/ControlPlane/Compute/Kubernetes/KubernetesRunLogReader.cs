@@ -17,7 +17,6 @@ namespace Tyger.ControlPlane.Compute.Kubernetes;
 
 public class KubernetesRunLogReader : ILogSource
 {
-    private static readonly Pipeline s_emptyPipeline = new([]);
     private readonly k8s.Kubernetes _client;
     private readonly Repository _repository;
     private readonly ILogArchive _logArchive;
@@ -63,7 +62,7 @@ public class KubernetesRunLogReader : ILogSource
             return await FollowLogs(run, options, cancellationToken);
         }
 
-        return (await InnerGetLogs()) ?? s_emptyPipeline;
+        return (await InnerGetLogs()) ?? new([]);
     }
 
     private Task<Pipeline> FollowLogs(Run run, GetLogsOptions options, CancellationToken cancellationToken)

@@ -20,6 +20,9 @@ public static partial class LoggerExtensions
     [LoggerMessage(LogLevel.Error, "Error creating run {runId} resources.")]
     public static partial void ErrorCreatingRunResources(this ILogger logger, long runId, Exception exception);
 
+    [LoggerMessage(LogLevel.Warning, "Retryable error creating run {runId} resources.")]
+    public static partial void RetryableErrorCreatingRunResources(this ILogger logger, long runId, Exception exception);
+
     [LoggerMessage(LogLevel.Error, "Error while watching resources.")]
     public static partial void ErrorWatchingResources(this ILogger logger, Exception exception);
 
