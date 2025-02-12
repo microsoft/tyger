@@ -688,6 +688,7 @@ maxReplicas: 1
 	require.Equal(t, "ubuntu", receivedSpec.Image)
 }
 func TestInvalidCodespecNames(t *testing.T) {
+	t.Parallel()
 	testCases := []struct {
 		name  string
 		valid bool
@@ -718,8 +719,42 @@ func TestInvalidCodespecNames(t *testing.T) {
 	}
 }
 
-func TestCodespecNameRequirements(t *testing.T) {
-	runTyger("codespec", "create", "Foo", "--image", BasicImage)
+func TestInvalidBufferNames(t *testing.T) {
+	t.Parallel()
+	testCases := []string{
+		"FOO",
+		"foo_bar",
+		"-foo",
+		"bar-",
+	}
+	for _, tC := range testCases {
+		t.Run(tC, func(t *testing.T) {
+			_, stdErr, err := runTyger("codespec", "create", "testinvalidbuffernames", "--image", BasicImage, "--input", tC)
+			require.NotNil(t, err)
+			require.Contains(t, stdErr, "Buffer names must consist")
+		})
+	}
+}
+
+func TestInvalidBufferNamesInInlineCodespec(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+
+	runSpec := fmt.Sprintf(`
+job:
+  codespec:
+    image: %s
+    buffers:
+      inputs: ["INVALID_NAME"]
+timeoutSeconds: 600`, BasicImage)
+
+	tempDir := t.TempDir()
+	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
+	require.NoError(os.WriteFile(runSpecPath, []byte(runSpec), 0644))
+
+	_, stdErr, err := runTyger("run", "exec", "--file", runSpecPath)
+	require.NotNil(err)
+	require.Contains(stdErr, "Buffer names must consist")
 }
 
 // Verify that a run using a codespec that requires a GPU

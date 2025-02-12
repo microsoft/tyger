@@ -723,9 +723,9 @@ public class Repository
 
             await tx.CommitAsync(cancellationToken);
 
-            if (updatedRun.Status is RunStatus.Succeeded or RunStatus.Failed)
+            if (updatedRun.Status is RunStatus.Succeeded or RunStatus.Failed && updatedRun.FinishedAt.HasValue)
             {
-                var timeToDetect = DateTimeOffset.UtcNow - updatedRun.FinishedAt!.Value;
+                var timeToDetect = DateTimeOffset.UtcNow - updatedRun.FinishedAt.Value;
                 _logger.TerminalStateRecorded(state.Id, timeToDetect);
             }
         }, cancellationToken);

@@ -243,9 +243,9 @@ public partial record JobCodespec : Codespec, IValidatableObject
                     yield return new ValidationResult(string.Format(CultureInfo.InvariantCulture, "All buffer names must be unique across inputs and outputs. Buffer names are case-insensitive. '{0}' is duplicated", group.Key));
                 }
 
-                if (group.Key.Contains('/'))
+                if (!BufferNameRegex().IsMatch(group.Key))
                 {
-                    yield return new ValidationResult(string.Format(CultureInfo.InvariantCulture, "The buffer '{0}' cannot contain '/' in its name.", group.Key));
+                    yield return new ValidationResult(string.Format(CultureInfo.InvariantCulture, "The name of buffer '{0}' is invalid. Buffer names must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character.", group.Key));
                 }
             }
         }
@@ -345,6 +345,9 @@ public partial record JobCodespec : Codespec, IValidatableObject
 
     [GeneratedRegex(@"\$\(([^)]+)\)|\$\$([^)]+)")]
     internal static partial Regex EnvironmentVariableExpansionRegex();
+
+    [GeneratedRegex(@"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")]
+    internal static partial Regex BufferNameRegex();
 }
 
 [Equatable]

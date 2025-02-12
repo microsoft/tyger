@@ -107,6 +107,8 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             throw new ArgumentException($"The codespec for the job is required to be a job codespec");
         }
 
+        Validator.ValidateObject(jobCodespec, new(jobCodespec));
+
         try
         {
             await _client.Images.InspectImageAsync(jobCodespec.Image, cancellationToken: cancellationToken);
