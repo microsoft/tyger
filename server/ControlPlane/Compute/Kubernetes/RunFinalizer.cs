@@ -18,8 +18,7 @@ namespace Tyger.ControlPlane.Compute.Kubernetes;
 /// </summary>
 public class RunFinalizer : BackgroundService
 {
-    // A value that is too high will put a lot of load on the Kubernetes API server
-    // because retrieving logs is a relatively expensive operation.
+
     private const int MaxConcurrentFinalizations = 64;
 
     private readonly Repository _repository;

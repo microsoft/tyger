@@ -99,9 +99,6 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 					Enabled: Ptr(true),
 				},
 			},
-			NetworkProfile: &armcontainerservice.NetworkProfile{
-				PodCidr: Ptr("10.244.0.0/14"),
-			},
 		},
 		SKU: &armcontainerservice.ManagedClusterSKU{
 			Name: Ptr(armcontainerservice.ManagedClusterSKUNameBase),
@@ -144,7 +141,6 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 			OSType:              Ptr(armcontainerservice.OSTypeLinux),
 			OSSKU:               Ptr(armcontainerservice.OSSKUAzureLinux),
 			Tags:                tags,
-			EnableNodePublicIP:  Ptr(true),
 		},
 	}
 
@@ -166,8 +162,7 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 			NodeTaints: []*string{
 				Ptr("tyger=run:NoSchedule"),
 			},
-			Tags:               tags,
-			EnableNodePublicIP: Ptr(true),
+			Tags: tags,
 		}
 
 		if clusterAlreadyExists {
@@ -415,6 +410,21 @@ func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCl
 				if *np.OrchestratorVersion != *existingNp.OrchestratorVersion {
 					return true, false
 				}
+
+				if len(np.Tags) != len(existingNp.Tags) {
+					return true, false
+				}
+
+				for k, v := range np.Tags {
+					existingV, ok := existingNp.Tags[k]
+					if !ok {
+						return true, false
+					}
+					if *v != *existingV {
+						return true, false
+					}
+				}
+
 				break
 			}
 		}
@@ -454,10 +464,6 @@ func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCl
 	}
 
 	if existingCluster.Properties.SecurityProfile == nil || existingCluster.Properties.SecurityProfile.WorkloadIdentity == nil || !*existingCluster.Properties.SecurityProfile.WorkloadIdentity.Enabled {
-		return true, false
-	}
-
-	if existingCluster.Properties.NetworkProfile == nil || existingCluster.Properties.NetworkProfile.PodCidr == nil || *existingCluster.Properties.NetworkProfile.PodCidr != *cluster.Properties.NetworkProfile.PodCidr {
 		return true, false
 	}
 

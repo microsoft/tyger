@@ -111,7 +111,6 @@ public sealed partial class RunObjects
         var failedContainerStatus = JobPods
             .Where(p => p?.Status?.ContainerStatuses != null)
             .SelectMany(p => p!.Status.ContainerStatuses)
-            .Where(cs => cs.Name != LogReaderContainerName)
             .Where(cs => cs.State?.Terminated?.ExitCode is not null and not 0)
             .MinBy(cs => cs.State.Terminated.FinishedAt ?? fallbackTime); // sometimes FinishedAt is null https://github.com/kubernetes/kubernetes/issues/104107
 
@@ -138,8 +137,7 @@ public sealed partial class RunObjects
         var pullFailedContainerStatus = JobPods.Concat(WorkerPods)
             .Where(p => p?.Status?.ContainerStatuses != null)
             .SelectMany(p => p!.Status.ContainerStatuses)
-            .Where(cs => cs.Name != LogReaderContainerName)
-            .FirstOrDefault(cs => cs.State.Waiting?.Reason is not null && s_imagePullErrorCodes.Contains(cs.State.Waiting.Reason));
+            .FirstOrDefault(p => p.State.Waiting?.Reason is not null && s_imagePullErrorCodes.Contains(p.State.Waiting.Reason));
 
         if (pullFailedContainerStatus != null)
         {
@@ -187,20 +185,13 @@ public sealed partial class RunObjects
         // the main container may still be running if using a socket but if all sidecars have exited successfully, then we consider it complete.
         if (JobPods.All(pod =>
                 pod != null &&
-                pod.Spec.Containers
-                    .Where(c => c.Name != LogReaderContainerName)
-                    .All(c =>
+                pod.Spec.Containers.All(c =>
                         pod.Status?.ContainerStatuses?.Any(cs =>
                             cs.Name == c.Name &&
                             (cs.State.Terminated?.ExitCode == 0 ||
                             (cs.Name == "main" && pod.GetAnnotation(HasSocketAnnotation) == "true" && cs.State.Running != null))) == true)))
         {
-            var finishedTime = JobPods
-                .SelectMany(p => p!.Status.ContainerStatuses)
-                .Where(cs => cs.Name != LogReaderContainerName)
-                .Select(cs => cs.State.Terminated?.FinishedAt)
-                .Where(t => t != null)
-                .Max();
+            var finishedTime = JobPods.SelectMany(p => p!.Status.ContainerStatuses).Select(cs => cs.State.Terminated?.FinishedAt).Where(t => t != null).Max();
             return finishedTime ?? GetStartedTime();
         }
 

@@ -106,7 +106,6 @@ func (inst *Installer) createDatabase(ctx context.Context, tygerServerManagedIde
 			Storage: &armpostgresqlflexibleservers.Storage{
 				AutoGrow:      Ptr(armpostgresqlflexibleservers.StorageAutoGrowEnabled),
 				StorageSizeGB: Ptr(int32(databaseConfig.StorageSizeGB)),
-				Tier:          Ptr(armpostgresqlflexibleservers.AzureManagedDiskPerformanceTiersP15),
 			},
 			Network: &armpostgresqlflexibleservers.Network{
 				PublicNetworkAccess: Ptr(armpostgresqlflexibleservers.ServerPublicNetworkAccessStateEnabled),

@@ -20,7 +20,7 @@ namespace Tyger.ControlPlane.Database;
 
 public class Repository
 {
-    private const int MaxActiveRuns = 50000;
+    private const int MaxActiveRuns = 5000;
     private const string NewRunChannelName = "new_run";
     private const string RunFinalizedChannelName = "run_finalized";
     private const string RunChangedChannelName = "run_changed";

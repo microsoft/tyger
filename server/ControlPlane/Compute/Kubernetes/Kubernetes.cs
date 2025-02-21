@@ -94,9 +94,6 @@ public class KubernetesApiOptions : KubernetesCoreOptions
     [Required]
     public required string WorkerWaiterImage { get; init; }
 
-    [Required]
-    public required string LogReaderImage { get; init; }
-
     [MinLength(1)]
     public List<ClusterOptions> Clusters { get; } = [];
 

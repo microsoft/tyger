@@ -13,21 +13,21 @@ cloud:
       - name: ${TYGER_ENVIRONMENT_NAME}
         apiHost: true
         sku: Standard
-        kubernetesVersion: "1.31"
+        kubernetesVersion: "1.29"
         systemNodePool:
-          name: system2
+          name: system
           vmSize: ${TYGER_SYSTEM_NODE_SKU}
           minCount: 1
           maxCount: 3
         userNodePools:
-          - name: cpunp3
+          - name: cpunp
             vmSize: ${TYGER_CPU_NODE_SKU}
             minCount: ${TYGER_MIN_CPU_NODE_COUNT}
-            maxCount: ${TYGER_MAX_CPU_NODE_COUNT}
-          - name: gpunp2
+            maxCount: 10
+          - name: gpunp
             vmSize: ${TYGER_GPU_NODE_SKU}
             minCount: ${TYGER_MIN_GPU_NODE_COUNT}
-            maxCount: ${TYGER_MAX_GPU_NODE_COUNT}
+            maxCount: 10
 
     managementPrincipals:
       - objectId: 2e092785-472a-4ea1-9700-4d15646d9e91
@@ -44,23 +44,15 @@ cloud:
 
   storage:
     buffers:
-      - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}tygerbuf1
+      - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}tygerbuf
       - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}tygerbuf2
       - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}tygerbuf3
-      - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}tygerbuf4
-      - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}tygerbuf5
-      - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}tygerbuf6
-      - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}tygerbuf7
-      - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}tygerbuf8
-      - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}tygerbufsec1
         location: ${TYGER_SECONDARY_LOCATION}
     logs:
       name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}tygerlog
 
   database:
     location: ${TYGER_DATABASE_LOCATION}
-    computeTier: ${TYGER_DATABASE_COMPUTE_TIER}
-    vmSize: ${TYGER_DATABASE_VM_SIZE}
     firewallRules: ${TYGER_ENVIRONMENT_FIREWALL_RULES}
 
 api:
@@ -73,9 +65,7 @@ api:
     tyger:
       chartRef: ${TYGER_HELM_CHART_DIR}
       values:
-        replicaCount: 2
         image: ${TYGER_SERVER_IMAGE}
         bufferSidecarImage: ${BUFFER_SIDECAR_IMAGE}
         bufferCopierImage: ${BUFFER_COPIER_IMAGE}
         workerWaiterImage: ${WORKER_WAITER_IMAGE}
-        logReaderImage: ${LOG_READER_IMAGE}

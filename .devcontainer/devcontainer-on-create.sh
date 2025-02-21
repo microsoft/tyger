@@ -21,6 +21,6 @@ fi
 # Download Go and nuget packages
 make -f "$(dirname "$0")/../Makefile" restore || true
 
-# make install-cli || true
+make install-cli || true
 
 make az-login-from-host &> /dev/null || true

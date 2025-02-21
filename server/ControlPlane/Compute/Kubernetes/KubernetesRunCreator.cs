@@ -580,34 +580,10 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
                         Command = codespec.Command?.ToArray(),
                         Args = codespec.Args?.ToArray(),
                         Env = [new V1EnvVar("TYGER_RUN_ID", valueFrom: new V1EnvVarSource(fieldRef: new V1ObjectFieldSelector($"metadata.labels['{RunLabel}']")))],
-                    },
-                    // new() {
-                    //     Name = LogReaderContainerName,
-                    //     Image = _k8sOptions.LogReaderImage,
-                    //     Env = [
-                    //         new V1EnvVar("POD_NAME", valueFrom: new V1EnvVarSource(fieldRef: new V1ObjectFieldSelector($"metadata.name"))),
-                    //         new V1EnvVar("POD_UID", valueFrom: new V1EnvVarSource(fieldRef: new V1ObjectFieldSelector("metadata.uid"))),
-                    //     ],
-                    //     VolumeMounts =
-                    //     [
-                    //         new()
-                    //         {
-                    //             Name = "logs",
-                    //             MountPath = "/logs",
-                    //             SubPathExpr = $"{_k8sOptions.Namespace}_$(POD_NAME)_$(POD_UID)",
-                    //         },
-                    //     ],
-                    // }
+                    }
                 ],
                 RestartPolicy = restartPolicy,
                 ServiceAccountName = GetServiceAccount(),
-                // Volumes = [
-                //     new()
-                //     {
-                //         Name = "logs",
-                //         HostPath = new() { Path = "/var/log/pods" },
-                //     }
-                // ],
             }
         };
 

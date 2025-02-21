@@ -14,7 +14,6 @@ public static partial class KubernetesMetadata
     public const string HasSocketAnnotation = "tyger-has-socket";
     public const string JobReplicaCountAnnotation = "tyger-job-replica-count";
     public const string WorkerReplicaCountAnnotation = "tyger-worker-replica-count";
-    public const string LogReaderContainerName = "log-reader";
 
     public static string JobPodName(long id, int index) => $"run-{id}-job-{index}";
     public static string WorkerPodName(long id, int index) => $"run-{id}-worker-{index}";

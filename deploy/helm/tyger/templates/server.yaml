@@ -135,8 +135,6 @@ spec:
               value: {{ $tygerName }}-no-op
             - name: Compute__Kubernetes__WorkerWaiterImage
               value: {{ required "A value for workerWaiterImage is required" .Values.workerWaiterImage }}
-            - name: Compute__Kubernetes__LogReaderImage
-              value: {{ required "A value for logReaderImage is required" .Values.logReaderImage }}
             - name: Compute__Kubernetes__CurrentPodUid
               valueFrom:
                 fieldRef:
@@ -289,37 +287,3 @@ spec:
     - name: {{ $tygerName }}-server
       port: 8080
 {{- end }}
-# ---
-# apiVersion: apps/v1
-# kind: DaemonSet
-# metadata:
-#   name: {{ $tygerName }}-log-reader
-# spec:
-#   selector:
-#     matchLabels:
-#       name: {{ $tygerName }}-log-reader
-#   template:
-#     metadata:
-#       labels:
-#         name: {{ $tygerName }}-log-reader
-#     spec:
-#       nodeSelector:
-#         tyger: run
-#       tolerations:
-#       # these tolerations are to have the daemonset runnable on control plane nodes
-#       # remove them if your control plane nodes should not run pods
-#       - key: tyger
-#         operator: Equal
-#         value: run
-#         effect: NoSchedule
-#       containers:
-#       - name: main
-#         image: {{ required "A value for logReaderImage is required" .Values.logReaderImage }}
-#         volumeMounts:
-#         - name: varlogpods
-#           mountPath: /var/log/pods
-#           readonly: true
-#       volumes:
-#       - name: varlogpods
-#         hostPath:
-#           path: /var/log/pods

@@ -65,14 +65,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# environment overrides
-export TYGER_SYSTEM_NODE_SKU=standard_e16s_v3
-export TYGER_CPU_NODE_SKU=standard_e32s_v3
-export TYGER_MIN_CPU_NODE_COUNT=0
-export TYGER_MAX_CPU_NODE_COUNT=300
-export TYGER_DATABASE_COMPUTE_TIER=GeneralPurpose
-export TYGER_DATABASE_VM_SIZE=Standard_D16ds_v5
-
 this_dir=$(dirname "${0}")
 config_dir="${TYGER_ENVIRONMENT_CONFIG_DIR:-${this_dir}/../deploy/config/microsoft}"
 
@@ -104,9 +96,7 @@ else
     export TYGER_HELM_CHART_DIR
 
     export TYGER_MIN_CPU_NODE_COUNT="${TYGER_MIN_CPU_NODE_COUNT:-${TYGER_MIN_NODE_COUNT:-0}}"
-    export TYGER_MAX_CPU_NODE_COUNT="${TYGER_MAX_CPU_NODE_COUNT:-${TYGER_MAX_NODE_COUNT:-10}}"
     export TYGER_MIN_GPU_NODE_COUNT="${TYGER_MIN_GPU_NODE_COUNT:-${TYGER_MIN_NODE_COUNT:-0}}"
-    export TYGER_MAX_GPU_NODE_COUNT="${TYGER_MAX_GPU_NODE_COUNT:-${TYGER_MAX_NODE_COUNT:-10}}"
     export TYGER_DATABASE_LOCATION="${TYGER_DATABASE_LOCATION:-${TYGER_LOCATION:-westus3}}"
     export TYGER_LOCATION="${TYGER_LOCATION:-westus2}"
 
@@ -124,10 +114,6 @@ else
       export TYGER_SECONDARY_LOCATION="${TYGER_SECONDARY_LOCATION:-eastus}"
     fi
 
-    export TYGER_DATABASE_COMPUTE_TIER="${TYGER_DATABASE_COMPUTE_TIER:-Burstable}"
-    if [[ "$TYGER_DATABASE_COMPUTE_TIER" != "Burstable" ]]; then
-      export TYGER_DATABASE_VM_SIZE="${TYGER_DATABASE_VM_SIZE:-Standard_D2ds_v4}"
-    fi
   fi
 
   repo_fqdn=$(envsubst <"${devconfig_path}" | yq ".wipContainerRegistry.fqdn")
@@ -137,7 +123,6 @@ else
     BUFFER_SIDECAR_IMAGE="${repo_fqdn}/buffer-sidecar:${EXPLICIT_IMAGE_TAG}"
     BUFFER_COPIER_IMAGE="${repo_fqdn}/buffer-copier:${EXPLICIT_IMAGE_TAG}"
     WORKER_WAITER_IMAGE="${repo_fqdn}/worker-waiter:${EXPLICIT_IMAGE_TAG}"
-    LOG_READER_IMAGE="${repo_fqdn}/log-reader:${EXPLICIT_IMAGE_TAG}"
   elif [[ "$docker" == true ]]; then
     arch=$(dpkg --print-architecture)
     TYGER_SERVER_IMAGE=$(docker inspect "${repo_fqdn}/tyger-server:dev-${arch}" 2>/dev/null | jq -r '.[0].Id' 2>/dev/null || true)
@@ -151,7 +136,6 @@ else
     BUFFER_SIDECAR_IMAGE="$(docker inspect "${repo_fqdn}/buffer-sidecar:dev-${arch}" 2>/dev/null | jq -r --arg repo "${repo_fqdn}/buffer-sidecar" '.[0].RepoDigests[] | select (startswith($repo))' 2>/dev/null || true)"
     BUFFER_COPIER_IMAGE="$(docker inspect "${repo_fqdn}/buffer-copier:dev-${arch}" 2>/dev/null | jq -r --arg repo "${repo_fqdn}/buffer-copier" '.[0].RepoDigests[] | select (startswith($repo))' 2>/dev/null || true)"
     WORKER_WAITER_IMAGE="$(docker inspect "${repo_fqdn}/worker-waiter:dev-${arch}" 2>/dev/null | jq -r --arg repo "${repo_fqdn}/worker-waiter" '.[0].RepoDigests[] | select (startswith($repo))' 2>/dev/null || true)"
-    LOG_READER_IMAGE="$(docker inspect "${repo_fqdn}/log-reader:dev-${arch}" 2>/dev/null | jq -r --arg repo "${repo_fqdn}/log-reader" '.[0].RepoDigests[] | select (startswith($repo))' 2>/dev/null || true)"
   fi
 
   export TYGER_SERVER_IMAGE
@@ -163,7 +147,6 @@ else
   else
     export WORKER_WAITER_IMAGE
     export BUFFER_COPIER_IMAGE
-    export LOG_READER_IMAGE
   fi
 fi
 

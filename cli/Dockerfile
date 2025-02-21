@@ -31,11 +31,3 @@ WORKDIR /app
 COPY --from=go-build /go/bin/dist/${BUILDOS}/${TARGETARCH}/buffer-copier .
 USER nonroot:nonroot
 ENTRYPOINT ["/app/buffer-copier"]
-
-
-FROM mcr.microsoft.com/azurelinux/distroless/minimal:3.0.20241101 as log-reader
-ARG TARGETARCH BUILDOS
-
-WORKDIR /app
-COPY --from=go-build /go/bin/dist/${BUILDOS}/${TARGETARCH}/log-reader .
-ENTRYPOINT ["/app/log-reader"]
