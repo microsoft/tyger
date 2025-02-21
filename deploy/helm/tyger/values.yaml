@@ -49,6 +49,7 @@ onlyMigrationDependencies: false
 bufferSidecarImage:
 bufferCopierImage:
 workerWaiterImage:
+logReaderImage:
 
 clusterConfiguration: "{}"
 

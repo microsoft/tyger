@@ -3,6 +3,7 @@
 
 using System.ComponentModel.DataAnnotations;
 using System.Data;
+using System.Diagnostics;
 using System.IO.Hashing;
 using System.Text;
 using System.Text.Json;
@@ -19,7 +20,7 @@ namespace Tyger.ControlPlane.Database;
 
 public class Repository
 {
-    private const int MaxActiveRuns = 5000;
+    private const int MaxActiveRuns = 50000;
     private const string NewRunChannelName = "new_run";
     private const string RunFinalizedChannelName = "run_finalized";
     private const string RunChangedChannelName = "run_changed";
@@ -642,6 +643,7 @@ public class Repository
 
     public async Task UpdateRunFromObservedState(ObservedRunState state, (string leaseName, string holder)? leaseHeldCondition, CancellationToken cancellationToken)
     {
+        var start = Stopwatch.GetTimestamp();
         await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
             await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
@@ -726,9 +728,12 @@ public class Repository
             if (updatedRun.Status is RunStatus.Succeeded or RunStatus.Failed && updatedRun.FinishedAt.HasValue)
             {
                 var timeToDetect = DateTimeOffset.UtcNow - updatedRun.FinishedAt.Value;
-                _logger.TerminalStateRecorded(state.Id, timeToDetect);
+                _logger.TerminalStateRecorded(updatedRun.Status.Value, state.Id, timeToDetect);
             }
         }, cancellationToken);
+
+        var end = Stopwatch.GetTimestamp();
+        _logger.UpdateRunFromObservedState((int)((end - start) / (double)Stopwatch.Frequency * 1000));
     }
 
     public async Task ForceUpdateRun(Run run, CancellationToken cancellationToken)
@@ -799,7 +804,7 @@ public class Repository
             await using var cmd = new NpgsqlCommand($"""
                 SELECT run, final, logs_archived_at, resources_created, modified_at, tags_version {((options & GetRunOptions.SkipTags) == GetRunOptions.SkipTags ? "" : ", tag_keys.name, run_tags.value")}
                 FROM runs
-                {((options & GetRunOptions.SkipTags) == GetRunOptions.SkipTags ? "" : "LEFT JOIN run_tags ON runs.id = run_tags.id LEFT JOIN tag_keys ON run_tags.key = tag_keys.id")}
+                {((options & GetRunOptions.SkipTags) == GetRunOptions.SkipTags ? "" : "LEFT JOIN run_tags ON runs.created_at = run_tags.created_at AND runs.id = run_tags.id LEFT JOIN tag_keys ON run_tags.key = tag_keys.id")}
                 WHERE runs.id = $1
                 {((options & GetRunOptions.SkipTags) == GetRunOptions.SkipTags ? "" : "ORDER BY tag_keys.name")}
                 """, conn)
@@ -849,16 +854,19 @@ public class Repository
                 return null;
             }
 
-            run = run with { Tags = tags };
-            var hash = _xxHash3Pool.Get();
-            try
+            if ((options & GetRunOptions.SkipTags) != GetRunOptions.SkipTags)
             {
-                run.ComputeEtag(hash);
-            }
-            finally
-            {
-                hash.Reset();
-                _xxHash3Pool.Return(hash);
+                run = run with { Tags = tags };
+                var hash = _xxHash3Pool.Get();
+                try
+                {
+                    run.ComputeEtag(hash);
+                }
+                finally
+                {
+                    hash.Reset();
+                    _xxHash3Pool.Return(hash);
+                }
             }
 
             return (run, modifiedAt, logsArchivedAt, final, tagsVersion);

@@ -61,6 +61,8 @@ public static class Database
                 dataSourceBuilder.ConnectionStringBuilder.Port = databaseOptions.Port.Value;
             }
 
+            dataSourceBuilder.ConnectionStringBuilder.MaxPoolSize = 500;
+
             dataSourceBuilder.ConnectionStringBuilder.Username = databaseOptions.Username;
             dataSourceBuilder.ConnectionStringBuilder.CheckCertificateRevocation = true;
 

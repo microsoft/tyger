@@ -22,6 +22,7 @@ public class KubernetesRunLogReader : ILogSource
     private readonly ILogArchive _logArchive;
     private readonly ILoggerFactory _loggerFactory;
     private readonly RunStateObserver _runStateObserver;
+    private readonly IHttpClientFactory _httpClientFactory;
     private readonly KubernetesApiOptions _k8sOptions;
 
     public KubernetesRunLogReader(
@@ -30,19 +31,21 @@ public class KubernetesRunLogReader : ILogSource
         IOptions<KubernetesApiOptions> k8sOptions,
         ILogArchive logArchive,
         ILoggerFactory loggerFactory,
-        RunStateObserver runStateObserver)
+        RunStateObserver runStateObserver,
+        IHttpClientFactory httpClientFactory)
     {
         _client = client;
         _repository = repository;
         _logArchive = logArchive;
         _loggerFactory = loggerFactory;
         _runStateObserver = runStateObserver;
+        _httpClientFactory = httpClientFactory;
         _k8sOptions = k8sOptions.Value;
     }
 
     public async Task<Pipeline?> GetLogs(long runId, GetLogsOptions options, CancellationToken cancellationToken)
     {
-        if (await _repository.GetRun(runId, cancellationToken) is not var (run, _, logsArchivedAt, _, _))
+        if (await _repository.GetRun(runId, cancellationToken, GetRunOptions.SkipTags) is not var (run, _, logsArchivedAt, _, _))
         {
             return null;
         }
@@ -103,7 +106,7 @@ public class KubernetesRunLogReader : ILogSource
                     {
                         var containerPipeline = new Pipeline(
                             new ResumablePipelineSource(
-                                async opts => await GetLogsFromPod(pod.Name(), container.Name, GetPrefix(run, pod, container), opts, cancellationToken),
+                                async opts => await GetLogsFromPod(null, pod.Name(), container.Name, GetPrefix(run, pod, container), opts, cancellationToken),
                                 options with { IncludeTimestamps = true },
                                 _loggerFactory.CreateLogger<ResumablePipelineSource>()));
 
@@ -161,7 +164,7 @@ public class KubernetesRunLogReader : ILogSource
                                 {
                                     var podPipeline = new Pipeline(
                                         new ResumablePipelineSource(
-                                            async opts => await GetLogsFromPod(pod.Name(), container.Name, GetPrefix(run, pod, container), opts, cancellationToken),
+                                            async opts => await GetLogsFromPod(null, pod.Name(), container.Name, GetPrefix(run, pod, container), opts, cancellationToken),
                                             options with { IncludeTimestamps = true },
                                             _loggerFactory.CreateLogger<ResumablePipelineSource>()));
 
@@ -228,11 +231,30 @@ Finished:
 
         List<string>? jobContainerNames = null;
         List<string>? workerContainerNames = null;
+        var podIps = new Dictionary<string, string>();
 
         if (_runStateObserver.TryGetRunObjectSnapshot(run.Id!.Value, out var runObjects))
         {
-            jobContainerNames = runObjects!.JobPods.FirstOrDefault(p => p != null)?.Spec.Containers.Select(c => c.Name).ToList();
-            workerContainerNames = runObjects!.WorkerPods?.FirstOrDefault(p => p != null)?.Spec.Containers.Select(c => c.Name).ToList();
+            jobContainerNames = runObjects!.JobPods.FirstOrDefault(p => p != null)?.Spec.Containers.Select(c => c.Name).Where(c => c != LogReaderContainerName).ToList();
+            foreach (var pod in runObjects!.JobPods)
+            {
+                if (pod != null && !string.IsNullOrEmpty(pod.Status?.PodIP))
+                {
+                    podIps[pod.Name()] = pod.Status?.PodIP!;
+                }
+            }
+
+            workerContainerNames = runObjects!.WorkerPods?.FirstOrDefault(p => p != null)?.Spec.Containers.Select(c => c.Name).Where(c => c != LogReaderContainerName).ToList();
+            if (runObjects.WorkerPods != null)
+            {
+                foreach (var pod in runObjects.WorkerPods)
+                {
+                    if (pod != null && !string.IsNullOrEmpty(pod.Status?.PodIP))
+                    {
+                        podIps[pod.Name()] = pod.Status?.PodIP!;
+                    }
+                }
+            }
         }
 
         if (jobContainerNames is null)
@@ -242,8 +264,11 @@ Finished:
                 try
                 {
                     var jobPod = await _client.CoreV1.ReadNamespacedPodAsync(jobPodName, _k8sOptions.Namespace, cancellationToken: cancellationToken);
-                    jobContainerNames = jobPod.Spec.Containers.Select(c => c.Name).ToList();
-                    break;
+                    jobContainerNames ??= [.. jobPod.Spec.Containers.Select(c => c.Name).Where(c => c != LogReaderContainerName)];
+                    if (!string.IsNullOrEmpty(jobPod.Status?.PodIP))
+                    {
+                        podIps[jobPod.Name()] = jobPod.Status?.PodIP!;
+                    }
                 }
                 catch (HttpOperationException e) when (e.Response.StatusCode == HttpStatusCode.NotFound)
                 {
@@ -258,8 +283,11 @@ Finished:
                 try
                 {
                     var workerPod = await _client.CoreV1.ReadNamespacedPodAsync(workerPodName, _k8sOptions.Namespace, cancellationToken: cancellationToken);
-                    workerContainerNames = workerPod.Spec.Containers.Select(c => c.Name).ToList();
-                    break;
+                    workerContainerNames ??= [.. workerPod.Spec.Containers.Select(c => c.Name).Where(c => c != LogReaderContainerName)];
+                    if (!string.IsNullOrEmpty(workerPod.Status?.PodIP))
+                    {
+                        podIps[workerPod.Name()] = workerPod.Status?.PodIP!;
+                    }
                 }
                 catch (HttpOperationException e) when (e.Response.StatusCode == HttpStatusCode.NotFound)
                 {
@@ -277,14 +305,14 @@ Finished:
         if (podAndContainers is [(var singlePod, var singleContainer)])
         {
             // simple case where no merging or transforming is required.
-            return await GetLogsFromPod(singlePod, singleContainer, GetPrefix(run, singlePod, singleContainer, podAndContainers), podLogOptions, cancellationToken);
+            return await GetLogsFromPod(podIps.TryGetValue(singlePod, out var ip) ? ip : null, singlePod, singleContainer, GetPrefix(run, singlePod, singleContainer, podAndContainers), podLogOptions, cancellationToken);
         }
 
         podLogOptions = podLogOptions with { IncludeTimestamps = true };
 
         var pipelines = await podAndContainers
             .ToAsyncEnumerable()
-            .SelectAwait(async pc => (await GetLogsFromPod(pc.pod, pc.container, GetPrefix(run, pc.pod, pc.container, podAndContainers), podLogOptions, cancellationToken))!)
+            .SelectAwait(async pc => (await GetLogsFromPod(podIps.TryGetValue(pc.pod, out var ip) ? ip : null, pc.pod, pc.container, GetPrefix(run, pc.pod, pc.container, podAndContainers), podLogOptions, cancellationToken))!)
             .Where(p => p != null)
             .ToArrayAsync(cancellationToken);
 
@@ -338,67 +366,99 @@ Finished:
     }
 
     // We need to do the HTTP request ourselves because the sinceTime parameter is missing https://github.com/kubernetes-client/csharp/issues/829
-    private async Task<Pipeline?> GetLogsFromPod(string podName, string containerName, string? prefix, GetLogsOptions options, CancellationToken cancellationToken)
+    private async Task<Pipeline?> GetLogsFromPod(string? podIp, string podName, string containerName, string? prefix, GetLogsOptions options, CancellationToken cancellationToken)
     {
-        var qs = QueryString.Empty;
-        qs = qs.Add("container", containerName);
-
-        if (options.IncludeTimestamps)
+        async Task<Pipeline?> GetLogsFromPodFallback()
         {
-            qs = qs.Add("timestamps", "true");
+            var qs = QueryString.Empty;
+            qs = qs.Add("container", containerName);
+
+            if (options.IncludeTimestamps)
+            {
+                qs = qs.Add("timestamps", "true");
+            }
+
+            if (options.TailLines.HasValue)
+            {
+                qs = qs.Add("tailLines", options.TailLines.Value.ToString(CultureInfo.InvariantCulture));
+            }
+
+            if (options.Since.HasValue)
+            {
+                qs = qs.Add("sinceTime", options.Since.Value.ToString("o"));
+            }
+
+            if (options.Follow)
+            {
+                qs = qs.Add("follow", "true");
+            }
+
+            var uri = new Uri(_client.BaseUri, $"api/v1/namespaces/{_k8sOptions.Namespace}/pods/{podName}/log{qs.ToUriComponent()}");
+
+            var requestMessage = new HttpRequestMessage(HttpMethod.Get, uri);
+            if (_client.Credentials != null)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await _client.Credentials.ProcessHttpRequestAsync(requestMessage, cancellationToken).ConfigureAwait(false);
+            }
+
+            var response = await _client.HttpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+
+            switch (response.StatusCode)
+            {
+                case HttpStatusCode.OK:
+                    var logs = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+                    response.Content.Dispose();
+                    var pipeline = new Pipeline(new SimplePipelineSource(logs));
+                    if (options.IncludeTimestamps)
+                    {
+                        pipeline.AddElement(new KubernetesTimestampedLogReformatter());
+                    }
+
+                    if (!string.IsNullOrEmpty(prefix))
+                    {
+                        pipeline.AddElement(new LogLineFormatter(options.IncludeTimestamps, prefix));
+                    }
+
+                    return pipeline;
+                case HttpStatusCode.NoContent:
+                    return null;
+                case HttpStatusCode.NotFound:
+                    return null;
+                case HttpStatusCode.BadRequest:
+                    // likely means the pod has not started yet.
+                    return null;
+                default:
+                    throw new InvalidOperationException($"Unexpected status code '{response.StatusCode} from cluster. {await response.Content.ReadAsStringAsync(cancellationToken)}");
+            }
         }
 
-        if (options.TailLines.HasValue)
-        {
-            qs = qs.Add("tailLines", options.TailLines.Value.ToString(CultureInfo.InvariantCulture));
-        }
+        // if (!string.IsNullOrEmpty(podIp) && !options.Follow && !options.TailLines.HasValue && !options.Since.HasValue)
+        // {
+        //     try
+        //     {
+        //         var client = _httpClientFactory.CreateClient();
+        //         var uri = new Uri($"http://{podIp}:7000/logs?container={containerName}");
+        //         var response = await client.GetAsync(uri, cancellationToken);
+        //         if (response.IsSuccessStatusCode)
+        //         {
+        //             var logs = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+        //             var pipeline = new Pipeline(new SimplePipelineSource(logs));
 
-        if (options.Since.HasValue)
-        {
-            qs = qs.Add("sinceTime", options.Since.Value.ToString("o"));
-        }
+        //             if (!string.IsNullOrEmpty(prefix))
+        //             {
+        //                 pipeline.AddElement(new LogLineFormatter(options.IncludeTimestamps, prefix));
+        //             }
 
-        if (options.Follow)
-        {
-            qs = qs.Add("follow", "true");
-        }
+        //             return pipeline;
+        //         }
+        //     }
+        //     catch (Exception e) when (e is HttpRequestException or OperationCanceledException)
+        //     {
+        //         // todo: log
+        //     }
+        // }
 
-        var uri = new Uri(_client.BaseUri, $"api/v1/namespaces/{_k8sOptions.Namespace}/pods/{podName}/log{qs.ToUriComponent()}");
-
-        var requestMessage = new HttpRequestMessage(HttpMethod.Get, uri);
-        if (_client.Credentials != null)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            await _client.Credentials.ProcessHttpRequestAsync(requestMessage, cancellationToken).ConfigureAwait(false);
-        }
-
-        var response = await _client.HttpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-
-        switch (response.StatusCode)
-        {
-            case HttpStatusCode.OK:
-                var logs = await response.Content.ReadAsStreamAsync(cancellationToken);
-                var pipeline = new Pipeline(new SimplePipelineSource(logs));
-                if (options.IncludeTimestamps)
-                {
-                    pipeline.AddElement(new KubernetesTimestampedLogReformatter());
-                }
-
-                if (!string.IsNullOrEmpty(prefix))
-                {
-                    pipeline.AddElement(new LogLineFormatter(options.IncludeTimestamps, prefix));
-                }
-
-                return pipeline;
-            case HttpStatusCode.NoContent:
-                return null;
-            case HttpStatusCode.NotFound:
-                return null;
-            case HttpStatusCode.BadRequest:
-                // likely means the pod has not started yet.
-                return null;
-            default:
-                throw new InvalidOperationException($"Unexpected status code '{response.StatusCode} from cluster. {await response.Content.ReadAsStringAsync(cancellationToken)}");
-        }
+        return await GetLogsFromPodFallback();
     }
 }

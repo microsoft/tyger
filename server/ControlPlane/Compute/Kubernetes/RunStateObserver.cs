@@ -15,7 +15,7 @@ namespace Tyger.ControlPlane.Compute.Kubernetes;
 /// </summary>
 public class RunStateObserver : BackgroundService
 {
-    private const int PartitionCount = 8;
+    private const int PartitionCount = 128;
     private const int ParitionChannelSize = 1024;
 
     private readonly IKubernetes _kubernetesClient;
@@ -49,7 +49,6 @@ public class RunStateObserver : BackgroundService
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
         var initialPodChannel = Channel.CreateBounded<V1Pod>(new BoundedChannelOptions(1024));
-
         var podInformer = new PodInformer(_kubernetesClient, _kubernetesOptions.Namespace, RunLabel, initialPodChannel.Writer, _podUpdatesChannel.Writer, _loggingFactory.CreateLogger<PodInformer>());
 
         _podInformerTask = podInformer.ExecuteAsync(_cancellationTokenSource.Token);
@@ -235,7 +234,8 @@ public class RunStateObserver : BackgroundService
             var previousState = runObjects.CachedMetadata;
             var currentState = runObjects.GetObservedState();
 
-            if (!previousState.Equals(currentState))
+            // Pending is state when the run is created, so no need to update it.
+            if (currentState.Status != Model.RunStatus.Pending && !previousState.Equals(currentState))
             {
                 await _repository.UpdateRunFromObservedState(currentState, (_leaseManager.LeaseName, _thisLeaseHolderId), stoppingToken);
             }

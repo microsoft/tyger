@@ -463,6 +463,7 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, dryRun bool) (
 			"bufferSidecarImage": fmt.Sprintf("%s%sbuffer-sidecar:%s", install.ContainerRegistry, install.GetNormalizedContainerRegistryDirectory(), install.ContainerImageTag),
 			"bufferCopierImage":  fmt.Sprintf("%s%sbuffer-copier:%s", install.ContainerRegistry, install.GetNormalizedContainerRegistryDirectory(), install.ContainerImageTag),
 			"workerWaiterImage":  fmt.Sprintf("%s%sworker-waiter:%s", install.ContainerRegistry, install.GetNormalizedContainerRegistryDirectory(), install.ContainerImageTag),
+			"logReaderImage":     fmt.Sprintf("%s%slog-reader:%s", install.ContainerRegistry, install.GetNormalizedContainerRegistryDirectory(), install.ContainerImageTag),
 			"hostname":           inst.Config.Api.DomainName,
 			"location":           inst.Config.Cloud.DefaultLocation,
 			"identity": map[string]any{

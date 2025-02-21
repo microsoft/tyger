@@ -99,6 +99,9 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 					Enabled: Ptr(true),
 				},
 			},
+			NetworkProfile: &armcontainerservice.NetworkProfile{
+				PodCidr: Ptr("10.244.0.0/14"),
+			},
 		},
 		SKU: &armcontainerservice.ManagedClusterSKU{
 			Name: Ptr(armcontainerservice.ManagedClusterSKUNameBase),
@@ -140,6 +143,8 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 			MaxCount:            &clusterConfig.SystemNodePool.MaxCount,
 			OSType:              Ptr(armcontainerservice.OSTypeLinux),
 			OSSKU:               Ptr(armcontainerservice.OSSKUAzureLinux),
+			Tags:                tags,
+			EnableNodePublicIP:  Ptr(true),
 		},
 	}
 
@@ -161,6 +166,8 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 			NodeTaints: []*string{
 				Ptr("tyger=run:NoSchedule"),
 			},
+			Tags:               tags,
+			EnableNodePublicIP: Ptr(true),
 		}
 
 		if clusterAlreadyExists {
@@ -447,6 +454,10 @@ func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCl
 	}
 
 	if existingCluster.Properties.SecurityProfile == nil || existingCluster.Properties.SecurityProfile.WorkloadIdentity == nil || !*existingCluster.Properties.SecurityProfile.WorkloadIdentity.Enabled {
+		return true, false
+	}
+
+	if existingCluster.Properties.NetworkProfile == nil || existingCluster.Properties.NetworkProfile.PodCidr == nil || *existingCluster.Properties.NetworkProfile.PodCidr != *cluster.Properties.NetworkProfile.PodCidr {
 		return true, false
 	}
 

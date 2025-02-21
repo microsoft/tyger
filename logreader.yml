@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: dummy-log-reader
+spec:
+  containers:
+    - image: eminence.azurecr.io/log-reader@sha256:e659b067bf867d3243ec02346f2b77bb7189dfde54869fbf58ea59ebf29e78d5
+      imagePullPolicy: IfNotPresent
+      name: main
+      env:
+      - name: POD_NAME
+        valueFrom:
+          fieldRef:
+            apiVersion: v1
+            fieldPath: metadata.name
+      - name: POD_UID
+        valueFrom:
+          fieldRef:
+            apiVersion: v1
+            fieldPath: metadata.uid
+      volumeMounts:
+        - mountPath: /logs
+          name: logs
+          subPathExpr: tyger_$(POD_NAME)_$(POD_UID)
+          readOnly: true
+  dnsPolicy: ClusterFirst
+  enableServiceLinks: true
+  nodeName: aks-cpunp2-10114179-vmss0000ly
+  nodeSelector:
+    tyger: run
+  preemptionPolicy: PreemptLowerPriority
+  priority: 0
+  restartPolicy: Always
+  schedulerName: default-scheduler
+  securityContext: {}
+  serviceAccount: default
+  serviceAccountName: default
+  terminationGracePeriodSeconds: 30
+  tolerations:
+    - effect: NoSchedule
+      key: tyger
+      operator: Equal
+      value: run
+  volumes:
+    - name: logs
+      hostPath:
+        path: /var/log/pods

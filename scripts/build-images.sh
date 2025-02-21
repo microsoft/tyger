@@ -239,6 +239,11 @@ if [[ -n "${buffer_sidecar:-}" ]]; then
   repo="buffer-copier"
 
   build_and_push
+
+  target="log-reader"
+  repo="log-reader"
+
+  build_and_push
 fi
 
 if [[ -n "${helm:-}" ]]; then

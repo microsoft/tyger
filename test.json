@@ -1,0 +1,23 @@
+{
+  "job": {
+    "codespec": {
+      "kind": "job",
+      "buffers": {
+        "inputs": ["input", "noisecovariance"],
+        "outputs": ["recon"]
+      },
+      "image": "eminence.azurecr.io/gadgetron_gtprep_runtime:20240708",
+      "command": [
+        "bash",
+        "-c",
+        "cat $(INPUT_PIPE) \u003e /dev/null\ncat $(NOISECOVARIANCE_PIPE) \u003e /dev/null\necho \"something\" \u003e $(RECON_PIPE)\n"
+      ]
+    },
+    "buffers": {
+      "input": "vqdf3soinxzuhk3b6ed76bobri",
+      "noisecovariance": "ma6ancezstkuna5p24fnorfjlq"
+    }
+  },
+  "cluster": "jostairs",
+  "timeoutSeconds": 43200
+}

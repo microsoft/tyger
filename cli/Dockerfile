@@ -7,7 +7,7 @@ ARG TYGER_VERSION="a"
 RUN --mount=type=cache,target=/root/.cache/go-build go mod download
 COPY . .
 RUN --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=${BUILDOS} GOARCH=${TARGETARCH} go build -ldflags="-s -w -X main.version=${TYGER_VERSION}" -v -o /go/bin/dist/${BUILDOS}/${TARGETARCH}/ ./cmd/buffer-sidecar ./cmd/tyger ./cmd/buffer-copier
+    CGO_ENABLED=0 GOOS=${BUILDOS} GOARCH=${TARGETARCH} go build -ldflags="-s -w -X main.version=${TYGER_VERSION}" -v -o /go/bin/dist/${BUILDOS}/${TARGETARCH}/ ./cmd/buffer-sidecar ./cmd/tyger ./cmd/buffer-copier ./cmd/log-reader
 
 FROM mcr.microsoft.com/azurelinux/distroless/minimal:3.0.20241101 as buffer-sidecar
 ARG TARGETARCH BUILDOS
@@ -31,3 +31,11 @@ WORKDIR /app
 COPY --from=go-build /go/bin/dist/${BUILDOS}/${TARGETARCH}/buffer-copier .
 USER nonroot:nonroot
 ENTRYPOINT ["/app/buffer-copier"]
+
+
+FROM mcr.microsoft.com/azurelinux/distroless/minimal:3.0.20241101 as log-reader
+ARG TARGETARCH BUILDOS
+
+WORKDIR /app
+COPY --from=go-build /go/bin/dist/${BUILDOS}/${TARGETARCH}/log-reader .
+ENTRYPOINT ["/app/log-reader"]
