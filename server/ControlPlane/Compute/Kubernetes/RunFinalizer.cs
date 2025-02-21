@@ -20,7 +20,7 @@ public class RunFinalizer : BackgroundService
 {
     // A value that is too high will put a lot of load on the Kubernetes API server
     // because retrieving logs is a relatively expensive operation.
-    private const int MaxConcurrentFinalizations = 10;
+    private const int MaxConcurrentFinalizations = 64;
 
     private readonly Repository _repository;
     private readonly RunChangeFeed _changeFeed;
@@ -47,8 +47,21 @@ public class RunFinalizer : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var channel = Channel.CreateBounded<ObservedRunState>(1024);
-        _changeFeed.RegisterObserver(channel.Writer);
+        // Ensure the change feed does not get backed up
+        var rawFeedChannel = Channel.CreateBounded<ObservedRunState>(16 * 1024);
+        _changeFeed.RegisterObserver(rawFeedChannel.Writer);
+
+        var terminalFeedChannel = Channel.CreateBounded<ObservedRunState>(16 * 1024);
+        _ = Task.Run(async () =>
+        {
+            await foreach (var run in rawFeedChannel.Reader.ReadAllAsync(stoppingToken))
+            {
+                if (run.Status.IsTerminal())
+                {
+                    await terminalFeedChannel.Writer.WriteAsync(run, stoppingToken);
+                }
+            }
+        }, stoppingToken);
 
         // Keep track of retry counts for failed finalizations
         var failedRuns = new Dictionary<long, int>();
@@ -68,7 +81,7 @@ public class RunFinalizer : BackgroundService
                     {
                         foreach (var run in await _repository.GetFinalizableRuns(stoppingToken))
                         {
-                            await channel.Writer.WriteAsync(new ObservedRunState(run, databaseUpdatedAt: null), stoppingToken);
+                            await terminalFeedChannel.Writer.WriteAsync(new ObservedRunState(run, databaseUpdatedAt: null), stoppingToken);
                         }
                     }
                 }
@@ -79,7 +92,7 @@ public class RunFinalizer : BackgroundService
         {
             try
             {
-                await foreach (var state in channel.Reader.ReadAllAsync(stoppingToken))
+                await foreach (var state in terminalFeedChannel.Reader.ReadAllAsync(stoppingToken))
                 {
                     if (!hasLease || !state.Status.IsTerminal())
                     {
@@ -115,7 +128,7 @@ public class RunFinalizer : BackgroundService
                         var discarded = Task.Run(async () =>
                         {
                             await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
-                            await channel.Writer.WriteAsync(state, stoppingToken);
+                            await rawFeedChannel.Writer.WriteAsync(state, stoppingToken);
                         }, stoppingToken);
                     }
                 }

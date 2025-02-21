@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+using System.Collections.Immutable;
 using System.Text.RegularExpressions;
 using k8s.Models;
 using Tyger.ControlPlane.Model;
@@ -185,10 +186,10 @@ public sealed partial class RunObjects
         if (JobPods.All(pod =>
                 pod != null &&
                 pod.Spec.Containers.All(c =>
-                    pod.Status?.ContainerStatuses?.Any(cs =>
-                        cs.Name == c.Name &&
-                        (cs.State.Terminated?.ExitCode == 0 ||
-                         (cs.Name == "main" && pod.GetAnnotation(HasSocketAnnotation) == "true" && cs.State.Running != null))) == true)))
+                        pod.Status?.ContainerStatuses?.Any(cs =>
+                            cs.Name == c.Name &&
+                            (cs.State.Terminated?.ExitCode == 0 ||
+                            (cs.Name == "main" && pod.GetAnnotation(HasSocketAnnotation) == "true" && cs.State.Running != null))) == true)))
         {
             var finishedTime = JobPods.SelectMany(p => p!.Status.ContainerStatuses).Select(cs => cs.State.Terminated?.FinishedAt).Where(t => t != null).Max();
             return finishedTime ?? GetStartedTime();
@@ -210,11 +211,34 @@ public sealed partial class RunObjects
             return match.Groups[1].Value;
         }
 
-        static string GetNodePool(ICollection<V1Pod?> pods)
+        static string? GetNodePool(ICollection<V1Pod?> pods)
         {
-            return string.Join(
-                ",",
-                pods.Select(p => p?.Spec.NodeName).Where(n => !string.IsNullOrEmpty(n)).Select(n => GetNodePoolFromNodeName(n!)).Distinct());
+            object? res = null;
+            foreach (var pod in pods)
+            {
+                if (pod?.Spec.NodeName is { } nodeName)
+                {
+                    if (GetNodePoolFromNodeName(nodeName) is { } nodePool)
+                    {
+                        res = res switch
+                        {
+                            null => nodePool,
+                            string existingNodePool when existingNodePool == nodePool => existingNodePool,
+                            string existingNodePool => ImmutableSortedSet.Create(existingNodePool, nodePool),
+                            ImmutableSortedSet<string> set => set.Add(nodePool),
+                            _ => throw new InvalidOperationException($"Unexpected value for node pool: {res}"),
+                        };
+                    }
+                }
+            }
+
+            return res switch
+            {
+                null => null,
+                string singleNodePool => singleNodePool,
+                ImmutableSortedSet<string> set => string.Join(",", set),
+                _ => throw new InvalidOperationException($"Unexpected value for node pool: {res}"),
+            };
         }
 
         var jobNodePool = GetNodePool(JobPods);

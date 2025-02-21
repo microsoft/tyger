@@ -200,7 +200,10 @@ connect-db: set-context
 		--host="$$(echo $${helm_values} | jq -r '.database.host')" \
 		--port="$$(echo $${helm_values} | jq -r '.database.port')" \
 		--username="$$(az account show | jq -r '.user.name')" \
-		--dbname="$$(echo $${helm_values} | jq -r '.database.databaseName')"
+		--dbname="$${DB_NAME:-$$(echo $${helm_values} | jq -r '.database.databaseName')}"
+
+connect-db-query-store:
+	$(MAKE) connect-db DB_NAME=azure_sys
 
 purge-runs: set-context
 	kubectl delete pod,statefulset,secret,service -n "${HELM_NAMESPACE}" -l tyger-run --cascade=foreground

@@ -74,7 +74,7 @@ public static class Buffers
 
         app.MapGet("/v1/buffers", async (BufferManager manager, HttpContext context, int? limit, [FromQuery(Name = "_ct")] string? continuationToken, CancellationToken cancellationToken) =>
             {
-                limit = limit is null ? 20 : Math.Min(limit.Value, 200);
+                limit = limit is null ? 20 : Math.Min(limit.Value, 2000);
                 var tagQuery = new Dictionary<string, string>();
 
                 foreach (var tag in context.Request.Query)

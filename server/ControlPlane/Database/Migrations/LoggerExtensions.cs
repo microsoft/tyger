@@ -11,11 +11,11 @@ public static partial class LoggerExtensions
     [LoggerMessage(LogLevel.Error, "Failed to read database version")]
     public static partial void FailedToReadDatabaseVersion(this ILogger logger, Exception exception);
 
-    [LoggerMessage(LogLevel.Information, "Applying migration {Id}")]
-    public static partial void ApplyingMigration(this ILogger logger, int Id);
+    [LoggerMessage(LogLevel.Information, "Applying migration {id}")]
+    public static partial void ApplyingMigration(this ILogger logger, int id);
 
-    [LoggerMessage(LogLevel.Information, "Migration {Id} complete")]
-    public static partial void MigrationComplete(this ILogger logger, int Id);
+    [LoggerMessage(LogLevel.Information, "Migration {id} complete")]
+    public static partial void MigrationComplete(this ILogger logger, int id);
 
     [LoggerMessage(LogLevel.Error, "Migration {Id} failed")]
     public static partial void MigrationFailed(this ILogger logger, int Id, Exception exception);

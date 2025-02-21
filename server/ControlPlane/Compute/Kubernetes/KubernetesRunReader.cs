@@ -14,13 +14,13 @@ public partial class KubernetesRunReader : IRunReader
 {
     private readonly Repository _repository;
     private readonly RunChangeFeed _changeFeed;
+    private readonly ILogger<KubernetesRunReader> _logger;
 
-    public KubernetesRunReader(
-        Repository repository,
-        RunChangeFeed changeFeed)
+    public KubernetesRunReader(Repository repository, RunChangeFeed changeFeed, ILogger<KubernetesRunReader> logger)
     {
         _repository = repository;
         _changeFeed = changeFeed;
+        _logger = logger;
     }
 
     public async Task<IDictionary<RunStatus, long>> GetRunCounts(DateTimeOffset? since, Dictionary<string, string>? tags, CancellationToken cancellationToken)
@@ -97,6 +97,7 @@ public partial class KubernetesRunReader : IRunReader
 
                 if (run.Status!.Value.IsTerminal())
                 {
+                    _logger.WatchReachedTerminalState(run.Status!.Value, run.Id!.Value);
                     yield break;
                 }
             }

@@ -23,7 +23,7 @@ public static class Kubernetes
     {
         builder.Services.AddOptions<KubernetesCoreOptions>().BindConfiguration("compute:kubernetes").ValidateDataAnnotations().ValidateOnStart();
 
-        builder.Services.AddSingleton<LoggingHandler>();
+        builder.Services.AddSingleton<KubernetesLogger>();
         builder.Services.AddSingleton(sp =>
         {
             var kubernetesOptions = sp.GetRequiredService<IOptions<KubernetesCoreOptions>>().Value;
@@ -40,7 +40,7 @@ public static class Kubernetes
             var resilienceHander = new ResilienceHandler(pipeline);
 #pragma warning restore EXTEXP0001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
 
-            return new k8s.Kubernetes(config, sp.GetRequiredService<LoggingHandler>(), resilienceHander);
+            return new k8s.Kubernetes(config, sp.GetRequiredService<KubernetesLogger>(), resilienceHander);
         });
         builder.Services.AddSingleton<IKubernetes>(sp => sp.GetRequiredService<k8s.Kubernetes>());
 
@@ -128,11 +128,11 @@ public class NodePoolOptions
 /// <summary>
 /// Logs interactions with the Kubernetes API
 /// </summary>
-public class LoggingHandler : DelegatingHandler
+public class KubernetesLogger : DelegatingHandler
 {
-    private readonly ILogger<LoggingHandler> _logger;
+    private readonly ILogger<KubernetesLogger> _logger;
 
-    public LoggingHandler(ILogger<LoggingHandler> logger)
+    public KubernetesLogger(ILogger<KubernetesLogger> logger)
     {
         _logger = logger;
     }

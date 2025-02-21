@@ -140,6 +140,7 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 			MaxCount:            &clusterConfig.SystemNodePool.MaxCount,
 			OSType:              Ptr(armcontainerservice.OSTypeLinux),
 			OSSKU:               Ptr(armcontainerservice.OSSKUAzureLinux),
+			Tags:                tags,
 		},
 	}
 
@@ -161,6 +162,7 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 			NodeTaints: []*string{
 				Ptr("tyger=run:NoSchedule"),
 			},
+			Tags: tags,
 		}
 
 		if clusterAlreadyExists {
@@ -408,6 +410,21 @@ func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCl
 				if *np.OrchestratorVersion != *existingNp.OrchestratorVersion {
 					return true, false
 				}
+
+				if len(np.Tags) != len(existingNp.Tags) {
+					return true, false
+				}
+
+				for k, v := range np.Tags {
+					existingV, ok := existingNp.Tags[k]
+					if !ok {
+						return true, false
+					}
+					if *v != *existingV {
+						return true, false
+					}
+				}
+
 				break
 			}
 		}

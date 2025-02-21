@@ -32,17 +32,14 @@ public static partial class LoggerExtensions
     [LoggerMessage(LogLevel.Warning, "Deleting run {run} that never created resources")]
     public static partial void DeletingRunThatNeverCreatedResources(this ILogger logger, long run);
 
-    [LoggerMessage(LogLevel.Information, "Finalizing run {run} with status {status}")]
-    public static partial void FinalizingTerminatedRun(this ILogger logger, long run, RunStatus status);
+    [LoggerMessage(LogLevel.Information, "Finalizing run {runId} with status {status}")]
+    public static partial void FinalizingTerminatedRun(this ILogger logger, long runId, RunStatus status);
 
-    [LoggerMessage(LogLevel.Warning, "Failed to finalize run {run}")]
-    public static partial void ErrorDuringFinalization(this ILogger logger, long run, Exception exception);
+    [LoggerMessage(LogLevel.Warning, "Failed to finalize run {runId}")]
+    public static partial void ErrorDuringFinalization(this ILogger logger, long runId, Exception exception);
 
-    [LoggerMessage(LogLevel.Error, "Unhandled background exception when following logs")]
-    public static partial void UnexpectedExceptionDuringWatch(this ILogger logger, Exception exception);
-
-    [LoggerMessage(LogLevel.Information, "Restarting watch after exception")]
-    public static partial void RestartingWatchAfterException(this ILogger logger, Exception exception);
+    [LoggerMessage(LogLevel.Information, "Watch reached terminal status {status} for run {runId}")]
+    public static partial void WatchReachedTerminalState(this ILogger logger, RunStatus status, long runId);
 
     [LoggerMessage(LogLevel.Warning, "RunStateObserver channel {partition} has high count of {count}")]
     public static partial void RunStateObserverHighQueueLength(this ILogger logger, int partition, int count);
