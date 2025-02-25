@@ -159,6 +159,8 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
                 throw new ArgumentException($"The codespec for the worker is required to be a worker codespec");
             }
 
+            Validator.ValidateObject(workerCodespec, new(workerCodespec));
+
             run = run with
             {
                 Worker = run.Worker with
