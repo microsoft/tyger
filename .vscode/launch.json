@@ -49,7 +49,7 @@
       "mode": "auto",
       "program": "cli/cmd/tyger",
       "cwd": "${workspaceFolder}",
-      "args": ["api", "install", "-f", "/home/vscode/tyger.config"],
+      "args": [],
       "env": {
         "TYGER_CACHE_FILE": "/home/vscode/.cache/tyger/.tyger-docker"
       },
