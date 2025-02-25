@@ -1929,6 +1929,20 @@ func TestRunETagChanges(t *testing.T) {
 	require.NotEqual(t, etag, run.ETag)
 }
 
+func TestServerLogs(t *testing.T) {
+	t.Parallel()
+
+	dockerParam := ""
+	if isUsingUnixSocketDirectlyOrIndirectly() {
+		dockerParam = "--docker"
+	}
+
+	logs := runCommandSucceeds(t, "bash", "-c", fmt.Sprintf("tyger api logs --tail 1 -f <(../../scripts/get-config.sh %s)", dockerParam))
+	lines := strings.Split(logs, "\n")
+	require.Equal(t, 1, len(lines))
+	require.Contains(t, lines[0], `"timestamp"`)
+}
+
 func waitForRunStarted(t *testing.T, runId string) model.Run {
 	t.Helper()
 	return waitForRun(t, runId, true, false)

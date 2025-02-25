@@ -50,7 +50,7 @@ func (inst *Installer) ListDatabaseVersions(ctx context.Context, allVersions boo
 	}
 
 	stdOut, stdErr := &bytes.Buffer{}, &bytes.Buffer{}
-	if err := inst.getContainerLogs(ctx, containerName, stdOut, stdErr); err != nil {
+	if err := inst.getContainerLogs(ctx, containerName, false, -1, stdOut, stdErr); err != nil {
 		return nil, fmt.Errorf("error getting container logs: %w", err)
 	}
 
@@ -176,7 +176,7 @@ func (inst *Installer) GetMigrationLogs(ctx context.Context, id int, destination
 	}
 
 	logs := &bytes.Buffer{}
-	if err := inst.getContainerLogs(ctx, inst.resourceName(migrationRunnerContainerSuffix), io.Discard, logs); err != nil {
+	if err := inst.getContainerLogs(ctx, inst.resourceName(migrationRunnerContainerSuffix), false, -1, io.Discard, logs); err != nil {
 		return logsNotAvailableErr
 	}
 
@@ -233,7 +233,7 @@ func (inst *Installer) initializeDatabase(ctx context.Context) error {
 	}
 
 	stdOut, stdErr := &bytes.Buffer{}, &bytes.Buffer{}
-	if err := inst.getContainerLogs(ctx, containerName, stdOut, stdErr); err != nil {
+	if err := inst.getContainerLogs(ctx, containerName, false, -1, stdOut, stdErr); err != nil {
 		return fmt.Errorf("error getting container logs: %w", err)
 	}
 
