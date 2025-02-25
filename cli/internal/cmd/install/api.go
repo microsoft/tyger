@@ -37,30 +37,27 @@ func NewApiCommand(parentCommand *cobra.Command) *cobra.Command {
 }
 
 func newApiLogsCommand() *cobra.Command {
-	flags := commonFlags{}
-	follow := false
-	tailLines := -1
-	dataPlane := false
+	commonFlags := commonFlags{}
+	options := install.ServerLogOptions{Destination: os.Stdout}
+
 	cmd := cobra.Command{
-		Use:                   "logs -f CONFIG.yml",
-		Short:                 "Get the logs of the Tyger API",
-		Long:                  "Get the logs of the Tyger API",
+		Use:                   "logs [--follow] [--tail LINES] [--data-plane] -f CONFIG.yml",
+		Short:                 "Get Tyger API logs",
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
-			ctx, installer := commonPrerun(cmd.Context(), &flags)
-
-			if err := installer.GetServerLogs(ctx, follow, tailLines, os.Stdout); err != nil {
+			ctx, installer := commonPrerun(cmd.Context(), &commonFlags)
+			if err := installer.GetServerLogs(ctx, options); err != nil {
 				log.Fatal().Err(err).Send()
 			}
 		},
 	}
 
-	addCommonFlags(&cmd, &flags)
+	addCommonFlags(&cmd, &commonFlags)
 
-	cmd.Flags().BoolVar(&follow, "follow", follow, "Follow the logs")
-	cmd.Flags().IntVar(&tailLines, "tail", tailLines, "Start from the last N lines")
-	cmd.Flags().BoolVar(&dataPlane, "data-plane", dataPlane, "Get the logs of the data plane instead of the control plane. Only applies to Docker installations")
+	cmd.Flags().BoolVar(&options.Follow, "follow", options.Follow, "Follow the logs")
+	cmd.Flags().IntVar(&options.TailLines, "tail", options.TailLines, "Start from the last N lines")
+	cmd.Flags().BoolVar(&options.DataPlane, "data-plane", options.DataPlane, "Get the logs of the data plane instead of the control plane. Only applies to Docker installations")
 
 	return &cmd
 }

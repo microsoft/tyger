@@ -8,9 +8,9 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"time"
 
+	"github.com/microsoft/tyger/cli/internal/install"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -25,33 +25,10 @@ import (
 	"k8s.io/kubectl/pkg/polymorphichelpers"
 )
 
-func (inst *Installer) GetServerLogs(ctx context.Context, follow bool, tail int, destination io.Writer) error {
+func (inst *Installer) GetServerLogs(ctx context.Context, options install.ServerLogOptions) error {
 	restConfig, err := inst.GetUserRESTConfig(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get REST config: %w", err)
-	}
-
-	getter := &restClientGetterImpl{
-		RESTConfig: restConfig,
-	}
-
-	logOptions := kubectl.NewLogsOptions(genericiooptions.IOStreams{In: os.Stdin, Out: os.Stdout, ErrOut: os.Stderr})
-	logOptions.RESTClientGetter = getter
-	logOptions.Namespace = TygerNamespace
-	logOptions.LogsForObject = polymorphichelpers.LogsForObjectFn
-	logOptions.AllPodLogsForObject = polymorphichelpers.AllPodLogsForObjectFn
-	logOptions.AllPods = true
-	logOptions.ConsumeRequestFn = kubectl.DefaultConsumeRequest
-	logOptions.Follow = follow
-	if tail > 0 {
-		logOptions.Tail = int64(tail)
-		logOptions.TailSpecified = true
-	}
-
-	if podLogOptions, err := logOptions.ToLogOptions(); err != nil {
-		return fmt.Errorf("failed to convert log options: %w", err)
-	} else {
-		logOptions.Options = podLogOptions
 	}
 
 	clientSet, err := kubernetes.NewForConfig(restConfig)
@@ -61,21 +38,39 @@ func (inst *Installer) GetServerLogs(ctx context.Context, follow bool, tail int,
 
 	deployment, err := clientSet.AppsV1().Deployments(TygerNamespace).Get(ctx, "tyger-server", metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to get deployment: %w", err)
+		return fmt.Errorf("failed to get Tyger deployment: %w", err)
 	}
+
+	logOptions := kubectl.NewLogsOptions(genericiooptions.IOStreams{Out: options.Destination, ErrOut: options.Destination})
+	logOptions.RESTClientGetter = &restClientGetterImpl{restConfig}
+	logOptions.Namespace = TygerNamespace
+	logOptions.AllPodLogsForObject = polymorphichelpers.AllPodLogsForObjectFn
+	logOptions.AllPods = true
+	logOptions.ConsumeRequestFn = kubectl.DefaultConsumeRequest
+	logOptions.Follow = options.Follow
+	if options.TailLines > 0 {
+		logOptions.Tail = int64(options.TailLines)
+		logOptions.TailSpecified = true
+	}
+
+	if podLogOptions, err := logOptions.ToLogOptions(); err != nil {
+		return fmt.Errorf("failed to convert log options: %w", err)
+	} else {
+		logOptions.Options = podLogOptions
+	}
+
 	logOptions.Object = deployment
 
-	err = logOptions.RunLogs()
-	return err
+	return logOptions.RunLogs()
 }
 
 // Implement the RESTClientGetter interface
 type restClientGetterImpl struct {
-	RESTConfig *rest.Config
+	Config *rest.Config
 }
 
 func (r *restClientGetterImpl) ToRESTConfig() (*rest.Config, error) {
-	return r.RESTConfig, nil
+	return r.Config, nil
 }
 
 func (r *restClientGetterImpl) ToDiscoveryClient() (discovery.CachedDiscoveryInterface, error) {

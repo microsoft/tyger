@@ -139,6 +139,21 @@ Once logged in, you should be able to run any of the core commands, such as:
 tyger run list
 ```
 
+## API Logs
+
+If ever the Tyger API fails unexpectedly, you can inspect server logs with
+
+```bash
+tyger api logs -f config.yml [--data-plane] [--follow] [--tail LINES]
+```
+
+Specify `--data-plane` to retrieve the data plane server's logs, otherwise the
+control-plane server's logs will be returned.
+
+`--follow` will stream new out new log lines as they are produced by the server.
+
+`--tail` starts from the last N log lines.
+
 ## Uninstalling
 
 To uninstall the Tyger API, run:

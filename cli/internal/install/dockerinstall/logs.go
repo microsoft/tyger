@@ -2,9 +2,17 @@ package dockerinstall
 
 import (
 	"context"
-	"io"
+
+	"github.com/microsoft/tyger/cli/internal/install"
 )
 
-func (inst *Installer) GetServerLogs(ctx context.Context, follow bool, tail int, destination io.Writer) error {
-	return inst.getContainerLogs(ctx, inst.resourceName(controlPlaneContainerSuffix), follow, tail, destination, destination)
+func (inst *Installer) GetServerLogs(ctx context.Context, options install.ServerLogOptions) error {
+	var containerName string
+	if options.DataPlane {
+		containerName = inst.resourceName(dataPlaneContainerSuffix)
+	} else {
+		containerName = inst.resourceName(controlPlaneContainerSuffix)
+	}
+
+	return inst.getContainerLogs(ctx, containerName, options.Follow, options.TailLines, options.Destination, options.Destination)
 }
