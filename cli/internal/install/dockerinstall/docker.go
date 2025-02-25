@@ -453,10 +453,17 @@ func (inst *Installer) waitForContainerToComplete(ctx context.Context, container
 	}
 }
 
-func (inst *Installer) getContainerLogs(ctx context.Context, containerName string, dstout io.Writer, dsterr io.Writer) error {
+func (inst *Installer) getContainerLogs(ctx context.Context, containerName string, follow bool, tailLines int, dstout io.Writer, dsterr io.Writer) error {
+	tail := "all"
+	if tailLines > 0 {
+		tail = strconv.Itoa(tailLines)
+	}
+
 	out, err := inst.client.ContainerLogs(ctx, containerName, container.LogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
+		Tail:       tail,
+		Follow:     follow,
 	})
 
 	if err != nil {

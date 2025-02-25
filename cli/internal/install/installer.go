@@ -40,6 +40,8 @@ type Installer interface {
 	InstallTyger(ctx context.Context) error
 	UninstallTyger(ctx context.Context, deleteData bool, preserveRunContainers bool) error
 
+	GetServerLogs(ctx context.Context, follow bool, tail int, destination io.Writer) error
+
 	ListDatabaseVersions(ctx context.Context, all bool) ([]DatabaseVersion, error)
 	ApplyMigrations(ctx context.Context, targetVersion int, latest bool, offline bool, wait bool) error
 	GetMigrationLogs(ctx context.Context, id int, destination io.Writer) error

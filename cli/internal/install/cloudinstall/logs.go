@@ -6,14 +6,89 @@ package cloudinstall
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
+	"os"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/cli-runtime/pkg/genericiooptions"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+
+	kubectl "k8s.io/kubectl/pkg/cmd/logs"
+	"k8s.io/kubectl/pkg/polymorphichelpers"
 )
+
+func (inst *Installer) GetServerLogs(ctx context.Context, follow bool, tail int, destination io.Writer) error {
+	restConfig, err := inst.GetUserRESTConfig(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get REST config: %w", err)
+	}
+
+	getter := &restClientGetterImpl{
+		RESTConfig: restConfig,
+	}
+
+	logOptions := kubectl.NewLogsOptions(genericiooptions.IOStreams{In: os.Stdin, Out: os.Stdout, ErrOut: os.Stderr})
+	logOptions.RESTClientGetter = getter
+	logOptions.Namespace = TygerNamespace
+	logOptions.LogsForObject = polymorphichelpers.LogsForObjectFn
+	logOptions.AllPodLogsForObject = polymorphichelpers.AllPodLogsForObjectFn
+	logOptions.AllPods = true
+	logOptions.ConsumeRequestFn = kubectl.DefaultConsumeRequest
+	logOptions.Follow = follow
+	if tail > 0 {
+		logOptions.Tail = int64(tail)
+		logOptions.TailSpecified = true
+	}
+
+	if podLogOptions, err := logOptions.ToLogOptions(); err != nil {
+		return fmt.Errorf("failed to convert log options: %w", err)
+	} else {
+		logOptions.Options = podLogOptions
+	}
+
+	clientSet, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
+
+	deployment, err := clientSet.AppsV1().Deployments(TygerNamespace).Get(ctx, "tyger-server", metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get deployment: %w", err)
+	}
+	logOptions.Object = deployment
+
+	err = logOptions.RunLogs()
+	return err
+}
+
+// Implement the RESTClientGetter interface
+type restClientGetterImpl struct {
+	RESTConfig *rest.Config
+}
+
+func (r *restClientGetterImpl) ToRESTConfig() (*rest.Config, error) {
+	return r.RESTConfig, nil
+}
+
+func (r *restClientGetterImpl) ToDiscoveryClient() (discovery.CachedDiscoveryInterface, error) {
+	panic("not implemented")
+}
+
+func (r *restClientGetterImpl) ToRESTMapper() (meta.RESTMapper, error) {
+	panic("not implemented")
+}
+
+func (r *restClientGetterImpl) ToRawKubeConfigLoader() clientcmd.ClientConfig {
+	panic("not implemented")
+}
 
 func followPodsLogsUntilContextCanceled(ctx context.Context, clientset kubernetes.Interface, namespace string, labelSelector string) (map[string][]byte, error) {
 	var (
