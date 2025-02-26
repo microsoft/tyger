@@ -29,6 +29,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
+	"github.com/microsoft/tyger/cli/internal/dataplane"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/assert"
@@ -1503,6 +1504,44 @@ func TestCancelRun(t *testing.T) {
 
 	require.Equal(model.Canceled, *run.Status)
 	require.Equal("Canceled by user", run.StatusReason)
+}
+
+func TestCancelTerminatesOutputBuffers(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+
+	runSpec := fmt.Sprintf(`
+job:
+  codespec:
+    image: %s
+    buffers:
+      outputs: ["output"]
+    command:
+      - sleep
+      - 10m
+timeoutSeconds: 600`, BasicImage)
+
+	tempDir := t.TempDir()
+	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
+	require.NoError(os.WriteFile(runSpecPath, []byte(runSpec), 0644))
+
+	// create run
+	runId := runTygerSucceeds(t, "run", "create", "--file", runSpecPath)
+	run := getRun(t, runId)
+
+	runTygerSucceeds(t, "run", "cancel", runId)
+
+	outputBufferId := run.Job.Buffers["output"]
+	out, stdErr, err := runTyger("buffer", "read", outputBufferId)
+	require.Len(out, 0)
+
+	// It's a race condition whether the pod was started before the cancel request was processed.
+	// If the pod was started, the the buffer should be marked as completed because of the INT signal handler.
+	// If not, it will be marked as failed.
+
+	if err != nil {
+		require.Contains(stdErr, dataplane.ErrBufferFailedState.Error())
+	}
 }
 
 func TestBufferWithoutTags(t *testing.T) {

@@ -63,8 +63,9 @@ func InvokeRequest(ctx context.Context, method string, relativeUri string, input
 
 	absoluteUri := fmt.Sprintf("%s/%s", tygerClient.ControlPlaneUrl, relativeUri)
 	var body io.Reader = nil
+	var serializedBody []byte
 	if input != nil {
-		serializedBody, err := json.Marshal(input)
+		serializedBody, err = json.Marshal(input)
 		if err != nil {
 			return nil, fmt.Errorf("unable to serialize payload: %v", err)
 		}
@@ -92,6 +93,7 @@ func InvokeRequest(ctx context.Context, method string, relativeUri string, input
 		if token != "" {
 			req.Header.Add("Authorization", "Bearer --REDACTED--")
 		}
+		req.Request.Body = io.NopCloser(bytes.NewBuffer(serializedBody))
 		if debugOutput, err := httputil.DumpRequestOut(req.Request, true); err == nil {
 			log.Trace().Str("request", string(debugOutput)).Msg("Outgoing request")
 		}

@@ -16,6 +16,11 @@ namespace Tyger.ControlPlane.Codespecs;
 
 public static class Codespecs
 {
+    public static void AddCodespecs(this IHostApplicationBuilder builder)
+    {
+        builder.Services.AddSingleton<CodespecReader>();
+    }
+
     public static void MapCodespecs(this WebApplication app)
     {
         app.MapPut("/v1/codespecs/{name}", async (string name, Repository repository, HttpContext context) =>

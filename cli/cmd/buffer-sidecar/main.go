@@ -35,12 +35,12 @@ func newRootCommand() *cobra.Command {
 	containerName := ""
 	tombstoneFile := ""
 
-	openFileFunc := func(filePath string, flag int, perm fs.FileMode) (*os.File, error) {
-		return tryOpenFileUntilContainerExits(namespace, podName, containerName, tombstoneFile, filePath, flag, perm)
+	openFileFunc := func(ctx context.Context, filePath string, flag int, perm fs.FileMode) (*os.File, error) {
+		return tryOpenFileUntilContainerExits(ctx, namespace, podName, containerName, tombstoneFile, filePath, flag, perm)
 	}
 
-	intputCommand := cmd.NewBufferReadCommand(openFileFunc)
-	intputCommand.Use = "input"
+	inputCommand := cmd.NewBufferReadCommand(openFileFunc)
+	inputCommand.Use = "input"
 	writeCommand := cmd.NewBufferWriteCommand(openFileFunc)
 	writeCommand.Use = "output"
 
@@ -106,7 +106,7 @@ func newRootCommand() *cobra.Command {
 				var outputWriter io.Writer
 				if outputFilePath != "" {
 					var err error
-					outputFile, err := openFileFunc(outputFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+					outputFile, err := openFileFunc(ctx, outputFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 					if err != nil {
 						if err == context.Canceled {
 							log.Warn().Msg("OpenFile operation canceled. Will discard input")
@@ -172,7 +172,7 @@ func newRootCommand() *cobra.Command {
 					if inputFilePath == "" {
 						readerChan <- dataplane.ValueOrError[io.ReadCloser]{Value: os.Stdin}
 					}
-					inputFile, err := openFileFunc(inputFilePath, os.O_RDONLY, 0)
+					inputFile, err := openFileFunc(ctx, inputFilePath, os.O_RDONLY, 0)
 					if err != nil {
 						if errors.Is(err, context.Canceled) {
 							log.Warn().Msg("OpenFile operation canceled.")
@@ -255,7 +255,7 @@ func newRootCommand() *cobra.Command {
 
 			var outputWriter io.Writer
 			if outputFilePath != "" {
-				outputFile, err := openFileFunc(outputFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+				outputFile, err := openFileFunc(ctx, outputFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 				if err != nil {
 					log.Fatal().Err(err).Msg("Failed to open output file")
 				}
@@ -267,7 +267,7 @@ func newRootCommand() *cobra.Command {
 
 			var inputReader io.Reader
 			if inputFilePath != "" {
-				inputFile, err := openFileFunc(inputFilePath, os.O_RDONLY, 0)
+				inputFile, err := openFileFunc(ctx, inputFilePath, os.O_RDONLY, 0)
 				if err != nil {
 					log.Fatal().Err(err).Msg("Failed to open input file")
 				}
@@ -313,7 +313,7 @@ func newRootCommand() *cobra.Command {
 
 	rootCommand.AddCommand(socketAdaptCommand)
 
-	commands := []*cobra.Command{intputCommand, writeCommand, relayInputCommand, relayOutputCommand, socketAdaptCommand}
+	commands := []*cobra.Command{inputCommand, writeCommand, relayInputCommand, relayOutputCommand, socketAdaptCommand}
 	for _, command := range commands {
 		command.Flags().StringVar(&namespace, "namespace", "", "The namespace of the pod to watch")
 		command.Flags().StringVar(&podName, "pod", "", "The name of the pod to watch")

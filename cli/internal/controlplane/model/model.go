@@ -25,7 +25,7 @@ type Buffer struct {
 	CreatedAt time.Time         `json:"createdAt"`
 	Location  string            `json:"location,omitempty"`
 	Tags      map[string]string `json:"tags,omitempty"`
-	ETag      string            `json:"eTag"`
+	ETag      string            `json:"eTag,omitempty"`
 }
 
 type BufferAccess struct {
@@ -140,7 +140,7 @@ type Run struct {
 	Cluster        string            `json:"cluster,omitempty"`
 	TimeoutSeconds *int              `json:"timeoutSeconds,omitempty"`
 	Tags           map[string]string `json:"tags,omitempty"`
-	ETag           string            `json:"eTag"`
+	ETag           string            `json:"eTag,omitempty"`
 }
 
 type RunStatus uint

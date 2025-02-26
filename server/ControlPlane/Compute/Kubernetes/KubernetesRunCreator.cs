@@ -13,6 +13,7 @@ using k8s.Autorest;
 using k8s.Models;
 using Microsoft.Extensions.Options;
 using Tyger.ControlPlane.Buffers;
+using Tyger.ControlPlane.Codespecs;
 using Tyger.ControlPlane.Database;
 using Tyger.ControlPlane.Model;
 using Tyger.ControlPlane.Runs;
@@ -24,6 +25,7 @@ namespace Tyger.ControlPlane.Compute.Kubernetes;
 public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesContributor
 {
     private readonly IKubernetes _client;
+    private readonly CodespecReader _codespecReader;
     private readonly Channel<(bool leaseHeld, int token)> _leaseStateChangeChannel = Channel.CreateUnbounded<(bool leaseHeld, int token)>();
     private readonly BufferOptions _bufferOptions;
     private readonly KubernetesApiOptions _k8sOptions;
@@ -32,6 +34,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
 
     public KubernetesRunCreator(
         IKubernetes client,
+        CodespecReader codespecReader,
         Repository repository,
         BufferManager bufferManager,
         IOptions<KubernetesApiOptions> k8sOptions,
@@ -41,6 +44,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         : base(repository, bufferManager)
     {
         _client = client;
+        _codespecReader = codespecReader;
         _bufferOptions = bufferOptions.Value;
         _k8sOptions = k8sOptions.Value;
         _logger = logger;
@@ -131,7 +135,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
 
         ClusterOptions targetCluster = GetTargetCluster(run);
 
-        if (await GetCodespec(run.Job.Codespec, cancellationToken) is not JobCodespec jobCodespec)
+        if (await _codespecReader.GetCodespec(run.Job.Codespec, cancellationToken) is not JobCodespec jobCodespec)
         {
             throw new ArgumentException($"The codespec for the job is required to be a job codespec");
         }
@@ -153,7 +157,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         WorkerCodespec? workerCodespec = null;
         if (run.Worker != null)
         {
-            workerCodespec = await GetCodespec(run.Worker.Codespec, cancellationToken) as WorkerCodespec;
+            workerCodespec = await _codespecReader.GetCodespec(run.Worker.Codespec, cancellationToken) as WorkerCodespec;
             if (workerCodespec == null)
             {
                 throw new ArgumentException($"The codespec for the worker is required to be a worker codespec");

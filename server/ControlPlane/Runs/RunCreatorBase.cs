@@ -21,41 +21,6 @@ public abstract class RunCreatorBase : BackgroundService
 
     protected BufferManager BufferManager { get; init; }
 
-    protected async Task<Codespec> GetCodespec(ICodespecRef codespecRef, CancellationToken cancellationToken)
-    {
-        if (codespecRef is Codespec inlineCodespec)
-        {
-            return inlineCodespec;
-        }
-
-        if (codespecRef is not CommittedCodespecRef committedCodespecRef)
-        {
-            throw new InvalidOperationException("Invalid codespec reference");
-        }
-
-        if (committedCodespecRef.Version == null)
-        {
-            return await Repository.GetLatestCodespec(committedCodespecRef.Name, cancellationToken)
-                ?? throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The codespec '{0}' was not found", committedCodespecRef.Name));
-        }
-
-        var codespec = await Repository.GetCodespecAtVersion(committedCodespecRef.Name, committedCodespecRef.Version.Value, cancellationToken);
-        if (codespec == null)
-        {
-            // See if it's just the version number that was not found
-            var latestCodespec = await Repository.GetLatestCodespec(committedCodespecRef.Name, cancellationToken)
-                ?? throw new ValidationException(string.Format(CultureInfo.InvariantCulture, "The codespec '{0}' was not found", committedCodespecRef.Name));
-
-            throw new ValidationException(
-                string.Format(
-                    CultureInfo.InvariantCulture,
-                    "The version '{0}' of codespec '{1}' was not found. The latest version is '{2}'.",
-                    committedCodespecRef.Version, committedCodespecRef.Name, latestCodespec.Version));
-        }
-
-        return codespec;
-    }
-
     protected async Task ProcessBufferArguments(BufferParameters? parameters, Dictionary<string, string> arguments, Dictionary<string, string>? tags, CancellationToken cancellationToken)
     {
         if (arguments != null)

@@ -33,8 +33,9 @@ const (
 )
 
 var (
-	DefaultFlushInterval = 1 * time.Second
-	errBlobOverwrite     = fmt.Errorf("unauthorized blob overwrite")
+	DefaultFlushInterval           = 1 * time.Second
+	errBlobOverwrite               = fmt.Errorf("unauthorized blob overwrite")
+	errBlobWritePermissionMismatch = fmt.Errorf("the access url does not allow write access")
 )
 
 type writeOptions struct {
@@ -555,29 +556,31 @@ func handleWriteResponse(resp *http.Response) error {
 		if resp.Header.Get("x-ms-error-code") == "ContainerNotFound" {
 			return errBufferDoesNotExist
 		}
-		fallthrough
 	case http.StatusBadRequest:
 		if resp.Header.Get("x-ms-error-code") == "Md5Mismatch" {
 			io.Copy(io.Discard, resp.Body)
 			return errMd5Mismatch
 		}
-		fallthrough
 	case http.StatusForbidden:
 		if resp.Header.Get("x-ms-error-code") == "UnauthorizedBlobOverwrite" {
 			io.Copy(io.Discard, resp.Body)
 			return errBlobOverwrite
 		}
-		fallthrough
+
+		if resp.Header.Get("x-ms-error-code") == "AuthorizationPermissionMismatch" {
+			io.Copy(io.Discard, resp.Body)
+			return errBlobWritePermissionMismatch
+		}
 	case http.StatusInternalServerError:
 		io.Copy(io.Discard, resp.Body)
 		return errOperationTimeout
 	case http.StatusServiceUnavailable:
 		io.Copy(io.Discard, resp.Body)
 		return errServerBusy
-	default:
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
 	}
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
 }
 
 type MergedContext struct {

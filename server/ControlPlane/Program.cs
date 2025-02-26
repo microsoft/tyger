@@ -49,6 +49,7 @@ void RunServer()
     var builder = WebApplication.CreateBuilder();
 
     AddCommonServices(builder);
+    builder.AddCodespecs();
     builder.AddLogArchive();
     builder.AddAuth();
     builder.AddRuns();

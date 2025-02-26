@@ -9,6 +9,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Generator.Equals;
 using k8s.Models;
+using Tyger.ControlPlane.Json;
 
 namespace Tyger.ControlPlane.Model;
 
@@ -52,6 +53,7 @@ public record Buffer : ModelBase
 
     public IReadOnlyDictionary<string, string>? Tags { get; init; }
 
+    [SkipEmptyToNullNormalization]
     public string? ETag
     {
         get => _etag ??= ComputeEtagCore(new()); set => _etag = value;
@@ -478,6 +480,7 @@ public partial record Run : ModelBase
     /// <summary>
     /// The ETag that can be used for optimistic concurrency. Populated by the system.
     /// </summary>
+    [SkipEmptyToNullNormalization]
     public string? ETag
     {
         get => _etag ??= ComputeEtagCore(new()); set => _etag = value;

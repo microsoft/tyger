@@ -45,8 +45,8 @@ public static class Normalizer
             foreach (var property in value.GetType().GetProperties())
             {
                 if (Attribute.IsDefined(property, typeof(CompilerGeneratedAttribute)) ||
-                    (property.GetCustomAttribute<JsonIgnoreAttribute>() is JsonIgnoreAttribute ignoreAttribute &&
-                    ignoreAttribute.Condition == JsonIgnoreCondition.Always))
+                    (property.GetCustomAttribute<JsonIgnoreAttribute>() is JsonIgnoreAttribute ignoreAttribute && ignoreAttribute.Condition == JsonIgnoreCondition.Always) ||
+                    Attribute.IsDefined(property, typeof(SkipEmptyToNullNormalizationAttribute)))
                 {
                     continue;
                 }
@@ -76,4 +76,9 @@ public static class Normalizer
 
         return (T?)NormalizeImpl(value);
     }
+}
+
+[AttributeUsage(AttributeTargets.Property, Inherited = false, AllowMultiple = false)]
+public sealed class SkipEmptyToNullNormalizationAttribute : Attribute
+{
 }

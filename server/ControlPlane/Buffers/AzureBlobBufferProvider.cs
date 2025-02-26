@@ -4,6 +4,8 @@
 using System.Collections.Immutable;
 using System.ComponentModel.DataAnnotations;
 using System.Globalization;
+using System.Net;
+using Azure;
 using Azure.Core;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
@@ -26,6 +28,7 @@ public sealed class AzureBlobBufferProvider : IHostedService, IBufferProvider, I
     private readonly Lazy<IRunCreator> _runCreator;
     private readonly Repository _repository;
     private readonly ILoggerFactory _loggerFactory;
+    private readonly ILogger<AzureBlobBufferProvider> _logger;
     private ImmutableDictionary<int, BlobServiceClientWithRefreshingCredentials>? _storageAccountClients;
     private ImmutableDictionary<string, RoundRobinCounter>? _roundRobinCounters;
     private string? _defaultLocation;
@@ -37,7 +40,8 @@ public sealed class AzureBlobBufferProvider : IHostedService, IBufferProvider, I
         IOptions<DatabaseOptions> databaseOptions,
         Lazy<IRunCreator> runCreator,
         Repository repository,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        ILogger<AzureBlobBufferProvider> logger)
     {
         _credential = credential;
         _storageOptions = storageOptions.Value;
@@ -46,6 +50,7 @@ public sealed class AzureBlobBufferProvider : IHostedService, IBufferProvider, I
         _databaseOptions = databaseOptions.Value;
         _repository = repository;
         _loggerFactory = loggerFactory;
+        _logger = logger;
     }
 
     public async Task<Buffer> CreateBuffer(Buffer buffer, CancellationToken cancellationToken)
@@ -392,6 +397,33 @@ public sealed class AzureBlobBufferProvider : IHostedService, IBufferProvider, I
 
         return returnResult;
     }
+
+    public async Task TryMarkBufferAsFailed(string id, CancellationToken cancellationToken)
+    {
+        var ids = await _repository.GetBufferStorageAccountIds([id], cancellationToken);
+        if (ids is not [{ accountId: int accountId }])
+        {
+            return;
+        }
+
+        var refreshingClient = await GetRefreshingServiceClient(accountId, cancellationToken);
+        var containerClient = refreshingClient.ServiceClient.GetBlobContainerClient(id);
+
+        var blobClient = containerClient.GetBlobClient(BufferMetadata.EndMetadataBlobName);
+        var doNotOverwriteOptions = new BlobUploadOptions { Conditions = new() { IfNoneMatch = new("*"), }, };
+        try
+        {
+            await blobClient.UploadAsync(new BinaryData(BufferMetadata.FailedEndMetadataContent), doNotOverwriteOptions, cancellationToken: cancellationToken);
+        }
+        catch (RequestFailedException e) when (e.Status == (int)HttpStatusCode.PreconditionFailed)
+        {
+        }
+        catch (Exception e)
+        {
+            _logger.FailedToMarkBufferAsFailed(e);
+        }
+    }
+
     private sealed class RoundRobinCounter
     {
         private readonly int[] _ids;
