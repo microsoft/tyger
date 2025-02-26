@@ -6,6 +6,8 @@ using System.Threading.Channels;
 using k8s;
 using k8s.Autorest;
 using Microsoft.Extensions.Options;
+using Tyger.ControlPlane.Buffers;
+using Tyger.ControlPlane.Codespecs;
 using Tyger.ControlPlane.Database;
 using Tyger.ControlPlane.Logging;
 using Tyger.ControlPlane.Model;
@@ -23,25 +25,38 @@ public class RunFinalizer : BackgroundService
     private const int MaxConcurrentFinalizations = 64;
 
     private readonly Repository _repository;
+    private readonly CodespecReader _codespecReader;
     private readonly RunChangeFeed _changeFeed;
 
     private readonly IKubernetes _client;
     private readonly ILogSource _logSource;
     private readonly ILogArchive _logArchive;
+    private readonly IBufferProvider _bufferProvider;
     private readonly KubernetesApiOptions _k8sOptions;
     private readonly ILogger<RunFinalizer> _logger;
     private readonly Channel<(bool leaseHeld, int token)> _leaseStateChangeChannel = Channel.CreateUnbounded<(bool leaseHeld, int token)>();
 
-    public RunFinalizer(Repository repository, RunChangeFeed changeFeed, ILogger<RunFinalizer> logger, IKubernetes client, IOptions<KubernetesApiOptions> kubernetesOptions, ILogSource logSource, LeaseManager leaseManager, ILogArchive logArchive)
+    public RunFinalizer(
+        Repository repository,
+        CodespecReader codespecReader,
+        RunChangeFeed changeFeed,
+        ILogger<RunFinalizer> logger,
+        IKubernetes client,
+        IOptions<KubernetesApiOptions> kubernetesOptions,
+        ILogSource logSource,
+        LeaseManager leaseManager,
+        ILogArchive logArchive,
+        IBufferProvider bufferProvider)
     {
         _repository = repository;
+        _codespecReader = codespecReader;
         _changeFeed = changeFeed;
         _logger = logger;
         _client = client;
         _k8sOptions = kubernetesOptions.Value;
         _logSource = logSource;
         _logArchive = logArchive;
-
+        _bufferProvider = bufferProvider;
         leaseManager.RegisterListener(_leaseStateChangeChannel.Writer);
     }
 
@@ -161,6 +176,23 @@ public class RunFinalizer : BackgroundService
         _logger.ArchivedLogsForRun(runState.Id);
 
         await DeleteRunResources(runState, cancellationToken);
+
+        if (runState.Status == RunStatus.Canceled)
+        {
+            var run = await _repository.GetRun(runState.Id, cancellationToken, GetRunOptions.SkipTags);
+            if (run != null)
+            {
+                var jobCodespec = (JobCodespec)await _codespecReader.GetCodespec(run.Value.run.Job.Codespec, cancellationToken);
+                foreach (var outputBufferParameter in jobCodespec.Buffers?.Outputs ?? [])
+                {
+                    if (run.Value.run.Job.Buffers?.TryGetValue(outputBufferParameter, out var bufferId) == true)
+                    {
+                        await _bufferProvider.TryMarkBufferAsFailed(bufferId, cancellationToken);
+                    }
+                }
+            }
+        }
+
         await _repository.UpdateRunAsFinal(runState.Id, cancellationToken);
         _logger.FinalizedRun(runState.Id);
     }

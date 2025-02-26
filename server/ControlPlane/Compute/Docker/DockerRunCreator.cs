@@ -11,6 +11,7 @@ using k8s.Models;
 using Microsoft.Extensions.Options;
 using Tyger.Common.Buffers;
 using Tyger.ControlPlane.Buffers;
+using Tyger.ControlPlane.Codespecs;
 using Tyger.ControlPlane.Database;
 using Tyger.ControlPlane.Model;
 using Tyger.ControlPlane.Runs;
@@ -27,6 +28,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
     public const string SocketCountLabelKey = "tyger-socket-count";
 
     private readonly DockerClient _client;
+    private readonly CodespecReader _codespecReader;
     private readonly DockerEphemeralBufferProvider _ephemeralBufferProvider;
     private readonly ILogger<DockerRunCreator> _logger;
 
@@ -38,6 +40,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
     public DockerRunCreator(
         DockerClient client,
         Repository repository,
+        CodespecReader codespecReader,
         BufferManager bufferManager,
         DockerEphemeralBufferProvider ephemeralBufferProvider,
         IOptions<BufferOptions> bufferOptions,
@@ -47,6 +50,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
     : base(repository, bufferManager)
     {
         _client = client;
+        _codespecReader = codespecReader;
         _ephemeralBufferProvider = ephemeralBufferProvider;
         _logger = logger;
         _bufferOptions = bufferOptions.Value;
@@ -102,7 +106,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             throw new ValidationException("Runs with workers are only supported on Kubernetes");
         }
 
-        if (await GetCodespec(run.Job.Codespec, cancellationToken) is not JobCodespec jobCodespec)
+        if (await _codespecReader.GetCodespec(run.Job.Codespec, cancellationToken) is not JobCodespec jobCodespec)
         {
             throw new ArgumentException($"The codespec for the job is required to be a job codespec");
         }

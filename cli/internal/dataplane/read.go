@@ -108,6 +108,7 @@ func Read(ctx context.Context, uri *url.URL, outputWriter io.Writer, options ...
 		err := pollForBufferEnd(ctx, httpClient, container)
 		if err != nil {
 			errorChannel <- err
+			cancel()
 			return
 		}
 		// All blobs should have been written successfully by now.
@@ -115,6 +116,13 @@ func Read(ctx context.Context, uri *url.URL, outputWriter io.Writer, options ...
 	}()
 
 	if err := readBufferStart(ctx, httpClient, container); err != nil {
+		if errors.Is(err, ctx.Err()) {
+			select {
+			case errorChannelResult := <-errorChannel:
+				return errorChannelResult
+			default:
+			}
+		}
 		return err
 	}
 

@@ -23,13 +23,14 @@ public sealed class LocalStorageBufferProvider : IBufferProvider, IHostedService
     private readonly HttpClient _dataPlaneClient;
     private readonly SignDataFunc _signData;
     private readonly Repository _repository;
+    private readonly ILogger<LocalStorageBufferProvider> _logger;
     private int _storageAccountId;
 
-    public LocalStorageBufferProvider(IOptions<LocalBufferStorageOptions> storageOptions, IOptions<BufferOptions> bufferOptions, Repository repository)
+    public LocalStorageBufferProvider(IOptions<LocalBufferStorageOptions> storageOptions, IOptions<BufferOptions> bufferOptions, Repository repository, ILogger<LocalStorageBufferProvider> logger)
     {
         _storageOptions = storageOptions.Value;
         _repository = repository;
-
+        _logger = logger;
         var baseUrl = _storageOptions.DataPlaneEndpoint.ToString();
         if (_storageOptions.DataPlaneEndpoint.Scheme is "http+unix" or "https+unix")
         {
@@ -193,4 +194,26 @@ public sealed class LocalStorageBufferProvider : IBufferProvider, IHostedService
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public async Task TryMarkBufferAsFailed(string id, CancellationToken cancellationToken)
+    {
+        var queryString = LocalSasHandler.GetSasQueryString(id, SasResourceType.Blob, SasAction.Create, _signData);
+        var request = new HttpRequestMessage(HttpMethod.Put, $"v1/containers/{id}/{BufferMetadata.EndMetadataBlobName}{queryString}")
+        {
+            Content = new ByteArrayContent(BufferMetadata.FailedEndMetadataContent)
+        };
+
+        try
+        {
+            using var response = await _dataPlaneClient.SendAsync(request, cancellationToken);
+            if (response.StatusCode != System.Net.HttpStatusCode.Forbidden) // this is the status code when the blob already exists and we only have create permission
+            {
+                response.EnsureSuccessStatusCode();
+            }
+        }
+        catch (Exception e)
+        {
+            _logger.FailedToMarkBufferAsFailed(e);
+        }
+    }
 }
