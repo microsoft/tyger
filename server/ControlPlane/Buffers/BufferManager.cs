@@ -35,9 +35,14 @@ public sealed partial class BufferManager
         return await _bufferProvider.CreateBuffer(buffer, cancellationToken);
     }
 
-    public async Task<Buffer?> GetBufferById(string id, CancellationToken cancellationToken)
+    public async Task<Buffer?> GetBufferById(string id, bool softDeleted, CancellationToken cancellationToken)
     {
-        return await _repository.GetBuffer(id, cancellationToken);
+        return await _repository.GetBuffer(id, softDeleted, cancellationToken);
+    }
+
+    public async Task<UpdateWithPreconditionResult<Buffer>> DeleteBufferById(string id, bool hard, CancellationToken cancellationToken)
+    {
+        return await _repository.DeleteBuffer(id, hard, cancellationToken);
     }
 
     public async Task<bool> CheckBuffersExist(ICollection<string> ids, CancellationToken cancellationToken)
@@ -50,9 +55,19 @@ public sealed partial class BufferManager
         return await _repository.UpdateBufferTags(bufferUpdate, eTagPrecondition, cancellationToken);
     }
 
-    public async Task<(IList<Buffer>, string? nextContinuationToken)> GetBuffers(IDictionary<string, string>? tags, int limit, string? continuationToken, CancellationToken cancellationToken)
+    public async Task<(IList<Buffer>, string? nextContinuationToken)> GetBuffers(IDictionary<string, string>? tags, bool softDeleted, int limit, string? continuationToken, CancellationToken cancellationToken)
     {
-        return await _repository.GetBuffers(tags, limit, continuationToken, cancellationToken);
+        return await _repository.GetBuffers(tags, softDeleted, limit, continuationToken, cancellationToken);
+    }
+
+    public async Task<int> DeleteBuffers(IDictionary<string, string>? tags, bool hard, CancellationToken cancellationToken)
+    {
+        return await _repository.DeleteBuffers(tags, hard, cancellationToken);
+    }
+
+    public async Task<int> GetBufferCount(IDictionary<string, string>? tags, bool softDeleted, CancellationToken cancellationToken)
+    {
+        return await _repository.GetBufferCount(tags, softDeleted, cancellationToken);
     }
 
     internal async Task<IList<(string id, bool writeable, BufferAccess? bufferAccess)>> CreateBufferAccessUrls(IList<(string id, bool writeable)> requests, bool preferTcp, bool fromDocker, bool checkExists, CancellationToken cancellationToken)

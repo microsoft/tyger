@@ -1264,7 +1264,7 @@ public class Repository
         }, cancellationToken);
     }
 
-    public async Task<Buffer?> GetBuffer(string id, CancellationToken cancellationToken)
+    public async Task<Buffer?> GetBuffer(string id, bool softDeleted, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
@@ -1279,13 +1279,14 @@ public class Repository
                     and buffer_tags.created_at = buffers.created_at
                 LEFT JOIN tag_keys
                     on tag_keys.id = buffer_tags.key
-                WHERE buffers.id = $1
+                WHERE buffers.id = $1 AND buffers.is_soft_deleted = $2
                 ORDER BY tag_keys.name
                 """, conn)
             {
                 Parameters =
                 {
                     new() { Value = id, NpgsqlDbType = NpgsqlDbType.Text },
+                    new() { Value = softDeleted, NpgsqlDbType = NpgsqlDbType.Boolean },
                 }
             };
 
@@ -1347,7 +1348,7 @@ public class Repository
         return reader.GetInt64(0);
     }
 
-    public async Task<(IList<Buffer>, string? nextContinuationToken)> GetBuffers(IDictionary<string, string>? tags, int limit, string? continuationToken, CancellationToken cancellationToken)
+    public async Task<(IList<Buffer>, string? nextContinuationToken)> GetBuffers(IDictionary<string, string>? tags, bool softDeleted, int limit, string? continuationToken, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync<(IList<Buffer>, string? nextContinuationToken)>(async cancellationToken =>
         {
@@ -1370,6 +1371,8 @@ public class Repository
 
             int param = 2;
 
+            var whereClauses = new List<string>();
+
             if (tags?.Count > 0)
             {
                 for (int x = 0; x < tags.Count; x++)
@@ -1377,23 +1380,16 @@ public class Repository
                     commandText.AppendLine($"INNER JOIN buffer_tags AS t{x} ON buffers.created_at = t{x}.created_at and buffers.id = t{x}.id");
                 }
 
-                commandText.AppendLine("WHERE");
-
                 int index = 0;
                 foreach (var tag in tags)
                 {
-                    if (index > 0)
-                    {
-                        commandText.Append(" AND ");
-                    }
-
                     var id = await GetTagId(conn, tag.Key, cancellationToken);
                     if (id == null)
                     {
                         return ([], null);
                     }
 
-                    commandText.AppendLine($" t{index}.key = ${param} and t{index}.value = ${param + 1}");
+                    whereClauses.Add($" t{index}.key = ${param} and t{index}.value = ${param + 1}");
                     command.Parameters.Add(new() { Value = id.Value, NpgsqlDbType = NpgsqlDbType.Bigint });
                     command.Parameters.Add(new() { Value = tag.Value, NpgsqlDbType = NpgsqlDbType.Text });
                     index++;
@@ -1409,16 +1405,7 @@ public class Repository
                     var fields = JsonSerializer.Deserialize<JsonElement[]>(Encoding.ASCII.GetString(Base32.ZBase32.Decode(continuationToken)), _serializerOptions);
                     if (fields is { Length: 2 })
                     {
-                        if (tags == null)
-                        {
-                            commandText.Append(" WHERE ");
-                        }
-                        else
-                        {
-                            commandText.Append(" AND ");
-                        }
-
-                        commandText.Append($"(buffers.created_at, buffers.id) < (${param}, ${param + 1})\n");
+                        whereClauses.Add($"(buffers.created_at, buffers.id) < (${param}, ${param + 1})");
                         command.Parameters.Add(new() { Value = new DateTimeOffset(fields[0].GetInt64(), TimeSpan.Zero), NpgsqlDbType = NpgsqlDbType.TimestampTz });
                         command.Parameters.Add(new() { Value = fields[1].GetString(), NpgsqlDbType = NpgsqlDbType.Text });
                         param += 2;
@@ -1433,6 +1420,21 @@ public class Repository
                 {
                     throw new ValidationException("Invalid continuation token.");
                 }
+            }
+
+            whereClauses.Add($"buffers.is_soft_deleted = ${param}");
+            command.Parameters.Add(new() { Value = softDeleted, NpgsqlDbType = NpgsqlDbType.Boolean });
+
+            commandText.AppendLine("WHERE");
+            for (var i = 0; i < whereClauses.Count; i++)
+            {
+                var clause = whereClauses[i];
+                if (i > 0)
+                {
+                    commandText.Append("AND ");
+                }
+
+                commandText.AppendLine(clause);
             }
 
             commandText.AppendLine("""
@@ -1507,6 +1509,67 @@ public class Repository
                 hash.Reset();
                 _xxHash3Pool.Return(hash);
             }
+        }, cancellationToken);
+    }
+
+    public async Task<int> GetBufferCount(IDictionary<string, string>? tags, bool softDeleted, CancellationToken cancellationToken)
+    {
+        return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
+        {
+            await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+            await using var command = new NpgsqlCommand
+            {
+                Connection = conn,
+            };
+
+            var commandText = new StringBuilder();
+            commandText.AppendLine("SELECT COUNT(buffers.id) FROM buffers");
+
+            if (tags?.Count > 0)
+            {
+                commandText.AppendLine("""
+                    INNER JOIN buffer_tags
+                        ON buffers.created_at = buffer_tags.created_at and buffers.id = buffer_tags.id
+                    INNER JOIN tag_keys
+                        ON tag_keys.id = buffer_tags.key
+                    """);
+            }
+
+            commandText.AppendLine("WHERE buffers.is_soft_deleted = $1");
+            command.Parameters.Add(new() { Value = softDeleted, NpgsqlDbType = NpgsqlDbType.Boolean });
+
+            int param = 2;
+            if (tags?.Count > 0)
+            {
+                commandText.AppendLine("AND (");
+
+                var index = 0;
+                foreach (var tag in tags)
+                {
+                    if (index > 0)
+                    {
+                        commandText.AppendLine("  OR");
+                    }
+
+                    commandText.AppendLine($"  (tag_keys.name = ${param} and buffer_tags.value = ${param + 1})");
+                    command.Parameters.Add(new() { Value = tag.Key, NpgsqlDbType = NpgsqlDbType.Text });
+                    command.Parameters.Add(new() { Value = tag.Value, NpgsqlDbType = NpgsqlDbType.Text });
+                    param += 2;
+                    index++;
+                }
+
+                commandText.AppendLine(")");
+            }
+
+            command.CommandText = commandText.ToString();
+            await command.PrepareAsync(cancellationToken);
+
+            var count = 0;
+            using var reader = (await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken))!;
+            await reader.ReadAsync(cancellationToken);
+            count = reader.GetInt32(0);
+
+            return count;
         }, cancellationToken);
     }
 
@@ -1773,6 +1836,163 @@ public class Repository
             await tx.CommitAsync(cancellationToken);
             return newBuffer;
         }, cancellationToken);
+    }
+
+    public async Task<UpdateWithPreconditionResult<Buffer>> DeleteBuffer(string id, bool hard, CancellationToken cancellationToken)
+    {
+        return await _resiliencePipeline.ExecuteAsync<UpdateWithPreconditionResult<Buffer>>(async cancellationToken =>
+        {
+            await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+            await using var tx = await connection.BeginTransactionAsync(cancellationToken);
+
+            Buffer? buffer = null;
+            using (var selectCommand = new NpgsqlCommand
+            {
+                Connection = connection,
+                Transaction = tx,
+                CommandText = """
+                    SELECT buffers.is_soft_deleted
+                    FROM buffers
+                    WHERE buffers.id = $1
+                    FOR UPDATE
+                    """,
+                Parameters =
+                    {
+                        new() { Value = id, NpgsqlDbType = NpgsqlDbType.Text },
+                    }
+            })
+            {
+                await selectCommand.PrepareAsync(cancellationToken);
+                await using var reader = await selectCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+                if (await reader.ReadAsync(cancellationToken))
+                {
+                    buffer = new Buffer { Id = id, IsSoftDeleted = reader.GetBoolean(0) };
+                }
+            }
+
+            if (buffer == null)
+            {
+                return new UpdateWithPreconditionResult<Buffer>.NotFound();
+            }
+
+            if (buffer.IsSoftDeleted)
+            {
+                return new UpdateWithPreconditionResult<Buffer>.PreconditionFailed();
+            }
+
+            buffer = buffer with
+            {
+                IsSoftDeleted = true,
+
+                // TODO Joe: Configurable TTL
+                ExpiresAt = hard ? DateTime.UtcNow : DateTime.UtcNow.AddDays(1)
+            };
+
+            using (var deleteCommand = new NpgsqlCommand
+            {
+                Connection = connection,
+                Transaction = tx,
+                CommandText = """
+                    UPDATE buffers
+                    SET is_soft_deleted = $2, expires_at = $3
+                    WHERE id = $1
+                    """,
+                Parameters =
+                    {
+                        new() { Value = id, NpgsqlDbType = NpgsqlDbType.Text },
+                        new() { Value = buffer.IsSoftDeleted, NpgsqlDbType = NpgsqlDbType.Boolean },
+                        new() { Value = buffer.ExpiresAt, NpgsqlDbType = NpgsqlDbType.TimestampTz },
+                    }
+            })
+            {
+                await deleteCommand.PrepareAsync(cancellationToken);
+                await deleteCommand.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            await tx.CommitAsync(cancellationToken);
+            return new UpdateWithPreconditionResult<Buffer>.Updated(buffer);
+        }, cancellationToken);
+    }
+
+    public async Task<int> DeleteBuffers(IDictionary<string, string>? tags, bool hard, CancellationToken cancellationToken)
+    {
+        return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
+        {
+            await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+            await using var tx = await connection.BeginTransactionAsync(cancellationToken);
+
+            // TODO Joe: Configurable TTL
+            var expiresAt = hard ? DateTime.UtcNow : DateTime.UtcNow.AddDays(1);
+            var count = 0;
+
+            using (var deleteCommand = new NpgsqlCommand
+            {
+                Connection = connection,
+                Transaction = tx,
+            })
+            {
+                var commandText = new StringBuilder();
+                commandText.AppendLine("""
+                    WITH matches AS (
+                        SELECT buffers.id as rowid
+                        FROM buffers
+                    """);
+
+                if (tags?.Count > 0)
+                {
+                    commandText.AppendLine("""
+                        INNER JOIN buffer_tags
+                            ON buffers.created_at = buffer_tags.created_at and buffers.id = buffer_tags.id
+                        INNER JOIN tag_keys
+                            ON tag_keys.id = buffer_tags.key
+                        """);
+                }
+
+                commandText.AppendLine("WHERE buffers.is_soft_deleted = false");
+
+                int param = 1;
+                if (tags?.Count > 0)
+                {
+                    commandText.AppendLine("AND (");
+
+                    var index = 0;
+                    foreach (var tag in tags)
+                    {
+                        if (index > 0)
+                        {
+                            commandText.AppendLine("  OR");
+                        }
+
+                        commandText.AppendLine($"  (tag_keys.name = ${param} and buffer_tags.value = ${param + 1})");
+                        deleteCommand.Parameters.Add(new() { Value = tag.Key, NpgsqlDbType = NpgsqlDbType.Text });
+                        deleteCommand.Parameters.Add(new() { Value = tag.Value, NpgsqlDbType = NpgsqlDbType.Text });
+                        param += 2;
+                        index++;
+                    }
+
+                    commandText.AppendLine(")");
+                }
+
+                commandText.AppendLine($"""
+                        GROUP BY rowid
+                    )
+                    UPDATE buffers
+                    SET is_soft_deleted = true, expires_at = ${param}
+                    FROM matches
+                    WHERE buffers.id = matches.rowid
+                    """);
+                deleteCommand.Parameters.Add(new() { Value = expiresAt, NpgsqlDbType = NpgsqlDbType.TimestampTz });
+
+                deleteCommand.CommandText = commandText.ToString();
+
+                await deleteCommand.PrepareAsync(cancellationToken);
+                count = await deleteCommand.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            await tx.CommitAsync(cancellationToken);
+            return count;
+        }, cancellationToken);
+
     }
 
     public async Task ListenForNewRuns(Func<IReadOnlyList<Run>, CancellationToken, Task> processRuns, CancellationToken cancellationToken)

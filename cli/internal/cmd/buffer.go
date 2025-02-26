@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -17,6 +18,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -59,6 +61,7 @@ func NewBufferCommand() *cobra.Command {
 	cmd.AddCommand(newStorageAccountCommand())
 	cmd.AddCommand(newBufferExportCommand())
 	cmd.AddCommand(newBufferImportCommand())
+	cmd.AddCommand(newBufferDeleteCommand())
 
 	return cmd
 }
@@ -123,6 +126,8 @@ func newBufferSetCommand() *cobra.Command {
 }
 
 func newBufferShowCommand() *cobra.Command {
+	softDeleted := false
+
 	cmd := &cobra.Command{
 		Use:                   "show BUFFER_ID",
 		Short:                 "Show the details of a buffer",
@@ -130,8 +135,14 @@ func newBufferShowCommand() *cobra.Command {
 		DisableFlagsInUseLine: true,
 		Args:                  exactlyOneArg("buffer ID"),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			listOptions := url.Values{}
+			if softDeleted {
+				listOptions.Add("softDeleted", strconv.FormatBool(softDeleted))
+			}
+
 			buffer := model.Buffer{}
-			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, fmt.Sprintf("v1/buffers/%s", args[0]), nil, &buffer)
+			relativeUri := fmt.Sprintf("v1/buffers/%s?%s", args[0], listOptions.Encode())
+			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, relativeUri, nil, &buffer)
 			if err != nil {
 				return err
 			}
@@ -145,6 +156,8 @@ func newBufferShowCommand() *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.Flags().BoolVar(&softDeleted, "soft-deleted", softDeleted, "Only include soft-deleted buffers.")
 
 	return cmd
 }
@@ -419,6 +432,7 @@ The SIZE argument must be a number with an optional unit (e.g. 10MB). 1KB and 1K
 func newBufferListCommand() *cobra.Command {
 	limit := 0
 	tagEntries := make(map[string]string)
+	softDeleted := false
 
 	cmd := &cobra.Command{
 		Use:                   "list [--tag key=value ...] [--limit COUNT]",
@@ -433,6 +447,10 @@ func newBufferListCommand() *cobra.Command {
 				limit = math.MaxInt
 			}
 
+			if softDeleted {
+				listOptions.Add("softDeleted", strconv.FormatBool(softDeleted))
+			}
+
 			for name, value := range tagEntries {
 				listOptions.Add(fmt.Sprintf("tag[%s]", name), value)
 			}
@@ -443,6 +461,7 @@ func newBufferListCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringToStringVar(&tagEntries, "tag", nil, "Only include buffers with the given tag. Can be specified multiple times.")
+	cmd.Flags().BoolVar(&softDeleted, "soft-deleted", softDeleted, "Only include soft-deleted buffers.")
 	cmd.Flags().IntVarP(&limit, "limit", "l", 1000, "The maximum number of buffers to list. Default 1000")
 
 	return cmd
@@ -541,6 +560,132 @@ func newBufferImportCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&request.StorageAccountName, "storage-account", request.StorageAccountName, "The name of the storage account to use as the source. Required if more than one storage account is part of the Tyger installation.")
+
+	return cmd
+}
+
+// TODO Joe: This may be a bad idea, e.g. for non-interactive sessions
+func askForConfirmation(s string) (bool, error) {
+	reader := bufio.NewReader(os.Stdin)
+
+	for i := 0; i < 5; i++ {
+		fmt.Printf("%s [y/n]: ", s)
+
+		response, err := reader.ReadString('\n')
+		if err != nil {
+			return false, err
+		}
+
+		response = strings.ToLower(strings.TrimSpace(response))
+
+		if response == "y" || response == "yes" {
+			return true, nil
+		} else if response == "n" || response == "no" {
+			return false, nil
+		}
+	}
+	return false, fmt.Errorf("Too many invalid user responses")
+}
+
+func newBufferDeleteCommand() *cobra.Command {
+	deleteAll := false
+	hard := false
+	force := false
+	tags := make(map[string]string)
+
+	cmd := &cobra.Command{
+		Use:                   "delete ID ... | --tag KEY=VALUE ... | --all",
+		Short:                 "Delete a buffer",
+		Long:                  `Delete a buffer`,
+		DisableFlagsInUseLine: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			validateExactlyOneMode := func(modes ...bool) bool {
+				count := 0
+				for _, mode := range modes {
+					if mode {
+						count++
+					}
+				}
+				return count == 1
+			}
+
+			if !validateExactlyOneMode(len(args) > 0, len(tags) > 0, deleteAll) {
+				log.Fatal().Msg("One of ID, --tag, or --all must be specified")
+			}
+
+			options := url.Values{}
+			options.Add("hard", strconv.FormatBool(hard))
+
+			if len(args) > 0 {
+				for _, id := range args {
+					buffer := model.Buffer{}
+					relativeUri := fmt.Sprintf("v1/buffers/%s?%s", id, options.Encode())
+					resp, err := controlplane.InvokeRequest(cmd.Context(), http.MethodDelete, relativeUri, nil, &buffer)
+
+					if resp.StatusCode == http.StatusNotFound {
+						return fmt.Errorf("buffer with ID %s not found", id)
+					} else if resp.StatusCode == http.StatusPreconditionFailed {
+						return fmt.Errorf("buffer with ID %s is already soft-deleted", id)
+					}
+
+					if err != nil {
+						return err
+					}
+
+					formattedBuffer, err := json.MarshalIndent(buffer, "", "  ")
+					if err != nil {
+						return err
+					}
+
+					fmt.Println(string(formattedBuffer))
+				}
+			} else {
+				for name, value := range tags {
+					options.Add(fmt.Sprintf("tag[%s]", name), value)
+				}
+
+				performDeletion := force
+
+				if !force {
+					countUri := fmt.Sprintf("v1/buffers/count?%s", options.Encode())
+					count := 0
+					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, countUri, nil, &count); err != nil {
+						return err
+					}
+					if count > 0 {
+						log.Warn().Msgf("Deleting %d buffers. Use -f to delete without confirmation.", count)
+						confirmed, err := askForConfirmation(fmt.Sprintf("Are you sure you want to delete %d buffers?", count))
+						if err != nil {
+							return err
+						}
+						if confirmed {
+							performDeletion = true
+						}
+					} else {
+						fmt.Println("No buffers found.")
+						return nil
+					}
+				}
+
+				if performDeletion {
+					relativeUri := fmt.Sprintf("v1/buffers?%s", options.Encode())
+
+					count := 0
+					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodDelete, relativeUri, nil, &count); err != nil {
+						return err
+					}
+					fmt.Printf("Deleted %d buffers.\n", count)
+				}
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&deleteAll, "all", deleteAll, "Delete all buffers.")
+	cmd.Flags().BoolVar(&hard, "hard", hard, "Delete and purge the buffer(s). This is not reversible.")
+	cmd.Flags().BoolVar(&force, "force", force, "Force deletion.")
+	cmd.Flags().StringToStringVar(&tags, "tag", nil, "Delete all buffers matching tag. Can be specified multiple times.")
 
 	return cmd
 }

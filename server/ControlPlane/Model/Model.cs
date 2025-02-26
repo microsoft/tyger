@@ -51,6 +51,10 @@ public record Buffer : ModelBase
 
     public DateTimeOffset? CreatedAt { get; init; }
 
+    public bool IsSoftDeleted { get; init; }
+
+    public DateTimeOffset? ExpiresAt { get; init; }
+
     public IReadOnlyDictionary<string, string>? Tags { get; init; }
 
     [SkipEmptyToNullNormalization]
