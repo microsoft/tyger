@@ -4,7 +4,6 @@
 package cmd
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -18,11 +17,12 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
 	"github.com/alecthomas/units"
+	"github.com/erikgeiser/promptkit"
+	"github.com/erikgeiser/promptkit/confirmation"
 	"github.com/microsoft/tyger/cli/internal/client"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
@@ -62,6 +62,7 @@ func NewBufferCommand() *cobra.Command {
 	cmd.AddCommand(newBufferExportCommand())
 	cmd.AddCommand(newBufferImportCommand())
 	cmd.AddCommand(newBufferDeleteCommand())
+	cmd.AddCommand(newBufferRestoreCommand())
 
 	return cmd
 }
@@ -564,39 +565,16 @@ func newBufferImportCommand() *cobra.Command {
 	return cmd
 }
 
-// TODO Joe: This may be a bad idea, e.g. for non-interactive sessions
-func askForConfirmation(s string) (bool, error) {
-	reader := bufio.NewReader(os.Stdin)
-
-	for i := 0; i < 5; i++ {
-		fmt.Printf("%s [y/n]: ", s)
-
-		response, err := reader.ReadString('\n')
-		if err != nil {
-			return false, err
-		}
-
-		response = strings.ToLower(strings.TrimSpace(response))
-
-		if response == "y" || response == "yes" {
-			return true, nil
-		} else if response == "n" || response == "no" {
-			return false, nil
-		}
-	}
-	return false, fmt.Errorf("Too many invalid user responses")
-}
-
 func newBufferDeleteCommand() *cobra.Command {
 	deleteAll := false
-	hard := false
+	purge := false
 	force := false
 	tags := make(map[string]string)
 
 	cmd := &cobra.Command{
 		Use:                   "delete ID ... | --tag KEY=VALUE ... | --all",
-		Short:                 "Delete a buffer",
-		Long:                  `Delete a buffer`,
+		Short:                 "Delete buffers",
+		Long:                  `Delete buffers`,
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			validateExactlyOneMode := func(modes ...bool) bool {
@@ -614,7 +592,7 @@ func newBufferDeleteCommand() *cobra.Command {
 			}
 
 			options := url.Values{}
-			options.Add("hard", strconv.FormatBool(hard))
+			options.Add("purge", strconv.FormatBool(purge))
 
 			if len(args) > 0 {
 				for _, id := range args {
@@ -647,14 +625,17 @@ func newBufferDeleteCommand() *cobra.Command {
 				performDeletion := force
 
 				if !force {
+					options.Add("softDeleted", strconv.FormatBool(false))
 					countUri := fmt.Sprintf("v1/buffers/count?%s", options.Encode())
 					count := 0
 					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, countUri, nil, &count); err != nil {
 						return err
 					}
 					if count > 0 {
-						log.Warn().Msgf("Deleting %d buffers. Use -f to delete without confirmation.", count)
-						confirmed, err := askForConfirmation(fmt.Sprintf("Are you sure you want to delete %d buffers?", count))
+						log.Warn().Msgf("Deleting %d buffers. Use --force to delete without confirmation.", count)
+						input := confirmation.New(fmt.Sprintf("Are you sure you want to delete %d buffers?", count), confirmation.Yes)
+						input.WrapMode = promptkit.WordWrap
+						confirmed, err := input.RunPrompt()
 						if err != nil {
 							return err
 						}
@@ -683,9 +664,111 @@ func newBufferDeleteCommand() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&deleteAll, "all", deleteAll, "Delete all buffers.")
-	cmd.Flags().BoolVar(&hard, "hard", hard, "Delete and purge the buffer(s). This is not reversible.")
+	cmd.Flags().BoolVar(&purge, "purge", purge, "Delete and purge the buffer(s). This is not reversible.")
 	cmd.Flags().BoolVar(&force, "force", force, "Force deletion.")
 	cmd.Flags().StringToStringVar(&tags, "tag", nil, "Delete all buffers matching tag. Can be specified multiple times.")
+
+	return cmd
+}
+
+func newBufferRestoreCommand() *cobra.Command {
+	restoreAll := false
+	force := false
+	tags := make(map[string]string)
+
+	cmd := &cobra.Command{
+		Use:                   "restore ID ... | --tag KEY=VALUE ... | --all",
+		Short:                 "Restore soft-deleted buffers",
+		Long:                  `Restore soft-deleted buffers`,
+		DisableFlagsInUseLine: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			validateExactlyOneMode := func(modes ...bool) bool {
+				count := 0
+				for _, mode := range modes {
+					if mode {
+						count++
+					}
+				}
+				return count == 1
+			}
+
+			if !validateExactlyOneMode(len(args) > 0, len(tags) > 0, restoreAll) {
+				log.Fatal().Msg("One of ID, --tag, or --all must be specified")
+			}
+
+			if len(args) > 0 {
+				for _, id := range args {
+					buffer := model.Buffer{}
+					relativeUri := fmt.Sprintf("v1/buffers/%s/restore", id)
+					resp, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, relativeUri, nil, &buffer)
+
+					if resp.StatusCode == http.StatusNotFound {
+						return fmt.Errorf("buffer with ID %s not found", id)
+					} else if resp.StatusCode == http.StatusPreconditionFailed {
+						return fmt.Errorf("buffer with ID %s is not soft-deleted", id)
+					}
+
+					if err != nil {
+						return err
+					}
+
+					formattedBuffer, err := json.MarshalIndent(buffer, "", "  ")
+					if err != nil {
+						return err
+					}
+
+					fmt.Println(string(formattedBuffer))
+				}
+			} else {
+				options := url.Values{}
+				for name, value := range tags {
+					options.Add(fmt.Sprintf("tag[%s]", name), value)
+				}
+
+				performRestore := force
+
+				if !force {
+					options.Add("softDeleted", strconv.FormatBool(true))
+					countUri := fmt.Sprintf("v1/buffers/count?%s", options.Encode())
+					count := 0
+					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, countUri, nil, &count); err != nil {
+						return err
+					}
+					if count > 0 {
+						log.Warn().Msgf("Restoring %d buffers. Use --force to restore without confirmation.", count)
+						input := confirmation.New(fmt.Sprintf("Are you sure you want to restore %d buffers?", count), confirmation.Yes)
+						input.WrapMode = promptkit.WordWrap
+						confirmed, err := input.RunPrompt()
+						if err != nil {
+							return err
+						}
+						if confirmed {
+							performRestore = true
+						}
+					} else {
+						fmt.Println("No buffers found.")
+						return nil
+					}
+				}
+
+				if performRestore {
+					relativeUri := fmt.Sprintf("v1/buffers/restore?%s", options.Encode())
+
+					count := 0
+					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, relativeUri, nil, &count); err != nil {
+						return err
+					}
+					fmt.Printf("Restored %d buffers.\n", count)
+				}
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&restoreAll, "all", restoreAll, "Restore all soft-deleted buffers.")
+	cmd.Flags().BoolVar(&force, "force", force, "Force restore.")
+	cmd.Flags().StringToStringVar(&tags, "tag", nil, "Restore all soft-deleted buffers matching tag. Can be specified multiple times.")
 
 	return cmd
 }

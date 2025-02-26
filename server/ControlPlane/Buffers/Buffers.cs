@@ -94,7 +94,10 @@ public static class Buffers
                 var softDeleted = false;
                 if (context.Request.Query.TryGetValue("softDeleted", out var softDeletedQuery))
                 {
-                    softDeleted = bool.TryParse(softDeletedQuery, out var softDeletedParsed) && softDeletedParsed;
+                    if (!bool.TryParse(softDeletedQuery, out softDeleted))
+                    {
+                        return Results.BadRequest("softDeleted must be true or false");
+                    }
                 }
 
                 (var buffers, var nextContinuationToken) = await manager.GetBuffers(tagQuery, softDeleted, limit.Value, continuationToken, cancellationToken);
@@ -148,10 +151,13 @@ public static class Buffers
 
         app.MapDelete("/v1/buffers", async (BufferManager manager, HttpContext context, CancellationToken cancellationToken) =>
             {
-                var hard = false;
-                if (context.Request.Query.TryGetValue("hard", out var hardQuery))
+                var purge = false;
+                if (context.Request.Query.TryGetValue("purge", out var purgeQuery))
                 {
-                    hard = bool.TryParse(hardQuery, out var hardParsed) && hardParsed;
+                    if (!bool.TryParse(purgeQuery, out purge))
+                    {
+                        return Results.BadRequest("purge must be true or false");
+                    }
                 }
 
                 var tagQuery = new Dictionary<string, string>();
@@ -169,11 +175,33 @@ public static class Buffers
                     tagQuery = null;
                 }
 
-                var count = await manager.DeleteBuffers(tagQuery, hard, cancellationToken);
-
+                var count = await manager.DeleteBuffers(tagQuery, purge, cancellationToken);
                 return Results.Ok(count);
             })
             .WithName("deleteBuffers")
+            .Produces<int>(StatusCodes.Status200OK);
+
+        app.MapPost("/v1/buffers/restore", async (BufferManager manager, HttpContext context, CancellationToken cancellationToken) =>
+            {
+                var tagQuery = new Dictionary<string, string>();
+
+                foreach (var tag in context.Request.Query)
+                {
+                    if (tag.Key.StartsWith("tag[", StringComparison.Ordinal) && tag.Key.EndsWith(']') && tag.Value.Count > 0)
+                    {
+                        tagQuery.Add(tag.Key[4..^1], tag.Value.FirstOrDefault() ?? "");
+                    }
+                }
+
+                if (tagQuery.Count == 0)
+                {
+                    tagQuery = null;
+                }
+
+                var count = await manager.RestoreBuffers(tagQuery, cancellationToken);
+                return Results.Ok(count);
+            })
+            .WithName("restoreBuffers")
             .Produces<int>(StatusCodes.Status200OK);
 
         app.MapGet("/v1/buffers/count", async (BufferManager manager, HttpContext context, CancellationToken cancellationToken) =>
@@ -196,7 +224,10 @@ public static class Buffers
                 var softDeleted = false;
                 if (context.Request.Query.TryGetValue("softDeleted", out var softDeletedQuery))
                 {
-                    softDeleted = bool.TryParse(softDeletedQuery, out var softDeletedParsed) && softDeletedParsed;
+                    if (!bool.TryParse(softDeletedQuery, out softDeleted))
+                    {
+                        return Results.BadRequest("softDeleted must be true or false");
+                    }
                 }
 
                 var count = await manager.GetBufferCount(tagQuery, softDeleted, cancellationToken);
@@ -210,7 +241,10 @@ public static class Buffers
                 var softDeleted = false;
                 if (context.Request.Query.TryGetValue("softDeleted", out var softDeletedQuery))
                 {
-                    softDeleted = bool.TryParse(softDeletedQuery, out var softDeletedParsed) && softDeletedParsed;
+                    if (!bool.TryParse(softDeletedQuery, out softDeleted))
+                    {
+                        return Results.BadRequest("softDeleted must be true or false");
+                    }
                 }
 
                 var buffer = await manager.GetBufferById(id, softDeleted, cancellationToken);
@@ -262,13 +296,16 @@ public static class Buffers
 
         app.MapDelete("/v1/buffers/{id}", async (BufferManager manager, HttpContext context, string id, CancellationToken cancellationToken) =>
             {
-                var hard = false;
-                if (context.Request.Query.TryGetValue("hard", out var hardQuery))
+                var purge = false;
+                if (context.Request.Query.TryGetValue("purge", out var purgeQuery))
                 {
-                    hard = bool.TryParse(hardQuery, out var hardParsed) && hardParsed;
+                    if (!bool.TryParse(purgeQuery, out purge))
+                    {
+                        return Results.BadRequest("purge must be true or false");
+                    }
                 }
 
-                var result = await manager.DeleteBufferById(id, hard, cancellationToken);
+                var result = await manager.DeleteBufferById(id, purge, cancellationToken);
                 return result.Match(
                     updated: updated => Results.Ok(updated.Value),
                     notFound: _ => Results.NotFound(),
@@ -276,6 +313,19 @@ public static class Buffers
             })
             .WithName("deleteBuffer")
             .Produces<Buffer>(StatusCodes.Status200OK)
+            .Produces<ErrorBody>(StatusCodes.Status404NotFound)
+            .Produces<ErrorBody>(StatusCodes.Status412PreconditionFailed);
+
+        app.MapPost("/v1/buffers/{id}/restore", async (BufferManager manager, HttpContext context, string id, CancellationToken cancellationToken) =>
+            {
+                var result = await manager.RestoreBufferById(id, cancellationToken);
+                return result.Match(
+                    updated: updated => Results.Ok(updated.Value),
+                    notFound: _ => Results.NotFound(),
+                    preconditionFailed: _ => Results.StatusCode(StatusCodes.Status412PreconditionFailed));
+            })
+            .WithName("restoreBuffer")
+            .Produces<int>(StatusCodes.Status200OK)
             .Produces<ErrorBody>(StatusCodes.Status404NotFound)
             .Produces<ErrorBody>(StatusCodes.Status412PreconditionFailed);
 

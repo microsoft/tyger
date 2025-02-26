@@ -40,9 +40,14 @@ public sealed partial class BufferManager
         return await _repository.GetBuffer(id, softDeleted, cancellationToken);
     }
 
-    public async Task<UpdateWithPreconditionResult<Buffer>> DeleteBufferById(string id, bool hard, CancellationToken cancellationToken)
+    public async Task<UpdateWithPreconditionResult<Buffer>> DeleteBufferById(string id, bool purge, CancellationToken cancellationToken)
     {
-        return await _repository.DeleteBuffer(id, hard, cancellationToken);
+        return await _repository.DeleteBuffer(id, purge, cancellationToken);
+    }
+
+    public async Task<UpdateWithPreconditionResult<Buffer>> RestoreBufferById(string id, CancellationToken cancellationToken)
+    {
+        return await _repository.RestoreBuffer(id, cancellationToken);
     }
 
     public async Task<bool> CheckBuffersExist(ICollection<string> ids, CancellationToken cancellationToken)
@@ -60,9 +65,14 @@ public sealed partial class BufferManager
         return await _repository.GetBuffers(tags, softDeleted, limit, continuationToken, cancellationToken);
     }
 
-    public async Task<int> DeleteBuffers(IDictionary<string, string>? tags, bool hard, CancellationToken cancellationToken)
+    public async Task<int> DeleteBuffers(IDictionary<string, string>? tags, bool purge, CancellationToken cancellationToken)
     {
-        return await _repository.DeleteBuffers(tags, hard, cancellationToken);
+        return await _repository.DeleteBuffers(tags, purge, cancellationToken);
+    }
+
+    public async Task<int> RestoreBuffers(IDictionary<string, string>? tags, CancellationToken cancellationToken)
+    {
+        return await _repository.RestoreBuffers(tags, cancellationToken);
     }
 
     public async Task<int> GetBufferCount(IDictionary<string, string>? tags, bool softDeleted, CancellationToken cancellationToken)
