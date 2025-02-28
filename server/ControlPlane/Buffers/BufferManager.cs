@@ -42,7 +42,7 @@ public sealed partial class BufferManager
 
     public async Task<UpdateWithPreconditionResult<Buffer>> DeleteBufferById(string id, bool purge, CancellationToken cancellationToken)
     {
-        return await _repository.DeleteBuffer(id, purge, cancellationToken);
+        return await _repository.SoftDeleteBuffer(id, purge, cancellationToken);
     }
 
     public async Task<UpdateWithPreconditionResult<Buffer>> RestoreBufferById(string id, CancellationToken cancellationToken)
@@ -67,7 +67,7 @@ public sealed partial class BufferManager
 
     public async Task<int> DeleteBuffers(IDictionary<string, string>? tags, bool purge, CancellationToken cancellationToken)
     {
-        return await _repository.DeleteBuffers(tags, purge, cancellationToken);
+        return await _repository.SoftDeleteBuffers(tags, purge, cancellationToken);
     }
 
     public async Task<int> RestoreBuffers(IDictionary<string, string>? tags, CancellationToken cancellationToken)
