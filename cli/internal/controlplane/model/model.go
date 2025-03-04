@@ -27,7 +27,7 @@ type Buffer struct {
 	Tags      map[string]string `json:"tags,omitempty"`
 	ETag      string            `json:"eTag,omitempty"`
 
-	ExpiresAt time.Time `json:"expiresAt,omitempty"`
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
 }
 
 type BufferAccess struct {

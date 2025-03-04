@@ -119,3 +119,7 @@ api:
   #   certManager: {} # same fields as `tyger` above
   #   nvidiaDevicePlugin: {} # same fields as `tyger` above
   #   traefik: {} # same fields as `tyger` above
+
+buffers:
+  activeLifetime: 0.00:00
+  softDeletedLifetime: 3.00:00

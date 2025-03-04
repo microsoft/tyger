@@ -104,7 +104,9 @@ set-localsettings: set-context
 					"storageAccounts": $$(echo $${helm_values} | jq -c '.buffers.storageAccounts')
 				},
 				"bufferSidecarImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.bufferSidecarImage')",
-				"bufferCopierImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.bufferCopierImage')"
+				"bufferCopierImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.bufferCopierImage')",
+				"activeLifetime": "$$(echo $${helm_values} | jq -r '.buffers.activeLifetime')",
+				"softDeletedLifetime": "$$(echo $${helm_values} | jq -r '.buffers.softDeletedLifetime')"
 			},
 			"database": {
 				"host": "$$(echo $${helm_values} | jq -r '.database.host')",

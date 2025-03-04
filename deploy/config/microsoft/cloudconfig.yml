@@ -69,3 +69,7 @@ api:
         bufferSidecarImage: ${BUFFER_SIDECAR_IMAGE}
         bufferCopierImage: ${BUFFER_COPIER_IMAGE}
         workerWaiterImage: ${WORKER_WAITER_IMAGE}
+
+buffers:
+  activeLifetime: 0.00:00
+  softDeletedLifetime: 1.00:00

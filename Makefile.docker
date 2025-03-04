@@ -48,7 +48,9 @@ set-localsettings: ensure-data-plane-cert
 				"localStorage": {
 					"dataPlaneEndpoint": "http+unix://$${install_path}/data-plane/tyger.data.sock",
 					"tcpDataPlaneEndpoint": "http://localhost:$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.dataPlanePort')"
-				}
+				},
+				"activeLifetime": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.buffers.activeLifetime')",
+				"softDeletedLifetime": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.buffers.softDeletedLifetime')"
 			},
 			"database": {
 				"host": "$${install_path}/database",

@@ -35,3 +35,7 @@ signingKeys:
 # dataPlaneImage:
 # bufferSidecarImage:
 # gatewayImage:
+
+buffers:
+  activeLifetime: 0.00:00
+  softDeletedLifetime: 0.24:00

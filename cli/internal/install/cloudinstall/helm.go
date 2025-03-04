@@ -493,7 +493,9 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, dryRun bool) (
 				"port":         databasePort,
 			},
 			"buffers": map[string]any{
-				"storageAccounts": buffersStorageAccountValues,
+				"storageAccounts":     buffersStorageAccountValues,
+				"activeLifetime":      inst.Config.Buffers.ActiveLifetime,
+				"softDeletedLifetime": inst.Config.Buffers.SoftDeletedLifetime,
 			},
 			"logArchive": map[string]any{
 				"storageAccountEndpoint": *logArchiveAccount.Properties.PrimaryEndpoints.Blob,

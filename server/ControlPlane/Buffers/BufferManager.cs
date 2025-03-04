@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Options;
 using Tyger.ControlPlane.Database;
 using Tyger.ControlPlane.Model;
 using Buffer = Tyger.ControlPlane.Model.Buffer;
@@ -14,13 +15,15 @@ public sealed partial class BufferManager
     private readonly IBufferProvider _bufferProvider;
     private readonly IEphemeralBufferProvider _ephemeralBufferProvider;
     private readonly ILogger<BufferManager> _logger;
+    private readonly IOptions<BufferOptions> _bufferOptions;
 
-    public BufferManager(Repository repository, IBufferProvider bufferProvider, IEphemeralBufferProvider ephemeralBufferProvider, ILogger<BufferManager> logger)
+    public BufferManager(Repository repository, IBufferProvider bufferProvider, IEphemeralBufferProvider ephemeralBufferProvider, ILogger<BufferManager> logger, IOptions<BufferOptions> bufferOptions)
     {
         _repository = repository;
         _bufferProvider = bufferProvider;
         _ephemeralBufferProvider = ephemeralBufferProvider;
         _logger = logger;
+        _bufferOptions = bufferOptions;
     }
 
     public async Task<Buffer> CreateBuffer(Buffer newBuffer, CancellationToken cancellationToken)
@@ -42,12 +45,24 @@ public sealed partial class BufferManager
 
     public async Task<UpdateWithPreconditionResult<Buffer>> DeleteBufferById(string id, bool purge, CancellationToken cancellationToken)
     {
-        return await _repository.SoftDeleteBuffer(id, purge, cancellationToken);
+        var expiresAt = DateTime.UtcNow.Add(_bufferOptions.Value.SoftDeletedLifetime.Duration());
+        if (purge)
+        {
+            expiresAt = DateTime.UtcNow;
+        }
+
+        return await _repository.SoftDeleteBuffer(id, expiresAt, cancellationToken);
     }
 
     public async Task<UpdateWithPreconditionResult<Buffer>> RestoreBufferById(string id, CancellationToken cancellationToken)
     {
-        return await _repository.RestoreBuffer(id, cancellationToken);
+        DateTime? expiresAt = null;
+        if (_bufferOptions.Value.ActiveLifetime != TimeSpan.Zero)
+        {
+            expiresAt = DateTime.UtcNow.Add(_bufferOptions.Value.ActiveLifetime.Duration());
+        }
+
+        return await _repository.RestoreBuffer(id, expiresAt, cancellationToken);
     }
 
     public async Task<bool> CheckBuffersExist(ICollection<string> ids, CancellationToken cancellationToken)
@@ -67,12 +82,24 @@ public sealed partial class BufferManager
 
     public async Task<int> DeleteBuffers(IDictionary<string, string>? tags, bool purge, CancellationToken cancellationToken)
     {
-        return await _repository.SoftDeleteBuffers(tags, purge, cancellationToken);
+        var expiresAt = DateTime.UtcNow.Add(_bufferOptions.Value.SoftDeletedLifetime.Duration());
+        if (purge)
+        {
+            expiresAt = DateTime.UtcNow;
+        }
+
+        return await _repository.SoftDeleteBuffers(tags, expiresAt, cancellationToken);
     }
 
     public async Task<int> RestoreBuffers(IDictionary<string, string>? tags, CancellationToken cancellationToken)
     {
-        return await _repository.RestoreBuffers(tags, cancellationToken);
+        DateTime? expiresAt = null;
+        if (_bufferOptions.Value.ActiveLifetime != TimeSpan.Zero)
+        {
+            expiresAt = DateTime.UtcNow.Add(_bufferOptions.Value.ActiveLifetime.Duration());
+        }
+
+        return await _repository.RestoreBuffers(tags, expiresAt, cancellationToken);
     }
 
     public async Task<int> GetBufferCount(IDictionary<string, string>? tags, bool softDeleted, CancellationToken cancellationToken)

@@ -381,6 +381,9 @@ public class BufferOptions
 
     public string PrimarySigningPrivateKeyPath { get; init; } = null!;
     public string SecondarySigningPrivateKeyPath { get; init; } = null!;
+
+    public TimeSpan ActiveLifetime { get; init; } = TimeSpan.Zero;
+    public TimeSpan SoftDeletedLifetime { get; init; } = TimeSpan.Zero;
 }
 
 public class CloudBufferStorageOptions

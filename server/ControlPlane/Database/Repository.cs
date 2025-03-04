@@ -1270,7 +1270,7 @@ public class Repository
         {
             await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
             await using var command = new NpgsqlCommand("""
-                SELECT buffers.created_at, storage_accounts.location, tag_keys.name, buffer_tags.value
+                SELECT buffers.created_at, buffers.expires_at, storage_accounts.location, tag_keys.name, buffer_tags.value
                 FROM buffers
                 INNER JOIN storage_accounts
                     on storage_accounts.id = buffers.storage_account_id
@@ -1293,6 +1293,7 @@ public class Repository
             OrderedDictionary<string, string>? tags = null;
             string location = "";
             DateTimeOffset createdAt = default;
+            DateTimeOffset? expiresAt = null;
 
             await command.PrepareAsync(cancellationToken);
             await using var reader = (await command.ExecuteReaderAsync(cancellationToken))!;
@@ -1304,13 +1305,18 @@ public class Repository
                 {
                     any = true;
                     createdAt = reader.GetDateTime(0);
-                    location = reader.GetString(1);
+                    if (!reader.IsDBNull(1))
+                    {
+                        expiresAt = reader.GetDateTime(1);
+                    }
+
+                    location = reader.GetString(2);
                 }
 
-                if (!reader.IsDBNull(2) && !reader.IsDBNull(3))
+                if (!reader.IsDBNull(3) && !reader.IsDBNull(4))
                 {
-                    var name = reader.GetString(2);
-                    var value = reader.GetString(3);
+                    var name = reader.GetString(3);
+                    var value = reader.GetString(4);
                     (tags ??= []).Add(name, value);
                 }
             }
@@ -1320,7 +1326,7 @@ public class Repository
                 return null;
             }
 
-            return new Buffer { Id = id, CreatedAt = createdAt, Location = location, Tags = tags, };
+            return new Buffer { Id = id, CreatedAt = createdAt, ExpiresAt = expiresAt, Location = location, Tags = tags, };
         }, cancellationToken);
     }
 
@@ -1365,7 +1371,7 @@ public class Repository
             var commandText = new StringBuilder();
             commandText.AppendLine($"""
                 WITH matches AS (
-                    SELECT buffers.id, buffers.created_at, buffers.storage_account_id
+                    SELECT buffers.id, buffers.created_at, buffers.expires_at, buffers.storage_account_id
                     FROM buffers
                 """);
 
@@ -1441,7 +1447,7 @@ public class Repository
                     ORDER BY buffers.created_at DESC, buffers.id DESC
                     LIMIT $1
                 )
-                SELECT matches.id, matches.created_at, storage_accounts.location, tag_keys.name, buffer_tags.value
+                SELECT matches.id, matches.created_at, matches.expires_at, storage_accounts.location, tag_keys.name, buffer_tags.value
                 FROM matches
                 INNER JOIN storage_accounts ON matches.storage_account_id = storage_accounts.id
                 LEFT JOIN buffer_tags
@@ -1464,7 +1470,13 @@ public class Repository
                 {
                     var id = reader.GetString(0);
                     var createdAt = reader.GetDateTime(1);
-                    var location = reader.GetString(2);
+                    DateTimeOffset? expiresAt = null;
+                    if (!reader.IsDBNull(2))
+                    {
+                        expiresAt = reader.GetDateTime(2);
+                    }
+
+                    var location = reader.GetString(3);
 
                     if (currentBuffer.Id != id)
                     {
@@ -1475,14 +1487,14 @@ public class Repository
                             results.Add(currentBuffer);
                         }
 
-                        currentBuffer = currentBuffer with { Id = id, CreatedAt = createdAt, Location = location };
+                        currentBuffer = currentBuffer with { Id = id, CreatedAt = createdAt, ExpiresAt = expiresAt, Location = location };
                         currentTags = [];
                     }
 
-                    if (!reader.IsDBNull(3))
+                    if (!reader.IsDBNull(4))
                     {
-                        var tagName = reader.GetString(3);
-                        var tagValue = reader.GetString(4);
+                        var tagName = reader.GetString(4);
+                        var tagValue = reader.GetString(5);
 
                         currentTags[tagName] = tagValue;
                     }
@@ -1777,7 +1789,7 @@ public class Repository
         }, cancellationToken);
     }
 
-    public async Task<UpdateWithPreconditionResult<Buffer>> SoftDeleteBuffer(string id, bool purge, CancellationToken cancellationToken)
+    public async Task<UpdateWithPreconditionResult<Buffer>> SoftDeleteBuffer(string id, DateTime expiresAt, CancellationToken cancellationToken)
     {
         /* TODO Joe: DeleteBuffer is essentially just an UpdateBufferTags except we're changing the
          * is_soft_deleted and expires_at columns instead of the tags. Consider refactoring...
@@ -1825,9 +1837,7 @@ public class Repository
             buffer = buffer with
             {
                 IsSoftDeleted = true,
-
-                // TODO Joe: Configurable TTL
-                ExpiresAt = purge ? DateTime.UtcNow : DateTime.UtcNow.AddDays(1)
+                ExpiresAt = expiresAt
             };
 
             using (var deleteCommand = new NpgsqlCommand
@@ -1856,7 +1866,7 @@ public class Repository
         }, cancellationToken);
     }
 
-    public async Task<UpdateWithPreconditionResult<Buffer>> RestoreBuffer(string id, CancellationToken cancellationToken)
+    public async Task<UpdateWithPreconditionResult<Buffer>> RestoreBuffer(string id, DateTime? expiresAt, CancellationToken cancellationToken)
     {
         /* TODO Joe: RestoreBuffer is essentially just an UpdateBufferTags except we're changing the
          * is_soft_deleted and expires_at columns instead of the tags. Consider refactoring...
@@ -1904,9 +1914,7 @@ public class Repository
             buffer = buffer with
             {
                 IsSoftDeleted = false,
-
-                // TODO Joe: Configurable TTL
-                ExpiresAt = DateTime.UtcNow
+                ExpiresAt = expiresAt
             };
 
             using (var restoreCommand = new NpgsqlCommand
@@ -1922,7 +1930,7 @@ public class Repository
                     {
                         new() { Value = id, NpgsqlDbType = NpgsqlDbType.Text },
                         new() { Value = buffer.IsSoftDeleted, NpgsqlDbType = NpgsqlDbType.Boolean },
-                        new() { Value = buffer.ExpiresAt, NpgsqlDbType = NpgsqlDbType.TimestampTz },
+                        new() { Value = buffer.ExpiresAt.HasValue ? buffer.ExpiresAt : DBNull.Value, NpgsqlDbType = NpgsqlDbType.TimestampTz },
                     }
             })
             {
@@ -2009,15 +2017,13 @@ public class Repository
         }, cancellationToken);
     }
 
-    public async Task<int> SoftDeleteBuffers(IDictionary<string, string>? tags, bool purge, CancellationToken cancellationToken)
+    public async Task<int> SoftDeleteBuffers(IDictionary<string, string>? tags, DateTime expiresAt, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
             await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
             await using var tx = await conn.BeginTransactionAsync(cancellationToken);
 
-            // TODO Joe: Configurable TTL for soft-deleted buffers
-            var expiresAt = purge ? DateTime.UtcNow : DateTime.UtcNow.AddDays(1);
             var count = 0;
 
             await using var command = new NpgsqlCommand
@@ -2090,7 +2096,7 @@ public class Repository
 
     }
 
-    public async Task<int> RestoreBuffers(IDictionary<string, string>? tags, CancellationToken cancellationToken)
+    public async Task<int> RestoreBuffers(IDictionary<string, string>? tags, DateTime? expiresAt, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
@@ -2103,8 +2109,6 @@ public class Repository
                 Transaction = tx,
             };
 
-            // TODO Joe: Configurable TTL (for active buffers)
-            var expiresAt = DateTime.UtcNow;
             var count = 0;
 
             var commandText = new StringBuilder();
@@ -2159,7 +2163,7 @@ public class Repository
                     FROM matches
                     WHERE buffers.id = matches.rowid
                     """);
-            command.Parameters.Add(new() { Value = expiresAt, NpgsqlDbType = NpgsqlDbType.TimestampTz });
+            command.Parameters.Add(new() { Value = expiresAt.HasValue ? expiresAt : DBNull.Value, NpgsqlDbType = NpgsqlDbType.TimestampTz });
 
             command.CommandText = commandText.ToString();
 

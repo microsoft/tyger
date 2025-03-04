@@ -20,10 +20,11 @@ const (
 )
 
 type CloudEnvironmentConfig struct {
-	Kind            string       `json:"kind"`
-	EnvironmentName string       `json:"environmentName"`
-	Cloud           *CloudConfig `json:"cloud"`
-	Api             *ApiConfig   `json:"api"`
+	Kind            string         `json:"kind"`
+	EnvironmentName string         `json:"environmentName"`
+	Cloud           *CloudConfig   `json:"cloud"`
+	Api             *ApiConfig     `json:"api"`
+	Buffers         *BuffersConfig `json:"buffers"`
 }
 
 type CloudConfig struct {
@@ -158,6 +159,11 @@ type HelmChartConfig struct {
 	Version     string         `json:"version"`
 	ChartRef    string         `json:"chartRef"`
 	Values      map[string]any `json:"values"`
+}
+
+type BuffersConfig struct {
+	ActiveLifetime      string `json:"activeLifetime"`
+	SoftDeletedLifetime string `json:"softDeletedLifetime"`
 }
 
 type ConfigTemplateValues struct {

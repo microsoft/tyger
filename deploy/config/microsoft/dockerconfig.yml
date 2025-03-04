@@ -18,3 +18,7 @@ gatewayImage: ${GATEWAY_IMAGE}
 
 network:
   subnet: 172.20.0.0/16
+
+buffers:
+  activeLifetime: 0.00:00
+  softDeletedLifetime: 0.12:00:00

@@ -36,6 +36,7 @@ func (inst *Installer) QuickValidateConfig() bool {
 
 	inst.quickValidateCloudConfig(&success)
 	inst.quickValidateApiConfig(&success)
+	inst.quickValidateBuffersConfig(&success)
 
 	return success
 }
@@ -363,6 +364,30 @@ func (inst *Installer) quickValidateApiConfig(success *bool) {
 				validationError(success, "The `api.auth.cliAppUri` field must be a valid URI")
 			}
 		}
+	}
+}
+
+func (inst *Installer) quickValidateBuffersConfig(success *bool) {
+	buffersConfig := inst.Config.Buffers
+	if buffersConfig == nil {
+		inst.Config.Buffers = &BuffersConfig{}
+	}
+
+	if buffersConfig.ActiveLifetime == "" {
+		buffersConfig.ActiveLifetime = "0"
+	}
+
+	if buffersConfig.SoftDeletedLifetime == "" {
+		buffersConfig.SoftDeletedLifetime = "0"
+	}
+
+	timeSpanRegex := regexp.MustCompile(`^(\d+)[.](\d\d):(\d\d)(:(\d\d))?$`)
+	if !timeSpanRegex.MatchString(buffersConfig.ActiveLifetime) {
+		validationError(success, "The `buffers.activeLifetime` field must match the pattern "+timeSpanRegex.String())
+	}
+
+	if !timeSpanRegex.MatchString(buffersConfig.SoftDeletedLifetime) {
+		validationError(success, "The `buffers.softDeletedLifetime` field must match the pattern "+timeSpanRegex.String())
 	}
 }
 

@@ -157,6 +157,25 @@ func (inst *Installer) QuickValidateConfig() bool {
 		}
 	}
 
+	if inst.Config.Buffers == nil {
+		inst.Config.Buffers = &BuffersConfig{}
+	}
+	if inst.Config.Buffers.ActiveLifetime == "" {
+		inst.Config.Buffers.ActiveLifetime = "0"
+	}
+	if inst.Config.Buffers.SoftDeletedLifetime == "" {
+		inst.Config.Buffers.SoftDeletedLifetime = "0"
+	}
+
+	timeSpanRegex := regexp.MustCompile(`^(\d+)[.](\d\d):(\d\d)(:(\d\d))?$`)
+	if !timeSpanRegex.MatchString(inst.Config.Buffers.ActiveLifetime) {
+		validationError(&success, "The `buffers.activeLifetime` field must match the pattern "+timeSpanRegex.String())
+	}
+
+	if !timeSpanRegex.MatchString(inst.Config.Buffers.SoftDeletedLifetime) {
+		validationError(&success, "The `buffers.softDeletedLifetime` field must match the pattern "+timeSpanRegex.String())
+	}
+
 	return success
 }
 

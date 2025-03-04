@@ -40,6 +40,8 @@ database:
 
 buffers:
   storageAccounts: [] # {name: myaccount, location: westus2, endpoint: https://... }, ...
+  activeLifetime:
+  softDeletedLifetime:
 
 logArchive:
   storageAccountEndpoint:
