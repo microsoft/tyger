@@ -595,6 +595,7 @@ func newBufferDeleteCommand() *cobra.Command {
 			options.Add("purge", strconv.FormatBool(purge))
 
 			if len(args) > 0 {
+				var deleted []model.Buffer
 				for _, id := range args {
 					buffer := model.Buffer{}
 					relativeUri := fmt.Sprintf("v1/buffers/%s?%s", id, options.Encode())
@@ -610,13 +611,21 @@ func newBufferDeleteCommand() *cobra.Command {
 						return err
 					}
 
-					formattedBuffer, err := json.MarshalIndent(buffer, "", "  ")
-					if err != nil {
-						return err
-					}
-
-					fmt.Println(string(formattedBuffer))
+					deleted = append(deleted, buffer)
 				}
+
+				var formatted []byte
+				var err error
+				if len(deleted) == 1 {
+					formatted, err = json.MarshalIndent(deleted[0], "", "  ")
+				} else {
+					formatted, err = json.MarshalIndent(deleted, "", "  ")
+				}
+				if err != nil {
+					return err
+				}
+				fmt.Println(string(formatted))
+
 			} else {
 				for name, value := range tags {
 					options.Add(fmt.Sprintf("tag[%s]", name), value)

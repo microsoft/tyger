@@ -1222,6 +1222,7 @@ public class Repository
                     SELECT count(*)
                     FROM buffers
                     WHERE id = ANY($1)
+                    AND is_soft_deleted = false
                     """,
                 Parameters =
                 {
@@ -1244,6 +1245,7 @@ public class Repository
                 FROM unnest($1::text[]) AS b(id)
                 LEFT JOIN buffers AS buf ON buf.id = b.id
                 LEFT JOIN storage_accounts AS sa ON sa.id = buf.storage_account_id
+                WHERE buf.is_soft_deleted = false
                 """, conn)
             {
                 Parameters =
@@ -1805,7 +1807,7 @@ public class Repository
                 Connection = connection,
                 Transaction = tx,
                 CommandText = """
-                    SELECT buffers.is_soft_deleted
+                    SELECT buffers.created_at, buffers.is_soft_deleted
                     FROM buffers
                     WHERE buffers.id = $1
                     FOR UPDATE
@@ -1820,7 +1822,12 @@ public class Repository
                 await using var reader = await selectCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
                 if (await reader.ReadAsync(cancellationToken))
                 {
-                    buffer = new Buffer { Id = id, IsSoftDeleted = reader.GetBoolean(0) };
+                    buffer = new Buffer
+                    {
+                        Id = id,
+                        CreatedAt = reader.GetDateTime(0),
+                        IsSoftDeleted = reader.GetBoolean(1)
+                    };
                 }
             }
 
@@ -1837,7 +1844,6 @@ public class Repository
             buffer = buffer with
             {
                 IsSoftDeleted = true,
-                ExpiresAt = expiresAt
             };
 
             using (var deleteCommand = new NpgsqlCommand
@@ -1848,17 +1854,20 @@ public class Repository
                     UPDATE buffers
                     SET is_soft_deleted = $2, expires_at = $3
                     WHERE id = $1
+                    RETURNING expires_at
                     """,
                 Parameters =
                     {
                         new() { Value = id, NpgsqlDbType = NpgsqlDbType.Text },
                         new() { Value = buffer.IsSoftDeleted, NpgsqlDbType = NpgsqlDbType.Boolean },
-                        new() { Value = buffer.ExpiresAt, NpgsqlDbType = NpgsqlDbType.TimestampTz },
+                        new() { Value = expiresAt, NpgsqlDbType = NpgsqlDbType.TimestampTz },
                     }
             })
             {
                 await deleteCommand.PrepareAsync(cancellationToken);
-                await deleteCommand.ExecuteNonQueryAsync(cancellationToken);
+                await using var reader = await deleteCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+                await reader.ReadAsync(cancellationToken);
+                buffer = buffer with { ExpiresAt = reader.GetDateTime(0) };
             }
 
             await tx.CommitAsync(cancellationToken);
@@ -1882,7 +1891,7 @@ public class Repository
                 Connection = connection,
                 Transaction = tx,
                 CommandText = """
-                    SELECT buffers.is_soft_deleted
+                    SELECT buffers.created_at, buffers.is_soft_deleted
                     FROM buffers
                     WHERE buffers.id = $1
                     FOR UPDATE
@@ -1897,7 +1906,12 @@ public class Repository
                 await using var reader = await selectCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
                 if (await reader.ReadAsync(cancellationToken))
                 {
-                    buffer = new Buffer { Id = id, IsSoftDeleted = reader.GetBoolean(0) };
+                    buffer = new Buffer
+                    {
+                        Id = id,
+                        CreatedAt = reader.GetDateTime(0),
+                        IsSoftDeleted = reader.GetBoolean(1)
+                    };
                 }
             }
 
@@ -1914,7 +1928,6 @@ public class Repository
             buffer = buffer with
             {
                 IsSoftDeleted = false,
-                ExpiresAt = expiresAt
             };
 
             using (var restoreCommand = new NpgsqlCommand
@@ -1925,17 +1938,20 @@ public class Repository
                     UPDATE buffers
                     SET is_soft_deleted = $2, expires_at = $3
                     WHERE id = $1
+                    RETURNING expires_at
                     """,
                 Parameters =
                     {
                         new() { Value = id, NpgsqlDbType = NpgsqlDbType.Text },
                         new() { Value = buffer.IsSoftDeleted, NpgsqlDbType = NpgsqlDbType.Boolean },
-                        new() { Value = buffer.ExpiresAt.HasValue ? buffer.ExpiresAt : DBNull.Value, NpgsqlDbType = NpgsqlDbType.TimestampTz },
+                        new() { Value = expiresAt.HasValue ? expiresAt : DBNull.Value, NpgsqlDbType = NpgsqlDbType.TimestampTz },
                     }
             })
             {
                 await restoreCommand.PrepareAsync(cancellationToken);
-                await restoreCommand.ExecuteNonQueryAsync(cancellationToken);
+                await using var reader = await restoreCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+                await reader.ReadAsync(cancellationToken);
+                buffer = buffer with { ExpiresAt = reader.IsDBNull(0) ? (DateTime?)null : reader.GetDateTime(0) };
             }
 
             await tx.CommitAsync(cancellationToken);
