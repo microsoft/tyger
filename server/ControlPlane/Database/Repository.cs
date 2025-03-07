@@ -1245,7 +1245,6 @@ public class Repository
                 FROM unnest($1::text[]) AS b(id)
                 LEFT JOIN buffers AS buf ON buf.id = b.id
                 LEFT JOIN storage_accounts AS sa ON sa.id = buf.storage_account_id
-                WHERE buf.is_soft_deleted = false
                 """, conn)
             {
                 Parameters =
@@ -1791,11 +1790,8 @@ public class Repository
         }, cancellationToken);
     }
 
-    public async Task<UpdateWithPreconditionResult<Buffer>> SoftDeleteBuffer(string id, DateTime expiresAt, CancellationToken cancellationToken)
+    public async Task<UpdateWithPreconditionResult<Buffer>> SoftDeleteBuffer(string id, DateTime expiresAt, bool purge, CancellationToken cancellationToken)
     {
-        /* TODO Joe: DeleteBuffer is essentially just an UpdateBufferTags except we're changing the
-         * is_soft_deleted and expires_at columns instead of the tags. Consider refactoring...
-         */
         return await _resiliencePipeline.ExecuteAsync<UpdateWithPreconditionResult<Buffer>>(async cancellationToken =>
         {
             await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
@@ -1836,7 +1832,7 @@ public class Repository
                 return new UpdateWithPreconditionResult<Buffer>.NotFound();
             }
 
-            if (buffer.IsSoftDeleted)
+            if (!purge && buffer.IsSoftDeleted)
             {
                 return new UpdateWithPreconditionResult<Buffer>.PreconditionFailed();
             }
@@ -1877,9 +1873,6 @@ public class Repository
 
     public async Task<UpdateWithPreconditionResult<Buffer>> RestoreBuffer(string id, DateTime? expiresAt, CancellationToken cancellationToken)
     {
-        /* TODO Joe: RestoreBuffer is essentially just an UpdateBufferTags except we're changing the
-         * is_soft_deleted and expires_at columns instead of the tags. Consider refactoring...
-         */
         return await _resiliencePipeline.ExecuteAsync<UpdateWithPreconditionResult<Buffer>>(async cancellationToken =>
         {
             await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
@@ -2033,7 +2026,7 @@ public class Repository
         }, cancellationToken);
     }
 
-    public async Task<int> SoftDeleteBuffers(IDictionary<string, string>? tags, DateTime expiresAt, CancellationToken cancellationToken)
+    public async Task<int> SoftDeleteBuffers(IDictionary<string, string>? tags, DateTime expiresAt, bool purge, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
@@ -2078,7 +2071,10 @@ public class Repository
                 }
             }
 
-            whereClauses.Add($"    buffers.is_soft_deleted = false");
+            if (!purge)
+            {
+                whereClauses.Add($"    buffers.is_soft_deleted = false");
+            }
 
             commandText.AppendLine("WHERE");
             for (var i = 0; i < whereClauses.Count; i++)
@@ -2189,6 +2185,51 @@ public class Repository
             return count;
         }, cancellationToken);
 
+    }
+
+    public async Task<IList<string>> GetExpiredBufferIds(CancellationToken cancellationToken)
+    {
+        return await _resiliencePipeline.ExecuteAsync<IList<string>>(async cancellationToken =>
+        {
+            await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+            // TODO Joe: Add a filtered index for this query, which is run frequently in the background
+            await using var command = new NpgsqlCommand("""
+                SELECT id
+                FROM buffers
+                WHERE expires_at < now() AT TIME ZONE 'utc'
+                """, conn);
+
+            await command.PrepareAsync(cancellationToken);
+            await using var reader = (await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken))!;
+            var ids = new List<string>();
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                ids.Add(reader.GetString(0));
+            }
+
+            return ids;
+        }, cancellationToken);
+    }
+
+    public async Task<int> HardDeleteBuffers(IList<string> ids, CancellationToken cancellationToken)
+    {
+        return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
+        {
+            await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+            await using var cmd = new NpgsqlCommand("""
+                DELETE from buffers
+                WHERE id IN (SELECT unnest($1::text[]))
+                """, conn)
+            {
+                Parameters =
+                {
+                    new() { Value = ids.ToArray(), NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Text }
+                }
+            };
+
+            await cmd.PrepareAsync(cancellationToken);
+            return await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task ListenForNewRuns(Func<IReadOnlyList<Run>, CancellationToken, Task> processRuns, CancellationToken cancellationToken)

@@ -93,6 +93,31 @@ public partial class DataPlaneStorageHandler : IHealthCheck
         context.Response.StatusCode = StatusCodes.Status201Created;
     }
 
+    public void HandleDeleteContainer(string containerId, HttpContext context)
+    {
+        switch (LocalSasHandler.ValidateRequest(containerId, SasResourceType.Container, SasAction.Delete, context.Request.Query, _validateSignature))
+        {
+            case SasValidationResult.InvalidSas:
+                context.Response.Headers[ErrorCodeHeaderName] = "AuthenticationFailed";
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                return;
+            case SasValidationResult.ActionNotAllowed:
+                context.Response.Headers[ErrorCodeHeaderName] = "AuthorizationPermissionMismatch";
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                return;
+        }
+
+        if (!Directory.Exists(Path.Combine(_dataDir, containerId)))
+        {
+            context.Response.Headers["x-ms-error-code"] = "ContainerNotFound";
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        Directory.Delete(Path.Combine(_dataDir, containerId), true);
+        Directory.Delete(Path.Combine(_metadataDir, containerId), true);
+    }
+
     public async Task HandlePutBlob(string containerId, string blobRelativePath, HttpContext context, CancellationToken cancellationToken)
     {
         switch (LocalSasHandler.ValidateRequest(containerId, SasResourceType.Blob, SasAction.Create, context.Request.Query, _validateSignature))

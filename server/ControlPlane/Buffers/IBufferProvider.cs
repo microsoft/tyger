@@ -10,6 +10,8 @@ public interface IBufferProvider
 {
     Task<Buffer> CreateBuffer(Buffer buffer, CancellationToken cancellationToken);
 
+    Task<int> DeleteBuffers(IList<string> ids, CancellationToken cancellationToken);
+
     Task<IList<(string id, bool writeable, BufferAccess? bufferAccess)>> CreateBufferAccessUrls(IList<(string id, bool writeable)> requests, bool preferTcp, bool checkExists, CancellationToken cancellationToken);
     IList<StorageAccount> GetStorageAccounts();
 

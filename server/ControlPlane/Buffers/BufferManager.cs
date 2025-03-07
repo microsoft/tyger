@@ -51,7 +51,7 @@ public sealed partial class BufferManager
             expiresAt = DateTime.UtcNow;
         }
 
-        return await _repository.SoftDeleteBuffer(id, expiresAt, cancellationToken);
+        return await _repository.SoftDeleteBuffer(id, expiresAt, purge, cancellationToken);
     }
 
     public async Task<UpdateWithPreconditionResult<Buffer>> RestoreBufferById(string id, CancellationToken cancellationToken)
@@ -88,7 +88,7 @@ public sealed partial class BufferManager
             expiresAt = DateTime.UtcNow;
         }
 
-        return await _repository.SoftDeleteBuffers(tags, expiresAt, cancellationToken);
+        return await _repository.SoftDeleteBuffers(tags, expiresAt, purge, cancellationToken);
     }
 
     public async Task<int> RestoreBuffers(IDictionary<string, string>? tags, CancellationToken cancellationToken)

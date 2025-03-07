@@ -39,6 +39,16 @@ public static class DataPlane
                 handler.HandlePutContainer(containerId, context);
             });
 
+        app.MapDelete(
+            "v1/containers/{containerId}",
+            (
+                [FromServices] DataPlaneStorageHandler handler,
+                string containerId,
+                HttpContext context) =>
+            {
+                handler.HandleDeleteContainer(containerId, context);
+            });
+
         app.MapPut(
             "v1/containers/{containerId}/{**blobRelativePath}",
             async (

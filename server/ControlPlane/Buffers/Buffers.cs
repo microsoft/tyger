@@ -24,6 +24,7 @@ public static class Buffers
         if (builder is WebApplicationBuilder)
         {
             builder.Services.AddSingleton<BufferManager>();
+            builder.Services.AddHostedService<BufferDeleter>();
         }
 
         bool cloudStorageEnabled = builder.Configuration.GetSection("buffers:cloudStorage").Exists();

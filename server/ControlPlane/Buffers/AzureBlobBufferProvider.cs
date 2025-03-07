@@ -84,6 +84,30 @@ public sealed class AzureBlobBufferProvider : IHostedService, IBufferProvider, I
         return await _repository.CreateBuffer(buffer, storageAccountId, cancellationToken);
     }
 
+    public async Task<int> DeleteBuffers(IList<string> ids, CancellationToken cancellationToken)
+    {
+        var storageAccountIds = await _repository.GetBufferStorageAccountIds(ids, cancellationToken);
+        var deletedIds = new List<string>();
+        foreach (var id in ids)
+        {
+            var storageAccountId = storageAccountIds.First(sa => sa.bufferId == id).accountId;
+            if (!storageAccountId.HasValue)
+            {
+                // TODO Joe: Should this throw an error?
+                continue;
+            }
+
+            // TODO Joe: Should this call GetRefreshingServiceClient, or can we assume the client is already cached??
+            var client = _storageAccountClients![storageAccountId.Value];
+            var containerClient = client.ServiceClient.GetBlobContainerClient(id);
+            await containerClient.DeleteIfExistsAsync(cancellationToken: cancellationToken);
+            deletedIds.Add(id);
+
+        }
+
+        return await _repository.HardDeleteBuffers(deletedIds, cancellationToken);
+    }
+
     public async Task<IList<(string id, bool writeable, BufferAccess? bufferAccess)>> CreateBufferAccessUrls(IList<(string id, bool writeable)> requests, bool preferTcp, bool checkExists, CancellationToken cancellationToken)
     {
         var storageAccountIds = await _repository.GetBufferStorageAccountIds(requests.Select(r => r.id).ToArray(), cancellationToken);

@@ -16,4 +16,10 @@ public static partial class LogingExtensions
 
     [LoggerMessage(LogLevel.Warning, "Failed to mark buffer as failed")]
     public static partial void FailedToMarkBufferAsFailed(this ILogger logger, Exception ex);
+
+    [LoggerMessage(LogLevel.Information, "Deleted {deletedCount} of {totalCount} expired buffers")]
+    public static partial void DeletedBuffers(this ILogger logger, int deletedCount, int totalCount);
+
+    [LoggerMessage(LogLevel.Error, "Error during buffer deletion.")]
+    public static partial void ErrorDuringBackgroundBufferDelete(this ILogger logger, Exception exception);
 }

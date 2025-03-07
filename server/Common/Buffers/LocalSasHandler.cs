@@ -22,6 +22,7 @@ public static class LocalSasHandler
             (SasResourceType.Container, SasAction.Create) => "C",
             (SasResourceType.Container, SasAction.Read) => "R",
             (SasResourceType.Container, SasAction.Read | SasAction.Create) => "CR",
+            (SasResourceType.Container, SasAction.Delete) => "D",
             (SasResourceType.Blob, SasAction.Create) => "c",
             (SasResourceType.Blob, SasAction.Read) => "r",
             (SasResourceType.Blob, SasAction.Read | SasAction.Create) => "cr",
@@ -120,6 +121,11 @@ public static class LocalSasHandler
                     return SasValidationResult.ActionNotAllowed;
                 }
 
+                if (action.HasFlag(SasAction.Delete) && !sp.ToString().Contains('D'))
+                {
+                    return SasValidationResult.ActionNotAllowed;
+                }
+
                 break;
             case SasResourceType.Blob:
                 if (action.HasFlag(SasAction.Create) && !sp.ToString().Contains('c'))
@@ -147,6 +153,7 @@ public enum SasAction
     None = 0,
     Read = 1,
     Create = 1 << 1,
+    Delete = 1 << 2
 }
 
 public enum SasResourceType

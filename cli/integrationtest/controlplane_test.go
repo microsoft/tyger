@@ -1779,9 +1779,11 @@ func TestBufferDeleteMultipleIds(t *testing.T) {
 		getBuffer(t, buf.Id, "--soft-deleted")
 	}
 
-	runTygerSucceeds(t, "buffer", "restore", bufferId1, bufferId2)
+	runTygerSucceeds(t, "buffer", "restore", bufferId1)
 	runTygerSucceeds(t, "buffer", "show", bufferId1)
-	runTygerSucceeds(t, "buffer", "show", bufferId2)
+
+	// Ensure we can purge an already-soft-deleted buffer by ID
+	runTygerSucceeds(t, "buffer", "delete", "--purge", bufferId2)
 }
 
 func TestBufferDeleteByTag(t *testing.T) {
@@ -1836,33 +1838,45 @@ func TestBufferDeleteAll(t *testing.T) {
 	require.Len(deleted, 0)
 }
 
-// func TestBufferPurge(t *testing.T) {
-// 	t.Parallel()
-// 	require := require.New(t)
+func TestBufferPurge(t *testing.T) {
+	t.Parallel()
+	skipIfOnlyFastTests(t)
 
-// 	bufferId1 := runTygerSucceeds(t, "buffer", "create")
-// 	bufferId2 := runTygerSucceeds(t, "buffer", "create", "--tag", "purge=true")
-// 	bufferId3 := runTygerSucceeds(t, "buffer", "create", "--tag", "purge=true", "--tag", "extra=stuff")
+	require := require.New(t)
 
-// 	bufferJson := runTygerSucceeds(t, "buffer", "delete", "--purge", bufferId1)
-// 	var buffer model.Buffer
-// 	require.NoError(json.Unmarshal([]byte(bufferJson), &buffer))
-// 	require.Less(buffer.ExpiresAt, time.Now())
+	bufferId1 := runTygerSucceeds(t, "buffer", "create")
+	bufferId2 := runTygerSucceeds(t, "buffer", "create", "--tag", "purge=true")
+	bufferId3 := runTygerSucceeds(t, "buffer", "create", "--tag", "purge=true", "--tag", "extra=stuff")
 
-// 	runTygerSucceeds(t, "buffer", "delete", "--purge", "--force", "--tag", "purge=true")
+	sasUri := runTygerSucceeds(t, "buffer", "access", bufferId1, "-w")
+	runCommandSucceeds(t, "sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, sasUri))
+	runTygerSucceeds(t, "buffer", "read", sasUri)
 
-// 	// Wait for buffers to be purged...
-// 	time.Sleep(time.Second * 5)
+	bufferJson := runTygerSucceeds(t, "buffer", "delete", "--purge", bufferId1)
+	var buffer model.Buffer
+	require.NoError(json.Unmarshal([]byte(bufferJson), &buffer))
+	require.Less(*buffer.ExpiresAt, time.Now())
 
-// 	ids := []string{bufferId1, bufferId2, bufferId3}
-// 	for _, id := range ids {
-// 		_, _, err := runTyger("buffer", "show", id)
-// 		assert.Error(t, err)
+	// Ensure we can purge already-soft-deleted buffer(s)
+	runTygerSucceeds(t, "buffer", "delete", "--force", "--tag", "purge=true")
+	runTygerSucceeds(t, "buffer", "delete", "--purge", "--force", "--tag", "purge=true")
 
-// 		_, _, err = runTyger("buffer", "show", "--soft-deleted", id)
-// 		assert.Error(t, err)
-// 	}
-// }
+	// Wait for buffers to be purged... This depends on the sleep time in BufferDeleter
+	time.Sleep(time.Second * 35)
+
+	ids := []string{bufferId1, bufferId2, bufferId3}
+	for _, id := range ids {
+		_, _, err := runTyger("buffer", "show", id)
+		assert.Error(t, err)
+
+		_, _, err = runTyger("buffer", "show", "--soft-deleted", id)
+		assert.Error(t, err)
+	}
+
+	_, stderr, err := runTyger("buffer", "read", sasUri)
+	require.Error(err)
+	require.Contains(stderr, "the buffer does not exist")
+}
 
 func TestCreateRunWithDeletedBuffer(t *testing.T) {
 	t.Parallel()
