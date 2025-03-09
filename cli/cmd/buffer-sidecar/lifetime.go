@@ -49,7 +49,7 @@ func tryOpenFileUntilContainerExits(ctx context.Context, namespace, podName, con
 		// Create Kubernetes client
 		config, err := rest.InClusterConfig()
 		if err != nil {
-			// If not running in a cluster, we might be runinning on a workstation for development.
+			// If not running in a cluster, we might be running on a workstation for development.
 			configPath := filepath.Join(homedir.HomeDir(), ".kube", "config")
 			configBytes, err := os.ReadFile(configPath)
 			if err == nil {

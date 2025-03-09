@@ -1535,7 +1535,7 @@ timeoutSeconds: 600`, BasicImage)
 	out, stdErr, err := runTyger("buffer", "read", outputBufferId)
 	require.Len(out, 0)
 
-	// It's a race condition whether the pod was started before the cancel request was processed.
+	// There is a race condition based on whether the pod starts before the cancel request is processed.
 	// If the pod was started, the the buffer should be marked as completed because of the INT signal handler.
 	// If not, it will be marked as failed.
 
