@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"path/filepath"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -19,12 +20,14 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/homedir"
 )
 
-func tryOpenFileUntilContainerExits(namespace, podName, containerName, tombstoneFilePath string, filePath string, flag int, perm fs.FileMode) (*os.File, error) {
+func tryOpenFileUntilContainerExits(ctx context.Context, namespace, podName, containerName, tombstoneFilePath string, filePath string, flag int, perm fs.FileMode) (*os.File, error) {
 	// Create cancellable contexts
-	openFileCtx, openFileCancel := context.WithCancel(context.Background())
-	watchCtx, watchCancel := context.WithCancel(context.Background())
+	openFileCtx, openFileCancel := context.WithCancel(ctx)
+	watchCtx, watchCancel := context.WithCancel(ctx)
 	defer watchCancel()
 
 	if tombstoneFilePath != "" {
@@ -46,7 +49,19 @@ func tryOpenFileUntilContainerExits(namespace, podName, containerName, tombstone
 		// Create Kubernetes client
 		config, err := rest.InClusterConfig()
 		if err != nil {
-			log.Fatal().Err(err).Msg("Failed to load in-cluster Kubernetes config")
+			// If not running in a cluster, we might be running on a workstation for development.
+			configPath := filepath.Join(homedir.HomeDir(), ".kube", "config")
+			configBytes, err := os.ReadFile(configPath)
+			if err == nil {
+				if cc, err := clientcmd.NewClientConfigFromBytes(configBytes); err == nil {
+					if clientConfig, err := cc.ClientConfig(); err == nil {
+						config = clientConfig
+					}
+				}
+			}
+		}
+		if config == nil {
+			log.Fatal().Err(err).Msg("Failed to create Kubernetes client config")
 		}
 		clientset, err := kubernetes.NewForConfig(config)
 		if err != nil {

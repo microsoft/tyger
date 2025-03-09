@@ -46,8 +46,12 @@ func NewBufferCommand() *cobra.Command {
 
 	cmd.AddCommand(newBufferCreateCommand())
 	cmd.AddCommand(newBufferAccessCommand())
-	cmd.AddCommand(NewBufferReadCommand(os.OpenFile))
-	cmd.AddCommand(NewBufferWriteCommand(os.OpenFile))
+	cmd.AddCommand(NewBufferReadCommand(func(ctx context.Context, name string, flag int, perm fs.FileMode) (*os.File, error) {
+		return os.OpenFile(name, flag, perm)
+	}))
+	cmd.AddCommand(NewBufferWriteCommand(func(ctx context.Context, name string, flag int, perm fs.FileMode) (*os.File, error) {
+		return os.OpenFile(name, flag, perm)
+	}))
 	cmd.AddCommand(newGenerateCommand())
 	cmd.AddCommand(newBufferShowCommand())
 	cmd.AddCommand(newBufferSetCommand())
@@ -199,7 +203,7 @@ func getBufferAccessUri(ctx context.Context, bufferId string, writable bool) (*u
 	return url.Parse(bufferAccess.Uri)
 }
 
-func NewBufferReadCommand(openFileFunc func(name string, flag int, perm fs.FileMode) (*os.File, error)) *cobra.Command {
+func NewBufferReadCommand(openFileFunc func(ctx context.Context, name string, flag int, perm fs.FileMode) (*os.File, error)) *cobra.Command {
 	outputFilePath := ""
 	dop := dataplane.DefaultReadDop
 	cmd := &cobra.Command{
@@ -227,10 +231,18 @@ func NewBufferReadCommand(openFileFunc func(name string, flag int, perm fs.FileM
 				}
 			}
 
+			ctx, stopFunc := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+
+			go func() {
+				<-ctx.Done()
+				stopFunc()
+				log.Warn().Msg("Canceling...")
+			}()
+
 			var outputFile *os.File
 			if outputFilePath != "" {
 				var err error
-				outputFile, err = openFileFunc(outputFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+				outputFile, err = openFileFunc(ctx, outputFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 				if err != nil {
 					if err == context.Canceled {
 						log.Warn().Msg("OpenFile operation canceled. Exiting.")
@@ -242,14 +254,6 @@ func NewBufferReadCommand(openFileFunc func(name string, flag int, perm fs.FileM
 			} else {
 				outputFile = os.Stdout
 			}
-
-			ctx, stopFunc := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
-
-			go func() {
-				<-ctx.Done()
-				stopFunc()
-				log.Warn().Msg("Canceling...")
-			}()
 
 			if err := dataplane.Read(ctx, uri, outputFile, dataplane.WithReadDop(dop)); err != nil {
 				if errors.Is(err, ctx.Err()) {
@@ -265,7 +269,7 @@ func NewBufferReadCommand(openFileFunc func(name string, flag int, perm fs.FileM
 	return cmd
 }
 
-func NewBufferWriteCommand(openFileFunc func(name string, flag int, perm fs.FileMode) (*os.File, error)) *cobra.Command {
+func NewBufferWriteCommand(openFileFunc func(ctx context.Context, name string, flag int, perm fs.FileMode) (*os.File, error)) *cobra.Command {
 	inputFilePath := ""
 	dop := dataplane.DefaultWriteDop
 	blockSizeString := ""
@@ -296,13 +300,23 @@ func NewBufferWriteCommand(openFileFunc func(name string, flag int, perm fs.File
 				}
 			}
 
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			go func() {
+				<-ctx.Done()
+				stop()
+				log.Warn().Msg("Canceling...")
+			}()
+
 			var inputReader io.Reader
 			if inputFilePath != "" {
-				inputFile, err := openFileFunc(inputFilePath, os.O_RDONLY, 0)
+				inputFile, err := openFileFunc(ctx, inputFilePath, os.O_RDONLY, 0)
 				if err != nil {
 					if err == context.Canceled {
 						log.Warn().Msg("OpenFile operation canceled. Will write an empty payload to the buffer.")
 						inputReader = bytes.NewReader([]byte{})
+						cancelCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+						defer cancel()
+						ctx = cancelCtx
 					} else {
 						log.Fatal().Err(err).Msg("Unable to open input file for reading")
 					}
@@ -318,13 +332,6 @@ func NewBufferWriteCommand(openFileFunc func(name string, flag int, perm fs.File
 			} else {
 				inputReader = os.Stdin
 			}
-
-			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
-			go func() {
-				<-ctx.Done()
-				stop()
-				log.Warn().Msg("Canceling...")
-			}()
 
 			writeOptions := []dataplane.WriteOption{dataplane.WithWriteDop(dop)}
 			if blockSizeString != "" {

@@ -15,6 +15,8 @@ public interface IBufferProvider
 
     Task<Run> ExportBuffers(ExportBuffersRequest exportBufferRequest, CancellationToken cancellationToken);
     Task<Run> ImportBuffers(ImportBuffersRequest importBuffersRequest, CancellationToken cancellationToken);
+
+    Task TryMarkBufferAsFailed(string id, CancellationToken cancellationToken);
 }
 
 public interface IEphemeralBufferProvider

@@ -5,6 +5,8 @@ using System.Collections.Immutable;
 using System.Threading.Channels;
 using Docker.DotNet;
 using Docker.DotNet.Models;
+using Tyger.ControlPlane.Buffers;
+using Tyger.ControlPlane.Codespecs;
 using Tyger.ControlPlane.Database;
 using Tyger.ControlPlane.Model;
 using Tyger.ControlPlane.Runs;
@@ -15,18 +17,24 @@ public class DockerRunUpdater : IRunUpdater
 {
     private readonly Repository _repository;
     private readonly DockerClient _client;
+    private readonly CodespecReader _codespecReader;
+    private readonly IBufferProvider _bufferProvider;
     private readonly ILogger<DockerRunUpdater> _logger;
 
     private ImmutableDictionary<long, ImmutableArray<ChannelWriter<Run>>> _tagUpdateObservers = ImmutableDictionary<long, ImmutableArray<ChannelWriter<Run>>>.Empty;
 
     public DockerRunUpdater(
-    Repository repository,
-    DockerClient client,
-    ILogger<DockerRunUpdater> logger)
+        Repository repository,
+        DockerClient client,
+        CodespecReader codespecReader,
+        IBufferProvider bufferProvider,
+        ILogger<DockerRunUpdater> logger)
     {
         _repository = repository;
         _logger = logger;
         _client = client;
+        _codespecReader = codespecReader;
+        _bufferProvider = bufferProvider;
     }
 
     public async Task<Run?> CancelRun(long id, CancellationToken cancellationToken)
@@ -59,6 +67,15 @@ public class DockerRunUpdater : IRunUpdater
                 {
                     _logger.FailedToKillContainer(container.ID, e);
                 }
+            }
+        }
+
+        var jobCodespec = (JobCodespec)await _codespecReader.GetCodespec(updatedRun.Job.Codespec, cancellationToken);
+        foreach (var outputBufferParameter in jobCodespec.Buffers?.Outputs ?? [])
+        {
+            if (updatedRun.Job.Buffers?.TryGetValue(outputBufferParameter, out var bufferId) == true)
+            {
+                await _bufferProvider.TryMarkBufferAsFailed(bufferId, cancellationToken);
             }
         }
 
