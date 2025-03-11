@@ -1747,15 +1747,15 @@ func TestBufferDeleteById(t *testing.T) {
 
 	buffer := getBuffer(t, bufferId, "--soft-deleted")
 	require.Equal(buffer.Id, deletedBuffer.Id)
-	require.Equal(buffer.CreatedAt.UnixMilli(), deletedBuffer.CreatedAt.UnixMilli())
-	require.Equal(buffer.ExpiresAt.UnixMilli(), deletedBuffer.ExpiresAt.UnixMilli())
+	require.Equal(buffer.CreatedAt, deletedBuffer.CreatedAt)
+	require.Equal(buffer.ExpiresAt, deletedBuffer.ExpiresAt)
 
 	bufferJson = runTygerSucceeds(t, "buffer", "restore", bufferId)
 	var restoredBuffer model.Buffer
 	require.NoError(json.Unmarshal([]byte(bufferJson), &restoredBuffer))
 
 	require.Equal(buffer.Id, restoredBuffer.Id)
-	require.Equal(buffer.CreatedAt.UnixMilli(), restoredBuffer.CreatedAt.UnixMilli())
+	require.Equal(buffer.CreatedAt, restoredBuffer.CreatedAt)
 
 	runTygerSucceeds(t, "buffer", "show", restoredBuffer.Id)
 }
@@ -1781,9 +1781,6 @@ func TestBufferDeleteMultipleIds(t *testing.T) {
 
 	runTygerSucceeds(t, "buffer", "restore", bufferId1)
 	runTygerSucceeds(t, "buffer", "show", bufferId1)
-
-	// Ensure we can purge an already-soft-deleted buffer by ID
-	runTygerSucceeds(t, "buffer", "delete", "--purge", bufferId2)
 }
 
 func TestBufferDeleteByTag(t *testing.T) {
@@ -1852,14 +1849,15 @@ func TestBufferPurge(t *testing.T) {
 	runCommandSucceeds(t, "sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, sasUri))
 	runTygerSucceeds(t, "buffer", "read", sasUri)
 
-	bufferJson := runTygerSucceeds(t, "buffer", "delete", "--purge", bufferId1)
+	runTygerSucceeds(t, "buffer", "delete", bufferId1)
+	bufferJson := runTygerSucceeds(t, "buffer", "purge", bufferId1)
 	var buffer model.Buffer
 	require.NoError(json.Unmarshal([]byte(bufferJson), &buffer))
 	require.Less(*buffer.ExpiresAt, time.Now())
 
-	// Ensure we can purge already-soft-deleted buffer(s)
+	// Delete then immediately purge tagged buffers
 	runTygerSucceeds(t, "buffer", "delete", "--force", "--tag", "purge=true")
-	runTygerSucceeds(t, "buffer", "delete", "--purge", "--force", "--tag", "purge=true")
+	runTygerSucceeds(t, "buffer", "purge", "--force", "--tag", "purge=true")
 
 	// Wait for buffers to be purged... This depends on the sleep time in BufferDeleter
 	time.Sleep(time.Second * 35)

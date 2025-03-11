@@ -1832,7 +1832,9 @@ public class Repository
                 return new UpdateWithPreconditionResult<Buffer>.NotFound();
             }
 
-            if (!purge && buffer.IsSoftDeleted)
+            var invalidPurge = purge && !buffer.IsSoftDeleted;
+            var invalidDelete = !purge && buffer.IsSoftDeleted;
+            if (invalidPurge || invalidDelete)
             {
                 return new UpdateWithPreconditionResult<Buffer>.PreconditionFailed();
             }
@@ -1952,7 +1954,7 @@ public class Repository
         }, cancellationToken);
     }
 
-    public async Task<int> GetBufferCount(IDictionary<string, string>? tags, bool? softDeleted, CancellationToken cancellationToken)
+    public async Task<int> GetBufferCount(IDictionary<string, string>? tags, bool? whereSoftDeleted, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
@@ -1992,10 +1994,10 @@ public class Repository
                 }
             }
 
-            if (softDeleted.HasValue)
+            if (whereSoftDeleted.HasValue)
             {
                 whereClauses.Add($"    buffers.is_soft_deleted = ${param}");
-                command.Parameters.Add(new() { Value = softDeleted.Value, NpgsqlDbType = NpgsqlDbType.Boolean });
+                command.Parameters.Add(new() { Value = whereSoftDeleted.Value, NpgsqlDbType = NpgsqlDbType.Boolean });
             }
 
             if (whereClauses.Count > 0)
@@ -2077,10 +2079,8 @@ public class Repository
                 }
             }
 
-            if (!purge)
-            {
-                whereClauses.Add($"    buffers.is_soft_deleted = false");
-            }
+            whereClauses.Add($"    buffers.is_soft_deleted = ${param++}");
+            command.Parameters.Add(new() { Value = purge, NpgsqlDbType = NpgsqlDbType.Boolean });
 
             if (whereClauses.Count > 0)
             {
