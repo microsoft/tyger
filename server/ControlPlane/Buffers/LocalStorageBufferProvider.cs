@@ -153,8 +153,6 @@ public sealed class LocalStorageBufferProvider : IBufferProvider, IHostedService
         {
             var queryString = LocalSasHandler.GetSasQueryString(id, SasResourceType.Container, SasAction.Delete, _signData);
             var resp = await _dataPlaneClient.DeleteAsync($"v1/containers/{id}{queryString}", cancellationToken);
-
-            // TODO Joe: Handle errors gracefully
             resp.EnsureSuccessStatusCode();
 
             deletedIds.Add(id);

@@ -1952,7 +1952,7 @@ public class Repository
         }, cancellationToken);
     }
 
-    public async Task<int> GetBufferCount(IDictionary<string, string>? tags, bool softDeleted, CancellationToken cancellationToken)
+    public async Task<int> GetBufferCount(IDictionary<string, string>? tags, bool? softDeleted, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
@@ -1992,19 +1992,25 @@ public class Repository
                 }
             }
 
-            whereClauses.Add($"    buffers.is_soft_deleted = ${param}");
-            command.Parameters.Add(new() { Value = softDeleted, NpgsqlDbType = NpgsqlDbType.Boolean });
-
-            commandText.AppendLine("WHERE");
-            for (var i = 0; i < whereClauses.Count; i++)
+            if (softDeleted.HasValue)
             {
-                var clause = whereClauses[i];
-                if (i > 0)
-                {
-                    commandText.Append("AND ");
-                }
+                whereClauses.Add($"    buffers.is_soft_deleted = ${param}");
+                command.Parameters.Add(new() { Value = softDeleted.Value, NpgsqlDbType = NpgsqlDbType.Boolean });
+            }
 
-                commandText.AppendLine(clause);
+            if (whereClauses.Count > 0)
+            {
+                commandText.AppendLine("WHERE");
+                for (var i = 0; i < whereClauses.Count; i++)
+                {
+                    var clause = whereClauses[i];
+                    if (i > 0)
+                    {
+                        commandText.Append("AND ");
+                    }
+
+                    commandText.AppendLine(clause);
+                }
             }
 
             commandText.AppendLine("""
@@ -2076,16 +2082,19 @@ public class Repository
                 whereClauses.Add($"    buffers.is_soft_deleted = false");
             }
 
-            commandText.AppendLine("WHERE");
-            for (var i = 0; i < whereClauses.Count; i++)
+            if (whereClauses.Count > 0)
             {
-                var clause = whereClauses[i];
-                if (i > 0)
+                commandText.AppendLine("WHERE");
+                for (var i = 0; i < whereClauses.Count; i++)
                 {
-                    commandText.Append("AND ");
-                }
+                    var clause = whereClauses[i];
+                    if (i > 0)
+                    {
+                        commandText.Append("AND ");
+                    }
 
-                commandText.AppendLine(clause);
+                    commandText.AppendLine(clause);
+                }
             }
 
             commandText.AppendLine($"""
@@ -2192,11 +2201,11 @@ public class Repository
         return await _resiliencePipeline.ExecuteAsync<IList<string>>(async cancellationToken =>
         {
             await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
-            // TODO Joe: Add a filtered index for this query, which is run frequently in the background
             await using var command = new NpgsqlCommand("""
                 SELECT id
                 FROM buffers
-                WHERE expires_at < now() AT TIME ZONE 'utc'
+                WHERE expires_at IS NOT NULL
+                AND expires_at < now() AT TIME ZONE 'utc'
                 """, conn);
 
             await command.PrepareAsync(cancellationToken);

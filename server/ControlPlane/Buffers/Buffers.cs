@@ -222,12 +222,12 @@ public static class Buffers
                     tagQuery = null;
                 }
 
-                var softDeleted = false;
+                bool? softDeleted = null;
                 if (context.Request.Query.TryGetValue("softDeleted", out var softDeletedQuery))
                 {
-                    if (!bool.TryParse(softDeletedQuery, out softDeleted))
+                    if (bool.TryParse(softDeletedQuery, out bool softDeletedParsed))
                     {
-                        return Results.BadRequest("softDeleted must be true or false");
+                        softDeleted = softDeletedParsed;
                     }
                 }
 

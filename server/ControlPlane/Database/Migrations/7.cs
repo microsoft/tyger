@@ -15,6 +15,13 @@ public class Migrator7 : Migrator
             ADD COLUMN IF NOT EXISTS is_soft_deleted boolean NOT NULL DEFAULT false
             """));
 
+        batch.BatchCommands.Add(new(
+            $"""
+            CREATE INDEX IF NOT EXISTS idx_buffers_expires_at
+            ON buffers (expires_at)
+            WHERE expires_at IS NOT NULL
+            """));
+
         await batch.ExecuteNonQueryAsync(cancellationToken);
     }
 }

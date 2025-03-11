@@ -591,13 +591,12 @@ func newBufferDeleteCommand() *cobra.Command {
 				log.Fatal().Msg("One of ID, --tag, or --all must be specified")
 			}
 
-			options := url.Values{}
-			options.Add("purge", strconv.FormatBool(purge))
-
 			if len(args) > 0 {
 				var deleted []model.Buffer
 				for _, id := range args {
 					buffer := model.Buffer{}
+					options := url.Values{}
+					options.Add("purge", strconv.FormatBool(purge))
 					relativeUri := fmt.Sprintf("v1/buffers/%s?%s", id, options.Encode())
 					resp, err := controlplane.InvokeRequest(cmd.Context(), http.MethodDelete, relativeUri, nil, &buffer)
 
@@ -627,6 +626,7 @@ func newBufferDeleteCommand() *cobra.Command {
 				fmt.Println(string(formatted))
 
 			} else {
+				options := url.Values{}
 				for name, value := range tags {
 					options.Add(fmt.Sprintf("tag[%s]", name), value)
 				}
@@ -634,7 +634,9 @@ func newBufferDeleteCommand() *cobra.Command {
 				performDeletion := force
 
 				if !force {
-					options.Add("softDeleted", strconv.FormatBool(false))
+					if !purge {
+						options.Add("softDeleted", strconv.FormatBool(false))
+					}
 					countUri := fmt.Sprintf("v1/buffers/count?%s", options.Encode())
 					count := 0
 					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, countUri, nil, &count); err != nil {
@@ -658,6 +660,7 @@ func newBufferDeleteCommand() *cobra.Command {
 				}
 
 				if performDeletion {
+					options.Add("purge", strconv.FormatBool(purge))
 					relativeUri := fmt.Sprintf("v1/buffers?%s", options.Encode())
 
 					count := 0

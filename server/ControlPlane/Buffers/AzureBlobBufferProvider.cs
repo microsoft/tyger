@@ -93,16 +93,13 @@ public sealed class AzureBlobBufferProvider : IHostedService, IBufferProvider, I
             var storageAccountId = storageAccountIds.First(sa => sa.bufferId == id).accountId;
             if (!storageAccountId.HasValue)
             {
-                // TODO Joe: Should this throw an error?
                 continue;
             }
 
-            // TODO Joe: Should this call GetRefreshingServiceClient, or can we assume the client is already cached??
-            var client = _storageAccountClients![storageAccountId.Value];
-            var containerClient = client.ServiceClient.GetBlobContainerClient(id);
+            var refreshingClient = await GetRefreshingServiceClient(storageAccountId.Value, cancellationToken);
+            var containerClient = refreshingClient.ServiceClient.GetBlobContainerClient(id);
             await containerClient.DeleteIfExistsAsync(cancellationToken: cancellationToken);
             deletedIds.Add(id);
-
         }
 
         return await _repository.HardDeleteBuffers(deletedIds, cancellationToken);

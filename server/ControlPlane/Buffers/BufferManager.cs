@@ -102,7 +102,7 @@ public sealed partial class BufferManager
         return await _repository.RestoreBuffers(tags, expiresAt, cancellationToken);
     }
 
-    public async Task<int> GetBufferCount(IDictionary<string, string>? tags, bool softDeleted, CancellationToken cancellationToken)
+    public async Task<int> GetBufferCount(IDictionary<string, string>? tags, bool? softDeleted, CancellationToken cancellationToken)
     {
         return await _repository.GetBufferCount(tags, softDeleted, cancellationToken);
     }
