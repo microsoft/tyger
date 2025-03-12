@@ -1,13 +1,23 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+using Microsoft.Extensions.Options;
+using Npgsql;
+using NpgsqlTypes;
 using static Tyger.ControlPlane.Database.Constants;
 
 namespace Tyger.ControlPlane.Database.Migrations;
 
 public class Migrator1 : Migrator
 {
-    public override async Task Apply(Npgsql.NpgsqlDataSource dataSource, ILogger logger, CancellationToken cancellationToken)
+    private readonly DatabaseOptions _databaseOptions;
+
+    public Migrator1(IOptions<DatabaseOptions> databaseOptions)
+    {
+        _databaseOptions = databaseOptions.Value;
+    }
+
+    public override async Task Apply(NpgsqlDataSource dataSource, ILogger logger, CancellationToken cancellationToken)
     {
         await using var batch = dataSource.CreateBatch();
 
@@ -20,6 +30,18 @@ public class Migrator1 : Migrator
             END
             $$
             """));
+
+        batch.BatchCommands.Add(new($"""
+            SELECT pgaadauth_create_principal_with_oid($1, $2, 'service', false, false)
+            WHERE NOT EXISTS (SELECT FROM pgaadauth_list_principals(false) WHERE objectId = $2);
+            """)
+        {
+            Parameters =
+            {
+                new() { NpgsqlDbType = NpgsqlDbType.Text, Value = _databaseOptions.TygerServerIdentityName },
+                new() { NpgsqlDbType = NpgsqlDbType.Text, Value = _databaseOptions.TygerServerIdentityObjectId.ToString() },
+            }
+        });
 
         // migrations table
 

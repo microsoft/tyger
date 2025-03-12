@@ -12,9 +12,11 @@ identity:
   tygerServer:
     name:
     clientId:
+    objectId:
   migrationRunner:
     name:
     clientId:
+    objectId:
 
   custom: [] # { name: abc, clientId: 123 }, ...
 

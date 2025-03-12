@@ -210,7 +210,7 @@ public sealed class AzureBlobBufferProvider : IHostedService, IBufferProvider, I
                 Codespec = new JobCodespec
                 {
                     Image = _bufferOptions.BufferCopierImage,
-                    Identity = _databaseOptions.TygerServerIdentity,
+                    Identity = _databaseOptions.TygerServerIdentityName,
                     Args = args,
                 },
             },
@@ -281,7 +281,7 @@ public sealed class AzureBlobBufferProvider : IHostedService, IBufferProvider, I
                 Codespec = new JobCodespec
                 {
                     Image = _bufferOptions.BufferCopierImage,
-                    Identity = _databaseOptions.TygerServerIdentity,
+                    Identity = _databaseOptions.TygerServerIdentityName,
                     Args = args,
                 },
             },

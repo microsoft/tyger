@@ -243,7 +243,9 @@ public class DatabaseOptions
     [Required]
     public required string TygerServerRoleName { get; set; }
 
-    public required string TygerServerIdentity { get; set; }
+    public required string TygerServerIdentityName { get; set; }
+
+    public Guid? TygerServerIdentityObjectId { get; set; }
 
     public bool AutoMigrate { get; set; }
 }

@@ -43,7 +43,7 @@ set-context:
 			if [[ "$$(az account show --query id -o tsv 2> /dev/null || true)" != "$${subscription}" ]]; then
 				az account set --subscription "$${subscription}"
 			fi
-			
+
 			if [[ "$$(kubectl config view --minify -o json 2> /dev/null | jq -r '.["current-context"]' 2> /dev/null || true)" != "$${cluster_name}" ]]; then
 				az aks get-credentials -n "$${cluster_name}" -g "$${resource_group}" --overwrite-existing --only-show-errors
 				kubelogin convert-kubeconfig -l azurecli
@@ -113,7 +113,7 @@ set-localsettings: set-context
 				"username": "$$(az account show | jq -r '.user.name')",
 				"autoMigrate": ${AUTO_MIGRATE},
 				"tygerServerRoleName": "$$(echo $${helm_values} | jq -r '.identity.tygerServer.name')",
-				"tygerServerIdentity": "$$(echo $${helm_values} | jq -r '.identity.tygerServer.name')"
+				"tygerServerIdentityName": "$$(echo $${helm_values} | jq -r '.identity.tygerServer.name')"
 			}
 		}
 	EOF
@@ -194,13 +194,49 @@ connect-db: set-context
 		echo "Run 'make up' before this target"; exit 1
 	fi
 
-	export PGPASSWORD=$$(az account get-access-token --resource-type oss-rdbms | jq -r .accessToken)
+	pod_name="psql-shell-$$RANDOM"
 
-	psql \
-		--host="$$(echo $${helm_values} | jq -r '.database.host')" \
-		--port="$$(echo $${helm_values} | jq -r '.database.port')" \
-		--username="$$(az account show | jq -r '.user.name')" \
-		--dbname="$${DB_NAME:-$$(echo $${helm_values} | jq -r '.database.databaseName')}"
+	trap "kubectl delete pod $$pod_name --wait=false || true" SIGTERM SIGINT EXIT
+
+	cat <<-EOF | kubectl apply -f -
+	{
+		"apiVersion" : "v1",
+		"kind": "Pod",
+		"metadata": {
+	  		"name": "$$pod_name",
+			"labels": {
+				"azure.workload.identity/use": "true"
+			}
+		},
+		"spec": {
+			"serviceAccountName": "$$(echo $${helm_values} | jq -r '.identity.migrationRunner.name')",
+			"containers": [
+				{
+					"name": "shell",
+					"image": "mcr.microsoft.com/azure-cli:azurelinux3.0",
+					"command": ["sleep", "infinity"]
+				}
+			],
+			"restartPolicy": "Never"
+		}
+	}
+	EOF
+
+	script=$$(cat <<-EOF
+		#! /usr/env bash
+		tdnf install  postgresql-libs -y
+		az login --federated-token "\$$(cat \$$AZURE_FEDERATED_TOKEN_FILE)" --service-principal -u \$$AZURE_CLIENT_ID -t \$$AZURE_TENANT_ID --allow-no-subscriptions > /dev/null
+		export PGPASSWORD=\$$(az account get-access-token --resource-type oss-rdbms | jq -r .accessToken)
+		psql \
+			--host="$$(echo $${helm_values} | jq -r '.database.host')" \
+			--port="$$(echo $${helm_values} | jq -r '.database.port')" \
+			--username="$$(echo $${helm_values} | jq -r '.identity.migrationRunner.name')" \
+			--dbname="$${DB_NAME:-$$(echo $${helm_values} | jq -r '.database.databaseName')}"
+	EOF
+	)
+
+	kubectl wait --for=condition=Ready pod/$$pod_name --timeout 2m
+	kubectl exec -it $$pod_name -- /bin/bash -c "$${script}"
 
 connect-db-query-store:
 	$(MAKE) connect-db DB_NAME=azure_sys

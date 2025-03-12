@@ -5,7 +5,6 @@ package cloudinstall
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,8 +13,6 @@ import (
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/monitor/armmonitor"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
@@ -23,7 +20,6 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/postgresql/armpostgresqlflexibleservers/v4"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
 	"github.com/docker/docker/pkg/namesgenerator"
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/rs/zerolog/log"
 )
@@ -37,7 +33,6 @@ const (
 )
 
 const (
-	ownersRole           = "tyger-owners"
 	databasePort         = 5432
 	databaseName         = "postgres"
 	dbConfiguredTagValue = "1" // bump this when we change the database configuration logic
@@ -286,10 +281,8 @@ func (inst *Installer) createDatabase(ctx context.Context, tygerServerManagedIde
 		return nil, install.ErrDependencyFailed
 	}
 
-	currentPrincipalDisplayName, err := createDatabaseAdmins(ctx, inst.Config, serverName, inst.Credential, migrationRunnerManagedIdentity)
-
-	if err := inst.createRoles(ctx, existingServer, currentPrincipalDisplayName, tygerServerManagedIdentity, migrationRunnerManagedIdentity); err != nil {
-		return nil, err
+	if err := createDatabaseAdmin(ctx, inst.Config, serverName, inst.Credential, migrationRunnerManagedIdentity); err != nil {
+		return nil, fmt.Errorf("failed to create PostgreSQL server admins: %w", err)
 	}
 
 	// add a tag on the server to indicate that it is configured, so we can skip the slow firewall configuration next time
@@ -308,167 +301,39 @@ func (inst *Installer) createDatabase(ctx context.Context, tygerServerManagedIde
 	return nil, nil
 }
 
-// Add the given managed identity and the current user as admins on the database server.
+// Add the given managed identity as admin on the database server.
 // These are not superusers.
-func createDatabaseAdmins(
+func createDatabaseAdmin(
 	ctx context.Context,
 	config *CloudEnvironmentConfig,
 	serverName string,
 	cred azcore.TokenCredential,
-	migrationRunnerManagedIdentity *armmsi.Identity,
-) (currentPrincipalDisplayname string, err error) {
+	adminIdentity *armmsi.Identity,
+) (err error) {
 	adminClient, err := armpostgresqlflexibleservers.NewAdministratorsClient(config.Cloud.SubscriptionID, cred, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to create PostgreSQL server admin client: %w", err)
+		return fmt.Errorf("failed to create PostgreSQL server admin client: %w", err)
 	}
 
-	log.Info().Msgf("Creating PostgreSQL server admin '%s'", *migrationRunnerManagedIdentity.Name)
+	log.Info().Msgf("Creating PostgreSQL server admin '%s'", *adminIdentity.Name)
 
 	migrationRunnerAdmin := armpostgresqlflexibleservers.ActiveDirectoryAdministratorAdd{
 		Properties: &armpostgresqlflexibleservers.AdministratorPropertiesForAdd{
-			PrincipalName: migrationRunnerManagedIdentity.Name,
+			PrincipalName: adminIdentity.Name,
 			PrincipalType: Ptr(armpostgresqlflexibleservers.PrincipalTypeServicePrincipal),
 			TenantID:      Ptr(config.Cloud.TenantID),
 		},
 	}
-	migrationRunnerPoller, err := adminClient.BeginCreate(ctx, config.Cloud.ResourceGroup, serverName, *migrationRunnerManagedIdentity.Properties.PrincipalID, migrationRunnerAdmin, nil)
+	migrationRunnerPoller, err := adminClient.BeginCreate(ctx, config.Cloud.ResourceGroup, serverName, *adminIdentity.Properties.PrincipalID, migrationRunnerAdmin, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to create PostgreSQL server admin: %w", err)
-	}
-
-	currentPrincipalDisplayName, currentPrincipalObjectId, currentPrincipalType, err := getCurrentPrincipalForDatabase(ctx, cred)
-	if err != nil {
-		return "", fmt.Errorf("failed to get current principal information: %w", err)
-	}
-
-	log.Info().Msgf("Creating PostgreSQL server admin '%s'", currentPrincipalDisplayName)
-
-	currentUserAdmin := armpostgresqlflexibleservers.ActiveDirectoryAdministratorAdd{
-		Properties: &armpostgresqlflexibleservers.AdministratorPropertiesForAdd{
-			PrincipalName: &currentPrincipalDisplayName,
-			PrincipalType: &currentPrincipalType,
-			TenantID:      Ptr(config.Cloud.TenantID),
-		},
-	}
-	currentUserPoller, err := adminClient.BeginCreate(ctx, config.Cloud.ResourceGroup, serverName, currentPrincipalObjectId, currentUserAdmin, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create PostgreSQL server admin: %w", err)
+		return fmt.Errorf("failed to create PostgreSQL server admin: %w", err)
 	}
 
 	if _, err := migrationRunnerPoller.PollUntilDone(ctx, nil); err != nil {
-		return "", fmt.Errorf("failed to create PostgreSQL server admin: %w", err)
-	}
-	if _, err := currentUserPoller.PollUntilDone(ctx, nil); err != nil {
-		return "", fmt.Errorf("failed to create PostgreSQL server admin: %w", err)
-	}
-
-	return currentPrincipalDisplayName, nil
-}
-
-// Create a tyger-owners role and grant it to the current principal and the migration runner's managed identity.
-// The migration runner will grant full access to the tables it creates to this role.
-func (inst *Installer) createRoles(
-	ctx context.Context,
-	server *armpostgresqlflexibleservers.Server,
-	currentPrincipalDisplayName string,
-	tygerServerIdentity *armmsi.Identity,
-	migrationRunnerIdentity *armmsi.Identity,
-) error {
-	log.Info().Msg("Creating PostgreSQL roles")
-
-	token, err := inst.Credential.GetToken(ctx, policy.TokenRequestOptions{
-		TenantID: inst.Config.Cloud.TenantID,
-		Scopes:   []string{"https://ossrdbms-aad.database.windows.net"},
-	})
-
-	if err != nil {
-		return fmt.Errorf("failed to get database token: %w", err)
-	}
-
-	connectionString := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=verify-full",
-		*server.Properties.FullyQualifiedDomainName, databasePort, currentPrincipalDisplayName, token.Token, databaseName)
-
-	db, err := sql.Open("postgres", connectionString)
-	if err != nil {
-		return fmt.Errorf("failed to open database connection: %w", err)
-	}
-	defer db.Close()
-
-	_, err = db.Exec(fmt.Sprintf(`
-DO $$
-BEGIN
-	IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '%s') THEN
-		CREATE ROLE "%s";
-	END IF;
-END
-$$`, ownersRole, ownersRole))
-	if err != nil {
-		return fmt.Errorf("failed to create %s database role: %w", ownersRole, err)
-	}
-
-	_, err = db.Exec(fmt.Sprintf(`GRANT "%s" TO "%s" WITH ADMIN TRUE`, ownersRole, *migrationRunnerIdentity.Name))
-	if err != nil {
-		return fmt.Errorf("failed to grant database role: %w", err)
-	}
-
-	_, err = db.Exec(fmt.Sprintf(`GRANT "%s" TO "%s"`, ownersRole, currentPrincipalDisplayName))
-	if err != nil {
-		return fmt.Errorf("failed to grant database role: %w", err)
-	}
-
-	_, err = db.Exec(fmt.Sprintf(`
-DO $$
-BEGIN
-	IF NOT EXISTS (SELECT FROM pgaadauth_list_principals(false) WHERE objectId = '%s') THEN
-		PERFORM pgaadauth_create_principal_with_oid('%s', '%s', 'service', false, false);
-	END IF;
-END
-$$`, *tygerServerIdentity.Properties.PrincipalID, *tygerServerIdentity.Name, *tygerServerIdentity.Properties.PrincipalID))
-
-	if err != nil {
-		return fmt.Errorf("failed to create tyger server database principal: %w", err)
+		return fmt.Errorf("failed to create PostgreSQL server admin: %w", err)
 	}
 
 	return nil
-}
-
-// Extract the current principal's display name, object ID and type from an ARM OAuth token.
-// Note that we don't want to call the Graph API because that would permissions that are not always available in CI pipelines.
-func getCurrentPrincipalForDatabase(ctx context.Context, cred azcore.TokenCredential) (displayName string, objectId string, principalType armpostgresqlflexibleservers.PrincipalType, err error) {
-	tokenResponse, err := cred.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{cloud.AzurePublic.Services[cloud.ResourceManager].Audience}})
-	if err != nil {
-		return displayName, objectId, principalType, fmt.Errorf("failed to get token: %w", err)
-	}
-
-	claims := jwt.MapClaims{}
-	_, _, err = jwt.NewParser().ParseUnverified(tokenResponse.Token, claims)
-	if err != nil {
-		return displayName, objectId, principalType, fmt.Errorf("failed to parse token: %w", err)
-	}
-
-	objectId = claims["oid"].(string)
-	if uniqueName, ok := claims["unique_name"].(string); ok {
-		displayName = uniqueName
-	} else if appId, ok := claims["appid"].(string); ok {
-		displayName = appId
-	} else {
-		displayName = objectId
-	}
-
-	if idType, ok := claims["idtyp"].(string); ok {
-		switch idType {
-		case "user":
-			principalType = armpostgresqlflexibleservers.PrincipalTypeUser
-		case "app":
-			principalType = armpostgresqlflexibleservers.PrincipalTypeServicePrincipal
-		default:
-			return displayName, objectId, principalType, fmt.Errorf("unknown idtyp claim: %s", idType)
-		}
-	} else {
-		return displayName, objectId, principalType, fmt.Errorf("missing idtyp claim")
-	}
-
-	return displayName, objectId, principalType, nil
 }
 
 // determine whether we need to update the database server by comparing the existing state and the desired state

@@ -469,10 +469,12 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, dryRun bool) (
 				"tygerServer": map[string]any{
 					"name":     tygerServerIdentity.Name,
 					"clientId": tygerServerIdentity.Properties.ClientID,
+					"objectId": tygerServerIdentity.Properties.PrincipalID,
 				},
 				"migrationRunner": map[string]any{
 					"name":     migrationRunnerIdentity.Name,
 					"clientId": migrationRunnerIdentity.Properties.ClientID,
+					"objectId": migrationRunnerIdentity.Properties.PrincipalID,
 				},
 				"custom": customIdentitiesValues,
 			},

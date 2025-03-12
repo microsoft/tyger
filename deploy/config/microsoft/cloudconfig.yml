@@ -53,7 +53,6 @@ cloud:
 
   database:
     location: ${TYGER_DATABASE_LOCATION}
-    firewallRules: ${TYGER_ENVIRONMENT_FIREWALL_RULES}
 
 api:
   domainName: ${TYGER_ENVIRONMENT_NAME}-tyger.${TYGER_LOCATION}.cloudapp.azure.com

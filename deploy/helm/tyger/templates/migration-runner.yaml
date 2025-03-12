@@ -72,8 +72,10 @@ spec:
               value: {{ .Values.identity.migrationRunner.name }}
             - name: Database__TygerServerRoleName
               value: {{ .Values.identity.tygerServer.name }}
-            - name: Database__TygerServerIdentity
+            - name: Database__TygerServerIdentityName
               value: {{ .Values.identity.tygerServer.name }}
+            - name: Database__TygerServerIdentityObjectId
+              value: {{ .Values.identity.tygerServer.objectId }}
             - name: Buffers__CloudStorage__DefaultLocation
               value: "{{ .Values.location }}"
             {{- range $index, $element := .Values.buffers.storageAccounts }}

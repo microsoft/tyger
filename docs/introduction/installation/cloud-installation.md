@@ -116,7 +116,7 @@ cloud:
     serverName: demo-tyger
     postgresMajorVersion: 16
 
-    # Firewall rules to control where the database can be accessed from,
+    # Optional firewall rules to control where the database can be accessed from,
     # in addition to the control-plane cluster.
     firewallRules:
       - name: installerIpAddress
