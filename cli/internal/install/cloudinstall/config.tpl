@@ -73,7 +73,7 @@ cloud:
     # Optional firewall rules to control where the database can be accessed from,
     # in addition to the control-plane cluster.
     # firewallRules:
-    #  - name: installerIpAddress
+    #  - name:
     #    startIpAddress:
     #    endIpAddress:
 

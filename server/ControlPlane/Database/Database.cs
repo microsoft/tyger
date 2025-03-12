@@ -12,6 +12,7 @@ using Npgsql;
 using Polly;
 using Polly.Retry;
 using Tyger.Common.DependencyInjection;
+using Tyger.Common.Unix;
 using Tyger.ControlPlane.Compute.Kubernetes;
 using Tyger.ControlPlane.Database.Migrations;
 using Tyger.ControlPlane.Model;
@@ -67,9 +68,7 @@ public static class Database
             if (string.IsNullOrEmpty(databaseOptions.PasswordFile))
             {
                 // if connecting via a unix socket, it could be that no password is needed.
-                if (dataSourceBuilder.ConnectionStringBuilder.Host == null ||
-                    !Path.IsPathFullyQualified(dataSourceBuilder.ConnectionStringBuilder.Host) ||
-                    !Path.Exists(dataSourceBuilder.ConnectionStringBuilder.Host))
+                if (!databaseOptions.IsHostUnixSocket)
                 {
                     // assume we are connecting to a cloud database
                     dataSourceBuilder.ConnectionStringBuilder.SslMode = SslMode.VerifyFull;
@@ -93,14 +92,14 @@ public static class Database
                         TimeSpan.FromMinutes(30),
                         TimeSpan.FromMinutes(1));
                 }
-
-                dataSourceBuilder.EnableDynamicJson();
-                dataSourceBuilder.ConfigureJsonOptions(sp.GetRequiredService<JsonSerializerOptions>());
             }
             else
             {
                 dataSourceBuilder.ConnectionStringBuilder.Password = File.ReadAllText(databaseOptions.PasswordFile);
             }
+
+            dataSourceBuilder.EnableDynamicJson();
+            dataSourceBuilder.ConfigureJsonOptions(sp.GetRequiredService<JsonSerializerOptions>());
 
             return dataSourceBuilder.Build();
         });
@@ -230,6 +229,19 @@ public class DatabaseOptions
 {
     [Required]
     public required string Host { get; set; }
+
+    public bool IsHostUnixSocket
+    {
+        get
+        {
+            if (string.IsNullOrEmpty(Host))
+            {
+                return false;
+            }
+
+            return Interop.Stat(Host, out var stat) == 0 && (stat.Mode & Interop.FileTypes.S_IFDIR) == Interop.FileTypes.S_IFDIR;
+        }
+    }
 
     public string? DatabaseName { get; set; }
 

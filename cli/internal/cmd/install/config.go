@@ -259,7 +259,7 @@ func generateCloudConfig(ctx context.Context, configFile *os.File) error {
 		var principal ExtendedPrincipal
 		for {
 
-			cred, err := cloudinstall.NewMiAwareAzureCLICredential(nil)
+			cred, err = cloudinstall.NewMiAwareAzureCLICredential(nil)
 			if err == nil {
 				principal, err = getCurrentPrincipal(ctx, cred)
 			}

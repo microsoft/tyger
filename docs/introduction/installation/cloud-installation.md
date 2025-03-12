@@ -118,10 +118,10 @@ cloud:
 
     # Optional firewall rules to control where the database can be accessed from,
     # in addition to the control-plane cluster.
-    firewallRules:
-      - name: installerIpAddress
-        startIpAddress: 99.99.99.99
-        endIpAddress: 99.99.99.99
+    # firewallRules:
+    #   - name:
+    #     startIpAddress:
+    #     endIpAddress:
 
     # location: Defaults to defaultLocation
     # computeTier: Defaults to Burstable

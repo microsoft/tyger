@@ -31,17 +31,20 @@ public class Migrator1 : Migrator
             $$
             """));
 
-        batch.BatchCommands.Add(new($"""
-            SELECT pgaadauth_create_principal_with_oid($1, $2, 'service', false, false)
-            WHERE NOT EXISTS (SELECT FROM pgaadauth_list_principals(false) WHERE objectId = $2);
-            """)
+        if (!_databaseOptions.IsHostUnixSocket)
         {
-            Parameters =
+            batch.BatchCommands.Add(new($"""
+                SELECT pgaadauth_create_principal_with_oid($1, $2, 'service', false, false)
+                WHERE NOT EXISTS (SELECT FROM pgaadauth_list_principals(false) WHERE objectId = $2);
+                """)
             {
-                new() { NpgsqlDbType = NpgsqlDbType.Text, Value = _databaseOptions.TygerServerIdentityName },
-                new() { NpgsqlDbType = NpgsqlDbType.Text, Value = _databaseOptions.TygerServerIdentityObjectId.ToString() },
-            }
-        });
+                Parameters =
+                {
+                    new() { NpgsqlDbType = NpgsqlDbType.Text, Value = _databaseOptions.TygerServerIdentityName },
+                    new() { NpgsqlDbType = NpgsqlDbType.Text, Value = _databaseOptions.TygerServerIdentityObjectId.ToString() },
+                }
+            });
+        }
 
         // migrations table
 
