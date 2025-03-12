@@ -1355,7 +1355,8 @@ public class Repository
         return reader.GetInt64(0);
     }
 
-    public async Task<(IList<Buffer>, string? nextContinuationToken)> GetBuffers(IDictionary<string, string>? tags, bool softDeleted, int limit, string? continuationToken, CancellationToken cancellationToken)
+    public async Task<(IList<Buffer>, string? nextContinuationToken)> GetBuffers(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags,
+            bool softDeleted, int limit, string? continuationToken, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync<(IList<Buffer>, string? nextContinuationToken)>(async cancellationToken =>
         {
@@ -1369,22 +1370,71 @@ public class Repository
                 }
             };
 
-            var commandText = new StringBuilder();
-            commandText.AppendLine($"""
-                WITH matches AS (
-                    SELECT buffers.id, buffers.created_at, buffers.expires_at, buffers.storage_account_id
-                    FROM buffers
-                """);
-
             int param = 2;
 
-            var whereClauses = new List<string>();
+            var commandText = new StringBuilder();
+            commandText.AppendLine($"""
+                WITH candidates AS (
+                    SELECT b.id, b.created_at, b.expires_at, b.storage_account_id, b.is_soft_deleted
+                    FROM buffers b
+                """);
 
+            if (excludeTags?.Count > 0)
+            {
+                var excludeClauses = new List<string>();
+
+                foreach (var tag in excludeTags)
+                {
+                    var id = await GetTagId(conn, tag.Key, cancellationToken);
+                    if (id == null)
+                    {
+                        continue;
+                    }
+
+                    excludeClauses.Add($"(bt.key = ${param} AND bt.value = ${param + 1})");
+                    command.Parameters.Add(new() { Value = id.Value, NpgsqlDbType = NpgsqlDbType.Bigint });
+                    command.Parameters.Add(new() { Value = tag.Value, NpgsqlDbType = NpgsqlDbType.Text });
+                    param += 2;
+                }
+
+                if (excludeClauses.Count > 0)
+                {
+                    commandText.AppendLine($"""
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM buffer_tags bt
+                        WHERE b.created_at = bt.created_at
+                        AND b.id = bt.id
+                        AND (
+                    """);
+
+                    for (var i = 0; i < excludeClauses.Count; i++)
+                    {
+                        var clause = excludeClauses[i];
+                        if (i > 0)
+                        {
+                            commandText.Append(" OR ");
+                        }
+
+                        commandText.AppendLine(clause);
+                    }
+
+                    commandText.AppendLine(")");
+                    commandText.AppendLine(")");
+                }
+            }
+
+            commandText.AppendLine($"""
+                ), matches AS (
+                    SELECT c.id, c.created_at, c.expires_at, c.storage_account_id
+                    FROM candidates c
+                """);
+
+            var whereClauses = new List<string>();
             if (tags?.Count > 0)
             {
                 for (int x = 0; x < tags.Count; x++)
                 {
-                    commandText.AppendLine($"INNER JOIN buffer_tags AS t{x} ON buffers.created_at = t{x}.created_at and buffers.id = t{x}.id");
+                    commandText.AppendLine($"INNER JOIN buffer_tags AS t{x} ON c.created_at = t{x}.created_at and c.id = t{x}.id");
                 }
 
                 int index = 0;
@@ -1412,7 +1462,7 @@ public class Repository
                     var fields = JsonSerializer.Deserialize<JsonElement[]>(Encoding.ASCII.GetString(Base32.ZBase32.Decode(continuationToken)), _serializerOptions);
                     if (fields is { Length: 2 })
                     {
-                        whereClauses.Add($"(buffers.created_at, buffers.id) < (${param}, ${param + 1})");
+                        whereClauses.Add($"(c.created_at, c.id) < (${param}, ${param + 1})");
                         command.Parameters.Add(new() { Value = new DateTimeOffset(fields[0].GetInt64(), TimeSpan.Zero), NpgsqlDbType = NpgsqlDbType.TimestampTz });
                         command.Parameters.Add(new() { Value = fields[1].GetString(), NpgsqlDbType = NpgsqlDbType.Text });
                         param += 2;
@@ -1429,7 +1479,7 @@ public class Repository
                 }
             }
 
-            whereClauses.Add($"buffers.is_soft_deleted = ${param}");
+            whereClauses.Add($"c.is_soft_deleted = ${param}");
             command.Parameters.Add(new() { Value = softDeleted, NpgsqlDbType = NpgsqlDbType.Boolean });
 
             commandText.AppendLine("WHERE");
@@ -1445,7 +1495,7 @@ public class Repository
             }
 
             commandText.AppendLine("""
-                    ORDER BY buffers.created_at DESC, buffers.id DESC
+                    ORDER BY c.created_at DESC, c.id DESC
                     LIMIT $1
                 )
                 SELECT matches.id, matches.created_at, matches.expires_at, storage_accounts.location, tag_keys.name, buffer_tags.value
@@ -1954,7 +2004,7 @@ public class Repository
         }, cancellationToken);
     }
 
-    public async Task<int> GetBufferCount(IDictionary<string, string>? tags, bool? whereSoftDeleted, CancellationToken cancellationToken)
+    public async Task<int> GetBufferCount(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags, bool? whereSoftDeleted, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
@@ -1966,12 +2016,62 @@ public class Repository
 
             var commandText = new StringBuilder();
             commandText.AppendLine($"""
-                WITH matches AS (
-                    SELECT buffers.id AS id
-                    FROM buffers
+                WITH candidates AS (
+                    SELECT b.id, b.created_at, b.is_soft_deleted
+                    FROM buffers b
                 """);
 
             int param = 1;
+            if (excludeTags?.Count > 0)
+            {
+                var excludeClauses = new List<string>();
+
+                foreach (var tag in excludeTags)
+                {
+                    var id = await GetTagId(conn, tag.Key, cancellationToken);
+                    if (id == null)
+                    {
+                        continue;
+                    }
+
+                    excludeClauses.Add($"(bt.key = ${param} AND bt.value = ${param + 1})");
+                    command.Parameters.Add(new() { Value = id.Value, NpgsqlDbType = NpgsqlDbType.Bigint });
+                    command.Parameters.Add(new() { Value = tag.Value, NpgsqlDbType = NpgsqlDbType.Text });
+                    param += 2;
+                }
+
+                if (excludeClauses.Count > 0)
+                {
+                    commandText.AppendLine($"""
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM buffer_tags bt
+                        WHERE b.created_at = bt.created_at
+                        AND b.id = bt.id
+                        AND (
+                    """);
+
+                    for (var i = 0; i < excludeClauses.Count; i++)
+                    {
+                        var clause = excludeClauses[i];
+                        if (i > 0)
+                        {
+                            commandText.Append(" OR ");
+                        }
+
+                        commandText.AppendLine(clause);
+                    }
+
+                    commandText.AppendLine(")");
+                    commandText.AppendLine(")");
+                }
+            }
+
+            commandText.AppendLine($"""
+                ), matches AS (
+                    SELECT DISTINCT(c.id)
+                    FROM candidates c
+                """);
+
             var whereClauses = new List<string>();
             if (tags?.Count > 0)
             {
@@ -1979,7 +2079,7 @@ public class Repository
                 {
                     var tag = tags.ElementAt(i);
 
-                    commandText.AppendLine($"    INNER JOIN buffer_tags AS t{i} ON buffers.created_at = t{i}.created_at and buffers.id = t{i}.id");
+                    commandText.AppendLine($"    INNER JOIN buffer_tags AS t{i} ON c.created_at = t{i}.created_at and c.id = t{i}.id");
 
                     var id = await GetTagId(conn, tag.Key, cancellationToken);
                     if (id == null)
@@ -1996,7 +2096,7 @@ public class Repository
 
             if (whereSoftDeleted.HasValue)
             {
-                whereClauses.Add($"    buffers.is_soft_deleted = ${param}");
+                whereClauses.Add($"    c.is_soft_deleted = ${param}");
                 command.Parameters.Add(new() { Value = whereSoftDeleted.Value, NpgsqlDbType = NpgsqlDbType.Boolean });
             }
 
@@ -2016,7 +2116,6 @@ public class Repository
             }
 
             commandText.AppendLine("""
-                    GROUP BY buffers.id
                 )
                 SELECT COUNT(matches.id)
                 FROM matches
@@ -2034,7 +2133,7 @@ public class Repository
         }, cancellationToken);
     }
 
-    public async Task<int> SoftDeleteBuffers(IDictionary<string, string>? tags, DateTime expiresAt, bool purge, CancellationToken cancellationToken)
+    public async Task<int> SoftDeleteBuffers(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags, DateTime expiresAt, bool purge, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
@@ -2050,13 +2149,63 @@ public class Repository
             };
 
             var commandText = new StringBuilder();
-            commandText.AppendLine("""
-                    WITH matches AS (
-                        SELECT buffers.id AS rowid
-                        FROM buffers
-                    """);
+            commandText.AppendLine($"""
+                WITH candidates AS (
+                    SELECT b.id, b.created_at, b.is_soft_deleted
+                    FROM buffers b
+                """);
 
             int param = 1;
+            if (excludeTags?.Count > 0)
+            {
+                var excludeClauses = new List<string>();
+
+                foreach (var tag in excludeTags)
+                {
+                    var id = await GetTagId(conn, tag.Key, cancellationToken);
+                    if (id == null)
+                    {
+                        continue;
+                    }
+
+                    excludeClauses.Add($"(bt.key = ${param} AND bt.value = ${param + 1})");
+                    command.Parameters.Add(new() { Value = id.Value, NpgsqlDbType = NpgsqlDbType.Bigint });
+                    command.Parameters.Add(new() { Value = tag.Value, NpgsqlDbType = NpgsqlDbType.Text });
+                    param += 2;
+                }
+
+                if (excludeClauses.Count > 0)
+                {
+                    commandText.AppendLine($"""
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM buffer_tags bt
+                        WHERE b.created_at = bt.created_at
+                        AND b.id = bt.id
+                        AND (
+                    """);
+
+                    for (var i = 0; i < excludeClauses.Count; i++)
+                    {
+                        var clause = excludeClauses[i];
+                        if (i > 0)
+                        {
+                            commandText.Append(" OR ");
+                        }
+
+                        commandText.AppendLine(clause);
+                    }
+
+                    commandText.AppendLine(")");
+                    commandText.AppendLine(")");
+                }
+            }
+
+            commandText.AppendLine($"""
+                ), matches AS (
+                    SELECT DISTINCT(c.id)
+                    FROM candidates c
+                """);
+
             var whereClauses = new List<string>();
             if (tags?.Count > 0)
             {
@@ -2064,7 +2213,7 @@ public class Repository
                 {
                     var tag = tags.ElementAt(i);
 
-                    commandText.AppendLine($"    INNER JOIN buffer_tags AS t{i} ON buffers.created_at = t{i}.created_at and buffers.id = t{i}.id");
+                    commandText.AppendLine($"    INNER JOIN buffer_tags AS t{i} ON c.created_at = t{i}.created_at and c.id = t{i}.id");
 
                     var id = await GetTagId(conn, tag.Key, cancellationToken);
                     if (id == null)
@@ -2079,7 +2228,7 @@ public class Repository
                 }
             }
 
-            whereClauses.Add($"    buffers.is_soft_deleted = ${param++}");
+            whereClauses.Add($"    c.is_soft_deleted = ${param++}");
             command.Parameters.Add(new() { Value = purge, NpgsqlDbType = NpgsqlDbType.Boolean });
 
             if (whereClauses.Count > 0)
@@ -2098,12 +2247,11 @@ public class Repository
             }
 
             commandText.AppendLine($"""
-                        GROUP BY rowid
                     )
                     UPDATE buffers
                     SET is_soft_deleted = true, expires_at = ${param}
                     FROM matches
-                    WHERE buffers.id = matches.rowid
+                    WHERE buffers.id = matches.id
                     """);
             command.Parameters.Add(new() { Value = expiresAt, NpgsqlDbType = NpgsqlDbType.TimestampTz });
 
@@ -2117,7 +2265,7 @@ public class Repository
 
     }
 
-    public async Task<int> RestoreBuffers(IDictionary<string, string>? tags, DateTime? expiresAt, CancellationToken cancellationToken)
+    public async Task<int> RestoreBuffers(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags, DateTime? expiresAt, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
@@ -2133,13 +2281,63 @@ public class Repository
             var count = 0;
 
             var commandText = new StringBuilder();
-            commandText.AppendLine("""
-                    WITH matches AS (
-                        SELECT buffers.id as rowid
-                        FROM buffers
-                    """);
+            commandText.AppendLine($"""
+                WITH candidates AS (
+                    SELECT b.id, b.created_at, b.is_soft_deleted
+                    FROM buffers b
+                """);
 
             int param = 1;
+            if (excludeTags?.Count > 0)
+            {
+                var excludeClauses = new List<string>();
+
+                foreach (var tag in excludeTags)
+                {
+                    var id = await GetTagId(conn, tag.Key, cancellationToken);
+                    if (id == null)
+                    {
+                        continue;
+                    }
+
+                    excludeClauses.Add($"(bt.key = ${param} AND bt.value = ${param + 1})");
+                    command.Parameters.Add(new() { Value = id.Value, NpgsqlDbType = NpgsqlDbType.Bigint });
+                    command.Parameters.Add(new() { Value = tag.Value, NpgsqlDbType = NpgsqlDbType.Text });
+                    param += 2;
+                }
+
+                if (excludeClauses.Count > 0)
+                {
+                    commandText.AppendLine($"""
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM buffer_tags bt
+                        WHERE b.created_at = bt.created_at
+                        AND b.id = bt.id
+                        AND (
+                    """);
+
+                    for (var i = 0; i < excludeClauses.Count; i++)
+                    {
+                        var clause = excludeClauses[i];
+                        if (i > 0)
+                        {
+                            commandText.Append(" OR ");
+                        }
+
+                        commandText.AppendLine(clause);
+                    }
+
+                    commandText.AppendLine(")");
+                    commandText.AppendLine(")");
+                }
+            }
+
+            commandText.AppendLine($"""
+                ), matches AS (
+                    SELECT DISTINCT(c.id)
+                    FROM candidates c
+                """);
+
             var whereClauses = new List<string>();
             if (tags?.Count > 0)
             {
@@ -2147,7 +2345,7 @@ public class Repository
                 {
                     var tag = tags.ElementAt(i);
 
-                    commandText.AppendLine($"    INNER JOIN buffer_tags AS t{i} ON buffers.created_at = t{i}.created_at and buffers.id = t{i}.id");
+                    commandText.AppendLine($"    INNER JOIN buffer_tags AS t{i} ON c.created_at = t{i}.created_at and c.id = t{i}.id");
 
                     var id = await GetTagId(conn, tag.Key, cancellationToken);
                     if (id == null)
@@ -2162,7 +2360,7 @@ public class Repository
                 }
             }
 
-            whereClauses.Add($"    buffers.is_soft_deleted = true");
+            whereClauses.Add($"    c.is_soft_deleted = true");
 
             commandText.AppendLine("WHERE");
             for (var i = 0; i < whereClauses.Count; i++)
@@ -2177,12 +2375,11 @@ public class Repository
             }
 
             commandText.AppendLine($"""
-                        GROUP BY rowid
                     )
                     UPDATE buffers
                     SET is_soft_deleted = false, expires_at = ${param}
                     FROM matches
-                    WHERE buffers.id = matches.rowid
+                    WHERE buffers.id = matches.id
                     """);
             command.Parameters.Add(new() { Value = expiresAt.HasValue ? expiresAt : DBNull.Value, NpgsqlDbType = NpgsqlDbType.TimestampTz });
 

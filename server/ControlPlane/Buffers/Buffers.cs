@@ -77,20 +77,8 @@ public static class Buffers
         app.MapGet("/v1/buffers", async (BufferManager manager, HttpContext context, int? limit, [FromQuery(Name = "_ct")] string? continuationToken, CancellationToken cancellationToken) =>
             {
                 limit = limit is null ? 20 : Math.Min(limit.Value, 2000);
-                var tagQuery = new Dictionary<string, string>();
-
-                foreach (var tag in context.Request.Query)
-                {
-                    if (tag.Key.StartsWith("tag[", StringComparison.Ordinal) && tag.Key.EndsWith(']') && tag.Value.Count > 0)
-                    {
-                        tagQuery.Add(tag.Key[4..^1], tag.Value.FirstOrDefault() ?? "");
-                    }
-                }
-
-                if (tagQuery.Count == 0)
-                {
-                    tagQuery = null;
-                }
+                var tagQuery = context.GetTagQueryParameters();
+                var excludeTagQuery = context.GetTagQueryParameters("excludeTag");
 
                 var softDeleted = false;
                 if (context.Request.Query.TryGetValue("softDeleted", out var softDeletedQuery))
@@ -101,7 +89,7 @@ public static class Buffers
                     }
                 }
 
-                (var buffers, var nextContinuationToken) = await manager.GetBuffers(tagQuery, softDeleted, limit.Value, continuationToken, cancellationToken);
+                (var buffers, var nextContinuationToken) = await manager.GetBuffers(tagQuery, excludeTagQuery, softDeleted, limit.Value, continuationToken, cancellationToken);
 
                 string? nextLink;
                 if (nextContinuationToken is null)
@@ -161,22 +149,10 @@ public static class Buffers
                     }
                 }
 
-                var tagQuery = new Dictionary<string, string>();
+                var tagQuery = context.GetTagQueryParameters();
+                var excludeTagQuery = context.GetTagQueryParameters("excludeTag");
 
-                foreach (var tag in context.Request.Query)
-                {
-                    if (tag.Key.StartsWith("tag[", StringComparison.Ordinal) && tag.Key.EndsWith(']') && tag.Value.Count > 0)
-                    {
-                        tagQuery.Add(tag.Key[4..^1], tag.Value.FirstOrDefault() ?? "");
-                    }
-                }
-
-                if (tagQuery.Count == 0)
-                {
-                    tagQuery = null;
-                }
-
-                var count = await manager.DeleteBuffers(tagQuery, purge, cancellationToken);
+                var count = await manager.DeleteBuffers(tagQuery, excludeTagQuery, purge, cancellationToken);
                 return Results.Ok(count);
             })
             .WithName("deleteBuffers")
@@ -184,22 +160,10 @@ public static class Buffers
 
         app.MapPost("/v1/buffers/restore", async (BufferManager manager, HttpContext context, CancellationToken cancellationToken) =>
             {
-                var tagQuery = new Dictionary<string, string>();
+                var tagQuery = context.GetTagQueryParameters();
+                var excludeTagQuery = context.GetTagQueryParameters("excludeTag");
 
-                foreach (var tag in context.Request.Query)
-                {
-                    if (tag.Key.StartsWith("tag[", StringComparison.Ordinal) && tag.Key.EndsWith(']') && tag.Value.Count > 0)
-                    {
-                        tagQuery.Add(tag.Key[4..^1], tag.Value.FirstOrDefault() ?? "");
-                    }
-                }
-
-                if (tagQuery.Count == 0)
-                {
-                    tagQuery = null;
-                }
-
-                var count = await manager.RestoreBuffers(tagQuery, cancellationToken);
+                var count = await manager.RestoreBuffers(tagQuery, excludeTagQuery, cancellationToken);
                 return Results.Ok(count);
             })
             .WithName("restoreBuffers")
@@ -207,20 +171,8 @@ public static class Buffers
 
         app.MapGet("/v1/buffers/count", async (BufferManager manager, HttpContext context, CancellationToken cancellationToken) =>
             {
-                var tagQuery = new Dictionary<string, string>();
-
-                foreach (var tag in context.Request.Query)
-                {
-                    if (tag.Key.StartsWith("tag[", StringComparison.Ordinal) && tag.Key.EndsWith(']') && tag.Value.Count > 0)
-                    {
-                        tagQuery.Add(tag.Key[4..^1], tag.Value.FirstOrDefault() ?? "");
-                    }
-                }
-
-                if (tagQuery.Count == 0)
-                {
-                    tagQuery = null;
-                }
+                var tagQuery = context.GetTagQueryParameters();
+                var excludeTagQuery = context.GetTagQueryParameters("excludeTag");
 
                 bool? softDeleted = null;
                 if (context.Request.Query.TryGetValue("softDeleted", out var softDeletedQuery))
@@ -231,7 +183,7 @@ public static class Buffers
                     }
                 }
 
-                var count = await manager.GetBufferCount(tagQuery, softDeleted, cancellationToken);
+                var count = await manager.GetBufferCount(tagQuery, excludeTagQuery, softDeleted, cancellationToken);
                 return Results.Ok(count);
             })
             .WithName("getBufferCount")

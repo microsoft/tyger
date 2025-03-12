@@ -71,6 +71,8 @@ public record Buffer : ModelBase
     private string ComputeEtagCore(XxHash3 hash)
     {
         hash.Append(Id);
+        hash.Append(IsSoftDeleted.ToString());
+        hash.Append(ExpiresAt?.ToUnixTimeMilliseconds() ?? 0L);
         hash.Append(Tags);
         var hashUInt64 = hash.GetCurrentHashAsUInt64();
         hash.Reset();

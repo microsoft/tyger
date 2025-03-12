@@ -75,12 +75,13 @@ public sealed partial class BufferManager
         return await _repository.UpdateBufferTags(bufferUpdate, eTagPrecondition, cancellationToken);
     }
 
-    public async Task<(IList<Buffer>, string? nextContinuationToken)> GetBuffers(IDictionary<string, string>? tags, bool softDeleted, int limit, string? continuationToken, CancellationToken cancellationToken)
+    public async Task<(IList<Buffer>, string? nextContinuationToken)> GetBuffers(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags,
+            bool softDeleted, int limit, string? continuationToken, CancellationToken cancellationToken)
     {
-        return await _repository.GetBuffers(tags, softDeleted, limit, continuationToken, cancellationToken);
+        return await _repository.GetBuffers(tags, excludeTags, softDeleted, limit, continuationToken, cancellationToken);
     }
 
-    public async Task<int> DeleteBuffers(IDictionary<string, string>? tags, bool purge, CancellationToken cancellationToken)
+    public async Task<int> DeleteBuffers(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags, bool purge, CancellationToken cancellationToken)
     {
         var expiresAt = DateTime.UtcNow.Add(_bufferOptions.Value.SoftDeletedLifetime.Duration());
         if (purge)
@@ -88,10 +89,10 @@ public sealed partial class BufferManager
             expiresAt = DateTime.UtcNow;
         }
 
-        return await _repository.SoftDeleteBuffers(tags, expiresAt, purge, cancellationToken);
+        return await _repository.SoftDeleteBuffers(tags, excludeTags, expiresAt, purge, cancellationToken);
     }
 
-    public async Task<int> RestoreBuffers(IDictionary<string, string>? tags, CancellationToken cancellationToken)
+    public async Task<int> RestoreBuffers(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags, CancellationToken cancellationToken)
     {
         DateTime? expiresAt = null;
         if (_bufferOptions.Value.ActiveLifetime != TimeSpan.Zero)
@@ -99,12 +100,12 @@ public sealed partial class BufferManager
             expiresAt = DateTime.UtcNow.Add(_bufferOptions.Value.ActiveLifetime.Duration());
         }
 
-        return await _repository.RestoreBuffers(tags, expiresAt, cancellationToken);
+        return await _repository.RestoreBuffers(tags, excludeTags, expiresAt, cancellationToken);
     }
 
-    public async Task<int> GetBufferCount(IDictionary<string, string>? tags, bool? softDeleted, CancellationToken cancellationToken)
+    public async Task<int> GetBufferCount(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags, bool? softDeleted, CancellationToken cancellationToken)
     {
-        return await _repository.GetBufferCount(tags, softDeleted, cancellationToken);
+        return await _repository.GetBufferCount(tags, excludeTags, softDeleted, cancellationToken);
     }
 
     internal async Task<IList<(string id, bool writeable, BufferAccess? bufferAccess)>> CreateBufferAccessUrls(IList<(string id, bool writeable)> requests, bool preferTcp, bool fromDocker, bool checkExists, CancellationToken cancellationToken)

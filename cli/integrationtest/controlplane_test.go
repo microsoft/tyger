@@ -1695,6 +1695,14 @@ func TestBufferList(t *testing.T) {
 
 	buffers = listBuffers(t, "buffer", "list", "--tag", "testtag1=testvalue1", "--tag", "testtagX="+uniqueId)
 	require.Equal(2, len(buffers))
+
+	buffers = listBuffers(t, "buffer", "list", "--tag", "testtagX="+uniqueId, "--exclude-tag", "testtag1=testvalue1")
+	require.Equal(1, len(buffers))
+	require.Equal(3, len(buffers[0].Tags))
+	require.Equal(bufferId2, buffers[0].Id)
+
+	buffers = listBuffers(t, "buffer", "list", "--tag", "testtagX="+uniqueId, "--exclude-tag", "testtag1=testvalue1", "--exclude-tag", "testtag2=testvalue2")
+	require.Equal(0, len(buffers))
 }
 
 func TestBufferListWithLimit(t *testing.T) {
@@ -1787,28 +1795,38 @@ func TestBufferDeleteByTag(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
 
-	bufferId1 := runTygerSucceeds(t, "buffer", "create", "--tag", "testtag1=delete1", "--tag", "testtag2=delete2")
-	bufferId2 := runTygerSucceeds(t, "buffer", "create", "--tag", "testtag2=delete2", "--tag", "testtag3=delete3")
-	bufferId3 := runTygerSucceeds(t, "buffer", "create", "--tag", "testtag1=delete1", "--tag", "testtag3=delete3")
+	uniqueId := uuid.New().String()
+
+	bufferId1 := runTygerSucceeds(t, "buffer", "create", "--tag", "testtag1=delete1", "--tag", "testtag2=delete2", "--tag", "testtagX="+uniqueId)
+	bufferId2 := runTygerSucceeds(t, "buffer", "create", "--tag", "testtag2=delete2", "--tag", "testtag3=delete3", "--tag", "testtagX="+uniqueId)
+	bufferId3 := runTygerSucceeds(t, "buffer", "create", "--tag", "testtag1=delete1", "--tag", "testtag3=delete3", "--tag", "testtagX="+uniqueId)
 
 	runTygerSucceeds(t, "buffer", "delete", "--force", "--tag", "testtag1=delete1", "--tag", "testtag2=delete2")
+	buffers := listBuffers(t, "--soft-deleted", "--tag", "testtagX="+uniqueId)
+	require.Equal(1, len(buffers))
+	require.Equal(bufferId1, buffers[0].Id)
 
-	buffer1 := getBuffer(t, bufferId1, "--soft-deleted")
-	require.Equal(bufferId1, buffer1.Id)
+	runTygerSucceeds(t, "buffer", "delete", "--force", "--tag", "testtagX="+uniqueId, "--exclude-tag", "testtag1=delete1")
+	buffers = listBuffers(t, "--soft-deleted", "--tag", "testtagX="+uniqueId)
+	require.Equal(2, len(buffers))
+	require.Equal(bufferId2, buffers[0].Id)
 
-	runTygerSucceeds(t, "buffer", "delete", "--force", "--tag", "testtag3=delete3")
+	runTygerSucceeds(t, "buffer", "delete", "--force", "--tag", "testtagX="+uniqueId, "--exclude-tag", "asdf=qwer", "--exclude-tag", "zxcv=asdf")
+	buffers = listBuffers(t, "--soft-deleted", "--tag", "testtagX="+uniqueId)
+	require.Equal(3, len(buffers))
+	require.Equal(bufferId3, buffers[0].Id)
 
-	buffer2 := getBuffer(t, bufferId2, "--soft-deleted")
-	buffer3 := getBuffer(t, bufferId3, "--soft-deleted")
+	// Now make sure we can restore
+	runTygerSucceeds(t, "buffer", "restore", "--force", "--tag", "testtagX="+uniqueId, "--exclude-tag", "testtag3=delete3")
+	buffers = listBuffers(t, "--soft-deleted", "--tag", "testtagX="+uniqueId)
+	require.Equal(2, len(buffers))
 
-	buffers := listBuffers(t, "--soft-deleted")
-	require.Contains(buffers, buffer1)
-	require.Contains(buffers, buffer2)
-	require.Contains(buffers, buffer3)
+	runTygerSucceeds(t, "buffer", "restore", "--force", "--tag", "testtagX="+uniqueId)
+	buffers = listBuffers(t, "--soft-deleted", "--tag", "testtagX="+uniqueId)
+	require.Equal(0, len(buffers))
 
-	runTygerSucceeds(t, "buffer", "restore", "--force", "--tag", "testtag1=delete1", "--tag", "testtag2=delete2")
-	runTygerSucceeds(t, "buffer", "restore", "--force", "--tag", "testtag3=delete3")
-	runTygerSucceeds(t, "buffer", "show", bufferId2)
+	buffers = listBuffers(t, "--tag", "testtagX="+uniqueId)
+	require.Equal(3, len(buffers))
 }
 
 func TestBufferDeleteAll(t *testing.T) {
@@ -1842,8 +1860,9 @@ func TestBufferPurge(t *testing.T) {
 	require := require.New(t)
 
 	bufferId1 := runTygerSucceeds(t, "buffer", "create")
-	bufferId2 := runTygerSucceeds(t, "buffer", "create", "--tag", "purge=true")
-	bufferId3 := runTygerSucceeds(t, "buffer", "create", "--tag", "purge=true", "--tag", "extra=stuff")
+	bufferId2 := runTygerSucceeds(t, "buffer", "create", "--tag", "delete=true")
+	bufferId3 := runTygerSucceeds(t, "buffer", "create", "--tag", "delete=true", "--tag", "purge=true")
+	bufferId4 := runTygerSucceeds(t, "buffer", "create", "--tag", "delete=true", "--tag", "purge=false")
 
 	sasUri := runTygerSucceeds(t, "buffer", "access", bufferId1, "-w")
 	runCommandSucceeds(t, "sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, sasUri))
@@ -1856,8 +1875,8 @@ func TestBufferPurge(t *testing.T) {
 	require.Less(*buffer.ExpiresAt, time.Now())
 
 	// Delete then immediately purge tagged buffers
-	runTygerSucceeds(t, "buffer", "delete", "--force", "--tag", "purge=true")
-	runTygerSucceeds(t, "buffer", "purge", "--force", "--tag", "purge=true")
+	runTygerSucceeds(t, "buffer", "delete", "--force", "--tag", "delete=true")
+	runTygerSucceeds(t, "buffer", "purge", "--force", "--tag", "delete=true", "--exclude-tag", "purge=false")
 
 	// Wait for buffers to be purged... This depends on the sleep time in BufferDeleter
 	time.Sleep(time.Second * 35)
@@ -1874,6 +1893,9 @@ func TestBufferPurge(t *testing.T) {
 	_, stderr, err := runTyger("buffer", "read", sasUri)
 	require.Error(err)
 	require.Contains(stderr, "the buffer does not exist")
+
+	// Check that the --exclude-tag worked
+	runTygerSucceeds(t, "buffer", "show", "--soft-deleted", bufferId4)
 }
 
 func TestCreateRunWithDeletedBuffer(t *testing.T) {

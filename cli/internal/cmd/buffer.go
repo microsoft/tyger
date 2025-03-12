@@ -434,10 +434,11 @@ The SIZE argument must be a number with an optional unit (e.g. 10MB). 1KB and 1K
 func newBufferListCommand() *cobra.Command {
 	limit := 0
 	tagEntries := make(map[string]string)
+	excludeTagEntries := make(map[string]string)
 	softDeleted := false
 
 	cmd := &cobra.Command{
-		Use:                   "list [--tag key=value ...] [--limit COUNT]",
+		Use:                   "list [--tag key=value ...] [--exclude-tag key=value ...] [--limit COUNT] [--soft-deleted]",
 		Short:                 "List buffers",
 		Long:                  `List buffers. Buffers are sorted by descending created time.`,
 		DisableFlagsInUseLine: true,
@@ -457,12 +458,17 @@ func newBufferListCommand() *cobra.Command {
 				listOptions.Add(fmt.Sprintf("tag[%s]", name), value)
 			}
 
+			for name, value := range excludeTagEntries {
+				listOptions.Add(fmt.Sprintf("excludeTag[%s]", name), value)
+			}
+
 			relativeUri := fmt.Sprintf("v1/buffers?%s", listOptions.Encode())
 			return controlplane.InvokePageRequests[model.Buffer](cmd.Context(), relativeUri, limit, !cmd.Flags().Lookup("limit").Changed)
 		},
 	}
 
 	cmd.Flags().StringToStringVar(&tagEntries, "tag", nil, "Only include buffers with the given tag. Can be specified multiple times.")
+	cmd.Flags().StringToStringVar(&excludeTagEntries, "exclude-tag", nil, "Exclude buffers with the given tag. Can be specified multiple times.")
 	cmd.Flags().BoolVar(&softDeleted, "soft-deleted", softDeleted, "Only include soft-deleted buffers.")
 	cmd.Flags().IntVarP(&limit, "limit", "l", 1000, "The maximum number of buffers to list. Default 1000")
 
@@ -570,6 +576,7 @@ func newBufferDeleteCommand() *cobra.Command {
 	deleteAll := false
 	force := false
 	tags := make(map[string]string)
+	excludeTags := make(map[string]string)
 
 	cmd := &cobra.Command{
 		Use:                   "delete ID ... | --tag KEY=VALUE ... | --all",
@@ -628,6 +635,9 @@ func newBufferDeleteCommand() *cobra.Command {
 				for name, value := range tags {
 					options.Add(fmt.Sprintf("tag[%s]", name), value)
 				}
+				for name, value := range excludeTags {
+					options.Add(fmt.Sprintf("excludeTag[%s]", name), value)
+				}
 
 				performDeletion := force
 
@@ -672,6 +682,7 @@ func newBufferDeleteCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&deleteAll, "all", deleteAll, "Delete all buffers.")
 	cmd.Flags().BoolVar(&force, "force", force, "Force deletion.")
 	cmd.Flags().StringToStringVar(&tags, "tag", nil, "Delete all buffers matching tag. Can be specified multiple times.")
+	cmd.Flags().StringToStringVar(&excludeTags, "exclude-tag", nil, "Exclude buffers with the given tag. Can be specified multiple times.")
 
 	return cmd
 }
@@ -680,6 +691,7 @@ func newBufferRestoreCommand() *cobra.Command {
 	restoreAll := false
 	force := false
 	tags := make(map[string]string)
+	excludeTags := make(map[string]string)
 
 	cmd := &cobra.Command{
 		Use:                   "restore ID ... | --tag KEY=VALUE ... | --all",
@@ -729,6 +741,9 @@ func newBufferRestoreCommand() *cobra.Command {
 				for name, value := range tags {
 					options.Add(fmt.Sprintf("tag[%s]", name), value)
 				}
+				for name, value := range excludeTags {
+					options.Add(fmt.Sprintf("excludeTag[%s]", name), value)
+				}
 
 				performRestore := force
 
@@ -774,6 +789,7 @@ func newBufferRestoreCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&restoreAll, "all", restoreAll, "Restore all deleted buffers.")
 	cmd.Flags().BoolVar(&force, "force", force, "Force restore.")
 	cmd.Flags().StringToStringVar(&tags, "tag", nil, "Restore all deleted buffers matching tag. Can be specified multiple times.")
+	cmd.Flags().StringToStringVar(&excludeTags, "exclude-tag", nil, "Exclude buffers with the given tag. Can be specified multiple times.")
 
 	return cmd
 }
@@ -782,6 +798,7 @@ func newBufferPurgeCommand() *cobra.Command {
 	purgeAll := false
 	force := false
 	tags := make(map[string]string)
+	excludeTags := make(map[string]string)
 
 	cmd := &cobra.Command{
 		Use:                   "purge ID ... | --tag KEY=VALUE ... | --all",
@@ -842,6 +859,9 @@ func newBufferPurgeCommand() *cobra.Command {
 				for name, value := range tags {
 					options.Add(fmt.Sprintf("tag[%s]", name), value)
 				}
+				for name, value := range excludeTags {
+					options.Add(fmt.Sprintf("excludeTag[%s]", name), value)
+				}
 
 				performPurge := force
 
@@ -888,6 +908,7 @@ func newBufferPurgeCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&purgeAll, "all", purgeAll, "Purge all deleted buffers.")
 	cmd.Flags().BoolVar(&force, "force", force, "Force purge.")
 	cmd.Flags().StringToStringVar(&tags, "tag", nil, "Purge all deleted buffers matching tag. Can be specified multiple times.")
+	cmd.Flags().StringToStringVar(&excludeTags, "exclude-tag", nil, "Exclude buffers with the given tag. Can be specified multiple times.")
 
 	return cmd
 }
