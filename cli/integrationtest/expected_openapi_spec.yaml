@@ -730,10 +730,6 @@ components:
           additionalProperties:
             type: string
           nullable: true
-        ttl:
-          type: string
-          format: date-span
-          nullable: true
       additionalProperties: false
     Codespec:
       required:

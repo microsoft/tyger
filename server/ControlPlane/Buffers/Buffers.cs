@@ -139,19 +139,30 @@ public static class Buffers
 
         app.MapDelete("/v1/buffers", async (BufferManager manager, HttpContext context, CancellationToken cancellationToken) =>
             {
-                var purge = false;
-                if (context.Request.Query.TryGetValue("purge", out var purgeQuery))
+                TimeSpan? ttl = null;
+                if (context.Request.Query.TryGetValue("ttl", out var ttlValues))
                 {
-                    if (!bool.TryParse(purgeQuery, out purge))
+                    if (!TimeSpan.TryParse(ttlValues[0], out var ttlParsed))
                     {
-                        return Results.BadRequest("purge must be true or false");
+                        return Results.BadRequest("ttl must be a valid TimeSpan");
+                    }
+
+                    ttl = ttlParsed;
+                }
+
+                var softDeleted = false;
+                if (context.Request.Query.TryGetValue("softDeleted", out var softDeletedQuery))
+                {
+                    if (!bool.TryParse(softDeletedQuery, out softDeleted))
+                    {
+                        return Results.BadRequest("softDeleted must be true or false");
                     }
                 }
 
                 var tagQuery = context.GetTagQueryParameters();
                 var excludeTagQuery = context.GetTagQueryParameters("excludeTag");
 
-                var count = await manager.SoftDeleteBuffers(tagQuery, excludeTagQuery, purge, cancellationToken);
+                var count = await manager.SoftDeleteBuffers(tagQuery, excludeTagQuery, ttl, softDeleted, cancellationToken);
                 return Results.Ok(count);
             })
             .WithName("deleteBuffers")
@@ -259,16 +270,27 @@ public static class Buffers
 
         app.MapDelete("/v1/buffers/{id}", async (BufferManager manager, HttpContext context, string id, CancellationToken cancellationToken) =>
             {
-                var purge = false;
-                if (context.Request.Query.TryGetValue("purge", out var purgeQuery))
+                TimeSpan? ttl = null;
+                if (context.Request.Query.TryGetValue("ttl", out var ttlValues))
                 {
-                    if (!bool.TryParse(purgeQuery, out purge))
+                    if (!TimeSpan.TryParse(ttlValues[0], out var ttlParsed))
                     {
-                        return Results.BadRequest("purge must be true or false");
+                        return Results.BadRequest("ttl must be a valid TimeSpan");
+                    }
+
+                    ttl = ttlParsed;
+                }
+
+                var softDeleted = false;
+                if (context.Request.Query.TryGetValue("softDeleted", out var softDeletedQuery))
+                {
+                    if (!bool.TryParse(softDeletedQuery, out softDeleted))
+                    {
+                        return Results.BadRequest("softDeleted must be true or false");
                     }
                 }
 
-                var result = await manager.SoftDeleteBufferById(id, purge, cancellationToken);
+                var result = await manager.SoftDeleteBufferById(id, ttl, softDeleted, cancellationToken);
                 return result.Match(
                     updated: updated => Results.Ok(updated.Value),
                     notFound: _ => Results.NotFound(),

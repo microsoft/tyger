@@ -43,15 +43,15 @@ public sealed partial class BufferManager
         return await _repository.GetBuffer(id, softDeleted, cancellationToken);
     }
 
-    public async Task<UpdateWithPreconditionResult<Buffer>> SoftDeleteBufferById(string id, bool purge, CancellationToken cancellationToken)
+    public async Task<UpdateWithPreconditionResult<Buffer>> SoftDeleteBufferById(string id, TimeSpan? ttl, bool softDeleted, CancellationToken cancellationToken)
     {
         var expiresAt = GetDefaultBufferDeletedExpiresAt();
-        if (purge)
+        if (ttl.HasValue)
         {
-            expiresAt = DateTime.UtcNow;
+            expiresAt = DateTime.UtcNow.Add(ttl.Value.Duration());
         }
 
-        return await _repository.SoftDeleteBuffer(id, expiresAt, purge, cancellationToken);
+        return await _repository.SoftDeleteBuffer(id, expiresAt, softDeleted, cancellationToken);
     }
 
     public async Task<UpdateWithPreconditionResult<Buffer>> RestoreBufferById(string id, CancellationToken cancellationToken)
@@ -83,15 +83,15 @@ public sealed partial class BufferManager
         return await _repository.GetBuffers(tags, excludeTags, softDeleted, limit, continuationToken, cancellationToken);
     }
 
-    public async Task<int> SoftDeleteBuffers(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags, bool purge, CancellationToken cancellationToken)
+    public async Task<int> SoftDeleteBuffers(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags, TimeSpan? ttl, bool softDeleted, CancellationToken cancellationToken)
     {
         var expiresAt = GetDefaultBufferDeletedExpiresAt();
-        if (purge)
+        if (ttl.HasValue)
         {
-            expiresAt = DateTime.UtcNow;
+            expiresAt = DateTime.UtcNow.Add(ttl.Value.Duration());
         }
 
-        return await _repository.SoftDeleteBuffers(tags, excludeTags, expiresAt, purge, cancellationToken);
+        return await _repository.SoftDeleteBuffers(tags, excludeTags, expiresAt, softDeleted, cancellationToken);
     }
 
     public async Task<int> RestoreBuffers(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags, CancellationToken cancellationToken)

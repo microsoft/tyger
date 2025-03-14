@@ -45,7 +45,7 @@ public class BufferDeleter : BackgroundService
                 {
                     foreach (var id in readyToSoftDelete)
                     {
-                        await _bufferManager.SoftDeleteBufferById(id, false, stoppingToken);
+                        await _bufferManager.SoftDeleteBufferById(id, null, false, stoppingToken);
                     }
 
                     _logger.SoftDeletedBuffers(readyToSoftDelete.Count);

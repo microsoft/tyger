@@ -1878,7 +1878,7 @@ public class Repository
         return expiresAt;
     }
 
-    public async Task<UpdateWithPreconditionResult<Buffer>> SoftDeleteBuffer(string id, DateTimeOffset expiresAt, bool purge, CancellationToken cancellationToken)
+    public async Task<UpdateWithPreconditionResult<Buffer>> SoftDeleteBuffer(string id, DateTimeOffset expiresAt, bool whereSoftDeleted, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync<UpdateWithPreconditionResult<Buffer>>(async cancellationToken =>
         {
@@ -1920,8 +1920,8 @@ public class Repository
                 return new UpdateWithPreconditionResult<Buffer>.NotFound();
             }
 
-            var invalidPurge = purge && !buffer.IsSoftDeleted;
-            var invalidDelete = !purge && buffer.IsSoftDeleted;
+            var invalidPurge = whereSoftDeleted && !buffer.IsSoftDeleted;
+            var invalidDelete = !whereSoftDeleted && buffer.IsSoftDeleted;
             if (invalidPurge || invalidDelete)
             {
                 return new UpdateWithPreconditionResult<Buffer>.PreconditionFailed();
@@ -2171,7 +2171,7 @@ public class Repository
         }, cancellationToken);
     }
 
-    public async Task<int> SoftDeleteBuffers(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags, DateTimeOffset expiresAt, bool purge, CancellationToken cancellationToken)
+    public async Task<int> SoftDeleteBuffers(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags, DateTimeOffset expiresAt, bool softDeleted, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
@@ -2267,7 +2267,7 @@ public class Repository
             }
 
             whereClauses.Add($"    c.is_soft_deleted = ${param++}");
-            command.Parameters.Add(new() { Value = purge, NpgsqlDbType = NpgsqlDbType.Boolean });
+            command.Parameters.Add(new() { Value = softDeleted, NpgsqlDbType = NpgsqlDbType.Boolean });
 
             if (whereClauses.Count > 0)
             {
