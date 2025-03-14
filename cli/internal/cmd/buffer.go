@@ -109,20 +109,33 @@ func newBufferSetCommand() *cobra.Command {
 	var etag string
 	tags := make(map[string]string)
 	clearTags := false
+	var ttl string
+	softDeleted := false
+
 	cmd := &cobra.Command{
-		Use:                   "set ID [--clear-tags] [--tag key=value ...] [--etag ETAG]",
+		Use:                   "set ID [--clear-tags] [--tag key=value ...] [--etag ETAG] [--ttl D.HH:MM:SS]",
 		Short:                 "Updates or replaces tags set on a buffer",
 		Long:                  "Updates or replaces tags set on a buffer",
 		Args:                  exactlyOneArg("buffer ID"),
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return controlplane.SetTagsOnEntity(cmd.Context(), fmt.Sprintf("v1/buffers/%s", args[0]), etag, clearTags, tags, model.Buffer{})
+			options := url.Values{}
+			if ttl != "" {
+				options.Add("ttl", ttl)
+			}
+			if softDeleted {
+				options.Add("softDeleted", strconv.FormatBool(softDeleted))
+			}
+			relativeUri := fmt.Sprintf("v1/buffers/%s?%s", args[0], options.Encode())
+			return controlplane.SetTagsOnEntity(cmd.Context(), relativeUri, etag, clearTags, tags, model.Buffer{})
 		},
 	}
 
 	cmd.Flags().BoolVar(&clearTags, "clear-tags", clearTags, "clear all existing tags from the buffer and replace them with the new tags. If not specified, the existing tags are preserved and updated.")
 	cmd.Flags().StringToStringVar(&tags, "tag", nil, "add or update a key-value tag to the buffer. Can be specified multiple times.")
 	cmd.Flags().StringVar(&etag, "etag", etag, "the ETag read ETag to guard against concurrent updates, ")
+	cmd.Flags().StringVar(&ttl, "ttl", ttl, "the time-to-live for the buffer. This adjusts the buffer's expiry time for deletion.")
+	cmd.Flags().BoolVar(&softDeleted, "soft-deleted", softDeleted, "Only include soft-deleted buffers.")
 
 	return cmd
 }

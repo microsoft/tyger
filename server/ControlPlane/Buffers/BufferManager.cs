@@ -70,9 +70,15 @@ public sealed partial class BufferManager
         return await _repository.CheckBuffersExist(ids, cancellationToken);
     }
 
-    public async Task<UpdateWithPreconditionResult<Buffer>> UpdateBufferTags(BufferUpdate bufferUpdate, string? eTagPrecondition, CancellationToken cancellationToken)
+    public async Task<UpdateWithPreconditionResult<Buffer>> UpdateBuffer(BufferUpdate bufferUpdate, TimeSpan? ttl, string? eTagPrecondition, CancellationToken cancellationToken)
     {
-        return await _repository.UpdateBufferTags(bufferUpdate, eTagPrecondition, cancellationToken);
+        DateTimeOffset? expiresAt = null;
+        if (ttl != null)
+        {
+            expiresAt = DateTime.UtcNow.Add(ttl.Value.Duration());
+        }
+
+        return await _repository.UpdateBuffer(bufferUpdate, expiresAt, eTagPrecondition, cancellationToken);
     }
 
     public async Task<(IList<Buffer>, string? nextContinuationToken)> GetBuffers(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags,

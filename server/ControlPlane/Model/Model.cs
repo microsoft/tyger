@@ -87,6 +87,8 @@ public record BufferUpdate : IResourceWithTags<string?>
     [JsonIgnore]
     public DateTimeOffset? CreatedAt { get; init; }
     public IReadOnlyDictionary<string, string>? Tags { get; init; }
+
+    public TimeSpan? Ttl { get; init; }
 }
 
 public record BufferAccess(Uri Uri) : ModelBase;

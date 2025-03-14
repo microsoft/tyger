@@ -1575,7 +1575,7 @@ public class Repository
         }, cancellationToken);
     }
 
-    public async Task<UpdateWithPreconditionResult<Buffer>> UpdateBufferTags(BufferUpdate bufferUpdate, string? eTagPrecondition, CancellationToken cancellationToken)
+    public async Task<UpdateWithPreconditionResult<Buffer>> UpdateBuffer(BufferUpdate bufferUpdate, DateTimeOffset? expiresAt, string? eTagPrecondition, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync<UpdateWithPreconditionResult<Buffer>>(async cancellationToken =>
         {
@@ -1590,7 +1590,7 @@ public class Repository
                 Connection = connection,
                 Transaction = tx,
                 CommandText = """
-                    SELECT created_at, storage_accounts.location FROM buffers
+                    SELECT created_at, expires_at, storage_accounts.location FROM buffers
                     INNER JOIN storage_accounts ON storage_accounts.id = buffers.storage_account_id
                     WHERE buffers.id = $1
                     FOR UPDATE
@@ -1609,7 +1609,12 @@ public class Repository
                 while (await reader.ReadAsync(cancellationToken))
                 {
                     any = true;
-                    buffer = buffer with { CreatedAt = reader.GetDateTime(0), Location = reader.GetString(1) };
+                    buffer = buffer with
+                    {
+                        CreatedAt = reader.GetDateTime(0),
+                        ExpiresAt = reader.IsDBNull(1) ? null : reader.GetDateTime(1),
+                        Location = reader.GetString(2)
+                    };
                     bufferUpdate = bufferUpdate with { CreatedAt = buffer.CreatedAt };
                 }
 
@@ -1631,6 +1636,12 @@ public class Repository
                         await tx.RollbackAsync(cancellationToken);
                         return new UpdateWithPreconditionResult<Buffer>.PreconditionFailed();
                     }
+                }
+
+                if (expiresAt.HasValue)
+                {
+                    var updatedExpiresAt = await UpdateBufferExpiresAt(tx, buffer.Id, expiresAt.Value, cancellationToken);
+                    buffer = buffer with { ExpiresAt = updatedExpiresAt };
                 }
 
                 buffer.ComputeEtag(hash);
@@ -1838,6 +1849,33 @@ public class Repository
             await tx.CommitAsync(cancellationToken);
             return newBuffer;
         }, cancellationToken);
+    }
+
+    private static async Task<DateTimeOffset> UpdateBufferExpiresAt(NpgsqlTransaction tx, string id, DateTimeOffset expiresAt, CancellationToken cancellationToken)
+    {
+        await using var updateCommand = new NpgsqlCommand(
+            """
+            UPDATE buffers
+            SET expires_at = $2
+            WHERE id = $1
+            RETURNING expires_at
+            """, tx.Connection, tx)
+        {
+            Parameters =
+                    {
+                        new() { Value = id, NpgsqlDbType = NpgsqlDbType.Text },
+                        new() { Value = expiresAt, NpgsqlDbType = NpgsqlDbType.TimestampTz },
+                    }
+        };
+
+        await updateCommand.PrepareAsync(cancellationToken);
+        await using var reader = await updateCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+        if (await reader.ReadAsync(cancellationToken))
+        {
+            expiresAt = reader.GetDateTime(0);
+        }
+
+        return expiresAt;
     }
 
     public async Task<UpdateWithPreconditionResult<Buffer>> SoftDeleteBuffer(string id, DateTime expiresAt, bool purge, CancellationToken cancellationToken)

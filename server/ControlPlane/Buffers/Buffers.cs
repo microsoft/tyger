@@ -228,9 +228,20 @@ public static class Buffers
                     eTagPrecondition = "";
                 }
 
+                TimeSpan? ttl = null;
+                if (context.Request.Query.TryGetValue("ttl", out var ttlValues))
+                {
+                    if (!TimeSpan.TryParse(ttlValues[0], out var ttlParsed))
+                    {
+                        return Results.BadRequest("ttl must be a valid TimeSpan");
+                    }
+
+                    ttl = ttlParsed;
+                }
+
                 bufferUpdate = bufferUpdate with { Id = id };
 
-                var result = await manager.UpdateBufferTags(bufferUpdate, eTagPrecondition, cancellationToken);
+                var result = await manager.UpdateBuffer(bufferUpdate, ttl, eTagPrecondition, cancellationToken);
 
                 return result.Match(
                     updated: updated =>

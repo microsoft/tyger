@@ -1631,6 +1631,43 @@ func TestBufferSetTagsWithETag(t *testing.T) {
 	require.NotEqual(bufferETag.ETag, buffer.ETag)
 }
 
+func TestBufferSetTtl(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+
+	bufferId1 := runTygerSucceeds(t, "buffer", "create")
+	buffer1 := getBuffer(t, bufferId1)
+	require.Nil(buffer1.ExpiresAt)
+
+	buffer1, err := setBuffer(t, bufferId1, "--ttl", "0")
+	require.NoError(err)
+	require.Less(*buffer1.ExpiresAt, time.Now())
+
+	bufferId2 := runTygerSucceeds(t, "buffer", "create", "--tag", "testtag1=setTtl1")
+	buffer2, err := setBuffer(t, bufferId2, "--ttl", "2.12:30:30", "--tag", "testtag2=setTtl2")
+	require.NoError(err)
+	require.Greater(*buffer2.ExpiresAt, time.Now().Add((2*24+12)*time.Hour+30*time.Minute))
+	require.Less(*buffer2.ExpiresAt, time.Now().Add((2*24+12)*time.Hour+31*time.Minute))
+}
+
+func TestBufferSetTtlWithETag(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+
+	bufferJson := runTygerSucceeds(t, "buffer", "create", "--tag", "testtag1=setTttl1", "--tag", "testtag2=setTtl2", "--full-resource")
+
+	var bufferETag model.Buffer
+	require.NoError(json.Unmarshal([]byte(bufferJson), &bufferETag))
+
+	t.Logf("Buffer ID: %s eTag: %s", bufferETag.Id, bufferETag.ETag)
+
+	buffer, err := setBuffer(t, bufferETag.Id, "--ttl", "0", "--tag", "testtag2=setTtl2Updated", "--tag", "testtag4=setTtl4", "--etag", bufferETag.ETag)
+	require.NoError(err)
+
+	require.Less(*buffer.ExpiresAt, time.Now())
+	require.NotEqual(bufferETag.ETag, buffer.ETag)
+}
+
 func TestBufferSetWithInvalidETag(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
@@ -1645,6 +1682,9 @@ func TestBufferSetWithInvalidETag(t *testing.T) {
 
 	_, stderr2, _ := runTyger("buffer", "set", "bad-bufferid", "--etag", "bad-etag")
 	require.Contains(stderr2, "404 Not Found")
+
+	_, stderr3, _ := runTyger("buffer", "set", bufferId, "--ttl", "1.00:00:00", "--etag", "bad-etag")
+	require.Contains(stderr3, "the server's ETag does not match the provided ETag")
 }
 
 func TestBufferSetClearTags(t *testing.T) {
