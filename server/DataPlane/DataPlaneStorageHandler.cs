@@ -107,6 +107,13 @@ public partial class DataPlaneStorageHandler : IHealthCheck
                 return;
         }
 
+        if (!ContainerNameRegex().IsMatch(containerId))
+        {
+            context.Response.Headers[ErrorCodeHeaderName] = "InvalidContainerName";
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            return;
+        }
+
         if (!Directory.Exists(Path.Combine(_dataDir, containerId)))
         {
             context.Response.Headers["x-ms-error-code"] = "ContainerNotFound";
