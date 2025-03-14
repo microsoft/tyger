@@ -1938,6 +1938,43 @@ func TestBufferPurge(t *testing.T) {
 	runTygerSucceeds(t, "buffer", "show", "--soft-deleted", bufferId4)
 }
 
+func TestBufferSetTtlTriggersDeleter(t *testing.T) {
+	t.Parallel()
+	skipIfOnlyFastTests(t)
+
+	require := require.New(t)
+
+	bufferJson := runTygerSucceeds(t, "buffer", "create", "--tag", "testtagX=triggerDeleter", "--full-resource")
+
+	var buffer model.Buffer
+	require.NoError(json.Unmarshal([]byte(bufferJson), &buffer))
+	require.Nil(buffer.ExpiresAt)
+
+	activeExpiredBuffer, err := setBuffer(t, buffer.Id, "--ttl", "0")
+	require.NoError(err)
+	require.Less(*activeExpiredBuffer.ExpiresAt, time.Now())
+
+	// Wait for the buffer to be soft-deleted
+	time.Sleep(time.Second * 35)
+
+	_, _, err = runTyger("buffer", "show", activeExpiredBuffer.Id)
+	assert.Error(t, err)
+
+	softDeletedBuffer := getBuffer(t, activeExpiredBuffer.Id, "--soft-deleted")
+
+	deletedExpiredBuffer, err := setBuffer(t, softDeletedBuffer.Id, "--ttl", "0", "--soft-deleted")
+	require.NoError(err)
+	require.Less(*deletedExpiredBuffer.ExpiresAt, time.Now())
+
+	// Wait for the buffer to be purged
+	time.Sleep(time.Second * 35)
+
+	_, _, err = runTyger("buffer", "show", deletedExpiredBuffer.Id)
+	assert.Error(t, err)
+	_, _, err = runTyger("buffer", "show", "--soft-deleted", deletedExpiredBuffer.Id)
+	assert.Error(t, err)
+}
+
 func TestCreateRunWithDeletedBuffer(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)

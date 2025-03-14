@@ -84,7 +84,7 @@ public sealed class AzureBlobBufferProvider : IHostedService, IBufferProvider, I
         return await _repository.CreateBuffer(buffer, storageAccountId, cancellationToken);
     }
 
-    public async Task<int> DeleteBuffers(IList<string> ids, CancellationToken cancellationToken)
+    public async Task<IList<string>> DeleteBuffers(IList<string> ids, CancellationToken cancellationToken)
     {
         var storageAccountIds = await _repository.GetBufferStorageAccountIds(ids, cancellationToken);
         var deletedIds = new List<string>();
@@ -102,7 +102,7 @@ public sealed class AzureBlobBufferProvider : IHostedService, IBufferProvider, I
             deletedIds.Add(id);
         }
 
-        return await _repository.HardDeleteBuffers(deletedIds, cancellationToken);
+        return deletedIds;
     }
 
     public async Task<IList<(string id, bool writeable, BufferAccess? bufferAccess)>> CreateBufferAccessUrls(IList<(string id, bool writeable)> requests, bool preferTcp, bool checkExists, CancellationToken cancellationToken)

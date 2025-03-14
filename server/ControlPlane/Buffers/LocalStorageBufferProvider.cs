@@ -146,7 +146,7 @@ public sealed class LocalStorageBufferProvider : IBufferProvider, IHostedService
         return await _repository.CreateBuffer(buffer, _storageAccountId, cancellationToken);
     }
 
-    public async Task<int> DeleteBuffers(IList<string> ids, CancellationToken cancellationToken)
+    public async Task<IList<string>> DeleteBuffers(IList<string> ids, CancellationToken cancellationToken)
     {
         var deletedIds = new List<string>();
         foreach (var id in ids)
@@ -158,7 +158,7 @@ public sealed class LocalStorageBufferProvider : IBufferProvider, IHostedService
             deletedIds.Add(id);
         }
 
-        return await _repository.HardDeleteBuffers(deletedIds, cancellationToken);
+        return deletedIds;
     }
 
     public async Task<IList<(string id, bool writeable, BufferAccess? bufferAccess)>> CreateBufferAccessUrls(IList<(string id, bool writeable)> requests, bool preferTcp, bool checkExists, CancellationToken cancellationToken)

@@ -11,12 +11,14 @@ namespace Tyger.ControlPlane.Buffers;
 public class BufferDeleter : BackgroundService
 {
     private readonly Repository _repository;
+    private readonly BufferManager _bufferManager;
     private readonly IBufferProvider _bufferProvider;
     private readonly ILogger<BufferDeleter> _logger;
 
-    public BufferDeleter(Repository repository, IBufferProvider bufferProvider, ILogger<BufferDeleter> logger)
+    public BufferDeleter(Repository repository, BufferManager manager, IBufferProvider bufferProvider, ILogger<BufferDeleter> logger)
     {
         _repository = repository;
+        _bufferManager = manager;
         _bufferProvider = bufferProvider;
         _logger = logger;
     }
@@ -30,14 +32,24 @@ public class BufferDeleter : BackgroundService
                 var timestamp = DateTimeOffset.UtcNow;
                 await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
 
-                var ids = await _repository.GetExpiredBufferIds(stoppingToken);
-                if (ids.Count == 0)
+                var readyToPurge = await _repository.GetExpiredBufferIds(whereSoftDeleted: true, stoppingToken);
+                if (readyToPurge.Count > 0)
                 {
-                    continue;
+                    var deletedIds = await _bufferProvider.DeleteBuffers(readyToPurge, stoppingToken);
+                    await _repository.HardDeleteBuffers(deletedIds, stoppingToken);
+                    _logger.HardDeletedBuffers(deletedIds.Count);
                 }
 
-                var count = await _bufferProvider.DeleteBuffers(ids, stoppingToken);
-                _logger.DeletedBuffers(count, ids.Count);
+                var readyToSoftDelete = await _repository.GetExpiredBufferIds(whereSoftDeleted: false, stoppingToken);
+                if (readyToSoftDelete.Count > 0)
+                {
+                    foreach (var id in readyToSoftDelete)
+                    {
+                        await _bufferManager.SoftDeleteBufferById(id, false, stoppingToken);
+                    }
+
+                    _logger.SoftDeletedBuffers(readyToSoftDelete.Count);
+                }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {

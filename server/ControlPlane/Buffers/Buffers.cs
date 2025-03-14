@@ -2,7 +2,6 @@
 // Licensed under the MIT License.
 
 using System.ComponentModel.DataAnnotations;
-using Docker.DotNet.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Primitives;
@@ -152,7 +151,7 @@ public static class Buffers
                 var tagQuery = context.GetTagQueryParameters();
                 var excludeTagQuery = context.GetTagQueryParameters("excludeTag");
 
-                var count = await manager.DeleteBuffers(tagQuery, excludeTagQuery, purge, cancellationToken);
+                var count = await manager.SoftDeleteBuffers(tagQuery, excludeTagQuery, purge, cancellationToken);
                 return Results.Ok(count);
             })
             .WithName("deleteBuffers")
@@ -269,7 +268,7 @@ public static class Buffers
                     }
                 }
 
-                var result = await manager.DeleteBufferById(id, purge, cancellationToken);
+                var result = await manager.SoftDeleteBufferById(id, purge, cancellationToken);
                 return result.Match(
                     updated: updated => Results.Ok(updated.Value),
                     notFound: _ => Results.NotFound(),

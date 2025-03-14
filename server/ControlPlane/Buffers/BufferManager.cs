@@ -43,9 +43,9 @@ public sealed partial class BufferManager
         return await _repository.GetBuffer(id, softDeleted, cancellationToken);
     }
 
-    public async Task<UpdateWithPreconditionResult<Buffer>> DeleteBufferById(string id, bool purge, CancellationToken cancellationToken)
+    public async Task<UpdateWithPreconditionResult<Buffer>> SoftDeleteBufferById(string id, bool purge, CancellationToken cancellationToken)
     {
-        var expiresAt = DateTime.UtcNow.Add(_bufferOptions.Value.SoftDeletedLifetime.Duration());
+        var expiresAt = GetDefaultBufferDeletedExpiresAt();
         if (purge)
         {
             expiresAt = DateTime.UtcNow;
@@ -56,11 +56,7 @@ public sealed partial class BufferManager
 
     public async Task<UpdateWithPreconditionResult<Buffer>> RestoreBufferById(string id, CancellationToken cancellationToken)
     {
-        DateTime? expiresAt = null;
-        if (_bufferOptions.Value.ActiveLifetime != TimeSpan.Zero)
-        {
-            expiresAt = DateTime.UtcNow.Add(_bufferOptions.Value.ActiveLifetime.Duration());
-        }
+        var expiresAt = GetDefaultBufferRestoredExpiresAt();
 
         return await _repository.RestoreBuffer(id, expiresAt, cancellationToken);
     }
@@ -87,9 +83,9 @@ public sealed partial class BufferManager
         return await _repository.GetBuffers(tags, excludeTags, softDeleted, limit, continuationToken, cancellationToken);
     }
 
-    public async Task<int> DeleteBuffers(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags, bool purge, CancellationToken cancellationToken)
+    public async Task<int> SoftDeleteBuffers(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags, bool purge, CancellationToken cancellationToken)
     {
-        var expiresAt = DateTime.UtcNow.Add(_bufferOptions.Value.SoftDeletedLifetime.Duration());
+        var expiresAt = GetDefaultBufferDeletedExpiresAt();
         if (purge)
         {
             expiresAt = DateTime.UtcNow;
@@ -100,11 +96,7 @@ public sealed partial class BufferManager
 
     public async Task<int> RestoreBuffers(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags, CancellationToken cancellationToken)
     {
-        DateTime? expiresAt = null;
-        if (_bufferOptions.Value.ActiveLifetime != TimeSpan.Zero)
-        {
-            expiresAt = DateTime.UtcNow.Add(_bufferOptions.Value.ActiveLifetime.Duration());
-        }
+        var expiresAt = GetDefaultBufferRestoredExpiresAt();
 
         return await _repository.RestoreBuffers(tags, excludeTags, expiresAt, cancellationToken);
     }
@@ -202,6 +194,21 @@ public sealed partial class BufferManager
     internal IList<StorageAccount> GetStorageAccounts()
     {
         return _bufferProvider.GetStorageAccounts();
+    }
+
+    internal DateTimeOffset? GetDefaultBufferRestoredExpiresAt()
+    {
+        if (_bufferOptions.Value.ActiveLifetime != TimeSpan.Zero)
+        {
+            return DateTime.UtcNow.Add(_bufferOptions.Value.ActiveLifetime.Duration());
+        }
+
+        return null;
+    }
+
+    internal DateTimeOffset GetDefaultBufferDeletedExpiresAt()
+    {
+        return DateTime.UtcNow.Add(_bufferOptions.Value.SoftDeletedLifetime.Duration());
     }
 
     [GeneratedRegex(@"^(?<TEMP>(run-(?<RUNID>\d+)-)?temp-)?(?<BUFFERID>\w+)$")]

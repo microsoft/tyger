@@ -1878,7 +1878,7 @@ public class Repository
         return expiresAt;
     }
 
-    public async Task<UpdateWithPreconditionResult<Buffer>> SoftDeleteBuffer(string id, DateTime expiresAt, bool purge, CancellationToken cancellationToken)
+    public async Task<UpdateWithPreconditionResult<Buffer>> SoftDeleteBuffer(string id, DateTimeOffset expiresAt, bool purge, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync<UpdateWithPreconditionResult<Buffer>>(async cancellationToken =>
         {
@@ -1953,7 +1953,7 @@ public class Repository
                 await deleteCommand.PrepareAsync(cancellationToken);
                 await using var reader = await deleteCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
                 await reader.ReadAsync(cancellationToken);
-                buffer = buffer with { ExpiresAt = reader.GetDateTime(0) };
+                buffer = buffer with { ExpiresAt = reader.IsDBNull(0) ? null : reader.GetDateTime(0) };
             }
 
             await tx.CommitAsync(cancellationToken);
@@ -1961,7 +1961,7 @@ public class Repository
         }, cancellationToken);
     }
 
-    public async Task<UpdateWithPreconditionResult<Buffer>> RestoreBuffer(string id, DateTime? expiresAt, CancellationToken cancellationToken)
+    public async Task<UpdateWithPreconditionResult<Buffer>> RestoreBuffer(string id, DateTimeOffset? expiresAt, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync<UpdateWithPreconditionResult<Buffer>>(async cancellationToken =>
         {
@@ -2171,7 +2171,7 @@ public class Repository
         }, cancellationToken);
     }
 
-    public async Task<int> SoftDeleteBuffers(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags, DateTime expiresAt, bool purge, CancellationToken cancellationToken)
+    public async Task<int> SoftDeleteBuffers(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags, DateTimeOffset expiresAt, bool purge, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
@@ -2303,7 +2303,7 @@ public class Repository
 
     }
 
-    public async Task<int> RestoreBuffers(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags, DateTime? expiresAt, CancellationToken cancellationToken)
+    public async Task<int> RestoreBuffers(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags, DateTimeOffset? expiresAt, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
@@ -2431,7 +2431,7 @@ public class Repository
 
     }
 
-    public async Task<IList<string>> GetExpiredBufferIds(CancellationToken cancellationToken)
+    public async Task<IList<string>> GetExpiredBufferIds(bool whereSoftDeleted, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync<IList<string>>(async cancellationToken =>
         {
@@ -2441,7 +2441,14 @@ public class Repository
                 FROM buffers
                 WHERE expires_at IS NOT NULL
                 AND expires_at < now() AT TIME ZONE 'utc'
-                """, conn);
+                AND is_soft_deleted = $1
+                """, conn)
+            {
+                Parameters =
+                {
+                    new() { Value = whereSoftDeleted, NpgsqlDbType = NpgsqlDbType.Boolean }
+                }
+            };
 
             await command.PrepareAsync(cancellationToken);
             await using var reader = (await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken))!;
