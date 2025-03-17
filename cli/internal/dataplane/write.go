@@ -293,9 +293,11 @@ func readInBlocksWithMaximumInterval(ctx context.Context, inputReader io.Reader,
 
 			// start a timer to flush the buffer every interval by writing to dataCh
 			var timer *time.Timer
+			mut.Lock()
 			timer = time.AfterFunc(interval, func() {
 				mut.Lock()
 				if bufPos == 0 {
+					timer.Reset(interval)
 					mut.Unlock()
 				} else {
 					// get a new slice from the pool and copy the contents of the buf into it.
@@ -306,6 +308,7 @@ func readInBlocksWithMaximumInterval(ctx context.Context, inputReader io.Reader,
 
 					select {
 					case dataCh <- readSoFarBuf:
+						timer.Reset(interval)
 						mut.Unlock()
 					case <-ctx.Done():
 						mut.Unlock()
@@ -314,9 +317,8 @@ func readInBlocksWithMaximumInterval(ctx context.Context, inputReader io.Reader,
 
 					log.Trace().Msg("Flushed buffer")
 				}
-
-				timer.Reset(interval)
 			})
+			mut.Unlock()
 
 			defer timer.Stop()
 
