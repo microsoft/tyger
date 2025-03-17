@@ -230,6 +230,112 @@ tyger buffer list --tag mykey1=myvalue1 --tag missingkey=missingvalue
 []
 ```
 
+## Deleting buffers
+
+You can delete individual buffers using
+
+```bash
+tyger buffer delete $buffer_id
+```
+
+```json
+{
+  "id": "4xr6p5pdmy7ujanqhh7xkz2f3a",
+  "createdAt": "2025-03-14T06:43:18.95849Z",
+  "eTag": "10072690995705686547",
+  "expiresAt": "2025-03-18T02:55:10.114186Z"
+}
+```
+
+This will "soft" delete the buffer.
+Soft-deleted buffers are hidden from all Tyger commands. To show, list, or modify soft-deleted buffers, use the `--soft-deleted` command-line argument:
+
+```bash
+tyger buffer show $buffer_id --soft-deleted
+```
+
+```json
+{
+  "id": "4xr6p5pdmy7ujanqhh7xkz2f3a",
+  "createdAt": "2025-03-14T06:43:18.95849Z",
+  "eTag": "10072690995705686547",
+  "expiresAt": "2025-03-18T02:55:10.114186Z"
+}
+```
+
+Soft-deleted buffers will be automatically purged when they expire.
+The default time-to-live for a soft-deleted buffer is configured during Tyger installation via the `buffers.softDeletedLifetime` field.
+
+By default, active buffers do not have an expiration date and will never be automatically deleted.
+This behavior is configured during Tyger installation via the `buffers.activeLifetime` field.
+If an active buffer expires, it will be automatically soft-deleted by Tyger.
+
+To set the TTL for a buffer manually, use the format `DD.HH:MM:SS`.
+
+```bash
+tyger buffer set --ttl 2.12:00 $buffer_id --soft-deleted
+```
+
+```json
+{
+  "createdAt": "2025-03-14T06:43:18.95849+00:00",
+  "eTag": "11844248791289668196",
+  "expiresAt": "2025-03-20T03:12:53.584841+00:00",
+  "id": "4xr6p5pdmy7ujanqhh7xkz2f3a",
+  "location": "local",
+  "tags": {}
+}
+```
+
+
+To restore a soft-deleted buffer, use
+
+```bash
+tyger buffer restore $buffer_id
+```
+
+```json
+{
+  "id": "4xr6p5pdmy7ujanqhh7xkz2f3a",
+  "createdAt": "2025-03-14T06:43:18.95849Z",
+  "eTag": "3726351716079049356"
+}
+```
+
+To permanently delete (purge) a soft-deleted buffer, use:
+
+```bash
+tyger buffer purge $buffer_id
+```
+
+```json
+{
+  "id": "4xr6p5pdmy7ujanqhh7xkz2f3a",
+  "createdAt": "2025-03-14T06:43:18.95849Z",
+  "eTag": "9598312053235431473",
+  "expiresAt": "2025-03-17T15:18:23.305393Z"
+}
+```
+
+You can also delete, restore, or purge multiple buffers matching a set of tags
+
+```bash
+tyger buffer delete --tag mykey1=myvalue1 --exclude-tag mykey2=myvalue2 --force
+
+Deleted 54 buffers.
+```
+
+or **all** buffers using
+
+```bash
+tyger buffer delete --all
+
+2025-03-17T15:24:12.012Z WRN Deleting 372 buffers. Use --force to delete without confirmation.
+Are you sure you want to delete 372 buffers? ▸Yes  No
+Deleted 372 buffers.
+```
+
+
 ## Copying buffers between Tyger instances
 ::: warning Note
 This functionality is only supported when Tyger is running in the cloud.
