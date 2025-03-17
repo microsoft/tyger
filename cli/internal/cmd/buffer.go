@@ -127,7 +127,8 @@ func newBufferSetCommand() *cobra.Command {
 				options.Add("softDeleted", strconv.FormatBool(softDeleted))
 			}
 			relativeUri := fmt.Sprintf("v1/buffers/%s?%s", args[0], options.Encode())
-			return controlplane.SetTagsOnEntity(cmd.Context(), relativeUri, etag, clearTags, tags, model.Buffer{})
+			buffer := model.Buffer{}
+			return controlplane.SetTagsOnEntity(cmd.Context(), relativeUri, etag, clearTags, tags, &buffer)
 		},
 	}
 

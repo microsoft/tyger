@@ -1265,7 +1265,7 @@ public class Repository
         }, cancellationToken);
     }
 
-    public async Task<Buffer?> GetBuffer(string id, bool softDeleted, CancellationToken cancellationToken)
+    public async Task<Buffer?> GetBuffer(string id, bool whereSoftDeleted, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
@@ -1287,7 +1287,7 @@ public class Repository
                 Parameters =
                 {
                     new() { Value = id, NpgsqlDbType = NpgsqlDbType.Text },
-                    new() { Value = softDeleted, NpgsqlDbType = NpgsqlDbType.Boolean },
+                    new() { Value = whereSoftDeleted, NpgsqlDbType = NpgsqlDbType.Boolean },
                 }
             };
 
@@ -1327,7 +1327,7 @@ public class Repository
                 return null;
             }
 
-            return new Buffer { Id = id, CreatedAt = createdAt, ExpiresAt = expiresAt, Location = location, Tags = tags, };
+            return new Buffer { Id = id, CreatedAt = createdAt, IsSoftDeleted = whereSoftDeleted, ExpiresAt = expiresAt, Location = location, Tags = tags, };
         }, cancellationToken);
     }
 
@@ -1356,7 +1356,7 @@ public class Repository
     }
 
     public async Task<(IList<Buffer>, string? nextContinuationToken)> GetBuffers(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags,
-            bool softDeleted, int limit, string? continuationToken, CancellationToken cancellationToken)
+            bool whereSoftDeleted, int limit, string? continuationToken, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync<(IList<Buffer>, string? nextContinuationToken)>(async cancellationToken =>
         {
@@ -1479,7 +1479,7 @@ public class Repository
             }
 
             whereClauses.Add($"c.is_soft_deleted = ${param}");
-            command.Parameters.Add(new() { Value = softDeleted, NpgsqlDbType = NpgsqlDbType.Boolean });
+            command.Parameters.Add(new() { Value = whereSoftDeleted, NpgsqlDbType = NpgsqlDbType.Boolean });
 
             commandText.AppendLine("WHERE");
             for (var i = 0; i < whereClauses.Count; i++)
@@ -1537,7 +1537,7 @@ public class Repository
                             results.Add(currentBuffer);
                         }
 
-                        currentBuffer = currentBuffer with { Id = id, CreatedAt = createdAt, ExpiresAt = expiresAt, Location = location };
+                        currentBuffer = currentBuffer with { Id = id, CreatedAt = createdAt, IsSoftDeleted = whereSoftDeleted, ExpiresAt = expiresAt, Location = location };
                         currentTags = [];
                     }
 
@@ -1589,7 +1589,7 @@ public class Repository
                 Connection = connection,
                 Transaction = tx,
                 CommandText = """
-                    SELECT created_at, expires_at, storage_accounts.location FROM buffers
+                    SELECT created_at, is_soft_deleted, expires_at, storage_accounts.location FROM buffers
                     INNER JOIN storage_accounts ON storage_accounts.id = buffers.storage_account_id
                     WHERE buffers.id = $1
                     FOR UPDATE
@@ -1611,8 +1611,9 @@ public class Repository
                     buffer = buffer with
                     {
                         CreatedAt = reader.GetDateTime(0),
-                        ExpiresAt = reader.IsDBNull(1) ? null : reader.GetDateTime(1),
-                        Location = reader.GetString(2)
+                        IsSoftDeleted = reader.GetBoolean(1),
+                        ExpiresAt = reader.IsDBNull(2) ? null : reader.GetDateTime(2),
+                        Location = reader.GetString(3)
                     };
                     bufferUpdate = bufferUpdate with { CreatedAt = buffer.CreatedAt };
                 }
@@ -1890,10 +1891,18 @@ public class Repository
                 Connection = connection,
                 Transaction = tx,
                 CommandText = """
-                    SELECT buffers.created_at, buffers.is_soft_deleted
+                    SELECT buffers.created_at, buffers.is_soft_deleted, storage_accounts.location, tag_keys.name, buffer_tags.value
                     FROM buffers
+                    INNER JOIN storage_accounts
+                        on storage_accounts.id = buffers.storage_account_id
+                    LEFT JOIN buffer_tags
+                        on buffers.id = buffer_tags.id
+                        and buffer_tags.created_at = buffers.created_at
+                    LEFT JOIN tag_keys
+                        on tag_keys.id = buffer_tags.key
                     WHERE buffers.id = $1
-                    FOR UPDATE
+                    ORDER BY tag_keys.name
+                    FOR UPDATE OF buffers
                     """,
                 Parameters =
                     {
@@ -1901,22 +1910,33 @@ public class Repository
                     }
             })
             {
+                OrderedDictionary<string, string>? tags = null;
                 await selectCommand.PrepareAsync(cancellationToken);
-                await using var reader = await selectCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
-                if (await reader.ReadAsync(cancellationToken))
+                await using var reader = (await selectCommand.ExecuteReaderAsync(cancellationToken))!;
+                while (await reader.ReadAsync(cancellationToken))
                 {
-                    buffer = new Buffer
+                    buffer ??= new Buffer
                     {
                         Id = id,
                         CreatedAt = reader.GetDateTime(0),
-                        IsSoftDeleted = reader.GetBoolean(1)
+                        IsSoftDeleted = reader.GetBoolean(1),
+                        Location = reader.GetString(2)
                     };
-                }
-            }
 
-            if (buffer == null)
-            {
-                return new UpdateWithPreconditionResult<Buffer>.NotFound();
+                    if (!reader.IsDBNull(3) && !reader.IsDBNull(4))
+                    {
+                        var name = reader.GetString(3);
+                        var value = reader.GetString(4);
+                        (tags ??= []).Add(name, value);
+                    }
+                }
+
+                if (buffer is null)
+                {
+                    return new UpdateWithPreconditionResult<Buffer>.NotFound();
+                }
+
+                buffer = buffer with { Tags = tags };
             }
 
             var invalidPurge = whereSoftDeleted && !buffer.IsSoftDeleted;

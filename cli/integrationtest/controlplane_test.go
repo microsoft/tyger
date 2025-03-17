@@ -1645,7 +1645,9 @@ func TestBufferSetTtl(t *testing.T) {
 
 	bufferId2 := runTygerSucceeds(t, "buffer", "create", "--tag", "testtag1=setTtl1")
 	buffer2, err := setBuffer(t, bufferId2, "--ttl", "2.12:30:30", "--tag", "testtag2=setTtl2")
+	buffer2FromShow := getBuffer(t, bufferId2)
 	require.NoError(err)
+	require.Equal(buffer2FromShow, buffer2)
 	require.Greater(*buffer2.ExpiresAt, time.Now().Add((2*24+12)*time.Hour+30*time.Minute))
 	require.Less(*buffer2.ExpiresAt, time.Now().Add((2*24+12)*time.Hour+31*time.Minute))
 }
@@ -1794,9 +1796,7 @@ func TestBufferDeleteById(t *testing.T) {
 	assert.Error(t, err)
 
 	buffer := getBuffer(t, bufferId, "--soft-deleted")
-	require.Equal(buffer.Id, deletedBuffer.Id)
-	require.Equal(buffer.CreatedAt, deletedBuffer.CreatedAt)
-	require.Equal(buffer.ExpiresAt, deletedBuffer.ExpiresAt)
+	require.Equal(buffer, deletedBuffer)
 
 	bufferJson = runTygerSucceeds(t, "buffer", "restore", bufferId)
 	var restoredBuffer model.Buffer
@@ -1824,7 +1824,8 @@ func TestBufferDeleteMultipleIds(t *testing.T) {
 		_, _, err := runTyger("buffer", "show", buf.Id)
 		assert.Error(t, err)
 
-		getBuffer(t, buf.Id, "--soft-deleted")
+		shown := getBuffer(t, buf.Id, "--soft-deleted")
+		require.Equal(buf, shown)
 	}
 
 	runTygerSucceeds(t, "buffer", "restore", bufferId1)
