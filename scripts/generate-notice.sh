@@ -103,26 +103,28 @@ for lib in $(jq -r '.libraries | to_entries | map(select(.value.type == "package
     {
         echo -e "================================================================================\n"
 
-        success=false
+        success="false"
         for _ in {1..50}; do
             set +e
             response=$(curl -sS --fail -X POST "https://api.clearlydefined.io/notices" -H "accept: application/json" -H "Content-Type: application/json" -d "{\"coordinates\":[\"nuget/nuget/-/$lib\"],\"options\":{}}")
+            exit_code=$?
             set -e
-            if [ $? -eq 0 ]; then
+            if [ $exit_code -eq 0 ]; then
                 echo "$response" | jq -r '.content'
+                echo "Retrieved notice for $lib" > /dev/stderr
                 success=true
                 break
             fi
-            sleep 5
+            echo "Failed to get notice for $lib, retrying in 60 seconds..." > /dev/stderr
+            sleep 60
         done
 
-        if [ "$success" = false ]; then
-            echo "Failed to get notice for $lib"
-            exit 0
+        if [ "$success" == "false" ]; then
+            echo "Failed to get notice for $lib" > /dev/stderr
+            exit 1
         fi
 
         echo ""
-        sleep 5
 
     } >>"$notice_path"
 done
