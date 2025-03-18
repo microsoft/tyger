@@ -99,20 +99,27 @@ done
 # C# dependencies
 cd "$repo_root"
 
-for lib in $(jq -r '.libraries | to_entries | map(select(.value.type == "package") | .key) | sort[]' server/ControlPlane/obj/project.assets.json server/DataPlane/obj/project.assets.json); do
+for lib in $(jq -r '.libraries | to_entries | map(select(.value.type == "package") | .key) | .[]' server/ControlPlane/obj/project.assets.json server/DataPlane/obj/project.assets.json | sort | uniq); do
     {
         echo -e "================================================================================\n"
 
+        success=false
         for _ in {1..50}; do
             set +e
             response=$(curl -sS --fail -X POST "https://api.clearlydefined.io/notices" -H "accept: application/json" -H "Content-Type: application/json" -d "{\"coordinates\":[\"nuget/nuget/-/$lib\"],\"options\":{}}")
             set -e
             if [ $? -eq 0 ]; then
                 echo "$response" | jq -r '.content'
+                success=true
                 break
             fi
             sleep 5
         done
+
+        if [ "$success" = false ]; then
+            echo "Failed to get notice for $lib"
+            exit 0
+        fi
 
         echo ""
         sleep 5
