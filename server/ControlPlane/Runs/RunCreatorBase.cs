@@ -21,7 +21,7 @@ public abstract class RunCreatorBase : BackgroundService
 
     protected BufferManager BufferManager { get; init; }
 
-    protected async Task ProcessBufferArguments(BufferParameters? parameters, Dictionary<string, string> arguments, Dictionary<string, string>? tags, CancellationToken cancellationToken)
+    protected async Task ProcessBufferArguments(BufferParameters? parameters, Dictionary<string, string> arguments, Dictionary<string, string>? tags, TimeSpan? bufferTtl, CancellationToken cancellationToken)
     {
         if (arguments != null)
         {
@@ -51,7 +51,14 @@ public abstract class RunCreatorBase : BackgroundService
             if (!argumentsClone.TryGetValue(param, out var bufferId))
             {
                 var newTags = new Dictionary<string, string>(tags ??= []) { ["bufferName"] = param };
-                var newBuffer = new Model.Buffer() { Tags = newTags };
+
+                DateTimeOffset? expiresAt = BufferManager.GetDefaultActiveBufferExpiresAt();
+                if (bufferTtl.HasValue)
+                {
+                    expiresAt = BufferManager.ComputeExpiration(bufferTtl.Value);
+                }
+
+                var newBuffer = new Model.Buffer() { Tags = newTags, ExpiresAt = expiresAt };
 
                 var buffer = await BufferManager.CreateBuffer(newBuffer, cancellationToken);
                 bufferId = buffer.Id!;

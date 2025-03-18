@@ -1825,13 +1825,14 @@ public class Repository
                 Connection = connection,
                 Transaction = tx,
                 CommandText = """
-                        INSERT INTO buffers (id, created_at, storage_account_id)
-                        VALUES ($1, now() AT TIME ZONE 'utc', $2)
-                        RETURNING created_at
+                        INSERT INTO buffers (id, created_at, expires_at, storage_account_id)
+                        VALUES ($1, now() AT TIME ZONE 'utc', $2, $3)
+                        RETURNING created_at, expires_at
                         """,
                 Parameters =
                     {
                         new() { Value = newBuffer.Id, NpgsqlDbType = NpgsqlDbType.Text },
+                        new() { Value = newBuffer.ExpiresAt.HasValue ? newBuffer.ExpiresAt : DBNull.Value, NpgsqlDbType = NpgsqlDbType.TimestampTz },
                         new() { Value = storageAccountId, NpgsqlDbType = NpgsqlDbType.Integer },
                     }
             };
@@ -1841,7 +1842,11 @@ public class Repository
             await using (var reader = await insertCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken))
             {
                 await reader.ReadAsync(cancellationToken);
-                newBuffer = newBuffer with { CreatedAt = reader.GetDateTime(0) };
+                newBuffer = newBuffer with
+                {
+                    CreatedAt = reader.GetDateTime(0),
+                    ExpiresAt = reader.IsDBNull(1) ? null : reader.GetDateTime(1),
+                };
             }
 
             await UpsertTagsCore(tx, new BufferUpdate { Id = newBuffer.Id, CreatedAt = newBuffer.CreatedAt, Tags = newBuffer.Tags }, false, null, cancellationToken);
@@ -2175,7 +2180,7 @@ public class Repository
         return await UpdateBuffersSoftDeleteStatus(tags, excludeTags, setSoftDeleted: false, expiresAt, whereSoftDeleted: true, cancellationToken);
     }
 
-    public async Task<IList<string>> GetExpiredBufferIds(bool whereSoftDeleted, CancellationToken cancellationToken)
+    public async Task<IList<string>> GetExpiredBufferIds(bool whereSoftDeleted, int limit, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync<IList<string>>(async cancellationToken =>
         {
@@ -2186,11 +2191,13 @@ public class Repository
                 WHERE expires_at IS NOT NULL
                 AND expires_at < now() AT TIME ZONE 'utc'
                 AND is_soft_deleted = $1
+                LIMIT $2
                 """, conn)
             {
                 Parameters =
                 {
-                    new() { Value = whereSoftDeleted, NpgsqlDbType = NpgsqlDbType.Boolean }
+                    new() { Value = whereSoftDeleted, NpgsqlDbType = NpgsqlDbType.Boolean },
+                    new() { Value = limit, NpgsqlDbType = NpgsqlDbType.Integer }
                 }
             };
 
@@ -2219,6 +2226,30 @@ public class Repository
                 Parameters =
                 {
                     new() { Value = ids.ToArray(), NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Text }
+                }
+            };
+
+            await cmd.PrepareAsync(cancellationToken);
+            return await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }, cancellationToken);
+    }
+
+    public async Task<int> SoftDeleteExpiredBuffers(DateTimeOffset expiresAt, CancellationToken cancellationToken)
+    {
+        return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
+        {
+            await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+            await using var cmd = new NpgsqlCommand("""
+                UPDATE buffers
+                SET is_soft_deleted = true, expires_at = $1
+                WHERE expires_at IS NOT NULL
+                AND expires_at < now() AT TIME ZONE 'utc'
+                AND is_soft_deleted = false
+                """, conn)
+            {
+                Parameters =
+                {
+                    new() { Value = expiresAt, NpgsqlDbType = NpgsqlDbType.TimestampTz }
                 }
             };
 

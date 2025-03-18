@@ -151,7 +151,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             run = run with { Job = run.Job with { Tags = [] } };
         }
 
-        await ProcessBufferArguments(jobCodespec.Buffers, run.Job.Buffers, run.Job.Tags, cancellationToken);
+        await ProcessBufferArguments(jobCodespec.Buffers, run.Job.Buffers, run.Job.Tags, run.Job.BufferTtl, cancellationToken);
 
         run = await Repository.CreateRun(run, idempotencyKey, cancellationToken);
 

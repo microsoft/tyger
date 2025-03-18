@@ -90,11 +90,12 @@ type Page[T any] struct {
 }
 
 type RunCodeTarget struct {
-	Codespec CodespecRef       `json:"codespec"`
-	Buffers  map[string]string `json:"buffers,omitempty"`
-	Tags     map[string]string `json:"tags,omitempty"`
-	NodePool string            `json:"nodePool,omitempty"`
-	Replicas int               `json:"replicas,omitempty"`
+	Codespec  CodespecRef       `json:"codespec"`
+	Buffers   map[string]string `json:"buffers,omitempty"`
+	Tags      map[string]string `json:"tags,omitempty"`
+	BufferTtl string            `json:"bufferTtl,omitempty"`
+	NodePool  string            `json:"nodePool,omitempty"`
+	Replicas  int               `json:"replicas,omitempty"`
 }
 
 type CodespecRef struct {

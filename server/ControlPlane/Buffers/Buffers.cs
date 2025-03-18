@@ -139,15 +139,9 @@ public static class Buffers
 
         app.MapDelete("/v1/buffers", async (BufferManager manager, HttpContext context, CancellationToken cancellationToken) =>
             {
-                TimeSpan? ttl = null;
-                if (context.Request.Query.TryGetValue("ttl", out var ttlValues))
+                if (!context.ParseAndValidateTtlQueryParameter(out var ttl))
                 {
-                    if (!TimeSpan.TryParse(ttlValues[0], out var ttlParsed))
-                    {
-                        return Results.BadRequest("ttl must be a valid TimeSpan");
-                    }
-
-                    ttl = ttlParsed;
+                    return Results.BadRequest("ttl must be a valid, non-negative TimeSpan");
                 }
 
                 var softDeleted = false;
@@ -238,15 +232,9 @@ public static class Buffers
                     eTagPrecondition = "";
                 }
 
-                TimeSpan? ttl = null;
-                if (context.Request.Query.TryGetValue("ttl", out var ttlValues))
+                if (!context.ParseAndValidateTtlQueryParameter(out var ttl))
                 {
-                    if (!TimeSpan.TryParse(ttlValues[0], out var ttlParsed))
-                    {
-                        return Results.BadRequest("ttl must be a valid TimeSpan");
-                    }
-
-                    ttl = ttlParsed;
+                    return Results.BadRequest("ttl must be a valid, non-negative TimeSpan");
                 }
 
                 bufferUpdate = bufferUpdate with { Id = id };
@@ -270,15 +258,9 @@ public static class Buffers
 
         app.MapDelete("/v1/buffers/{id}", async (BufferManager manager, HttpContext context, string id, CancellationToken cancellationToken) =>
             {
-                TimeSpan? ttl = null;
-                if (context.Request.Query.TryGetValue("ttl", out var ttlValues))
+                if (!context.ParseAndValidateTtlQueryParameter(out var ttl))
                 {
-                    if (!TimeSpan.TryParse(ttlValues[0], out var ttlParsed))
-                    {
-                        return Results.BadRequest("ttl must be a valid TimeSpan");
-                    }
-
-                    ttl = ttlParsed;
+                    return Results.BadRequest("ttl must be a valid, non-negative TimeSpan");
                 }
 
                 var softDeleted = false;

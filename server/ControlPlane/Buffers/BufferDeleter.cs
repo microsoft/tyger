@@ -51,7 +51,7 @@ public class BufferDeleter : BackgroundService
     /// </summary>
     private async Task HardDeleteExpiredBuffers(CancellationToken stoppingToken)
     {
-        var readyToPurge = await _repository.GetExpiredBufferIds(whereSoftDeleted: true, stoppingToken);
+        var readyToPurge = await _repository.GetExpiredBufferIds(whereSoftDeleted: true, limit: 2000, stoppingToken);
         if (readyToPurge.Count > 0)
         {
             var deletedIds = await _bufferProvider.DeleteBuffers(readyToPurge, stoppingToken);
@@ -65,15 +65,10 @@ public class BufferDeleter : BackgroundService
     /// </summary>
     private async Task SoftDeletedExpiredBuffers(CancellationToken stoppingToken)
     {
-        var readyToSoftDelete = await _repository.GetExpiredBufferIds(whereSoftDeleted: false, stoppingToken);
-        if (readyToSoftDelete.Count > 0)
+        var count = await _bufferManager.SoftDeleteExpiredBuffers(stoppingToken);
+        if (count > 0)
         {
-            foreach (var id in readyToSoftDelete)
-            {
-                await _bufferManager.SoftDeleteBufferById(id, null, false, stoppingToken);
-            }
-
-            _logger.SoftDeletedBuffers(readyToSoftDelete.Count);
+            _logger.SoftDeletedBuffers(count);
         }
     }
 }

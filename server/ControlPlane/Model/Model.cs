@@ -409,6 +409,11 @@ public record JobRunCodeTarget : RunCodeTarget
     /// Tags to add to any buffer created for a job
     /// </summary>
     public Dictionary<string, string>? Tags { get; init; }
+
+    /// <summary>
+    /// The time to live for the buffers created for the job. If not specified, the buffers will not expire.
+    /// </summary>
+    public TimeSpan? BufferTtl { get; init; }
 }
 
 [JsonConverter(typeof(CodespecRefConverter))]

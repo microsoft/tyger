@@ -45,10 +45,10 @@ public sealed partial class BufferManager
 
     public async Task<UpdateWithPreconditionResult<Buffer>> SoftDeleteBufferById(string id, TimeSpan? ttl, bool softDeleted, CancellationToken cancellationToken)
     {
-        var expiresAt = GetDefaultBufferDeletedExpiresAt();
+        var expiresAt = GetDefaultDeletedBufferExpiresAt();
         if (ttl.HasValue)
         {
-            expiresAt = DateTime.UtcNow.Add(ttl.Value.Duration());
+            expiresAt = ComputeExpiration(ttl.Value);
         }
 
         return await _repository.SoftDeleteBuffer(id, expiresAt, softDeleted, cancellationToken);
@@ -56,8 +56,7 @@ public sealed partial class BufferManager
 
     public async Task<UpdateWithPreconditionResult<Buffer>> RestoreBufferById(string id, CancellationToken cancellationToken)
     {
-        var expiresAt = GetDefaultBufferRestoredExpiresAt();
-
+        var expiresAt = GetDefaultActiveBufferExpiresAt();
         return await _repository.RestoreBuffer(id, expiresAt, cancellationToken);
     }
 
@@ -69,9 +68,9 @@ public sealed partial class BufferManager
     public async Task<UpdateWithPreconditionResult<Buffer>> UpdateBuffer(BufferUpdate bufferUpdate, TimeSpan? ttl, string? eTagPrecondition, CancellationToken cancellationToken)
     {
         DateTimeOffset? expiresAt = null;
-        if (ttl != null)
+        if (ttl.HasValue)
         {
-            expiresAt = DateTime.UtcNow.Add(ttl.Value.Duration());
+            expiresAt = ComputeExpiration(ttl.Value);
         }
 
         return await _repository.UpdateBuffer(bufferUpdate, expiresAt, eTagPrecondition, cancellationToken);
@@ -85,19 +84,24 @@ public sealed partial class BufferManager
 
     public async Task<int> SoftDeleteBuffers(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags, TimeSpan? ttl, bool softDeleted, CancellationToken cancellationToken)
     {
-        var expiresAt = GetDefaultBufferDeletedExpiresAt();
+        var expiresAt = GetDefaultDeletedBufferExpiresAt();
         if (ttl.HasValue)
         {
-            expiresAt = DateTime.UtcNow.Add(ttl.Value.Duration());
+            expiresAt = ComputeExpiration(ttl.Value);
         }
 
         return await _repository.SoftDeleteBuffers(tags, excludeTags, expiresAt, softDeleted, cancellationToken);
     }
 
+    public async Task<int> SoftDeleteExpiredBuffers(CancellationToken cancellationToken)
+    {
+        var expiresAt = GetDefaultDeletedBufferExpiresAt();
+        return await _repository.SoftDeleteExpiredBuffers(expiresAt, cancellationToken);
+    }
+
     public async Task<int> RestoreBuffers(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags, CancellationToken cancellationToken)
     {
-        var expiresAt = GetDefaultBufferRestoredExpiresAt();
-
+        var expiresAt = GetDefaultActiveBufferExpiresAt();
         return await _repository.RestoreBuffers(tags, excludeTags, expiresAt, cancellationToken);
     }
 
@@ -196,19 +200,29 @@ public sealed partial class BufferManager
         return _bufferProvider.GetStorageAccounts();
     }
 
-    internal DateTimeOffset? GetDefaultBufferRestoredExpiresAt()
+    internal static DateTimeOffset ComputeExpiration(TimeSpan ttl)
+    {
+        if (ttl < TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(ttl), "TTL must be greater than zero.");
+        }
+
+        return DateTime.UtcNow.Add(ttl);
+    }
+
+    internal DateTimeOffset? GetDefaultActiveBufferExpiresAt()
     {
         if (_bufferOptions.Value.ActiveLifetime != TimeSpan.Zero)
         {
-            return DateTime.UtcNow.Add(_bufferOptions.Value.ActiveLifetime.Duration());
+            return ComputeExpiration(_bufferOptions.Value.ActiveLifetime);
         }
 
         return null;
     }
 
-    internal DateTimeOffset GetDefaultBufferDeletedExpiresAt()
+    internal DateTimeOffset GetDefaultDeletedBufferExpiresAt()
     {
-        return DateTime.UtcNow.Add(_bufferOptions.Value.SoftDeletedLifetime.Duration());
+        return ComputeExpiration(_bufferOptions.Value.SoftDeletedLifetime);
     }
 
     [GeneratedRegex(@"^(?<TEMP>(run-(?<RUNID>\d+)-)?temp-)?(?<BUFFERID>\w+)$")]

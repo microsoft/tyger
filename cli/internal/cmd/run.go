@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -350,6 +351,7 @@ func newRunCreateCommandCore(
 		codespecVersion string
 		buffers         map[string]string
 		bufferTags      map[string]string
+		bufferTtl       string
 		nodePool        string
 		replicas        int
 	}
@@ -415,6 +417,13 @@ func newRunCreateCommandCore(
 				for k, v := range flags.job.bufferTags {
 					newRun.Job.Tags[k] = v
 				}
+			}
+			if len(flags.job.bufferTtl) > 0 {
+				timeSpanRegex := regexp.MustCompile(`^(\d+)[.](\d\d):(\d\d)(:(\d\d))?$`)
+				if !timeSpanRegex.MatchString(flags.job.bufferTtl) {
+					return fmt.Errorf("invalid buffer TTL format: %s (should be D.HH:MM)", flags.job.bufferTtl)
+				}
+				newRun.Job.BufferTtl = flags.job.bufferTtl
 			}
 			if flags.job.nodePool != "" {
 				newRun.Job.NodePool = flags.job.nodePool
@@ -502,8 +511,9 @@ func newRunCreateCommandCore(
 	cmd.Flags().StringVar(&flags.job.codespecVersion, "version", "", "The version of the job codespec to execute")
 	cmd.Flags().IntVarP(&flags.job.replicas, "replicas", "r", 1, "The number of parallel job replicas. Defaults to 1.")
 	cmd.Flags().StringVar(&flags.job.nodePool, "node-pool", "", "The name of the nodepool to execute the job in")
-	cmd.Flags().StringToStringVarP(&flags.job.buffers, "buffer", "b", nil, "maps a codespec buffer parameter to a buffer ID")
-	cmd.Flags().StringToStringVar(&flags.job.bufferTags, "buffer-tag", nil, "add a key-value tag to be applied to any buffer created by the job")
+	cmd.Flags().StringToStringVarP(&flags.job.buffers, "buffer", "b", nil, "Maps a codespec buffer parameter to a buffer ID")
+	cmd.Flags().StringToStringVar(&flags.job.bufferTags, "buffer-tag", nil, "A key-value tag to be applied to any buffer created by the job. Can be specified multiple times.")
+	cmd.Flags().StringVar(&flags.job.bufferTtl, "buffer-ttl", "", "The time-to-live for any buffer created by the job (format D.HH:MM)")
 
 	cmd.Flags().StringVar(&flags.worker.codespec, "worker-codespec", "", "The name of the optional worker codespec to execute")
 	cmd.Flags().StringVar(&flags.worker.codespecVersion, "worker-version", "", "The version of the optional worker codespec to execute")

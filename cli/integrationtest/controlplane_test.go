@@ -545,6 +545,46 @@ timeoutSeconds: 600`, BasicImage)
 	require.Equal(2, len(buffers))
 }
 
+func TestCodespecBufferTtlWithYamlSpec(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+
+	runSpec := fmt.Sprintf(`
+job:
+  codespec:
+    image: %s
+    buffers:
+      inputs: ["input"]
+      outputs: ["output"]
+    command:
+      - "sh"
+      - "-c"
+      - |
+        set -euo pipefail
+        inp=$(cat "$INPUT_PIPE")
+        echo -n "${inp}: Bonjour" > "$OUTPUT_PIPE"
+timeoutSeconds: 600`, BasicImage)
+
+	tempDir := t.TempDir()
+	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
+	require.NoError(os.WriteFile(runSpecPath, []byte(runSpec), 0644))
+
+	uniqueId := uuid.New().String()
+
+	execStdOut := NewTygerCmdBuilder("run", "exec", "--file", runSpecPath, "--buffer-ttl", "0.00:05", "--buffer-tag", "testName=TestCodespecBufferTtlWithYamlSpec", "--buffer-tag", "testtagX="+uniqueId, "--log-level", "trace").
+		Stdin("Hello").
+		RunSucceeds(t)
+
+	require.Equal("Hello: Bonjour", execStdOut)
+
+	buffers := listBuffers(t, "--tag", "testName=TestCodespecBufferTagsWithYamlSpec", "--tag", "testtagX="+uniqueId)
+	require.Equal(2, len(buffers))
+	for _, buffer := range buffers {
+		require.Greater(*buffer.ExpiresAt, time.Now())
+		require.Less(*buffer.ExpiresAt, time.Now().Add(10*time.Minute))
+	}
+}
+
 func TestEndToEndExecWithYamlWithExistingCodespec(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)

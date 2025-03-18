@@ -86,20 +86,19 @@ public sealed class AzureBlobBufferProvider : IHostedService, IBufferProvider, I
 
     public async Task<IList<string>> DeleteBuffers(IList<string> ids, CancellationToken cancellationToken)
     {
-        var storageAccountIds = await _repository.GetBufferStorageAccountIds(ids, cancellationToken);
+        var bufferStorageIds = await _repository.GetBufferStorageAccountIds(ids, cancellationToken);
         var deletedIds = new List<string>();
-        foreach (var id in ids)
+        foreach (var (bufferId, storageAccountId) in bufferStorageIds)
         {
-            var storageAccountId = storageAccountIds.First(sa => sa.bufferId == id).accountId;
             if (!storageAccountId.HasValue)
             {
                 continue;
             }
 
             var refreshingClient = await GetRefreshingServiceClient(storageAccountId.Value, cancellationToken);
-            var containerClient = refreshingClient.ServiceClient.GetBlobContainerClient(id);
+            var containerClient = refreshingClient.ServiceClient.GetBlobContainerClient(bufferId);
             await containerClient.DeleteIfExistsAsync(cancellationToken: cancellationToken);
-            deletedIds.Add(id);
+            deletedIds.Add(bufferId);
         }
 
         return deletedIds;

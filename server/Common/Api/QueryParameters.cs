@@ -19,4 +19,29 @@ public static class QueryParameters
 
         return tagQuery;
     }
+
+    /// <summary>
+    /// Parses the "ttl" query parameter from the request and validates it.
+    /// </summary>
+    /// <returns>true if TTL was parsed or not provided, false if the TTL is invalid</returns>
+    public static bool ParseAndValidateTtlQueryParameter(this HttpContext context, out TimeSpan? ttl)
+    {
+        ttl = null;
+        if (context.Request.Query.TryGetValue("ttl", out var ttlValues))
+        {
+            if (!TimeSpan.TryParse(ttlValues, out var ttlParsed))
+            {
+                return false;
+            }
+
+            if (ttlParsed < TimeSpan.Zero)
+            {
+                return false;
+            }
+
+            ttl = ttlParsed;
+        }
+
+        return true;
+    }
 }

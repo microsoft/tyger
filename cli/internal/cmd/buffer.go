@@ -663,7 +663,6 @@ func newBufferDeleteCommand() *cobra.Command {
 						return err
 					}
 					if count > 0 {
-						log.Warn().Msgf("Deleting %d buffers. Use --force to delete without confirmation.", count)
 						input := confirmation.New(fmt.Sprintf("Are you sure you want to delete %d buffers?", count), confirmation.Yes)
 						input.WrapMode = promptkit.WordWrap
 						confirmed, err := input.RunPrompt()
@@ -694,7 +693,7 @@ func newBufferDeleteCommand() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&deleteAll, "all", deleteAll, "Delete all buffers.")
-	cmd.Flags().BoolVar(&force, "force", force, "Force deletion.")
+	cmd.Flags().BoolVar(&force, "force", force, "Skip confirmation before deleting multiple buffers.")
 	cmd.Flags().StringToStringVar(&tags, "tag", nil, "Delete all buffers matching tag. Can be specified multiple times.")
 	cmd.Flags().StringToStringVar(&excludeTags, "exclude-tag", nil, "Exclude buffers with the given tag. Can be specified multiple times.")
 
@@ -769,7 +768,6 @@ func newBufferRestoreCommand() *cobra.Command {
 						return err
 					}
 					if count > 0 {
-						log.Warn().Msgf("Restoring %d buffers. Use --force to restore without confirmation.", count)
 						input := confirmation.New(fmt.Sprintf("Are you sure you want to restore %d buffers?", count), confirmation.Yes)
 						input.WrapMode = promptkit.WordWrap
 						confirmed, err := input.RunPrompt()
@@ -801,7 +799,7 @@ func newBufferRestoreCommand() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&restoreAll, "all", restoreAll, "Restore all deleted buffers.")
-	cmd.Flags().BoolVar(&force, "force", force, "Force restore.")
+	cmd.Flags().BoolVar(&force, "force", force, "Skip confirmation before restoring multiple buffers.")
 	cmd.Flags().StringToStringVar(&tags, "tag", nil, "Restore all deleted buffers matching tag. Can be specified multiple times.")
 	cmd.Flags().StringToStringVar(&excludeTags, "exclude-tag", nil, "Exclude buffers with the given tag. Can be specified multiple times.")
 
@@ -887,7 +885,6 @@ func newBufferPurgeCommand() *cobra.Command {
 						return err
 					}
 					if count > 0 {
-						log.Warn().Msgf("Purging %d buffers. Use --force to purge without confirmation.", count)
 						input := confirmation.New(fmt.Sprintf("Are you sure you want to purge %d buffers?", count), confirmation.Yes)
 						input.WrapMode = promptkit.WordWrap
 						confirmed, err := input.RunPrompt()
@@ -919,7 +916,7 @@ func newBufferPurgeCommand() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&purgeAll, "all", purgeAll, "Purge all deleted buffers.")
-	cmd.Flags().BoolVar(&force, "force", force, "Force purge.")
+	cmd.Flags().BoolVar(&force, "force", force, "Skip confirmation before purging multiple buffers.")
 	cmd.Flags().StringToStringVar(&tags, "tag", nil, "Purge all deleted buffers matching tag. Can be specified multiple times.")
 	cmd.Flags().StringToStringVar(&excludeTags, "exclude-tag", nil, "Exclude buffers with the given tag. Can be specified multiple times.")
 
