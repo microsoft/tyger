@@ -1882,7 +1882,11 @@ func TestBufferDeleteMultipleIds(t *testing.T) {
 		require.Equal(buf, shown)
 	}
 
-	runTygerSucceeds(t, "buffer", "restore", bufferId1)
+	bufferJson = runTygerSucceeds(t, "buffer", "restore", bufferId1, bufferId2)
+	var restored []model.Buffer
+	require.NoError(json.Unmarshal([]byte(bufferJson), &restored))
+	require.Len(restored, 2)
+
 	runTygerSucceeds(t, "buffer", "show", bufferId1)
 }
 
@@ -1955,19 +1959,21 @@ func TestBufferPurge(t *testing.T) {
 	require := require.New(t)
 
 	bufferId1 := runTygerSucceeds(t, "buffer", "create")
-	bufferId2 := runTygerSucceeds(t, "buffer", "create", "--tag", "delete=true")
-	bufferId3 := runTygerSucceeds(t, "buffer", "create", "--tag", "delete=true", "--tag", "purge=true")
-	bufferId4 := runTygerSucceeds(t, "buffer", "create", "--tag", "delete=true", "--tag", "purge=false")
+	bufferId2 := runTygerSucceeds(t, "buffer", "create")
+	bufferId3 := runTygerSucceeds(t, "buffer", "create", "--tag", "delete=true")
+	bufferId4 := runTygerSucceeds(t, "buffer", "create", "--tag", "delete=true", "--tag", "purge=true")
+	bufferId5 := runTygerSucceeds(t, "buffer", "create", "--tag", "delete=true", "--tag", "purge=false")
 
 	sasUri := runTygerSucceeds(t, "buffer", "access", bufferId1, "-w")
 	runCommandSucceeds(t, "sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, sasUri))
 	runTygerSucceeds(t, "buffer", "read", sasUri)
 
-	runTygerSucceeds(t, "buffer", "delete", bufferId1)
-	bufferJson := runTygerSucceeds(t, "buffer", "purge", bufferId1)
-	var buffer model.Buffer
-	require.NoError(json.Unmarshal([]byte(bufferJson), &buffer))
-	require.Less(*buffer.ExpiresAt, time.Now())
+	runTygerSucceeds(t, "buffer", "delete", bufferId1, bufferId2)
+	bufferJson := runTygerSucceeds(t, "buffer", "purge", bufferId1, bufferId2)
+	var purged []model.Buffer
+	require.NoError(json.Unmarshal([]byte(bufferJson), &purged))
+	require.Len(purged, 2)
+	require.Less(*purged[0].ExpiresAt, time.Now())
 
 	// Delete then immediately purge tagged buffers
 	runTygerSucceeds(t, "buffer", "delete", "--force", "--tag", "delete=true")
@@ -1976,7 +1982,7 @@ func TestBufferPurge(t *testing.T) {
 	// Wait for buffers to be purged... This depends on the sleep time in BufferDeleter
 	time.Sleep(time.Second * 35)
 
-	ids := []string{bufferId1, bufferId2, bufferId3}
+	ids := []string{bufferId1, bufferId2, bufferId3, bufferId4}
 	for _, id := range ids {
 		_, _, err := runTyger("buffer", "show", id)
 		assert.Error(t, err)
@@ -1990,7 +1996,7 @@ func TestBufferPurge(t *testing.T) {
 	require.Contains(stderr, "the buffer does not exist")
 
 	// Check that the --exclude-tag worked
-	runTygerSucceeds(t, "buffer", "show", "--soft-deleted", bufferId4)
+	runTygerSucceeds(t, "buffer", "show", "--soft-deleted", bufferId5)
 }
 
 func TestBufferSetTtlTriggersDeleter(t *testing.T) {

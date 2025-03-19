@@ -257,7 +257,7 @@ public static class Buffers
                         return Results.Ok(updated.Value);
                     },
                     notFound: _ => Responses.NotFound(),
-                    preconditionFailed: _ => Results.StatusCode(StatusCodes.Status412PreconditionFailed));
+                    preconditionFailed: failed => Responses.PreconditionFailed(failed.Reason));
             })
             .WithName("setBufferTags")
             .Accepts<BufferUpdate>("application/json")
@@ -286,7 +286,7 @@ public static class Buffers
                 return result.Match(
                     updated: updated => Results.Ok(updated.Value),
                     notFound: _ => Responses.NotFound(),
-                    preconditionFailed: _ => Results.StatusCode(StatusCodes.Status412PreconditionFailed));
+                    preconditionFailed: failed => Responses.PreconditionFailed(failed.Reason));
             })
             .WithName("deleteBuffer")
             .Produces<Buffer>(StatusCodes.Status200OK)
@@ -300,7 +300,7 @@ public static class Buffers
                 return result.Match(
                     updated: updated => Results.Ok(updated.Value),
                     notFound: _ => Responses.NotFound(),
-                    preconditionFailed: _ => Results.StatusCode(StatusCodes.Status412PreconditionFailed));
+                    preconditionFailed: failed => Responses.PreconditionFailed(failed.Reason));
             })
             .WithName("restoreBuffer")
             .Produces<int>(StatusCodes.Status200OK)

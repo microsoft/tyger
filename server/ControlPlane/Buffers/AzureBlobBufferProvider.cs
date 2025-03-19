@@ -88,17 +88,33 @@ public sealed class AzureBlobBufferProvider : IHostedService, IBufferProvider, I
     {
         var bufferStorageIds = await _repository.GetBufferStorageAccountIds(ids, cancellationToken);
         var deletedIds = new List<string>();
-        foreach (var (bufferId, storageAccountId) in bufferStorageIds)
-        {
-            if (!storageAccountId.HasValue)
-            {
-                continue;
-            }
 
-            var refreshingClient = await GetRefreshingServiceClient(storageAccountId.Value, cancellationToken);
-            var containerClient = refreshingClient.ServiceClient.GetBlobContainerClient(bufferId);
-            await containerClient.DeleteIfExistsAsync(cancellationToken: cancellationToken);
-            deletedIds.Add(bufferId);
+        // Group buffers by storage account ID
+        var buffersByStorageAccount = bufferStorageIds
+            .Where(pair => pair.accountId.HasValue)
+            .GroupBy(pair => pair.accountId!.Value)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Select(pair => pair.bufferId).ToList()
+            );
+
+        foreach (var (storageAccountId, bufferIds) in buffersByStorageAccount)
+        {
+            var refreshingClient = await GetRefreshingServiceClient(storageAccountId, cancellationToken);
+
+            foreach (var bufferId in bufferIds)
+            {
+                try
+                {
+                    var containerClient = refreshingClient.ServiceClient.GetBlobContainerClient(bufferId);
+                    await containerClient.DeleteIfExistsAsync(cancellationToken: cancellationToken);
+                    deletedIds.Add(bufferId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.FailedToDeleteBuffer(bufferId, ex);
+                }
+            }
         }
 
         return deletedIds;

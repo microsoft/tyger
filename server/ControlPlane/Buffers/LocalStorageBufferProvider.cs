@@ -151,11 +151,18 @@ public sealed class LocalStorageBufferProvider : IBufferProvider, IHostedService
         var deletedIds = new List<string>();
         foreach (var id in ids)
         {
-            var queryString = LocalSasHandler.GetSasQueryString(id, SasResourceType.Container, SasAction.Delete, _signData);
-            var resp = await _dataPlaneClient.DeleteAsync($"v1/containers/{id}{queryString}", cancellationToken);
-            resp.EnsureSuccessStatusCode();
+            try
+            {
+                var queryString = LocalSasHandler.GetSasQueryString(id, SasResourceType.Container, SasAction.Delete, _signData);
+                var resp = await _dataPlaneClient.DeleteAsync($"v1/containers/{id}{queryString}", cancellationToken);
+                resp.EnsureSuccessStatusCode();
 
-            deletedIds.Add(id);
+                deletedIds.Add(id);
+            }
+            catch (Exception e)
+            {
+                _logger.FailedToDeleteBuffer(id, e);
+            }
         }
 
         return deletedIds;

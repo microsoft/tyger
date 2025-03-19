@@ -382,7 +382,7 @@ public class Repository
                     if (!string.Equals(existingRun.ComputeEtag(hash), eTagPrecondition, StringComparison.Ordinal))
                     {
                         await tx.RollbackAsync(cancellationToken);
-                        return new UpdateWithPreconditionResult<Run>.PreconditionFailed();
+                        return new UpdateWithPreconditionResult<Run>.PreconditionFailed("ETag does not match");
                     }
                 }
 
@@ -1223,6 +1223,7 @@ public class Repository
                     FROM buffers
                     WHERE id = ANY($1)
                     AND is_soft_deleted = false
+                    AND (expires_at IS NULL OR expires_at > now() AT TIME ZONE 'utc')
                     """,
                 Parameters =
                 {
@@ -1280,7 +1281,8 @@ public class Repository
                     and buffer_tags.created_at = buffers.created_at
                 LEFT JOIN tag_keys
                     on tag_keys.id = buffer_tags.key
-                WHERE buffers.id = $1 AND buffers.is_soft_deleted = $2
+                WHERE buffers.id = $1
+                AND buffers.is_soft_deleted = $2
                 ORDER BY tag_keys.name
                 """, conn)
             {
@@ -1634,7 +1636,7 @@ public class Repository
                     if (!string.Equals(existingBuffer.ComputeEtag(hash), eTagPrecondition, StringComparison.Ordinal))
                     {
                         await tx.RollbackAsync(cancellationToken);
-                        return new UpdateWithPreconditionResult<Buffer>.PreconditionFailed();
+                        return new UpdateWithPreconditionResult<Buffer>.PreconditionFailed("ETag does not match");
                     }
                 }
 
@@ -1655,6 +1657,33 @@ public class Repository
             await tx.CommitAsync(cancellationToken);
             return new UpdateWithPreconditionResult<Buffer>.Updated(buffer);
         }, cancellationToken);
+    }
+
+    private static async Task<DateTimeOffset> UpdateBufferExpiresAt(NpgsqlTransaction tx, string id, DateTimeOffset expiresAt, CancellationToken cancellationToken)
+    {
+        await using var updateCommand = new NpgsqlCommand(
+            """
+            UPDATE buffers
+            SET expires_at = $2
+            WHERE id = $1
+            RETURNING expires_at
+            """, tx.Connection, tx)
+        {
+            Parameters =
+                    {
+                        new() { Value = id, NpgsqlDbType = NpgsqlDbType.Text },
+                        new() { Value = expiresAt, NpgsqlDbType = NpgsqlDbType.TimestampTz },
+                    }
+        };
+
+        await updateCommand.PrepareAsync(cancellationToken);
+        await using var reader = await updateCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+        if (await reader.ReadAsync(cancellationToken))
+        {
+            expiresAt = reader.GetDateTime(0);
+        }
+
+        return expiresAt;
     }
 
     private static async Task<IReadOnlyDictionary<string, string>?> UpsertTagsCore<TId>(NpgsqlTransaction tx, IResourceWithTags<TId> resourceToUpdate, bool update, string? eTagPrecondition, CancellationToken cancellationToken)
@@ -1856,33 +1885,6 @@ public class Repository
         }, cancellationToken);
     }
 
-    private static async Task<DateTimeOffset> UpdateBufferExpiresAt(NpgsqlTransaction tx, string id, DateTimeOffset expiresAt, CancellationToken cancellationToken)
-    {
-        await using var updateCommand = new NpgsqlCommand(
-            """
-            UPDATE buffers
-            SET expires_at = $2
-            WHERE id = $1
-            RETURNING expires_at
-            """, tx.Connection, tx)
-        {
-            Parameters =
-                    {
-                        new() { Value = id, NpgsqlDbType = NpgsqlDbType.Text },
-                        new() { Value = expiresAt, NpgsqlDbType = NpgsqlDbType.TimestampTz },
-                    }
-        };
-
-        await updateCommand.PrepareAsync(cancellationToken);
-        await using var reader = await updateCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
-        if (await reader.ReadAsync(cancellationToken))
-        {
-            expiresAt = reader.GetDateTime(0);
-        }
-
-        return expiresAt;
-    }
-
     private async Task<UpdateWithPreconditionResult<Buffer>> UpdateBufferSoftDeleteStatus(string id, bool isSoftDeleted, DateTimeOffset? expiresAt, bool whereSoftDeleted, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync<UpdateWithPreconditionResult<Buffer>>(async cancellationToken =>
@@ -1896,7 +1898,7 @@ public class Repository
                 Connection = connection,
                 Transaction = tx,
                 CommandText = """
-                    SELECT buffers.created_at, buffers.is_soft_deleted, storage_accounts.location, tag_keys.name, buffer_tags.value
+                    SELECT buffers.created_at, buffers.is_soft_deleted, buffers.expires_at, storage_accounts.location, tag_keys.name, buffer_tags.value
                     FROM buffers
                     INNER JOIN storage_accounts
                         on storage_accounts.id = buffers.storage_account_id
@@ -1925,13 +1927,14 @@ public class Repository
                         Id = id,
                         CreatedAt = reader.GetDateTime(0),
                         IsSoftDeleted = reader.GetBoolean(1),
-                        Location = reader.GetString(2)
+                        ExpiresAt = reader.IsDBNull(2) ? null : reader.GetDateTime(2),
+                        Location = reader.GetString(3)
                     };
 
-                    if (!reader.IsDBNull(3) && !reader.IsDBNull(4))
+                    if (!reader.IsDBNull(4) && !reader.IsDBNull(5))
                     {
-                        var name = reader.GetString(3);
-                        var value = reader.GetString(4);
+                        var name = reader.GetString(4);
+                        var value = reader.GetString(5);
                         (tags ??= []).Add(name, value);
                     }
                 }
@@ -1944,11 +1947,19 @@ public class Repository
                 buffer = buffer with { Tags = tags };
             }
 
-            var invalidPurge = whereSoftDeleted && !buffer.IsSoftDeleted;
-            var invalidDelete = !whereSoftDeleted && buffer.IsSoftDeleted;
-            if (invalidPurge || invalidDelete)
+            if (buffer.ExpiresAt.HasValue && buffer.ExpiresAt.Value < DateTimeOffset.UtcNow)
             {
-                return new UpdateWithPreconditionResult<Buffer>.PreconditionFailed();
+                return new UpdateWithPreconditionResult<Buffer>.PreconditionFailed("Buffer is expired");
+            }
+
+            if (whereSoftDeleted && !buffer.IsSoftDeleted)
+            {
+                return new UpdateWithPreconditionResult<Buffer>.PreconditionFailed("Buffer is not soft-deleted");
+            }
+
+            if (!whereSoftDeleted && buffer.IsSoftDeleted)
+            {
+                return new UpdateWithPreconditionResult<Buffer>.PreconditionFailed("Buffer is already soft-deleted");
             }
 
             buffer = buffer with
@@ -2002,6 +2013,7 @@ public class Repository
             WITH candidates AS (
                 SELECT b.id, b.created_at, b.is_soft_deleted
                 FROM buffers b
+                WHERE (b.expires_at IS NULL OR b.expires_at > now() AT TIME ZONE 'utc')
             """);
 
         var param = 1;
@@ -2026,7 +2038,7 @@ public class Repository
             if (excludeClauses.Count > 0)
             {
                 commandText.AppendLine($"""
-                WHERE NOT EXISTS (
+                AND NOT EXISTS (
                     SELECT 1 FROM buffer_tags bt
                     WHERE b.created_at = bt.created_at
                     AND b.id = bt.id
@@ -2730,7 +2742,7 @@ public partial record UpdateWithPreconditionResult<T>
 {
     public partial record Updated(T Value);
     public partial record NotFound();
-    public partial record PreconditionFailed();
+    public partial record PreconditionFailed(string Reason);
 }
 
 [Flags]

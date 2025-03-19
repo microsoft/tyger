@@ -606,17 +606,7 @@ func newBufferDeleteCommand() *cobra.Command {
 		Long:                  `Delete buffers (soft-delete)`,
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			validateExactlyOneMode := func(modes ...bool) bool {
-				count := 0
-				for _, mode := range modes {
-					if mode {
-						count++
-					}
-				}
-				return count == 1
-			}
-
-			if !validateExactlyOneMode(len(args) > 0, len(tags) > 0, deleteAll) {
+			if !exactlyOneConditionMet(len(args) > 0, len(tags) > 0, deleteAll) {
 				log.Fatal().Msg("One of ID, --tag, or --all must be specified")
 			}
 
@@ -625,33 +615,14 @@ func newBufferDeleteCommand() *cobra.Command {
 				for _, id := range args {
 					buffer := model.Buffer{}
 					relativeUri := fmt.Sprintf("v1/buffers/%s", id)
-					resp, err := controlplane.InvokeRequest(cmd.Context(), http.MethodDelete, relativeUri, nil, &buffer)
-
-					if resp.StatusCode == http.StatusNotFound {
-						return fmt.Errorf("buffer with ID %s not found", id)
-					} else if resp.StatusCode == http.StatusPreconditionFailed {
-						return fmt.Errorf("buffer with ID %s is already deleted", id)
-					}
-
-					if err != nil {
+					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodDelete, relativeUri, nil, &buffer); err != nil {
 						return err
 					}
-
 					deleted = append(deleted, buffer)
 				}
-
-				var formatted []byte
-				var err error
-				if len(deleted) == 1 {
-					formatted, err = json.MarshalIndent(deleted[0], "", "  ")
-				} else {
-					formatted, err = json.MarshalIndent(deleted, "", "  ")
-				}
-				if err != nil {
+				if err := printOneOrMoreBuffersJson(deleted); err != nil {
 					return err
 				}
-				fmt.Println(string(formatted))
-
 			} else {
 				options := url.Values{}
 				for name, value := range tags {
@@ -661,28 +632,15 @@ func newBufferDeleteCommand() *cobra.Command {
 					options.Add(fmt.Sprintf("excludeTag[%s]", name), value)
 				}
 
-				performDeletion := force
-
-				if !force {
+				performDeletion := false
+				if force {
+					performDeletion = true
+				} else {
 					options.Add("softDeleted", strconv.FormatBool(false))
-					countUri := fmt.Sprintf("v1/buffers/count?%s", options.Encode())
-					count := 0
-					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, countUri, nil, &count); err != nil {
+					var err error
+					performDeletion, err = confirmBulkBufferOperation(cmd.Context(), "delete", options)
+					if err != nil {
 						return err
-					}
-					if count > 0 {
-						input := confirmation.New(fmt.Sprintf("Are you sure you want to delete %d buffers?", count), confirmation.Yes)
-						input.WrapMode = promptkit.WordWrap
-						confirmed, err := input.RunPrompt()
-						if err != nil {
-							return err
-						}
-						if confirmed {
-							performDeletion = true
-						}
-					} else {
-						fmt.Println("No buffers found.")
-						return nil
 					}
 				}
 
@@ -720,42 +678,22 @@ func newBufferRestoreCommand() *cobra.Command {
 		Long:                  `Restore deleted buffers`,
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			validateExactlyOneMode := func(modes ...bool) bool {
-				count := 0
-				for _, mode := range modes {
-					if mode {
-						count++
-					}
-				}
-				return count == 1
-			}
-
-			if !validateExactlyOneMode(len(args) > 0, len(tags) > 0, restoreAll) {
+			if !exactlyOneConditionMet(len(args) > 0, len(tags) > 0, restoreAll) {
 				log.Fatal().Msg("One of ID, --tag, or --all must be specified")
 			}
 
 			if len(args) > 0 {
+				var restored []model.Buffer
 				for _, id := range args {
 					buffer := model.Buffer{}
 					relativeUri := fmt.Sprintf("v1/buffers/%s/restore", id)
-					resp, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, relativeUri, nil, &buffer)
-
-					if resp.StatusCode == http.StatusNotFound {
-						return fmt.Errorf("buffer with ID %s not found", id)
-					} else if resp.StatusCode == http.StatusPreconditionFailed {
-						return fmt.Errorf("buffer with ID %s is not deleted", id)
-					}
-
-					if err != nil {
+					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, relativeUri, nil, &buffer); err != nil {
 						return err
 					}
-
-					formattedBuffer, err := json.MarshalIndent(buffer, "", "  ")
-					if err != nil {
-						return err
-					}
-
-					fmt.Println(string(formattedBuffer))
+					restored = append(restored, buffer)
+				}
+				if err := printOneOrMoreBuffersJson(restored); err != nil {
+					return err
 				}
 			} else {
 				options := url.Values{}
@@ -766,28 +704,16 @@ func newBufferRestoreCommand() *cobra.Command {
 					options.Add(fmt.Sprintf("excludeTag[%s]", name), value)
 				}
 
-				performRestore := force
+				performRestore := false
 
-				if !force {
+				if force {
+					performRestore = true
+				} else {
 					options.Add("softDeleted", strconv.FormatBool(true))
-					countUri := fmt.Sprintf("v1/buffers/count?%s", options.Encode())
-					count := 0
-					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, countUri, nil, &count); err != nil {
+					var err error
+					performRestore, err = confirmBulkBufferOperation(cmd.Context(), "restore", options)
+					if err != nil {
 						return err
-					}
-					if count > 0 {
-						input := confirmation.New(fmt.Sprintf("Are you sure you want to restore %d buffers?", count), confirmation.Yes)
-						input.WrapMode = promptkit.WordWrap
-						confirmed, err := input.RunPrompt()
-						if err != nil {
-							return err
-						}
-						if confirmed {
-							performRestore = true
-						}
-					} else {
-						fmt.Println("No buffers found.")
-						return nil
 					}
 				}
 
@@ -826,17 +752,7 @@ func newBufferPurgeCommand() *cobra.Command {
 		Long:                  `Purge deleted buffers (irreversible)`,
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			validateExactlyOneMode := func(modes ...bool) bool {
-				count := 0
-				for _, mode := range modes {
-					if mode {
-						count++
-					}
-				}
-				return count == 1
-			}
-
-			if !validateExactlyOneMode(len(args) > 0, len(tags) > 0, purgeAll) {
+			if !exactlyOneConditionMet(len(args) > 0, len(tags) > 0, purgeAll) {
 				log.Fatal().Msg("One of ID, --tag, or --all must be specified")
 			}
 
@@ -849,33 +765,14 @@ func newBufferPurgeCommand() *cobra.Command {
 				for _, id := range args {
 					buffer := model.Buffer{}
 					relativeUri := fmt.Sprintf("v1/buffers/%s?%s", id, options.Encode())
-					resp, err := controlplane.InvokeRequest(cmd.Context(), http.MethodDelete, relativeUri, nil, &buffer)
-
-					if resp.StatusCode == http.StatusNotFound {
-						return fmt.Errorf("buffer with ID %s not found", id)
-					} else if resp.StatusCode == http.StatusPreconditionFailed {
-						return fmt.Errorf("buffer with ID %s is not deleted", id)
-					}
-
-					if err != nil {
+					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodDelete, relativeUri, nil, &buffer); err != nil {
 						return err
 					}
-
 					deleted = append(deleted, buffer)
 				}
-
-				var formatted []byte
-				var err error
-				if len(deleted) == 1 {
-					formatted, err = json.MarshalIndent(deleted[0], "", "  ")
-				} else {
-					formatted, err = json.MarshalIndent(deleted, "", "  ")
-				}
-				if err != nil {
+				if err := printOneOrMoreBuffersJson(deleted); err != nil {
 					return err
 				}
-				fmt.Println(string(formatted))
-
 			} else {
 				for name, value := range tags {
 					options.Add(fmt.Sprintf("tag[%s]", name), value)
@@ -884,27 +781,14 @@ func newBufferPurgeCommand() *cobra.Command {
 					options.Add(fmt.Sprintf("excludeTag[%s]", name), value)
 				}
 
-				performPurge := force
-
-				if !force {
-					countUri := fmt.Sprintf("v1/buffers/count?%s", options.Encode())
-					count := 0
-					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, countUri, nil, &count); err != nil {
+				performPurge := false
+				if force {
+					performPurge = true
+				} else {
+					var err error
+					performPurge, err = confirmBulkBufferOperation(cmd.Context(), "purge", options)
+					if err != nil {
 						return err
-					}
-					if count > 0 {
-						input := confirmation.New(fmt.Sprintf("Are you sure you want to purge %d buffers?", count), confirmation.Yes)
-						input.WrapMode = promptkit.WordWrap
-						confirmed, err := input.RunPrompt()
-						if err != nil {
-							return err
-						}
-						if confirmed {
-							performPurge = true
-						}
-					} else {
-						fmt.Println("No buffers found.")
-						return nil
 					}
 				}
 
@@ -929,6 +813,53 @@ func newBufferPurgeCommand() *cobra.Command {
 	cmd.Flags().StringToStringVar(&excludeTags, "exclude-tag", nil, "Exclude buffers with the given tag. Can be specified multiple times.")
 
 	return cmd
+}
+
+func exactlyOneConditionMet(conditions ...bool) bool {
+	count := 0
+	for _, condition := range conditions {
+		if condition {
+			count++
+		}
+	}
+	return count == 1
+}
+
+func printOneOrMoreBuffersJson(buffers []model.Buffer) error {
+	var formatted []byte
+	var err error
+	if len(buffers) == 1 {
+		formatted, err = json.MarshalIndent(buffers[0], "", "  ")
+	} else {
+		formatted, err = json.MarshalIndent(buffers, "", "  ")
+	}
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(formatted))
+	return nil
+}
+
+func confirmBulkBufferOperation(ctx context.Context, operation string, options url.Values) (bool, error) {
+	countUri := fmt.Sprintf("v1/buffers/count?%s", options.Encode())
+	count := 0
+	if _, err := controlplane.InvokeRequest(ctx, http.MethodGet, countUri, nil, &count); err != nil {
+		return false, err
+	}
+	if count > 0 {
+		input := confirmation.New(fmt.Sprintf("Are you sure you want to %s %d buffers?", operation, count), confirmation.Yes)
+		input.WrapMode = promptkit.WordWrap
+		confirmed, err := input.RunPrompt()
+		if err != nil {
+			return false, err
+		}
+		if confirmed {
+			return true, nil
+		}
+	} else {
+		fmt.Println("No buffers found.")
+	}
+	return false, nil
 }
 
 // If we are using the zerolog console writer, this returns an io.Writer that

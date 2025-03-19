@@ -29,7 +29,6 @@ public class BufferDeleter : BackgroundService
         {
             try
             {
-                var timestamp = DateTimeOffset.UtcNow;
                 await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
                 await Task.WhenAll(
                     HardDeleteExpiredBuffers(stoppingToken),
@@ -51,12 +50,27 @@ public class BufferDeleter : BackgroundService
     /// </summary>
     private async Task HardDeleteExpiredBuffers(CancellationToken stoppingToken)
     {
-        var readyToPurge = await _repository.GetExpiredBufferIds(whereSoftDeleted: true, limit: 2000, stoppingToken);
-        if (readyToPurge.Count > 0)
+        const int MaxLimit = 1000;
+        bool hasMoreExpired = true;
+
+        while (hasMoreExpired && !stoppingToken.IsCancellationRequested)
         {
-            var deletedIds = await _bufferProvider.DeleteBuffers(readyToPurge, stoppingToken);
-            await _repository.HardDeleteBuffers(deletedIds, stoppingToken);
-            _logger.HardDeletedBuffers(deletedIds.Count);
+            var idsToPurge = await _repository.GetExpiredBufferIds(whereSoftDeleted: true, limit: MaxLimit, stoppingToken);
+            if (idsToPurge.Count <= 0)
+            {
+                break;
+            }
+
+            var deletedFromProvider = await _bufferProvider.DeleteBuffers(idsToPurge, stoppingToken);
+            var numDeletedFromDatabase = await _repository.HardDeleteBuffers(idsToPurge, stoppingToken);
+            _logger.HardDeletedBuffers(deletedFromProvider.Count, numDeletedFromDatabase);
+
+            // If we got MaxLimit ids, it is very likely there are more to purge
+            hasMoreExpired = idsToPurge.Count >= MaxLimit;
+            if (hasMoreExpired)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
+            }
         }
     }
 
