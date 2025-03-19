@@ -118,6 +118,7 @@ type DatabaseConfig struct {
 	Location             string          `json:"location"`
 	ComputeTier          string          `json:"computeTier"`
 	VMSize               string          `json:"vmSize"`
+	OwnerGroup           string          `json:"ownerGroup"`
 	FirewallRules        []*FirewallRule `json:"firewallRules,omitempty"`
 	PostgresMajorVersion int             `json:"postgresMajorVersion"`
 	StorageSizeGB        int             `json:"storageSizeGB"`
@@ -174,7 +175,6 @@ type ConfigTemplateValues struct {
 	LogsStorageAccountName   string
 	DomainName               string
 	ApiTenantId              string
-	CurrentIpAddress         string
 	CpuNodePoolMinCount      int
 	GpuNodePoolMinCount      int
 }

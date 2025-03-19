@@ -72,10 +72,10 @@ cloud:
 
     # Firewall rules to control where the database can be accessed from,
     # in addition to the control-plane cluster.
-    firewallRules:
-      - name: installerIpAddress
-        startIpAddress: {{ .CurrentIpAddress }}
-        endIpAddress: {{ .CurrentIpAddress }}
+    # firewallRules:
+    #  - name:
+    #    startIpAddress:
+    #    endIpAddress:
 
     # location: Defaults to defaultLocation
     # computeTier: Defaults to Burstable

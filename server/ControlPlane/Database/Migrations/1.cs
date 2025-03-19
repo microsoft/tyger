@@ -11,16 +11,6 @@ public class Migrator1 : Migrator
     {
         await using var batch = dataSource.CreateBatch();
 
-        batch.BatchCommands.Add(new($"""
-            DO $$
-            BEGIN
-                IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '{OwnersRole}') THEN
-                    CREATE ROLE "{OwnersRole}";
-                END IF;
-            END
-            $$
-            """));
-
         // migrations table
 
         batch.BatchCommands.Add(new($"""

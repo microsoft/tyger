@@ -24,6 +24,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
 	"github.com/docker/docker/pkg/namesgenerator"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/hashicorp/go-cleanhttp"
+	"github.com/ipinfo/go/v2/ipinfo"
 	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/rs/zerolog/log"
 )
@@ -40,7 +42,7 @@ const (
 	ownersRole           = "tyger-owners"
 	databasePort         = 5432
 	databaseName         = "postgres"
-	dbConfiguredTagValue = "1" // bump this when we change the database configuration logic
+	dbConfiguredTagValue = "2" // bump this when we change the database configuration logic
 )
 
 func (inst *Installer) createDatabase(ctx context.Context, tygerServerManagedIdentityPromise, migrationRunnerManagedIdentityPromise *install.Promise[*armmsi.Identity]) (any, error) {
@@ -127,7 +129,7 @@ func (inst *Installer) createDatabase(ctx context.Context, tygerServerManagedIde
 	}
 
 	if serverNeedsUpdate {
-		log.Info().Msg("Creating or updating PostgreSQL server")
+		log.Info().Msgf("Creating or updating PostgreSQL server '%s'", serverName)
 
 		poller, err := client.BeginCreate(ctx, inst.Config.Cloud.ResourceGroup, serverName, serverParameters, nil)
 		if err != nil {
@@ -288,8 +290,43 @@ func (inst *Installer) createDatabase(ctx context.Context, tygerServerManagedIde
 
 	currentPrincipalDisplayName, err := createDatabaseAdmins(ctx, inst.Config, serverName, inst.Credential, migrationRunnerManagedIdentity)
 
+	temporaryFirewallRuleName := "TempAllowInstaller"
+	var temporaryFirewallRule *armpostgresqlflexibleservers.FirewallRule
+	// Get the current IP address. Create a new "clean" HTTP client that does not use any proxy, as database connections will not use one.
+	ipInfoClient := ipinfo.NewClient(cleanhttp.DefaultClient(), nil, "")
+	if ip, err := ipInfoClient.GetIPInfo(nil); err != nil {
+		log.Warn().Msgf("Unable to determine the current public IP address. You may need to add the current IP address manually to the as a database firewall rule to allow connectivity")
+	} else {
+		temporaryFirewallRule = &armpostgresqlflexibleservers.FirewallRule{
+			Properties: &armpostgresqlflexibleservers.FirewallRuleProperties{
+				StartIPAddress: Ptr(ip.IP.String()),
+				EndIPAddress:   Ptr(ip.IP.String()),
+			},
+		}
+	}
+
+	if temporaryFirewallRule != nil {
+		log.Info().Msgf("Creating temporary PostgreSQL server firewall rule '%s'", temporaryFirewallRuleName)
+		_, err = retryableAsyncOperation(ctx, func(ctx context.Context) (*runtime.Poller[armpostgresqlflexibleservers.FirewallRulesClientCreateOrUpdateResponse], error) {
+			return firewallClient.BeginCreateOrUpdate(ctx, inst.Config.Cloud.ResourceGroup, serverName, temporaryFirewallRuleName, *temporaryFirewallRule, nil)
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create PostgreSQL server firewall rule: %w", err)
+		}
+	}
+
 	if err := inst.createRoles(ctx, existingServer, currentPrincipalDisplayName, tygerServerManagedIdentity, migrationRunnerManagedIdentity); err != nil {
 		return nil, err
+	}
+
+	if temporaryFirewallRule != nil {
+		log.Info().Msgf("Deleting temporary PostgreSQL server firewall rule '%s'", temporaryFirewallRuleName)
+		_, err = retryableAsyncOperation(ctx, func(ctx context.Context) (*runtime.Poller[armpostgresqlflexibleservers.FirewallRulesClientDeleteResponse], error) {
+			return firewallClient.BeginDelete(ctx, inst.Config.Cloud.ResourceGroup, serverName, temporaryFirewallRuleName, nil)
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to delete PostgreSQL server firewall rule: %w", err)
+		}
 	}
 
 	// add a tag on the server to indicate that it is configured, so we can skip the slow firewall configuration next time
@@ -389,7 +426,11 @@ func (inst *Installer) createRoles(
 		*server.Properties.FullyQualifiedDomainName, databasePort, currentPrincipalDisplayName, token.Token, databaseName)
 
 	db, err := sql.Open("postgres", connectionString)
+	if err == nil {
+		err = db.PingContext(ctx)
+	}
 	if err != nil {
+		log.Warn().Msgf("For network connectivity problems to the database, try adding your current public IP address to the database firewall rules in the config file and verify that there is no firewall in your environment that is blocking aceess to %s on port %d.", *server.Properties.FullyQualifiedDomainName, databasePort)
 		return fmt.Errorf("failed to open database connection: %w", err)
 	}
 	defer db.Close()
@@ -406,27 +447,29 @@ $$`, ownersRole, ownersRole))
 		return fmt.Errorf("failed to create %s database role: %w", ownersRole, err)
 	}
 
-	_, err = db.Exec(fmt.Sprintf(`GRANT "%s" TO "%s" WITH ADMIN TRUE`, ownersRole, *migrationRunnerIdentity.Name))
-	if err != nil {
-		return fmt.Errorf("failed to grant database role: %w", err)
-	}
-
-	_, err = db.Exec(fmt.Sprintf(`GRANT "%s" TO "%s"`, ownersRole, currentPrincipalDisplayName))
-	if err != nil {
-		return fmt.Errorf("failed to grant database role: %w", err)
-	}
-
 	_, err = db.Exec(fmt.Sprintf(`
-DO $$
-BEGIN
-	IF NOT EXISTS (SELECT FROM pgaadauth_list_principals(false) WHERE objectId = '%s') THEN
-		PERFORM pgaadauth_create_principal_with_oid('%s', '%s', 'service', false, false);
-	END IF;
-END
-$$`, *tygerServerIdentity.Properties.PrincipalID, *tygerServerIdentity.Name, *tygerServerIdentity.Properties.PrincipalID))
+	DO $$
+	BEGIN
+		IF NOT EXISTS (SELECT FROM pgaadauth_list_principals(false) WHERE objectId = '%s') THEN
+			PERFORM pgaadauth_create_principal_with_oid('%s', '%s', 'service', false, false);
+		END IF;
+	END
+	$$`, *tygerServerIdentity.Properties.PrincipalID, *tygerServerIdentity.Name, *tygerServerIdentity.Properties.PrincipalID))
 
 	if err != nil {
 		return fmt.Errorf("failed to create tyger server database principal: %w", err)
+	}
+
+	if _, err := db.Exec(fmt.Sprintf(`GRANT "%s" TO "%s" WITH ADMIN TRUE`, ownersRole, *migrationRunnerIdentity.Name)); err != nil {
+		return fmt.Errorf("failed to grant database role: %w", err)
+	}
+
+	if _, err := db.Exec(fmt.Sprintf(`GRANT "%s" TO "%s"`, ownersRole, currentPrincipalDisplayName)); err != nil {
+		return fmt.Errorf("failed to grant database role: %w", err)
+	}
+
+	if _, err := db.Exec(fmt.Sprintf(`GRANT ALL ON SCHEMA public TO "%s"`, ownersRole)); err != nil {
+		return fmt.Errorf("failed to grant database role: %w", err)
 	}
 
 	return nil

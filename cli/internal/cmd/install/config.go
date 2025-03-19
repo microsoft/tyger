@@ -24,7 +24,6 @@ import (
 	"github.com/a8m/envsubst"
 	"github.com/eiannone/keyboard"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/ipinfo/go/v2/ipinfo"
 	"github.com/microsoft/tyger/cli/internal/dataplane"
 	"github.com/microsoft/tyger/cli/internal/install/cloudinstall"
 	"github.com/microsoft/tyger/cli/internal/install/dockerinstall"
@@ -246,20 +245,14 @@ func generateCloudConfig(ctx context.Context, configFile *os.File) error {
 		return errors.New("please install the Azure CLI (az) first")
 	}
 
-	ipInfoClient := ipinfo.NewClient(nil, nil, "")
-	ip, err := ipInfoClient.GetIPInfo(nil)
-	if err != nil {
-		return fmt.Errorf("failed to get current external IP address: %w", err)
-	}
-
 	templateValues := cloudinstall.ConfigTemplateValues{
 		KubernetesVersion:    cloudinstall.DefaultKubernetesVersion,
 		PostgresMajorVersion: cloudinstall.DefaultPostgresMajorVersion,
-		CurrentIpAddress:     ip.IP.String(),
 	}
 
 	fmt.Printf("\nLet's collect settings for the Azure subscription to use. This is where cloud resources will be deployed.\n\n")
 
+	var err error
 	var cred azcore.TokenCredential
 
 	for {

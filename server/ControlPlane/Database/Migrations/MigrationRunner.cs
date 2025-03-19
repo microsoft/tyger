@@ -200,10 +200,33 @@ public class MigrationRunner : IHostedService
         {
             await using var batch = _dataSource.CreateBatch();
 
+            batch.BatchCommands.Add(new($"GRANT ALL ON SCHEMA {DatabaseNamespace} TO \"{OwnersRole}\""));
             batch.BatchCommands.Add(new($"GRANT ALL ON ALL TABLES IN SCHEMA {DatabaseNamespace} TO \"{OwnersRole}\""));
             batch.BatchCommands.Add(new($"GRANT ALL ON ALL SEQUENCES IN SCHEMA {DatabaseNamespace} TO \"{OwnersRole}\""));
             batch.BatchCommands.Add(new($"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA {DatabaseNamespace} TO \"{_databaseOptions.TygerServerRoleName}\""));
             batch.BatchCommands.Add(new($"GRANT USAGE ON ALL SEQUENCES IN SCHEMA {DatabaseNamespace} TO \"{_databaseOptions.TygerServerRoleName}\""));
+            // Ensure all tables and sequences are owned by the owners role
+            batch.BatchCommands.Add(new($"""
+                DO $$
+                DECLARE
+                    obj record;
+                BEGIN
+                    FOR obj IN
+                        SELECT c.relkind, c.relname
+                        FROM pg_class c
+                        JOIN pg_namespace n ON n.oid = c.relnamespace
+                        JOIN pg_roles r ON r.oid = c.relowner
+                        WHERE c.relkind in ('S', 'r') AND n.nspname = '{DatabaseNamespace}' and r.rolname = '{_databaseOptions.Username}'
+                    LOOP
+                        IF obj.relkind = 'r' THEN
+                            EXECUTE format('ALTER TABLE %I.%I OWNER TO %I', '{DatabaseNamespace}', obj.relname, '{OwnersRole}');
+                        ELSIF obj.relkind = 'S' THEN
+                            EXECUTE format('ALTER SEQUENCE %I.%I OWNER TO %I', '{DatabaseNamespace}', obj.relname, '{OwnersRole}');
+                        END IF;
+                    END LOOP;
+                END
+                $$;
+                """));
 
             await batch.ExecuteNonQueryAsync(cancellationToken);
         }, cancellationToken);
