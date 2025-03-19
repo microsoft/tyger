@@ -65,13 +65,20 @@ public static class Buffers
         app.MapPost("/v1/buffers", async (BufferManager manager, HttpContext context, CancellationToken cancellationToken) =>
             {
                 var newBuffer = await context.Request.ReadAndValidateJson<Buffer>(context.RequestAborted);
-                var buffer = await manager.CreateBuffer(newBuffer, cancellationToken);
+
+                if (!context.ParseAndValidateTtlQueryParameter(out var ttl))
+                {
+                    return Responses.BadRequest("ttl must be a valid, non-negative TimeSpan");
+                }
+
+                var buffer = await manager.CreateBuffer(newBuffer, ttl, cancellationToken);
                 context.Response.Headers.ETag = buffer.ETag;
                 return Results.Created($"/v1/buffers/{buffer.Id}", buffer);
             })
             .Accepts<Buffer>("application/json")
             .WithName("createBuffer")
-            .Produces<Buffer>(StatusCodes.Status201Created);
+            .Produces<Buffer>(StatusCodes.Status201Created)
+            .Produces<ErrorBody>(StatusCodes.Status400BadRequest);
 
         app.MapGet("/v1/buffers", async (BufferManager manager, HttpContext context, int? limit, [FromQuery(Name = "_ct")] string? continuationToken, CancellationToken cancellationToken) =>
             {
@@ -84,7 +91,7 @@ public static class Buffers
                 {
                     if (!bool.TryParse(softDeletedQuery, out softDeleted))
                     {
-                        return Results.BadRequest("softDeleted must be true or false");
+                        return Responses.BadRequest("softDeleted must be true or false");
                     }
                 }
 
@@ -110,6 +117,7 @@ public static class Buffers
             })
             .WithName("getBuffers")
             .Produces<BufferPage>()
+            .Produces<ErrorBody>(StatusCodes.Status400BadRequest)
             .WithOpenApi(c =>
                 {
                     // Specify that the query parameter "tag" is a "deep object"
@@ -141,7 +149,7 @@ public static class Buffers
             {
                 if (!context.ParseAndValidateTtlQueryParameter(out var ttl))
                 {
-                    return Results.BadRequest("ttl must be a valid, non-negative TimeSpan");
+                    return Responses.BadRequest("ttl must be a valid, non-negative TimeSpan");
                 }
 
                 var softDeleted = false;
@@ -149,7 +157,7 @@ public static class Buffers
                 {
                     if (!bool.TryParse(softDeletedQuery, out softDeleted))
                     {
-                        return Results.BadRequest("softDeleted must be true or false");
+                        return Responses.BadRequest("softDeleted must be true or false");
                     }
                 }
 
@@ -160,7 +168,8 @@ public static class Buffers
                 return Results.Ok(count);
             })
             .WithName("deleteBuffers")
-            .Produces<int>(StatusCodes.Status200OK);
+            .Produces<int>(StatusCodes.Status200OK)
+            .Produces<ErrorBody>(StatusCodes.Status400BadRequest);
 
         app.MapPost("/v1/buffers/restore", async (BufferManager manager, HttpContext context, CancellationToken cancellationToken) =>
             {
@@ -200,7 +209,7 @@ public static class Buffers
                 {
                     if (!bool.TryParse(softDeletedQuery, out softDeleted))
                     {
-                        return Results.BadRequest("softDeleted must be true or false");
+                        return Responses.BadRequest("softDeleted must be true or false");
                     }
                 }
 
@@ -211,7 +220,7 @@ public static class Buffers
                     return Results.Ok(buffer);
                 }
 
-                return Results.NotFound();
+                return Responses.NotFound();
             })
             .WithName("getBufferById")
             .Produces<Buffer>(StatusCodes.Status200OK)
@@ -223,7 +232,7 @@ public static class Buffers
 
                 if (!string.IsNullOrEmpty(bufferUpdate.Id) && !string.Equals(id, bufferUpdate.Id, StringComparison.Ordinal))
                 {
-                    return Results.BadRequest("The buffer ID in the URL does not match the buffer ID in the request body.");
+                    return Responses.BadRequest("The buffer ID in the URL does not match the buffer ID in the request body.");
                 }
 
                 string eTagPrecondition = context.Request.Headers.IfMatch.FirstOrDefault() ?? "";
@@ -234,7 +243,7 @@ public static class Buffers
 
                 if (!context.ParseAndValidateTtlQueryParameter(out var ttl))
                 {
-                    return Results.BadRequest("ttl must be a valid, non-negative TimeSpan");
+                    return Responses.BadRequest("ttl must be a valid, non-negative TimeSpan");
                 }
 
                 bufferUpdate = bufferUpdate with { Id = id };
@@ -247,12 +256,13 @@ public static class Buffers
                         context.Response.Headers.ETag = updated.Value.ETag;
                         return Results.Ok(updated.Value);
                     },
-                    notFound: _ => Results.NotFound(),
+                    notFound: _ => Responses.NotFound(),
                     preconditionFailed: _ => Results.StatusCode(StatusCodes.Status412PreconditionFailed));
             })
             .WithName("setBufferTags")
             .Accepts<BufferUpdate>("application/json")
             .Produces<Buffer>(StatusCodes.Status200OK)
+            .Produces<ErrorBody>(StatusCodes.Status400BadRequest)
             .Produces<ErrorBody>(StatusCodes.Status404NotFound)
             .Produces<ErrorBody>(StatusCodes.Status412PreconditionFailed);
 
@@ -260,7 +270,7 @@ public static class Buffers
             {
                 if (!context.ParseAndValidateTtlQueryParameter(out var ttl))
                 {
-                    return Results.BadRequest("ttl must be a valid, non-negative TimeSpan");
+                    return Responses.BadRequest("ttl must be a valid, non-negative TimeSpan");
                 }
 
                 var softDeleted = false;
@@ -268,18 +278,19 @@ public static class Buffers
                 {
                     if (!bool.TryParse(softDeletedQuery, out softDeleted))
                     {
-                        return Results.BadRequest("softDeleted must be true or false");
+                        return Responses.BadRequest("softDeleted must be true or false");
                     }
                 }
 
                 var result = await manager.SoftDeleteBufferById(id, ttl, softDeleted, cancellationToken);
                 return result.Match(
                     updated: updated => Results.Ok(updated.Value),
-                    notFound: _ => Results.NotFound(),
+                    notFound: _ => Responses.NotFound(),
                     preconditionFailed: _ => Results.StatusCode(StatusCodes.Status412PreconditionFailed));
             })
             .WithName("deleteBuffer")
             .Produces<Buffer>(StatusCodes.Status200OK)
+            .Produces<ErrorBody>(StatusCodes.Status400BadRequest)
             .Produces<ErrorBody>(StatusCodes.Status404NotFound)
             .Produces<ErrorBody>(StatusCodes.Status412PreconditionFailed);
 
@@ -288,7 +299,7 @@ public static class Buffers
                 var result = await manager.RestoreBufferById(id, cancellationToken);
                 return result.Match(
                     updated: updated => Results.Ok(updated.Value),
-                    notFound: _ => Results.NotFound(),
+                    notFound: _ => Responses.NotFound(),
                     preconditionFailed: _ => Results.StatusCode(StatusCodes.Status412PreconditionFailed));
             })
             .WithName("restoreBuffer")
@@ -301,7 +312,7 @@ public static class Buffers
                 var bufferAccess = await manager.CreateBufferAccessUrls([(id, writeable == true)], preferTcp == true, fromDocker == true, checkExists: true, cancellationToken);
                 if (bufferAccess is [(_, _, null)])
                 {
-                    return Results.NotFound();
+                    return Responses.NotFound();
                 }
 
                 return Results.Json(bufferAccess[0].bufferAccess, statusCode: StatusCodes.Status201Created);

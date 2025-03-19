@@ -21,6 +21,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Buffer'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
     get:
       tags:
         - tyger-server
@@ -50,6 +56,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BufferPage'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
     delete:
       tags:
         - tyger-server
@@ -62,6 +74,12 @@ paths:
               schema:
                 type: integer
                 format: int32
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
   /v1/buffers/restore:
     post:
       tags:
@@ -135,6 +153,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Buffer'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
         '404':
           description: Not Found
           content:
@@ -164,6 +188,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Buffer'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
         '404':
           description: Not Found
           content:
@@ -891,6 +921,11 @@ components:
               additionalProperties:
                 type: string
               description: Tags to add to any buffer created for a job
+              nullable: true
+            bufferTtl:
+              type: string
+              description: 'The time to live for the buffers created for the job. If not specified, the buffers will not expire.'
+              format: date-span
               nullable: true
           additionalProperties: { }
       additionalProperties: false

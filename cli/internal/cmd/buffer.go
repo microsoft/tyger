@@ -72,15 +72,22 @@ func newBufferCreateCommand() *cobra.Command {
 	full := false
 	tagEntries := make(map[string]string)
 	location := ""
+	var ttl string
 	cmd := &cobra.Command{
-		Use:                   "create [--location LOCATION] [--tag KEY=VALUE ...]",
+		Use:                   "create [--location LOCATION] [--tag KEY=VALUE ...] [--ttl D.HH:MM:SS]",
 		Short:                 "Create a buffer",
 		Long:                  `Create a buffer. Writes the buffer ID to stdout on success.`,
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			newBuffer := model.Buffer{Tags: tagEntries, Location: location}
+			options := url.Values{}
+			if ttl != "" {
+				options.Add("ttl", ttl)
+			}
+
+			relativeUri := fmt.Sprintf("v1/buffers?%s", options.Encode())
 			buffer := model.Buffer{}
-			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/buffers", newBuffer, &buffer)
+			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, relativeUri, newBuffer, &buffer)
 			if err != nil {
 				return err
 			}
@@ -100,6 +107,7 @@ func newBufferCreateCommand() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&location, "location", location, "the location of the buffer. If not specified, the buffer is created in the default location.")
 	cmd.Flags().StringToStringVar(&tagEntries, "tag", nil, "add a key-value tag to the buffer. Can be specified multiple times.")
+	cmd.Flags().StringVar(&ttl, "ttl", ttl, "the time-to-live for the buffer. This adjusts the buffer's expiry time for deletion.")
 	cmd.Flags().BoolVar(&full, "full-resource", false, "return the full buffer resource and not just the buffer ID")
 
 	return cmd

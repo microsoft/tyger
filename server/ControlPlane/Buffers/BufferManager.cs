@@ -26,14 +26,20 @@ public sealed partial class BufferManager
         _bufferOptions = bufferOptions;
     }
 
-    public async Task<Buffer> CreateBuffer(Buffer newBuffer, CancellationToken cancellationToken)
+    public async Task<Buffer> CreateBuffer(Buffer newBuffer, TimeSpan? ttl, CancellationToken cancellationToken)
     {
         Tags.Validate(newBuffer.Tags);
+
+        var expiresAt = GetDefaultActiveBufferExpiresAt();
+        if (ttl.HasValue)
+        {
+            expiresAt = ComputeExpiration(ttl.Value);
+        }
 
         string id = UniqueId.Create();
         _logger.CreatingBuffer(id);
 
-        var buffer = newBuffer with { Id = id };
+        var buffer = newBuffer with { Id = id, ExpiresAt = expiresAt };
 
         return await _bufferProvider.CreateBuffer(buffer, cancellationToken);
     }

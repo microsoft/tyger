@@ -27,6 +27,6 @@ app.MapDataPlane();
 
 app.MapHealthChecks("/healthcheck").AllowAnonymous();
 
-app.MapFallback(() => Responses.BadRequest("InvalidRoute", "The request path was not recognized."));
+app.MapFallback(() => Responses.InvalidRoute("The request path was not recognized."));
 
 app.Run();

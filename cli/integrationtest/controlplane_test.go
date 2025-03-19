@@ -577,7 +577,7 @@ timeoutSeconds: 600`, BasicImage)
 
 	require.Equal("Hello: Bonjour", execStdOut)
 
-	buffers := listBuffers(t, "--tag", "testName=TestCodespecBufferTagsWithYamlSpec", "--tag", "testtagX="+uniqueId)
+	buffers := listBuffers(t, "--tag", "testName=TestCodespecBufferTtlWithYamlSpec", "--tag", "testtagX="+uniqueId)
 	require.Equal(2, len(buffers))
 	for _, buffer := range buffers {
 		require.Greater(*buffer.ExpiresAt, time.Now())
@@ -1609,6 +1609,20 @@ func TestBufferWithTags(t *testing.T) {
 	require.Equal("testvalue2", buffer.Tags["testtag2"])
 }
 
+func TestCreateBufferWithTtl(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+
+	bufferJson := runTygerSucceeds(t, "buffer", "create", "--ttl", "2.12:30:30", "--full-resource")
+
+	var buffer model.Buffer
+	require.NoError(json.Unmarshal([]byte(bufferJson), &buffer))
+
+	require.NotNil(buffer.ExpiresAt)
+	require.Greater(*buffer.ExpiresAt, time.Now().Add((2*24+12)*time.Hour+30*time.Minute))
+	require.Less(*buffer.ExpiresAt, time.Now().Add((2*24+12)*time.Hour+31*time.Minute))
+}
+
 func TestBufferSetTags(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
@@ -1723,7 +1737,7 @@ func TestBufferSetWithInvalidETag(t *testing.T) {
 	require.Contains(stderr, "the server's ETag does not match the provided ETag")
 
 	_, stderr2, _ := runTyger("buffer", "set", "bad-bufferid", "--etag", "bad-etag")
-	require.Contains(stderr2, "404 Not Found")
+	require.Contains(stderr2, "was not found")
 
 	_, stderr3, _ := runTyger("buffer", "set", bufferId, "--ttl", "1.00:00:00", "--etag", "bad-etag")
 	require.Contains(stderr3, "the server's ETag does not match the provided ETag")
