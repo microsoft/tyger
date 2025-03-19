@@ -118,7 +118,6 @@ type DatabaseConfig struct {
 	Location             string          `json:"location"`
 	ComputeTier          string          `json:"computeTier"`
 	VMSize               string          `json:"vmSize"`
-	OwnerGroup           string          `json:"ownerGroup"`
 	FirewallRules        []*FirewallRule `json:"firewallRules,omitempty"`
 	PostgresMajorVersion int             `json:"postgresMajorVersion"`
 	StorageSizeGB        int             `json:"storageSizeGB"`

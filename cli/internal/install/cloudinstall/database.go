@@ -295,7 +295,7 @@ func (inst *Installer) createDatabase(ctx context.Context, tygerServerManagedIde
 	// Get the current IP address. Create a new "clean" HTTP client that does not use any proxy, as database connections will not use one.
 	ipInfoClient := ipinfo.NewClient(cleanhttp.DefaultClient(), nil, "")
 	if ip, err := ipInfoClient.GetIPInfo(nil); err != nil {
-		log.Warn().Msgf("Unable to determine the current public IP address. You may need to add the current IP address manually to the as a database firewall rule to allow connectivity")
+		log.Warn().Msgf("Unable to determine the current public IP address. You may need to add the current IP address manually as a database firewall rule to allow connectivity")
 	} else {
 		temporaryFirewallRule = &armpostgresqlflexibleservers.FirewallRule{
 			Properties: &armpostgresqlflexibleservers.FirewallRuleProperties{
