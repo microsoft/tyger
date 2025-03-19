@@ -293,6 +293,7 @@ func readInBlocksWithMaximumInterval(ctx context.Context, inputReader io.Reader,
 
 			// start a timer to flush the buffer every interval by writing to dataCh
 			var timer *time.Timer
+			mut.Lock() // lock to ensure that `timer` is initialized before the callback uses it.
 			timer = time.AfterFunc(interval, func() {
 				mut.Lock()
 				if bufPos == 0 {
@@ -317,6 +318,7 @@ func readInBlocksWithMaximumInterval(ctx context.Context, inputReader io.Reader,
 
 				timer.Reset(interval)
 			})
+			mut.Unlock()
 
 			defer timer.Stop()
 
