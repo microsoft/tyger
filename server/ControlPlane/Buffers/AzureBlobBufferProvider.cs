@@ -120,7 +120,7 @@ public sealed class AzureBlobBufferProvider : IHostedService, IBufferProvider, I
             });
         });
 
-        return deletedIds.ToList();
+        return [.. deletedIds];
     }
 
     public async Task<IList<(string id, bool writeable, BufferAccess? bufferAccess)>> CreateBufferAccessUrls(IList<(string id, bool writeable)> requests, bool preferTcp, bool checkExists, CancellationToken cancellationToken)
