@@ -26,20 +26,14 @@ public sealed partial class BufferManager
         _bufferOptions = bufferOptions;
     }
 
-    public async Task<Buffer> CreateBuffer(Buffer newBuffer, TimeSpan? ttl, CancellationToken cancellationToken)
+    public async Task<Buffer> CreateBuffer(Buffer newBuffer, CancellationToken cancellationToken)
     {
         Tags.Validate(newBuffer.Tags);
-
-        var expiresAt = GetDefaultActiveBufferExpiresAt();
-        if (ttl.HasValue)
-        {
-            expiresAt = ComputeExpiration(ttl.Value);
-        }
 
         string id = UniqueId.Create();
         _logger.CreatingBuffer(id);
 
-        var buffer = newBuffer with { Id = id, ExpiresAt = expiresAt };
+        var buffer = newBuffer with { Id = id };
 
         return await _bufferProvider.CreateBuffer(buffer, cancellationToken);
     }
@@ -71,15 +65,9 @@ public sealed partial class BufferManager
         return await _repository.CheckBuffersExist(ids, cancellationToken);
     }
 
-    public async Task<UpdateWithPreconditionResult<Buffer>> UpdateBuffer(BufferUpdate bufferUpdate, TimeSpan? ttl, string? eTagPrecondition, CancellationToken cancellationToken)
+    public async Task<UpdateWithPreconditionResult<Buffer>> UpdateBuffer(BufferUpdate bufferUpdate, string? eTagPrecondition, CancellationToken cancellationToken)
     {
-        DateTimeOffset? expiresAt = null;
-        if (ttl.HasValue)
-        {
-            expiresAt = ComputeExpiration(ttl.Value);
-        }
-
-        return await _repository.UpdateBuffer(bufferUpdate, expiresAt, eTagPrecondition, cancellationToken);
+        return await _repository.UpdateBuffer(bufferUpdate, eTagPrecondition, cancellationToken);
     }
 
     public async Task<(IList<Buffer>, string? nextContinuationToken)> GetBuffers(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags,

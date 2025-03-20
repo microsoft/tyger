@@ -120,6 +120,10 @@ api:
   #   nvidiaDevicePlugin: {} # same fields as `tyger` above
   #   traefik: {} # same fields as `tyger` above
 
+# Settings for all buffers
 buffers:
-  activeLifetime: 0.00:00
+  # TTL for active buffers before they are automatically soft-deleted (D.HH:MM:SS) (0 = never expire)
+  activeLifetime: 0
+
+  # TTL for soft-deleted buffers before they are automatically purged forever (D.HH:MM:SS) (0 = purge immediately)
   softDeletedLifetime: 3.00:00

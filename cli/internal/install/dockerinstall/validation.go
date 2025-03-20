@@ -11,6 +11,7 @@ import (
 	"strconv"
 
 	"github.com/a8m/envsubst"
+	"github.com/microsoft/tyger/cli/internal/common"
 	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/rs/zerolog/log"
 )
@@ -167,13 +168,12 @@ func (inst *Installer) QuickValidateConfig() bool {
 		inst.Config.Buffers.SoftDeletedLifetime = "0"
 	}
 
-	timeSpanRegex := regexp.MustCompile(`^(\d+)[.](\d\d):(\d\d)(:(\d\d))?$`)
-	if !timeSpanRegex.MatchString(inst.Config.Buffers.ActiveLifetime) {
-		validationError(&success, "The `buffers.activeLifetime` field must match the pattern "+timeSpanRegex.String())
+	if _, err := common.ParseTimeToLive(inst.Config.Buffers.ActiveLifetime); err != nil {
+		validationError(&success, "The `buffers.activeLifetime` field must be a valid TTL (D.HH:MM:SS)")
 	}
 
-	if !timeSpanRegex.MatchString(inst.Config.Buffers.SoftDeletedLifetime) {
-		validationError(&success, "The `buffers.softDeletedLifetime` field must match the pattern "+timeSpanRegex.String())
+	if _, err := common.ParseTimeToLive(inst.Config.Buffers.SoftDeletedLifetime); err != nil {
+		validationError(&success, "The `buffers.softDeletedLifetime` field must be a valid TTL (D.HH:MM:SS)")
 	}
 
 	return success

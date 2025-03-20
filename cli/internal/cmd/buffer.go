@@ -24,6 +24,7 @@ import (
 	"github.com/erikgeiser/promptkit"
 	"github.com/erikgeiser/promptkit/confirmation"
 	"github.com/microsoft/tyger/cli/internal/client"
+	"github.com/microsoft/tyger/cli/internal/common"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/dataplane"
@@ -80,14 +81,18 @@ func newBufferCreateCommand() *cobra.Command {
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			newBuffer := model.Buffer{Tags: tagEntries, Location: location}
-			options := url.Values{}
+
 			if ttl != "" {
-				options.Add("ttl", ttl)
+				t, err := common.ParseTimeToLive(ttl)
+				if err != nil {
+					return err
+				}
+				expiresAt := time.Now().Add(t.ToDuration())
+				newBuffer.ExpiresAt = &expiresAt
 			}
 
-			relativeUri := fmt.Sprintf("v1/buffers?%s", options.Encode())
 			buffer := model.Buffer{}
-			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, relativeUri, newBuffer, &buffer)
+			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/buffers", newBuffer, &buffer)
 			if err != nil {
 				return err
 			}
@@ -127,16 +132,25 @@ func newBufferSetCommand() *cobra.Command {
 		Args:                  exactlyOneArg("buffer ID"),
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			options := url.Values{}
+
+			var expiresAt *time.Time
 			if ttl != "" {
-				options.Add("ttl", ttl)
+				t, err := common.ParseTimeToLive(ttl)
+				if err != nil {
+					return err
+				}
+				when := time.Now().Add(t.ToDuration())
+				expiresAt = &when
 			}
+
+			options := url.Values{}
 			if softDeleted {
 				options.Add("softDeleted", strconv.FormatBool(softDeleted))
 			}
 			relativeUri := fmt.Sprintf("v1/buffers/%s?%s", args[0], options.Encode())
+
 			buffer := model.Buffer{}
-			return controlplane.SetTagsOnEntity(cmd.Context(), relativeUri, etag, clearTags, tags, &buffer)
+			return controlplane.SetFieldsOnEntity(cmd.Context(), relativeUri, etag, clearTags, tags, expiresAt, &buffer)
 		},
 	}
 

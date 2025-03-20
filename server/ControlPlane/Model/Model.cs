@@ -86,6 +86,7 @@ public record BufferUpdate : IResourceWithTags<string?>
 
     [JsonIgnore]
     public DateTimeOffset? CreatedAt { get; init; }
+    public DateTimeOffset? ExpiresAt { get; init; }
     public IReadOnlyDictionary<string, string>? Tags { get; init; }
 }
 

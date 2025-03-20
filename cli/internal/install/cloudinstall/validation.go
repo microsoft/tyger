@@ -15,6 +15,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/postgresql/armpostgresqlflexibleservers/v4"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage"
 	"github.com/google/uuid"
+	"github.com/microsoft/tyger/cli/internal/common"
 	"github.com/rs/zerolog/log"
 )
 
@@ -381,13 +382,12 @@ func (inst *Installer) quickValidateBuffersConfig(success *bool) {
 		buffersConfig.SoftDeletedLifetime = "0"
 	}
 
-	timeSpanRegex := regexp.MustCompile(`^(\d+)[.](\d\d):(\d\d)(:(\d\d))?$`)
-	if !timeSpanRegex.MatchString(buffersConfig.ActiveLifetime) {
-		validationError(success, "The `buffers.activeLifetime` field must match the pattern "+timeSpanRegex.String())
+	if _, err := common.ParseTimeToLive(buffersConfig.ActiveLifetime); err != nil {
+		validationError(success, "The `buffers.activeLifetime` field must be a valid TTL (D.HH:MM:SS)")
 	}
 
-	if !timeSpanRegex.MatchString(buffersConfig.SoftDeletedLifetime) {
-		validationError(success, "The `buffers.softDeletedLifetime` field must match the pattern "+timeSpanRegex.String())
+	if _, err := common.ParseTimeToLive(buffersConfig.SoftDeletedLifetime); err != nil {
+		validationError(success, "The `buffers.softDeletedLifetime` field be a valid TTL (D.HH:MM:SS)")
 	}
 }
 

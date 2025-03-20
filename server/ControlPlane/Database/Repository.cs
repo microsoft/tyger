@@ -1576,7 +1576,7 @@ public class Repository
         }, cancellationToken);
     }
 
-    public async Task<UpdateWithPreconditionResult<Buffer>> UpdateBuffer(BufferUpdate bufferUpdate, DateTimeOffset? expiresAt, string? eTagPrecondition, CancellationToken cancellationToken)
+    public async Task<UpdateWithPreconditionResult<Buffer>> UpdateBuffer(BufferUpdate bufferUpdate, string? eTagPrecondition, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync<UpdateWithPreconditionResult<Buffer>>(async cancellationToken =>
         {
@@ -1640,9 +1640,9 @@ public class Repository
                     }
                 }
 
-                if (expiresAt.HasValue)
+                if (bufferUpdate.ExpiresAt.HasValue)
                 {
-                    var updatedExpiresAt = await UpdateBufferExpiresAt(tx, buffer.Id, expiresAt.Value, cancellationToken);
+                    var updatedExpiresAt = await UpdateBufferExpiresAt(tx, buffer.Id, bufferUpdate.ExpiresAt.Value, cancellationToken);
                     buffer = buffer with { ExpiresAt = updatedExpiresAt };
                 }
 

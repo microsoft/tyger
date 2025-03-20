@@ -522,7 +522,7 @@ func newRunCreateCommandCore(
 
 	cmd.Flags().StringVar(&flags.cluster, "cluster", "", "The name of the cluster to execute in")
 	cmd.Flags().StringVar(&flags.timeout, "timeout", "", `How log before the run times out. Specified in a sequence of decimal numbers, each with optional fraction and a unit suffix, such as "300s", "1.5h" or "2h45m". Valid time units are "s", "m", "h"`)
-	cmd.Flags().StringToStringVar(&flags.tags, "tag", nil, "A key-value tag to the added to the run. Can be specified multiple times.")
+	cmd.Flags().StringToStringVar(&flags.tags, "tag", nil, "A key-value tag to be added to the run. Can be specified multiple times.")
 
 	cmd.Flags().BoolVar(&flags.pull, "pull", false, "Pull container images. Applies only to Tyger running in Docker.")
 
@@ -688,7 +688,7 @@ func newRunSetCommand() *cobra.Command {
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			output := model.Run{}
-			return controlplane.SetTagsOnEntity(cmd.Context(), fmt.Sprintf("v1/runs/%s", args[0]), etag, clearTags, tags, &output)
+			return controlplane.SetFieldsOnEntity(cmd.Context(), fmt.Sprintf("v1/runs/%s", args[0]), etag, clearTags, tags, nil, &output)
 		},
 	}
 

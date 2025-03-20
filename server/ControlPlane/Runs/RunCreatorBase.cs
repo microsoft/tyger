@@ -51,8 +51,9 @@ public abstract class RunCreatorBase : BackgroundService
             if (!argumentsClone.TryGetValue(param, out var bufferId))
             {
                 var newTags = new Dictionary<string, string>(tags ??= []) { ["bufferName"] = param };
-                var newBuffer = new Model.Buffer() { Tags = newTags };
-                var buffer = await BufferManager.CreateBuffer(newBuffer, bufferTtl, cancellationToken);
+                DateTimeOffset? expiresAt = bufferTtl.HasValue ? DateTime.UtcNow.Add(bufferTtl.Value) : null;
+                var newBuffer = new Model.Buffer() { Tags = newTags, ExpiresAt = expiresAt };
+                var buffer = await BufferManager.CreateBuffer(newBuffer, cancellationToken);
                 bufferId = buffer.Id!;
                 arguments![param] = bufferId;
             }

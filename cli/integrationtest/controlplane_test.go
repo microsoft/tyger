@@ -1695,7 +1695,7 @@ func TestBufferSetTtl(t *testing.T) {
 
 	buffer1, err := setBuffer(t, bufferId1, "--ttl", "0")
 	require.NoError(err)
-	require.Less(*buffer1.ExpiresAt, time.Now())
+	require.Less(*buffer1.ExpiresAt, time.Now().Add(time.Second))
 
 	bufferId2 := runTygerSucceeds(t, "buffer", "create", "--tag", "testtag1=setTtl1")
 	buffer2, err := setBuffer(t, bufferId2, "--ttl", "2.12:30:30", "--tag", "testtag2=setTtl2")
@@ -1720,7 +1720,7 @@ func TestBufferSetTtlWithETag(t *testing.T) {
 	buffer, err := setBuffer(t, bufferETag.Id, "--ttl", "0", "--tag", "testtag2=setTtl2Updated", "--tag", "testtag4=setTtl4", "--etag", bufferETag.ETag)
 	require.NoError(err)
 
-	require.Less(*buffer.ExpiresAt, time.Now())
+	require.Less(*buffer.ExpiresAt, time.Now().Add(time.Second))
 	require.NotEqual(bufferETag.ETag, buffer.ETag)
 }
 
@@ -1973,7 +1973,7 @@ func TestBufferPurge(t *testing.T) {
 	var purged []model.Buffer
 	require.NoError(json.Unmarshal([]byte(bufferJson), &purged))
 	require.Len(purged, 2)
-	require.Less(*purged[0].ExpiresAt, time.Now())
+	require.Less(*purged[0].ExpiresAt, time.Now().Add(time.Second))
 
 	// Delete then immediately purge tagged buffers
 	runTygerSucceeds(t, "buffer", "delete", "--force", "--tag", "delete=true")
@@ -2013,7 +2013,7 @@ func TestBufferSetTtlTriggersDeleter(t *testing.T) {
 
 	activeExpiredBuffer, err := setBuffer(t, buffer.Id, "--ttl", "0")
 	require.NoError(err)
-	require.Less(*activeExpiredBuffer.ExpiresAt, time.Now())
+	require.Less(*activeExpiredBuffer.ExpiresAt, time.Now().Add(time.Second))
 
 	// Wait for the buffer to be soft-deleted
 	time.Sleep(time.Second * 35)
@@ -2025,7 +2025,7 @@ func TestBufferSetTtlTriggersDeleter(t *testing.T) {
 
 	deletedExpiredBuffer, err := setBuffer(t, softDeletedBuffer.Id, "--ttl", "0", "--soft-deleted")
 	require.NoError(err)
-	require.Less(*deletedExpiredBuffer.ExpiresAt, time.Now())
+	require.Less(*deletedExpiredBuffer.ExpiresAt, time.Now().Add(time.Second))
 
 	// Wait for the buffer to be purged
 	time.Sleep(time.Second * 35)

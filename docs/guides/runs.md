@@ -123,13 +123,13 @@ parameters:
 
 - `-f|--file`: A YAML file with the run specification. Other flags override file values.
 - `-b|--buffer`: Maps a codespec buffer parameter to a buffer ID. Can be specified for each buffer parameter.
-- `--buffer-tag`: Key-value tags for any buffer created by the job. Can be specified multiple times.
+- `--buffer-tag`: Key-value tags to be applied to any buffer created by the job. Can be specified multiple times.
 - `--buffer-ttl`: The time-to-live for any buffer created by the job (format D.HH:MM), after which the buffer(s) will be soft-deleted.
 - `-c|--codespec`: The name of the job codespec to execute.
 - `--version`: The version of the job codespec. Defaults to the latest version if not provided.
 - `-r|--replicas`: The number of parallel job replicas. The default is 1.
 - `--timeout`: The run timeout duration, in formats like "300s", "1.5h", or "2h45m".
-- `--tag`: Key-value tags for any buffer created by the job. Can be specified multiple times.
+- `--tag`: Key-value tags to be applied to the run. Can be specified multiple times.
 - `--cluster`: The target cluster name.
 - `--node-pool`: The nodepool to run the job in.
 

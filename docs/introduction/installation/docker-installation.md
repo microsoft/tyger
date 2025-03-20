@@ -71,10 +71,11 @@ signingKeys:
   #  private:
   #  public:
 
+# Settings for all buffers
 buffers:
   # TTL for active buffers before they are automatically soft-deleted (D.HH:MM:SS) (0 = never expire)
   activeLifetime: 0
-  # TTL for soft-deleted buffers before they are automatically purged forever (D.HH:MM:SS)
+  # TTL for soft-deleted buffers before they are automatically purged forever (D.HH:MM:SS) (0 = purge immediately)
   softDeletedLifetime: 1.00:00
 
 # Optionally specify settings for the Docker network to be created

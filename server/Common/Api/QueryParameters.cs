@@ -23,6 +23,8 @@ public static class QueryParameters
     /// <summary>
     /// Parses the "ttl" query parameter from the request and validates it.
     /// </summary>
+    /// <param name="context">The HTTP context.</param>
+    /// <param name="ttl">The parsed TTL value, or null if not provided.</param>
     /// <returns>true if TTL was parsed or not provided, false if the TTL is invalid</returns>
     public static bool ParseAndValidateTtlQueryParameter(this HttpContext context, out TimeSpan? ttl)
     {
@@ -34,6 +36,7 @@ public static class QueryParameters
                 return false;
             }
 
+            // TTL is invalid if it is negative
             if (ttlParsed < TimeSpan.Zero)
             {
                 return false;

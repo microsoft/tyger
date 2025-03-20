@@ -65,20 +65,13 @@ public static class Buffers
         app.MapPost("/v1/buffers", async (BufferManager manager, HttpContext context, CancellationToken cancellationToken) =>
             {
                 var newBuffer = await context.Request.ReadAndValidateJson<Buffer>(context.RequestAborted);
-
-                if (!context.ParseAndValidateTtlQueryParameter(out var ttl))
-                {
-                    return Responses.BadRequest("ttl must be a valid, non-negative TimeSpan");
-                }
-
-                var buffer = await manager.CreateBuffer(newBuffer, ttl, cancellationToken);
+                var buffer = await manager.CreateBuffer(newBuffer, cancellationToken);
                 context.Response.Headers.ETag = buffer.ETag;
                 return Results.Created($"/v1/buffers/{buffer.Id}", buffer);
             })
             .Accepts<Buffer>("application/json")
             .WithName("createBuffer")
-            .Produces<Buffer>(StatusCodes.Status201Created)
-            .Produces<ErrorBody>(StatusCodes.Status400BadRequest);
+            .Produces<Buffer>(StatusCodes.Status201Created);
 
         app.MapGet("/v1/buffers", async (BufferManager manager, HttpContext context, int? limit, [FromQuery(Name = "_ct")] string? continuationToken, CancellationToken cancellationToken) =>
             {
@@ -241,14 +234,9 @@ public static class Buffers
                     eTagPrecondition = "";
                 }
 
-                if (!context.ParseAndValidateTtlQueryParameter(out var ttl))
-                {
-                    return Responses.BadRequest("ttl must be a valid, non-negative TimeSpan");
-                }
-
                 bufferUpdate = bufferUpdate with { Id = id };
 
-                var result = await manager.UpdateBuffer(bufferUpdate, ttl, eTagPrecondition, cancellationToken);
+                var result = await manager.UpdateBuffer(bufferUpdate, eTagPrecondition, cancellationToken);
 
                 return result.Match(
                     updated: updated =>
