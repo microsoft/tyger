@@ -21,12 +21,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Buffer'
-        '400':
-          description: Bad Request
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorBody'
     get:
       tags:
         - tyger-server
@@ -754,6 +748,10 @@ components:
       properties:
         id:
           type: string
+          nullable: true
+        expiresAt:
+          type: string
+          format: date-time
           nullable: true
         tags:
           type: object
