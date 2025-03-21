@@ -180,7 +180,6 @@ type ConfigTemplateValues struct {
 	LogsStorageAccountName   string
 	DomainName               string
 	ApiTenantId              string
-	CurrentIpAddress         string
 	CpuNodePoolMinCount      int
 	GpuNodePoolMinCount      int
 }
