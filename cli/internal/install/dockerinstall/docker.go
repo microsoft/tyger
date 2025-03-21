@@ -290,6 +290,8 @@ func (inst *Installer) createControlPlaneContainer(ctx context.Context, checkGpu
 				fmt.Sprintf("Buffers__LocalStorage__TcpDataPlaneEndpoint=http://localhost:%d", inst.Config.DataPlanePort),
 				"Buffers__PrimarySigningPrivateKeyPath=" + primaryPublicCertificatePath,
 				"Buffers__SecondarySigningPrivateKeyPath=" + secondaryPublicCertificatePath,
+				"Buffers__ActiveLifetime=" + inst.Config.Buffers.ActiveLifetime,
+				"Buffers__SoftDeletedLifetime=" + inst.Config.Buffers.SoftDeletedLifetime,
 				fmt.Sprintf("Database__Host=%s/database", inst.Config.InstallationPath),
 				"Database__Username=tyger-server",
 				"Database__TygerServerRoleName=tyger-server",

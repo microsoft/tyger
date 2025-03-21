@@ -37,8 +37,12 @@ public enum DatabaseVersion
 
     [Migrator(typeof(Migrator6))]
     [Description("Add ability to tag runs")]
-    [MinimumSupportedVersion]
     RunTags = 6,
+
+    [Migrator(typeof(Migrator7))]
+    [Description("Add soft/hard delete to buffers")]
+    [MinimumSupportedVersion]
+    BufferDelete = 7
 }
 
 public sealed class DatabaseVersions : BackgroundService, IHealthCheck

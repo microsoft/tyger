@@ -162,9 +162,9 @@ func getRunCounts(t *testing.T, args ...string) map[string]int {
 	return runTygerSucceedsUnmarshal[map[string]int](t, append([]string{"run", "count"}, args...)...)
 }
 
-func getBuffer(t *testing.T, bufferId string) model.Buffer {
+func getBuffer(t *testing.T, bufferId string, args ...string) model.Buffer {
 	t.Helper()
-	return runTygerSucceedsUnmarshal[model.Buffer](t, "buffer", "show", bufferId)
+	return runTygerSucceedsUnmarshal[model.Buffer](t, append([]string{"buffer", "show", bufferId}, args...)...)
 }
 
 func setRun(t *testing.T, runId string, args ...string) (model.Run, error) {

@@ -45,6 +45,8 @@ type DockerEnvironmentConfig struct {
 	InitialDatabaseVersion *int `json:"initialDatabaseVersion"`
 
 	Network *NetworkConfig `json:"network"`
+
+	Buffers *BuffersConfig `json:"buffers"`
 }
 
 type DataPlaneSigningKeys struct {
@@ -59,6 +61,11 @@ type KeyPair struct {
 
 type NetworkConfig struct {
 	Subnet string `json:"subnet"`
+}
+
+type BuffersConfig struct {
+	ActiveLifetime      string `json:"activeLifetime"`
+	SoftDeletedLifetime string `json:"softDeletedLifetime"`
 }
 
 func (c *DockerEnvironmentConfig) GetGroupIdInt() int {

@@ -132,9 +132,10 @@ type FirewallRule struct {
 }
 
 type ApiConfig struct {
-	DomainName string      `json:"domainName"`
-	Auth       *AuthConfig `json:"auth"`
-	Helm       *HelmConfig `json:"helm"`
+	DomainName string         `json:"domainName"`
+	Auth       *AuthConfig    `json:"auth"`
+	Buffers    *BuffersConfig `json:"buffers"`
+	Helm       *HelmConfig    `json:"helm"`
 }
 
 type AuthConfig struct {
@@ -158,6 +159,11 @@ type HelmChartConfig struct {
 	Version     string         `json:"version"`
 	ChartRef    string         `json:"chartRef"`
 	Values      map[string]any `json:"values"`
+}
+
+type BuffersConfig struct {
+	ActiveLifetime      string `json:"activeLifetime"`
+	SoftDeletedLifetime string `json:"softDeletedLifetime"`
 }
 
 type ConfigTemplateValues struct {

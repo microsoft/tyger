@@ -50,6 +50,56 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BufferPage'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+    delete:
+      tags:
+        - tyger-server
+      operationId: deleteBuffers
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: integer
+                format: int32
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /v1/buffers/restore:
+    post:
+      tags:
+        - tyger-server
+      operationId: restoreBuffers
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: integer
+                format: int32
+  /v1/buffers/count:
+    get:
+      tags:
+        - tyger-server
+      operationId: getBufferCount
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: integer
+                format: int32
   '/v1/buffers/{id}':
     get:
       tags:
@@ -97,6 +147,78 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Buffer'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '412':
+          description: Precondition Failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+    delete:
+      tags:
+        - tyger-server
+      operationId: deleteBuffer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Buffer'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '412':
+          description: Precondition Failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  '/v1/buffers/{id}/restore':
+    post:
+      tags:
+        - tyger-server
+      operationId: restoreBuffer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: integer
+                format: int32
         '404':
           description: Not Found
           content:
@@ -573,6 +695,12 @@ components:
           type: string
           format: date-time
           nullable: true
+        isSoftDeleted:
+          type: boolean
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
         tags:
           type: object
           additionalProperties:
@@ -620,6 +748,10 @@ components:
       properties:
         id:
           type: string
+          nullable: true
+        expiresAt:
+          type: string
+          format: date-time
           nullable: true
         tags:
           type: object
@@ -787,6 +919,11 @@ components:
               additionalProperties:
                 type: string
               description: Tags to add to any buffer created for a job
+              nullable: true
+            bufferTtl:
+              type: string
+              description: 'The time to live for the buffers created for the job. If not specified, the buffers will not expire.'
+              format: date-span
               nullable: true
           additionalProperties: { }
       additionalProperties: false

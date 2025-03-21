@@ -23,6 +23,7 @@ public static class Buffers
         if (builder is WebApplicationBuilder)
         {
             builder.Services.AddSingleton<BufferManager>();
+            builder.Services.AddHostedService<BufferDeleter>();
         }
 
         bool cloudStorageEnabled = builder.Configuration.GetSection("buffers:cloudStorage").Exists();
@@ -75,22 +76,19 @@ public static class Buffers
         app.MapGet("/v1/buffers", async (BufferManager manager, HttpContext context, int? limit, [FromQuery(Name = "_ct")] string? continuationToken, CancellationToken cancellationToken) =>
             {
                 limit = limit is null ? 20 : Math.Min(limit.Value, 2000);
-                var tagQuery = new Dictionary<string, string>();
+                var tagQuery = context.GetTagQueryParameters();
+                var excludeTagQuery = context.GetTagQueryParameters("excludeTag");
 
-                foreach (var tag in context.Request.Query)
+                var softDeleted = false;
+                if (context.Request.Query.TryGetValue("softDeleted", out var softDeletedQuery))
                 {
-                    if (tag.Key.StartsWith("tag[", StringComparison.Ordinal) && tag.Key.EndsWith(']') && tag.Value.Count > 0)
+                    if (!bool.TryParse(softDeletedQuery, out softDeleted))
                     {
-                        tagQuery.Add(tag.Key[4..^1], tag.Value.FirstOrDefault() ?? "");
+                        return Responses.BadRequest("softDeleted must be true or false");
                     }
                 }
 
-                if (tagQuery.Count == 0)
-                {
-                    tagQuery = null;
-                }
-
-                (var buffers, var nextContinuationToken) = await manager.GetBuffers(tagQuery, limit.Value, continuationToken, cancellationToken);
+                (var buffers, var nextContinuationToken) = await manager.GetBuffers(tagQuery, excludeTagQuery, softDeleted, limit.Value, continuationToken, cancellationToken);
 
                 string? nextLink;
                 if (nextContinuationToken is null)
@@ -112,6 +110,7 @@ public static class Buffers
             })
             .WithName("getBuffers")
             .Produces<BufferPage>()
+            .Produces<ErrorBody>(StatusCodes.Status400BadRequest)
             .WithOpenApi(c =>
                 {
                     // Specify that the query parameter "tag" is a "deep object"
@@ -139,16 +138,82 @@ public static class Buffers
                     return c;
                 });
 
+        app.MapDelete("/v1/buffers", async (BufferManager manager, HttpContext context, CancellationToken cancellationToken) =>
+            {
+                if (!context.ParseAndValidateTtlQueryParameter(out var ttl))
+                {
+                    return Responses.BadRequest("ttl must be a valid, non-negative TimeSpan");
+                }
+
+                var purge = false;
+                if (context.Request.Query.TryGetValue("softDeleted", out var softDeletedQuery))
+                {
+                    if (!bool.TryParse(softDeletedQuery, out purge))
+                    {
+                        return Responses.BadRequest("softDeleted must be true or false");
+                    }
+                }
+
+                var tagQuery = context.GetTagQueryParameters();
+                var excludeTagQuery = context.GetTagQueryParameters("excludeTag");
+
+                var count = await manager.SoftDeleteBuffers(tagQuery, excludeTagQuery, ttl, purge, cancellationToken);
+                return Results.Ok(count);
+            })
+            .WithName("deleteBuffers")
+            .Produces<int>(StatusCodes.Status200OK)
+            .Produces<ErrorBody>(StatusCodes.Status400BadRequest);
+
+        app.MapPost("/v1/buffers/restore", async (BufferManager manager, HttpContext context, CancellationToken cancellationToken) =>
+            {
+                var tagQuery = context.GetTagQueryParameters();
+                var excludeTagQuery = context.GetTagQueryParameters("excludeTag");
+
+                var count = await manager.RestoreBuffers(tagQuery, excludeTagQuery, cancellationToken);
+                return Results.Ok(count);
+            })
+            .WithName("restoreBuffers")
+            .Produces<int>(StatusCodes.Status200OK);
+
+        app.MapGet("/v1/buffers/count", async (BufferManager manager, HttpContext context, CancellationToken cancellationToken) =>
+            {
+                var tagQuery = context.GetTagQueryParameters();
+                var excludeTagQuery = context.GetTagQueryParameters("excludeTag");
+
+                bool? softDeleted = null;
+                if (context.Request.Query.TryGetValue("softDeleted", out var softDeletedQuery))
+                {
+                    if (bool.TryParse(softDeletedQuery, out bool softDeletedParsed))
+                    {
+                        softDeleted = softDeletedParsed;
+                    }
+                }
+
+                var count = await manager.GetBufferCount(tagQuery, excludeTagQuery, softDeleted, cancellationToken);
+                return Results.Ok(count);
+            })
+            .WithName("getBufferCount")
+            .Produces<int>(StatusCodes.Status200OK);
+
         app.MapGet("/v1/buffers/{id}", async (BufferManager manager, HttpContext context, string id, CancellationToken cancellationToken) =>
             {
-                var buffer = await manager.GetBufferById(id, cancellationToken);
+                var softDeleted = false;
+                if (context.Request.Query.TryGetValue("softDeleted", out var softDeletedQuery))
+                {
+                    if (!bool.TryParse(softDeletedQuery, out softDeleted))
+                    {
+                        return Responses.BadRequest("softDeleted must be true or false");
+                    }
+                }
+
+                var buffer = await manager.GetBufferById(id, softDeleted, cancellationToken);
                 if (buffer != null)
                 {
                     context.Response.Headers.ETag = buffer.ETag;
                     return Results.Ok(buffer);
                 }
 
-                return Results.NotFound();
+                return Responses.NotFound();
             })
             .WithName("getBufferById")
             .Produces<Buffer>(StatusCodes.Status200OK)
@@ -160,7 +225,7 @@ public static class Buffers
 
                 if (!string.IsNullOrEmpty(bufferUpdate.Id) && !string.Equals(id, bufferUpdate.Id, StringComparison.Ordinal))
                 {
-                    return Results.BadRequest("The buffer ID in the URL does not match the buffer ID in the request body.");
+                    return Responses.BadRequest("The buffer ID in the URL does not match the buffer ID in the request body.");
                 }
 
                 string eTagPrecondition = context.Request.Headers.IfMatch.FirstOrDefault() ?? "";
@@ -169,9 +234,18 @@ public static class Buffers
                     eTagPrecondition = "";
                 }
 
+                var softDeleted = false;
+                if (context.Request.Query.TryGetValue("softDeleted", out var softDeletedQuery))
+                {
+                    if (!bool.TryParse(softDeletedQuery, out softDeleted))
+                    {
+                        return Responses.BadRequest("softDeleted must be true or false");
+                    }
+                }
+
                 bufferUpdate = bufferUpdate with { Id = id };
 
-                var result = await manager.UpdateBufferTags(bufferUpdate, eTagPrecondition, cancellationToken);
+                var result = await manager.UpdateBuffer(bufferUpdate, eTagPrecondition, softDeleted, cancellationToken);
 
                 return result.Match(
                     updated: updated =>
@@ -179,12 +253,54 @@ public static class Buffers
                         context.Response.Headers.ETag = updated.Value.ETag;
                         return Results.Ok(updated.Value);
                     },
-                    notFound: _ => Results.NotFound(),
-                    preconditionFailed: _ => Results.StatusCode(StatusCodes.Status412PreconditionFailed));
+                    notFound: _ => Responses.NotFound(),
+                    preconditionFailed: failed => Responses.PreconditionFailed(failed.Reason));
             })
             .WithName("setBufferTags")
             .Accepts<BufferUpdate>("application/json")
             .Produces<Buffer>(StatusCodes.Status200OK)
+            .Produces<ErrorBody>(StatusCodes.Status400BadRequest)
+            .Produces<ErrorBody>(StatusCodes.Status404NotFound)
+            .Produces<ErrorBody>(StatusCodes.Status412PreconditionFailed);
+
+        app.MapDelete("/v1/buffers/{id}", async (BufferManager manager, HttpContext context, string id, CancellationToken cancellationToken) =>
+            {
+                if (!context.ParseAndValidateTtlQueryParameter(out var ttl))
+                {
+                    return Responses.BadRequest("ttl must be a valid, non-negative TimeSpan");
+                }
+
+                var purge = false;
+                if (context.Request.Query.TryGetValue("softDeleted", out var softDeletedQuery))
+                {
+                    if (!bool.TryParse(softDeletedQuery, out purge))
+                    {
+                        return Responses.BadRequest("softDeleted must be true or false");
+                    }
+                }
+
+                var result = await manager.SoftDeleteBufferById(id, ttl, purge, cancellationToken);
+                return result.Match(
+                    updated: updated => Results.Ok(updated.Value),
+                    notFound: _ => Responses.NotFound(),
+                    preconditionFailed: failed => Responses.PreconditionFailed(failed.Reason));
+            })
+            .WithName("deleteBuffer")
+            .Produces<Buffer>(StatusCodes.Status200OK)
+            .Produces<ErrorBody>(StatusCodes.Status400BadRequest)
+            .Produces<ErrorBody>(StatusCodes.Status404NotFound)
+            .Produces<ErrorBody>(StatusCodes.Status412PreconditionFailed);
+
+        app.MapPost("/v1/buffers/{id}/restore", async (BufferManager manager, HttpContext context, string id, CancellationToken cancellationToken) =>
+            {
+                var result = await manager.RestoreBufferById(id, cancellationToken);
+                return result.Match(
+                    updated: updated => Results.Ok(updated.Value),
+                    notFound: _ => Responses.NotFound(),
+                    preconditionFailed: failed => Responses.PreconditionFailed(failed.Reason));
+            })
+            .WithName("restoreBuffer")
+            .Produces<int>(StatusCodes.Status200OK)
             .Produces<ErrorBody>(StatusCodes.Status404NotFound)
             .Produces<ErrorBody>(StatusCodes.Status412PreconditionFailed);
 
@@ -193,7 +309,7 @@ public static class Buffers
                 var bufferAccess = await manager.CreateBufferAccessUrls([(id, writeable == true)], preferTcp == true, fromDocker == true, checkExists: true, cancellationToken);
                 if (bufferAccess is [(_, _, null)])
                 {
-                    return Results.NotFound();
+                    return Responses.NotFound();
                 }
 
                 return Results.Json(bufferAccess[0].bufferAccess, statusCode: StatusCodes.Status201Created);
@@ -240,6 +356,9 @@ public class BufferOptions
 
     public string PrimarySigningPrivateKeyPath { get; init; } = null!;
     public string SecondarySigningPrivateKeyPath { get; init; } = null!;
+
+    public TimeSpan ActiveLifetime { get; init; } = TimeSpan.Zero;
+    public TimeSpan SoftDeletedLifetime { get; init; } = TimeSpan.Zero;
 }
 
 public class CloudBufferStorageOptions

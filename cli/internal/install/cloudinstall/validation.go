@@ -15,6 +15,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/postgresql/armpostgresqlflexibleservers/v4"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage"
 	"github.com/google/uuid"
+	"github.com/microsoft/tyger/cli/internal/common"
 	"github.com/rs/zerolog/log"
 )
 
@@ -362,6 +363,27 @@ func (inst *Installer) quickValidateApiConfig(success *bool) {
 			if _, err := url.ParseRequestURI(authConfig.CliAppUri); err != nil {
 				validationError(success, "The `api.auth.cliAppUri` field must be a valid URI")
 			}
+		}
+	}
+
+	if apiConfig.Buffers == nil {
+		validationError(success, "The `api.buffers` field is required")
+	} else {
+		buffersConfig := apiConfig.Buffers
+		if buffersConfig.ActiveLifetime == "" {
+			buffersConfig.ActiveLifetime = "0.00:00"
+		}
+
+		if buffersConfig.SoftDeletedLifetime == "" {
+			buffersConfig.SoftDeletedLifetime = "0.00:00"
+		}
+
+		if _, err := common.ParseTimeToLive(buffersConfig.ActiveLifetime); err != nil {
+			validationError(success, "The `api.buffers.activeLifetime` field must be a valid TTL (D.HH:MM:SS)")
+		}
+
+		if _, err := common.ParseTimeToLive(buffersConfig.SoftDeletedLifetime); err != nil {
+			validationError(success, "The `api.buffers.softDeletedLifetime` field be a valid TTL (D.HH:MM:SS)")
 		}
 	}
 }

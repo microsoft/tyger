@@ -187,6 +187,10 @@ spec:
               value: {{ required "A value for bufferSidecarImage is required" .Values.bufferSidecarImage }}
             - name: Buffers__BufferCopierImage
               value: {{ required "A value for bufferCopierImage is required" .Values.bufferCopierImage }}
+            - name: Buffers__ActiveLifetime
+              value: {{ .Values.buffers.activeLifetime }}
+            - name: Buffers__SoftDeletedLifetime
+              value: {{ .Values.buffers.softDeletedLifetime }}
             - name: LogArchive__CloudStorage__StorageAccountEndpoint
               value: {{ required "A value for logArchive.storageAccountEndpoint is required" .Values.logArchive.storageAccountEndpoint }}
           readinessProbe:

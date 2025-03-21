@@ -21,7 +21,10 @@ import (
 	"time"
 
 	"github.com/alecthomas/units"
+	"github.com/erikgeiser/promptkit"
+	"github.com/erikgeiser/promptkit/confirmation"
 	"github.com/microsoft/tyger/cli/internal/client"
+	"github.com/microsoft/tyger/cli/internal/common"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/dataplane"
@@ -59,6 +62,9 @@ func NewBufferCommand() *cobra.Command {
 	cmd.AddCommand(newStorageAccountCommand())
 	cmd.AddCommand(newBufferExportCommand())
 	cmd.AddCommand(newBufferImportCommand())
+	cmd.AddCommand(newBufferDeleteCommand())
+	cmd.AddCommand(newBufferRestoreCommand())
+	cmd.AddCommand(newBufferPurgeCommand())
 
 	return cmd
 }
@@ -67,13 +73,24 @@ func newBufferCreateCommand() *cobra.Command {
 	full := false
 	tagEntries := make(map[string]string)
 	location := ""
+	var ttl string
 	cmd := &cobra.Command{
-		Use:                   "create [--location LOCATION] [--tag KEY=VALUE ...]",
+		Use:                   "create [--location LOCATION] [--tag KEY=VALUE ...] [--ttl D.HH:MM:SS]",
 		Short:                 "Create a buffer",
 		Long:                  `Create a buffer. Writes the buffer ID to stdout on success.`,
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			newBuffer := model.Buffer{Tags: tagEntries, Location: location}
+
+			if ttl != "" {
+				t, err := common.ParseTimeToLive(ttl)
+				if err != nil {
+					return err
+				}
+				expiresAt := time.Now().Add(t.ToDuration())
+				newBuffer.ExpiresAt = &expiresAt
+			}
+
 			buffer := model.Buffer{}
 			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/buffers", newBuffer, &buffer)
 			if err != nil {
@@ -95,6 +112,7 @@ func newBufferCreateCommand() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&location, "location", location, "the location of the buffer. If not specified, the buffer is created in the default location.")
 	cmd.Flags().StringToStringVar(&tagEntries, "tag", nil, "add a key-value tag to the buffer. Can be specified multiple times.")
+	cmd.Flags().StringVar(&ttl, "ttl", ttl, "the time-to-live for the buffer. This adjusts the buffer's expiry time for deletion.")
 	cmd.Flags().BoolVar(&full, "full-resource", false, "return the full buffer resource and not just the buffer ID")
 
 	return cmd
@@ -104,25 +122,50 @@ func newBufferSetCommand() *cobra.Command {
 	var etag string
 	tags := make(map[string]string)
 	clearTags := false
+	var ttl string
+	softDeleted := false
+
 	cmd := &cobra.Command{
-		Use:                   "set ID [--clear-tags] [--tag key=value ...] [--etag ETAG]",
+		Use:                   "set ID [--clear-tags] [--tag key=value ...] [--etag ETAG] [--ttl D.HH:MM:SS]",
 		Short:                 "Updates or replaces tags set on a buffer",
 		Long:                  "Updates or replaces tags set on a buffer",
 		Args:                  exactlyOneArg("buffer ID"),
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return controlplane.SetTagsOnEntity(cmd.Context(), fmt.Sprintf("v1/buffers/%s", args[0]), etag, clearTags, tags, model.Buffer{})
+
+			var expiresAt *time.Time
+			if ttl != "" {
+				t, err := common.ParseTimeToLive(ttl)
+				if err != nil {
+					return err
+				}
+				when := time.Now().Add(t.ToDuration())
+				expiresAt = &when
+			}
+
+			options := url.Values{}
+			if softDeleted {
+				options.Add("softDeleted", strconv.FormatBool(softDeleted))
+			}
+			relativeUri := fmt.Sprintf("v1/buffers/%s?%s", args[0], options.Encode())
+
+			buffer := model.Buffer{}
+			return controlplane.SetFieldsOnEntity(cmd.Context(), relativeUri, etag, clearTags, tags, expiresAt, &buffer)
 		},
 	}
 
 	cmd.Flags().BoolVar(&clearTags, "clear-tags", clearTags, "clear all existing tags from the buffer and replace them with the new tags. If not specified, the existing tags are preserved and updated.")
 	cmd.Flags().StringToStringVar(&tags, "tag", nil, "add or update a key-value tag to the buffer. Can be specified multiple times.")
 	cmd.Flags().StringVar(&etag, "etag", etag, "the ETag read ETag to guard against concurrent updates, ")
+	cmd.Flags().StringVar(&ttl, "ttl", ttl, "the time-to-live for the buffer. This adjusts the buffer's expiry time for deletion.")
+	cmd.Flags().BoolVar(&softDeleted, "soft-deleted", softDeleted, "Only include soft-deleted buffers.")
 
 	return cmd
 }
 
 func newBufferShowCommand() *cobra.Command {
+	softDeleted := false
+
 	cmd := &cobra.Command{
 		Use:                   "show BUFFER_ID",
 		Short:                 "Show the details of a buffer",
@@ -130,8 +173,14 @@ func newBufferShowCommand() *cobra.Command {
 		DisableFlagsInUseLine: true,
 		Args:                  exactlyOneArg("buffer ID"),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			listOptions := url.Values{}
+			if softDeleted {
+				listOptions.Add("softDeleted", strconv.FormatBool(softDeleted))
+			}
+
 			buffer := model.Buffer{}
-			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, fmt.Sprintf("v1/buffers/%s", args[0]), nil, &buffer)
+			relativeUri := fmt.Sprintf("v1/buffers/%s?%s", args[0], listOptions.Encode())
+			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, relativeUri, nil, &buffer)
 			if err != nil {
 				return err
 			}
@@ -145,6 +194,8 @@ func newBufferShowCommand() *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.Flags().BoolVar(&softDeleted, "soft-deleted", softDeleted, "Only include soft-deleted buffers.")
 
 	return cmd
 }
@@ -419,9 +470,11 @@ The SIZE argument must be a number with an optional unit (e.g. 10MB). 1KB and 1K
 func newBufferListCommand() *cobra.Command {
 	limit := 0
 	tagEntries := make(map[string]string)
+	excludeTagEntries := make(map[string]string)
+	softDeleted := false
 
 	cmd := &cobra.Command{
-		Use:                   "list [--tag key=value ...] [--limit COUNT]",
+		Use:                   "list [--tag key=value ...] [--exclude-tag key=value ...] [--limit COUNT] [--soft-deleted]",
 		Short:                 "List buffers",
 		Long:                  `List buffers. Buffers are sorted by descending created time.`,
 		DisableFlagsInUseLine: true,
@@ -433,8 +486,16 @@ func newBufferListCommand() *cobra.Command {
 				limit = math.MaxInt
 			}
 
+			if softDeleted {
+				listOptions.Add("softDeleted", strconv.FormatBool(softDeleted))
+			}
+
 			for name, value := range tagEntries {
 				listOptions.Add(fmt.Sprintf("tag[%s]", name), value)
+			}
+
+			for name, value := range excludeTagEntries {
+				listOptions.Add(fmt.Sprintf("excludeTag[%s]", name), value)
 			}
 
 			relativeUri := fmt.Sprintf("v1/buffers?%s", listOptions.Encode())
@@ -443,6 +504,8 @@ func newBufferListCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringToStringVar(&tagEntries, "tag", nil, "Only include buffers with the given tag. Can be specified multiple times.")
+	cmd.Flags().StringToStringVar(&excludeTagEntries, "exclude-tag", nil, "Exclude buffers with the given tag. Can be specified multiple times.")
+	cmd.Flags().BoolVar(&softDeleted, "soft-deleted", softDeleted, "Only include soft-deleted buffers.")
 	cmd.Flags().IntVarP(&limit, "limit", "l", 1000, "The maximum number of buffers to list. Default 1000")
 
 	return cmd
@@ -543,6 +606,274 @@ func newBufferImportCommand() *cobra.Command {
 	cmd.Flags().StringVar(&request.StorageAccountName, "storage-account", request.StorageAccountName, "The name of the storage account to use as the source. Required if more than one storage account is part of the Tyger installation.")
 
 	return cmd
+}
+
+func newBufferDeleteCommand() *cobra.Command {
+	deleteAll := false
+	force := false
+	tags := make(map[string]string)
+	excludeTags := make(map[string]string)
+
+	cmd := &cobra.Command{
+		Use:                   "delete ID ... | --tag KEY=VALUE ... | --all",
+		Short:                 "Delete buffers",
+		Long:                  `Delete buffers (soft-delete)`,
+		DisableFlagsInUseLine: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !exactlyOneConditionMet(len(args) > 0, len(tags) > 0, deleteAll) {
+				log.Fatal().Msg("One of ID, --tag, or --all must be specified")
+			}
+
+			if len(args) > 0 {
+				var deleted []model.Buffer
+				for _, id := range args {
+					buffer := model.Buffer{}
+					relativeUri := fmt.Sprintf("v1/buffers/%s", id)
+					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodDelete, relativeUri, nil, &buffer); err != nil {
+						return err
+					}
+					deleted = append(deleted, buffer)
+				}
+				if err := printOneOrMoreBuffersJson(deleted); err != nil {
+					return err
+				}
+			} else {
+				options := url.Values{}
+				for name, value := range tags {
+					options.Add(fmt.Sprintf("tag[%s]", name), value)
+				}
+				for name, value := range excludeTags {
+					options.Add(fmt.Sprintf("excludeTag[%s]", name), value)
+				}
+
+				performDeletion := false
+				if force {
+					performDeletion = true
+				} else {
+					options.Add("softDeleted", strconv.FormatBool(false))
+					var err error
+					performDeletion, err = confirmBulkBufferOperation(cmd.Context(), "delete", options)
+					if err != nil {
+						return err
+					}
+				}
+
+				if performDeletion {
+					relativeUri := fmt.Sprintf("v1/buffers?%s", options.Encode())
+					count := 0
+					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodDelete, relativeUri, nil, &count); err != nil {
+						return err
+					}
+					fmt.Printf("Deleted %d buffers.\n", count)
+				}
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&deleteAll, "all", deleteAll, "Delete all buffers.")
+	cmd.Flags().BoolVar(&force, "force", force, "Skip confirmation before deleting multiple buffers.")
+	cmd.Flags().StringToStringVar(&tags, "tag", nil, "Delete all buffers matching tag. Can be specified multiple times.")
+	cmd.Flags().StringToStringVar(&excludeTags, "exclude-tag", nil, "Exclude buffers with the given tag. Can be specified multiple times.")
+
+	return cmd
+}
+
+func newBufferRestoreCommand() *cobra.Command {
+	restoreAll := false
+	force := false
+	tags := make(map[string]string)
+	excludeTags := make(map[string]string)
+
+	cmd := &cobra.Command{
+		Use:                   "restore ID ... | --tag KEY=VALUE ... | --all",
+		Short:                 "Restore deleted buffers",
+		Long:                  `Restore deleted buffers`,
+		DisableFlagsInUseLine: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !exactlyOneConditionMet(len(args) > 0, len(tags) > 0, restoreAll) {
+				log.Fatal().Msg("One of ID, --tag, or --all must be specified")
+			}
+
+			if len(args) > 0 {
+				var restored []model.Buffer
+				for _, id := range args {
+					buffer := model.Buffer{}
+					relativeUri := fmt.Sprintf("v1/buffers/%s/restore", id)
+					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, relativeUri, nil, &buffer); err != nil {
+						return err
+					}
+					restored = append(restored, buffer)
+				}
+				if err := printOneOrMoreBuffersJson(restored); err != nil {
+					return err
+				}
+			} else {
+				options := url.Values{}
+				for name, value := range tags {
+					options.Add(fmt.Sprintf("tag[%s]", name), value)
+				}
+				for name, value := range excludeTags {
+					options.Add(fmt.Sprintf("excludeTag[%s]", name), value)
+				}
+
+				performRestore := false
+
+				if force {
+					performRestore = true
+				} else {
+					options.Add("softDeleted", strconv.FormatBool(true))
+					var err error
+					performRestore, err = confirmBulkBufferOperation(cmd.Context(), "restore", options)
+					if err != nil {
+						return err
+					}
+				}
+
+				if performRestore {
+					relativeUri := fmt.Sprintf("v1/buffers/restore?%s", options.Encode())
+
+					count := 0
+					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, relativeUri, nil, &count); err != nil {
+						return err
+					}
+					fmt.Printf("Restored %d buffers.\n", count)
+				}
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&restoreAll, "all", restoreAll, "Restore all deleted buffers.")
+	cmd.Flags().BoolVar(&force, "force", force, "Skip confirmation before restoring multiple buffers.")
+	cmd.Flags().StringToStringVar(&tags, "tag", nil, "Restore all deleted buffers matching tag. Can be specified multiple times.")
+	cmd.Flags().StringToStringVar(&excludeTags, "exclude-tag", nil, "Exclude buffers with the given tag. Can be specified multiple times.")
+
+	return cmd
+}
+
+func newBufferPurgeCommand() *cobra.Command {
+	purgeAll := false
+	force := false
+	tags := make(map[string]string)
+	excludeTags := make(map[string]string)
+
+	cmd := &cobra.Command{
+		Use:                   "purge ID ... | --tag KEY=VALUE ... | --all",
+		Short:                 "Purge deleted buffers (irreversible)",
+		Long:                  `Purge deleted buffers (irreversible)`,
+		DisableFlagsInUseLine: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !exactlyOneConditionMet(len(args) > 0, len(tags) > 0, purgeAll) {
+				log.Fatal().Msg("One of ID, --tag, or --all must be specified")
+			}
+
+			options := url.Values{}
+			options.Add("ttl", "0")
+			options.Add("softDeleted", strconv.FormatBool(true))
+
+			if len(args) > 0 {
+				var deleted []model.Buffer
+				for _, id := range args {
+					buffer := model.Buffer{}
+					relativeUri := fmt.Sprintf("v1/buffers/%s?%s", id, options.Encode())
+					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodDelete, relativeUri, nil, &buffer); err != nil {
+						return err
+					}
+					deleted = append(deleted, buffer)
+				}
+				if err := printOneOrMoreBuffersJson(deleted); err != nil {
+					return err
+				}
+			} else {
+				for name, value := range tags {
+					options.Add(fmt.Sprintf("tag[%s]", name), value)
+				}
+				for name, value := range excludeTags {
+					options.Add(fmt.Sprintf("excludeTag[%s]", name), value)
+				}
+
+				performPurge := false
+				if force {
+					performPurge = true
+				} else {
+					var err error
+					performPurge, err = confirmBulkBufferOperation(cmd.Context(), "purge", options)
+					if err != nil {
+						return err
+					}
+				}
+
+				if performPurge {
+					relativeUri := fmt.Sprintf("v1/buffers?%s", options.Encode())
+
+					count := 0
+					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodDelete, relativeUri, nil, &count); err != nil {
+						return err
+					}
+					fmt.Printf("Purged %d buffers.\n", count)
+				}
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&purgeAll, "all", purgeAll, "Purge all deleted buffers.")
+	cmd.Flags().BoolVar(&force, "force", force, "Skip confirmation before purging multiple buffers.")
+	cmd.Flags().StringToStringVar(&tags, "tag", nil, "Purge all deleted buffers matching tag. Can be specified multiple times.")
+	cmd.Flags().StringToStringVar(&excludeTags, "exclude-tag", nil, "Exclude buffers with the given tag. Can be specified multiple times.")
+
+	return cmd
+}
+
+func exactlyOneConditionMet(conditions ...bool) bool {
+	count := 0
+	for _, condition := range conditions {
+		if condition {
+			count++
+		}
+	}
+	return count == 1
+}
+
+func printOneOrMoreBuffersJson(buffers []model.Buffer) error {
+	var formatted []byte
+	var err error
+	if len(buffers) == 1 {
+		formatted, err = json.MarshalIndent(buffers[0], "", "  ")
+	} else {
+		formatted, err = json.MarshalIndent(buffers, "", "  ")
+	}
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(formatted))
+	return nil
+}
+
+func confirmBulkBufferOperation(ctx context.Context, operation string, options url.Values) (bool, error) {
+	countUri := fmt.Sprintf("v1/buffers/count?%s", options.Encode())
+	count := 0
+	if _, err := controlplane.InvokeRequest(ctx, http.MethodGet, countUri, nil, &count); err != nil {
+		return false, err
+	}
+	if count > 0 {
+		input := confirmation.New(fmt.Sprintf("Are you sure you want to %s %d buffers?", operation, count), confirmation.Yes)
+		input.WrapMode = promptkit.WordWrap
+		confirmed, err := input.RunPrompt()
+		if err != nil {
+			return false, err
+		}
+		if confirmed {
+			return true, nil
+		}
+	} else {
+		fmt.Println("No buffers found.")
+	}
+	return false, nil
 }
 
 // If we are using the zerolog console writer, this returns an io.Writer that

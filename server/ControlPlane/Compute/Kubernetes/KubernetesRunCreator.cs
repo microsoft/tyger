@@ -180,7 +180,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
             run = run with { Job = run.Job with { Buffers = [] } };
         }
 
-        await ProcessBufferArguments(jobCodespec.Buffers, run.Job.Buffers, run.Job.Tags, cancellationToken);
+        await ProcessBufferArguments(jobCodespec.Buffers, run.Job.Buffers, run.Job.Tags, run.Job.BufferTtl, cancellationToken);
 
         if (run.Id == null)
         {

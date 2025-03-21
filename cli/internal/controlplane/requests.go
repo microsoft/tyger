@@ -14,6 +14,7 @@ import (
 	"net/http/httputil"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/fatih/color"
 	"github.com/hashicorp/go-retryablehttp"
@@ -199,10 +200,11 @@ End:
 	return nil
 }
 
-func SetTagsOnEntity(ctx context.Context, relativeUrlPath string, etag string, clearTags bool, tags map[string]string, reponseObject any) error {
+func SetFieldsOnEntity(ctx context.Context, relativeUrlPath string, etag string, clearTags bool, tags map[string]string, expiresAt *time.Time, reponseObject any) error {
 	type Resource struct {
-		ETag string            `json:"eTag"`
-		Tags map[string]string `json:"tags"`
+		ETag      string            `json:"eTag"`
+		Tags      map[string]string `json:"tags"`
+		ExpiresAt *time.Time        `json:"expiresAt"`
 	}
 
 	for {
@@ -236,6 +238,10 @@ func SetTagsOnEntity(ctx context.Context, relativeUrlPath string, etag string, c
 		}
 
 		resource.Tags = newTagEntries
+
+		if expiresAt != nil {
+			resource.ExpiresAt = expiresAt
+		}
 
 		if etag != "" {
 			headers.Set("If-Match", requestEtag)

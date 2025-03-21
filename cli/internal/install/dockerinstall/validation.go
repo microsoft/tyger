@@ -11,6 +11,7 @@ import (
 	"strconv"
 
 	"github.com/a8m/envsubst"
+	"github.com/microsoft/tyger/cli/internal/common"
 	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/rs/zerolog/log"
 )
@@ -154,6 +155,26 @@ func (inst *Installer) QuickValidateConfig() bool {
 			if _, _, err := net.ParseCIDR(inst.Config.Network.Subnet); err != nil {
 				validationError(&success, "The `network.subnet` field must be a valid CIDR block if specified")
 			}
+		}
+	}
+
+	if inst.Config.Buffers == nil {
+		validationError(&success, "The `buffers` field is required")
+	} else {
+		buffersConfig := inst.Config.Buffers
+		if buffersConfig.ActiveLifetime == "" {
+			buffersConfig.ActiveLifetime = "0.00:00"
+		}
+		if buffersConfig.SoftDeletedLifetime == "" {
+			buffersConfig.SoftDeletedLifetime = "0.00:00"
+		}
+
+		if _, err := common.ParseTimeToLive(buffersConfig.ActiveLifetime); err != nil {
+			validationError(&success, "The `buffers.activeLifetime` field must be a valid TTL (D.HH:MM:SS)")
+		}
+
+		if _, err := common.ParseTimeToLive(buffersConfig.SoftDeletedLifetime); err != nil {
+			validationError(&success, "The `buffers.softDeletedLifetime` field must be a valid TTL (D.HH:MM:SS)")
 		}
 	}
 

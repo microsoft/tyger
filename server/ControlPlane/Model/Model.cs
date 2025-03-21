@@ -51,6 +51,10 @@ public record Buffer : ModelBase
 
     public DateTimeOffset? CreatedAt { get; init; }
 
+    public bool IsSoftDeleted { get; init; }
+
+    public DateTimeOffset? ExpiresAt { get; init; }
+
     public IReadOnlyDictionary<string, string>? Tags { get; init; }
 
     [SkipEmptyToNullNormalization]
@@ -67,6 +71,8 @@ public record Buffer : ModelBase
     private string ComputeEtagCore(XxHash3 hash)
     {
         hash.Append(Id);
+        hash.Append(IsSoftDeleted.ToString());
+        hash.Append(ExpiresAt?.ToUnixTimeMilliseconds() ?? 0L);
         hash.Append(Tags);
         var hashUInt64 = hash.GetCurrentHashAsUInt64();
         hash.Reset();
@@ -80,6 +86,7 @@ public record BufferUpdate : IResourceWithTags<string?>
 
     [JsonIgnore]
     public DateTimeOffset? CreatedAt { get; init; }
+    public DateTimeOffset? ExpiresAt { get; init; }
     public IReadOnlyDictionary<string, string>? Tags { get; init; }
 }
 
@@ -403,6 +410,11 @@ public record JobRunCodeTarget : RunCodeTarget
     /// Tags to add to any buffer created for a job
     /// </summary>
     public Dictionary<string, string>? Tags { get; init; }
+
+    /// <summary>
+    /// The time to live for the buffers created for the job. If not specified, the buffers will not expire.
+    /// </summary>
+    public TimeSpan? BufferTtl { get; init; }
 }
 
 [JsonConverter(typeof(CodespecRefConverter))]

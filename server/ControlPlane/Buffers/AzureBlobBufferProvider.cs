@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.ComponentModel.DataAnnotations;
 using System.Globalization;
@@ -82,6 +83,44 @@ public sealed class AzureBlobBufferProvider : IHostedService, IBufferProvider, I
 
         buffer = buffer with { Location = location };
         return await _repository.CreateBuffer(buffer, storageAccountId, cancellationToken);
+    }
+
+    public async Task<IList<string>> DeleteBuffers(IList<string> ids, CancellationToken cancellationToken)
+    {
+        var bufferStorageIds = await _repository.GetBufferStorageAccountIds(ids, cancellationToken);
+
+        // Group buffers by storage account ID
+        var buffersByStorageAccount = bufferStorageIds
+            .Where(pair => pair.accountId.HasValue)
+            .GroupBy(pair => pair.accountId!.Value)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Select(pair => pair.bufferId).ToList()
+            );
+
+        var deletedIds = new ConcurrentQueue<string>();
+        await Parallel.ForEachAsync(buffersByStorageAccount, async (batch, cancellationToken) =>
+        {
+            var storageAccountId = batch.Key;
+            var bufferIds = batch.Value;
+            var refreshingClient = await GetRefreshingServiceClient(storageAccountId, cancellationToken);
+
+            await Parallel.ForEachAsync(bufferIds, async (bufferId, cancellationToken) =>
+            {
+                try
+                {
+                    var containerClient = refreshingClient.ServiceClient.GetBlobContainerClient(bufferId);
+                    await containerClient.DeleteIfExistsAsync(cancellationToken: cancellationToken);
+                    deletedIds.Enqueue(bufferId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.FailedToDeleteBuffer(bufferId, ex);
+                }
+            });
+        });
+
+        return [.. deletedIds];
     }
 
     public async Task<IList<(string id, bool writeable, BufferAccess? bufferAccess)>> CreateBufferAccessUrls(IList<(string id, bool writeable)> requests, bool preferTcp, bool checkExists, CancellationToken cancellationToken)

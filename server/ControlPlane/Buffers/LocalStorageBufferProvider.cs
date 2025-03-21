@@ -146,6 +146,28 @@ public sealed class LocalStorageBufferProvider : IBufferProvider, IHostedService
         return await _repository.CreateBuffer(buffer, _storageAccountId, cancellationToken);
     }
 
+    public async Task<IList<string>> DeleteBuffers(IList<string> ids, CancellationToken cancellationToken)
+    {
+        var deletedIds = new List<string>();
+        foreach (var id in ids)
+        {
+            try
+            {
+                var queryString = LocalSasHandler.GetSasQueryString(id, SasResourceType.Container, SasAction.Delete, _signData);
+                var resp = await _dataPlaneClient.DeleteAsync($"v1/containers/{id}{queryString}", cancellationToken);
+                resp.EnsureSuccessStatusCode();
+
+                deletedIds.Add(id);
+            }
+            catch (Exception e)
+            {
+                _logger.FailedToDeleteBuffer(id, e);
+            }
+        }
+
+        return deletedIds;
+    }
+
     public async Task<IList<(string id, bool writeable, BufferAccess? bufferAccess)>> CreateBufferAccessUrls(IList<(string id, bool writeable)> requests, bool preferTcp, bool checkExists, CancellationToken cancellationToken)
     {
         var responses = new List<(string id, bool writeable, BufferAccess? bufferAccess)>(requests.Count);
