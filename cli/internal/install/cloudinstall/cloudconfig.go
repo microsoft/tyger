@@ -20,11 +20,10 @@ const (
 )
 
 type CloudEnvironmentConfig struct {
-	Kind            string         `json:"kind"`
-	EnvironmentName string         `json:"environmentName"`
-	Cloud           *CloudConfig   `json:"cloud"`
-	Api             *ApiConfig     `json:"api"`
-	Buffers         *BuffersConfig `json:"buffers"`
+	Kind            string       `json:"kind"`
+	EnvironmentName string       `json:"environmentName"`
+	Cloud           *CloudConfig `json:"cloud"`
+	Api             *ApiConfig   `json:"api"`
 }
 
 type CloudConfig struct {
@@ -133,9 +132,10 @@ type FirewallRule struct {
 }
 
 type ApiConfig struct {
-	DomainName string      `json:"domainName"`
-	Auth       *AuthConfig `json:"auth"`
-	Helm       *HelmConfig `json:"helm"`
+	DomainName string         `json:"domainName"`
+	Auth       *AuthConfig    `json:"auth"`
+	Buffers    *BuffersConfig `json:"buffers"`
+	Helm       *HelmConfig    `json:"helm"`
 }
 
 type AuthConfig struct {

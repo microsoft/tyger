@@ -37,7 +37,6 @@ func (inst *Installer) QuickValidateConfig() bool {
 
 	inst.quickValidateCloudConfig(&success)
 	inst.quickValidateApiConfig(&success)
-	inst.quickValidateBuffersConfig(&success)
 
 	return success
 }
@@ -366,28 +365,26 @@ func (inst *Installer) quickValidateApiConfig(success *bool) {
 			}
 		}
 	}
-}
 
-func (inst *Installer) quickValidateBuffersConfig(success *bool) {
-	buffersConfig := inst.Config.Buffers
-	if buffersConfig == nil {
-		inst.Config.Buffers = &BuffersConfig{}
-	}
+	if apiConfig.Buffers == nil {
+		validationError(success, "The `api.buffers` field is required")
+	} else {
+		buffersConfig := apiConfig.Buffers
+		if buffersConfig.ActiveLifetime == "" {
+			buffersConfig.ActiveLifetime = "0.00:00"
+		}
 
-	if buffersConfig.ActiveLifetime == "" {
-		buffersConfig.ActiveLifetime = "0"
-	}
+		if buffersConfig.SoftDeletedLifetime == "" {
+			buffersConfig.SoftDeletedLifetime = "0.00:00"
+		}
 
-	if buffersConfig.SoftDeletedLifetime == "" {
-		buffersConfig.SoftDeletedLifetime = "0"
-	}
+		if _, err := common.ParseTimeToLive(buffersConfig.ActiveLifetime); err != nil {
+			validationError(success, "The `api.buffers.activeLifetime` field must be a valid TTL (D.HH:MM:SS)")
+		}
 
-	if _, err := common.ParseTimeToLive(buffersConfig.ActiveLifetime); err != nil {
-		validationError(success, "The `buffers.activeLifetime` field must be a valid TTL (D.HH:MM:SS)")
-	}
-
-	if _, err := common.ParseTimeToLive(buffersConfig.SoftDeletedLifetime); err != nil {
-		validationError(success, "The `buffers.softDeletedLifetime` field be a valid TTL (D.HH:MM:SS)")
+		if _, err := common.ParseTimeToLive(buffersConfig.SoftDeletedLifetime); err != nil {
+			validationError(success, "The `api.buffers.softDeletedLifetime` field be a valid TTL (D.HH:MM:SS)")
+		}
 	}
 }
 

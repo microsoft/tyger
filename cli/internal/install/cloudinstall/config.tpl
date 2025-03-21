@@ -106,6 +106,14 @@ api:
     apiAppUri: api://tyger-server
     cliAppUri: api://tyger-cli
 
+  # Settings for all buffers
+  buffers:
+    # TTL for active buffers before they are automatically soft-deleted (D.HH:MM:SS) (0 = never expire)
+    activeLifetime: 0.00:00
+
+    # TTL for soft-deleted buffers before they are automatically purged forever (D.HH:MM:SS) (0 = purge immediately)
+    softDeletedLifetime: 3.00:00
+
   # Optional Helm chart overrides
   # helm:
   #   tyger:
@@ -119,11 +127,3 @@ api:
   #   certManager: {} # same fields as `tyger` above
   #   nvidiaDevicePlugin: {} # same fields as `tyger` above
   #   traefik: {} # same fields as `tyger` above
-
-# Settings for all buffers
-buffers:
-  # TTL for active buffers before they are automatically soft-deleted (D.HH:MM:SS) (0 = never expire)
-  activeLifetime: 0
-
-  # TTL for soft-deleted buffers before they are automatically purged forever (D.HH:MM:SS) (0 = purge immediately)
-  softDeletedLifetime: 3.00:00

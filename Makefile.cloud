@@ -105,8 +105,8 @@ set-localsettings: set-context
 				},
 				"bufferSidecarImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.bufferSidecarImage')",
 				"bufferCopierImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.bufferCopierImage')",
-				"activeLifetime": "$$(echo $${helm_values} | jq -r '.buffers.activeLifetime')",
-				"softDeletedLifetime": "$$(echo $${helm_values} | jq -r '.buffers.softDeletedLifetime')"
+				"activeLifetime": "$$(echo $${helm_values} | jq -r '.api.buffers.activeLifetime')",
+				"softDeletedLifetime": "$$(echo $${helm_values} | jq -r '.api.buffers.softDeletedLifetime')"
 			},
 			"database": {
 				"host": "$$(echo $${helm_values} | jq -r '.database.host')",
