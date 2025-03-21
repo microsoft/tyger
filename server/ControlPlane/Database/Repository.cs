@@ -1885,7 +1885,7 @@ public class Repository
         }, cancellationToken);
     }
 
-    private async Task<UpdateWithPreconditionResult<Buffer>> UpdateBufferSoftDeleteStatus(string id, bool isSoftDeleted, DateTimeOffset? expiresAt, bool whereSoftDeleted, CancellationToken cancellationToken)
+    private async Task<UpdateWithPreconditionResult<Buffer>> UpdateBufferSoftDeleteStatus(string id, bool setSoftDeleted, DateTimeOffset? expiresAt, bool whereSoftDeleted, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync<UpdateWithPreconditionResult<Buffer>>(async cancellationToken =>
         {
@@ -1898,7 +1898,7 @@ public class Repository
                 Connection = connection,
                 Transaction = tx,
                 CommandText = """
-                    SELECT buffers.created_at, buffers.is_soft_deleted, buffers.expires_at, storage_accounts.location, tag_keys.name, buffer_tags.value
+                    SELECT buffers.created_at, buffers.is_soft_deleted, storage_accounts.location, tag_keys.name, buffer_tags.value
                     FROM buffers
                     INNER JOIN storage_accounts
                         on storage_accounts.id = buffers.storage_account_id
@@ -1908,6 +1908,7 @@ public class Repository
                     LEFT JOIN tag_keys
                         on tag_keys.id = buffer_tags.key
                     WHERE buffers.id = $1
+                    AND (buffers.expires_at IS NULL OR buffers.expires_at > now() AT TIME ZONE 'utc')
                     ORDER BY tag_keys.name
                     FOR UPDATE OF buffers
                     """,
@@ -1927,14 +1928,13 @@ public class Repository
                         Id = id,
                         CreatedAt = reader.GetDateTime(0),
                         IsSoftDeleted = reader.GetBoolean(1),
-                        ExpiresAt = reader.IsDBNull(2) ? null : reader.GetDateTime(2),
-                        Location = reader.GetString(3)
+                        Location = reader.GetString(2)
                     };
 
-                    if (!reader.IsDBNull(4) && !reader.IsDBNull(5))
+                    if (!reader.IsDBNull(3) && !reader.IsDBNull(4))
                     {
-                        var name = reader.GetString(4);
-                        var value = reader.GetString(5);
+                        var name = reader.GetString(3);
+                        var value = reader.GetString(4);
                         (tags ??= []).Add(name, value);
                     }
                 }
@@ -1945,11 +1945,6 @@ public class Repository
                 }
 
                 buffer = buffer with { Tags = tags };
-            }
-
-            if (buffer.ExpiresAt.HasValue && buffer.ExpiresAt.Value < DateTimeOffset.UtcNow)
-            {
-                return new UpdateWithPreconditionResult<Buffer>.PreconditionFailed("Buffer is expired");
             }
 
             if (whereSoftDeleted && !buffer.IsSoftDeleted)
@@ -1964,7 +1959,7 @@ public class Repository
 
             buffer = buffer with
             {
-                IsSoftDeleted = isSoftDeleted,
+                IsSoftDeleted = setSoftDeleted,
             };
 
             using (var updateCommand = new NpgsqlCommand
@@ -1996,14 +1991,14 @@ public class Repository
         }, cancellationToken);
     }
 
-    public async Task<UpdateWithPreconditionResult<Buffer>> SoftDeleteBuffer(string id, DateTimeOffset expiresAt, bool whereSoftDeleted, CancellationToken cancellationToken)
+    public async Task<UpdateWithPreconditionResult<Buffer>> SoftDeleteBuffer(string id, DateTimeOffset expiresAt, bool purge, CancellationToken cancellationToken)
     {
-        return await UpdateBufferSoftDeleteStatus(id, true, expiresAt, whereSoftDeleted, cancellationToken);
+        return await UpdateBufferSoftDeleteStatus(id, setSoftDeleted: true, expiresAt, whereSoftDeleted: purge, cancellationToken);
     }
 
     public async Task<UpdateWithPreconditionResult<Buffer>> RestoreBuffer(string id, DateTimeOffset? expiresAt, CancellationToken cancellationToken)
     {
-        return await UpdateBufferSoftDeleteStatus(id, false, expiresAt, true, cancellationToken);
+        return await UpdateBufferSoftDeleteStatus(id, setSoftDeleted: false, expiresAt, whereSoftDeleted: true, cancellationToken);
     }
 
     private static async Task<string> BuildBufferMatchesQuery(NpgsqlCommand command, IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags, bool? whereSoftDeleted, CancellationToken cancellationToken)
@@ -2182,9 +2177,9 @@ public class Repository
         }, cancellationToken);
     }
 
-    public async Task<int> SoftDeleteBuffers(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags, DateTimeOffset expiresAt, bool softDeleted, CancellationToken cancellationToken)
+    public async Task<int> SoftDeleteBuffers(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags, DateTimeOffset expiresAt, bool purge, CancellationToken cancellationToken)
     {
-        return await UpdateBuffersSoftDeleteStatus(tags, excludeTags, setSoftDeleted: true, expiresAt, whereSoftDeleted: softDeleted, cancellationToken);
+        return await UpdateBuffersSoftDeleteStatus(tags, excludeTags, setSoftDeleted: true, expiresAt, whereSoftDeleted: purge, cancellationToken);
     }
 
     public async Task<int> RestoreBuffers(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags, DateTimeOffset? expiresAt, CancellationToken cancellationToken)

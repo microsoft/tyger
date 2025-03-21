@@ -145,10 +145,10 @@ public static class Buffers
                     return Responses.BadRequest("ttl must be a valid, non-negative TimeSpan");
                 }
 
-                var softDeleted = false;
+                var purge = false;
                 if (context.Request.Query.TryGetValue("softDeleted", out var softDeletedQuery))
                 {
-                    if (!bool.TryParse(softDeletedQuery, out softDeleted))
+                    if (!bool.TryParse(softDeletedQuery, out purge))
                     {
                         return Responses.BadRequest("softDeleted must be true or false");
                     }
@@ -157,7 +157,7 @@ public static class Buffers
                 var tagQuery = context.GetTagQueryParameters();
                 var excludeTagQuery = context.GetTagQueryParameters("excludeTag");
 
-                var count = await manager.SoftDeleteBuffers(tagQuery, excludeTagQuery, ttl, softDeleted, cancellationToken);
+                var count = await manager.SoftDeleteBuffers(tagQuery, excludeTagQuery, ttl, purge, cancellationToken);
                 return Results.Ok(count);
             })
             .WithName("deleteBuffers")
@@ -261,16 +261,16 @@ public static class Buffers
                     return Responses.BadRequest("ttl must be a valid, non-negative TimeSpan");
                 }
 
-                var softDeleted = false;
+                var purge = false;
                 if (context.Request.Query.TryGetValue("softDeleted", out var softDeletedQuery))
                 {
-                    if (!bool.TryParse(softDeletedQuery, out softDeleted))
+                    if (!bool.TryParse(softDeletedQuery, out purge))
                     {
                         return Responses.BadRequest("softDeleted must be true or false");
                     }
                 }
 
-                var result = await manager.SoftDeleteBufferById(id, ttl, softDeleted, cancellationToken);
+                var result = await manager.SoftDeleteBufferById(id, ttl, purge, cancellationToken);
                 return result.Match(
                     updated: updated => Results.Ok(updated.Value),
                     notFound: _ => Responses.NotFound(),

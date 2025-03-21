@@ -43,7 +43,7 @@ public sealed partial class BufferManager
         return await _repository.GetBuffer(id, softDeleted, cancellationToken);
     }
 
-    public async Task<UpdateWithPreconditionResult<Buffer>> SoftDeleteBufferById(string id, TimeSpan? ttl, bool softDeleted, CancellationToken cancellationToken)
+    public async Task<UpdateWithPreconditionResult<Buffer>> SoftDeleteBufferById(string id, TimeSpan? ttl, bool purge, CancellationToken cancellationToken)
     {
         var expiresAt = GetDefaultDeletedBufferExpiresAt();
         if (ttl.HasValue)
@@ -51,7 +51,7 @@ public sealed partial class BufferManager
             expiresAt = ComputeExpiration(ttl.Value);
         }
 
-        return await _repository.SoftDeleteBuffer(id, expiresAt, softDeleted, cancellationToken);
+        return await _repository.SoftDeleteBuffer(id, expiresAt, purge, cancellationToken);
     }
 
     public async Task<UpdateWithPreconditionResult<Buffer>> RestoreBufferById(string id, CancellationToken cancellationToken)
@@ -76,7 +76,7 @@ public sealed partial class BufferManager
         return await _repository.GetBuffers(tags, excludeTags, softDeleted, limit, continuationToken, cancellationToken);
     }
 
-    public async Task<int> SoftDeleteBuffers(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags, TimeSpan? ttl, bool softDeleted, CancellationToken cancellationToken)
+    public async Task<int> SoftDeleteBuffers(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags, TimeSpan? ttl, bool purge, CancellationToken cancellationToken)
     {
         var expiresAt = GetDefaultDeletedBufferExpiresAt();
         if (ttl.HasValue)
@@ -84,7 +84,7 @@ public sealed partial class BufferManager
             expiresAt = ComputeExpiration(ttl.Value);
         }
 
-        return await _repository.SoftDeleteBuffers(tags, excludeTags, expiresAt, softDeleted, cancellationToken);
+        return await _repository.SoftDeleteBuffers(tags, excludeTags, expiresAt, purge, cancellationToken);
     }
 
     public async Task<int> SoftDeleteExpiredBuffers(CancellationToken cancellationToken)

@@ -1862,6 +1862,58 @@ func TestBufferDeleteById(t *testing.T) {
 	runTygerSucceeds(t, "buffer", "show", restoredBuffer.Id)
 }
 
+func TestBufferDeletionStates(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+
+	bufferId := runTygerSucceeds(t, "buffer", "create")
+
+	// Restore Active - 412
+	_, stderr, err := runTyger("buffer", "restore", bufferId)
+	require.Error(err)
+	require.Contains(stderr, "Buffer is not soft-deleted")
+
+	// Purge Active - 412
+	_, stderr, err = runTyger("buffer", "purge", bufferId)
+	require.Error(err)
+	require.Contains(stderr, "Buffer is not soft-deleted")
+
+	// Delete Active - 200
+	deleted := runTygerSucceedsUnmarshal[model.Buffer](t, "buffer", "delete", bufferId)
+	require.Equal(bufferId, deleted.Id)
+
+	// Delete Deleted - 412
+	_, stderr, err = runTyger("buffer", "delete", bufferId)
+	require.Error(err)
+	require.Contains(stderr, "Buffer is already soft-deleted")
+
+	// Restore Deleted - 200
+	restored := runTygerSucceedsUnmarshal[model.Buffer](t, "buffer", "restore", bufferId)
+	require.Equal(bufferId, restored.Id)
+
+	// (Delete again)
+	runTygerSucceeds(t, "buffer", "delete", bufferId)
+
+	// Purge Deleted - 200
+	purged := runTygerSucceedsUnmarshal[model.Buffer](t, "buffer", "purge", bufferId)
+	require.Equal(bufferId, purged.Id)
+
+	// Delete Purged - 404
+	_, stderr, err = runTyger("buffer", "delete", bufferId)
+	require.Error(err)
+	require.Contains(stderr, "not found")
+
+	// Restore Purged - 404
+	_, stderr, err = runTyger("buffer", "restore", bufferId)
+	require.Error(err)
+	require.Contains(stderr, "not found")
+
+	// Purge purged - 404
+	_, stderr, err = runTyger("buffer", "purge", bufferId)
+	require.Error(err)
+	require.Contains(stderr, "not found")
+}
+
 func TestBufferDeleteMultipleIds(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
