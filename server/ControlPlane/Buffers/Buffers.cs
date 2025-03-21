@@ -234,9 +234,18 @@ public static class Buffers
                     eTagPrecondition = "";
                 }
 
+                var softDeleted = false;
+                if (context.Request.Query.TryGetValue("softDeleted", out var softDeletedQuery))
+                {
+                    if (!bool.TryParse(softDeletedQuery, out softDeleted))
+                    {
+                        return Responses.BadRequest("softDeleted must be true or false");
+                    }
+                }
+
                 bufferUpdate = bufferUpdate with { Id = id };
 
-                var result = await manager.UpdateBuffer(bufferUpdate, eTagPrecondition, cancellationToken);
+                var result = await manager.UpdateBuffer(bufferUpdate, eTagPrecondition, softDeleted, cancellationToken);
 
                 return result.Match(
                     updated: updated =>

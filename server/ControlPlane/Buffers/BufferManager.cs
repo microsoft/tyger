@@ -65,9 +65,9 @@ public sealed partial class BufferManager
         return await _repository.CheckBuffersExist(ids, cancellationToken);
     }
 
-    public async Task<UpdateWithPreconditionResult<Buffer>> UpdateBuffer(BufferUpdate bufferUpdate, string? eTagPrecondition, CancellationToken cancellationToken)
+    public async Task<UpdateWithPreconditionResult<Buffer>> UpdateBuffer(BufferUpdate bufferUpdate, string? eTagPrecondition, bool softDeleted, CancellationToken cancellationToken)
     {
-        return await _repository.UpdateBuffer(bufferUpdate, eTagPrecondition, cancellationToken);
+        return await _repository.UpdateBuffer(bufferUpdate, eTagPrecondition, softDeleted, cancellationToken);
     }
 
     public async Task<(IList<Buffer>, string? nextContinuationToken)> GetBuffers(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags,

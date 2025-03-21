@@ -1706,6 +1706,23 @@ func TestBufferSetTtl(t *testing.T) {
 	require.Less(*buffer2.ExpiresAt, time.Now().Add((2*24+12)*time.Hour+31*time.Minute))
 }
 
+func TestBufferSetTtlOnDeletedBuffer(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+
+	bufferId := runTygerSucceeds(t, "buffer", "create")
+
+	runTygerSucceeds(t, "buffer", "delete", bufferId)
+
+	_, stderr, err := runTyger("buffer", "set", bufferId, "--ttl", "0")
+	require.Error(err)
+	require.Contains(stderr, "not found")
+
+	buffer, err := setBuffer(t, bufferId, "--ttl", "0", "--soft-deleted")
+	require.NoError(err)
+	require.Less(*buffer.ExpiresAt, time.Now().Add(time.Second))
+}
+
 func TestBufferSetTtlWithETag(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)

@@ -1576,7 +1576,7 @@ public class Repository
         }, cancellationToken);
     }
 
-    public async Task<UpdateWithPreconditionResult<Buffer>> UpdateBuffer(BufferUpdate bufferUpdate, string? eTagPrecondition, CancellationToken cancellationToken)
+    public async Task<UpdateWithPreconditionResult<Buffer>> UpdateBuffer(BufferUpdate bufferUpdate, string? eTagPrecondition, bool whereSoftDeleted, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync<UpdateWithPreconditionResult<Buffer>>(async cancellationToken =>
         {
@@ -1594,11 +1594,13 @@ public class Repository
                     SELECT created_at, is_soft_deleted, expires_at, storage_accounts.location FROM buffers
                     INNER JOIN storage_accounts ON storage_accounts.id = buffers.storage_account_id
                     WHERE buffers.id = $1
+                    AND buffers.is_soft_deleted = $2
                     FOR UPDATE
                     """,
                 Parameters =
                     {
                         new() { Value = bufferUpdate.Id, NpgsqlDbType = NpgsqlDbType.Text },
+                        new() { Value = whereSoftDeleted, NpgsqlDbType = NpgsqlDbType.Boolean }
                     }
             };
 
