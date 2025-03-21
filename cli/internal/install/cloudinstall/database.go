@@ -430,7 +430,7 @@ func (inst *Installer) createRoles(
 		err = db.PingContext(ctx)
 	}
 	if err != nil {
-		log.Warn().Msgf("For network connectivity problems to the database, try adding your current public IP address to the database firewall rules in the config file and verify that there is no firewall in your environment that is blocking aceess to %s on port %d.", *server.Properties.FullyQualifiedDomainName, databasePort)
+		log.Warn().Msgf("For network connectivity problems to the database, try adding your current public IP address to the database firewall rules in the config file and verify that there is no firewall in your environment that is blocking access to %s on port %d.", *server.Properties.FullyQualifiedDomainName, databasePort)
 		return fmt.Errorf("failed to open database connection: %w", err)
 	}
 	defer db.Close()
