@@ -105,6 +105,16 @@ type NodePoolConfig struct {
 type StorageConfig struct {
 	Buffers []*StorageAccountConfig `json:"buffers"`
 	Logs    *StorageAccountConfig   `json:"logs"`
+
+	// Internal support for associating the storage accounts with a network security perimeter profile
+	NetworkSecurityPerimeter *NetworkSecurityPerimeterConfig `json:"networkSecurityPerimeter"`
+}
+
+type NetworkSecurityPerimeterConfig struct {
+	NspResourceGroup string `json:"nspResourceGroup"`
+	NspName          string `json:"nspName"`
+	Profile          string `json:"profile"`
+	Mode             string `json:"mode"`
 }
 
 type StorageAccountConfig struct {
