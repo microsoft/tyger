@@ -1,9 +1,9 @@
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/cbl-mariner/base/core:2.0.20240112 as build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/azurelinux/base/core:3.0 as build
 ARG TARGETARCH BUILDOS
 
 RUN tdnf install -y ca-certificates
 
-ARG KUBECTL_VERSION=v1.28.3
+ARG KUBECTL_VERSION=v1.32.2
 WORKDIR /opt/download
 RUN curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl" && chmod +x kubectl
 

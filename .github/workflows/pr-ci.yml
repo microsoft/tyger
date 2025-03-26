@@ -133,6 +133,27 @@ jobs:
           set -eo pipefail
           make -j 4 docker-build
 
+  build-images-amd64:
+    needs:
+      - test-azure-needs-hosted-runner
+      - get-config
+
+    runs-on: ${{ fromJson(needs.test-azure-needs-hosted-runner.outputs.AZURE_RUNS_ON_JSON)}}
+
+    env:
+      EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: build images
+        run: |
+          set -eo pipefail
+          make -j 4 DOCKER_BUILD_ARCH_FLAGS="--arch arm64" DOCKER_BUILD_PUSH_FLAGS="" docker-build
+
   get-config:
     runs-on: ubuntu-latest
     defaults:
