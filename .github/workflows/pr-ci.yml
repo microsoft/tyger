@@ -133,7 +133,7 @@ jobs:
           set -eo pipefail
           make -j 4 docker-build
 
-  build-images-amd64:
+  build-images-arm64:
     needs:
       - test-azure-needs-hosted-runner
       - get-config
@@ -148,6 +148,9 @@ jobs:
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
+
+      - name: Log in to Azure
+        uses: ./.github/actions/login-azure
 
       - name: build images
         run: |
