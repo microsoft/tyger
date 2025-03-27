@@ -13,7 +13,7 @@ cloud:
       - name: ${TYGER_ENVIRONMENT_NAME}
         apiHost: true
         sku: Standard
-        kubernetesVersion: "1.29"
+        kubernetesVersion: "1.30"
         systemNodePool:
           name: system
           vmSize: ${TYGER_SYSTEM_NODE_SKU}
