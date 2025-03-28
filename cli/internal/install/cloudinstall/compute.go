@@ -86,7 +86,11 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 		Properties: &armcontainerservice.ManagedClusterProperties{
 			DNSPrefix:         Ptr(getClusterDnsPrefix(inst.Config.EnvironmentName, clusterConfig.Name, inst.Config.Cloud.SubscriptionID)),
 			KubernetesVersion: &clusterConfig.KubernetesVersion,
-			EnableRBAC:        Ptr(true),
+			AutoUpgradeProfile: &armcontainerservice.ManagedClusterAutoUpgradeProfile{
+				NodeOSUpgradeChannel: Ptr(armcontainerservice.NodeOSUpgradeChannelNodeImage),
+				UpgradeChannel:       Ptr(armcontainerservice.UpgradeChannelPatch),
+			},
+			EnableRBAC: Ptr(true),
 			AADProfile: &armcontainerservice.ManagedClusterAADProfile{
 				Managed:         Ptr(true),
 				EnableAzureRBAC: Ptr(false),
@@ -358,6 +362,14 @@ func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCl
 
 	onlyScaleDown = true
 	if *cluster.Properties.KubernetesVersion != *existingCluster.Properties.KubernetesVersion {
+		return true, false
+	}
+
+	if existingCluster.Properties.AutoUpgradeProfile == nil || existingCluster.Properties.AutoUpgradeProfile.NodeOSUpgradeChannel == nil || *cluster.Properties.AutoUpgradeProfile.NodeOSUpgradeChannel != *existingCluster.Properties.AutoUpgradeProfile.NodeOSUpgradeChannel {
+		return true, false
+	}
+
+	if existingCluster.Properties.AutoUpgradeProfile.UpgradeChannel == nil || *cluster.Properties.AutoUpgradeProfile.UpgradeChannel != *existingCluster.Properties.AutoUpgradeProfile.UpgradeChannel {
 		return true, false
 	}
 
