@@ -118,12 +118,12 @@ func (inst *Installer) installCertManager(ctx context.Context, restConfigPromise
 	certManagerConfig := HelmChartConfig{
 		Namespace:   "cert-manager",
 		ReleaseName: "cert-manager",
-		RepoName:    "jetstack",
-		RepoUrl:     "https://charts.jetstack.io",
-		ChartRef:    "jetstack/cert-manager",
-		Version:     "v1.13.0",
+		ChartRef:    "oci://mcr.microsoft.com/azurelinux/helm/cert-manager",
+		Version:     "1.12.12-4",
 		Values: map[string]any{
-			"installCRDs": true,
+			"cert-manager": map[string]any{
+				"installCRDs": true,
+			},
 		},
 	}
 
