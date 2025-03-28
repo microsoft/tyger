@@ -254,7 +254,7 @@ func TestDockerOfflineMigrations(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, out, "This version of Tyger requires the database to be migrated to at least version")
 
-	runCommandSucceeds(t, "sudo", tygerPath, "api", "uninstall", "-f", previousConfigPath)
+	runCommandSucceeds(t, "sudo", tygerPath, "api", "uninstall", "-f", previousConfigPath, "--preserve-run-containers")
 
 	runCommandSucceeds(t, "sudo", tygerPath, "api", "migrations", "apply", "--latest", "--offline", "--wait", "-f", newConfigPath)
 

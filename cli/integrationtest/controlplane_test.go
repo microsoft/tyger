@@ -2463,7 +2463,17 @@ start:
 			}
 			require.FailNowf(t, "run was canceled.", "Run '%d'. Last status: %s", snapshot.Id, *snapshot.Status)
 		case model.Failed:
-			require.FailNowf(t, "run failed.", "Run '%d'. Last status: %s", snapshot.Id, *snapshot.Status)
+			statusString := fmt.Sprintf("%s", *snapshot.Status)
+			if snapshot.StatusReason != "" {
+				statusString = fmt.Sprintf("%s (%s)", statusString, snapshot.StatusReason)
+			}
+
+			stdOut, stdErr, err := runTyger("run", "logs", fmt.Sprintf("%d", snapshot.Id))
+			if err == nil {
+				t.Log(fmt.Sprintf("Run %d logs:\n", snapshot.Id), stdOut, stdErr)
+			}
+
+			require.FailNowf(t, "run failed.", "Run '%d'. Last status: %s", snapshot.Id, statusString)
 		default:
 			require.FailNowf(t, "unexpected run status.", "Run '%d'. Last status: %s", snapshot.Id, *snapshot.Status)
 		}
