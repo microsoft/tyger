@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -43,7 +44,7 @@ func WithLeaveResponseOpen() InvokeRequestOptionFunc {
 	}
 }
 
-func InvokeRequest(ctx context.Context, method string, relativeUri string, input interface{}, output interface{}, options ...InvokeRequestOptionFunc) (*http.Response, error) {
+func InvokeRequest(ctx context.Context, method string, relativeUri string, queryParams url.Values, input interface{}, output interface{}, options ...InvokeRequestOptionFunc) (*http.Response, error) {
 	var opts *InvokeRequestOptions
 	if len(options) > 0 {
 		opts = &InvokeRequestOptions{}
@@ -62,7 +63,19 @@ func InvokeRequest(ctx context.Context, method string, relativeUri string, input
 		return nil, fmt.Errorf("run `tyger login` to login to a server: %v", err)
 	}
 
+	if queryParams == nil {
+		queryParams = url.Values{}
+	}
+	apiVersion := os.Getenv("TYGER_CLIENT_API_VERSION")
+	if apiVersion == "" {
+		apiVersion = "1.0"
+	}
+	queryParams.Add("api-version", apiVersion)
+
 	absoluteUri := fmt.Sprintf("%s/%s", tygerClient.ControlPlaneUrl, relativeUri)
+	if queryParams != nil {
+		absoluteUri = fmt.Sprintf("%s?%s", absoluteUri, queryParams.Encode())
+	}
 	var body io.Reader = nil
 	var serializedBody []byte
 	if input != nil {
@@ -143,14 +156,14 @@ func InvokeRequest(ctx context.Context, method string, relativeUri string, input
 	return resp, nil
 }
 
-func InvokePageRequests[T any](ctx context.Context, uri string, limit int, warnIfTruncated bool) error {
+func InvokePageRequests[T any](ctx context.Context, uri string, queryParams url.Values, limit int, warnIfTruncated bool) error {
 	firstPage := true
 	totalPrinted := 0
 	truncated := false
 
 	for uri != "" {
 		page := model.Page[T]{}
-		_, err := InvokeRequest(ctx, http.MethodGet, uri, nil, &page)
+		_, err := InvokeRequest(ctx, http.MethodGet, uri, queryParams, nil, &page)
 		if err != nil {
 			return err
 		}
@@ -200,7 +213,7 @@ End:
 	return nil
 }
 
-func SetFieldsOnEntity(ctx context.Context, relativeUrlPath string, etag string, clearTags bool, tags map[string]string, expiresAt *time.Time, reponseObject any) error {
+func SetFieldsOnEntity(ctx context.Context, relativeUrlPath string, queryParams url.Values, etag string, clearTags bool, tags map[string]string, expiresAt *time.Time, reponseObject any) error {
 	type Resource struct {
 		ETag      string            `json:"eTag"`
 		Tags      map[string]string `json:"tags"`
@@ -216,7 +229,7 @@ func SetFieldsOnEntity(ctx context.Context, relativeUrlPath string, etag string,
 		if clearTags {
 			newTagEntries = tags
 		} else {
-			_, err := InvokeRequest(ctx, http.MethodGet, relativeUrlPath, nil, &resource)
+			_, err := InvokeRequest(ctx, http.MethodGet, relativeUrlPath, queryParams, nil, &resource)
 			if err != nil {
 				return err
 			}
@@ -247,7 +260,7 @@ func SetFieldsOnEntity(ctx context.Context, relativeUrlPath string, etag string,
 			headers.Set("If-Match", requestEtag)
 		}
 
-		resp, err := InvokeRequest(ctx, http.MethodPut, relativeUrlPath, resource, &reponseObject, WithHeaders(headers))
+		resp, err := InvokeRequest(ctx, http.MethodPut, relativeUrlPath, queryParams, resource, &reponseObject, WithHeaders(headers))
 
 		if err != nil {
 			return err

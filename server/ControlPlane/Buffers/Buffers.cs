@@ -5,11 +5,12 @@ using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Primitives;
-using Microsoft.OpenApi.Models;
 using Tyger.Common.Api;
 using Tyger.Common.DependencyInjection;
 using Tyger.ControlPlane.Json;
 using Tyger.ControlPlane.Model;
+using Tyger.ControlPlane.OpenApi;
+using Tyger.ControlPlane.Versioning;
 using Buffer = Tyger.ControlPlane.Model.Buffer;
 
 namespace Tyger.ControlPlane.Buffers;
@@ -60,20 +61,22 @@ public static class Buffers
         }
     }
 
-    public static void MapBuffers(this WebApplication app)
+    public static void MapBuffers(this RouteGroupBuilder root)
     {
-        app.MapPost("/v1/buffers", async (BufferManager manager, HttpContext context, CancellationToken cancellationToken) =>
+        var group = root.MapGroup("/buffers");
+
+        group.MapPost("/", async (BufferManager manager, HttpContext context, CancellationToken cancellationToken) =>
             {
                 var newBuffer = await context.Request.ReadAndValidateJson<Buffer>(context.RequestAborted);
                 var buffer = await manager.CreateBuffer(newBuffer, cancellationToken);
                 context.Response.Headers.ETag = buffer.ETag;
-                return Results.Created($"/v1/buffers/{buffer.Id}", buffer);
+                return Results.Created($"/buffers/{buffer.Id}", buffer);
             })
             .Accepts<Buffer>("application/json")
             .WithName("createBuffer")
             .Produces<Buffer>(StatusCodes.Status201Created);
 
-        app.MapGet("/v1/buffers", async (BufferManager manager, HttpContext context, int? limit, [FromQuery(Name = "_ct")] string? continuationToken, CancellationToken cancellationToken) =>
+        group.MapGet("/", async (BufferManager manager, HttpContext context, int? limit, [FromQuery(Name = "_ct")] string? continuationToken, CancellationToken cancellationToken) =>
             {
                 limit = limit is null ? 20 : Math.Min(limit.Value, 2000);
                 var tagQuery = context.GetTagQueryParameters();
@@ -111,34 +114,9 @@ public static class Buffers
             .WithName("getBuffers")
             .Produces<BufferPage>()
             .Produces<ErrorBody>(StatusCodes.Status400BadRequest)
-            .WithOpenApi(c =>
-                {
-                    // Specify that the query parameter "tag" is a "deep object"
-                    // and can be used like this `tag[key1]=value1&tag[key2]=value2`.
-                    c.Parameters.Add(new OpenApiParameter
-                    {
-                        Name = "tag",
-                        In = ParameterLocation.Query,
-                        Required = false,
-                        Schema = new OpenApiSchema
-                        {
-                            Type = "object",
-                            AdditionalProperties = new OpenApiSchema
-                            {
-                                Type = "string",
-                            },
-                        },
-                        Style = ParameterStyle.DeepObject,
-                        Explode = true,
-                    });
+            .WithTagsQueryParameters();
 
-                    // For some reason the text is changed to "OK" when we implement this,
-                    // so we need to set it back to "Success".
-                    c.Responses["200"].Description = "Success";
-                    return c;
-                });
-
-        app.MapDelete("/v1/buffers", async (BufferManager manager, HttpContext context, CancellationToken cancellationToken) =>
+        group.MapDelete("/", async (BufferManager manager, HttpContext context, CancellationToken cancellationToken) =>
             {
                 if (!context.ParseAndValidateTtlQueryParameter(out var ttl))
                 {
@@ -164,7 +142,7 @@ public static class Buffers
             .Produces<int>(StatusCodes.Status200OK)
             .Produces<ErrorBody>(StatusCodes.Status400BadRequest);
 
-        app.MapPost("/v1/buffers/restore", async (BufferManager manager, HttpContext context, CancellationToken cancellationToken) =>
+        group.MapPost("/restore", async (BufferManager manager, HttpContext context, CancellationToken cancellationToken) =>
             {
                 var tagQuery = context.GetTagQueryParameters();
                 var excludeTagQuery = context.GetTagQueryParameters("excludeTag");
@@ -175,7 +153,7 @@ public static class Buffers
             .WithName("restoreBuffers")
             .Produces<int>(StatusCodes.Status200OK);
 
-        app.MapGet("/v1/buffers/count", async (BufferManager manager, HttpContext context, CancellationToken cancellationToken) =>
+        group.MapGet("/count", async (BufferManager manager, HttpContext context, CancellationToken cancellationToken) =>
             {
                 var tagQuery = context.GetTagQueryParameters();
                 var excludeTagQuery = context.GetTagQueryParameters("excludeTag");
@@ -195,7 +173,7 @@ public static class Buffers
             .WithName("getBufferCount")
             .Produces<int>(StatusCodes.Status200OK);
 
-        app.MapGet("/v1/buffers/{id}", async (BufferManager manager, HttpContext context, string id, CancellationToken cancellationToken) =>
+        group.MapGet("/{id}", async (BufferManager manager, HttpContext context, string id, CancellationToken cancellationToken) =>
             {
                 var softDeleted = false;
                 if (context.Request.Query.TryGetValue("softDeleted", out var softDeletedQuery))
@@ -219,7 +197,18 @@ public static class Buffers
             .Produces<Buffer>(StatusCodes.Status200OK)
             .Produces<ErrorBody>(StatusCodes.Status404NotFound);
 
-        app.MapPut("/v1/buffers/{id}", async (BufferManager manager, HttpContext context, string id, CancellationToken cancellationToken) =>
+        group.MapGet("/{id}/hello", async (BufferManager manager, HttpContext context, string id, CancellationToken cancellationToken) =>
+            {
+                return await Task.Run(() =>
+                {
+                    return Results.Ok("hello");
+                }, context.RequestAborted);
+            })
+            .WithName("getBufferHello")
+            .MapToApiVersion(ApiVersions.V1p1)
+            .Produces<Buffer>(StatusCodes.Status200OK);
+
+        group.MapPut("/{id}", async (BufferManager manager, HttpContext context, string id, CancellationToken cancellationToken) =>
             {
                 var bufferUpdate = await context.Request.ReadAndValidateJson<BufferUpdate>(context.RequestAborted, allowEmpty: true);
 
@@ -263,7 +252,7 @@ public static class Buffers
             .Produces<ErrorBody>(StatusCodes.Status404NotFound)
             .Produces<ErrorBody>(StatusCodes.Status412PreconditionFailed);
 
-        app.MapDelete("/v1/buffers/{id}", async (BufferManager manager, HttpContext context, string id, CancellationToken cancellationToken) =>
+        group.MapDelete("/{id}", async (BufferManager manager, HttpContext context, string id, CancellationToken cancellationToken) =>
             {
                 if (!context.ParseAndValidateTtlQueryParameter(out var ttl))
                 {
@@ -291,7 +280,7 @@ public static class Buffers
             .Produces<ErrorBody>(StatusCodes.Status404NotFound)
             .Produces<ErrorBody>(StatusCodes.Status412PreconditionFailed);
 
-        app.MapPost("/v1/buffers/{id}/restore", async (BufferManager manager, HttpContext context, string id, CancellationToken cancellationToken) =>
+        group.MapPost("/{id}/restore", async (BufferManager manager, HttpContext context, string id, CancellationToken cancellationToken) =>
             {
                 var result = await manager.RestoreBufferById(id, cancellationToken);
                 return result.Match(
@@ -304,7 +293,7 @@ public static class Buffers
             .Produces<ErrorBody>(StatusCodes.Status404NotFound)
             .Produces<ErrorBody>(StatusCodes.Status412PreconditionFailed);
 
-        app.MapPost("/v1/buffers/{id}/access", async (BufferManager manager, string id, bool? writeable, bool? preferTcp, bool? fromDocker, CancellationToken cancellationToken) =>
+        group.MapPost("/{id}/access", async (BufferManager manager, string id, bool? writeable, bool? preferTcp, bool? fromDocker, CancellationToken cancellationToken) =>
             {
                 var bufferAccess = await manager.CreateBufferAccessUrls([(id, writeable == true)], preferTcp == true, fromDocker == true, checkExists: true, cancellationToken);
                 if (bufferAccess is [(_, _, null)])
@@ -318,14 +307,14 @@ public static class Buffers
             .Produces<BufferAccess>(StatusCodes.Status201Created)
             .Produces<ErrorBody>(StatusCodes.Status404NotFound);
 
-        app.MapGet("v1/buffers/storage-accounts", (BufferManager manager, CancellationToken cancellationToken) =>
+        group.MapGet("/storage-accounts", (BufferManager manager, CancellationToken cancellationToken) =>
             {
                 return Results.Ok(manager.GetStorageAccounts());
             })
             .WithName("getStorageAccounts")
             .Produces<IList<StorageAccount>>(StatusCodes.Status200OK);
 
-        app.MapPost("/v1/buffers/export", async (HttpContext context, BufferManager manager, CancellationToken cancellationToken) =>
+        group.MapPost("/export", async (HttpContext context, BufferManager manager, CancellationToken cancellationToken) =>
             {
                 var exportRequest = await context.Request.ReadAndValidateJson<ExportBuffersRequest>(context.RequestAborted);
                 var run = await manager.ExportBuffers(exportRequest, cancellationToken);
@@ -335,7 +324,7 @@ public static class Buffers
             .Accepts<ExportBuffersRequest>("application/json")
             .Produces<Run>(StatusCodes.Status202Accepted);
 
-        app.MapPost("/v1/buffers/import", async (HttpContext context, BufferManager manager, CancellationToken cancellationToken) =>
+        group.MapPost("/import", async (HttpContext context, BufferManager manager, CancellationToken cancellationToken) =>
             {
                 var importRequest = await context.Request.ReadAndValidateJson<ImportBuffersRequest>(context.RequestAborted);
                 var run = await manager.ImportBuffers(importRequest, cancellationToken);

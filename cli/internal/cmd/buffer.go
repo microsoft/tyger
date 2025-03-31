@@ -92,7 +92,7 @@ func newBufferCreateCommand() *cobra.Command {
 			}
 
 			buffer := model.Buffer{}
-			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/buffers", newBuffer, &buffer)
+			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/buffers", nil, newBuffer, &buffer)
 			if err != nil {
 				return err
 			}
@@ -147,10 +147,10 @@ func newBufferSetCommand() *cobra.Command {
 			if softDeleted {
 				options.Add("softDeleted", strconv.FormatBool(softDeleted))
 			}
-			relativeUri := fmt.Sprintf("v1/buffers/%s?%s", args[0], options.Encode())
+			relativeUri := fmt.Sprintf("v1/buffers/%s", args[0])
 
 			buffer := model.Buffer{}
-			return controlplane.SetFieldsOnEntity(cmd.Context(), relativeUri, etag, clearTags, tags, expiresAt, &buffer)
+			return controlplane.SetFieldsOnEntity(cmd.Context(), relativeUri, options, etag, clearTags, tags, expiresAt, &buffer)
 		},
 	}
 
@@ -179,8 +179,8 @@ func newBufferShowCommand() *cobra.Command {
 			}
 
 			buffer := model.Buffer{}
-			relativeUri := fmt.Sprintf("v1/buffers/%s?%s", args[0], listOptions.Encode())
-			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, relativeUri, nil, &buffer)
+			relativeUri := fmt.Sprintf("v1/buffers/%s", args[0])
+			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, relativeUri, listOptions, nil, &buffer)
 			if err != nil {
 				return err
 			}
@@ -245,8 +245,8 @@ func getBufferAccessUri(ctx context.Context, bufferId string, writable bool) (*u
 		}
 	}
 
-	uri := fmt.Sprintf("v1/buffers/%s/access?%s", bufferId, queryOptions.Encode())
-	_, err = controlplane.InvokeRequest(ctx, http.MethodPost, uri, nil, &bufferAccess)
+	uri := fmt.Sprintf("v1/buffers/%s/access", bufferId)
+	_, err = controlplane.InvokeRequest(ctx, http.MethodPost, uri, queryOptions, nil, &bufferAccess)
 	if err != nil {
 		return nil, err
 	}
@@ -498,8 +498,7 @@ func newBufferListCommand() *cobra.Command {
 				listOptions.Add(fmt.Sprintf("excludeTag[%s]", name), value)
 			}
 
-			relativeUri := fmt.Sprintf("v1/buffers?%s", listOptions.Encode())
-			return controlplane.InvokePageRequests[model.Buffer](cmd.Context(), relativeUri, limit, !cmd.Flags().Lookup("limit").Changed)
+			return controlplane.InvokePageRequests[model.Buffer](cmd.Context(), "v1/buffers", listOptions, limit, !cmd.Flags().Lookup("limit").Changed)
 		},
 	}
 
@@ -537,7 +536,7 @@ func newStorageAccountListCommand() *cobra.Command {
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			storageAccounts := []model.StorageAccount{}
-			if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, "v1/buffers/storage-accounts", nil, &storageAccounts); err != nil {
+			if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, "v1/buffers/storage-accounts", nil, nil, &storageAccounts); err != nil {
 				return err
 			}
 
@@ -564,7 +563,7 @@ func newBufferExportCommand() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			request.DestinationStorageEndpoint = args[0]
 			run := model.Run{}
-			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/buffers/export", request, &run)
+			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/buffers/export", nil, request, &run)
 			if err != nil {
 				log.Fatal().Err(err).Msg("Failed to export buffers")
 			}
@@ -592,7 +591,7 @@ func newBufferImportCommand() *cobra.Command {
 		Args:                  cobra.ExactArgs(0),
 		Run: func(cmd *cobra.Command, args []string) {
 			run := model.Run{}
-			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/buffers/import", request, &run)
+			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/buffers/import", nil, request, &run)
 			if err != nil {
 				log.Fatal().Err(err).Msg("Failed to import buffers")
 			}
@@ -629,7 +628,7 @@ func newBufferDeleteCommand() *cobra.Command {
 				for _, id := range args {
 					buffer := model.Buffer{}
 					relativeUri := fmt.Sprintf("v1/buffers/%s", id)
-					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodDelete, relativeUri, nil, &buffer); err != nil {
+					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodDelete, relativeUri, nil, nil, &buffer); err != nil {
 						return err
 					}
 					deleted = append(deleted, buffer)
@@ -659,9 +658,8 @@ func newBufferDeleteCommand() *cobra.Command {
 				}
 
 				if performDeletion {
-					relativeUri := fmt.Sprintf("v1/buffers?%s", options.Encode())
 					count := 0
-					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodDelete, relativeUri, nil, &count); err != nil {
+					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodDelete, "v1/buffers", options, nil, &count); err != nil {
 						return err
 					}
 					fmt.Printf("Deleted %d buffers.\n", count)
@@ -701,7 +699,7 @@ func newBufferRestoreCommand() *cobra.Command {
 				for _, id := range args {
 					buffer := model.Buffer{}
 					relativeUri := fmt.Sprintf("v1/buffers/%s/restore", id)
-					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, relativeUri, nil, &buffer); err != nil {
+					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, relativeUri, nil, nil, &buffer); err != nil {
 						return err
 					}
 					restored = append(restored, buffer)
@@ -732,10 +730,8 @@ func newBufferRestoreCommand() *cobra.Command {
 				}
 
 				if performRestore {
-					relativeUri := fmt.Sprintf("v1/buffers/restore?%s", options.Encode())
-
 					count := 0
-					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, relativeUri, nil, &count); err != nil {
+					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/buffers/restore", options, nil, &count); err != nil {
 						return err
 					}
 					fmt.Printf("Restored %d buffers.\n", count)
@@ -778,8 +774,8 @@ func newBufferPurgeCommand() *cobra.Command {
 				var deleted []model.Buffer
 				for _, id := range args {
 					buffer := model.Buffer{}
-					relativeUri := fmt.Sprintf("v1/buffers/%s?%s", id, options.Encode())
-					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodDelete, relativeUri, nil, &buffer); err != nil {
+					relativeUri := fmt.Sprintf("v1/buffers/%s", id)
+					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodDelete, relativeUri, options, nil, &buffer); err != nil {
 						return err
 					}
 					deleted = append(deleted, buffer)
@@ -807,10 +803,8 @@ func newBufferPurgeCommand() *cobra.Command {
 				}
 
 				if performPurge {
-					relativeUri := fmt.Sprintf("v1/buffers?%s", options.Encode())
-
 					count := 0
-					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodDelete, relativeUri, nil, &count); err != nil {
+					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodDelete, "v1/buffers", options, nil, &count); err != nil {
 						return err
 					}
 					fmt.Printf("Purged %d buffers.\n", count)
@@ -855,9 +849,8 @@ func printOneOrMoreBuffersJson(buffers []model.Buffer) error {
 }
 
 func confirmBulkBufferOperation(ctx context.Context, operation string, options url.Values) (bool, error) {
-	countUri := fmt.Sprintf("v1/buffers/count?%s", options.Encode())
 	count := 0
-	if _, err := controlplane.InvokeRequest(ctx, http.MethodGet, countUri, nil, &count); err != nil {
+	if _, err := controlplane.InvokeRequest(ctx, http.MethodGet, "v1/buffers/count", options, nil, &count); err != nil {
 		return false, err
 	}
 	if count > 0 {

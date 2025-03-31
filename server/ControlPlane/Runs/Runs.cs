@@ -24,9 +24,11 @@ public static class Runs
         builder.Services.AddHostedService<RunIndexPruner>();
     }
 
-    public static void MapRuns(this WebApplication app)
+    public static void MapRuns(this RouteGroupBuilder root)
     {
-        app.MapPost("/v1/runs", async (IRunCreator runCreator, Repository repository, HttpContext context) =>
+        var group = root.MapGroup("/runs");
+
+        group.MapPost("/", async (IRunCreator runCreator, Repository repository, HttpContext context) =>
         {
             var newRun = (await context.Request.ReadAndValidateJson<Run>(context.RequestAborted)).WithoutSystemProperties();
             if (newRun.Kind == RunKind.System)
@@ -46,13 +48,13 @@ public static class Runs
                 createdRun = await runCreator.CreateRun(newRun, idempotencyKey, context.RequestAborted);
             }
 
-            return Results.Created($"/v1/runs/{createdRun.Id}", createdRun);
+            return Results.Created($"/runs/{createdRun.Id}", createdRun);
         })
         .Accepts<Run>("application/json")
         .Produces<Run>(StatusCodes.Status201Created)
         .Produces<ErrorBody>(StatusCodes.Status400BadRequest);
 
-        app.MapGet("/v1/runs", async (IRunReader runReader, int? limit, DateTimeOffset? since, [FromQuery(Name = "status")] string[]? statuses, [FromQuery(Name = "_ct")] string? continuationToken, HttpContext context) =>
+        group.MapGet("/", async (IRunReader runReader, int? limit, DateTimeOffset? since, [FromQuery(Name = "status")] string[]? statuses, [FromQuery(Name = "_ct")] string? continuationToken, HttpContext context) =>
         {
             limit = limit is null ? 20 : Math.Min(limit.Value, 2000);
 
@@ -101,7 +103,7 @@ public static class Runs
         })
         .WithTagsQueryParameters();
 
-        app.MapGet("/v1/runs/counts", async (IRunReader runReader, DateTimeOffset? since, HttpContext context) =>
+        group.MapGet("/counts", async (IRunReader runReader, DateTimeOffset? since, HttpContext context) =>
         {
             var runs = await runReader.GetRunCounts(since, context.GetTagQueryParameters(), context.RequestAborted);
             return Results.Ok(runs);
@@ -109,7 +111,7 @@ public static class Runs
         .WithTagsQueryParameters()
         .Produces<IDictionary<RunStatus, long>>(StatusCodes.Status200OK);
 
-        app.MapGet("/v1/runs/{runId}", async (
+        group.MapGet("/{runId}", async (
             string runId,
             bool? watch,
             IRunReader runReader,
@@ -156,7 +158,7 @@ public static class Runs
         .Produces<Run>(StatusCodes.Status200OK)
         .Produces<ErrorBody>(StatusCodes.Status404NotFound);
 
-        app.MapGet("/v1/runs/{runId}/logs", async (
+        group.MapGet("/{runId}/logs", async (
             string runId,
             ILogSource logSource,
             bool? timestamps,
@@ -192,7 +194,7 @@ public static class Runs
         .Produces(StatusCodes.Status200OK, null, "text/plain")
         .Produces<ErrorBody>(StatusCodes.Status404NotFound);
 
-        app.MapPost("/v1/runs/{runId}/cancel", async (
+        group.MapPost("/{runId}/cancel", async (
             string runId,
             [FromServices] IRunUpdater runUpdater,
             HttpContext context,
@@ -213,7 +215,7 @@ public static class Runs
         .Produces<Run>(StatusCodes.Status202Accepted)
         .Produces<ErrorBody>(StatusCodes.Status404NotFound);
 
-        app.MapPut("/v1/runs/{runId}", async (IRunUpdater updater, string runId, HttpContext context, CancellationToken cancellationToken) =>
+        group.MapPut("/{runId}", async (IRunUpdater updater, string runId, HttpContext context, CancellationToken cancellationToken) =>
         {
             if (!long.TryParse(runId, out var parsedRunId))
             {
@@ -252,7 +254,7 @@ public static class Runs
         .Produces<ErrorBody>(StatusCodes.Status412PreconditionFailed);
 
         // this endpoint is for testing purposes only, to force the background pod sweep
-        app.MapPost("/v1/runs/_sweep", async (IRunSweeper? runSweeper, CancellationToken cancellationToken) =>
+        group.MapPost("/_sweep", async (IRunSweeper? runSweeper, CancellationToken cancellationToken) =>
         {
             if (runSweeper is not null)
             {

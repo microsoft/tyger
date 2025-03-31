@@ -3,7 +3,6 @@
 
 using System.ComponentModel.DataAnnotations;
 using System.Text.RegularExpressions;
-
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Primitives;
@@ -21,9 +20,11 @@ public static class Codespecs
         builder.Services.AddSingleton<CodespecReader>();
     }
 
-    public static void MapCodespecs(this WebApplication app)
+    public static void MapCodespecs(this RouteGroupBuilder root)
     {
-        app.MapPut("/v1/codespecs/{name}", async (string name, Repository repository, HttpContext context) =>
+        var group = root.MapGroup("/codespecs");
+
+        group.MapPut("/{name}", async (string name, Repository repository, HttpContext context) =>
         {
             string pattern = @"^[a-z0-9\-._]*$";
             if (!Regex.IsMatch(name, pattern))
@@ -39,7 +40,7 @@ public static class Codespecs
             }
 
             var codespec = await repository.UpsertCodespec(name, newCodespec!, context.RequestAborted);
-            context.Response.Headers.Location = $"/v1/codespecs/{name}/{codespec.Version}";
+            context.Response.Headers.Location = $"/codespecs/{name}/{codespec.Version}";
             return Results.Json(codespec, statusCode: codespec.Version == 1 ? StatusCodes.Status201Created : StatusCodes.Status200OK);
         })
         .Accepts<Codespec>("application/json")
@@ -47,7 +48,7 @@ public static class Codespecs
         .Produces<Codespec>(StatusCodes.Status201Created)
         .Produces<ErrorBody>(StatusCodes.Status400BadRequest);
 
-        app.MapGet("/v1/codespecs/{name}", async (string name, Repository repository, HttpContext context) =>
+        group.MapGet("/{name}", async (string name, Repository repository, HttpContext context) =>
         {
             Codespec? codespec = await repository.GetLatestCodespec(name, context.RequestAborted);
             if (codespec == null)
@@ -55,12 +56,12 @@ public static class Codespecs
                 return Responses.NotFound();
             }
 
-            context.Response.Headers.Location = $"/v1/codespecs/{name}/{codespec.Version}";
+            context.Response.Headers.Location = $"/codespecs/{name}/{codespec.Version}";
             return Results.Ok(codespec);
         })
         .Produces<Codespec>();
 
-        app.MapGet("/v1/codespecs", async (Repository repository, int? limit, string? prefix, [FromQuery(Name = "_ct")] string? continuationToken, HttpContext context) =>
+        group.MapGet("/", async (Repository repository, int? limit, string? prefix, [FromQuery(Name = "_ct")] string? continuationToken, HttpContext context) =>
         {
             limit = limit is null ? 20 : Math.Min(limit.Value, 2000);
             (var codespecs, var nextContinuationToken) = await repository.GetCodespecs(limit.Value, prefix, continuationToken, context.RequestAborted);
@@ -85,7 +86,7 @@ public static class Codespecs
         })
         .Produces<CodespecPage>();
 
-        app.MapGet("/v1/codespecs/{name}/versions/{version}", async (string name, string version, Repository repository, CancellationToken cancellationToken) =>
+        group.MapGet("/{name}/versions/{version}", async (string name, string version, Repository repository, CancellationToken cancellationToken) =>
         {
             if (!int.TryParse(version, out var versionInt))
             {

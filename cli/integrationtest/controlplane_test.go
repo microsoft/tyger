@@ -192,11 +192,11 @@ func TestStatusAfterFinalization(t *testing.T) {
 	require.Equal("Hello: Bonjour", output)
 
 	// force logs to be archived
-	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPost, "v1/runs/_sweep", nil, nil)
+	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPost, "v1/runs/_sweep", nil, nil, nil)
 	require.Nil(err)
 
 	// force finalization
-	_, err = controlplane.InvokeRequest(context.Background(), http.MethodPost, "v1/runs/_sweep", nil, nil)
+	_, err = controlplane.InvokeRequest(context.Background(), http.MethodPost, "v1/runs/_sweep", nil, nil, nil)
 	require.Nil(err)
 
 	// get run
@@ -750,7 +750,7 @@ func TestInvalidCodespecNames(t *testing.T) {
 			}
 
 			newCodespec := model.Codespec{Kind: "worker", Image: BasicImage}
-			_, err = controlplane.InvokeRequest(context.Background(), http.MethodPut, fmt.Sprintf("v1/codespecs/%s", tC.name), newCodespec, nil)
+			_, err = controlplane.InvokeRequest(context.Background(), http.MethodPut, fmt.Sprintf("v1/codespecs/%s", tC.name), nil, newCodespec, nil)
 			if tC.valid {
 				require.Nil(t, err)
 			} else {
@@ -932,11 +932,11 @@ func TestUnrecognizedFieldsRejected(t *testing.T) {
 
 	codespec := model.Codespec{}
 	requestBody := map[string]string{"kind": "job", "image": "x"}
-	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
+	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPut, "v1/codespecs/tcs", nil, requestBody, &codespec)
 	require.Nil(err)
 
 	requestBody["unknownField"] = "y"
-	_, err = controlplane.InvokeRequest(context.Background(), http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
+	_, err = controlplane.InvokeRequest(context.Background(), http.MethodPut, "v1/codespecs/tcs", nil, requestBody, &codespec)
 	require.NotNil(err)
 }
 
@@ -946,11 +946,11 @@ func TestInvalidCodespecDiscriminatorRejected(t *testing.T) {
 
 	codespec := model.Codespec{}
 	requestBody := map[string]string{"image": "x"}
-	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
+	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPut, "v1/codespecs/tcs", nil, requestBody, &codespec)
 	require.ErrorContains(err, "Missing discriminator property 'kind'")
 
 	requestBody["kind"] = "missing"
-	_, err = controlplane.InvokeRequest(context.Background(), http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
+	_, err = controlplane.InvokeRequest(context.Background(), http.MethodPut, "v1/codespecs/tcs", nil, requestBody, &codespec)
 	require.ErrorContains(err, "Invalid value for the property 'kind'. It can be either 'job' or 'worker'")
 }
 
@@ -960,7 +960,7 @@ func TestInvalidCodespecMissingRequiredFieldsRejected(t *testing.T) {
 
 	codespec := model.Codespec{}
 	requestBody := map[string]string{"kind": "job"}
-	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
+	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPut, "v1/codespecs/tcs", nil, requestBody, &codespec)
 	require.ErrorContains(err, "missing required properties including: 'image'")
 }
 
@@ -1048,7 +1048,7 @@ func TestListRunsPaging(t *testing.T) {
 
 	for uri := "v1/runs?limit=5"; uri != ""; {
 		page := model.Page[model.Run]{}
-		_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, uri, nil, &page)
+		_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, uri, nil, nil, &page)
 		require.Nil(t, err)
 		for _, r := range page.Items {
 			delete(runs, fmt.Sprint(r.Id))
@@ -1139,7 +1139,7 @@ func TestListCodespecsPaging(t *testing.T) {
 
 	for uri := fmt.Sprintf("v1/codespecs?limit=5&prefix=%s", prefix); uri != ""; {
 		page := model.Page[model.Codespec]{}
-		_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, uri, nil, &page)
+		_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, uri, nil, nil, &page)
 		require.Nil(t, err)
 		for _, cs := range page.Items {
 			if _, ok := codespecs[*cs.Name]; ok {
@@ -1314,7 +1314,7 @@ func TestListCodespecsWithPrefix(t *testing.T) {
 
 	uri := "v1/codespecs?prefix=3d_"
 	page := model.Page[model.Codespec]{}
-	_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, uri, nil, &page)
+	_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, uri, nil, nil, &page)
 	require.Nil(t, err)
 	for _, cs := range page.Items {
 		require.Equal(t, strings.HasPrefix(*cs.Name, "3d_"), true)
@@ -1398,7 +1398,7 @@ func TestGetArchivedLogs(t *testing.T) {
 	waitForRunSuccess(t, runId)
 
 	// force logs to be archived
-	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPost, "v1/runs/_sweep", nil, nil)
+	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPost, "v1/runs/_sweep", nil, nil, nil)
 	require.Nil(t, err)
 
 	logs = runTygerSucceeds(t, "run", "logs", runId)
@@ -1453,7 +1453,7 @@ func TestGetArchivedLogsWithLongLines(t *testing.T) {
 	require.Equal(t, expectedLogs, logs)
 
 	// force logs to be archived
-	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPost, "v1/runs/_sweep", nil, nil)
+	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPost, "v1/runs/_sweep", nil, nil, nil)
 	require.Nil(t, err)
 
 	logs = runTygerSucceeds(t, "run", "logs", runId)

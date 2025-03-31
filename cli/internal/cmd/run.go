@@ -96,7 +96,7 @@ func newRunExecCommand() *cobra.Command {
 			resolvedCodespec = model.Codespec(*run.Job.Codespec.Inline)
 		} else if run.Job.Codespec.Named != nil {
 			relativeUri := fmt.Sprintf("v1/codespecs/%s", *run.Job.Codespec.Named)
-			_, err := controlplane.InvokeRequest(ctx, http.MethodGet, relativeUri, nil, &resolvedCodespec)
+			_, err := controlplane.InvokeRequest(ctx, http.MethodGet, relativeUri, nil, nil, &resolvedCodespec)
 			if err != nil {
 				return err
 			}
@@ -490,7 +490,7 @@ func newRunCreateCommandCore(
 
 			committedRun := model.Run{}
 			customHeaders := controlplane.WithHeaders(http.Header{"Idempotency-Key": []string{uuid.New().String()}})
-			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/runs", newRun, &committedRun, customHeaders)
+			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, "v1/runs", nil, newRun, &committedRun, customHeaders)
 			if err != nil {
 				return err
 			}
@@ -539,7 +539,7 @@ func newRunShowCommand() *cobra.Command {
 		Args:                  exactlyOneArg("run name"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			run := model.Run{}
-			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, fmt.Sprintf("v1/runs/%s", args[0]), nil, &run)
+			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, fmt.Sprintf("v1/runs/%s", args[0]), nil, nil, &run)
 			if err != nil {
 				return err
 			}
@@ -655,8 +655,7 @@ func newRunListCommand() *cobra.Command {
 				queryOptions.Add("status", status.String())
 			}
 
-			relativeUri := fmt.Sprintf("v1/runs?%s", queryOptions.Encode())
-			return controlplane.InvokePageRequests[model.Run](cmd.Context(), relativeUri, flags.limit, !cmd.Flags().Lookup("limit").Changed)
+			return controlplane.InvokePageRequests[model.Run](cmd.Context(), "v1/runs", queryOptions, flags.limit, !cmd.Flags().Lookup("limit").Changed)
 		},
 	}
 
@@ -688,7 +687,7 @@ func newRunSetCommand() *cobra.Command {
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			output := model.Run{}
-			return controlplane.SetFieldsOnEntity(cmd.Context(), fmt.Sprintf("v1/runs/%s", args[0]), etag, clearTags, tags, nil, &output)
+			return controlplane.SetFieldsOnEntity(cmd.Context(), fmt.Sprintf("v1/runs/%s", args[0]), nil, etag, clearTags, tags, nil, &output)
 		},
 	}
 
@@ -725,9 +724,8 @@ func newRunCountsCommand() *cobra.Command {
 				queryOptions.Add(fmt.Sprintf("tag[%s]", k), v)
 			}
 
-			relativeUri := fmt.Sprintf("v1/runs/counts?%s", queryOptions.Encode())
 			results := map[string]int{}
-			if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, relativeUri, nil, &results); err != nil {
+			if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, "/v1/runs/counts", queryOptions, nil, &results); err != nil {
 				return err
 			}
 
@@ -754,7 +752,7 @@ func newRunCancelCommand() *cobra.Command {
 		Args:                  exactlyOneArg("run name"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			run := model.Run{}
-			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, fmt.Sprintf("v1/runs/%s/cancel", args[0]), nil, &run)
+			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, fmt.Sprintf("v1/runs/%s/cancel", args[0]), nil, nil, &run)
 
 			if err != nil {
 				return err
@@ -947,7 +945,7 @@ func watchRun(ctx context.Context, runId int64) (<-chan model.Run, <-chan error)
 
 func pullImages(ctx context.Context, newRun model.Run) error {
 	serviceMetadata := model.ServiceMetadata{}
-	_, err := controlplane.InvokeRequest(ctx, http.MethodGet, "v1/metadata", nil, &serviceMetadata)
+	_, err := controlplane.InvokeRequest(ctx, http.MethodGet, "v1/metadata", nil, nil, &serviceMetadata)
 	if err != nil {
 		return fmt.Errorf("failed to get service metadata: %w", err)
 	}
@@ -967,7 +965,7 @@ func pullImages(ctx context.Context, newRun model.Run) error {
 			}
 
 			codeSpec := model.Codespec{}
-			_, err := controlplane.InvokeRequest(ctx, http.MethodGet, fmt.Sprintf("v1/codespecs/%s", *codespecRef.Named), nil, &codeSpec)
+			_, err := controlplane.InvokeRequest(ctx, http.MethodGet, fmt.Sprintf("v1/codespecs/%s", *codespecRef.Named), nil, nil, &codeSpec)
 			if err != nil {
 				return fmt.Errorf("failed to get codespec %s: %w", *codespecRef.Named, err)
 			}
