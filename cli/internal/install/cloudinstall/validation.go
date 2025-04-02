@@ -385,6 +385,10 @@ func (inst *Installer) quickValidateApiConfig(success *bool) {
 	if _, err := common.ParseTimeToLive(buffersConfig.SoftDeletedLifetime); err != nil {
 		validationError(success, "The `api.buffers.softDeletedLifetime` field be a valid TTL (D.HH:MM:SS)")
 	}
+
+	if apiConfig.Helm == nil {
+		apiConfig.Helm = &HelmConfig{}
+	}
 }
 
 func validationError(success *bool, format string, args ...any) {

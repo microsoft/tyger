@@ -35,6 +35,13 @@ func runWithMinimalTygerInstallation[T any](ctx context.Context, inst *Installer
 	}
 
 	if installationRevision == 0 {
+		if inst.Config.Api.Helm.Tyger == nil {
+			inst.Config.Api.Helm.Tyger = &HelmChartConfig{}
+		}
+		if inst.Config.Api.Helm.Tyger.Values == nil {
+			inst.Config.Api.Helm.Tyger.Values = map[string]any{}
+		}
+
 		inst.Config.Api.Helm.Tyger.Values["onlyMigrationDependencies"] = true
 		_, _, err = inst.InstallTygerHelmChart(ctx, false)
 		if err != nil {
