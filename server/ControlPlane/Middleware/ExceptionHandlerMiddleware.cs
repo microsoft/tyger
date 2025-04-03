@@ -9,6 +9,10 @@ namespace Tyger.ControlPlane.Middleware;
 
 public static class ExceptionHandlerMiddlewareRegistration
 {
+    public static void ConfigureExceptionHandling(this IHostApplicationBuilder builder)
+    {
+        builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = true);
+    }
     public static void UseExceptionHandling(this WebApplication app) => app.UseMiddleware<ExceptionHandlerMiddleware>();
 }
 
@@ -36,12 +40,11 @@ public class ExceptionHandlerMiddleware
         }
         catch (ValidationException e)
         {
-            if (!context.Response.HasStarted)
-            {
-                context.Response.StatusCode = StatusCodes.Status400BadRequest;
-            }
-
-            await context.Response.WriteAsJsonAsync(new ErrorBody("InvalidInput", e.ValidationResult.ErrorMessage!));
+            await Responses.InvalidInput(e.ValidationResult.ErrorMessage!).ExecuteAsync(context);
+        }
+        catch (BadHttpRequestException e)
+        {
+            await Responses.BadRequest(e.Message).ExecuteAsync(context);
         }
         catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
         {

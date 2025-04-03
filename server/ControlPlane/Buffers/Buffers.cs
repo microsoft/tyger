@@ -194,7 +194,27 @@ public static class Buffers
                 return Responses.NotFound();
             })
             .WithName("getBufferById")
+            .MapToApiVersion(ApiVersions.V1p0)
             .Produces<Buffer>(StatusCodes.Status200OK)
+            .Produces<ErrorBody>(StatusCodes.Status400BadRequest)
+            .Produces<ErrorBody>(StatusCodes.Status404NotFound);
+
+        group.MapGet("/{id}", async (BufferManager manager, HttpContext context, string id, bool softDeleted, CancellationToken cancellationToken) =>
+            {
+                var buffer = await manager.GetBufferById(id, softDeleted, cancellationToken);
+                if (buffer != null)
+                {
+                    context.Response.Headers.ETag = buffer.ETag;
+                    return Results.Ok(buffer);
+                }
+
+                return Responses.NotFound();
+            })
+            .WithName("getBufferById_deprecated")
+            .MapToApiVersion(ApiVersions.V0p8)
+            .MapToApiVersion(ApiVersions.V0p9)
+            .Produces<Buffer>(StatusCodes.Status200OK)
+            .Produces<ErrorBody>(StatusCodes.Status400BadRequest)
             .Produces<ErrorBody>(StatusCodes.Status404NotFound);
 
         group.MapGet("/{id}/hello", async (BufferManager manager, HttpContext context, string id, CancellationToken cancellationToken) =>
@@ -205,7 +225,7 @@ public static class Buffers
                 }, context.RequestAborted);
             })
             .WithName("getBufferHello")
-            .MapToApiVersion(ApiVersions.V1p1)
+            .MapToApiVersion(ApiVersions.V0p9)
             .Produces<Buffer>(StatusCodes.Status200OK);
 
         group.MapPut("/{id}", async (BufferManager manager, HttpContext context, string id, CancellationToken cancellationToken) =>

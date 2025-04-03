@@ -40,6 +40,7 @@ void AddCommonServices(IHostApplicationBuilder builder)
     builder.AddDatabase();
     builder.AddCompute();
     builder.AddBuffers();
+    builder.ConfigureExceptionHandling();
     builder.ConfigureLogging();
     builder.AddManagedIdentity();
     builder.AddJsonFormatting();
@@ -70,9 +71,9 @@ void RunServer()
 
     var api = app.NewVersionedApi();
     var root = api.MapGroup("/")
+        .HasApiVersion(ApiVersions.V0p8)
         .HasApiVersion(ApiVersions.V0p9)
-        .HasApiVersion(ApiVersions.V1p0)
-        .HasApiVersion(ApiVersions.V1p1);
+        .HasApiVersion(ApiVersions.V1p0);
 
     root.MapBuffers();
     root.MapCodespecs();
