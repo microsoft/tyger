@@ -9,10 +9,14 @@ namespace Tyger.ControlPlane.Versioning;
 
 public static class ApiVersions
 {
-
     public static readonly ApiVersion V0p8 = new(0, 8);
     public static readonly ApiVersion V0p9 = new(0, 9);
     public static readonly ApiVersion V1p0 = new(1, 0);
+
+    public static IEnumerable<ApiVersion> SupportedVersions()
+    {
+        return [V0p8, V0p9, V1p0];
+    }
 
     public static void AddApiVersioning(this IHostApplicationBuilder builder)
     {
