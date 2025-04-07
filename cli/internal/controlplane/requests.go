@@ -64,18 +64,24 @@ func InvokeRequest(ctx context.Context, method string, relativeUri string, query
 	}
 
 	if queryParams == nil {
-		queryParams = url.Values{}
+		if strings.Contains(relativeUri, "?") {
+			url, err := url.Parse(relativeUri)
+			if err != nil {
+				return nil, err
+			}
+			relativeUri = url.Path
+			queryParams = url.Query()
+		} else {
+			queryParams = url.Values{}
+		}
 	}
-	apiVersion := os.Getenv("TYGER_CLIENT_API_VERSION")
-	if apiVersion == "" {
-		apiVersion = "1.0"
-	}
-	queryParams.Add("api-version", apiVersion)
 
-	absoluteUri := fmt.Sprintf("%s/%s", tygerClient.ControlPlaneUrl, relativeUri)
-	if queryParams != nil {
-		absoluteUri = fmt.Sprintf("%s?%s", absoluteUri, queryParams.Encode())
+	if _, exists := queryParams[ApiVersionQueryParam]; !exists {
+		apiVersion := GetApiVersionFromContext(ctx)
+		queryParams.Add(ApiVersionQueryParam, apiVersion)
 	}
+
+	absoluteUri := fmt.Sprintf("%s/%s?%s", tygerClient.ControlPlaneUrl, relativeUri, queryParams.Encode())
 	var body io.Reader = nil
 	var serializedBody []byte
 	if input != nil {

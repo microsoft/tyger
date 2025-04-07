@@ -66,23 +66,17 @@ void RunServer()
     app.UseRequestId();
     app.UseBaggage();
     app.UseExceptionHandling();
+    app.UseApiV1BackwardCompatibility();
     app.UseAuth();
-    app.UseApiVersioning();
 
-    var api = app.NewVersionedApi();
-    var root = api.MapGroup("/")
-        .HasApiVersion(ApiVersions.V0p8)
-        .HasApiVersion(ApiVersions.V0p9)
-        .HasApiVersion(ApiVersions.V1p0);
-
+    var root = app.ConfigureVersionedRouteGroup("/");
     root.MapBuffers();
     root.MapCodespecs();
     root.MapRuns();
-
     root.MapServiceMetadata();
     root.MapDatabaseVersionInUse();
-    root.MapHealthChecks("/healthcheck").AllowAnonymous();
-
+    root.MapHealthChecks("/healthcheck").AllowAnonymous().IsApiVersionNeutral();
+    root.MapSwagger().AllowAnonymous().IsApiVersionNeutral();
     root.MapFallback(() => Responses.InvalidRoute("The request path was not recognized."));
 
     app.UseOpenApi();

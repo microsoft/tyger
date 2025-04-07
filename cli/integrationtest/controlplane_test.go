@@ -977,7 +977,8 @@ func TestOpenApiSpecIsAsExpected(t *testing.T) {
 	client, err := controlplane.GetClientFromCache()
 	require.NoError(t, err)
 
-	swaggerUri := fmt.Sprintf("%s/swagger/v1/swagger.yaml", client.ControlPlaneUrl)
+	swaggerUri := fmt.Sprintf("%s/swagger/v1.0/swagger.yaml", client.ControlPlaneUrl)
+	t.Logf("swaggerUri: %s", swaggerUri)
 	resp, err := client.ControlPlaneClient.Get(swaggerUri)
 	require.Nil(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -1346,7 +1347,7 @@ func TestGetLogsFromPod(t *testing.T) {
 	waitForRunStarted(t, runId)
 
 	// block until we get the first line
-	resp, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, fmt.Sprintf("v1/runs/%s/logs?follow=true", runId), nil, nil, controlplane.WithLeaveResponseOpen())
+	resp, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, fmt.Sprintf("v1/runs/%s/logs?follow=true", runId), nil, nil, nil, controlplane.WithLeaveResponseOpen())
 	require.Nil(t, err)
 	defer resp.Body.Close()
 	reader := bufio.NewReader(resp.Body)

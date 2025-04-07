@@ -725,7 +725,7 @@ func newRunCountsCommand() *cobra.Command {
 			}
 
 			results := map[string]int{}
-			if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, "/v1/runs/counts", queryOptions, nil, &results); err != nil {
+			if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, "v1/runs/counts", queryOptions, nil, &results); err != nil {
 				return err
 			}
 
@@ -839,7 +839,7 @@ func getLogs(ctx context.Context, runId string, timestamps bool, tailLines int, 
 		if len(queryString) > 0 {
 			queryString = "?" + queryString
 		}
-		resp, err := controlplane.InvokeRequest(ctx, http.MethodGet, fmt.Sprintf("v1/runs/%s/logs%s", runId, queryString), nil, nil, controlplane.WithLeaveResponseOpen())
+		resp, err := controlplane.InvokeRequest(ctx, http.MethodGet, fmt.Sprintf("v1/runs/%s/logs%s", runId, queryString), nil, nil, nil, controlplane.WithLeaveResponseOpen())
 		if err != nil {
 			return err
 		}
@@ -898,7 +898,9 @@ func watchRun(ctx context.Context, runId int64) (<-chan model.Run, <-chan error)
 	go func() {
 		defer close(runEventChan)
 
-		resp, err := controlplane.InvokeRequest(ctx, http.MethodGet, fmt.Sprintf("v1/runs/%d?watch=true", runId), nil, nil, controlplane.WithLeaveResponseOpen())
+		options := url.Values{}
+		options.Add("watch", "true")
+		resp, err := controlplane.InvokeRequest(ctx, http.MethodGet, fmt.Sprintf("v1/runs/%d", runId), options, nil, nil, controlplane.WithLeaveResponseOpen())
 		if err != nil {
 			errChan <- err
 			return

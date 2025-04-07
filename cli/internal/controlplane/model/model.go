@@ -18,6 +18,7 @@ type ServiceMetadata struct {
 	CliAppUri      string   `json:"cliAppUri,omitempty"`
 	DataPlaneProxy string   `json:"dataPlaneProxy,omitempty"`
 	Capabilities   []string `json:"capabilities,omitempty"`
+	ApiVersions    []string `json:"apiVersions,omitempty"`
 }
 
 type Buffer struct {

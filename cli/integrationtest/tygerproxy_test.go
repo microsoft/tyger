@@ -133,22 +133,26 @@ timeoutSeconds: 600`, BasicImage)
 		return nil
 	}
 
+	apiVersion := fmt.Sprintf("%s=%s", controlplane.ApiVersionQueryParam, controlplane.DefaultApiVersion)
+
 	require.NotNil(
 		findEntry(
 			"method", "GET",
-			"url", fmt.Sprintf("/v1/runs/%s", runId)),
+			"url", fmt.Sprintf("/v1/runs/%s?%s", runId, apiVersion)),
 		"Could not find run show in logs")
 
+	t.Logf("Looking for input buffer access: %s", fmt.Sprintf("/v1/buffers/%s/access?%s&writeable=true", inputBufferId, apiVersion))
 	require.NotNil(
 		findEntry(
 			"method", "POST",
-			"url", fmt.Sprintf("/v1/buffers/%s/access?writeable=true", inputBufferId)),
+			"url", fmt.Sprintf("/v1/buffers/%s/access?%s&writeable=true", inputBufferId, apiVersion)),
 		"Could not find input buffer access in logs")
 
+	t.Logf("Looking for output buffer access: %s", fmt.Sprintf("/v1/buffers/%s/access?%s&writeable=fales", outputBufferId, apiVersion))
 	require.NotNil(
 		findEntry(
 			"method", "POST",
-			"url", fmt.Sprintf("/v1/buffers/%s/access?writeable=false", outputBufferId)),
+			"url", fmt.Sprintf("/v1/buffers/%s/access?%s&writeable=false", outputBufferId, apiVersion)),
 		"Could not find output buffer access in logs")
 
 	require.NotNil(
@@ -159,7 +163,7 @@ timeoutSeconds: 600`, BasicImage)
 	require.NotNil(
 		findEntry(
 			"method", "GET",
-			"url", fmt.Sprintf("/v1/runs/%s/logs", runId)),
+			"url", fmt.Sprintf("/v1/runs/%s/logs?%s", runId, apiVersion)),
 		"Could not find run logs request in logs")
 }
 

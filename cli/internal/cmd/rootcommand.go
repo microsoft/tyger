@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/microsoft/tyger/cli/internal/client"
+	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/logging"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -73,6 +74,12 @@ func NewCommonRootCommand(commit string) *cobra.Command {
 			zerolog.DefaultContextLogger = &log.Logger
 			ctx := logging.SetLogSinkOnContext(cmd.Context(), logSink)
 			ctx = log.Logger.WithContext(ctx)
+
+			apiVersion := os.Getenv("TYGER_CLIENT_API_VERSION")
+			if apiVersion == "" {
+				apiVersion = controlplane.DefaultApiVersion
+			}
+			ctx = controlplane.SetApiVersionOnContext(ctx, apiVersion)
 
 			cmd.SetContext(ctx)
 

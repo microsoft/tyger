@@ -33,12 +33,23 @@ public static class ApiVersions
             });
     }
 
-    public static void UseApiVersioning(this WebApplication app)
+    public static void UseApiV1BackwardCompatibility(this WebApplication app)
     {
         // For backward-compatibility with old clients, rewrite all requests starting with `/v1/`
         var options = new RewriteOptions()
             .Add(RewriteRules.RewriteV1ApiRequests);
         app.UseRewriter(options);
+    }
+
+    public static RouteGroupBuilder ConfigureVersionedRouteGroup(this WebApplication app, string prefix)
+    {
+        var api = app.NewVersionedApi();
+        var root = api.MapGroup(prefix)
+            .HasApiVersion(V0p8)
+            .HasApiVersion(V0p9)
+            .HasApiVersion(V1p0);
+
+        return root;
     }
 }
 

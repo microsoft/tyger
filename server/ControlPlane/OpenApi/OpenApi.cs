@@ -83,6 +83,7 @@ public static class OpenApi
     public static void UseOpenApi(this WebApplication app)
     {
         app.UseSwagger();
+
         if (app.Environment.IsDevelopment())
         {
             app.UseSwaggerUI(options =>
@@ -113,7 +114,7 @@ internal sealed class ConfigureSwaggerOptions : IConfigureOptions<SwaggerGenOpti
               description.GroupName,
                 new OpenApiInfo()
                 {
-                    Title = $"Tyger API",
+                    Title = $"Tyger Server",
                     Version = description.ApiVersion.ToString(),
                 });
         }
