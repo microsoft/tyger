@@ -237,7 +237,7 @@ func newLoginStatusCommand() *cobra.Command {
 				if tygerClient.RawProxy != nil {
 					result.Proxy = tygerClient.RawProxy.String()
 				}
-				if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, "v1/metadata", nil, nil, &result.Metadata); err != nil {
+				if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, "/metadata", nil, nil, &result.Metadata); err != nil {
 					return fmt.Errorf("failed to get service metadata: %v", err)
 				}
 

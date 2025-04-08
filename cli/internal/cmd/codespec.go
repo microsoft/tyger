@@ -257,7 +257,7 @@ func newCodespecCreateCommand() *cobra.Command {
 				newCodespec.Resources.Gpu = &q
 			}
 
-			resp, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPut, fmt.Sprintf("v1/codespecs/%s", *newCodespec.Name), nil, newCodespec, &newCodespec)
+			resp, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPut, fmt.Sprintf("/codespecs/%s", *newCodespec.Name), nil, newCodespec, &newCodespec)
 			if err != nil {
 				return err
 			}
@@ -306,7 +306,7 @@ func newCodespecShowCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
 
-			relativeUri := fmt.Sprintf("v1/codespecs/%s", name)
+			relativeUri := fmt.Sprintf("/codespecs/%s", name)
 			var version *int
 			if cmd.Flag("version").Changed {
 				version = &flags.version
@@ -362,7 +362,7 @@ func codespecListCommand() *cobra.Command {
 				queryOptions.Add("prefix", flags.prefix)
 			}
 
-			return controlplane.InvokePageRequests[model.Codespec](cmd.Context(), "v1/codespecs", queryOptions, flags.limit, !cmd.Flags().Lookup("limit").Changed)
+			return controlplane.InvokePageRequests[model.Codespec](cmd.Context(), "/codespecs", queryOptions, flags.limit, !cmd.Flags().Lookup("limit").Changed)
 		},
 	}
 

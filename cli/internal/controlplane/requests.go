@@ -64,15 +64,19 @@ func InvokeRequest(ctx context.Context, method string, relativeUri string, query
 	}
 
 	if queryParams == nil {
-		if strings.Contains(relativeUri, "?") {
-			url, err := url.Parse(relativeUri)
-			if err != nil {
-				return nil, err
+		queryParams = url.Values{}
+	}
+
+	if strings.Contains(relativeUri, "?") {
+		url, err := url.Parse(relativeUri)
+		if err != nil {
+			return nil, err
+		}
+		relativeUri = url.Path
+		for key, values := range url.Query() {
+			for _, value := range values {
+				queryParams.Add(key, value)
 			}
-			relativeUri = url.Path
-			queryParams = url.Query()
-		} else {
-			queryParams = url.Values{}
 		}
 	}
 
@@ -81,7 +85,9 @@ func InvokeRequest(ctx context.Context, method string, relativeUri string, query
 		queryParams.Add(ApiVersionQueryParam, apiVersion)
 	}
 
-	absoluteUri := fmt.Sprintf("%s/%s?%s", tygerClient.ControlPlaneUrl, relativeUri, queryParams.Encode())
+	absoluteUri := tygerClient.ControlPlaneUrl.JoinPath(relativeUri)
+	absoluteUri.RawQuery = queryParams.Encode()
+
 	var body io.Reader = nil
 	var serializedBody []byte
 	if input != nil {
@@ -92,7 +98,7 @@ func InvokeRequest(ctx context.Context, method string, relativeUri string, query
 		body = bytes.NewBuffer(serializedBody)
 	}
 
-	req, err := retryablehttp.NewRequestWithContext(ctx, method, absoluteUri, body)
+	req, err := retryablehttp.NewRequestWithContext(ctx, method, absoluteUri.String(), body)
 	if err != nil {
 		return nil, err
 	}
