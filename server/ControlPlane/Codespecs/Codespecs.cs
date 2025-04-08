@@ -22,9 +22,9 @@ public static class Codespecs
 
     public static void MapCodespecs(this RouteGroupBuilder root)
     {
-        var group = root.MapGroup("/codespecs");
+        var codespecs = root.MapGroup("/codespecs");
 
-        group.MapPut("/{name}", async (string name, Repository repository, HttpContext context) =>
+        codespecs.MapPut("/{name}", async (string name, Repository repository, HttpContext context) =>
         {
             string pattern = @"^[a-z0-9\-._]*$";
             if (!Regex.IsMatch(name, pattern))
@@ -48,7 +48,7 @@ public static class Codespecs
         .Produces<Codespec>(StatusCodes.Status201Created)
         .Produces<ErrorBody>(StatusCodes.Status400BadRequest);
 
-        group.MapGet("/{name}", async (string name, Repository repository, HttpContext context) =>
+        codespecs.MapGet("/{name}", async (string name, Repository repository, HttpContext context) =>
         {
             Codespec? codespec = await repository.GetLatestCodespec(name, context.RequestAborted);
             if (codespec == null)
@@ -61,7 +61,7 @@ public static class Codespecs
         })
         .Produces<Codespec>();
 
-        group.MapGet("/", async (Repository repository, int? limit, string? prefix, [FromQuery(Name = "_ct")] string? continuationToken, HttpContext context) =>
+        codespecs.MapGet("/", async (Repository repository, int? limit, string? prefix, [FromQuery(Name = "_ct")] string? continuationToken, HttpContext context) =>
         {
             limit = limit is null ? 20 : Math.Min(limit.Value, 2000);
             (var codespecs, var nextContinuationToken) = await repository.GetCodespecs(limit.Value, prefix, continuationToken, context.RequestAborted);
@@ -86,7 +86,7 @@ public static class Codespecs
         })
         .Produces<CodespecPage>();
 
-        group.MapGet("/{name}/versions/{version}", async (string name, string version, Repository repository, CancellationToken cancellationToken) =>
+        codespecs.MapGet("/{name}/versions/{version}", async (string name, string version, Repository repository, CancellationToken cancellationToken) =>
         {
             if (!int.TryParse(version, out var versionInt))
             {
