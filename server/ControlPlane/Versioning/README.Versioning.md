@@ -54,6 +54,11 @@ var root = api.MapGroup(prefix)
 At this point, **all** existing endpoints will support the new API version.
 See below for examples of restricting endpoints to specific API versions.
 
+The OpenAPI spec for each API version can be retrieved from the server at `/swagger/v{{API_VERSION}}/swagger.{yaml,json}`, e.g.
+
+```bash
+curl -v https://jnaegele-tyger.westus2.cloudapp.azure.com/swagger/v2.0/swagger.yaml
+```
 
 ### Add a new endpoint
 

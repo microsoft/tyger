@@ -118,7 +118,7 @@ func newStdioProxyLoginCommand() *cobra.Command {
 				return err
 			}
 
-			resp, err := c.Get(parsedServerUrl.JoinPath("/metadata").String())
+			resp, err := c.Get(parsedServerUrl.JoinPath("metadata").String())
 			if err != nil {
 				return err
 			}

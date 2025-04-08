@@ -10,7 +10,6 @@ using Tyger.Common.DependencyInjection;
 using Tyger.ControlPlane.Json;
 using Tyger.ControlPlane.Model;
 using Tyger.ControlPlane.OpenApi;
-using Tyger.ControlPlane.Versioning;
 using Buffer = Tyger.ControlPlane.Model.Buffer;
 
 namespace Tyger.ControlPlane.Buffers;
@@ -194,39 +193,9 @@ public static class Buffers
                 return Responses.NotFound();
             })
             .WithName("getBufferById")
-            .MapToApiVersion(ApiVersions.V1p0)
             .Produces<Buffer>(StatusCodes.Status200OK)
             .Produces<ErrorBody>(StatusCodes.Status400BadRequest)
             .Produces<ErrorBody>(StatusCodes.Status404NotFound);
-
-        buffers.MapGet("/{id}", async (BufferManager manager, HttpContext context, string id, bool softDeleted, CancellationToken cancellationToken) =>
-            {
-                var buffer = await manager.GetBufferById(id, softDeleted, cancellationToken);
-                if (buffer != null)
-                {
-                    context.Response.Headers.ETag = buffer.ETag;
-                    return Results.Ok(buffer);
-                }
-
-                return Responses.NotFound();
-            })
-            .WithName("getBufferById_deprecated")
-            .MapToApiVersion(ApiVersions.V0p8)
-            .MapToApiVersion(ApiVersions.V0p9)
-            .Produces<Buffer>(StatusCodes.Status200OK)
-            .Produces<ErrorBody>(StatusCodes.Status400BadRequest)
-            .Produces<ErrorBody>(StatusCodes.Status404NotFound);
-
-        buffers.MapGet("/{id}/hello", async (BufferManager manager, HttpContext context, string id, CancellationToken cancellationToken) =>
-            {
-                return await Task.Run(() =>
-                {
-                    return Results.Ok("hello");
-                }, context.RequestAborted);
-            })
-            .WithName("getBufferHello")
-            .MapToApiVersion(ApiVersions.V0p9)
-            .Produces<Buffer>(StatusCodes.Status200OK);
 
         buffers.MapPut("/{id}", async (BufferManager manager, HttpContext context, string id, CancellationToken cancellationToken) =>
             {

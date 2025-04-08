@@ -11,6 +11,7 @@ public static class ExceptionHandlerMiddlewareRegistration
 {
     public static void ConfigureExceptionHandling(this IHostApplicationBuilder builder)
     {
+        // Throw on bad request so we can catch Parameter Binding errors and return a useful error message
         builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = true);
     }
     public static void UseExceptionHandling(this WebApplication app) => app.UseMiddleware<ExceptionHandlerMiddleware>();
