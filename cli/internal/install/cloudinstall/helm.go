@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -29,6 +30,7 @@ import (
 	"helm.sh/helm/v3/pkg/storage/driver"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
@@ -38,7 +40,11 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *install.Promise[*rest.Config]) (any, error) {
+const (
+	TraefikNamespace = "traefik"
+)
+
+func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *install.Promise[*rest.Config], keyVaultClientManagedIdentityPromise *install.Promise[*armmsi.Identity]) (any, error) {
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
 		return nil, install.ErrDependencyFailed
@@ -46,9 +52,19 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 
 	log.Info().Msg("Installing Traefik")
 
+	kvClientIdentity, err := keyVaultClientManagedIdentityPromise.Await()
+	if err != nil {
+		return nil, install.ErrDependencyFailed
+	}
+
+	clientset := kubernetes.NewForConfigOrDie(restConfig)
+	if err := inst.ensureTraefikDynamicConfigMap(ctx, clientset); err != nil {
+		return nil, fmt.Errorf("failed to ensure Traefik dynamic ConfigMap: %w", err)
+	}
+
 	traefikConfig := HelmChartConfig{
 		RepoName:    "traefik",
-		Namespace:   "traefik",
+		Namespace:   TraefikNamespace,
 		ReleaseName: "traefik",
 		RepoUrl:     "https://helm.traefik.io/traefik",
 		ChartRef:    "traefik/traefik",
@@ -72,6 +88,41 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 				"annotations": map[string]any{
 					"service.beta.kubernetes.io/azure-dns-label-name": strings.Split(inst.Config.Api.DomainName, ".")[0],
 				},
+			},
+			"serviceAccountAnnotations": map[string]string{
+				"azure.workload.identity/client-id": *kvClientIdentity.Properties.ClientID,
+			},
+			"volumes": []any{
+				map[string]any{
+					"name":      "traefik-dynamic",
+					"mountPath": "/config",
+					"type":      "configMap",
+				},
+			},
+			"deployment": map[string]any{
+				"additionalVolumes": []any{
+					map[string]any{
+						"name": "kv-certs",
+						"csi": map[string]any{
+							"driver":   "secrets-store.csi.k8s.io",
+							"readOnly": true,
+							"volumeAttributes": map[string]any{
+								"secretProviderClass": inst.Config.Cloud.TlsCertificate.CertificateName,
+							},
+						},
+					},
+				},
+			},
+			"additionalVolumeMounts": []any{
+				map[string]any{
+					"name":      "kv-certs",
+					"mountPath": "/certs",
+					"readOnly":  true,
+				},
+			},
+			"additionalArguments": []string{
+				"--entryPoints.websecure.http.tls=true",
+				"--providers.file.filename=/config/dynamic.toml",
 			},
 		}}
 
@@ -105,6 +156,59 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 	}
 
 	return nil, nil
+}
+
+func (inst *Installer) ensureTraefikDynamicConfigMap(ctx context.Context, clientset *kubernetes.Clientset) error {
+	configMapName := "traefik-dynamic"
+	namespace := TraefikNamespace
+
+	desiredData := map[string]string{
+		"dynamic.toml": `
+# Dynamic configuration
+[[tls.certificates]]
+certFile = "/certs/tls.crt"
+keyFile = "/certs/tls.key"
+`,
+	}
+
+	// Check if the ConfigMap already exists
+	existingConfigMap, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, configMapName, metav1.GetOptions{})
+	if err == nil {
+		// ConfigMap exists, check if the data matches
+		if reflect.DeepEqual(existingConfigMap.Data, desiredData) {
+			// No update needed
+			return nil
+		}
+
+		// Update the ConfigMap if the data is different
+		existingConfigMap.Data = desiredData
+		_, err = clientset.CoreV1().ConfigMaps(namespace).Update(ctx, existingConfigMap, metav1.UpdateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to update ConfigMap: %w", err)
+		}
+		return nil
+	}
+
+	if !apierrors.IsNotFound(err) {
+		// Return any error other than "not found"
+		return fmt.Errorf("failed to get ConfigMap: %w", err)
+	}
+
+	// ConfigMap does not exist, create it
+	newConfigMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      configMapName,
+			Namespace: namespace,
+		},
+		Data: desiredData,
+	}
+
+	_, err = clientset.CoreV1().ConfigMaps(namespace).Create(ctx, newConfigMap, metav1.CreateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to create ConfigMap: %w", err)
+	}
+
+	return nil
 }
 
 func (inst *Installer) installCertManager(ctx context.Context, restConfigPromise *install.Promise[*rest.Config]) (any, error) {

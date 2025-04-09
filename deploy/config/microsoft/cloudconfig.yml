@@ -8,6 +8,13 @@ cloud:
   logAnalyticsWorkspace:
     resourceGroup: eminence
     name: eminence
+
+  tlsCertificate:
+    keyVault:
+      resourceGroup: eminence
+      name: eminence
+    certificateName: temp-tls
+
   compute:
     clusters:
       - name: ${TYGER_ENVIRONMENT_NAME}

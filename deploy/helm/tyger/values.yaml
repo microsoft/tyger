@@ -26,7 +26,6 @@ security:
 
 hostname:
 tls:
-  enabled: true
   letsEncypt:
     enabled: true
     email:

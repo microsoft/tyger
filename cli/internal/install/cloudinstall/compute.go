@@ -132,6 +132,19 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 		}
 	}
 
+	if inst.Config.Cloud.TlsCertificate.KeyVault != nil {
+		if cluster.Properties.AddonProfiles == nil {
+			cluster.Properties.AddonProfiles = make(map[string]*armcontainerservice.ManagedClusterAddonProfile)
+		}
+		cluster.Properties.AddonProfiles["azureKeyvaultSecretsProvider"] = &armcontainerservice.ManagedClusterAddonProfile{
+			Enabled: Ptr(true),
+			Config: map[string]*string{
+				"enableSecretRotation": Ptr("true"),
+				"rotationPollInterval": Ptr("10m"),
+			},
+		}
+	}
+
 	cluster.Properties.AgentPoolProfiles = []*armcontainerservice.ManagedClusterAgentPoolProfile{
 		{
 			Name:                &clusterConfig.SystemNodePool.Name,

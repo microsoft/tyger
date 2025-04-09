@@ -16,12 +16,13 @@ import (
 )
 
 const (
-	tygerServerManagedIdentityName     = "tyger-server"
-	migrationRunnerManagedIdentityName = "tyger-migration-runner"
+	tygerServerManagedIdentityName           = "tyger-server"
+	migrationRunnerManagedIdentityName       = "tyger-migration-runner"
+	traefikKeyVaultClientManagedIdentityName = "traefik"
 )
 
 func isSystemManagedIdentityName(name string) bool {
-	return strings.EqualFold(name, tygerServerManagedIdentityName) || strings.EqualFold(name, migrationRunnerManagedIdentityName)
+	return strings.EqualFold(name, tygerServerManagedIdentityName) || strings.EqualFold(name, migrationRunnerManagedIdentityName) || strings.EqualFold(name, traefikKeyVaultClientManagedIdentityName)
 }
 
 func (inst *Installer) createTygerServerManagedIdentity(ctx context.Context) (*armmsi.Identity, error) {
@@ -30,6 +31,10 @@ func (inst *Installer) createTygerServerManagedIdentity(ctx context.Context) (*a
 
 func (inst *Installer) createMigrationRunnerManagedIdentity(ctx context.Context) (*armmsi.Identity, error) {
 	return inst.createManagedIdentity(ctx, migrationRunnerManagedIdentityName)
+}
+
+func (inst *Installer) createTraefikKeyVaultClientManagedIdentity(ctx context.Context) (*armmsi.Identity, error) {
+	return inst.createManagedIdentity(ctx, traefikKeyVaultClientManagedIdentityName)
 }
 
 func (inst *Installer) createManagedIdentity(ctx context.Context, name string) (*armmsi.Identity, error) {
@@ -94,6 +99,7 @@ func (inst *Installer) createFederatedIdentityCredential(
 	ctx context.Context,
 	managedIdentityPromise *install.Promise[*armmsi.Identity],
 	clusterPromise *install.Promise[*armcontainerservice.ManagedCluster],
+	namespace string,
 ) (any, error) {
 	cluster, err := clusterPromise.Await()
 	if err != nil {
@@ -111,9 +117,9 @@ func (inst *Installer) createFederatedIdentityCredential(
 
 	var subject string
 	if isSystemManagedIdentityName(*mi.Name) {
-		subject = fmt.Sprintf("system:serviceaccount:%s:%s", TygerNamespace, *mi.Name)
+		subject = fmt.Sprintf("system:serviceaccount:%s:%s", namespace, *mi.Name)
 	} else {
-		subject = fmt.Sprintf("system:serviceaccount:%s:tyger-custom-%s-job", TygerNamespace, *mi.Name)
+		subject = fmt.Sprintf("system:serviceaccount:%s:tyger-custom-%s-job", namespace, *mi.Name)
 	}
 
 	issuerUrl := *cluster.Properties.OidcIssuerProfile.IssuerURL

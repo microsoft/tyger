@@ -252,6 +252,11 @@ func (inst *Installer) createPromises(ctx context.Context) install.PromiseGroup 
 	tygerServerManagedIdentityPromise := install.NewPromise(ctx, group, inst.createTygerServerManagedIdentity)
 	migrationRunnerManagedIdentityPromise := install.NewPromise(ctx, group, inst.createMigrationRunnerManagedIdentity)
 
+	var traefikKeyVaultClientManagedIdentityPromise *install.Promise[*armmsi.Identity]
+	if inst.Config.Cloud.TlsCertificate != nil {
+		traefikKeyVaultClientManagedIdentityPromise = install.NewPromise(ctx, group, inst.createTraefikKeyVaultClientManagedIdentity)
+	}
+
 	customIdentityPromises := make([]*install.Promise[*armmsi.Identity], 0)
 
 	for _, identityName := range inst.Config.Cloud.Compute.Identities {
@@ -277,18 +282,33 @@ func (inst *Installer) createPromises(ctx context.Context) install.PromiseGroup 
 		if clusterConfig.ApiHost {
 			createApiHostClusterPromise = createClusterPromise
 			install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
-				return inst.createFederatedIdentityCredential(ctx, tygerServerManagedIdentityPromise, createClusterPromise)
+				return inst.createFederatedIdentityCredential(ctx, tygerServerManagedIdentityPromise, createClusterPromise, TygerNamespace)
 			})
 			install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
-				return inst.createFederatedIdentityCredential(ctx, migrationRunnerManagedIdentityPromise, createClusterPromise)
+				return inst.createFederatedIdentityCredential(ctx, migrationRunnerManagedIdentityPromise, createClusterPromise, TygerNamespace)
 			})
 		}
 
 		for _, identityPromise := range customIdentityPromises {
 			install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
-				return inst.createFederatedIdentityCredential(ctx, identityPromise, createClusterPromise)
+				return inst.createFederatedIdentityCredential(ctx, identityPromise, createClusterPromise, TygerNamespace)
 			})
 		}
+	}
+
+	if traefikKeyVaultClientManagedIdentityPromise != nil {
+		install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
+			return inst.createFederatedIdentityCredential(ctx, traefikKeyVaultClientManagedIdentityPromise, createApiHostClusterPromise, TraefikNamespace)
+		})
+
+		install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
+			kvClient, err := traefikKeyVaultClientManagedIdentityPromise.Await()
+			if err != nil {
+				return nil, install.ErrDependencyFailed
+			}
+
+			return nil, inst.GrantAccessToKeyVault(ctx, *kvClient.Properties.PrincipalID)
+		})
 	}
 
 	getAdminCredsPromise := install.NewPromiseAfter(ctx, group, inst.getAdminRESTConfig, createApiHostClusterPromise)
@@ -312,7 +332,15 @@ func (inst *Installer) createPromises(ctx context.Context) install.PromiseGroup 
 	}
 
 	install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
-		return inst.installTraefik(ctx, getAdminCredsPromise)
+		if _, err := createNamespace(ctx, getAdminCredsPromise, TraefikNamespace); err != nil {
+			return nil, fmt.Errorf("failed to create traefik namespace: %w", err)
+		}
+
+		if err := inst.addSecretProviderClass(ctx, TraefikNamespace, traefikKeyVaultClientManagedIdentityPromise, getAdminCredsPromise); err != nil {
+			return nil, err
+		}
+
+		return inst.installTraefik(ctx, getAdminCredsPromise, traefikKeyVaultClientManagedIdentityPromise)
 	})
 
 	install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {

@@ -65,6 +65,7 @@ func (inst *Installer) quickValidateCloudConfig(success *bool) {
 	quickValidateComputeConfig(success, cloudConfig)
 	quickValidateStorageConfig(success, cloudConfig)
 	quickValidateDatabaseConfig(success, cloudConfig)
+	quickValidateTlsConfig(success, cloudConfig.TlsCertificate)
 }
 
 func quickValidateComputeConfig(success *bool, cloudConfig *CloudConfig) {
@@ -229,6 +230,29 @@ func quickValidateStorageConfig(success *bool, cloudConfig *CloudConfig) {
 	}
 	for i, buf := range storageConfig.Buffers {
 		quickValidateStorageAccountConfig(success, cloudConfig, fmt.Sprintf("cloud.storage.buffers[%d]", i), buf)
+	}
+}
+
+func quickValidateTlsConfig(success *bool, cloudConfig *TlsCertificate) {
+	if cloudConfig == nil {
+		return
+	}
+
+	if cloudConfig.KeyVault == nil {
+		validationError(success, "The if `cloud.tlsCertificate` is specified, `cloud.tlsCertificate.keyVault` must be specified")
+
+	} else {
+		if cloudConfig.KeyVault.ResourceGroup == "" {
+			validationError(success, "The `cloud.tls.keyVault.resourceGroup` field is required")
+		}
+
+		if cloudConfig.KeyVault.Name == "" {
+			validationError(success, "The `cloud.tls.keyVault.name` field is required")
+		}
+	}
+
+	if cloudConfig.CertificateName == "" {
+		validationError(success, "The `cloud.tls.certificateName` field is required")
 	}
 }
 

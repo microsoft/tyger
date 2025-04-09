@@ -27,6 +27,10 @@ const (
 )
 
 func createTygerNamespace(ctx context.Context, restConfigPromise *install.Promise[*rest.Config]) (any, error) {
+	return createNamespace(ctx, restConfigPromise, TygerNamespace)
+}
+
+func createNamespace(ctx context.Context, restConfigPromise *install.Promise[*rest.Config], namespace string) (any, error) {
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
 		return nil, install.ErrDependencyFailed
@@ -34,12 +38,12 @@ func createTygerNamespace(ctx context.Context, restConfigPromise *install.Promis
 
 	clientset := kubernetes.NewForConfigOrDie(restConfig)
 
-	_, err = clientset.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "tyger"}}, metav1.CreateOptions{})
+	_, err = clientset.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}, metav1.CreateOptions{})
 	if err == nil || apierrors.IsAlreadyExists(err) {
 		return nil, nil
 	}
 
-	return nil, fmt.Errorf("failed to create 'tyger' namespace: %w", err)
+	return nil, fmt.Errorf("failed to create '%s' namespace: %w", namespace, err)
 }
 
 func (inst *Installer) createTygerClusterRBAC(ctx context.Context, restConfigPromise *install.Promise[*rest.Config], createTygerNamespacePromise *install.Promise[any]) (any, error) {

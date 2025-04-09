@@ -35,6 +35,7 @@ type CloudConfig struct {
 	Storage               *StorageConfig      `json:"storage"`
 	DatabaseConfig        *DatabaseConfig     `json:"database"`
 	LogAnalyticsWorkspace *NamedAzureResource `json:"logAnalyticsWorkspace"`
+	TlsCertificate        *TlsCertificate     `json:"tlsCertificate"`
 }
 
 type ComputeConfig struct {
@@ -51,6 +52,11 @@ func (c *ComputeConfig) GetManagementPrincipalIds() []string {
 		ids = append(ids, p.ObjectId)
 	}
 	return ids
+}
+
+type TlsCertificate struct {
+	KeyVault        *NamedAzureResource `json:"keyVault"`
+	CertificateName string              `json:"certificateName"`
 }
 
 type NamedAzureResource struct {

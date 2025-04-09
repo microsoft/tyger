@@ -269,20 +269,13 @@ metadata:
     cert-manager.io/issuer: {{ $tygerName }}-cert
   {{- end }}
 spec:
-  {{- if .Values.tls.enabled }}
   entryPoints:
     - websecure
   {{- if .Values.tls.letsEncrypt.enabled }}
   tls:
     secretName: {{ .Values.hostname }}-tls
-    domains:
-      - main: {{ .Values.hostname }}
   {{- else }}
   tls: {}
-  {{- end }}
-  {{- else }}
-  entryPoints:
-  - web
   {{- end }}
   routes:
   - kind: Rule

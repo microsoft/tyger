@@ -9,16 +9,16 @@
 
 param(
     [Parameter(Mandatory = $true)]
-    [string]$ServerUri, 
+    [string]$ServerUri,
 
     [Parameter(Mandatory = $true)]
     [string]$servicePrincipal,
 
     [Parameter(Mandatory = $true)]
-    $KeyVaultName, 
+    $KeyVaultName,
 
     [Parameter(Mandatory = $true)]
-    $CertificateName, 
+    $CertificateName,
 
     [Parameter(Mandatory = $true)]
     $CertificateVersion
@@ -65,7 +65,7 @@ function RunTests {
 
     Invoke-NativeCommand tyger logout
     Invoke-NativeCommand tyger login --file $optionsFile.FullName
-    $codespecVersion = Invoke-NativeCommand tyger codespec create cert-test --image busybox --command '--' sh -c 'echo "hello world"'
+    $codespecVersion = Invoke-NativeCommand tyger codespec create cert-test --image "mcr.microsoft.com/azurelinux/base/core:3.0" --command '--' sh -c 'echo "hello world"'
     $runId = Invoke-NativeCommand tyger run create --codespec cert-test --version $codespecVersion
 
     # Start tyger-proxy using a certificate thumbprint
