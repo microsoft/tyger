@@ -13,7 +13,7 @@ process_files() {
     header_line_length=$(echo "$header" | wc -l)
 
     for file in "${files[@]}"; do
-        if [[ "$(head -n "$header_line_length" "$file")" != "$header" ]]; then
+        if [[ -f "$file" && "$(head -n "$header_line_length" "$file")" != "$header" ]]; then
             # Snapshot permissions
             perms=$(stat -c %a "$file")
 
