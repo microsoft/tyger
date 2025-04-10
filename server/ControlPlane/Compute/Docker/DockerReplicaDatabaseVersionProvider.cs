@@ -13,7 +13,7 @@ namespace Tyger.ControlPlane.Compute.Docker;
 
 public class DockerReplicaDatabaseVersionProvider : IReplicaDatabaseVersionProvider
 {
-    private const string EndpointAddress = "v1/database-version-in-use";
+    private const string EndpointAddress = "database-version-in-use";
     private const string UnixDomainSocketPrefix = "http://unix:";
 
     private readonly IConfiguration _configuration;

@@ -92,7 +92,14 @@ public record BufferUpdate : IResourceWithTags<string?>
 
 public record BufferAccess(Uri Uri) : ModelBase;
 
-public record ServiceMetadata(string? Authority = null, string? Audience = null, string? CliAppUri = null, IEnumerable<string>? Capabilities = null) : ModelBase;
+public record ServiceMetadata : ModelBase
+{
+    public string? Authority { get; init; }
+    public string? Audience { get; init; }
+    public string? CliAppUri { get; init; }
+    public IEnumerable<string>? Capabilities { get; init; }
+    public IEnumerable<string>? ApiVersions { get; init; }
+}
 
 public record StorageAccount(string Name, string Location, string Endpoint) : ModelBase;
 
