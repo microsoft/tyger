@@ -30,10 +30,12 @@ cloud:
             vmSize: Standard_DS12_v2
             minCount: {{ .CpuNodePoolMinCount }}
             maxCount: 10
+            # osSku: defaults to AzureLinux
           - name: gpunp
             vmSize: Standard_NC6s_v3
             minCount: {{ .GpuNodePoolMinCount }}
             maxCount: 10
+            # osSku: defaults to AzureLinux
 
     # These are the principals that will have the ability to run `tyger api install`.
     # They will have access to the "tyger" namespace in each cluster and will have

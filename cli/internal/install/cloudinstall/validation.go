@@ -200,6 +200,15 @@ func quickValidateNodePoolConfig(success *bool, np *NodePoolConfig, minNodeCount
 	if np.MinCount > np.MaxCount {
 		validationError(success, "The `minCount` field must be less than or equal to the `maxCount` field")
 	}
+
+	if np.OsSku == "" {
+		np.OsSku = string(armcontainerservice.OSSKUAzureLinux)
+	} else {
+		supportedValues := []string{string(armcontainerservice.OSSKUAzureLinux), string(armcontainerservice.OSSKUUbuntu)}
+		if !slices.Contains(supportedValues, np.OsSku) {
+			validationError(success, "The `osSku` field must be one of [%s]", strings.Join(supportedValues, ", "))
+		}
+	}
 }
 
 func quickValidateStorageConfig(success *bool, cloudConfig *CloudConfig) {
