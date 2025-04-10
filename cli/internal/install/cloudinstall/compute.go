@@ -143,7 +143,7 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 			MinCount:            &clusterConfig.SystemNodePool.MinCount,
 			MaxCount:            &clusterConfig.SystemNodePool.MaxCount,
 			OSType:              Ptr(armcontainerservice.OSTypeLinux),
-			OSSKU:               Ptr(armcontainerservice.OSSKUAzureLinux),
+			OSSKU:               Ptr(armcontainerservice.OSSKU(clusterConfig.SystemNodePool.OsSku)),
 			Tags:                tags,
 		},
 	}
@@ -159,7 +159,7 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 			MinCount:            &np.MinCount,
 			MaxCount:            &np.MaxCount,
 			OSType:              Ptr(armcontainerservice.OSTypeLinux),
-			OSSKU:               Ptr(armcontainerservice.OSSKUAzureLinux),
+			OSSKU:               Ptr(armcontainerservice.OSSKU(np.OsSku)),
 			NodeLabels: map[string]*string{
 				"tyger": Ptr("run"),
 			},
@@ -293,6 +293,11 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 
 		poller, err = clustersClient.BeginCreateOrUpdate(ctx, inst.Config.Cloud.ResourceGroup, clusterConfig.Name, cluster, nil)
 		if err != nil {
+			var respErr *azcore.ResponseError
+			if errors.As(err, &respErr) && respErr.ErrorCode == "InvalidOSSKU" {
+				return nil, fmt.Errorf("failed to create cluster: adjust the `osSku` field on the node pool: %w", err)
+			}
+
 			return nil, fmt.Errorf("failed to create cluster: %w", err)
 		}
 

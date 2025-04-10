@@ -98,6 +98,7 @@ type ClusterConfig struct {
 type NodePoolConfig struct {
 	Name     string `json:"name"`
 	VMSize   string `json:"vmSize"`
+	OsSku    string `json:"osSku"`
 	MinCount int32  `json:"minCount"`
 	MaxCount int32  `json:"maxCount"`
 }
