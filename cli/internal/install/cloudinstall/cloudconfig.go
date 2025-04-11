@@ -20,22 +20,23 @@ const (
 )
 
 type CloudEnvironmentConfig struct {
-	Kind            string       `json:"kind"`
-	EnvironmentName string       `json:"environmentName"`
-	Cloud           *CloudConfig `json:"cloud"`
-	Api             *ApiConfig   `json:"api"`
+	Kind            string             `json:"kind"`
+	EnvironmentName string             `json:"environmentName"`
+	Cloud           *SharedCloudConfig `json:"cloud"`
+
+	Organizations []*OrganizationConfig `json:"organizations"`
 }
 
-type CloudConfig struct {
-	TenantID              string              `json:"tenantId"`
-	SubscriptionID        string              `json:"subscriptionId"`
-	DefaultLocation       string              `json:"defaultLocation"`
-	ResourceGroup         string              `json:"resourceGroup"`
-	Compute               *ComputeConfig      `json:"compute"`
-	Storage               *StorageConfig      `json:"storage"`
-	DatabaseConfig        *DatabaseConfig     `json:"database"`
-	LogAnalyticsWorkspace *NamedAzureResource `json:"logAnalyticsWorkspace"`
-	TlsCertificate        *TlsCertificate     `json:"tlsCertificate"`
+type SharedCloudConfig struct {
+	TenantID              string                `json:"tenantId"`
+	SubscriptionID        string                `json:"subscriptionId"`
+	DefaultLocation       string                `json:"defaultLocation"`
+	ResourceGroup         string                `json:"resourceGroup"`
+	Compute               *ComputeConfig        `json:"compute"`
+	DatabaseServerConfig  *DatabaseServerConfig `json:"databaseServer"`
+	DnsZone               *NamedAzureResource   `json:"dnsZone"`
+	TlsCertificate        *TlsCertificate       `json:"tlsCertificate"`
+	LogAnalyticsWorkspace *NamedAzureResource   `json:"logAnalyticsWorkspace"`
 }
 
 type ComputeConfig struct {
@@ -43,7 +44,6 @@ type ComputeConfig struct {
 	ManagementPrincipals       []Principal      `json:"managementPrincipals"`
 	LocalDevelopmentIdentityId string           `json:"localDevelopmentIdentityId"` // undocumented - for local development only
 	PrivateContainerRegistries []string         `json:"privateContainerRegistries"`
-	Identities                 []string         `json:"identities"`
 }
 
 func (c *ComputeConfig) GetManagementPrincipalIds() []string {
@@ -112,9 +112,6 @@ type NodePoolConfig struct {
 type StorageConfig struct {
 	Buffers []*StorageAccountConfig `json:"buffers"`
 	Logs    *StorageAccountConfig   `json:"logs"`
-
-	// Internal support for associating the storage accounts with a network security perimeter profile
-	NetworkSecurityPerimeter *NetworkSecurityPerimeterConfig `json:"networkSecurityPerimeter"`
 }
 
 type NetworkSecurityPerimeterConfig struct {
@@ -130,8 +127,8 @@ type StorageAccountConfig struct {
 	Sku      string `json:"sku"`
 }
 
-type DatabaseConfig struct {
-	ServerName           string          `json:"serverName"`
+type DatabaseServerConfig struct {
+	Name                 string          `json:"name"`
 	Location             string          `json:"location"`
 	ComputeTier          string          `json:"computeTier"`
 	VMSize               string          `json:"vmSize"`
@@ -148,11 +145,34 @@ type FirewallRule struct {
 	EndIpAddress   string `json:"endIpAddress"`
 }
 
+type OrganizationConfig struct {
+	Name                                string             `json:"name"`
+	SingleOrganizationCompatibilityMode bool               `json:"singleOrganizationCompatibilityMode"`
+	Cloud                               *SharedCloudConfig `json:"cloud"`
+	Api                                 *ApiConfig         `json:"api"`
+}
+
+type OrganizationCloudConfig struct {
+	ResourceGroup string
+	DatabaseName  string
+	Storage       *StorageConfig `json:"storage"`
+	Identities    []string       `json:"identities"`
+}
+
+type TlsCertificateProvider string
+
+const (
+	TlsCertificateProviderLetsEncrypt TlsCertificateProvider = "LetsEncrypt"
+	TlsCertificateProviderKeyVault    TlsCertificateProvider = "KeyVault"
+)
+
 type ApiConfig struct {
-	DomainName string         `json:"domainName"`
-	Auth       *AuthConfig    `json:"auth"`
-	Buffers    *BuffersConfig `json:"buffers"`
-	Helm       *HelmConfig    `json:"helm"`
+	KubernetesNamespace    string
+	DomainName             string                 `json:"domainName"`
+	TlsCertificateProvider TlsCertificateProvider `json:"tlsCertificateProvider"`
+	Auth                   *AuthConfig            `json:"auth"`
+	Buffers                *BuffersConfig         `json:"buffers"`
+	Helm                   *HelmConfig            `json:"helm"`
 }
 
 type AuthConfig struct {

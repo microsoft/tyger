@@ -68,7 +68,7 @@ func (inst *Installer) quickValidateCloudConfig(success *bool) {
 	quickValidateTlsConfig(success, cloudConfig.TlsCertificate)
 }
 
-func quickValidateComputeConfig(success *bool, cloudConfig *CloudConfig) {
+func quickValidateComputeConfig(success *bool, cloudConfig *SharedCloudConfig) {
 	computeConfig := cloudConfig.Compute
 	if computeConfig == nil {
 		validationError(success, "The `cloud.compute` field is required")
@@ -212,7 +212,7 @@ func quickValidateNodePoolConfig(success *bool, np *NodePoolConfig, minNodeCount
 	}
 }
 
-func quickValidateStorageConfig(success *bool, cloudConfig *CloudConfig) {
+func quickValidateStorageConfig(success *bool, cloudConfig *SharedCloudConfig) {
 	storageConfig := cloudConfig.Storage
 	if storageConfig == nil {
 		validationError(success, "The `cloud.storage` field is required")
@@ -256,14 +256,14 @@ func quickValidateTlsConfig(success *bool, cloudConfig *TlsCertificate) {
 	}
 }
 
-func quickValidateDatabaseConfig(success *bool, cloudConfig *CloudConfig) {
-	databaseConfig := cloudConfig.DatabaseConfig
+func quickValidateDatabaseConfig(success *bool, cloudConfig *SharedCloudConfig) {
+	databaseConfig := cloudConfig.DatabaseServerConfig
 	if databaseConfig == nil {
 		validationError(success, "The `cloud.database` field is required")
 		return
 	}
 
-	if !DatabaseServerNameRegex.MatchString(databaseConfig.ServerName) {
+	if !DatabaseServerNameRegex.MatchString(databaseConfig.Name) {
 		validationError(success, "The `cloud.database.serverName` field must match the pattern %s", DatabaseServerNameRegex)
 	}
 
@@ -321,7 +321,7 @@ func quickValidateDatabaseConfig(success *bool, cloudConfig *CloudConfig) {
 	}
 }
 
-func quickValidateStorageAccountConfig(success *bool, cloudConfig *CloudConfig, path string, storageConfig *StorageAccountConfig) {
+func quickValidateStorageAccountConfig(success *bool, cloudConfig *SharedCloudConfig, path string, storageConfig *StorageAccountConfig) {
 	if storageConfig.Name == "" {
 		validationError(success, "The `%s.name` field is required", path)
 	} else if !StorageAccountNameRegex.MatchString(storageConfig.Name) {

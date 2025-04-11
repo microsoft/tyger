@@ -46,7 +46,7 @@ const (
 )
 
 func (inst *Installer) createDatabase(ctx context.Context, tygerServerManagedIdentityPromise, migrationRunnerManagedIdentityPromise *install.Promise[*armmsi.Identity]) (any, error) {
-	databaseConfig := inst.Config.Cloud.DatabaseConfig
+	databaseConfig := inst.Config.Cloud.DatabaseServerConfig
 
 	tygerServerManagedIdentity, err := tygerServerManagedIdentityPromise.Await()
 	if err != nil {
@@ -598,8 +598,8 @@ func (inst *Installer) getDatabaseConfiguredTagKey() string {
 // We used to store this tag on the resource group, but performing an API install would require persistent read access
 // to the resource group, which is not allowed by an internal Microsoft policy.
 func (inst *Installer) getDatabaseServerName(ctx context.Context, tygerServerManagedIdentity *armmsi.Identity, generateIfNecessary bool) (string, error) {
-	if inst.Config.Cloud.DatabaseConfig.ServerName != "" {
-		return inst.Config.Cloud.DatabaseConfig.ServerName, nil
+	if inst.Config.Cloud.DatabaseServerConfig.Name != "" {
+		return inst.Config.Cloud.DatabaseServerConfig.Name, nil
 	}
 
 	// Use a generated name for the database.
