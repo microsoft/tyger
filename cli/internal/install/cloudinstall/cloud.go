@@ -247,31 +247,35 @@ func logError(err error, msg string) {
 func (inst *Installer) createPromises(ctx context.Context) install.PromiseGroup {
 	group := &install.PromiseGroup{}
 
-	var createApiHostClusterPromise *install.Promise[*armcontainerservice.ManagedCluster]
-
-	tygerServerManagedIdentityPromise := install.NewPromise(ctx, group, inst.createTygerServerManagedIdentity)
-	migrationRunnerManagedIdentityPromise := install.NewPromise(ctx, group, inst.createMigrationRunnerManagedIdentity)
-
+	// SHARED
 	var traefikKeyVaultClientManagedIdentityPromise *install.Promise[*armmsi.Identity]
 	if inst.Config.Cloud.TlsCertificate != nil {
 		traefikKeyVaultClientManagedIdentityPromise = install.NewPromise(ctx, group, inst.createTraefikKeyVaultClientManagedIdentity)
 	}
 
-	customIdentityPromises := make([]*install.Promise[*armmsi.Identity], 0)
+	// // ORG
+	// tygerServerManagedIdentityPromise := install.NewPromise(ctx, group, inst.createTygerServerManagedIdentity)
+	// migrationRunnerManagedIdentityPromise := install.NewPromise(ctx, group, inst.createMigrationRunnerManagedIdentity)
 
-	for _, identityName := range inst.Config.Cloud.Compute.Identities {
-		identityName := identityName
-		customIdentityPromises = append(customIdentityPromises, install.NewPromise(ctx, group, func(ctx context.Context) (*armmsi.Identity, error) {
-			return inst.createManagedIdentity(ctx, identityName)
-		}))
-	}
+	// // ORG
+	// customIdentityPromises := make([]*install.Promise[*armmsi.Identity], 0)
 
-	install.NewPromise(ctx, group, inst.deleteUnusedIdentities)
+	// for _, identityName := range inst.Config.Cloud.Compute.Identities {
+	// 	identityName := identityName
+	// 	customIdentityPromises = append(customIdentityPromises, install.NewPromise(ctx, group, func(ctx context.Context) (*armmsi.Identity, error) {
+	// 		return inst.createManagedIdentity(ctx, identityName)
+	// 	}))
+	// }
 
+	// install.NewPromise(ctx, group, inst.deleteUnusedIdentities)
+
+	// SHARED
 	install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
 		return inst.createDatabase(ctx, tygerServerManagedIdentityPromise, migrationRunnerManagedIdentityPromise)
 	})
 
+	// SHARED
+	var createApiHostClusterPromise *install.Promise[*armcontainerservice.ManagedCluster]
 	for _, clusterConfig := range inst.Config.Cloud.Compute.Clusters {
 		createClusterPromise := install.NewPromise(
 			ctx,
@@ -281,21 +285,10 @@ func (inst *Installer) createPromises(ctx context.Context) install.PromiseGroup 
 			})
 		if clusterConfig.ApiHost {
 			createApiHostClusterPromise = createClusterPromise
-			install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
-				return inst.createFederatedIdentityCredential(ctx, tygerServerManagedIdentityPromise, createClusterPromise, TygerNamespace)
-			})
-			install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
-				return inst.createFederatedIdentityCredential(ctx, migrationRunnerManagedIdentityPromise, createClusterPromise, TygerNamespace)
-			})
-		}
-
-		for _, identityPromise := range customIdentityPromises {
-			install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
-				return inst.createFederatedIdentityCredential(ctx, identityPromise, createClusterPromise, TygerNamespace)
-			})
 		}
 	}
 
+	// SHARED
 	if traefikKeyVaultClientManagedIdentityPromise != nil {
 		install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
 			return inst.createFederatedIdentityCredential(ctx, traefikKeyVaultClientManagedIdentityPromise, createApiHostClusterPromise, TraefikNamespace)
@@ -311,26 +304,43 @@ func (inst *Installer) createPromises(ctx context.Context) install.PromiseGroup 
 		})
 	}
 
+	// // ORG
+	// install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
+	// 	return inst.createFederatedIdentityCredential(ctx, tygerServerManagedIdentityPromise, createClusterPromise, TygerNamespace)
+	// })
+	// install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
+	// 	return inst.createFederatedIdentityCredential(ctx, migrationRunnerManagedIdentityPromise, createClusterPromise, TygerNamespace)
+	// })
+
+	// // ORG
+	// for _, identityPromise := range customIdentityPromises {
+	// 	install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
+	// 		return inst.createFederatedIdentityCredential(ctx, identityPromise, createClusterPromise, TygerNamespace)
+	// 	})
+	// }
+
 	getAdminCredsPromise := install.NewPromiseAfter(ctx, group, inst.getAdminRESTConfig, createApiHostClusterPromise)
 
-	createTygerNamespacePromise := install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
-		return createTygerNamespace(ctx, getAdminCredsPromise)
-	})
+	// ORG
+	// createTygerNamespacePromise := install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
+	// 	return createTygerNamespace(ctx, getAdminCredsPromise)
+	// })
 
-	install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
-		return inst.createTygerClusterRBAC(ctx, getAdminCredsPromise, createTygerNamespacePromise)
-	})
+	// install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
+	// 	return inst.createTygerClusterRBAC(ctx, getAdminCredsPromise, createTygerNamespacePromise)
+	// })
 
-	install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
-		return inst.CreateStorageAccount(ctx, inst.Config.Cloud.Storage.Logs, getAdminCredsPromise, tygerServerManagedIdentityPromise)
-	})
+	// install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
+	// 	return inst.CreateStorageAccount(ctx, inst.Config.Cloud.Storage.Logs, getAdminCredsPromise, tygerServerManagedIdentityPromise)
+	// })
 
-	for _, buf := range inst.Config.Cloud.Storage.Buffers {
-		install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
-			return inst.CreateStorageAccount(ctx, buf, getAdminCredsPromise, tygerServerManagedIdentityPromise)
-		})
-	}
+	// for _, buf := range inst.Config.Cloud.Storage.Buffers {
+	// 	install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
+	// 		return inst.CreateStorageAccount(ctx, buf, getAdminCredsPromise, tygerServerManagedIdentityPromise)
+	// 	})
+	// }
 
+	// SHARED
 	install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
 		if _, err := createNamespace(ctx, getAdminCredsPromise, TraefikNamespace); err != nil {
 			return nil, fmt.Errorf("failed to create traefik namespace: %w", err)
@@ -343,9 +353,12 @@ func (inst *Installer) createPromises(ctx context.Context) install.PromiseGroup 
 		return inst.installTraefik(ctx, getAdminCredsPromise, traefikKeyVaultClientManagedIdentityPromise)
 	})
 
+	// SHARED
 	install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
 		return inst.installCertManager(ctx, getAdminCredsPromise)
 	})
+
+	// SHARED
 
 	install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
 		return inst.installNvidiaDevicePlugin(ctx, getAdminCredsPromise)

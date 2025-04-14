@@ -33,10 +33,11 @@ type SharedCloudConfig struct {
 	DefaultLocation       string                `json:"defaultLocation"`
 	ResourceGroup         string                `json:"resourceGroup"`
 	Compute               *ComputeConfig        `json:"compute"`
-	DatabaseServerConfig  *DatabaseServerConfig `json:"databaseServer"`
+	DatabaseServer        *DatabaseServerConfig `json:"databaseServer"`
 	DnsZone               *NamedAzureResource   `json:"dnsZone"`
 	TlsCertificate        *TlsCertificate       `json:"tlsCertificate"`
 	LogAnalyticsWorkspace *NamedAzureResource   `json:"logAnalyticsWorkspace"`
+	Storage               *SharedStorageConfig  `json:"storage"`
 }
 
 type ComputeConfig struct {
@@ -109,9 +110,13 @@ type NodePoolConfig struct {
 	MaxCount int32  `json:"maxCount"`
 }
 
-type StorageConfig struct {
+type OrganizationStorageConfig struct {
 	Buffers []*StorageAccountConfig `json:"buffers"`
 	Logs    *StorageAccountConfig   `json:"logs"`
+}
+
+type SharedStorageConfig struct {
+	NetworkSecurityPerimeter *NetworkSecurityPerimeterConfig `json:"networkSecurityPerimeter"`
 }
 
 type NetworkSecurityPerimeterConfig struct {
@@ -146,17 +151,17 @@ type FirewallRule struct {
 }
 
 type OrganizationConfig struct {
-	Name                                string             `json:"name"`
-	SingleOrganizationCompatibilityMode bool               `json:"singleOrganizationCompatibilityMode"`
-	Cloud                               *SharedCloudConfig `json:"cloud"`
-	Api                                 *ApiConfig         `json:"api"`
+	Name                                string                   `json:"name"`
+	SingleOrganizationCompatibilityMode bool                     `json:"singleOrganizationCompatibilityMode"`
+	Cloud                               *OrganizationCloudConfig `json:"cloud"`
+	Api                                 *ApiConfig               `json:"api"`
 }
 
 type OrganizationCloudConfig struct {
 	ResourceGroup string
 	DatabaseName  string
-	Storage       *StorageConfig `json:"storage"`
-	Identities    []string       `json:"identities"`
+	Storage       *OrganizationStorageConfig `json:"storage"`
+	Identities    []string                   `json:"identities"`
 }
 
 type TlsCertificateProvider string

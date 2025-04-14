@@ -63,13 +63,13 @@ func (inst *Installer) createManagedIdentity(ctx context.Context, name string) (
 	return &resp.Identity, nil
 }
 
-func (inst *Installer) deleteUnusedIdentities(ctx context.Context) (any, error) {
+func (inst *Installer) deleteUnusedIdentities(ctx context.Context, org *OrganizationConfig) (any, error) {
 	identitiesClient, err := armmsi.NewUserAssignedIdentitiesClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create managed identities client: %w", err)
 	}
 
-	pager := identitiesClient.NewListByResourceGroupPager(inst.Config.Cloud.ResourceGroup, nil)
+	pager := identitiesClient.NewListByResourceGroupPager(org.Cloud.ResourceGroup, nil)
 	for pager.More() {
 		page, err := pager.NextPage(ctx)
 		if err != nil {
@@ -79,7 +79,7 @@ func (inst *Installer) deleteUnusedIdentities(ctx context.Context) (any, error) 
 		for _, identity := range page.Value {
 			if identity.Tags != nil {
 				if env, ok := identity.Tags[TagKey]; ok && env != nil && *env == inst.Config.EnvironmentName {
-					if isSystemManagedIdentityName(*identity.Name) || slices.Contains(inst.Config.Cloud.Compute.Identities, *identity.Name) {
+					if isSystemManagedIdentityName(*identity.Name) || slices.Contains(org.Cloud.Identities, *identity.Name) {
 						continue
 					}
 

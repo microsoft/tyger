@@ -51,6 +51,7 @@ cloud:
       - eminence
 
   databaseServer:
+    name: ${TYGER_ENVIRONMENT_NAME}-tyger
     location: ${TYGER_DATABASE_LOCATION}
     firewallRules: ${TYGER_ENVIRONMENT_FIREWALL_RULES}
 

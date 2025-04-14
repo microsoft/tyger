@@ -21,11 +21,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/operationalinsights/armoperationalinsights"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/postgresql/armpostgresqlflexibleservers/v4"
-	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
 	"github.com/docker/docker/pkg/namesgenerator"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/hashicorp/go-cleanhttp"
-	"github.com/ipinfo/go/v2/ipinfo"
 	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/rs/zerolog/log"
 )
@@ -45,18 +42,10 @@ const (
 	dbConfiguredTagValue = "2" // bump this when we change the database configuration logic
 )
 
-func (inst *Installer) createDatabase(ctx context.Context, tygerServerManagedIdentityPromise, migrationRunnerManagedIdentityPromise *install.Promise[*armmsi.Identity]) (any, error) {
-	databaseConfig := inst.Config.Cloud.DatabaseServerConfig
+func (inst *Installer) createDatabaseServer(ctx context.Context) (any, error) {
+	databaseConfig := inst.Config.Cloud.DatabaseServer
 
-	tygerServerManagedIdentity, err := tygerServerManagedIdentityPromise.Await()
-	if err != nil {
-		return nil, install.ErrDependencyFailed
-	}
-
-	serverName, err := inst.getDatabaseServerName(ctx, tygerServerManagedIdentity, true)
-	if err != nil {
-		return nil, err
-	}
+	serverName := inst.Config.Cloud.DatabaseServer.Name
 
 	client, err := armpostgresqlflexibleservers.NewServersClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
 	if err != nil {
@@ -277,70 +266,70 @@ func (inst *Installer) createDatabase(ctx context.Context, tygerServerManagedIde
 		}
 	}
 
-	// check if the database has already been configured and we can skip the steps that follow
-	if value, ok := tags[inst.getDatabaseConfiguredTagKey()]; ok && value != nil && *value == dbConfiguredTagValue {
-		log.Info().Msg("PostgreSQL server is already configured")
-		return nil, nil
-	}
+	// // check if the database has already been configured and we can skip the steps that follow
+	// if value, ok := tags[inst.getDatabaseConfiguredTagKey()]; ok && value != nil && *value == dbConfiguredTagValue {
+	// 	log.Info().Msg("PostgreSQL server is already configured")
+	// 	return nil, nil
+	// }
 
-	migrationRunnerManagedIdentity, err := migrationRunnerManagedIdentityPromise.Await()
-	if err != nil {
-		return nil, install.ErrDependencyFailed
-	}
+	// migrationRunnerManagedIdentity, err := migrationRunnerManagedIdentityPromise.Await()
+	// if err != nil {
+	// 	return nil, install.ErrDependencyFailed
+	// }
 
-	currentPrincipalDisplayName, err := createDatabaseAdmins(ctx, inst.Config, serverName, inst.Credential, migrationRunnerManagedIdentity)
+	// currentPrincipalDisplayName, err := createDatabaseAdmins(ctx, inst.Config, serverName, inst.Credential, migrationRunnerManagedIdentity)
 
-	temporaryFirewallRuleName := "TempAllowInstaller"
-	var temporaryFirewallRule *armpostgresqlflexibleservers.FirewallRule
-	// Get the current IP address. Create a new "clean" HTTP client that does not use any proxy, as database connections will not use one.
-	ipInfoClient := ipinfo.NewClient(cleanhttp.DefaultClient(), nil, "")
-	if ip, err := ipInfoClient.GetIPInfo(nil); err != nil {
-		log.Warn().Msgf("Unable to determine the current public IP address. You may need to add the current IP address manually as a database firewall rule to allow connectivity")
-	} else {
-		temporaryFirewallRule = &armpostgresqlflexibleservers.FirewallRule{
-			Properties: &armpostgresqlflexibleservers.FirewallRuleProperties{
-				StartIPAddress: Ptr(ip.IP.String()),
-				EndIPAddress:   Ptr(ip.IP.String()),
-			},
-		}
-	}
+	// temporaryFirewallRuleName := "TempAllowInstaller"
+	// var temporaryFirewallRule *armpostgresqlflexibleservers.FirewallRule
+	// // Get the current IP address. Create a new "clean" HTTP client that does not use any proxy, as database connections will not use one.
+	// ipInfoClient := ipinfo.NewClient(cleanhttp.DefaultClient(), nil, "")
+	// if ip, err := ipInfoClient.GetIPInfo(nil); err != nil {
+	// 	log.Warn().Msgf("Unable to determine the current public IP address. You may need to add the current IP address manually as a database firewall rule to allow connectivity")
+	// } else {
+	// 	temporaryFirewallRule = &armpostgresqlflexibleservers.FirewallRule{
+	// 		Properties: &armpostgresqlflexibleservers.FirewallRuleProperties{
+	// 			StartIPAddress: Ptr(ip.IP.String()),
+	// 			EndIPAddress:   Ptr(ip.IP.String()),
+	// 		},
+	// 	}
+	// }
 
-	if temporaryFirewallRule != nil {
-		log.Info().Msgf("Creating temporary PostgreSQL server firewall rule '%s'", temporaryFirewallRuleName)
-		_, err = retryableAsyncOperation(ctx, func(ctx context.Context) (*runtime.Poller[armpostgresqlflexibleservers.FirewallRulesClientCreateOrUpdateResponse], error) {
-			return firewallClient.BeginCreateOrUpdate(ctx, inst.Config.Cloud.ResourceGroup, serverName, temporaryFirewallRuleName, *temporaryFirewallRule, nil)
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to create PostgreSQL server firewall rule: %w", err)
-		}
-	}
+	// if temporaryFirewallRule != nil {
+	// 	log.Info().Msgf("Creating temporary PostgreSQL server firewall rule '%s'", temporaryFirewallRuleName)
+	// 	_, err = retryableAsyncOperation(ctx, func(ctx context.Context) (*runtime.Poller[armpostgresqlflexibleservers.FirewallRulesClientCreateOrUpdateResponse], error) {
+	// 		return firewallClient.BeginCreateOrUpdate(ctx, inst.Config.Cloud.ResourceGroup, serverName, temporaryFirewallRuleName, *temporaryFirewallRule, nil)
+	// 	})
+	// 	if err != nil {
+	// 		return nil, fmt.Errorf("failed to create PostgreSQL server firewall rule: %w", err)
+	// 	}
+	// }
 
-	if err := inst.createRoles(ctx, existingServer, currentPrincipalDisplayName, tygerServerManagedIdentity, migrationRunnerManagedIdentity); err != nil {
-		return nil, err
-	}
+	// if err := inst.createRoles(ctx, existingServer, currentPrincipalDisplayName, tygerServerManagedIdentity, migrationRunnerManagedIdentity); err != nil {
+	// 	return nil, err
+	// }
 
-	if temporaryFirewallRule != nil {
-		log.Info().Msgf("Deleting temporary PostgreSQL server firewall rule '%s'", temporaryFirewallRuleName)
-		_, err = retryableAsyncOperation(ctx, func(ctx context.Context) (*runtime.Poller[armpostgresqlflexibleservers.FirewallRulesClientDeleteResponse], error) {
-			return firewallClient.BeginDelete(ctx, inst.Config.Cloud.ResourceGroup, serverName, temporaryFirewallRuleName, nil)
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to delete PostgreSQL server firewall rule: %w", err)
-		}
-	}
+	// if temporaryFirewallRule != nil {
+	// 	log.Info().Msgf("Deleting temporary PostgreSQL server firewall rule '%s'", temporaryFirewallRuleName)
+	// 	_, err = retryableAsyncOperation(ctx, func(ctx context.Context) (*runtime.Poller[armpostgresqlflexibleservers.FirewallRulesClientDeleteResponse], error) {
+	// 		return firewallClient.BeginDelete(ctx, inst.Config.Cloud.ResourceGroup, serverName, temporaryFirewallRuleName, nil)
+	// 	})
+	// 	if err != nil {
+	// 		return nil, fmt.Errorf("failed to delete PostgreSQL server firewall rule: %w", err)
+	// 	}
+	// }
 
-	// add a tag on the server to indicate that it is configured, so we can skip the slow firewall configuration next time
-	existingServer.Tags[inst.getDatabaseConfiguredTagKey()] = Ptr(dbConfiguredTagValue)
+	// // add a tag on the server to indicate that it is configured, so we can skip the slow firewall configuration next time
+	// existingServer.Tags[inst.getDatabaseConfiguredTagKey()] = Ptr(dbConfiguredTagValue)
 
-	tagsClient, err := armresources.NewTagsClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create tags client: %w", err)
-	}
+	// tagsClient, err := armresources.NewTagsClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to create tags client: %w", err)
+	// }
 
-	_, err = tagsClient.CreateOrUpdateAtScope(ctx, *existingServer.ID, armresources.TagsResource{Properties: &armresources.Tags{Tags: existingServer.Tags}}, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to tag PostgreSQL server: %w", err)
-	}
+	// _, err = tagsClient.CreateOrUpdateAtScope(ctx, *existingServer.ID, armresources.TagsResource{Properties: &armresources.Tags{Tags: existingServer.Tags}}, nil)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to tag PostgreSQL server: %w", err)
+	// }
 
 	return nil, nil
 }
@@ -590,69 +579,6 @@ func (inst *Installer) getUniqueSuffixTagKey() string {
 
 func (inst *Installer) getDatabaseConfiguredTagKey() string {
 	return fmt.Sprintf("tyger-database-configured-%s", inst.Config.EnvironmentName)
-}
-
-// If you try to create a database server less than five days after one with the same name was deleted, you might get an error.
-// For this reason, we allow the database server name to be left empty in the config, and we will give it a random name.
-// The suffix of this name is stored in a tag on the managed identity resource.
-// We used to store this tag on the resource group, but performing an API install would require persistent read access
-// to the resource group, which is not allowed by an internal Microsoft policy.
-func (inst *Installer) getDatabaseServerName(ctx context.Context, tygerServerManagedIdentity *armmsi.Identity, generateIfNecessary bool) (string, error) {
-	if inst.Config.Cloud.DatabaseServerConfig.Name != "" {
-		return inst.Config.Cloud.DatabaseServerConfig.Name, nil
-	}
-
-	// Use a generated name for the database.
-	// Use or create a unique suffix and stored as a tag.
-
-	tagsClient, err := armresources.NewTagsClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create tags client: %w", err)
-	}
-
-	suffixTagKey := inst.getUniqueSuffixTagKey()
-
-	miTagsResponse, err := tagsClient.GetAtScope(ctx, *tygerServerManagedIdentity.ID, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to get tags: %w", err)
-	}
-
-	var suffix string
-	if suffixTagValue, ok := miTagsResponse.TagsResource.Properties.Tags[suffixTagKey]; ok && suffixTagValue != nil {
-		suffix = *suffixTagValue
-	} else {
-		// See if it is stored on the resource group, which is where it used to be stored.
-		resourceGroupScope := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s", inst.Config.Cloud.SubscriptionID, inst.Config.Cloud.ResourceGroup)
-		rgTagsResponse, err := tagsClient.GetAtScope(ctx, resourceGroupScope, nil)
-		if err != nil {
-			return "", fmt.Errorf("failed to get tags: %w", err)
-		}
-		if suffixTagValue, ok := rgTagsResponse.TagsResource.Properties.Tags[suffixTagKey]; ok && suffixTagValue != nil {
-			suffix = *suffixTagValue
-			if generateIfNecessary {
-				miTagsResponse.TagsResource.Properties.Tags[suffixTagKey] = suffixTagValue
-				if _, err := tagsClient.CreateOrUpdateAtScope(ctx, *tygerServerManagedIdentity.ID, miTagsResponse.TagsResource, nil); err != nil {
-					return "", fmt.Errorf("failed to set tags: %w", err)
-				}
-			}
-		} else {
-			if !generateIfNecessary {
-				return "", errors.New("database server name is not set and no existing suffix is found")
-			}
-
-			suffix = getRandomName()
-			miTagsResponse.TagsResource.Properties.Tags[suffixTagKey] = &suffix
-			if _, err := tagsClient.CreateOrUpdateAtScope(ctx, *tygerServerManagedIdentity.ID, miTagsResponse.TagsResource, nil); err != nil {
-				return "", fmt.Errorf("failed to set tags: %w", err)
-			}
-			rgTagsResponse.TagsResource.Properties.Tags[suffixTagKey] = &suffix
-			if _, err := tagsClient.CreateOrUpdateAtScope(ctx, resourceGroupScope, rgTagsResponse.TagsResource, nil); err != nil {
-				return "", fmt.Errorf("failed to set tags: %w", err)
-			}
-		}
-	}
-
-	return fmt.Sprintf("%s-tyger-%s", inst.Config.EnvironmentName, suffix), nil
 }
 
 // Export logs to Log Analytics.

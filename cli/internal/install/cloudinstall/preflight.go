@@ -125,27 +125,27 @@ func (inst *Installer) checkRbac(ctx context.Context) error {
 
 	hasErr := false
 
-	// storage
-	storageAccountRequiredActions := []string{
-		"Microsoft.Storage/storageAccounts/listKeys/action",
-		"Microsoft.Storage/storageAccounts/write",
-	}
+	// // storage
+	// storageAccountRequiredActions := []string{
+	// 	"Microsoft.Storage/storageAccounts/listKeys/action",
+	// 	"Microsoft.Storage/storageAccounts/write",
+	// }
 
-	storageScopes := []string{
-		fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s", inst.Config.Cloud.SubscriptionID, inst.Config.Cloud.ResourceGroup, inst.Config.Cloud.Storage.Logs.Name),
-	}
+	// storageScopes := []string{
+	// 	fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s", inst.Config.Cloud.SubscriptionID, inst.Config.Cloud.ResourceGroup, inst.Config.Cloud.Storage.Logs.Name),
+	// }
 
-	for _, bufferAccount := range inst.Config.Cloud.Storage.Buffers {
-		storageScopes = append(storageScopes, fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s", inst.Config.Cloud.SubscriptionID, inst.Config.Cloud.ResourceGroup, bufferAccount.Name))
-	}
+	// for _, bufferAccount := range inst.Config.Cloud.Storage.Buffers {
+	// 	storageScopes = append(storageScopes, fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s", inst.Config.Cloud.SubscriptionID, inst.Config.Cloud.ResourceGroup, bufferAccount.Name))
+	// }
 
-	for _, scope := range storageScopes {
-		for _, a := range storageAccountRequiredActions {
-			if err := checkAccess(scope, a, roleAssignments, roleDefs); err != nil {
-				hasErr = true
-			}
-		}
-	}
+	// for _, scope := range storageScopes {
+	// 	for _, a := range storageAccountRequiredActions {
+	// 		if err := checkAccess(scope, a, roleAssignments, roleDefs); err != nil {
+	// 			hasErr = true
+	// 		}
+	// 	}
+	// }
 
 	// AKS
 	aksRequiredActions := []string{
