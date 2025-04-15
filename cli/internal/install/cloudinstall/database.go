@@ -45,18 +45,10 @@ const (
 	dbConfiguredTagValue = "2" // bump this when we change the database configuration logic
 )
 
-func (inst *Installer) createDatabase(ctx context.Context, tygerServerManagedIdentityPromise, migrationRunnerManagedIdentityPromise *install.Promise[*armmsi.Identity]) (any, error) {
-	databaseConfig := inst.Config.Cloud.DatabaseConfig
+func (inst *Installer) createDatabaseServer(ctx context.Context) (any, error) {
+	databaseConfig := inst.Config.Cloud.Database
 
-	tygerServerManagedIdentity, err := tygerServerManagedIdentityPromise.Await()
-	if err != nil {
-		return nil, install.ErrDependencyFailed
-	}
-
-	serverName, err := inst.getDatabaseServerName(ctx, tygerServerManagedIdentity, true)
-	if err != nil {
-		return nil, err
-	}
+	serverName := inst.Config.Cloud.Database.ServerName
 
 	client, err := armpostgresqlflexibleservers.NewServersClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
 	if err != nil {
@@ -277,10 +269,27 @@ func (inst *Installer) createDatabase(ctx context.Context, tygerServerManagedIde
 		}
 	}
 
-	// check if the database has already been configured and we can skip the steps that follow
-	if value, ok := tags[inst.getDatabaseConfiguredTagKey()]; ok && value != nil && *value == dbConfiguredTagValue {
-		log.Info().Msg("PostgreSQL server is already configured")
-		return nil, nil
+	return nil, nil
+}
+
+func (inst *Installer) createDatabase(ctx context.Context, databaseName string, tygerServerManagedIdentityPromise, migrationRunnerManagedIdentityPromise *install.Promise[*armmsi.Identity]) (any, error) {
+	serverName := inst.Config.Cloud.Database.ServerName
+
+	client, err := armpostgresqlflexibleservers.NewServersClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create PostgreSQL server client: %w", err)
+	}
+
+	existingServerResponse, err := client.Get(ctx, inst.Config.Cloud.ResourceGroup, serverName, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get PostgreSQL server: %w", err)
+	}
+
+	existingServer := &existingServerResponse.Server
+
+	tygerServerManagedIdentity, err := tygerServerManagedIdentityPromise.Await()
+	if err != nil {
+		return nil, install.ErrDependencyFailed
 	}
 
 	migrationRunnerManagedIdentity, err := migrationRunnerManagedIdentityPromise.Await()
@@ -288,7 +297,15 @@ func (inst *Installer) createDatabase(ctx context.Context, tygerServerManagedIde
 		return nil, install.ErrDependencyFailed
 	}
 
-	currentPrincipalDisplayName, err := createDatabaseAdmins(ctx, inst.Config, serverName, inst.Credential, migrationRunnerManagedIdentity)
+	// check if the database has already been configured and we can skip the steps that follow
+	if migrationRunnerManagedIdentity.Tags != nil {
+		if value, ok := migrationRunnerManagedIdentity.Tags[inst.getDatabaseConfiguredTagKey()]; ok && value != nil && *value == dbConfiguredTagValue {
+			log.Info().Msg("PostgreSQL server is already configured")
+			return nil, nil
+		}
+	}
+
+	currentPrincipalDisplayName, err := createDatabaseAdmin(ctx, inst.Config, serverName, inst.Credential)
 
 	temporaryFirewallRuleName := "TempAllowInstaller"
 	var temporaryFirewallRule *armpostgresqlflexibleservers.FirewallRule
@@ -303,6 +320,11 @@ func (inst *Installer) createDatabase(ctx context.Context, tygerServerManagedIde
 				EndIPAddress:   Ptr(ip.IP.String()),
 			},
 		}
+	}
+
+	firewallClient, err := armpostgresqlflexibleservers.NewFirewallRulesClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create PostgreSQL server firewall client: %w", err)
 	}
 
 	if temporaryFirewallRule != nil {
@@ -330,16 +352,19 @@ func (inst *Installer) createDatabase(ctx context.Context, tygerServerManagedIde
 	}
 
 	// add a tag on the server to indicate that it is configured, so we can skip the slow firewall configuration next time
-	existingServer.Tags[inst.getDatabaseConfiguredTagKey()] = Ptr(dbConfiguredTagValue)
+	if migrationRunnerManagedIdentity.Tags == nil {
+		migrationRunnerManagedIdentity.Tags = make(map[string]*string)
+	}
+	migrationRunnerManagedIdentity.Tags[inst.getDatabaseConfiguredTagKey()] = Ptr(dbConfiguredTagValue)
 
 	tagsClient, err := armresources.NewTagsClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tags client: %w", err)
 	}
 
-	_, err = tagsClient.CreateOrUpdateAtScope(ctx, *existingServer.ID, armresources.TagsResource{Properties: &armresources.Tags{Tags: existingServer.Tags}}, nil)
+	_, err = tagsClient.CreateOrUpdateAtScope(ctx, *migrationRunnerManagedIdentity.ID, armresources.TagsResource{Properties: &armresources.Tags{Tags: migrationRunnerManagedIdentity.Tags}}, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to tag PostgreSQL server: %w", err)
+		return nil, fmt.Errorf("failed to tag managed identity: %w", err)
 	}
 
 	return nil, nil
@@ -347,30 +372,15 @@ func (inst *Installer) createDatabase(ctx context.Context, tygerServerManagedIde
 
 // Add the given managed identity and the current user as admins on the database server.
 // These are not superusers.
-func createDatabaseAdmins(
+func createDatabaseAdmin(
 	ctx context.Context,
 	config *CloudEnvironmentConfig,
 	serverName string,
 	cred azcore.TokenCredential,
-	migrationRunnerManagedIdentity *armmsi.Identity,
 ) (currentPrincipalDisplayname string, err error) {
 	adminClient, err := armpostgresqlflexibleservers.NewAdministratorsClient(config.Cloud.SubscriptionID, cred, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create PostgreSQL server admin client: %w", err)
-	}
-
-	log.Info().Msgf("Creating PostgreSQL server admin '%s'", *migrationRunnerManagedIdentity.Name)
-
-	migrationRunnerAdmin := armpostgresqlflexibleservers.ActiveDirectoryAdministratorAdd{
-		Properties: &armpostgresqlflexibleservers.AdministratorPropertiesForAdd{
-			PrincipalName: migrationRunnerManagedIdentity.Name,
-			PrincipalType: Ptr(armpostgresqlflexibleservers.PrincipalTypeServicePrincipal),
-			TenantID:      Ptr(config.Cloud.TenantID),
-		},
-	}
-	migrationRunnerPoller, err := adminClient.BeginCreate(ctx, config.Cloud.ResourceGroup, serverName, *migrationRunnerManagedIdentity.Properties.PrincipalID, migrationRunnerAdmin, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create PostgreSQL server admin: %w", err)
 	}
 
 	currentPrincipalDisplayName, currentPrincipalObjectId, currentPrincipalType, err := getCurrentPrincipalForDatabase(ctx, cred)
@@ -392,9 +402,6 @@ func createDatabaseAdmins(
 		return "", fmt.Errorf("failed to create PostgreSQL server admin: %w", err)
 	}
 
-	if _, err := migrationRunnerPoller.PollUntilDone(ctx, nil); err != nil {
-		return "", fmt.Errorf("failed to create PostgreSQL server admin: %w", err)
-	}
 	if _, err := currentUserPoller.PollUntilDone(ctx, nil); err != nil {
 		return "", fmt.Errorf("failed to create PostgreSQL server admin: %w", err)
 	}
@@ -590,69 +597,6 @@ func (inst *Installer) getUniqueSuffixTagKey() string {
 
 func (inst *Installer) getDatabaseConfiguredTagKey() string {
 	return fmt.Sprintf("tyger-database-configured-%s", inst.Config.EnvironmentName)
-}
-
-// If you try to create a database server less than five days after one with the same name was deleted, you might get an error.
-// For this reason, we allow the database server name to be left empty in the config, and we will give it a random name.
-// The suffix of this name is stored in a tag on the managed identity resource.
-// We used to store this tag on the resource group, but performing an API install would require persistent read access
-// to the resource group, which is not allowed by an internal Microsoft policy.
-func (inst *Installer) getDatabaseServerName(ctx context.Context, tygerServerManagedIdentity *armmsi.Identity, generateIfNecessary bool) (string, error) {
-	if inst.Config.Cloud.DatabaseConfig.ServerName != "" {
-		return inst.Config.Cloud.DatabaseConfig.ServerName, nil
-	}
-
-	// Use a generated name for the database.
-	// Use or create a unique suffix and stored as a tag.
-
-	tagsClient, err := armresources.NewTagsClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create tags client: %w", err)
-	}
-
-	suffixTagKey := inst.getUniqueSuffixTagKey()
-
-	miTagsResponse, err := tagsClient.GetAtScope(ctx, *tygerServerManagedIdentity.ID, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to get tags: %w", err)
-	}
-
-	var suffix string
-	if suffixTagValue, ok := miTagsResponse.TagsResource.Properties.Tags[suffixTagKey]; ok && suffixTagValue != nil {
-		suffix = *suffixTagValue
-	} else {
-		// See if it is stored on the resource group, which is where it used to be stored.
-		resourceGroupScope := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s", inst.Config.Cloud.SubscriptionID, inst.Config.Cloud.ResourceGroup)
-		rgTagsResponse, err := tagsClient.GetAtScope(ctx, resourceGroupScope, nil)
-		if err != nil {
-			return "", fmt.Errorf("failed to get tags: %w", err)
-		}
-		if suffixTagValue, ok := rgTagsResponse.TagsResource.Properties.Tags[suffixTagKey]; ok && suffixTagValue != nil {
-			suffix = *suffixTagValue
-			if generateIfNecessary {
-				miTagsResponse.TagsResource.Properties.Tags[suffixTagKey] = suffixTagValue
-				if _, err := tagsClient.CreateOrUpdateAtScope(ctx, *tygerServerManagedIdentity.ID, miTagsResponse.TagsResource, nil); err != nil {
-					return "", fmt.Errorf("failed to set tags: %w", err)
-				}
-			}
-		} else {
-			if !generateIfNecessary {
-				return "", errors.New("database server name is not set and no existing suffix is found")
-			}
-
-			suffix = getRandomName()
-			miTagsResponse.TagsResource.Properties.Tags[suffixTagKey] = &suffix
-			if _, err := tagsClient.CreateOrUpdateAtScope(ctx, *tygerServerManagedIdentity.ID, miTagsResponse.TagsResource, nil); err != nil {
-				return "", fmt.Errorf("failed to set tags: %w", err)
-			}
-			rgTagsResponse.TagsResource.Properties.Tags[suffixTagKey] = &suffix
-			if _, err := tagsClient.CreateOrUpdateAtScope(ctx, resourceGroupScope, rgTagsResponse.TagsResource, nil); err != nil {
-				return "", fmt.Errorf("failed to set tags: %w", err)
-			}
-		}
-	}
-
-	return fmt.Sprintf("%s-tyger-%s", inst.Config.EnvironmentName, suffix), nil
 }
 
 // Export logs to Log Analytics.

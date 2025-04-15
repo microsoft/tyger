@@ -95,8 +95,8 @@ func (inst *Installer) CreateStorageAccount(ctx context.Context,
 }
 
 func configureNetworkSecurityPerimeterForStorageAccount(ctx context.Context, inst *Installer, storageAccount armstorage.Account) error {
-	desiredNsp := inst.Config.Cloud.Storage.NetworkSecurityPerimeter
-	if desiredNsp == nil {
+	desiredNsp := inst.Config.Cloud.NetworkSecurityPerimeter
+	if desiredNsp == nil || desiredNsp.StorageProfile == nil {
 		return nil
 	}
 
@@ -121,8 +121,8 @@ func configureNetworkSecurityPerimeterForStorageAccount(ctx context.Context, ins
 
 		for _, existingConfig := range page.Value {
 			if *existingConfig.Properties.NetworkSecurityPerimeter.ID == desiredNspResourceId &&
-				*existingConfig.Properties.Profile.Name == desiredNsp.Profile &&
-				string(*existingConfig.Properties.ResourceAssociation.AccessMode) == desiredNsp.Mode {
+				*existingConfig.Properties.Profile.Name == desiredNsp.StorageProfile.Name &&
+				string(*existingConfig.Properties.ResourceAssociation.AccessMode) == desiredNsp.StorageProfile.Mode {
 				nspFound = true
 			} else {
 				existingAssociationId := fmt.Sprintf("%s/resourceAssociations/%s", *existingConfig.Properties.NetworkSecurityPerimeter.ID, *existingConfig.Properties.ResourceAssociation.Name)
@@ -150,9 +150,9 @@ func configureNetworkSecurityPerimeterForStorageAccount(ctx context.Context, ins
 					"id": *storageAccount.ID,
 				},
 				"profile": map[string]any{
-					"id": fmt.Sprintf("%s/profiles/%s", desiredNspResourceId, desiredNsp.Profile),
+					"id": fmt.Sprintf("%s/profiles/%s", desiredNspResourceId, desiredNsp.StorageProfile.Name),
 				},
-				"accessMode": desiredNsp.Mode,
+				"accessMode": desiredNsp.StorageProfile.Mode,
 			},
 		}
 

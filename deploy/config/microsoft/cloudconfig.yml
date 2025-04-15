@@ -13,7 +13,7 @@ cloud:
     keyVault:
       resourceGroup: eminence
       name: eminence
-    certificateName: temp-tls
+    certificateName: eminence-tls-cert
 
   compute:
     clusters:
@@ -58,13 +58,15 @@ cloud:
     logs:
       name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}tygerlog
 
-    networkSecurityPerimeter:
-      nspResourceGroup: NSP-ALL
-      nspName: defaultNSP
-      profile: storageaccounts
+  networkSecurityPerimeter:
+    nspResourceGroup: NSP-ALL
+    nspName: defaultNSP
+    storageProfile:
+      name: storageaccounts
       mode: Learning
 
   database:
+    serverName: ${TYGER_ENVIRONMENT_NAME}-tyger
     location: ${TYGER_DATABASE_LOCATION}
     firewallRules: ${TYGER_ENVIRONMENT_FIREWALL_RULES}
 

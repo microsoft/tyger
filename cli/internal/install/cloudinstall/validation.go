@@ -23,7 +23,7 @@ var (
 	ResourceNameRegex       = regexp.MustCompile(`^[a-z][a-z\-0-9]{2,23}$`)
 	StorageAccountNameRegex = regexp.MustCompile(`^[a-z0-9]{3,24}$`)
 	SubdomainRegex          = regexp.MustCompile(`^[a-zA-Z]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?$`)
-	DatabaseServerNameRegex = regexp.MustCompile(`^([a-z0-9](?:[a-z0-9\-]{1,61}[a-z0-9])?)?$`)
+	DatabaseServerNameRegex = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9\-]{1,61}[a-z0-9])?$`)
 )
 
 func (inst *Installer) QuickValidateConfig() bool {
@@ -257,13 +257,15 @@ func quickValidateTlsConfig(success *bool, cloudConfig *TlsCertificate) {
 }
 
 func quickValidateDatabaseConfig(success *bool, cloudConfig *CloudConfig) {
-	databaseConfig := cloudConfig.DatabaseConfig
+	databaseConfig := cloudConfig.Database
 	if databaseConfig == nil {
 		validationError(success, "The `cloud.database` field is required")
 		return
 	}
 
-	if !DatabaseServerNameRegex.MatchString(databaseConfig.ServerName) {
+	if databaseConfig.ServerName == "" {
+		validationError(success, "The `cloud.database.serverName` field is required")
+	} else if !DatabaseServerNameRegex.MatchString(databaseConfig.ServerName) {
 		validationError(success, "The `cloud.database.serverName` field must match the pattern %s", DatabaseServerNameRegex)
 	}
 

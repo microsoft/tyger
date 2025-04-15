@@ -26,33 +26,94 @@ const (
 	DefaultTygerReleaseName = TygerNamespace
 )
 
-func createTygerNamespace(ctx context.Context, restConfigPromise *install.Promise[*rest.Config]) (any, error) {
+func createTygerNamespace(ctx context.Context, restConfigPromise *install.Promise[*rest.Config]) (string, error) {
 	return createNamespace(ctx, restConfigPromise, TygerNamespace)
 }
 
-func createNamespace(ctx context.Context, restConfigPromise *install.Promise[*rest.Config], namespace string) (any, error) {
+func createNamespace(ctx context.Context, restConfigPromise *install.Promise[*rest.Config], namespace string) (string, error) {
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
-		return nil, install.ErrDependencyFailed
+		return namespace, install.ErrDependencyFailed
 	}
 
 	clientset := kubernetes.NewForConfigOrDie(restConfig)
 
 	_, err = clientset.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}, metav1.CreateOptions{})
 	if err == nil || apierrors.IsAlreadyExists(err) {
-		return nil, nil
+		return namespace, nil
 	}
 
-	return nil, fmt.Errorf("failed to create '%s' namespace: %w", namespace, err)
+	return namespace, fmt.Errorf("failed to create '%s' namespace: %w", namespace, err)
 }
 
-func (inst *Installer) createTygerClusterRBAC(ctx context.Context, restConfigPromise *install.Promise[*rest.Config], createTygerNamespacePromise *install.Promise[any]) (any, error) {
+func (inst *Installer) createClusterRBAC(ctx context.Context, restConfigPromise *install.Promise[*rest.Config]) (any, error) {
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
 		return nil, install.ErrDependencyFailed
 	}
 
-	if _, err := createTygerNamespacePromise.Await(); err != nil {
+	clientset, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
+
+	clusterRole := rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "tyger-node-reader",
+		},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{"*"},
+				Resources: []string{"nodes"},
+				Verbs:     []string{"get", "list", "watch"},
+			},
+		},
+	}
+
+	clusterRoleBinding := rbacv1.ClusterRoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "tyger-node-reader-rolebinding",
+		},
+		RoleRef: rbacv1.RoleRef{
+			APIGroup: "rbac.authorization.k8s.io",
+			Kind:     "ClusterRole",
+			Name:     clusterRole.Name,
+		},
+		Subjects: managementPrincipalsToSubjects(inst.Config.Cloud.Compute.ManagementPrincipals),
+	}
+
+	if _, err := clientset.RbacV1().ClusterRoles().Create(ctx, &clusterRole, metav1.CreateOptions{}); err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			_, err = clientset.RbacV1().ClusterRoles().Update(ctx, &clusterRole, metav1.UpdateOptions{})
+			if err != nil {
+				return nil, fmt.Errorf("failed to update cluster role: %w", err)
+			}
+		} else {
+			return nil, fmt.Errorf("failed to create cluster role: %w", err)
+		}
+	}
+
+	if _, err := clientset.RbacV1().ClusterRoleBindings().Create(ctx, &clusterRoleBinding, metav1.CreateOptions{}); err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			_, err = clientset.RbacV1().ClusterRoleBindings().Update(ctx, &clusterRoleBinding, metav1.UpdateOptions{})
+			if err != nil {
+				return nil, fmt.Errorf("failed to update cluster role binding: %w", err)
+			}
+		} else {
+			return nil, fmt.Errorf("failed to create cluster role binding: %w", err)
+		}
+	}
+
+	return nil, nil
+}
+
+func (inst *Installer) createNamespaceRBAC(ctx context.Context, restConfigPromise *install.Promise[*rest.Config], createNamespacePromise *install.Promise[string]) (any, error) {
+	restConfig, err := restConfigPromise.Await()
+	if err != nil {
+		return nil, install.ErrDependencyFailed
+	}
+
+	if _, err := createNamespacePromise.Await(); err != nil {
 		return nil, install.ErrDependencyFailed
 	}
 
@@ -87,28 +148,7 @@ func (inst *Installer) createTygerClusterRBAC(ctx context.Context, restConfigPro
 			Kind:     "Role",
 			Name:     role.Name,
 		},
-		Subjects: make([]rbacv1.Subject, 0),
-	}
-
-	for _, principal := range inst.Config.Cloud.Compute.ManagementPrincipals {
-		subject := rbacv1.Subject{
-			Name: principal.ObjectId,
-		}
-		switch principal.Kind {
-		case PrincipalKindServicePrincipal:
-			subject.Kind = string(PrincipalKindUser)
-		case PrincipalKindUser:
-			subject.Kind = string(principal.Kind)
-			// If this is a guest user, the name should be the object ID,
-			// otherwise the name should be the UPN
-			if !strings.Contains(principal.UserPrincipalName, "#EXT#@") {
-				subject.Name = principal.UserPrincipalName
-			}
-		default:
-			subject.Kind = string(principal.Kind)
-		}
-
-		roleBinding.Subjects = append(roleBinding.Subjects, subject)
+		Subjects: managementPrincipalsToSubjects(inst.Config.Cloud.Compute.ManagementPrincipals),
 	}
 
 	if _, err := clientset.RbacV1().Roles(TygerNamespace).Create(ctx, &role, metav1.CreateOptions{}); err != nil {
@@ -133,54 +173,32 @@ func (inst *Installer) createTygerClusterRBAC(ctx context.Context, restConfigPro
 		}
 	}
 
-	clusterRole := rbacv1.ClusterRole{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "tyger-node-reader",
-		},
-		Rules: []rbacv1.PolicyRule{
-			{
-				APIGroups: []string{"*"},
-				Resources: []string{"nodes"},
-				Verbs:     []string{"get", "list", "watch"},
-			},
-		},
-	}
-
-	clusterRoleBinding := rbacv1.ClusterRoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "tyger-node-reader-rolebinding",
-		},
-		RoleRef: rbacv1.RoleRef{
-			APIGroup: "rbac.authorization.k8s.io",
-			Kind:     "ClusterRole",
-			Name:     clusterRole.Name,
-		},
-		Subjects: roleBinding.Subjects,
-	}
-
-	if _, err := clientset.RbacV1().ClusterRoles().Create(ctx, &clusterRole, metav1.CreateOptions{}); err != nil {
-		if apierrors.IsAlreadyExists(err) {
-			_, err = clientset.RbacV1().ClusterRoles().Update(ctx, &clusterRole, metav1.UpdateOptions{})
-			if err != nil {
-				return nil, fmt.Errorf("failed to update cluster role: %w", err)
-			}
-		} else {
-			return nil, fmt.Errorf("failed to create cluster role: %w", err)
-		}
-	}
-
-	if _, err := clientset.RbacV1().ClusterRoleBindings().Create(ctx, &clusterRoleBinding, metav1.CreateOptions{}); err != nil {
-		if apierrors.IsAlreadyExists(err) {
-			_, err = clientset.RbacV1().ClusterRoleBindings().Update(ctx, &clusterRoleBinding, metav1.UpdateOptions{})
-			if err != nil {
-				return nil, fmt.Errorf("failed to update cluster role binding: %w", err)
-			}
-		} else {
-			return nil, fmt.Errorf("failed to create cluster role binding: %w", err)
-		}
-	}
-
 	return nil, nil
+}
+
+func managementPrincipalsToSubjects(principals []Principal) []rbacv1.Subject {
+	subjects := make([]rbacv1.Subject, 0, len(principals))
+	for _, principal := range principals {
+		subject := rbacv1.Subject{
+			Name: principal.ObjectId,
+		}
+		switch principal.Kind {
+		case PrincipalKindServicePrincipal:
+			subject.Kind = string(PrincipalKindUser)
+		case PrincipalKindUser:
+			subject.Kind = string(principal.Kind)
+			// If this is a guest user, the name should be the object ID,
+			// otherwise the name should be the UPN
+			if !strings.Contains(principal.UserPrincipalName, "#EXT#@") {
+				subject.Name = principal.UserPrincipalName
+			}
+		default:
+			subject.Kind = string(principal.Kind)
+		}
+
+		subjects = append(subjects, subject)
+	}
+	return subjects
 }
 
 func (inst *Installer) PodExec(ctx context.Context, podName string, command ...string) (stdout *bytes.Buffer, stderr *bytes.Buffer, err error) {

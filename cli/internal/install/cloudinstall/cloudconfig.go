@@ -33,9 +33,12 @@ type CloudConfig struct {
 	ResourceGroup         string              `json:"resourceGroup"`
 	Compute               *ComputeConfig      `json:"compute"`
 	Storage               *StorageConfig      `json:"storage"`
-	DatabaseConfig        *DatabaseConfig     `json:"database"`
+	Database              *DatabaseConfig     `json:"database"`
 	LogAnalyticsWorkspace *NamedAzureResource `json:"logAnalyticsWorkspace"`
 	TlsCertificate        *TlsCertificate     `json:"tlsCertificate"`
+
+	// Internal support for associating resources with a network security perimeter profile
+	NetworkSecurityPerimeter *NetworkSecurityPerimeterConfig `json:"networkSecurityPerimeter"`
 }
 
 type ComputeConfig struct {
@@ -112,16 +115,17 @@ type NodePoolConfig struct {
 type StorageConfig struct {
 	Buffers []*StorageAccountConfig `json:"buffers"`
 	Logs    *StorageAccountConfig   `json:"logs"`
-
-	// Internal support for associating the storage accounts with a network security perimeter profile
-	NetworkSecurityPerimeter *NetworkSecurityPerimeterConfig `json:"networkSecurityPerimeter"`
 }
 
 type NetworkSecurityPerimeterConfig struct {
-	NspResourceGroup string `json:"nspResourceGroup"`
-	NspName          string `json:"nspName"`
-	Profile          string `json:"profile"`
-	Mode             string `json:"mode"`
+	NspResourceGroup string                                 `json:"nspResourceGroup"`
+	NspName          string                                 `json:"nspName"`
+	StorageProfile   *NetworkSecurityPerimeterProfileConfig `json:"storageProfile"`
+}
+
+type NetworkSecurityPerimeterProfileConfig struct {
+	Name string `json:"name"`
+	Mode string `json:"mode"`
 }
 
 type StorageAccountConfig struct {

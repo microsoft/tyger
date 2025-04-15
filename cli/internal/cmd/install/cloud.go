@@ -33,8 +33,9 @@ func NewCloudCommand(parentCommand *cobra.Command) *cobra.Command {
 
 func newCloudInstallCommand() *cobra.Command {
 	flags := commonFlags{}
+	skipShared := false
 	cmd := cobra.Command{
-		Use:                   "install -f CONFIG.yml",
+		Use:                   "install -f CONFIG.yml [--skip-shared]",
 		Short:                 "Install cloud infrastructure",
 		Long:                  "Install cloud infrastructure",
 		DisableFlagsInUseLine: true,
@@ -44,7 +45,7 @@ func newCloudInstallCommand() *cobra.Command {
 			cloudInstaller := CheckCloudInstaller(installer)
 
 			log.Info().Msg("Starting cloud install")
-			if err := cloudInstaller.InstallCloud(ctx); err != nil {
+			if err := cloudInstaller.InstallCloud(ctx, skipShared); err != nil {
 				if !errors.Is(err, install.ErrAlreadyLoggedError) {
 					log.Fatal().Err(err).Send()
 				}
@@ -55,6 +56,7 @@ func newCloudInstallCommand() *cobra.Command {
 	}
 
 	addCommonFlags(&cmd, &flags)
+	cmd.Flags().BoolVar(&skipShared, "skip-shared", false, "skip shared resources (i.e. resources that are not specific to an organization)")
 	return &cmd
 }
 
