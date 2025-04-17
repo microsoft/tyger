@@ -4,12 +4,15 @@
 package cloudinstall
 
 import (
+	"context"
 	_ "embed"
 	"io"
 	"strings"
 	"text/template"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v4"
+	"github.com/microsoft/tyger/cli/internal/install"
+	"github.com/rs/zerolog/log"
 )
 
 //go:embed config.tpl
@@ -23,30 +26,60 @@ type CloudEnvironmentConfig struct {
 	Kind            string       `json:"kind"`
 	EnvironmentName string       `json:"environmentName"`
 	Cloud           *CloudConfig `json:"cloud"`
-	Api             *ApiConfig   `json:"api"`
+
+	Organizations []*OrganizationConfig `json:"organizations"`
+}
+
+func (c *CloudEnvironmentConfig) GetSingleOrg() *OrganizationConfig {
+	if len(c.Organizations) != 1 {
+		panic("GetSingleOrganization called on environment with multiple organizations")
+	}
+	return c.Organizations[0]
+}
+
+func (c *CloudEnvironmentConfig) ForEachOrgInParallel(ctx context.Context, action func(context.Context, *OrganizationConfig) error) error {
+	pg := &install.PromiseGroup{}
+	for _, org := range c.Organizations {
+		org := org
+		ctx := log.Ctx(ctx).With().Str("organization", org.Name).Logger().WithContext(ctx)
+		install.NewPromise(ctx, pg, func(ctx context.Context) (any, error) {
+			err := action(ctx, org)
+			return nil, err
+		})
+	}
+
+	// wait for the tasks to complete
+	for _, p := range *pg {
+		if err := p.AwaitErr(); err != nil && err != install.ErrDependencyFailed {
+			return err
+		}
+	}
+
+	return nil
 }
 
 type CloudConfig struct {
-	TenantID              string              `json:"tenantId"`
-	SubscriptionID        string              `json:"subscriptionId"`
-	DefaultLocation       string              `json:"defaultLocation"`
-	ResourceGroup         string              `json:"resourceGroup"`
-	Compute               *ComputeConfig      `json:"compute"`
-	Storage               *StorageConfig      `json:"storage"`
-	Database              *DatabaseConfig     `json:"database"`
-	LogAnalyticsWorkspace *NamedAzureResource `json:"logAnalyticsWorkspace"`
-	TlsCertificate        *TlsCertificate     `json:"tlsCertificate"`
+	TenantID              string                `json:"tenantId"`
+	SubscriptionID        string                `json:"subscriptionId"`
+	DefaultLocation       string                `json:"defaultLocation"`
+	ResourceGroup         string                `json:"resourceGroup"`
+	Compute               *ComputeConfig        `json:"compute"`
+	Database              *DatabaseServerConfig `json:"database"`
+	LogAnalyticsWorkspace *NamedAzureResource   `json:"logAnalyticsWorkspace"`
+	DnsZone               *NamedAzureResource   `json:"dnsZone"`
+	TlsCertificate        *TlsCertificate       `json:"tlsCertificate"`
 
 	// Internal support for associating resources with a network security perimeter profile
 	NetworkSecurityPerimeter *NetworkSecurityPerimeterConfig `json:"networkSecurityPerimeter"`
 }
 
 type ComputeConfig struct {
-	Clusters                   []*ClusterConfig `json:"clusters"`
-	ManagementPrincipals       []Principal      `json:"managementPrincipals"`
-	LocalDevelopmentIdentityId string           `json:"localDevelopmentIdentityId"` // undocumented - for local development only
-	PrivateContainerRegistries []string         `json:"privateContainerRegistries"`
-	Identities                 []string         `json:"identities"`
+	Clusters                   []*ClusterConfig  `json:"clusters"`
+	ManagementPrincipals       []Principal       `json:"managementPrincipals"`
+	LocalDevelopmentIdentityId string            `json:"localDevelopmentIdentityId"` // undocumented - for local development only
+	PrivateContainerRegistries []string          `json:"privateContainerRegistries"`
+	DnsLabel                   string            `json:"dnsLabel"`
+	Helm                       *SharedHelmConfig `json:"helm"`
 }
 
 func (c *ComputeConfig) GetManagementPrincipalIds() []string {
@@ -134,7 +167,7 @@ type StorageAccountConfig struct {
 	Sku      string `json:"sku"`
 }
 
-type DatabaseConfig struct {
+type DatabaseServerConfig struct {
 	ServerName           string          `json:"serverName"`
 	Location             string          `json:"location"`
 	ComputeTier          string          `json:"computeTier"`
@@ -152,11 +185,39 @@ type FirewallRule struct {
 	EndIpAddress   string `json:"endIpAddress"`
 }
 
-type ApiConfig struct {
-	DomainName string         `json:"domainName"`
-	Auth       *AuthConfig    `json:"auth"`
-	Buffers    *BuffersConfig `json:"buffers"`
-	Helm       *HelmConfig    `json:"helm"`
+type OrganizationConfig struct {
+	Name                                string                   `json:"name"`
+	SingleOrganizationCompatibilityMode bool                     `json:"singleOrganizationCompatibilityMode"`
+	Cloud                               *OrganizationCloudConfig `json:"cloud"`
+	Api                                 *OrganizationApiConfig   `json:"api"`
+}
+
+type OrganizationCloudConfig struct {
+	ResourceGroup       string
+	DatabaseName        string
+	KubernetesNamespace string
+	Storage             *OrganizationStorageConfig `json:"storage"`
+	Identities          []string                   `json:"identities"`
+}
+
+type OrganizationStorageConfig struct {
+	Buffers []*StorageAccountConfig `json:"buffers"`
+	Logs    *StorageAccountConfig   `json:"logs"`
+}
+
+type TlsCertificateProvider string
+
+const (
+	TlsCertificateProviderLetsEncrypt TlsCertificateProvider = "LetsEncrypt"
+	TlsCertificateProviderKeyVault    TlsCertificateProvider = "KeyVault"
+)
+
+type OrganizationApiConfig struct {
+	DomainName             string                  `json:"domainName"`
+	TlsCertificateProvider TlsCertificateProvider  `json:"tlsCertificateProvider"`
+	Auth                   *AuthConfig             `json:"auth"`
+	Buffers                *BuffersConfig          `json:"buffers"`
+	Helm                   *OrganizationHelmConfig `json:"helm"`
 }
 
 type AuthConfig struct {
@@ -165,8 +226,11 @@ type AuthConfig struct {
 	CliAppUri string `json:"cliAppUri"`
 }
 
-type HelmConfig struct {
-	Tyger              *HelmChartConfig `json:"tyger"`
+type OrganizationHelmConfig struct {
+	Tyger *HelmChartConfig `json:"tyger"`
+}
+
+type SharedHelmConfig struct {
 	Traefik            *HelmChartConfig `json:"traefik"`
 	CertManager        *HelmChartConfig `json:"certManager"`
 	NvidiaDevicePlugin *HelmChartConfig `json:"nvidiaDevicePlugin"`

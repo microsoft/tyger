@@ -245,13 +245,14 @@ public class DatabaseOptions
 
     public required string TygerServerIdentity { get; set; }
 
+    [Required]
+    public required string OwnersRoleName { get; set; }
+
     public bool AutoMigrate { get; set; }
 }
 
 public static class Constants
 {
-    public const string OwnersRole = "tyger-owners";
-
     public const string MigrationsTableName = "migrations";
     public const string DatabaseNamespace = "public"; // technically the database schema
 

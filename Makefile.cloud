@@ -4,7 +4,7 @@
 ENVIRONMENT_CONFIG_JSON = $(shell scripts/get-config.sh -o json | jq -c)
 
 SECURITY_ENABLED=true
-HELM_NAMESPACE=tyger
+HELM_NAMESPACE=lamna
 HELM_RELEASE=tyger
 TYGER_URI = https://$(shell echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.domainName')
 INSTALL_CLOUD=false
@@ -22,7 +22,7 @@ pim-elevate:
 	az-pim-cli activate --name "$${subscription_name}" --role "Owner" --reason "$${justification}"
 
 ensure-environment: check-az-login install-cli
-	tyger cloud install -f <(scripts/get-config.sh)
+	tyger cloud install -f <(scripts/get-config.sh) --all-orgs
 
 ensure-environment-conditionally: install-cli
 	if [[ "${INSTALL_CLOUD}" == "true" ]]; then

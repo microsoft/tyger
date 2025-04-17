@@ -61,7 +61,7 @@ func (inst *Installer) checkRPRegistered(ctx context.Context, providersClient *a
 	}
 
 	if *rp.RegistrationState == "NotRegistered" || *rp.RegistrationState == "Unregistered" {
-		log.Info().Msgf("Registering %s provider", providerNamespace)
+		log.Ctx(ctx).Info().Msgf("Registering %s provider", providerNamespace)
 		_, err := providersClient.Register(ctx, providerNamespace, nil)
 		if err != nil {
 			return fmt.Errorf("failed to register %s provider: %w", providerNamespace, err)
@@ -131,18 +131,21 @@ func (inst *Installer) checkRbac(ctx context.Context) error {
 		"Microsoft.Storage/storageAccounts/write",
 	}
 
-	storageScopes := []string{
-		fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s", inst.Config.Cloud.SubscriptionID, inst.Config.Cloud.ResourceGroup, inst.Config.Cloud.Storage.Logs.Name),
-	}
+	for _, org := range inst.Config.Organizations {
 
-	for _, bufferAccount := range inst.Config.Cloud.Storage.Buffers {
-		storageScopes = append(storageScopes, fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s", inst.Config.Cloud.SubscriptionID, inst.Config.Cloud.ResourceGroup, bufferAccount.Name))
-	}
+		storageScopes := []string{
+			fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s", inst.Config.Cloud.SubscriptionID, org.Cloud.ResourceGroup, org.Cloud.Storage.Logs.Name),
+		}
 
-	for _, scope := range storageScopes {
-		for _, a := range storageAccountRequiredActions {
-			if err := checkAccess(scope, a, roleAssignments, roleDefs); err != nil {
-				hasErr = true
+		for _, bufferAccount := range org.Cloud.Storage.Buffers {
+			storageScopes = append(storageScopes, fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s", inst.Config.Cloud.SubscriptionID, org.Cloud.ResourceGroup, bufferAccount.Name))
+		}
+
+		for _, scope := range storageScopes {
+			for _, a := range storageAccountRequiredActions {
+				if err := checkAccess(ctx, scope, a, roleAssignments, roleDefs); err != nil {
+					hasErr = true
+				}
 			}
 		}
 	}
@@ -161,7 +164,7 @@ func (inst *Installer) checkRbac(ctx context.Context) error {
 
 	for _, scope := range aksScopes {
 		for _, a := range aksRequiredActions {
-			if err := checkAccess(scope, a, roleAssignments, roleDefs); err != nil {
+			if err := checkAccess(ctx, scope, a, roleAssignments, roleDefs); err != nil {
 				hasErr = true
 			}
 		}
@@ -174,7 +177,7 @@ func (inst *Installer) checkRbac(ctx context.Context) error {
 			return err
 		}
 
-		if err := checkAccess(id, "Microsoft.Authorization/roleAssignments/write", roleAssignments, roleDefs); err != nil {
+		if err := checkAccess(ctx, id, "Microsoft.Authorization/roleAssignments/write", roleAssignments, roleDefs); err != nil {
 			hasErr = true
 		}
 	}
@@ -190,7 +193,7 @@ func (inst *Installer) checkRbac(ctx context.Context) error {
 			"Microsoft.OperationsManagement/solutions/write",
 		}
 		for _, a := range laRequiredActions {
-			if err := checkAccess(scope, a, roleAssignments, roleDefs); err != nil {
+			if err := checkAccess(ctx, scope, a, roleAssignments, roleDefs); err != nil {
 				hasErr = true
 			}
 		}
@@ -204,7 +207,7 @@ func (inst *Installer) checkRbac(ctx context.Context) error {
 }
 
 // This is not meant to be a complete check and may result in false positives. For instance, we are ignoring conditions and deny assignments.
-func checkAccess(scope, permission string, roleAssignments []armauthorization.RoleAssignment, roleDefs map[string]armauthorization.RoleDefinition) error {
+func checkAccess(ctx context.Context, scope, permission string, roleAssignments []armauthorization.RoleAssignment, roleDefs map[string]armauthorization.RoleDefinition) error {
 	for _, ra := range roleAssignments {
 		if !strings.HasPrefix(strings.ToLower(scope), strings.ToLower(*ra.Properties.Scope)) {
 			// This role assignment is not applicable
@@ -235,7 +238,7 @@ func checkAccess(scope, permission string, roleAssignments []armauthorization.Ro
 		}
 	}
 
-	log.Error().Str("permission", permission).Str("scope", scope).Msg("Missing required permission")
+	log.Ctx(ctx).Error().Str("permission", permission).Str("scope", scope).Msg("Missing required permission")
 	return install.ErrAlreadyLoggedError
 }
 

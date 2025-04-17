@@ -26,11 +26,7 @@ const (
 	DefaultTygerReleaseName = TygerNamespace
 )
 
-func createTygerNamespace(ctx context.Context, restConfigPromise *install.Promise[*rest.Config]) (string, error) {
-	return createNamespace(ctx, restConfigPromise, TygerNamespace)
-}
-
-func createNamespace(ctx context.Context, restConfigPromise *install.Promise[*rest.Config], namespace string) (string, error) {
+func createKubernetesNamespace(ctx context.Context, restConfigPromise *install.Promise[*rest.Config], namespace string) (string, error) {
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
 		return namespace, install.ErrDependencyFailed
@@ -113,7 +109,8 @@ func (inst *Installer) createNamespaceRBAC(ctx context.Context, restConfigPromis
 		return nil, install.ErrDependencyFailed
 	}
 
-	if _, err := createNamespacePromise.Await(); err != nil {
+	namespace, err := createNamespacePromise.Await()
+	if err != nil {
 		return nil, install.ErrDependencyFailed
 	}
 
@@ -122,12 +119,12 @@ func (inst *Installer) createNamespaceRBAC(ctx context.Context, restConfigPromis
 		return nil, fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
-	log.Info().Msgf("Updating RBAC for the '%s' namespace", TygerNamespace)
+	log.Ctx(ctx).Info().Msgf("Updating RBAC for the '%s' namespace", namespace)
 
 	role := rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "tyger-full-access",
-			Namespace: TygerNamespace,
+			Namespace: namespace,
 		},
 		Rules: []rbacv1.PolicyRule{
 			{
@@ -141,7 +138,7 @@ func (inst *Installer) createNamespaceRBAC(ctx context.Context, restConfigPromis
 	roleBinding := rbacv1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "tyger-full-access-rolebinding",
-			Namespace: TygerNamespace,
+			Namespace: namespace,
 		},
 		RoleRef: rbacv1.RoleRef{
 			APIGroup: "rbac.authorization.k8s.io",
@@ -151,9 +148,9 @@ func (inst *Installer) createNamespaceRBAC(ctx context.Context, restConfigPromis
 		Subjects: managementPrincipalsToSubjects(inst.Config.Cloud.Compute.ManagementPrincipals),
 	}
 
-	if _, err := clientset.RbacV1().Roles(TygerNamespace).Create(ctx, &role, metav1.CreateOptions{}); err != nil {
+	if _, err := clientset.RbacV1().Roles(namespace).Create(ctx, &role, metav1.CreateOptions{}); err != nil {
 		if apierrors.IsAlreadyExists(err) {
-			_, err = clientset.RbacV1().Roles(TygerNamespace).Update(ctx, &role, metav1.UpdateOptions{})
+			_, err = clientset.RbacV1().Roles(namespace).Update(ctx, &role, metav1.UpdateOptions{})
 			if err != nil {
 				return nil, fmt.Errorf("failed to update role: %w", err)
 			}
@@ -162,9 +159,9 @@ func (inst *Installer) createNamespaceRBAC(ctx context.Context, restConfigPromis
 		}
 	}
 
-	if _, err := clientset.RbacV1().RoleBindings(TygerNamespace).Create(ctx, &roleBinding, metav1.CreateOptions{}); err != nil {
+	if _, err := clientset.RbacV1().RoleBindings(namespace).Create(ctx, &roleBinding, metav1.CreateOptions{}); err != nil {
 		if apierrors.IsAlreadyExists(err) {
-			_, err = clientset.RbacV1().RoleBindings(TygerNamespace).Update(ctx, &roleBinding, metav1.UpdateOptions{})
+			_, err = clientset.RbacV1().RoleBindings(namespace).Update(ctx, &roleBinding, metav1.UpdateOptions{})
 			if err != nil {
 				return nil, fmt.Errorf("failed to update role binding: %w", err)
 			}
@@ -201,7 +198,7 @@ func managementPrincipalsToSubjects(principals []Principal) []rbacv1.Subject {
 	return subjects
 }
 
-func (inst *Installer) PodExec(ctx context.Context, podName string, command ...string) (stdout *bytes.Buffer, stderr *bytes.Buffer, err error) {
+func (inst *Installer) PodExec(ctx context.Context, namespace string, podName string, command ...string) (stdout *bytes.Buffer, stderr *bytes.Buffer, err error) {
 	restConfig, err := inst.GetUserRESTConfig(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -212,7 +209,7 @@ func (inst *Installer) PodExec(ctx context.Context, podName string, command ...s
 		return nil, nil, fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
-	req := clientset.CoreV1().RESTClient().Post().Resource("pods").Name(podName).Namespace(TygerNamespace).SubResource("exec")
+	req := clientset.CoreV1().RESTClient().Post().Resource("pods").Name(podName).Namespace(namespace).SubResource("exec")
 	options := &corev1.PodExecOptions{
 		Command: command,
 		Stdout:  true,

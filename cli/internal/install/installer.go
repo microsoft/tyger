@@ -37,6 +37,8 @@ var (
 type Installer interface {
 	QuickValidateConfig() bool
 
+	ApplyOrgFilter(orgFlags OrgFlags) error
+
 	InstallTyger(ctx context.Context) error
 	UninstallTyger(ctx context.Context, deleteData bool, preserveRunContainers bool) error
 
@@ -58,4 +60,9 @@ type ServerLogOptions struct {
 	TailLines   int
 	DataPlane   bool
 	Destination io.Writer
+}
+
+type OrgFlags struct {
+	SpecifiedOrgs []string
+	AllOrgs       bool
 }

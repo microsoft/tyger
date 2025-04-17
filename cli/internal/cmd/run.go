@@ -191,7 +191,7 @@ func attachToRunNoBufferIO(ctx context.Context, run model.Run, logs bool, logTim
 
 func attachToRun(ctx context.Context, run model.Run, inputBufferParameter, outputBufferParameter string, blockSize int, writeDop int, readDop int, logs bool, logTimestamps bool, logSink io.Writer) error {
 	log.Logger = log.Logger.With().Int64("runId", run.Id).Logger()
-	log.Info().Msg("Run created")
+	log.Ctx(ctx).Info().Msg("Run created")
 	var inputSasUri *url.URL
 	var outputSasUri *url.URL
 	var err error
@@ -289,7 +289,7 @@ beginWatch:
 			if event.Status != nil {
 				if *event.Status != lastStatus {
 					lastStatus = *event.Status
-					logEntry := log.Info().Str("status", event.Status.String())
+					logEntry := log.Ctx(ctx).Info().Str("status", event.Status.String())
 					if event.RunningCount != nil {
 						logEntry = logEntry.Int("runningCount", *event.RunningCount)
 					}
@@ -1064,7 +1064,7 @@ func pullImages(ctx context.Context, newRun model.Run) error {
 				}
 			}
 
-			log.Info().Msgf("Pulled image %s", imageName)
+			log.Ctx(ctx).Info().Msgf("Pulled image %s", imageName)
 		}
 	}
 

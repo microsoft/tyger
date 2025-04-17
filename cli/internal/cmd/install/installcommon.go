@@ -97,7 +97,7 @@ func commonPrerun(ctx context.Context, flags *commonFlags) (context.Context, ins
 	go func() {
 		<-ctx.Done()
 		stopFunc()
-		log.Warn().Msg("Canceling...")
+		log.Ctx(ctx).Warn().Msg("Canceling...")
 	}()
 
 	if !installer.QuickValidateConfig() {

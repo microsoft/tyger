@@ -39,10 +39,10 @@ const (
 )
 
 const (
-	ownersRole           = "tyger-owners"
-	databasePort         = 5432
-	databaseName         = "postgres"
-	dbConfiguredTagValue = "2" // bump this when we change the database configuration logic
+	unqualifiedOwnersRole = "tyger-owners"
+	databasePort          = 5432
+	defaultDatabaseName   = "postgres"
+	dbConfiguredTagValue  = "2" // bump this when we change the database configuration logic
 )
 
 func (inst *Installer) createDatabaseServer(ctx context.Context) (any, error) {
@@ -121,7 +121,7 @@ func (inst *Installer) createDatabaseServer(ctx context.Context) (any, error) {
 	}
 
 	if serverNeedsUpdate {
-		log.Info().Msgf("Creating or updating PostgreSQL server '%s'", serverName)
+		log.Ctx(ctx).Info().Msgf("Creating or updating PostgreSQL server '%s'", serverName)
 
 		poller, err := client.BeginCreate(ctx, inst.Config.Cloud.ResourceGroup, serverName, serverParameters, nil)
 		if err != nil {
@@ -165,16 +165,16 @@ func (inst *Installer) createDatabaseServer(ctx context.Context) (any, error) {
 							`echo "Restarting the server to apply changes..."; `+
 							`az postgres flexible-server restart --resource-group $RESOURCE_GROUP --name $SERVER_NAME --subscription $SUBSCRIPTION_ID`,
 						*configResponse.Properties.DefaultValue, inst.Config.Cloud.ResourceGroup, serverName, inst.Config.Cloud.SubscriptionID)
-					log.Warn().Msgf("The database server size has been changed. It is recommended to update the max_connections parameter suitable for the new server size.")
-					log.Warn().Msgf("Run the following command to update the parameter and restart the server: `%s` ", commandToRun)
-					log.Warn().Msg("Note that running the above command will restart the database server and cause downtime.")
+					log.Ctx(ctx).Warn().Msgf("The database server size has been changed. It is recommended to update the max_connections parameter suitable for the new server size.")
+					log.Ctx(ctx).Warn().Msgf("Run the following command to update the parameter and restart the server: `%s` ", commandToRun)
+					log.Ctx(ctx).Warn().Msg("Note that running the above command will restart the database server and cause downtime.")
 				}
 			}
 		}
 
 		existingServer = &createdDatabaseServer.Server
 	} else {
-		log.Info().Msgf("PostgreSQL server '%s' appears to be up to date", *existingServer.Name)
+		log.Ctx(ctx).Info().Msgf("PostgreSQL server '%s' appears to be up to date", *existingServer.Name)
 	}
 
 	if err := assignRbacRole(ctx, inst.Config.Cloud.Compute.GetManagementPrincipalIds(), true, *existingServer.ID, "Reader", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
@@ -225,6 +225,11 @@ func (inst *Installer) createDatabaseServer(ctx context.Context) (any, error) {
 
 	promiseGroup := &install.PromiseGroup{}
 
+	install.NewPromise(ctx, promiseGroup, func(ctx context.Context) (any, error) {
+		err := createDatabaseServerAdmin(ctx, inst.Config, serverName, inst.Credential)
+		return nil, err
+	})
+
 	for name := range desiredFirewallRules {
 		nameSnapshot := name
 		desiredRule := desiredFirewallRules[nameSnapshot]
@@ -235,7 +240,7 @@ func (inst *Installer) createDatabaseServer(ctx context.Context) (any, error) {
 		}
 
 		install.NewPromise(ctx, promiseGroup, func(ctx context.Context) (any, error) {
-			log.Info().Msgf("Creating or updating PostgreSQL server firewall rule '%s'", nameSnapshot)
+			log.Ctx(ctx).Info().Msgf("Creating or updating PostgreSQL server firewall rule '%s'", nameSnapshot)
 			_, err = retryableAsyncOperation(ctx, func(ctx context.Context) (*runtime.Poller[armpostgresqlflexibleservers.FirewallRulesClientCreateOrUpdateResponse], error) {
 				return firewallClient.BeginCreateOrUpdate(ctx, inst.Config.Cloud.ResourceGroup, serverName, nameSnapshot, desiredRule, nil)
 			})
@@ -250,7 +255,7 @@ func (inst *Installer) createDatabaseServer(ctx context.Context) (any, error) {
 		nameSnapshot := name
 		if _, ok := desiredFirewallRules[nameSnapshot]; !ok {
 			install.NewPromise(ctx, promiseGroup, func(ctx context.Context) (any, error) {
-				log.Info().Msgf("Deleting PostgreSQL server firewall rule '%s'", nameSnapshot)
+				log.Ctx(ctx).Info().Msgf("Deleting PostgreSQL server firewall rule '%s'", nameSnapshot)
 				_, err = retryableAsyncOperation(ctx, func(ctx context.Context) (*runtime.Poller[armpostgresqlflexibleservers.FirewallRulesClientDeleteResponse], error) {
 					return firewallClient.BeginDelete(ctx, inst.Config.Cloud.ResourceGroup, serverName, nameSnapshot, nil)
 				})
@@ -272,7 +277,7 @@ func (inst *Installer) createDatabaseServer(ctx context.Context) (any, error) {
 	return nil, nil
 }
 
-func (inst *Installer) createDatabase(ctx context.Context, databaseName string, tygerServerManagedIdentityPromise, migrationRunnerManagedIdentityPromise *install.Promise[*armmsi.Identity]) (any, error) {
+func (inst *Installer) createDatabase(ctx context.Context, org *OrganizationConfig, tygerServerManagedIdentityPromise, migrationRunnerManagedIdentityPromise *install.Promise[*armmsi.Identity]) (any, error) {
 	serverName := inst.Config.Cloud.Database.ServerName
 
 	client, err := armpostgresqlflexibleservers.NewServersClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
@@ -287,6 +292,27 @@ func (inst *Installer) createDatabase(ctx context.Context, databaseName string, 
 
 	existingServer := &existingServerResponse.Server
 
+	databasesClient, err := armpostgresqlflexibleservers.NewDatabasesClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create PostgreSQL server database client: %w", err)
+	}
+
+	if _, err := databasesClient.Get(ctx, inst.Config.Cloud.ResourceGroup, serverName, org.Cloud.DatabaseName, nil); err != nil {
+		var repErr *azcore.ResponseError
+		if errors.As(err, &repErr) && repErr.StatusCode == http.StatusNotFound {
+			log.Ctx(ctx).Info().Msgf("Creating PostgreSQL server database '%s'", org.Cloud.DatabaseName)
+			if poller, err := databasesClient.BeginCreate(ctx, inst.Config.Cloud.ResourceGroup, serverName, org.Cloud.DatabaseName, armpostgresqlflexibleservers.Database{}, nil); err != nil {
+				return nil, fmt.Errorf("failed to create PostgreSQL server database: %w", err)
+			} else {
+				if _, err := poller.PollUntilDone(ctx, nil); err != nil {
+					return nil, fmt.Errorf("failed to create PostgreSQL server database: %w", err)
+				}
+			}
+		} else {
+			return nil, fmt.Errorf("failed to get PostgreSQL server database: %w", err)
+		}
+	}
+
 	tygerServerManagedIdentity, err := tygerServerManagedIdentityPromise.Await()
 	if err != nil {
 		return nil, install.ErrDependencyFailed
@@ -300,19 +326,17 @@ func (inst *Installer) createDatabase(ctx context.Context, databaseName string, 
 	// check if the database has already been configured and we can skip the steps that follow
 	if migrationRunnerManagedIdentity.Tags != nil {
 		if value, ok := migrationRunnerManagedIdentity.Tags[inst.getDatabaseConfiguredTagKey()]; ok && value != nil && *value == dbConfiguredTagValue {
-			log.Info().Msg("PostgreSQL server is already configured")
+			log.Ctx(ctx).Info().Msg("PostgreSQL server is already configured")
 			return nil, nil
 		}
 	}
-
-	currentPrincipalDisplayName, err := createDatabaseAdmin(ctx, inst.Config, serverName, inst.Credential)
 
 	temporaryFirewallRuleName := "TempAllowInstaller"
 	var temporaryFirewallRule *armpostgresqlflexibleservers.FirewallRule
 	// Get the current IP address. Create a new "clean" HTTP client that does not use any proxy, as database connections will not use one.
 	ipInfoClient := ipinfo.NewClient(cleanhttp.DefaultClient(), nil, "")
 	if ip, err := ipInfoClient.GetIPInfo(nil); err != nil {
-		log.Warn().Msgf("Unable to determine the current public IP address. You may need to add the current IP address manually as a database firewall rule to allow connectivity")
+		log.Ctx(ctx).Warn().Msgf("Unable to determine the current public IP address. You may need to add the current IP address manually as a database firewall rule to allow connectivity")
 	} else {
 		temporaryFirewallRule = &armpostgresqlflexibleservers.FirewallRule{
 			Properties: &armpostgresqlflexibleservers.FirewallRuleProperties{
@@ -328,7 +352,7 @@ func (inst *Installer) createDatabase(ctx context.Context, databaseName string, 
 	}
 
 	if temporaryFirewallRule != nil {
-		log.Info().Msgf("Creating temporary PostgreSQL server firewall rule '%s'", temporaryFirewallRuleName)
+		log.Ctx(ctx).Info().Msgf("Creating temporary PostgreSQL server firewall rule '%s'", temporaryFirewallRuleName)
 		_, err = retryableAsyncOperation(ctx, func(ctx context.Context) (*runtime.Poller[armpostgresqlflexibleservers.FirewallRulesClientCreateOrUpdateResponse], error) {
 			return firewallClient.BeginCreateOrUpdate(ctx, inst.Config.Cloud.ResourceGroup, serverName, temporaryFirewallRuleName, *temporaryFirewallRule, nil)
 		})
@@ -337,12 +361,17 @@ func (inst *Installer) createDatabase(ctx context.Context, databaseName string, 
 		}
 	}
 
-	if err := inst.createRoles(ctx, existingServer, currentPrincipalDisplayName, tygerServerManagedIdentity, migrationRunnerManagedIdentity); err != nil {
+	currentPrincipalDisplayName, _, _, err := getCurrentPrincipalForDatabase(ctx, inst.Credential)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current principal information: %w", err)
+	}
+
+	if err := inst.createRoles(ctx, existingServer, org, currentPrincipalDisplayName, tygerServerManagedIdentity, migrationRunnerManagedIdentity); err != nil {
 		return nil, err
 	}
 
 	if temporaryFirewallRule != nil {
-		log.Info().Msgf("Deleting temporary PostgreSQL server firewall rule '%s'", temporaryFirewallRuleName)
+		log.Ctx(ctx).Info().Msgf("Deleting temporary PostgreSQL server firewall rule '%s'", temporaryFirewallRuleName)
 		_, err = retryableAsyncOperation(ctx, func(ctx context.Context) (*runtime.Poller[armpostgresqlflexibleservers.FirewallRulesClientDeleteResponse], error) {
 			return firewallClient.BeginDelete(ctx, inst.Config.Cloud.ResourceGroup, serverName, temporaryFirewallRuleName, nil)
 		})
@@ -370,25 +399,25 @@ func (inst *Installer) createDatabase(ctx context.Context, databaseName string, 
 	return nil, nil
 }
 
-// Add the given managed identity and the current user as admins on the database server.
+// Add the current user as admins on the database server.
 // These are not superusers.
-func createDatabaseAdmin(
+func createDatabaseServerAdmin(
 	ctx context.Context,
 	config *CloudEnvironmentConfig,
 	serverName string,
 	cred azcore.TokenCredential,
-) (currentPrincipalDisplayname string, err error) {
+) (err error) {
 	adminClient, err := armpostgresqlflexibleservers.NewAdministratorsClient(config.Cloud.SubscriptionID, cred, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to create PostgreSQL server admin client: %w", err)
+		return fmt.Errorf("failed to create PostgreSQL server admin client: %w", err)
 	}
 
 	currentPrincipalDisplayName, currentPrincipalObjectId, currentPrincipalType, err := getCurrentPrincipalForDatabase(ctx, cred)
 	if err != nil {
-		return "", fmt.Errorf("failed to get current principal information: %w", err)
+		return fmt.Errorf("failed to get current principal information: %w", err)
 	}
 
-	log.Info().Msgf("Creating PostgreSQL server admin '%s'", currentPrincipalDisplayName)
+	log.Ctx(ctx).Info().Msgf("Creating PostgreSQL server admin '%s'", currentPrincipalDisplayName)
 
 	currentUserAdmin := armpostgresqlflexibleservers.ActiveDirectoryAdministratorAdd{
 		Properties: &armpostgresqlflexibleservers.AdministratorPropertiesForAdd{
@@ -399,14 +428,22 @@ func createDatabaseAdmin(
 	}
 	currentUserPoller, err := adminClient.BeginCreate(ctx, config.Cloud.ResourceGroup, serverName, currentPrincipalObjectId, currentUserAdmin, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to create PostgreSQL server admin: %w", err)
+		return fmt.Errorf("failed to create PostgreSQL server admin: %w", err)
 	}
 
 	if _, err := currentUserPoller.PollUntilDone(ctx, nil); err != nil {
-		return "", fmt.Errorf("failed to create PostgreSQL server admin: %w", err)
+		return fmt.Errorf("failed to create PostgreSQL server admin: %w", err)
 	}
 
-	return currentPrincipalDisplayName, nil
+	return nil
+}
+
+func getDatabaseRoleName(org *OrganizationConfig, simpleRoleName string) string {
+	if org.SingleOrganizationCompatibilityMode {
+		return simpleRoleName
+	}
+
+	return fmt.Sprintf("%s-%s", org.Name, simpleRoleName)
 }
 
 // Create a tyger-owners role and grant it to the current principal and the migration runner's managed identity.
@@ -414,11 +451,12 @@ func createDatabaseAdmin(
 func (inst *Installer) createRoles(
 	ctx context.Context,
 	server *armpostgresqlflexibleservers.Server,
+	org *OrganizationConfig,
 	currentPrincipalDisplayName string,
 	tygerServerIdentity *armmsi.Identity,
 	migrationRunnerIdentity *armmsi.Identity,
 ) error {
-	log.Info().Msg("Creating PostgreSQL roles")
+	log.Ctx(ctx).Info().Msg("Creating PostgreSQL roles")
 
 	token, err := inst.Credential.GetToken(ctx, policy.TokenRequestOptions{
 		TenantID: inst.Config.Cloud.TenantID,
@@ -429,54 +467,99 @@ func (inst *Installer) createRoles(
 		return fmt.Errorf("failed to get database token: %w", err)
 	}
 
-	connectionString := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=verify-full",
-		*server.Properties.FullyQualifiedDomainName, databasePort, currentPrincipalDisplayName, token.Token, databaseName)
+	executeOnDatabase := func(databaseName string, action func(db *sql.DB) error) error {
+		connectionString := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=verify-full",
+			*server.Properties.FullyQualifiedDomainName, databasePort, currentPrincipalDisplayName, token.Token, defaultDatabaseName)
 
-	db, err := sql.Open("postgres", connectionString)
-	if err == nil {
-		err = db.PingContext(ctx)
+		db, err := sql.Open(defaultDatabaseName, connectionString)
+		if err == nil {
+			err = db.PingContext(ctx)
+		}
+		if err != nil {
+			log.Ctx(ctx).Warn().Msgf("For network connectivity problems to the database, try adding your current public IP address to the database firewall rules in the config file and verify that there is no firewall in your environment that is blocking access to %s on port %d.", *server.Properties.FullyQualifiedDomainName, databasePort)
+			return fmt.Errorf("failed to open database connection: %w", err)
+		}
+		defer db.Close()
+
+		return action(db)
 	}
+
+	databaseScopedOwnersRole := getDatabaseRoleName(org, unqualifiedOwnersRole)
+
+	err = executeOnDatabase(defaultDatabaseName, func(db *sql.DB) error {
+		_, err = db.Exec(fmt.Sprintf(`
+		DO $$
+		BEGIN
+			IF NOT EXISTS (SELECT FROM pgaadauth_list_principals(false) WHERE objectId = '%s') THEN
+				PERFORM pgaadauth_create_principal_with_oid('%s', '%s', 'service', false, false);
+			END IF;
+		END
+		$$`, *tygerServerIdentity.Properties.PrincipalID, getDatabaseRoleName(org, *migrationRunnerIdentity.Name), *migrationRunnerIdentity.Properties.PrincipalID))
+		if err != nil {
+			return fmt.Errorf("failed to create tyger server database principal: %w", err)
+		}
+
+		_, err = db.Exec(fmt.Sprintf(`
+		DO $$
+		BEGIN
+			IF NOT EXISTS (SELECT FROM pgaadauth_list_principals(false) WHERE objectId = '%s') THEN
+				PERFORM pgaadauth_create_principal_with_oid('%s', '%s', 'service', false, false);
+			END IF;
+		END
+		$$`, *tygerServerIdentity.Properties.PrincipalID, getDatabaseRoleName(org, *tygerServerIdentity.Name), *tygerServerIdentity.Properties.PrincipalID))
+		if err != nil {
+			return fmt.Errorf("failed to create tyger server database principal: %w", err)
+		}
+
+		return nil
+	})
 	if err != nil {
-		log.Warn().Msgf("For network connectivity problems to the database, try adding your current public IP address to the database firewall rules in the config file and verify that there is no firewall in your environment that is blocking access to %s on port %d.", *server.Properties.FullyQualifiedDomainName, databasePort)
-		return fmt.Errorf("failed to open database connection: %w", err)
+		return err
 	}
-	defer db.Close()
 
-	_, err = db.Exec(fmt.Sprintf(`
-DO $$
-BEGIN
-	IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '%s') THEN
-		CREATE ROLE "%s";
-	END IF;
-END
-$$`, ownersRole, ownersRole))
+	err = executeOnDatabase(org.Cloud.DatabaseName, func(db *sql.DB) error {
+
+		_, err = db.Exec(fmt.Sprintf(`
+		DO $$
+		BEGIN
+			IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '%s') THEN
+				CREATE ROLE "%s";
+			END IF;
+		END
+		$$`, databaseScopedOwnersRole, databaseScopedOwnersRole))
+		if err != nil {
+			return fmt.Errorf("failed to create %s database role: %w", databaseScopedOwnersRole, err)
+		}
+
+		if _, err := db.Exec(fmt.Sprintf(`GRANT "%s" TO "%s" WITH ADMIN TRUE`, databaseScopedOwnersRole, getDatabaseRoleName(org, *migrationRunnerIdentity.Name))); err != nil {
+			return fmt.Errorf("failed to grant database role: %w", err)
+		}
+
+		if _, err := db.Exec(fmt.Sprintf(`GRANT ALL ON SCHEMA public TO "%s"`, getDatabaseRoleName(org, *migrationRunnerIdentity.Name))); err != nil {
+			return fmt.Errorf("failed to grant database role: %w", err)
+		}
+
+		if _, err := db.Exec(fmt.Sprintf(`GRANT "%s" TO "%s"`, databaseScopedOwnersRole, currentPrincipalDisplayName)); err != nil {
+			return fmt.Errorf("failed to grant database role: %w", err)
+		}
+
+		if _, err := db.Exec(fmt.Sprintf(`GRANT ALL ON SCHEMA public TO "%s"`, databaseScopedOwnersRole)); err != nil {
+			return fmt.Errorf("failed to grant database role: %w", err)
+		}
+
+		if _, err := db.Exec(fmt.Sprintf(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "%s"`, getDatabaseRoleName(org, *tygerServerIdentity.Name))); err != nil {
+			return fmt.Errorf("failed to grant database role: %w", err)
+		}
+
+		if _, err := db.Exec(fmt.Sprintf(`GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO "%s"`, getDatabaseRoleName(org, *tygerServerIdentity.Name))); err != nil {
+			return fmt.Errorf("failed to grant database role: %w", err)
+		}
+
+		return nil
+	})
+
 	if err != nil {
-		return fmt.Errorf("failed to create %s database role: %w", ownersRole, err)
-	}
-
-	_, err = db.Exec(fmt.Sprintf(`
-	DO $$
-	BEGIN
-		IF NOT EXISTS (SELECT FROM pgaadauth_list_principals(false) WHERE objectId = '%s') THEN
-			PERFORM pgaadauth_create_principal_with_oid('%s', '%s', 'service', false, false);
-		END IF;
-	END
-	$$`, *tygerServerIdentity.Properties.PrincipalID, *tygerServerIdentity.Name, *tygerServerIdentity.Properties.PrincipalID))
-
-	if err != nil {
-		return fmt.Errorf("failed to create tyger server database principal: %w", err)
-	}
-
-	if _, err := db.Exec(fmt.Sprintf(`GRANT "%s" TO "%s" WITH ADMIN TRUE`, ownersRole, *migrationRunnerIdentity.Name)); err != nil {
-		return fmt.Errorf("failed to grant database role: %w", err)
-	}
-
-	if _, err := db.Exec(fmt.Sprintf(`GRANT "%s" TO "%s"`, ownersRole, currentPrincipalDisplayName)); err != nil {
-		return fmt.Errorf("failed to grant database role: %w", err)
-	}
-
-	if _, err := db.Exec(fmt.Sprintf(`GRANT ALL ON SCHEMA public TO "%s"`, ownersRole)); err != nil {
-		return fmt.Errorf("failed to grant database role: %w", err)
+		return err
 	}
 
 	return nil
@@ -601,7 +684,7 @@ func (inst *Installer) getDatabaseConfiguredTagKey() string {
 
 // Export logs to Log Analytics.
 func (inst *Installer) enableDiagnosticSettings(ctx context.Context, server *armpostgresqlflexibleservers.Server) error {
-	log.Info().Msg("Enabling diagnostics on PostgreSQL server")
+	log.Ctx(ctx).Info().Msg("Enabling diagnostics on PostgreSQL server")
 
 	diagnosticsSettingsClient, err := armmonitor.NewDiagnosticSettingsClient(inst.Credential, nil)
 	if err != nil {
@@ -643,6 +726,6 @@ func (inst *Installer) enableDiagnosticSettings(ctx context.Context, server *arm
 		return fmt.Errorf("failed to enable diagnostics on PostgreSQL server: %w", err)
 	}
 
-	log.Info().Msg("Diagnostics on PostgreSQL server enabled")
+	log.Ctx(ctx).Info().Msg("Diagnostics on PostgreSQL server enabled")
 	return nil
 }

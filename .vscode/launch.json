@@ -40,7 +40,13 @@
       "mode": "auto",
       "program": "cli/cmd/tyger",
       "cwd": "${workspaceFolder}",
-      "args": []
+      "args": [
+        "cloud",
+        "install",
+        "-f",
+        "/home/vscode/.tyger.config",
+        "--skip-shared"
+      ]
     },
     {
       "name": "CLI Docker",

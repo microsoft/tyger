@@ -34,8 +34,9 @@ func NewCloudCommand(parentCommand *cobra.Command) *cobra.Command {
 func newCloudInstallCommand() *cobra.Command {
 	flags := commonFlags{}
 	skipShared := false
+	orgFlags := install.OrgFlags{}
 	cmd := cobra.Command{
-		Use:                   "install -f CONFIG.yml [--skip-shared]",
+		Use:                   "install -f CONFIG.yml [--org ORGANIZATION] [--skip-shared]",
 		Short:                 "Install cloud infrastructure",
 		Long:                  "Install cloud infrastructure",
 		DisableFlagsInUseLine: true,
@@ -43,20 +44,25 @@ func newCloudInstallCommand() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx, installer := commonPrerun(cmd.Context(), &flags)
 			cloudInstaller := CheckCloudInstaller(installer)
+			if err := cloudInstaller.ApplyOrgFilter(orgFlags); err != nil {
+				log.Fatal().Err(err).Send()
+			}
 
-			log.Info().Msg("Starting cloud install")
+			log.Ctx(ctx).Info().Msg("Starting cloud install")
 			if err := cloudInstaller.InstallCloud(ctx, skipShared); err != nil {
 				if !errors.Is(err, install.ErrAlreadyLoggedError) {
 					log.Fatal().Err(err).Send()
 				}
 				os.Exit(1)
 			}
-			log.Info().Msg("Install complete")
+			log.Ctx(ctx).Info().Msg("Install complete")
 		},
 	}
 
 	addCommonFlags(&cmd, &flags)
+	addOrgFlags(&cmd, &orgFlags, true)
 	cmd.Flags().BoolVar(&skipShared, "skip-shared", false, "skip shared resources (i.e. resources that are not specific to an organization)")
+
 	return &cmd
 }
 
@@ -72,7 +78,7 @@ func newCloudUninstallCommand() *cobra.Command {
 			ctx, installer := commonPrerun(cmd.Context(), &flags)
 			cloudInstaller := CheckCloudInstaller(installer)
 
-			log.Info().Msg("Starting cloud uninstall")
+			log.Ctx(ctx).Info().Msg("Starting cloud uninstall")
 
 			if err := cloudInstaller.UninstallCloud(ctx); err != nil {
 				if !errors.Is(err, install.ErrAlreadyLoggedError) {
@@ -81,7 +87,7 @@ func newCloudUninstallCommand() *cobra.Command {
 				os.Exit(1)
 			}
 
-			log.Info().Msg("Uninstall complete")
+			log.Ctx(ctx).Info().Msg("Uninstall complete")
 		},
 	}
 
@@ -93,6 +99,16 @@ func addCommonFlags(cmd *cobra.Command, flags *commonFlags) {
 	cmd.Flags().StringVarP(&flags.configPath, "file", "f", "", "path to the installation configuration YAML file")
 	cmd.MarkFlagRequired("file")
 	cmd.Flags().StringToStringVar(&flags.setOverrides, "set", nil, "override config values (e.g. --set cloud.subscriptionID=1234 --set cloud.resourceGroup=mygroup)")
+}
+
+func addOrgFlags(cmd *cobra.Command, orgFlags *install.OrgFlags, allowMany bool) {
+	if allowMany {
+		cmd.Flags().StringArrayVarP(&orgFlags.SpecifiedOrgs, "org", "o", nil, "the organization names")
+		cmd.Flags().BoolVar(&orgFlags.AllOrgs, "all-orgs", false, "apply to all organizations")
+		cmd.MarkFlagsMutuallyExclusive("org", "all-orgs")
+	} else {
+		cmd.Flags().StringArrayVarP(&orgFlags.SpecifiedOrgs, "org", "o", nil, "the organization name")
+	}
 }
 
 func CheckCloudInstaller(installer install.Installer) *cloudinstall.Installer {

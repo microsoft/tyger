@@ -63,9 +63,10 @@ func TestCloudMigrations(t *testing.T) {
 		Config:     &config,
 		Credential: cred,
 	}
+	panic("todo: fix")
 
 	// this is a try run to get the Helm values
-	_, helmValuesYaml, err := installer.InstallTygerHelmChart(ctx, true)
+	_, helmValuesYaml, err := installer.InstallTygerHelmChart(ctx, nil, true)
 	require.NoError(t, err)
 
 	helmValues := make(map[string]any)

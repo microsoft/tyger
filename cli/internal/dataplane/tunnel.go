@@ -115,7 +115,7 @@ func (tp *sshTunnelPool) watch(ctx context.Context, tunnel *sshTunnel) {
 		_, err := http.DefaultClient.Do(req)
 		if err == nil {
 			if !active {
-				log.Info().Str("host", tunnel.Host).Msg("SSH tunnel is active")
+				log.Ctx(ctx).Info().Str("host", tunnel.Host).Msg("SSH tunnel is active")
 				tp.mutex.Lock()
 				tp.healthyTunnels = append(tp.healthyTunnels, tunnel)
 				tp.mutex.Unlock()

@@ -240,7 +240,7 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 				}
 			}
 			if !found {
-				log.Info().Msgf("Adding node pool '%s' to cluster '%s'", *newNodePool.Name, clusterConfig.Name)
+				log.Ctx(ctx).Info().Msgf("Adding node pool '%s' to cluster '%s'", *newNodePool.Name, clusterConfig.Name)
 				newNodePoolJson, err := json.Marshal(newNodePool)
 				if err != nil {
 					panic(fmt.Errorf("failed to marshal node pool: %w", err))
@@ -279,7 +279,7 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 				}
 			}
 			if !found {
-				log.Info().Msgf("Deleting node pool '%s' from cluster '%s'", *existingNodePool.Name, clusterConfig.Name)
+				log.Ctx(ctx).Info().Msgf("Deleting node pool '%s' from cluster '%s'", *existingNodePool.Name, clusterConfig.Name)
 				p, err := agentPoolsClient.BeginDelete(ctx, inst.Config.Cloud.ResourceGroup, clusterConfig.Name, *existingNodePool.Name, nil)
 				if err != nil {
 					return nil, fmt.Errorf("failed to delete node pool: %w", err)
@@ -316,9 +316,9 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 	var poller *runtime.Poller[armcontainerservice.ManagedClustersClientCreateOrUpdateResponse]
 	if needsUpdate {
 		if existingCluster != nil {
-			log.Info().Msgf("Updating cluster '%s'", clusterConfig.Name)
+			log.Ctx(ctx).Info().Msgf("Updating cluster '%s'", clusterConfig.Name)
 		} else {
-			log.Info().Msgf("Creating cluster '%s'", clusterConfig.Name)
+			log.Ctx(ctx).Info().Msgf("Creating cluster '%s'", clusterConfig.Name)
 		}
 
 		poller, err = clustersClient.BeginCreateOrUpdate(ctx, inst.Config.Cloud.ResourceGroup, clusterConfig.Name, cluster, nil)
@@ -332,12 +332,12 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 		}
 
 		if onlyScaleDown {
-			log.Info().Msgf("Cluster '%s' only needs to scale down", clusterConfig.Name)
+			log.Ctx(ctx).Info().Msgf("Cluster '%s' only needs to scale down", clusterConfig.Name)
 			// we won't wait for the operation to complete
 			poller = nil
 		}
 	} else {
-		log.Info().Msgf("Cluster '%s' already exists and appears to be up to date", clusterConfig.Name)
+		log.Ctx(ctx).Info().Msgf("Cluster '%s' already exists and appears to be up to date", clusterConfig.Name)
 	}
 
 	var kubeletObjectId string
@@ -356,7 +356,7 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 	}
 
 	for _, containerRegistry := range inst.Config.Cloud.Compute.PrivateContainerRegistries {
-		log.Info().Msgf("Attaching ACR '%s' to cluster '%s'", containerRegistry, clusterConfig.Name)
+		log.Ctx(ctx).Info().Msgf("Attaching ACR '%s' to cluster '%s'", containerRegistry, clusterConfig.Name)
 		containerRegistryId, err := getContainerRegistryId(ctx, containerRegistry, inst.Config.Cloud.SubscriptionID, inst.Credential)
 		if err != nil {
 			return nil, err
@@ -370,13 +370,13 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 	var createdCluster armcontainerservice.ManagedCluster
 	if poller != nil {
 		if !poller.Done() {
-			log.Info().Msgf("Waiting for cluster '%s' to be ready", clusterConfig.Name)
+			log.Ctx(ctx).Info().Msgf("Waiting for cluster '%s' to be ready", clusterConfig.Name)
 		}
 		r, err := poller.PollUntilDone(ctx, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create cluster '%s': %w", clusterConfig.Name, err)
 		}
-		log.Info().Msgf("Cluster '%s' ready", clusterConfig.Name)
+		log.Ctx(ctx).Info().Msgf("Cluster '%s' ready", clusterConfig.Name)
 
 		createdCluster = r.ManagedCluster
 	} else {
@@ -578,7 +578,7 @@ func (inst *Installer) onDeleteCluster(ctx context.Context, clusterConfig *Clust
 	kubeletObjectId := *kubeletIdentity.ObjectID
 
 	for _, containerRegistry := range inst.Config.Cloud.Compute.PrivateContainerRegistries {
-		log.Info().Msgf("Detaching ACR '%s' from cluster '%s'", containerRegistry, clusterConfig.Name)
+		log.Ctx(ctx).Info().Msgf("Detaching ACR '%s' from cluster '%s'", containerRegistry, clusterConfig.Name)
 		containerRegistryId, err := getContainerRegistryId(ctx, containerRegistry, inst.Config.Cloud.SubscriptionID, inst.Credential)
 		if err != nil {
 			var respErr *azcore.ResponseError

@@ -38,6 +38,7 @@ func NewApiCommand(parentCommand *cobra.Command) *cobra.Command {
 
 func newApiLogsCommand() *cobra.Command {
 	commonFlags := commonFlags{}
+	orgFlags := install.OrgFlags{}
 	options := install.ServerLogOptions{Destination: os.Stdout}
 
 	cmd := cobra.Command{
@@ -47,6 +48,10 @@ func newApiLogsCommand() *cobra.Command {
 		Args:                  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx, installer := commonPrerun(cmd.Context(), &commonFlags)
+			if err := installer.ApplyOrgFilter(orgFlags); err != nil {
+				log.Fatal().Err(err).Send()
+			}
+
 			if err := installer.GetServerLogs(ctx, options); err != nil {
 				log.Fatal().Err(err).Send()
 			}
@@ -54,6 +59,7 @@ func newApiLogsCommand() *cobra.Command {
 	}
 
 	addCommonFlags(&cmd, &commonFlags)
+	addOrgFlags(&cmd, &orgFlags, false)
 
 	cmd.Flags().BoolVar(&options.Follow, "follow", options.Follow, "Follow the logs")
 	cmd.Flags().IntVar(&options.TailLines, "tail", options.TailLines, "Start from the last N lines")
@@ -64,6 +70,7 @@ func newApiLogsCommand() *cobra.Command {
 
 func newApiInstallCommand() *cobra.Command {
 	flags := commonFlags{}
+	orgFlags := install.OrgFlags{}
 	cmd := cobra.Command{
 		Use:                   "install -f CONFIG.yml",
 		Short:                 "Install the Typer API",
@@ -72,8 +79,11 @@ func newApiInstallCommand() *cobra.Command {
 		Args:                  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx, installer := commonPrerun(cmd.Context(), &flags)
+			if err := installer.ApplyOrgFilter(orgFlags); err != nil {
+				log.Fatal().Err(err).Send()
+			}
 
-			log.Info().Msg("Starting Tyger API install")
+			log.Ctx(ctx).Info().Msg("Starting Tyger API install")
 
 			err := installer.InstallTyger(ctx)
 			if err != nil {
@@ -83,11 +93,12 @@ func newApiInstallCommand() *cobra.Command {
 				os.Exit(1)
 			}
 
-			log.Info().Msg("Install complete")
+			log.Ctx(ctx).Info().Msg("Install complete")
 		},
 	}
 
 	addCommonFlags(&cmd, &flags)
+	addOrgFlags(&cmd, &orgFlags, true)
 	return &cmd
 }
 
@@ -104,7 +115,7 @@ func newApiUninstallCommand() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx, installer := commonPrerun(cmd.Context(), &flags)
 
-			log.Info().Msg("Starting Tyger API uninstall")
+			log.Ctx(ctx).Info().Msg("Starting Tyger API uninstall")
 
 			if err := installer.UninstallTyger(ctx, deleteData, preserveRunContainers); err != nil {
 				if !errors.Is(err, install.ErrAlreadyLoggedError) {
@@ -113,7 +124,7 @@ func newApiUninstallCommand() *cobra.Command {
 				os.Exit(1)
 			}
 
-			log.Info().Msg("Uninstall complete")
+			log.Ctx(ctx).Info().Msg("Uninstall complete")
 		},
 	}
 

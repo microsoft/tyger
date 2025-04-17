@@ -56,7 +56,7 @@ func TestHttpProxy(t *testing.T) {
 	NewTygerCmdBuilder("buffer", "write", bufferId).Stdin("Hello").RunSucceeds(t)
 
 	config := getCloudConfig(t)
-	tygerUri := fmt.Sprintf("https://%s", config.Api.DomainName)
+	tygerUri := fmt.Sprintf("https://%s", getLamnaOrgConfig(config).Api.DomainName)
 	devConfig := getDevConfig(t)
 	testAppUri := devConfig["testAppUri"].(string)
 	certVersion := devConfig["pemCertSecret"].(map[string]any)["version"].(string)

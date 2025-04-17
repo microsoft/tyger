@@ -200,9 +200,9 @@ public class MigrationRunner : IHostedService
         {
             await using var batch = _dataSource.CreateBatch();
 
-            batch.BatchCommands.Add(new($"GRANT ALL ON SCHEMA {DatabaseNamespace} TO \"{OwnersRole}\""));
-            batch.BatchCommands.Add(new($"GRANT ALL ON ALL TABLES IN SCHEMA {DatabaseNamespace} TO \"{OwnersRole}\""));
-            batch.BatchCommands.Add(new($"GRANT ALL ON ALL SEQUENCES IN SCHEMA {DatabaseNamespace} TO \"{OwnersRole}\""));
+            batch.BatchCommands.Add(new($"GRANT ALL ON SCHEMA {DatabaseNamespace} TO \"{_databaseOptions.OwnersRoleName}\""));
+            batch.BatchCommands.Add(new($"GRANT ALL ON ALL TABLES IN SCHEMA {DatabaseNamespace} TO \"{_databaseOptions.OwnersRoleName}\""));
+            batch.BatchCommands.Add(new($"GRANT ALL ON ALL SEQUENCES IN SCHEMA {DatabaseNamespace} TO \"{_databaseOptions.OwnersRoleName}\""));
             batch.BatchCommands.Add(new($"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA {DatabaseNamespace} TO \"{_databaseOptions.TygerServerRoleName}\""));
             batch.BatchCommands.Add(new($"GRANT USAGE ON ALL SEQUENCES IN SCHEMA {DatabaseNamespace} TO \"{_databaseOptions.TygerServerRoleName}\""));
             // Ensure all tables and sequences are owned by the owners role
@@ -219,9 +219,9 @@ public class MigrationRunner : IHostedService
                         WHERE c.relkind in ('S', 'r') AND n.nspname = '{DatabaseNamespace}' and r.rolname = '{_databaseOptions.Username}'
                     LOOP
                         IF obj.relkind = 'r' THEN
-                            EXECUTE format('ALTER TABLE %I.%I OWNER TO %I', '{DatabaseNamespace}', obj.relname, '{OwnersRole}');
+                            EXECUTE format('ALTER TABLE %I.%I OWNER TO %I', '{DatabaseNamespace}', obj.relname, '{_databaseOptions.OwnersRoleName}');
                         ELSIF obj.relkind = 'S' THEN
-                            EXECUTE format('ALTER SEQUENCE %I.%I OWNER TO %I', '{DatabaseNamespace}', obj.relname, '{OwnersRole}');
+                            EXECUTE format('ALTER SEQUENCE %I.%I OWNER TO %I', '{DatabaseNamespace}', obj.relname, '{_databaseOptions.OwnersRoleName}');
                         END IF;
                     END LOOP;
                 END

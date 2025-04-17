@@ -13,14 +13,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/rs/zerolog/log"
-	"k8s.io/client-go/rest"
 )
 
 const nspApiVersion = "2024-07-01"
 
 func (inst *Installer) CreateStorageAccount(ctx context.Context,
+	resourceGroupName string,
 	storageAccountConfig *StorageAccountConfig,
-	restConfigPromise *install.Promise[*rest.Config],
 	managedIdentityPromise *install.Promise[*armmsi.Identity],
 ) (any, error) {
 
@@ -30,7 +29,7 @@ func (inst *Installer) CreateStorageAccount(ctx context.Context,
 	}
 
 	var tags map[string]*string
-	if resp, err := storageClient.GetProperties(ctx, inst.Config.Cloud.ResourceGroup, storageAccountConfig.Name, nil); err == nil {
+	if resp, err := storageClient.GetProperties(ctx, resourceGroupName, storageAccountConfig.Name, nil); err == nil {
 		if existingTag, ok := resp.Tags[TagKey]; ok {
 			if *existingTag != inst.Config.EnvironmentName {
 				return nil, fmt.Errorf("storage account '%s' is already in use by enrironment '%s'", storageAccountConfig.Name, *existingTag)
@@ -56,8 +55,8 @@ func (inst *Installer) CreateStorageAccount(ctx context.Context,
 		},
 	}
 
-	log.Info().Msgf("Creating or updating storage account '%s'", storageAccountConfig.Name)
-	poller, err := storageClient.BeginCreate(ctx, inst.Config.Cloud.ResourceGroup, storageAccountConfig.Name, parameters, nil)
+	log.Ctx(ctx).Info().Msgf("Creating or updating storage account '%s'", storageAccountConfig.Name)
+	poller, err := storageClient.BeginCreate(ctx, resourceGroupName, storageAccountConfig.Name, parameters, nil)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create storage account")
 	}
@@ -72,7 +71,7 @@ func (inst *Installer) CreateStorageAccount(ctx context.Context,
 		return nil, install.ErrDependencyFailed
 	}
 
-	log.Info().Msgf("Assigning RBAC role to storage account '%s'", storageAccountConfig.Name)
+	log.Ctx(ctx).Info().Msgf("Assigning RBAC role to storage account '%s'", storageAccountConfig.Name)
 
 	if err := assignRbacRole(ctx, inst.Config.Cloud.Compute.GetManagementPrincipalIds(), true, *res.ID, "Reader", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
 		return nil, fmt.Errorf("failed to assign storage RBAC role: %w", err)
@@ -112,7 +111,8 @@ func configureNetworkSecurityPerimeterForStorageAccount(ctx context.Context, ins
 
 	nspFound := false
 	desiredNspResourceId := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkSecurityPerimeters/%s", inst.Config.Cloud.SubscriptionID, desiredNsp.NspResourceGroup, desiredNsp.NspName)
-	pager := storageNspClient.NewListPager(inst.Config.Cloud.ResourceGroup, *storageAccount.Name, nil)
+	storageAccountResourceGroup := getResourceGroupFromID(*storageAccount.ID)
+	pager := storageNspClient.NewListPager(storageAccountResourceGroup, *storageAccount.Name, nil)
 	for pager.More() {
 		page, err := pager.NextPage(ctx)
 		if err != nil {
@@ -126,7 +126,7 @@ func configureNetworkSecurityPerimeterForStorageAccount(ctx context.Context, ins
 				nspFound = true
 			} else {
 				existingAssociationId := fmt.Sprintf("%s/resourceAssociations/%s", *existingConfig.Properties.NetworkSecurityPerimeter.ID, *existingConfig.Properties.ResourceAssociation.Name)
-				log.Warn().Msgf("Deleting existing network security perimeter association '%s'", existingAssociationId)
+				log.Ctx(ctx).Warn().Msgf("Deleting existing network security perimeter association '%s'", existingAssociationId)
 				poller, err := genericNspClient.BeginDeleteByID(ctx, existingAssociationId, nspApiVersion, nil)
 				if err != nil {
 					return fmt.Errorf("failed to delete resource '%s': %w", existingAssociationId, err)
@@ -140,7 +140,7 @@ func configureNetworkSecurityPerimeterForStorageAccount(ctx context.Context, ins
 	}
 
 	if !nspFound {
-		log.Info().Msgf("Creating network security perimeter association for storage account '%s'", *storageAccount.Name)
+		log.Ctx(ctx).Info().Msgf("Creating network security perimeter association for storage account '%s'", *storageAccount.Name)
 		name := fmt.Sprintf("%s-%s", *storageAccount.Name, uuid.New().String())
 		resourceId := fmt.Sprintf("%s/resourceAssociations/%s", desiredNspResourceId, name)
 

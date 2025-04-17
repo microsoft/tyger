@@ -202,10 +202,10 @@ func listBuffers(t *testing.T, args ...string) []model.Buffer {
 	return runTygerSucceedsUnmarshal[[]model.Buffer](t, append([]string{"buffer", "list"}, args...)...)
 }
 
-func getCloudConfig(t *testing.T) cloudinstall.CloudEnvironmentConfig {
+func getCloudConfig(t *testing.T) *cloudinstall.CloudEnvironmentConfig {
 	config := cloudinstall.CloudEnvironmentConfig{}
 	require.NoError(t, yaml.UnmarshalStrict([]byte(runCommandSucceeds(t, "../../scripts/get-config.sh")), &config))
-	return config
+	return &config
 }
 
 func getDockerConfig(t *testing.T) dockerinstall.DockerEnvironmentConfig {
@@ -312,4 +312,13 @@ func skipIfOnlyFastTests(t *testing.T) {
 	if *runOnlyFastTestsFlag {
 		t.Skip("Skipping test because --fast flag is set")
 	}
+}
+
+func getLamnaOrgConfig(config *cloudinstall.CloudEnvironmentConfig) *cloudinstall.OrganizationConfig {
+	for _, org := range config.Organizations {
+		if org.Name == "lamna" {
+			return org
+		}
+	}
+	panic("lamna org not found in config")
 }
