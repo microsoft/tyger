@@ -12,16 +12,6 @@ Each endpoint can then be mapped to specific API versions as needed. See below f
 
 Clients must request a specific API version via the query parameter `api-version` for all endpoints except those marked as version neutral (e.g. `/metadata`).
 
-The Tyger client will automatically use the most recent API version it knows, but this can be overridden by the (*undocumented*) environment variable `TYGER_CLIENT_API_VERSION`, e.g.
-
-```bash
-$ TYGER_CLIENT_API_VERSION=0.9 tyger buffer list --limit 5 --log-level trace
-2025-04-08T14:04:51.081Z TRC Outgoing request request="GET /buffers?api-version=0.9&limit=5 HTTP/1.1\r\nHost: jnaegele-tyger.westus2.cloudapp.azure.com\r\nUser-Agent: Go-http-client/1.1\r\nAuthorization: Bearer --REDACTED--\r\nContent-Type: application/json\r\nAccept-Encoding: gzip\r\n\r\n"
-2025-04-08T14:04:51.081Z TRC Sending request method=GET proxy= url=https://jnaegele-tyger.westus2.cloudapp.azure.com/buffers?api-version=REDACTED&limit=REDACTED
-2025-04-08T14:04:51.311Z TRC Received response method=GET proxy= status=200 url=https://jnaegele-tyger.westus2.cloudapp.azure.com/buffers?api-version=REDACTED&limit=REDACTED
-2025-04-08T14:04:51.311Z TRC Incoming response response="HTTP/1.1 200 OK
-...
-```
 
 ## Backward Compatibility
 

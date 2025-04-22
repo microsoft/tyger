@@ -8,14 +8,6 @@ paths:
       tags:
         - tyger-server
       operationId: createBuffer
-      parameters:
-        - name: api-version
-          in: query
-          description: The requested API version
-          required: true
-          schema:
-            type: string
-            default: '1.0'
       requestBody:
         content:
           application/json:
@@ -68,14 +60,6 @@ paths:
       tags:
         - tyger-server
       operationId: deleteBuffers
-      parameters:
-        - name: api-version
-          in: query
-          description: The requested API version
-          required: true
-          schema:
-            type: string
-            default: '1.0'
       responses:
         '200':
           description: OK
@@ -95,14 +79,6 @@ paths:
       tags:
         - tyger-server
       operationId: restoreBuffers
-      parameters:
-        - name: api-version
-          in: query
-          description: The requested API version
-          required: true
-          schema:
-            type: string
-            default: '1.0'
       responses:
         '200':
           description: OK
@@ -116,14 +92,6 @@ paths:
       tags:
         - tyger-server
       operationId: getBufferCount
-      parameters:
-        - name: api-version
-          in: query
-          description: The requested API version
-          required: true
-          schema:
-            type: string
-            default: '1.0'
       responses:
         '200':
           description: OK
@@ -143,13 +111,6 @@ paths:
           required: true
           schema:
             type: string
-        - name: api-version
-          in: query
-          description: The requested API version
-          required: true
-          schema:
-            type: string
-            default: '1.0'
       responses:
         '200':
           description: OK
@@ -179,13 +140,6 @@ paths:
           required: true
           schema:
             type: string
-        - name: api-version
-          in: query
-          description: The requested API version
-          required: true
-          schema:
-            type: string
-            default: '1.0'
       requestBody:
         content:
           application/json:
@@ -227,13 +181,6 @@ paths:
           required: true
           schema:
             type: string
-        - name: api-version
-          in: query
-          description: The requested API version
-          required: true
-          schema:
-            type: string
-            default: '1.0'
       responses:
         '200':
           description: OK
@@ -270,13 +217,6 @@ paths:
           required: true
           schema:
             type: string
-        - name: api-version
-          in: query
-          description: The requested API version
-          required: true
-          schema:
-            type: string
-            default: '1.0'
       responses:
         '200':
           description: OK
@@ -320,13 +260,6 @@ paths:
           in: query
           schema:
             type: boolean
-        - name: api-version
-          in: query
-          description: The requested API version
-          required: true
-          schema:
-            type: string
-            default: '1.0'
       responses:
         '201':
           description: Created
@@ -345,14 +278,6 @@ paths:
       tags:
         - tyger-server
       operationId: getStorageAccounts
-      parameters:
-        - name: api-version
-          in: query
-          description: The requested API version
-          required: true
-          schema:
-            type: string
-            default: '1.0'
       responses:
         '200':
           description: OK
@@ -367,14 +292,6 @@ paths:
       tags:
         - tyger-server
       operationId: exportBuffers
-      parameters:
-        - name: api-version
-          in: query
-          description: The requested API version
-          required: true
-          schema:
-            type: string
-            default: '1.0'
       requestBody:
         content:
           application/json:
@@ -393,14 +310,6 @@ paths:
       tags:
         - tyger-server
       operationId: importBuffers
-      parameters:
-        - name: api-version
-          in: query
-          description: The requested API version
-          required: true
-          schema:
-            type: string
-            default: '1.0'
       requestBody:
         content:
           application/json:
@@ -424,13 +333,6 @@ paths:
           required: true
           schema:
             type: string
-        - name: api-version
-          in: query
-          description: The requested API version
-          required: true
-          schema:
-            type: string
-            default: '1.0'
       requestBody:
         content:
           application/json:
@@ -474,13 +376,6 @@ paths:
           required: true
           schema:
             type: string
-        - name: api-version
-          in: query
-          description: The requested API version
-          required: true
-          schema:
-            type: string
-            default: '1.0'
       responses:
         '200':
           description: OK
@@ -509,13 +404,6 @@ paths:
           in: query
           schema:
             type: string
-        - name: api-version
-          in: query
-          description: The requested API version
-          required: true
-          schema:
-            type: string
-            default: '1.0'
       responses:
         '200':
           description: OK
@@ -538,13 +426,6 @@ paths:
           required: true
           schema:
             type: string
-        - name: api-version
-          in: query
-          description: The requested API version
-          required: true
-          schema:
-            type: string
-            default: '1.0'
       responses:
         '200':
           description: OK
@@ -559,14 +440,6 @@ paths:
     post:
       tags:
         - tyger-server
-      parameters:
-        - name: api-version
-          in: query
-          description: The requested API version
-          required: true
-          schema:
-            type: string
-            default: '1.0'
       requestBody:
         content:
           application/json:
@@ -684,13 +557,6 @@ paths:
           in: query
           schema:
             type: boolean
-        - name: api-version
-          in: query
-          description: The requested API version
-          required: true
-          schema:
-            type: string
-            default: '1.0'
       responses:
         '200':
           description: OK
@@ -714,13 +580,6 @@ paths:
           required: true
           schema:
             type: string
-        - name: api-version
-          in: query
-          description: The requested API version
-          required: true
-          schema:
-            type: string
-            default: '1.0'
       requestBody:
         content:
           application/json:
@@ -774,13 +633,6 @@ paths:
           in: query
           schema:
             type: boolean
-        - name: api-version
-          in: query
-          description: The requested API version
-          required: true
-          schema:
-            type: string
-            default: '1.0'
       responses:
         '200':
           description: OK
@@ -800,13 +652,6 @@ paths:
           required: true
           schema:
             type: string
-        - name: api-version
-          in: query
-          description: The requested API version
-          required: true
-          schema:
-            type: string
-            default: '1.0'
       responses:
         '202':
           description: Accepted
@@ -1028,6 +873,11 @@ components:
           type: string
         message:
           type: string
+        apiVersions:
+          type: array
+          items:
+            type: string
+          nullable: true
       additionalProperties: false
     ExportBuffersRequest:
       type: object

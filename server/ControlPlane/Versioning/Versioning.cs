@@ -9,6 +9,7 @@ namespace Tyger.ControlPlane.Versioning;
 
 public static class ApiVersions
 {
+    public static readonly string QueryParameterKey = "api-version";
     public static readonly ApiVersion V1p0 = new(1, 0);
 
     public static IEnumerable<ApiVersion> SupportedVersions()
@@ -22,7 +23,7 @@ public static class ApiVersions
         builder.Services.AddSingleton<IProblemDetailsWriter, ErrorBodyWriter>();
         builder.Services.AddApiVersioning(options =>
             {
-                options.ApiVersionReader = new QueryStringApiVersionReader("api-version");
+                options.ApiVersionReader = new QueryStringApiVersionReader(QueryParameterKey);
                 options.DefaultApiVersion = V1p0;
             })
             .AddApiExplorer(options =>
@@ -128,11 +129,11 @@ public partial class ErrorBodyWriter : IProblemDetailsWriter
 
         var response = context.HttpContext.Response;
 
-        var errorCode = context.ProblemDetails.Extensions.TryGetValue("code", out var value) &&
+        var errorCode = context.ProblemDetails.Extensions.TryGetValue(ProblemDetailsCodeKey, out var value) &&
                    value is string code ? code : "";
         var errorMessage = context.ProblemDetails.Title ?? "";
 
-        var obj = new ErrorBody(errorCode, errorMessage);
+        var obj = new ErrorBody(errorCode, errorMessage, [.. ApiVersions.SupportedVersions().Select(v => v.ToString())]);
 
         return new ValueTask(Results.Json(obj, statusCode: response.StatusCode).ExecuteAsync(context.HttpContext));
     }

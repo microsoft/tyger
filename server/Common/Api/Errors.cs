@@ -14,8 +14,9 @@ public static class Responses
 
 public record ErrorBody
 {
-    public ErrorBody(string code, string message) => Error = new ErrorInfo(code, message);
+    public ErrorBody(string code, string message) => Error = new ErrorInfo(code, message, null);
+    public ErrorBody(string code, string message, IEnumerable<string> apiVersions) => Error = new ErrorInfo(code, message, apiVersions);
 
     public ErrorInfo Error { get; init; }
-    public record ErrorInfo(string Code, string Message);
+    public record ErrorInfo(string Code, string Message, IEnumerable<string>? ApiVersions);
 }

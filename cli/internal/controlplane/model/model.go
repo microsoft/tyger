@@ -232,8 +232,13 @@ type ErrorResponse struct {
 }
 
 type ErrorInfo struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	Code        string   `json:"code"`
+	Message     string   `json:"message"`
+	ApiVersions []string `json:"apiVersions,omitempty"`
+}
+
+func (e *ErrorInfo) Error() string {
+	return fmt.Sprintf("%s: %s", e.Code, e.Message)
 }
 
 type NodePool struct {

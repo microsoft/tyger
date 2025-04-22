@@ -145,7 +145,7 @@ func InvokeRequest(ctx context.Context, method string, relativeUri string, query
 		defer resp.Body.Close()
 		errorResponse := model.ErrorResponse{}
 		if err = json.NewDecoder(resp.Body).Decode(&errorResponse); err == nil {
-			return resp, fmt.Errorf("%s: %s", errorResponse.Error.Code, errorResponse.Error.Message)
+			return resp, &errorResponse.Error
 		}
 
 		return resp, fmt.Errorf("unexpected status code %s", resp.Status)

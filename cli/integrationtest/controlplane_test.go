@@ -2410,27 +2410,37 @@ func TestServerApiVersioningErrors(t *testing.T) {
 
 	bufferId := runTygerSucceeds(t, "buffer", "create")
 
+	errorInfo := &model.ErrorInfo{}
+
 	resp, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, fmt.Sprintf("/buffers/%s?api-version=0.1", bufferId), nil, nil, nil)
 	require.Error(t, err)
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	require.Contains(t, err.Error(), "Unsupported API version")
+	require.ErrorAs(t, err, &errorInfo)
+	require.Contains(t, errorInfo.ApiVersions, "1.0")
 
 	resp, err = controlplane.InvokeRequest(context.Background(), http.MethodGet, fmt.Sprintf("/buffers/%s?api-version=", bufferId), nil, nil, nil)
 	require.Error(t, err)
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	require.Contains(t, err.Error(), "Unspecified API version")
+	require.ErrorAs(t, err, &errorInfo)
+	require.Contains(t, errorInfo.ApiVersions, "1.0")
 
 	badApiVersionCtx := controlplane.SetApiVersionOnContext(context.Background(), "0.1")
 	resp, err = controlplane.InvokeRequest(badApiVersionCtx, http.MethodGet, fmt.Sprintf("/buffers/%s", bufferId), nil, nil, nil)
 	require.Error(t, err)
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	require.Contains(t, err.Error(), "Unsupported API version")
+	require.ErrorAs(t, err, &errorInfo)
+	require.Contains(t, errorInfo.ApiVersions, "1.0")
 
 	missingApiVersionCtx := controlplane.SetApiVersionOnContext(context.Background(), "")
 	resp, err = controlplane.InvokeRequest(missingApiVersionCtx, http.MethodGet, fmt.Sprintf("/buffers/%s", bufferId), nil, nil, nil)
 	require.Error(t, err)
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	require.Contains(t, err.Error(), "Unspecified API version")
+	require.ErrorAs(t, err, &errorInfo)
+	require.Contains(t, errorInfo.ApiVersions, "1.0")
 }
 
 func TestServerApiV1BackwardCompatibility(t *testing.T) {

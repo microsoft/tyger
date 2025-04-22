@@ -75,11 +75,7 @@ func NewCommonRootCommand(commit string) *cobra.Command {
 			ctx := logging.SetLogSinkOnContext(cmd.Context(), logSink)
 			ctx = log.Logger.WithContext(ctx)
 
-			apiVersion := os.Getenv("TYGER_CLIENT_API_VERSION")
-			if apiVersion == "" {
-				apiVersion = controlplane.DefaultApiVersion
-			}
-			ctx = controlplane.SetApiVersionOnContext(ctx, apiVersion)
+			ctx = controlplane.SetApiVersionOnContext(ctx, controlplane.DefaultApiVersion)
 
 			cmd.SetContext(ctx)
 
