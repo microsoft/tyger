@@ -133,7 +133,11 @@ down: install-cli
 	tyger api uninstall -f <(scripts/get-config.sh)
 
 migrate: ensure-environment-conditionally docker-build-tyger-server
-	tyger api migrations apply --latest --wait -f <(scripts/get-config.sh)
+	for org in $$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -c '.organizations[]'); do
+		org_name=$$(echo "$$org" | jq -r '.name')
+		echo "Migrating database for organization: $${org_name}"
+		tyger api migrations apply --latest --wait -f <(scripts/get-config.sh) --org "$${org_name}"
+	done
 
 download-test-client-cert:
 	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.version')

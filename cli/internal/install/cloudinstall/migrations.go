@@ -179,8 +179,6 @@ func (inst *Installer) getDatabaseVersionsFromPod(ctx context.Context, podName s
 
 func (inst *Installer) ApplyMigrations(ctx context.Context, targetVersion int, latest, offline, waitForCompletion bool) error {
 	org := inst.Config.GetSingleOrg()
-	b, _ := json.Marshal(org)
-	log.Info().Msgf("Applying migrations for org: %s", string(b))
 	_, err := runWithMinimalTygerInstallation(ctx, inst, org, func(ctx context.Context, inst *Installer) (any, error) {
 		versions, err := inst.ListDatabaseVersions(ctx, true)
 		if err != nil {
