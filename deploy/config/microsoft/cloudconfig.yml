@@ -61,7 +61,6 @@ cloud:
   database:
     serverName: ${TYGER_ENVIRONMENT_NAME}-tyger
     location: ${TYGER_DATABASE_LOCATION}
-    serverName: jostairstyger
     firewallRules: ${TYGER_ENVIRONMENT_FIREWALL_RULES}
     postgresMajorVersion: 16
 
