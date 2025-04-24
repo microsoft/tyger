@@ -40,7 +40,7 @@ const (
 	unqualifiedOwnersRole = "tyger-owners"
 	databasePort          = 5432
 	defaultDatabaseName   = "postgres"
-	dbConfiguredTagValue  = "2" // bump this when we change the database configuration logic
+	dbConfiguredTagValue  = "3" // bump this when we change the database configuration logic
 )
 
 func (inst *Installer) createDatabaseServer(ctx context.Context) (any, error) {
@@ -299,7 +299,7 @@ func (inst *Installer) deleteDatabase(ctx context.Context, org *OrganizationConf
 		return nil, fmt.Errorf("failed to delete PostgreSQL database: %w", err)
 	}
 
-	err = inst.runWithTemporaryFilewallRule(ctx, func() error {
+	err = inst.runWithTemporaryFilewallRule(ctx, org, func() error {
 		currentPrincipalDisplayName, _, _, err := getCurrentPrincipalForDatabase(ctx, inst.Credential)
 		if err != nil {
 			return fmt.Errorf("failed to get current principal information: %w", err)
@@ -369,7 +369,7 @@ func (inst *Installer) createDatabase(ctx context.Context, org *OrganizationConf
 		}
 	}
 
-	err = inst.runWithTemporaryFilewallRule(ctx, func() error {
+	err = inst.runWithTemporaryFilewallRule(ctx, org, func() error {
 		currentPrincipalDisplayName, _, _, err := getCurrentPrincipalForDatabase(ctx, inst.Credential)
 		if err != nil {
 			return fmt.Errorf("failed to get current principal information: %w", err)
@@ -401,8 +401,8 @@ func (inst *Installer) createDatabase(ctx context.Context, org *OrganizationConf
 	return nil, nil
 }
 
-func (inst *Installer) runWithTemporaryFilewallRule(ctx context.Context, action func() error) error {
-	temporaryFirewallRuleName := "TempAllowInstaller"
+func (inst *Installer) runWithTemporaryFilewallRule(ctx context.Context, org *OrganizationConfig, action func() error) error {
+	temporaryFirewallRuleName := fmt.Sprintf("temp_allow_installer_%s", org.Name)
 	var temporaryFirewallRule *armpostgresqlflexibleservers.FirewallRule
 	// Get the current IP address. Create a new "clean" HTTP client that does not use any proxy, as database connections will not use one.
 	ipInfoClient := ipinfo.NewClient(cleanhttp.DefaultClient(), nil, "")
