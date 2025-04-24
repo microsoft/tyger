@@ -27,27 +27,27 @@ const (
 	commandHostLabelKey     = "tyger-command-host"
 )
 
-func runWithMinimalTygerInstallation[T any](ctx context.Context, inst *Installer, fn func(ctx context.Context, inst *Installer) (T, error)) (T, error) {
+func runWithMinimalTygerInstallation[T any](ctx context.Context, inst *Installer, org *OrganizationConfig, fn func(ctx context.Context, inst *Installer) (T, error)) (T, error) {
 	var zeroT T
-	installationRevision, err := inst.GetTygerInstallationRevision(ctx)
+	installationRevision, err := inst.GetTygerInstallationRevision(ctx, org)
 	if err != nil {
 		return zeroT, err
 	}
 
 	if installationRevision == 0 {
-		if inst.Config.Api.Helm.Tyger == nil {
-			inst.Config.Api.Helm.Tyger = &HelmChartConfig{}
+		if org.Api.Helm.Tyger == nil {
+			org.Api.Helm.Tyger = &HelmChartConfig{}
 		}
-		if inst.Config.Api.Helm.Tyger.Values == nil {
-			inst.Config.Api.Helm.Tyger.Values = map[string]any{}
+		if org.Api.Helm.Tyger.Values == nil {
+			org.Api.Helm.Tyger.Values = map[string]any{}
 		}
 
-		inst.Config.Api.Helm.Tyger.Values["onlyMigrationDependencies"] = true
-		_, _, err = inst.InstallTygerHelmChart(ctx, false)
+		org.Api.Helm.Tyger.Values["onlyMigrationDependencies"] = true
+		_, _, err = inst.InstallTygerHelmChart(ctx, org, false)
 		if err != nil {
 			return zeroT, err
 		}
-		inst.Config.Api.Helm.Tyger.Values["onlyMigrationDependencies"] = false
+		org.Api.Helm.Tyger.Values["onlyMigrationDependencies"] = false
 
 		defer func() {
 			inst.UninstallTyger(ctx, false, false)
@@ -58,8 +58,10 @@ func runWithMinimalTygerInstallation[T any](ctx context.Context, inst *Installer
 }
 
 func (inst *Installer) ListDatabaseVersions(ctx context.Context, allVersions bool) ([]install.DatabaseVersion, error) {
-	return runWithMinimalTygerInstallation(ctx, inst, func(ctx context.Context, inst *Installer) ([]install.DatabaseVersion, error) {
-		job, err := inst.getMigrationRunnerJobDefinition(ctx)
+	org := inst.Config.GetSingleOrg()
+
+	return runWithMinimalTygerInstallation(ctx, inst, org, func(ctx context.Context, inst *Installer) ([]install.DatabaseVersion, error) {
+		job, err := inst.getMigrationRunnerJobDefinition(ctx, org)
 		if err != nil {
 			return nil, err
 		}
@@ -88,13 +90,13 @@ func (inst *Installer) ListDatabaseVersions(ctx context.Context, allVersions boo
 
 		log.Debug().Msg("Creating pod to list database versions")
 
-		createdJob, err := clientset.BatchV1().Jobs(TygerNamespace).Create(ctx, job, v1.CreateOptions{})
+		createdJob, err := clientset.BatchV1().Jobs(org.Cloud.KubernetesNamespace).Create(ctx, job, v1.CreateOptions{})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create pod: %w", err)
 		}
 
 		defer func() {
-			clientset.BatchV1().Jobs(TygerNamespace).Delete(context.Background(), createdJob.Name, v1.DeleteOptions{
+			clientset.BatchV1().Jobs(org.Cloud.KubernetesNamespace).Delete(context.Background(), createdJob.Name, v1.DeleteOptions{
 				PropagationPolicy: Ptr(v1.DeletePropagationBackground),
 			})
 		}()
@@ -114,7 +116,7 @@ func (inst *Installer) ListDatabaseVersions(ctx context.Context, allVersions boo
 				return false, nil
 			}
 
-			p, err := clientset.CoreV1().Pods(TygerNamespace).Get(ctx, podList.Items[0].Name, v1.GetOptions{})
+			p, err := clientset.CoreV1().Pods(org.Cloud.KubernetesNamespace).Get(ctx, podList.Items[0].Name, v1.GetOptions{})
 			if err != nil {
 				return false, err
 			}
@@ -145,7 +147,8 @@ func (inst *Installer) ListDatabaseVersions(ctx context.Context, allVersions boo
 }
 
 func (inst *Installer) getDatabaseVersionsFromPod(ctx context.Context, podName string, allVersions bool) ([]install.DatabaseVersion, error) {
-	stdout, stderr, err := inst.PodExec(ctx, podName, "/app/bin/tyger-server", "database", "list-versions")
+	org := inst.Config.GetSingleOrg()
+	stdout, stderr, err := inst.PodExec(ctx, org.Cloud.KubernetesNamespace, podName, "/app/bin/tyger-server", "database", "list-versions")
 	if err != nil {
 		errorLog := ""
 		if stderr != nil {
@@ -175,7 +178,10 @@ func (inst *Installer) getDatabaseVersionsFromPod(ctx context.Context, podName s
 }
 
 func (inst *Installer) ApplyMigrations(ctx context.Context, targetVersion int, latest, offline, waitForCompletion bool) error {
-	_, err := runWithMinimalTygerInstallation(ctx, inst, func(ctx context.Context, inst *Installer) (any, error) {
+	org := inst.Config.GetSingleOrg()
+	b, _ := json.Marshal(org)
+	log.Info().Msgf("Applying migrations for org: %s", string(b))
+	_, err := runWithMinimalTygerInstallation(ctx, inst, org, func(ctx context.Context, inst *Installer) (any, error) {
 		versions, err := inst.ListDatabaseVersions(ctx, true)
 		if err != nil {
 			return nil, err
@@ -192,12 +198,12 @@ func (inst *Installer) ApplyMigrations(ctx context.Context, targetVersion int, l
 		if latest {
 			targetVersion = versions[len(versions)-1].Id
 			if current == targetVersion {
-				log.Info().Msg("The database is already at the latest version")
+				log.Ctx(ctx).Info().Msg("The database is already at the latest version")
 				return nil, nil
 			}
 		} else {
 			if targetVersion <= current {
-				log.Info().Msgf("The database is already at version %d", targetVersion)
+				log.Ctx(ctx).Info().Msgf("The database is already at version %d", targetVersion)
 				return nil, nil
 			}
 
@@ -207,7 +213,7 @@ func (inst *Installer) ApplyMigrations(ctx context.Context, targetVersion int, l
 		}
 
 		if len(versions) == 0 {
-			log.Info().Msg("No migrations to apply")
+			log.Ctx(ctx).Info().Msg("No migrations to apply")
 			return nil, nil
 		}
 
@@ -228,7 +234,7 @@ func (inst *Installer) ApplyMigrations(ctx context.Context, targetVersion int, l
 			return nil, fmt.Errorf("failed to create kubernetes client: %w", err)
 		}
 
-		existingMigrationJobs, err := clientset.BatchV1().Jobs(TygerNamespace).List(ctx, v1.ListOptions{
+		existingMigrationJobs, err := clientset.BatchV1().Jobs(org.Cloud.KubernetesNamespace).List(ctx, v1.ListOptions{
 			LabelSelector: fmt.Sprintf("%s=%s", migrationRunnerLabelKey, "true"),
 		})
 		if err != nil {
@@ -241,7 +247,7 @@ func (inst *Installer) ApplyMigrations(ctx context.Context, targetVersion int, l
 			}
 		}
 
-		job, err := inst.getMigrationRunnerJobDefinition(ctx)
+		job, err := inst.getMigrationRunnerJobDefinition(ctx, org)
 		if err != nil {
 			return nil, err
 		}
@@ -271,18 +277,18 @@ func (inst *Installer) ApplyMigrations(ctx context.Context, targetVersion int, l
 		job.Spec.Template.Spec.InitContainers = containers[:len(containers)-1]
 		job.Spec.Template.Spec.Containers = containers[len(containers)-1:]
 
-		log.Info().Msgf("Starting %d migrations...", len(migrations))
+		log.Ctx(ctx).Info().Msgf("Starting %d migrations...", len(migrations))
 
-		_, err = clientset.BatchV1().Jobs(TygerNamespace).Create(ctx, job, v1.CreateOptions{})
+		_, err = clientset.BatchV1().Jobs(org.Cloud.KubernetesNamespace).Create(ctx, job, v1.CreateOptions{})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create job: %w", err)
 		}
 
 		if waitForCompletion {
-			log.Info().Msg("Waiting for migrations to complete...")
+			log.Ctx(ctx).Info().Msg("Waiting for migrations to complete...")
 
 			err = wait.PollUntilContextCancel(ctx, 2*time.Second, true, func(ctx context.Context) (bool, error) {
-				j, err := clientset.BatchV1().Jobs(TygerNamespace).Get(ctx, jobName, v1.GetOptions{})
+				j, err := clientset.BatchV1().Jobs(org.Cloud.KubernetesNamespace).Get(ctx, jobName, v1.GetOptions{})
 				if err != nil {
 					return false, err
 				}
@@ -302,13 +308,13 @@ func (inst *Installer) ApplyMigrations(ctx context.Context, targetVersion int, l
 				return nil, fmt.Errorf("failed to wait for migrations to complete: %w", err)
 			}
 
-			log.Info().Msg("Migrations applied successfully")
+			log.Ctx(ctx).Info().Msg("Migrations applied successfully")
 		} else {
-			log.Info().Msg("Migrations started successfully. Not waiting for them to complete.")
+			log.Ctx(ctx).Info().Msg("Migrations started successfully. Not waiting for them to complete.")
 		}
 
 		if targetVersion != versions[len(versions)-1].Id {
-			log.Warn().Msg("There are more migrations available.")
+			log.Ctx(ctx).Warn().Msg("There are more migrations available.")
 		}
 
 		return nil, nil
@@ -318,7 +324,8 @@ func (inst *Installer) ApplyMigrations(ctx context.Context, targetVersion int, l
 }
 
 func (inst *Installer) GetMigrationLogs(ctx context.Context, id int, destination io.Writer) error {
-	_, err := runWithMinimalTygerInstallation(ctx, inst, func(ctx context.Context, inst *Installer) (any, error) {
+	org := inst.Config.GetSingleOrg()
+	_, err := runWithMinimalTygerInstallation(ctx, inst, org, func(ctx context.Context, inst *Installer) (any, error) {
 		restConfig, err := inst.GetUserRESTConfig(ctx)
 		if err != nil {
 			return nil, err
@@ -330,7 +337,7 @@ func (inst *Installer) GetMigrationLogs(ctx context.Context, id int, destination
 		}
 
 		coreV1 := clientset.CoreV1()
-		pods, err := coreV1.Pods(TygerNamespace).List(ctx, v1.ListOptions{
+		pods, err := coreV1.Pods(org.Cloud.KubernetesNamespace).List(ctx, v1.ListOptions{
 			LabelSelector: fmt.Sprintf("%s=%s", migrationRunnerLabelKey, "true"),
 		})
 		if err != nil {
@@ -348,7 +355,7 @@ func (inst *Installer) GetMigrationLogs(ctx context.Context, id int, destination
 
 			for _, container := range allContainers {
 				if container.Name == fmt.Sprintf("migration-%d", id) {
-					logsRequest := coreV1.Pods(TygerNamespace).GetLogs(pod.Name, &corev1.PodLogOptions{
+					logsRequest := coreV1.Pods(org.Cloud.KubernetesNamespace).GetLogs(pod.Name, &corev1.PodLogOptions{
 						Container: container.Name,
 					})
 

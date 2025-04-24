@@ -27,8 +27,24 @@ import (
 
 type commonFlags struct {
 	configPath                       string
+	singleOrg                        *string
+	multiOrg                         *[]string
 	setOverrides                     map[string]string
 	skipLoginAndValidateSubscription bool
+}
+
+func newSingleOrgCommonFlags() commonFlags {
+	org := ""
+	return commonFlags{
+		singleOrg: &org,
+	}
+}
+
+func newMultiOrgFlags() commonFlags {
+	orgs := []string{}
+	return commonFlags{
+		multiOrg: &orgs,
+	}
 }
 
 func commonPrerun(ctx context.Context, flags *commonFlags) (context.Context, install.Installer) {
@@ -38,43 +54,97 @@ func commonPrerun(ctx context.Context, flags *commonFlags) (context.Context, ins
 		},
 	}
 
-	koanfConfig := koanf.New(".")
+	config, err := parseConfig(flags.configPath, flags.setOverrides, false)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to parse config file")
+	}
 
-	if err := koanfConfig.Load(file.Provider(flags.configPath), yaml.Parser()); err != nil {
-		if os.IsNotExist(err) {
-			log.Fatal().Err(err).Msgf("Config file not found at %s", flags.configPath)
-		} else {
-			log.Fatal().Err(err).Msg("Error reading config file")
+	installer, err := getInstallerFromConfig(config)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to get installer from config")
+	}
+
+	var stopFunc context.CancelFunc
+	ctx, stopFunc = signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		<-ctx.Done()
+		stopFunc()
+		log.Ctx(ctx).Warn().Msg("Canceling...")
+	}()
+
+	if !installer.QuickValidateConfig() {
+		os.Exit(1)
+	}
+
+	if flags.singleOrg != nil {
+		if err := installer.ApplySingleOrgFilter(*flags.singleOrg); err != nil {
+			log.Fatal().Err(err).Send()
+		}
+	} else if flags.multiOrg != nil {
+		if err := installer.ApplyMultiOrgFilter(*flags.multiOrg); err != nil {
+			log.Fatal().Err(err).Send()
+		}
+	} else {
+		panic("either singleOrg or multiOrg must be set")
+	}
+
+	if cloudInstaller, ok := installer.(*cloudinstall.Installer); ok {
+		if !flags.skipLoginAndValidateSubscription {
+			ctx, err = loginAndValidateSubscription(ctx, cloudInstaller)
+			if err != nil {
+				log.Fatal().Err(err).Send()
+			}
 		}
 	}
 
-	for k, v := range flags.setOverrides {
+	return ctx, installer
+}
+
+func getInstallerFromConfig(config any) (install.Installer, error) {
+	switch c := config.(type) {
+	case *cloudinstall.CloudEnvironmentConfig:
+		return &cloudinstall.Installer{
+			Config: c,
+		}, nil
+	case *dockerinstall.DockerEnvironmentConfig:
+		return dockerinstall.NewInstaller(c)
+	default:
+		return nil, fmt.Errorf("unexpected config type: %T", config)
+	}
+}
+
+func parseConfig(filePath string, overrides map[string]string, toMap bool) (any, error) {
+	koanfConfig := koanf.New(".")
+
+	if err := koanfConfig.Load(file.Provider(filePath), yaml.Parser()); err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("config file not found at %s: %w", filePath, err)
+		}
+		return nil, fmt.Errorf("error reading config file: %w", err)
+	}
+
+	for k, v := range overrides {
 		koanfConfig.Set(k, v)
 	}
 
 	var config any
-	var installer install.Installer
+	if toMap {
+		config = make(map[string]any)
+	} else {
+		environmentKind := koanfConfig.Get("kind")
 
-	environmentKind := koanfConfig.Get("kind")
-
-	switch environmentKind {
-	case nil, cloudinstall.EnvironmentKindCloud:
-		c := &cloudinstall.CloudEnvironmentConfig{
-			Kind: cloudinstall.EnvironmentKindCloud,
+		switch environmentKind {
+		case nil, cloudinstall.EnvironmentKindCloud:
+			config = &cloudinstall.CloudEnvironmentConfig{
+				Kind: cloudinstall.EnvironmentKindCloud,
+			}
+		case dockerinstall.EnvironmentKindDocker:
+			config = &dockerinstall.DockerEnvironmentConfig{
+				Kind: dockerinstall.EnvironmentKindDocker}
+		default:
+			log.Fatal().Msgf("The `kind` field must be one of `%s` or `%s`. Given value: `%s`", cloudinstall.EnvironmentKindCloud, dockerinstall.EnvironmentKindDocker, environmentKind)
 		}
-		installer = &cloudinstall.Installer{
-			Config: c,
-		}
-		config = c
-	case dockerinstall.EnvironmentKindDocker:
-		i, err := dockerinstall.NewInstaller(&dockerinstall.DockerEnvironmentConfig{})
-		if err != nil {
-			log.Fatal().Err(err).Msg("Failed to create docker installer")
-		}
-		installer = i
-		config = i.Config
-	default:
-		log.Fatal().Msgf("The `kind` field must be one of `%s` or `%s`. Given value: `%s`", cloudinstall.EnvironmentKindCloud, dockerinstall.EnvironmentKindDocker, environmentKind)
 	}
 
 	err := koanfConfig.UnmarshalWithConf("", &config, koanf.UnmarshalConf{
@@ -88,32 +158,10 @@ func commonPrerun(ctx context.Context, flags *commonFlags) (context.Context, ins
 	})
 
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to parse config file")
+		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
-	var stopFunc context.CancelFunc
-	ctx, stopFunc = signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-
-	go func() {
-		<-ctx.Done()
-		stopFunc()
-		log.Warn().Msg("Canceling...")
-	}()
-
-	if !installer.QuickValidateConfig() {
-		os.Exit(1)
-	}
-
-	if cloudInstaller, ok := installer.(*cloudinstall.Installer); ok {
-		if !flags.skipLoginAndValidateSubscription {
-			ctx, err = loginAndValidateSubscription(ctx, cloudInstaller)
-			if err != nil {
-				log.Fatal().Err(err).Send()
-			}
-		}
-	}
-
-	return ctx, installer
+	return config, nil
 }
 
 func loginAndValidateSubscription(ctx context.Context, cloudInstaller *cloudinstall.Installer) (context.Context, error) {

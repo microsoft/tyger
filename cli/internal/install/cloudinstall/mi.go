@@ -5,10 +5,12 @@ package cloudinstall
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v4"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
 	"github.com/microsoft/tyger/cli/internal/install"
@@ -16,35 +18,69 @@ import (
 )
 
 const (
-	tygerServerManagedIdentityName     = "tyger-server"
-	migrationRunnerManagedIdentityName = "tyger-migration-runner"
+	tygerServerManagedIdentityName           = "tyger-server"
+	migrationRunnerManagedIdentityName       = "tyger-migration-runner"
+	traefikKeyVaultClientManagedIdentityName = "traefik"
 )
 
 func isSystemManagedIdentityName(name string) bool {
-	return strings.EqualFold(name, tygerServerManagedIdentityName) || strings.EqualFold(name, migrationRunnerManagedIdentityName)
+	return strings.EqualFold(name, tygerServerManagedIdentityName) || strings.EqualFold(name, migrationRunnerManagedIdentityName) || strings.EqualFold(name, traefikKeyVaultClientManagedIdentityName)
 }
 
-func (inst *Installer) createTygerServerManagedIdentity(ctx context.Context) (*armmsi.Identity, error) {
-	return inst.createManagedIdentity(ctx, tygerServerManagedIdentityName)
+func (inst *Installer) createTygerServerManagedIdentity(ctx context.Context, org *OrganizationConfig) (*armmsi.Identity, error) {
+	return inst.createManagedIdentity(ctx, tygerServerManagedIdentityName, org.Cloud.ResourceGroup)
 }
 
-func (inst *Installer) createMigrationRunnerManagedIdentity(ctx context.Context) (*armmsi.Identity, error) {
-	return inst.createManagedIdentity(ctx, migrationRunnerManagedIdentityName)
+func (inst *Installer) createMigrationRunnerManagedIdentity(ctx context.Context, org *OrganizationConfig) (*armmsi.Identity, error) {
+	return inst.createManagedIdentity(ctx, migrationRunnerManagedIdentityName, org.Cloud.ResourceGroup)
 }
 
-func (inst *Installer) createManagedIdentity(ctx context.Context, name string) (*armmsi.Identity, error) {
-	log.Info().Msgf("Creating or updating managed identity '%s'", name)
+func (inst *Installer) createTraefikKeyVaultClientManagedIdentity(ctx context.Context) (*armmsi.Identity, error) {
+	return inst.createManagedIdentity(ctx, traefikKeyVaultClientManagedIdentityName, inst.Config.Cloud.ResourceGroup)
+}
+
+func (inst *Installer) getTraefikKeyVaultClientManagedIdentity(ctx context.Context) (*armmsi.Identity, error) {
+	identitiesClient, err := armmsi.NewUserAssignedIdentitiesClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create managed identities client: %w", err)
+	}
+
+	resp, err := identitiesClient.Get(ctx, inst.Config.Cloud.ResourceGroup, traefikKeyVaultClientManagedIdentityName, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get managed identity: %w", err)
+	}
+
+	return &resp.Identity, nil
+}
+
+func (inst *Installer) createManagedIdentity(ctx context.Context, name string, resourceGroup string) (*armmsi.Identity, error) {
+	log.Ctx(ctx).Info().Msgf("Creating or updating managed identity '%s'", name)
 
 	identitiesClient, err := armmsi.NewUserAssignedIdentitiesClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create managed identities client: %w", err)
 	}
 
-	resp, err := identitiesClient.CreateOrUpdate(ctx, inst.Config.Cloud.ResourceGroup, name, armmsi.Identity{
+	var tags map[string]*string
+	existing, err := identitiesClient.Get(ctx, resourceGroup, name, nil)
+	if err != nil {
+		var azcoreErr *azcore.ResponseError
+		if !errors.As(err, &azcoreErr) || azcoreErr.ErrorCode != "ResourceNotFound" {
+			return nil, fmt.Errorf("failed to get managed identity: %w", err)
+		}
+	} else {
+		tags = existing.Tags
+	}
+
+	if tags == nil {
+		tags = make(map[string]*string)
+	}
+
+	tags[TagKey] = &inst.Config.EnvironmentName
+
+	resp, err := identitiesClient.CreateOrUpdate(ctx, resourceGroup, name, armmsi.Identity{
 		Location: &inst.Config.Cloud.DefaultLocation,
-		Tags: map[string]*string{
-			TagKey: &inst.Config.EnvironmentName,
-		},
+		Tags:     tags,
 	}, nil)
 
 	if err != nil {
@@ -58,13 +94,13 @@ func (inst *Installer) createManagedIdentity(ctx context.Context, name string) (
 	return &resp.Identity, nil
 }
 
-func (inst *Installer) deleteUnusedIdentities(ctx context.Context) (any, error) {
+func (inst *Installer) deleteUnusedIdentities(ctx context.Context, org *OrganizationConfig) (any, error) {
 	identitiesClient, err := armmsi.NewUserAssignedIdentitiesClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create managed identities client: %w", err)
 	}
 
-	pager := identitiesClient.NewListByResourceGroupPager(inst.Config.Cloud.ResourceGroup, nil)
+	pager := identitiesClient.NewListByResourceGroupPager(org.Cloud.ResourceGroup, nil)
 	for pager.More() {
 		page, err := pager.NextPage(ctx)
 		if err != nil {
@@ -74,12 +110,12 @@ func (inst *Installer) deleteUnusedIdentities(ctx context.Context) (any, error) 
 		for _, identity := range page.Value {
 			if identity.Tags != nil {
 				if env, ok := identity.Tags[TagKey]; ok && env != nil && *env == inst.Config.EnvironmentName {
-					if isSystemManagedIdentityName(*identity.Name) || slices.Contains(inst.Config.Cloud.Compute.Identities, *identity.Name) {
+					if isSystemManagedIdentityName(*identity.Name) || slices.Contains(org.Cloud.Identities, *identity.Name) {
 						continue
 					}
 
-					log.Info().Msgf("Deleting unused managed identity '%s'", *identity.Name)
-					if _, err := identitiesClient.Delete(ctx, inst.Config.Cloud.ResourceGroup, *identity.Name, nil); err != nil {
+					log.Ctx(ctx).Info().Msgf("Deleting unused managed identity '%s'", *identity.Name)
+					if _, err := identitiesClient.Delete(ctx, org.Cloud.ResourceGroup, *identity.Name, nil); err != nil {
 						return nil, fmt.Errorf("failed to delete managed identity: %w", err)
 					}
 				}
@@ -94,6 +130,7 @@ func (inst *Installer) createFederatedIdentityCredential(
 	ctx context.Context,
 	managedIdentityPromise *install.Promise[*armmsi.Identity],
 	clusterPromise *install.Promise[*armcontainerservice.ManagedCluster],
+	namespace string,
 ) (any, error) {
 	cluster, err := clusterPromise.Await()
 	if err != nil {
@@ -105,15 +142,15 @@ func (inst *Installer) createFederatedIdentityCredential(
 		return nil, install.ErrDependencyFailed
 	}
 
-	log.Info().Msgf("Creating or updating federated identity credential '%s'", *mi.Name)
+	log.Ctx(ctx).Info().Msgf("Creating or updating federated identity credential '%s'", *mi.Name)
 
 	desiredCredentialName := *cluster.Name
 
 	var subject string
 	if isSystemManagedIdentityName(*mi.Name) {
-		subject = fmt.Sprintf("system:serviceaccount:%s:%s", TygerNamespace, *mi.Name)
+		subject = fmt.Sprintf("system:serviceaccount:%s:%s", namespace, *mi.Name)
 	} else {
-		subject = fmt.Sprintf("system:serviceaccount:%s:tyger-custom-%s-job", TygerNamespace, *mi.Name)
+		subject = fmt.Sprintf("system:serviceaccount:%s:tyger-custom-%s-job", namespace, *mi.Name)
 	}
 
 	issuerUrl := *cluster.Properties.OidcIssuerProfile.IssuerURL
@@ -133,7 +170,8 @@ func (inst *Installer) createFederatedIdentityCredential(
 		return nil, fmt.Errorf("failed to create federated identity credentials client: %w", err)
 	}
 
-	pager := client.NewListPager(inst.Config.Cloud.ResourceGroup, *mi.Name, nil)
+	resourceGroup := getResourceGroupFromID(*mi.ID)
+	pager := client.NewListPager(resourceGroup, *mi.Name, nil)
 	for pager.More() {
 		page, err := pager.NextPage(ctx)
 		if err != nil {
@@ -150,7 +188,7 @@ func (inst *Installer) createFederatedIdentityCredential(
 		}
 	}
 
-	_, err = client.CreateOrUpdate(ctx, inst.Config.Cloud.ResourceGroup, *mi.Name, desiredCredentialName, desiredCred, nil)
+	_, err = client.CreateOrUpdate(ctx, resourceGroup, *mi.Name, desiredCredentialName, desiredCred, nil)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create federated identity credential: %w", err)

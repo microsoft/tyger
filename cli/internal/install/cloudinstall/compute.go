@@ -26,54 +26,68 @@ import (
 
 const DefaultKubernetesVersion = "1.30" // LTS
 
-func (inst *Installer) createCluster(ctx context.Context, clusterConfig *ClusterConfig) (*armcontainerservice.ManagedCluster, error) {
+func (inst *Installer) getCluster(ctx context.Context, clusterConfig *ClusterConfig) (*armcontainerservice.ManagedCluster, error) {
 	clustersClient, err := armcontainerservice.NewManagedClustersClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create clusters client: %w", err)
 	}
 
-	var poller *runtime.Poller[armcontainerservice.ManagedClustersClientCreateOrUpdateResponse]
+	resp, err := clustersClient.Get(ctx, inst.Config.Cloud.ResourceGroup, clusterConfig.Name, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return &resp.ManagedCluster, err
+}
+
+func (inst *Installer) createCluster(ctx context.Context, clusterConfig *ClusterConfig) (*armcontainerservice.ManagedCluster, error) {
 	var tags map[string]*string
 
-	var clusterAlreadyExists bool
-	existingCluster, err := clustersClient.Get(ctx, inst.Config.Cloud.ResourceGroup, clusterConfig.Name, nil)
-	if err == nil {
-		clusterAlreadyExists = true
-		if existingTag, ok := existingCluster.Tags[TagKey]; ok {
-			if *existingTag != inst.Config.EnvironmentName {
-				return nil, fmt.Errorf("cluster '%s' is already in use by enrironment '%s'", *existingCluster.Name, *existingTag)
-			}
-			tags = existingCluster.Tags
-		}
-	} else {
+	existingCluster, err := inst.getCluster(ctx, clusterConfig)
+	if err != nil {
 		var respErr *azcore.ResponseError
 		if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
-			clusterAlreadyExists = false
 		} else {
 			return nil, fmt.Errorf("failed to get cluster: %w", err)
+		}
+	} else {
+		if existingTag, ok := existingCluster.Tags[TagKey]; ok {
+			if *existingTag != inst.Config.EnvironmentName {
+				return nil, fmt.Errorf("cluster '%s' is already in use by environment '%s'", *existingCluster.Name, *existingTag)
+			}
+			tags = existingCluster.Tags
 		}
 	}
 
 	if tags == nil {
 		tags = make(map[string]*string)
 	}
+
 	tags[TagKey] = &inst.Config.EnvironmentName
 
-	if clusterAlreadyExists {
+	clustersClient, err := armcontainerservice.NewManagedClustersClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create clusters client: %w", err)
+	}
+
+	if existingCluster != nil {
 		if *existingCluster.Properties.KubernetesVersion != clusterConfig.KubernetesVersion {
 			existingCluster.Properties.KubernetesVersion = &clusterConfig.KubernetesVersion
 			log.Ctx(ctx).Info().Msgf("Updating Kubernetes version to %s", clusterConfig.KubernetesVersion)
-			resp, err := clustersClient.BeginCreateOrUpdate(ctx, inst.Config.Cloud.ResourceGroup, clusterConfig.Name, existingCluster.ManagedCluster, nil)
+			resp, err := clustersClient.BeginCreateOrUpdate(ctx, inst.Config.Cloud.ResourceGroup, clusterConfig.Name, *existingCluster, nil)
 			if err != nil {
 				return nil, fmt.Errorf("failed to update cluster: %w", err)
 			}
 			if _, err := resp.PollUntilDone(ctx, nil); err != nil {
 				return nil, fmt.Errorf("failed to update cluster: %w", err)
 			}
-			existingCluster, err = clustersClient.Get(ctx, inst.Config.Cloud.ResourceGroup, clusterConfig.Name, nil)
+
+			getResponse, err := clustersClient.Get(ctx, inst.Config.Cloud.ResourceGroup, clusterConfig.Name, nil)
 			if err != nil {
 				return nil, fmt.Errorf("failed to get cluster: %w", err)
 			}
+
+			existingCluster = &getResponse.ManagedCluster
 		}
 	}
 
@@ -132,6 +146,19 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 		}
 	}
 
+	if inst.Config.Cloud.TlsCertificate.KeyVault != nil {
+		if cluster.Properties.AddonProfiles == nil {
+			cluster.Properties.AddonProfiles = make(map[string]*armcontainerservice.ManagedClusterAddonProfile)
+		}
+		cluster.Properties.AddonProfiles["azureKeyvaultSecretsProvider"] = &armcontainerservice.ManagedClusterAddonProfile{
+			Enabled: Ptr(true),
+			Config: map[string]*string{
+				"enableSecretRotation": Ptr("true"),
+				"rotationPollInterval": Ptr("10m"),
+			},
+		}
+	}
+
 	cluster.Properties.AgentPoolProfiles = []*armcontainerservice.ManagedClusterAgentPoolProfile{
 		{
 			Name:                &clusterConfig.SystemNodePool.Name,
@@ -169,7 +196,7 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 			Tags: tags,
 		}
 
-		if clusterAlreadyExists {
+		if existingCluster != nil {
 			for _, existingNp := range existingCluster.Properties.AgentPoolProfiles {
 				if *existingNp.Name == np.Name {
 					profile.Count = existingNp.Count
@@ -185,7 +212,7 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 		cluster.Properties.AgentPoolProfiles = append(cluster.Properties.AgentPoolProfiles, &profile)
 	}
 
-	if clusterAlreadyExists {
+	if existingCluster != nil {
 		// Check for node pools that need to be added or removed, which
 		// need to be handled separately from other cluster property updates.
 
@@ -198,7 +225,7 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 
 		for _, newNodePool := range cluster.Properties.AgentPoolProfiles {
 			found := false
-			for _, existingNodePool := range existingCluster.ManagedCluster.Properties.AgentPoolProfiles {
+			for _, existingNodePool := range existingCluster.Properties.AgentPoolProfiles {
 				if *newNodePool.Name == *existingNodePool.Name {
 					found = true
 					if *newNodePool.VMSize != *existingNodePool.VMSize {
@@ -213,7 +240,7 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 				}
 			}
 			if !found {
-				log.Info().Msgf("Adding node pool '%s' to cluster '%s'", *newNodePool.Name, clusterConfig.Name)
+				log.Ctx(ctx).Info().Msgf("Adding node pool '%s' to cluster '%s'", *newNodePool.Name, clusterConfig.Name)
 				newNodePoolJson, err := json.Marshal(newNodePool)
 				if err != nil {
 					panic(fmt.Errorf("failed to marshal node pool: %w", err))
@@ -243,7 +270,7 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 
 		agentPoolDeletePollers := make([]*runtime.Poller[armcontainerservice.AgentPoolsClientDeleteResponse], 0)
 
-		for _, existingNodePool := range existingCluster.ManagedCluster.Properties.AgentPoolProfiles {
+		for _, existingNodePool := range existingCluster.Properties.AgentPoolProfiles {
 			found := false
 			for _, newPool := range cluster.Properties.AgentPoolProfiles {
 				if *newPool.Name == *existingNodePool.Name {
@@ -252,7 +279,7 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 				}
 			}
 			if !found {
-				log.Info().Msgf("Deleting node pool '%s' from cluster '%s'", *existingNodePool.Name, clusterConfig.Name)
+				log.Ctx(ctx).Info().Msgf("Deleting node pool '%s' from cluster '%s'", *existingNodePool.Name, clusterConfig.Name)
 				p, err := agentPoolsClient.BeginDelete(ctx, inst.Config.Cloud.ResourceGroup, clusterConfig.Name, *existingNodePool.Name, nil)
 				if err != nil {
 					return nil, fmt.Errorf("failed to delete node pool: %w", err)
@@ -269,26 +296,29 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 
 		if len(agentPoolDeletePollers) > 0 || len(agentPoolCreatePollers) > 0 {
 			// refresh the existingCluster variable
-			existingCluster, err = clustersClient.Get(ctx, inst.Config.Cloud.ResourceGroup, clusterConfig.Name, nil)
+			getResp, err := clustersClient.Get(ctx, inst.Config.Cloud.ResourceGroup, clusterConfig.Name, nil)
 			if err != nil {
 				return nil, fmt.Errorf("failed to get cluster: %w", err)
 			}
+
+			existingCluster = &getResp.ManagedCluster
 		}
 	}
 
 	var needsUpdate bool
 	var onlyScaleDown bool
-	if clusterAlreadyExists {
-		needsUpdate, onlyScaleDown = clusterNeedsUpdating(cluster, existingCluster.ManagedCluster)
+	if existingCluster != nil {
+		needsUpdate, onlyScaleDown = clusterNeedsUpdating(cluster, *existingCluster)
 	} else {
 		needsUpdate = true
 	}
 
+	var poller *runtime.Poller[armcontainerservice.ManagedClustersClientCreateOrUpdateResponse]
 	if needsUpdate {
-		if clusterAlreadyExists {
-			log.Info().Msgf("Updating cluster '%s'", clusterConfig.Name)
+		if existingCluster != nil {
+			log.Ctx(ctx).Info().Msgf("Updating cluster '%s'", clusterConfig.Name)
 		} else {
-			log.Info().Msgf("Creating cluster '%s'", clusterConfig.Name)
+			log.Ctx(ctx).Info().Msgf("Creating cluster '%s'", clusterConfig.Name)
 		}
 
 		poller, err = clustersClient.BeginCreateOrUpdate(ctx, inst.Config.Cloud.ResourceGroup, clusterConfig.Name, cluster, nil)
@@ -302,12 +332,12 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 		}
 
 		if onlyScaleDown {
-			log.Info().Msgf("Cluster '%s' only needs to scale down", clusterConfig.Name)
+			log.Ctx(ctx).Info().Msgf("Cluster '%s' only needs to scale down", clusterConfig.Name)
 			// we won't wait for the operation to complete
 			poller = nil
 		}
 	} else {
-		log.Info().Msgf("Cluster '%s' already exists and appears to be up to date", clusterConfig.Name)
+		log.Ctx(ctx).Info().Msgf("Cluster '%s' already exists and appears to be up to date", clusterConfig.Name)
 	}
 
 	var kubeletObjectId string
@@ -326,7 +356,7 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 	}
 
 	for _, containerRegistry := range inst.Config.Cloud.Compute.PrivateContainerRegistries {
-		log.Info().Msgf("Attaching ACR '%s' to cluster '%s'", containerRegistry, clusterConfig.Name)
+		log.Ctx(ctx).Info().Msgf("Attaching ACR '%s' to cluster '%s'", containerRegistry, clusterConfig.Name)
 		containerRegistryId, err := getContainerRegistryId(ctx, containerRegistry, inst.Config.Cloud.SubscriptionID, inst.Credential)
 		if err != nil {
 			return nil, err
@@ -340,17 +370,17 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 	var createdCluster armcontainerservice.ManagedCluster
 	if poller != nil {
 		if !poller.Done() {
-			log.Info().Msgf("Waiting for cluster '%s' to be ready", clusterConfig.Name)
+			log.Ctx(ctx).Info().Msgf("Waiting for cluster '%s' to be ready", clusterConfig.Name)
 		}
 		r, err := poller.PollUntilDone(ctx, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create cluster '%s': %w", clusterConfig.Name, err)
 		}
-		log.Info().Msgf("Cluster '%s' ready", clusterConfig.Name)
+		log.Ctx(ctx).Info().Msgf("Cluster '%s' ready", clusterConfig.Name)
 
 		createdCluster = r.ManagedCluster
 	} else {
-		createdCluster = existingCluster.ManagedCluster
+		createdCluster = *existingCluster
 	}
 
 	if err := assignRbacRole(ctx, inst.Config.Cloud.Compute.GetManagementPrincipalIds(), true, *createdCluster.ID, "Azure Kubernetes Service Cluster User Role", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
@@ -548,7 +578,7 @@ func (inst *Installer) onDeleteCluster(ctx context.Context, clusterConfig *Clust
 	kubeletObjectId := *kubeletIdentity.ObjectID
 
 	for _, containerRegistry := range inst.Config.Cloud.Compute.PrivateContainerRegistries {
-		log.Info().Msgf("Detaching ACR '%s' from cluster '%s'", containerRegistry, clusterConfig.Name)
+		log.Ctx(ctx).Info().Msgf("Detaching ACR '%s' from cluster '%s'", containerRegistry, clusterConfig.Name)
 		containerRegistryId, err := getContainerRegistryId(ctx, containerRegistry, inst.Config.Cloud.SubscriptionID, inst.Credential)
 		if err != nil {
 			var respErr *azcore.ResponseError

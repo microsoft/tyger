@@ -98,10 +98,10 @@ func CreateOrUpdateAppByUri(ctx context.Context, cred azcore.TokenCredential, ap
 	}
 
 	if err == errNotFound {
-		log.Info().Msgf("Creating app %s", app.IdentifierUris[0])
+		log.Ctx(ctx).Info().Msgf("Creating app %s", app.IdentifierUris[0])
 		err = executeGraphCall(ctx, cred, http.MethodPost, "https://graph.microsoft.com/beta/applications", app, &existingApp)
 	} else {
-		log.Info().Msgf("Updating app %s", app.IdentifierUris[0])
+		log.Ctx(ctx).Info().Msgf("Updating app %s", app.IdentifierUris[0])
 		err = executeGraphCall(ctx, cred, http.MethodPatch, fmt.Sprintf("https://graph.microsoft.com/beta/applications/%s", existingApp.Id), app, nil)
 	}
 
@@ -271,7 +271,7 @@ func CreateServicePrincipal(ctx context.Context, cred azcore.TokenCredential, ap
 		AppId: appId,
 	}
 
-	log.Info().Msgf("Creating service principal for app %s", appId)
+	log.Ctx(ctx).Info().Msgf("Creating service principal for app %s", appId)
 	response := responseType{}
 	if err := executeGraphCall(ctx, cred, http.MethodPost, "https://graph.microsoft.com/beta/servicePrincipals", requestBody, &response); err != nil {
 		return "", fmt.Errorf("failed to create service principal: %w", err)

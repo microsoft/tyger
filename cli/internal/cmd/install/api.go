@@ -37,7 +37,7 @@ func NewApiCommand(parentCommand *cobra.Command) *cobra.Command {
 }
 
 func newApiLogsCommand() *cobra.Command {
-	commonFlags := commonFlags{}
+	commonFlags := newSingleOrgCommonFlags()
 	options := install.ServerLogOptions{Destination: os.Stdout}
 
 	cmd := cobra.Command{
@@ -63,7 +63,7 @@ func newApiLogsCommand() *cobra.Command {
 }
 
 func newApiInstallCommand() *cobra.Command {
-	flags := commonFlags{}
+	flags := newMultiOrgFlags()
 	cmd := cobra.Command{
 		Use:                   "install -f CONFIG.yml",
 		Short:                 "Install the Typer API",
@@ -73,7 +73,7 @@ func newApiInstallCommand() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx, installer := commonPrerun(cmd.Context(), &flags)
 
-			log.Info().Msg("Starting Tyger API install")
+			log.Ctx(ctx).Info().Msg("Starting Tyger API install")
 
 			err := installer.InstallTyger(ctx)
 			if err != nil {
@@ -83,7 +83,7 @@ func newApiInstallCommand() *cobra.Command {
 				os.Exit(1)
 			}
 
-			log.Info().Msg("Install complete")
+			log.Ctx(ctx).Info().Msg("Install complete")
 		},
 	}
 
@@ -92,7 +92,7 @@ func newApiInstallCommand() *cobra.Command {
 }
 
 func newApiUninstallCommand() *cobra.Command {
-	flags := commonFlags{}
+	flags := newMultiOrgFlags()
 	deleteData := false
 	preserveRunContainers := false
 	cmd := cobra.Command{
@@ -103,8 +103,7 @@ func newApiUninstallCommand() *cobra.Command {
 		Args:                  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx, installer := commonPrerun(cmd.Context(), &flags)
-
-			log.Info().Msg("Starting Tyger API uninstall")
+			log.Ctx(ctx).Info().Msg("Starting Tyger API uninstall")
 
 			if err := installer.UninstallTyger(ctx, deleteData, preserveRunContainers); err != nil {
 				if !errors.Is(err, install.ErrAlreadyLoggedError) {
@@ -113,7 +112,7 @@ func newApiUninstallCommand() *cobra.Command {
 				os.Exit(1)
 			}
 
-			log.Info().Msg("Uninstall complete")
+			log.Ctx(ctx).Info().Msg("Uninstall complete")
 		},
 	}
 
@@ -145,7 +144,7 @@ func NewMigrationsCommand() *cobra.Command {
 }
 
 func NewMigrationApplyCommand() *cobra.Command {
-	flags := commonFlags{}
+	flags := newSingleOrgCommonFlags()
 	targetVersion := 0
 	latest := false
 	wait := false
@@ -182,7 +181,7 @@ func NewMigrationApplyCommand() *cobra.Command {
 }
 
 func NewMigrationLogsCommand() *cobra.Command {
-	flags := commonFlags{}
+	flags := newSingleOrgCommonFlags()
 	cmd := &cobra.Command{
 		Use:                   "logs ID -f CONFIG.yml",
 		Short:                 "Get the logs of a database migration",
@@ -208,7 +207,7 @@ func NewMigrationLogsCommand() *cobra.Command {
 }
 
 func NewMigrationsListCommand() *cobra.Command {
-	flags := commonFlags{}
+	flags := newSingleOrgCommonFlags()
 	all := false
 	cmd := &cobra.Command{
 		Use:                   "list -f CONFIG.yml",

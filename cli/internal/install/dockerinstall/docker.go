@@ -130,7 +130,7 @@ func (inst *Installer) translateToHostPath(path string) string {
 
 func (inst *Installer) InstallTyger(ctx context.Context) error {
 	if runtime.GOOS == "windows" {
-		log.Error().Msg("Installing Tyger in Docker on Windows must be done from a WSL shell. Once installed, other commands can be run from within Windows.")
+		log.Ctx(ctx).Error().Msg("Installing Tyger in Docker on Windows must be done from a WSL shell. Once installed, other commands can be run from within Windows.")
 		return install.ErrAlreadyLoggedError
 	}
 
@@ -146,9 +146,9 @@ func (inst *Installer) InstallTyger(ctx context.Context) error {
 					warnIfLessThan := version.MustParseGeneric("4.28.0")
 					minimumKnownGoodVersion := version.MustParseGeneric("4.31.0")
 					if dockerDesktopVersion.LessThan(warnIfLessThan) {
-						log.Warn().Msgf("Tyger may not be compatible with this version of Docker Desktop. You may need to upgrade to version %v or later.", minimumKnownGoodVersion)
+						log.Ctx(ctx).Warn().Msgf("Tyger may not be compatible with this version of Docker Desktop. You may need to upgrade to version %v or later.", minimumKnownGoodVersion)
 					} else if dockerDesktopVersion.LessThan(minimumKnownGoodVersion) {
-						log.Error().Msgf("Tyger is not compatible with Docker Desktop version %v. Please upgrade to version %v or later.", dockerDesktopVersion, minimumKnownGoodVersion)
+						log.Ctx(ctx).Error().Msgf("Tyger is not compatible with Docker Desktop version %v. Please upgrade to version %v or later.", dockerDesktopVersion, minimumKnownGoodVersion)
 						return install.ErrAlreadyLoggedError
 					}
 				}
@@ -268,7 +268,7 @@ func (inst *Installer) createControlPlaneContainer(ctx context.Context, checkGpu
 	}
 
 	if !gpuAvailable {
-		log.Warn().Msg("GPU support is not available.")
+		log.Ctx(ctx).Warn().Msg("GPU support is not available.")
 	}
 
 	hostInstallationPath := inst.translateToHostPath(inst.Config.InstallationPath)
@@ -294,6 +294,7 @@ func (inst *Installer) createControlPlaneContainer(ctx context.Context, checkGpu
 				"Buffers__SoftDeletedLifetime=" + inst.Config.Buffers.SoftDeletedLifetime,
 				fmt.Sprintf("Database__Host=%s/database", inst.Config.InstallationPath),
 				"Database__Username=tyger-server",
+				"Database__OwnersRoleName=tyger-owners",
 				"Database__TygerServerRoleName=tyger-server",
 			},
 			Healthcheck: &container.HealthConfig{
@@ -872,9 +873,9 @@ func (inst *Installer) pullImage(ctx context.Context, containerImage string, alw
 	}
 
 	defer reader.Close()
-	log.Info().Msgf("Pulling image %s", containerImage)
+	log.Ctx(ctx).Info().Msgf("Pulling image %s", containerImage)
 	io.Copy(io.Discard, reader)
-	log.Info().Msgf("Done pulling image %s", containerImage)
+	log.Ctx(ctx).Info().Msgf("Done pulling image %s", containerImage)
 
 	return nil
 }
@@ -1134,4 +1135,14 @@ func compareVersions(v1, v2 string) int {
 	}
 
 	return 0
+}
+
+func (inst *Installer) ApplySingleOrgFilter(string) error {
+	// No-op for Docker installation
+	return nil
+}
+
+func (inst *Installer) ApplyMultiOrgFilter([]string) error {
+	// No-op for Docker installation
+	return nil
 }

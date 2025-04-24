@@ -39,7 +39,7 @@ func (inst *Installer) ListDatabaseVersions(ctx context.Context, allVersions boo
 
 	defer func() {
 		if err := inst.removeContainer(ctx, containerName); err != nil {
-			log.Error().Err(err).Msg("Failed to delete container")
+			log.Ctx(ctx).Error().Err(err).Msg("Failed to delete container")
 		}
 	}()
 
@@ -97,12 +97,12 @@ func (inst *Installer) ApplyMigrations(ctx context.Context, targetVersion int, l
 	if latest {
 		targetVersion = versions[len(versions)-1].Id
 		if current == targetVersion {
-			log.Info().Msg("The database is already at the latest version")
+			log.Ctx(ctx).Info().Msg("The database is already at the latest version")
 			return nil
 		}
 	} else {
 		if targetVersion <= current {
-			log.Info().Msgf("The database is already at version %d", targetVersion)
+			log.Ctx(ctx).Info().Msgf("The database is already at version %d", targetVersion)
 			return nil
 		}
 
@@ -112,7 +112,7 @@ func (inst *Installer) ApplyMigrations(ctx context.Context, targetVersion int, l
 	}
 
 	if len(versions) == 0 {
-		log.Info().Msg("No migrations to apply")
+		log.Ctx(ctx).Info().Msg("No migrations to apply")
 		return nil
 	}
 
@@ -131,11 +131,11 @@ func (inst *Installer) ApplyMigrations(ctx context.Context, targetVersion int, l
 	}
 
 	if !waitForCompletion {
-		log.Info().Msg("Migrations started successfully. Not waiting for them to complete.")
+		log.Ctx(ctx).Info().Msg("Migrations started successfully. Not waiting for them to complete.")
 		return nil
 	}
 
-	log.Info().Msg("Waiting for migrations to complete...")
+	log.Ctx(ctx).Info().Msg("Waiting for migrations to complete...")
 
 	exitCode, err := inst.waitForContainerToComplete(ctx, containerName)
 	if err != nil {
@@ -146,7 +146,7 @@ func (inst *Installer) ApplyMigrations(ctx context.Context, targetVersion int, l
 		return fmt.Errorf("migration failed")
 	}
 
-	log.Info().Msg("Migrations applied successfully")
+	log.Ctx(ctx).Info().Msg("Migrations applied successfully")
 	return nil
 }
 
@@ -223,7 +223,7 @@ func (inst *Installer) initializeDatabase(ctx context.Context) error {
 
 	defer func() {
 		if err := inst.removeContainer(ctx, containerName); err != nil {
-			log.Error().Err(err).Msg("error removing migration runner container")
+			log.Ctx(ctx).Error().Err(err).Msg("error removing migration runner container")
 		}
 	}()
 
@@ -248,18 +248,18 @@ func (inst *Installer) initializeDatabase(ctx context.Context) error {
 
 			if category == "Tyger.ControlPlane.Database.Migrations.MigrationRunner[DatabaseMigrationRequired]" {
 				if message, ok := parsedLine["message"].(string); ok {
-					log.Error().Msg(message)
+					log.Ctx(ctx).Error().Msg(message)
 				}
 				if args, ok := parsedLine["args"].(map[string]any); ok {
 					if version, ok := args["requiredVersion"].(float64); ok {
-						log.Error().Msgf("Run `tyger api uninstall -f <CONFIG_PATH>` followed by `tyger api migrations apply --target-version %d --offline --wait -f <CONFIG_PATH>` followed by `tyger api install -f <CONFIG_PATH>` ", int(version))
+						log.Ctx(ctx).Error().Msgf("Run `tyger api uninstall -f <CONFIG_PATH>` followed by `tyger api migrations apply --target-version %d --offline --wait -f <CONFIG_PATH>` followed by `tyger api install -f <CONFIG_PATH>` ", int(version))
 						return install.ErrAlreadyLoggedError
 					}
 				}
 			}
 
 			if category == "Tyger.ControlPlane.Database.Migrations.MigrationRunner[NewerDatabaseVersionsExist]" {
-				log.Warn().Msgf("The database schema should be upgraded. Run `tyger api migrations list` to see the available migrations and `tyger api migrations apply` to apply them.")
+				log.Ctx(ctx).Warn().Msgf("The database schema should be upgraded. Run `tyger api migrations list` to see the available migrations and `tyger api migrations apply` to apply them.")
 				found = true
 				break
 			}
@@ -294,6 +294,7 @@ func (inst *Installer) startMigrationRunner(ctx context.Context, containerName s
 				fmt.Sprintf("Database__Host=%s/database", inst.Config.InstallationPath),
 				"Database__Username=tyger-server",
 				"Database__AutoMigrate=true",
+				"Database__OwnersRoleName=tyger-owners",
 				"Database__TygerServerRoleName=tyger-server",
 				"Compute__Docker__Enabled=true",
 				fmt.Sprintf("Buffers__LocalStorage__DataPlaneEndpoint=http+unix://%s/data-plane/tyger.data.sock", inst.Config.InstallationPath),

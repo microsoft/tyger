@@ -37,6 +37,9 @@ var (
 type Installer interface {
 	QuickValidateConfig() bool
 
+	ApplySingleOrgFilter(org string) error
+	ApplyMultiOrgFilter(orgs []string) error
+
 	InstallTyger(ctx context.Context) error
 	UninstallTyger(ctx context.Context, deleteData bool, preserveRunContainers bool) error
 

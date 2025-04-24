@@ -64,19 +64,38 @@ cloud:
 
   # Optionally point an existing Log Analytics workspace to send logs to.
   # logAnalyticsWorkspace:
-  #   resourceGroup:
-  #   name:
+    # resourceGroup:
+    # name:
+
+  # Optionaly use a custom DNS zone
+  # dnsZone
+    # resourceGroup:
+    # name:
+
+  # Optionally provide a TLS certificate, if not using Let's Encrypt
+  # tlsCertificate:
+    # keyVault:
+    #   resourceGroup:
+    #   name:
+    # certificateName:
 
   compute:
     clusters:
       - name: demo
         apiHost: true
-        kubernetesVersion: 1.27
-        # location: Defaults to defaultLocation
+        kubernetesVersion: "1.30"
+        sku:
+        # location: defaults to Standard
+        systemNodePool:
+          name: system
+          vmSize: Standard_DS2_v2
+          minCount: 1
+          maxCount: 3
+          # osSku: defaults to AzureLinux
 
         userNodePools:
           - name: cpunp
-            vmSize: Standard_DS12_v2
+            vmSize: Standard_DS2_v2
             minCount: 1
             maxCount: 10
             # osSku: defaults to AzureLinux
@@ -109,83 +128,102 @@ cloud:
     # privateContainerRegistries:
     #   - myprivateregistry
 
-    # An optional array of managed identities that will be created in the resource group.
-    # These identities are available to runs as workload identities.
-    # identities:
-    # - my-identity
+    # This must be set if using a custom DNS zone and needs to be globally unique for the Azure region.
+    # Each organization's domain name will have a CNAME record pointing to the domain name formed
+    # by this value, which will be <dnslabel>.<region>.cloudapp.azure.com
+    # dnsLabel:
+
+    # Optional Helm chart overrides
+    # helm:
+      # traefik:
+        # repoName:
+        # repoUrl: not set if using `chartRef`
+        # chartRef: e.g. oci://...
+        # version:
+        # values:
+      # certManager:
+      # nvidiaDevicePlugin:
 
   database:
     serverName: demo-tyger
     postgresMajorVersion: 16
+    # location: Defaults to defaultLocation
+    # computeTier: Defaults to Burstable
+    # vmSize: Defaults to Standard_B1ms
+    # storageSizeGB: Defaults to 32 (the minimum supported)
+    # backupRetentionDays: Defaults to 7
+    # backupGeoRedundancy: Defaults to false
 
     # Firewall rules to control where the database can be accessed from,
     # in addition to the control-plane cluster.
     # firewallRules:
-    #   - name:
-    #     startIpAddress:
-    #     endIpAddress:
+    #  - name:
+    #    startIpAddress:
+    #    endIpAddress:
 
-    # location: Defaults to defaultLocation
-    # computeTier: Defaults to Burstable
-    # vmSize: Defaults to Standard_B1ms
-    # storageSizeGB: Defaults to 32GB (the minimum supported)
-    # backupRetentionDays: Defaults to 7
-    # backupGeoRedundancy: Defaults to false
+organizations:
+  - name: default
+    cloud:
+      storage:
+        # Storage accounts for buffers.
+        buffers:
+          - name: demowestus2buf
+            # location: defaults to defaultLocation
+            # sku: defaults to Standard_LRS
 
-  storage:
-    # Storage accounts for buffers.
-    buffers:
-      - name: demowestus2buf
-        # location: Defaults to defaultLocation
-        # sku: Defaults to Standard_LRS
+        # The storage account where run logs will be stored.
+        logs:
+          name: demotygerlogs
+          # location: defaults to defaultLocation
+          # sku: defaults to Standard_LRS
 
-    # The storage account where run logs will be stored.
-    logs:
-      name: demotygerlogs
-      # location: Defaults to defaultLocation
-      # sku: Defaults to Standard_LRS
+      # An optional array of managed identities that will be created in the resource group.
+      # These identities are available to runs as workload identities. When updating this list
+      # both `tyger cloud install` and `tyger api installed` must be run.
+      # identities:
+      # - my-identity
 
-api:
-  # The fully qualified domain name for the Tyger API.
-  domainName: demo-tyger.westus2.cloudapp.azure.com
+    api:
+      # The fully qualified domain name for the Tyger API.
+      domainName: demo-tyger.westus2.cloudapp.azure.com
 
-  auth:
-    tenantId: 705ef40b-9fa6-45a3-ba0c-b7ced9af6dce
-    apiAppUri: api://tyger-server
-    cliAppUri: api://tyger-cli
+      # Set to KeyVault if using a custom TLS certificate, otherwise set to LetsEncrypt
+      tlsCertificateProvider: LetsEncrypt
 
-  # Settings for all buffers
-  buffers:
-    # TTL for active buffers before they are automatically soft-deleted (D.HH:MM:SS) (0 = never expire)
-    activeLifetime: 0.00:00
-    # TTL for soft-deleted buffers before they are automatically purged forever (D.HH:MM:SS) (0 = purge immediately)
-    softDeletedLifetime: 1.00:00
+      auth:
+        tenantId: 72f988bf-86f1-41af-91ab-2d7cd011db47
+        apiAppUri: api://tyger-server
+        cliAppUri: api://tyger-cli
 
-  # Optional Helm chart overrides
-  # helm:
-  #   tyger:
-  #     repoName:
-  #     repoUrl: # not set if using `chartRef`
-  #     chartRef: # e.g. oci://mcr.microsoft.com/tyger/helm/tyger
-  #     namespace:
-  #     version:
-  #     values: # Helm values overrides
+      # buffers:
+        # TTL for active buffers before they are automatically soft-deleted (D.HH:MM:SS) (0 = never expire)
+        # activeLifetime: defaults to 0.00:00
+        # TTL for soft-deleted buffers before they are automatically purged forever (D.HH:MM:SS) (0 = purge immediately)
+        # softDeletedLifetime: default to 1.00:00
 
-  #   certManager: {} # same fields as `tyger` above
-  #   nvidiaDevicePlugin: {} # same fields as `tyger` above
-  #   traefik: {} # same fields as `tyger` above
-
+      # Optional Helm chart overrides
+      # helm:
+        # tyger:
+          # repoName:
+          # repoUrl: not set if using `chartRef`
+          # chartRef: e.g. oci://...
+          # version:
+          # values:
 ```
 
 All of the installation commands (`tyger cloud install`, `tyger api install`,
 etc.) require you to give a path the the config file (`--file|-f PATH`).
-Additionally, the commands allow configuration values to be overridden on the
-command-line with `--set`. For example:
 
-```bash
-tyger api install -f config.yml \
-  --set api.helm.tyger.chartRef=oci://mcr.microsoft.com/tyger/helm/tyger \
-  --set api.helm.tyger.version=v0.4.0
+You can validate this configuration with:
+
+``` bash
+tyger config validate -f PATH
+```
+
+You can also reformat it with the default comments with:
+
+``` bash
+tyger config pretty-print -i FILE.yml -o FILE.yml
 ```
 
 ## Install cloud resources
@@ -279,3 +317,22 @@ tyger cloud uninstall -f config.yml
 ::: danger Warning
 `tyger cloud uninstall` will permanently delete all database and buffer data.
 :::
+
+
+## Multi-tenancy
+
+Tyger supports running separate services for separate organizations on shared
+compute infrastructure. Each organization has its own service API domain name,
+its own auth parameters, and separate database and storage resources. This
+feature can be useful for supporting different organizations that need to use
+Tyger while sharing compute infrastructure costs.
+
+In the configuration file, multiple organizations can be added under the
+`organizations` list. In order to support multiple organizations, you will need
+to provide a custom Azure DNS zone resource (to control the records of a domain)
+and provide a TLS certificate in PEM format in an Azure Key Vault.
+
+When an environment has multiple organization the commands under `tyger cloud`,
+`tyger api`, and `tyger identities` can be scoped to one or more organizations
+using the `--org` flag. Some commands can only be applied to a single
+organization.

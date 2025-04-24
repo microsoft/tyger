@@ -1,12 +1,20 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+using Microsoft.Extensions.Options;
 using static Tyger.ControlPlane.Database.Constants;
 
 namespace Tyger.ControlPlane.Database.Migrations;
 
 public class Migrator1 : Migrator
 {
+    private readonly DatabaseOptions _databaseOptions;
+
+    public Migrator1(IOptions<DatabaseOptions> databaseOptions)
+    {
+        _databaseOptions = databaseOptions.Value;
+    }
+
     public override async Task Apply(Npgsql.NpgsqlDataSource dataSource, ILogger logger, CancellationToken cancellationToken)
     {
         await using var batch = dataSource.CreateBatch();
@@ -14,8 +22,8 @@ public class Migrator1 : Migrator
         batch.BatchCommands.Add(new($"""
             DO $$
             BEGIN
-                IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '{OwnersRole}') THEN
-                    CREATE ROLE "{OwnersRole}";
+                IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '{_databaseOptions.OwnersRoleName}') THEN
+                    CREATE ROLE "{_databaseOptions.OwnersRoleName}";
                 END IF;
             END
             $$

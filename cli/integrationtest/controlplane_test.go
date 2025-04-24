@@ -2398,7 +2398,7 @@ func TestServerLogs(t *testing.T) {
 		dockerParam = "--docker"
 	}
 
-	logs := runCommandSucceeds(t, "bash", "-c", fmt.Sprintf("tyger api logs --tail 1 -f <(../../scripts/get-config.sh %s)", dockerParam))
+	logs := runCommandSucceeds(t, "bash", "-c", fmt.Sprintf("tyger api logs --tail 1 -f <(../../scripts/get-config.sh %s) --org lamna", dockerParam))
 	lines := strings.Split(logs, "\n")
 	require.Equal(t, 1, len(lines))
 	require.Contains(t, lines[0], `"timestamp"`)

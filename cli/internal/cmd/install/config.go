@@ -5,6 +5,7 @@ package install
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
@@ -49,8 +50,231 @@ func NewConfigCommand(parentCommand *cobra.Command) *cobra.Command {
 	}
 
 	installCmd.AddCommand(newConfigCreateCommand())
+	installCmd.AddCommand(newConfigValidateCommand())
+	installCmd.AddCommand(newConfigPrettyPrintCommand())
+	installCmd.AddCommand(newConfigConvertCommand())
 
 	return installCmd
+}
+
+func newConfigValidateCommand() *cobra.Command {
+	inputPath := ""
+	cmd := &cobra.Command{
+		Use:                   "validate -f FILE.yml",
+		Short:                 "Validate a config file",
+		Long:                  "Validate a config file",
+		DisableFlagsInUseLine: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return validateConfig(inputPath)
+		},
+	}
+
+	cmd.Flags().StringVarP(&inputPath, "file", "f", "", "The path to the config file to validate")
+	cmd.MarkFlagRequired("file")
+
+	return cmd
+}
+
+func validateConfig(filePath string) error {
+	c, err := parseConfig(filePath, nil, false)
+	if err != nil {
+		return fmt.Errorf("failed to parse config: %w", err)
+	}
+
+	installer, err := getInstallerFromConfig(c)
+	if err != nil {
+		return fmt.Errorf("failed to get installer from config: %w", err)
+	}
+	if !installer.QuickValidateConfig() {
+		return errors.New("config validation failed")
+	}
+
+	return nil
+}
+
+func newConfigPrettyPrintCommand() *cobra.Command {
+	inputPath := ""
+	outputPath := ""
+
+	cmd := &cobra.Command{
+		Use:                   "pretty-print -i FILE.yml -o FILE.yml",
+		Short:                 "Add documentation to a config file.",
+		Long:                  "Add documentation to a config file.",
+		DisableFlagsInUseLine: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return prettyPrintConfig(inputPath, outputPath)
+		},
+	}
+
+	cmd.Flags().StringVarP(&inputPath, "input", "i", "", "The path to the config file to read")
+	cmd.MarkFlagRequired("input")
+	cmd.Flags().StringVarP(&outputPath, "output", "o", "", "The path to the config file to create")
+	cmd.MarkFlagRequired("output")
+
+	return cmd
+}
+
+func prettyPrintConfig(inputPath, outputPath string) error {
+	c, err := parseConfig(inputPath, nil, false)
+	if err != nil {
+		return err
+	}
+
+	if err := validateConfig(inputPath); err != nil {
+		return err
+	}
+
+	var outputContents string
+
+	switch config := c.(type) {
+	case *dockerinstall.DockerEnvironmentConfig:
+		contents, err := os.ReadFile(inputPath)
+		if err != nil {
+			return fmt.Errorf("failed to read config file: %w", err)
+		}
+
+		// no implementation for docker at the moment
+		outputContents = string(contents)
+	case *cloudinstall.CloudEnvironmentConfig:
+		// parse the config again to clear the fields that are set during validation
+		c, err = parseConfig(inputPath, nil, false)
+		if err != nil {
+			return fmt.Errorf("failed to parse config: %w", err)
+		}
+		config = c.(*cloudinstall.CloudEnvironmentConfig)
+
+		buf := &strings.Builder{}
+		if err := cloudinstall.PrettyPrintConfig(config, buf); err != nil {
+			return fmt.Errorf("failed to pretty print config: %w", err)
+		}
+		outputContents = buf.String()
+	default:
+		panic(fmt.Sprintf("unexpected config type: %T", config))
+	}
+
+	if err := os.MkdirAll(path.Dir(outputPath), 0775); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	f, err := os.OpenFile(outputPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open config file for writing: %w", err)
+	}
+	defer f.Close()
+
+	if _, err := f.Write([]byte(outputContents)); err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+
+	return validateConfig(outputPath)
+}
+
+func newConfigConvertCommand() *cobra.Command {
+	inputPath := ""
+	outputPath := ""
+
+	cmd := &cobra.Command{
+		Use:                   "convert -i FILE.yml -o FILE.yml",
+		Long:                  "Convert a config that was created for Tyger versions before v0.11.0.",
+		Short:                 "Convert a config that was created for Tyger versions before v0.11.0.",
+		DisableFlagsInUseLine: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := parseConfig(inputPath, nil, true)
+			if err != nil {
+				return fmt.Errorf("failed to read config file: %w", err)
+			}
+
+			configMap := c.(map[string]any)
+
+			if err := convert(configMap); err != nil {
+				return fmt.Errorf("failed to convert config file: %w", err)
+			}
+
+			serialzedJson, err := json.MarshalIndent(configMap, "", "  ")
+			if err != nil {
+				return fmt.Errorf("failed to serialize config file: %w", err)
+			}
+
+			func() error {
+				if err := os.MkdirAll(path.Dir(outputPath), 0775); err != nil {
+					return fmt.Errorf("failed to create config directory: %w", err)
+				}
+
+				f, err := os.OpenFile(outputPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+				if err != nil {
+					return fmt.Errorf("failed to open config file for writing: %w", err)
+				}
+				defer f.Close()
+
+				if _, err := f.Write(serialzedJson); err != nil {
+					return fmt.Errorf("failed to write config file: %w", err)
+				}
+
+				return nil
+			}()
+
+			if err := prettyPrintConfig(outputPath, outputPath); err != nil {
+				return fmt.Errorf("failed to pretty print config file: %w", err)
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&inputPath, "input", "i", "", "The path to the config file to read")
+	cmd.MarkFlagRequired("input")
+	cmd.Flags().StringVarP(&outputPath, "output", "o", "", "The path to the config file to create")
+	cmd.MarkFlagRequired("output")
+
+	return cmd
+}
+
+func convert(document map[string]any) error {
+	identities := safeGetAndRemove(document, "cloud.compute.identities")
+	storage := safeGetAndRemove(document, "cloud.storage")
+	api := safeGetAndRemove(document, "api")
+
+	if apiMap, ok := api.(map[string]any); ok {
+		apiMap["tlsCertificateProvider"] = string(cloudinstall.TlsCertificateProviderLetsEncrypt)
+	}
+
+	org := map[string]any{
+		"name":                                "default",
+		"singleOrganizationCompatibilityMode": true,
+		"cloud": map[string]any{
+			"storage":    storage,
+			"identities": identities,
+		},
+		"api": api,
+	}
+
+	document["organizations"] = []any{org}
+
+	return nil
+}
+
+func safeGetAndRemove(m map[string]any, path string) any {
+	segments := strings.Split(path, ".")
+	for i, segment := range segments {
+		if i == len(segments)-1 {
+			if val, ok := m[segment]; ok {
+				delete(m, segment)
+				return val
+			}
+			return nil
+		}
+		if val, ok := m[segment]; ok {
+			if subMap, ok := val.(map[string]any); ok {
+				m = subMap
+			} else {
+				return nil
+			}
+		} else {
+			return nil
+		}
+	}
+
+	return nil
 }
 
 func newConfigCreateCommand() *cobra.Command {

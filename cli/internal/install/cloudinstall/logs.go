@@ -26,6 +26,7 @@ import (
 )
 
 func (inst *Installer) GetServerLogs(ctx context.Context, options install.ServerLogOptions) error {
+	org := inst.Config.GetSingleOrg()
 	restConfig, err := inst.GetUserRESTConfig(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get REST config: %w", err)
@@ -36,14 +37,14 @@ func (inst *Installer) GetServerLogs(ctx context.Context, options install.Server
 		return fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
-	deployment, err := clientSet.AppsV1().Deployments(TygerNamespace).Get(ctx, "tyger-server", metav1.GetOptions{})
+	deployment, err := clientSet.AppsV1().Deployments(org.Cloud.KubernetesNamespace).Get(ctx, "tyger-server", metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to get Tyger deployment: %w", err)
 	}
 
 	logOptions := kubectl.NewLogsOptions(genericiooptions.IOStreams{Out: options.Destination, ErrOut: options.Destination})
 	logOptions.RESTClientGetter = &restClientGetterImpl{restConfig}
-	logOptions.Namespace = TygerNamespace
+	logOptions.Namespace = org.Cloud.KubernetesNamespace
 	logOptions.AllPodLogsForObject = polymorphichelpers.AllPodLogsForObjectFn
 	logOptions.AllPods = true
 	logOptions.ConsumeRequestFn = kubectl.DefaultConsumeRequest
