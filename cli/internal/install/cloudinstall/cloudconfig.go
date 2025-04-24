@@ -269,8 +269,8 @@ type ConfigTemplateValues struct {
 	LogsStorageAccountName   string
 	DomainName               string
 	ApiTenantId              string
-	CpuNodePoolMinCount      int
-	GpuNodePoolMinCount      int
+	CpuNodePoolMinCount      int32
+	GpuNodePoolMinCount      int32
 }
 
 func RenderConfig(templateValues ConfigTemplateValues, writer io.Writer) error {
@@ -298,13 +298,13 @@ func RenderConfig(templateValues ConfigTemplateValues, writer io.Writer) error {
 							{
 								Name:     "cpunp",
 								VMSize:   "Standard_DS2_v2",
-								MinCount: int32(templateValues.CpuNodePoolMinCount),
+								MinCount: templateValues.CpuNodePoolMinCount,
 								MaxCount: 10,
 							},
 							{
 								Name:     "gpunp",
 								VMSize:   "Standard_NC6s_v3",
-								MinCount: int32(templateValues.GpuNodePoolMinCount),
+								MinCount: templateValues.GpuNodePoolMinCount,
 								MaxCount: 10,
 							}},
 					},

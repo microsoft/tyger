@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"math"
 	"os"
 	"os/exec"
 	"path"
@@ -581,13 +582,23 @@ func generateCloudConfig(ctx context.Context, configFile *os.File) error {
 	if numString, err := prompt("Enter the minimum node count for the CPU node pool:", "1", "", positiveIntegerRegex); err != nil {
 		return err
 	} else {
-		templateValues.CpuNodePoolMinCount, _ = strconv.Atoi(numString)
+		i, err := strconv.Atoi(numString)
+		if err == nil && i >= 0 && i <= math.MaxInt32 {
+			templateValues.CpuNodePoolMinCount = int32(i)
+		} else {
+			return fmt.Errorf("invalid value for CPU node pool min count: %s", numString)
+		}
 	}
 
 	if numString, err := prompt("Enter the minimum node count for the GPU node pool:", "0", "", positiveIntegerRegex); err != nil {
 		return err
 	} else {
-		templateValues.GpuNodePoolMinCount, _ = strconv.Atoi(numString)
+		i, err := strconv.Atoi(numString)
+		if err == nil && i >= 0 && i <= math.MaxInt32 {
+			templateValues.GpuNodePoolMinCount = int32(i)
+		} else {
+			return fmt.Errorf("invalid value for GPU node pool min count: %s", numString)
+		}
 	}
 
 	suggestedDomainName := fmt.Sprintf("%s-tyger", templateValues.EnvironmentName)
