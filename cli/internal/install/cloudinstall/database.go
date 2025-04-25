@@ -463,8 +463,6 @@ func createDatabaseServerAdmin(
 		return fmt.Errorf("failed to get current principal information: %w", err)
 	}
 
-	log.Ctx(ctx).Info().Msgf("Creating PostgreSQL server admin '%s'", currentPrincipalDisplayName)
-
 	currentUserAdmin := armpostgresqlflexibleservers.ActiveDirectoryAdministratorAdd{
 		Properties: &armpostgresqlflexibleservers.AdministratorPropertiesForAdd{
 			PrincipalName: &currentPrincipalDisplayName,
@@ -472,6 +470,19 @@ func createDatabaseServerAdmin(
 			TenantID:      Ptr(config.Cloud.TenantID),
 		},
 	}
+
+	if _, err = adminClient.Get(ctx, config.Cloud.ResourceGroup, serverName, currentPrincipalObjectId, nil); err != nil {
+		var repErr *azcore.ResponseError
+		if !errors.As(err, &repErr) || repErr.StatusCode != http.StatusNotFound {
+			return fmt.Errorf("failed to get PostgreSQL server admin: %w", err)
+		}
+	} else {
+		log.Ctx(ctx).Info().Msgf("PostgreSQL server admin '%s' already exists", currentPrincipalDisplayName)
+		return nil
+	}
+
+	log.Ctx(ctx).Info().Msgf("Creating PostgreSQL server admin '%s'", currentPrincipalDisplayName)
+
 	currentUserPoller, err := adminClient.BeginCreate(ctx, config.Cloud.ResourceGroup, serverName, currentPrincipalObjectId, currentUserAdmin, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create PostgreSQL server admin: %w", err)
