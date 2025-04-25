@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"strconv"
 
+	"maps"
+
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
@@ -22,6 +24,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/postgresql/armpostgresqlflexibleservers/v4"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/hashicorp/go-cleanhttp"
 	"github.com/ipinfo/go/v2/ipinfo"
 	"github.com/microsoft/tyger/cli/internal/install"
@@ -37,10 +40,11 @@ const (
 )
 
 const (
-	unqualifiedOwnersRole = "tyger-owners"
-	databasePort          = 5432
-	defaultDatabaseName   = "postgres"
-	dbConfiguredTagValue  = "3" // bump this when we change the database configuration logic
+	unqualifiedOwnersRole  = "tyger-owners"
+	databasePort           = 5432
+	defaultDatabaseName    = "postgres"
+	dbServerInstanceTagKey = "tyger-database-instance"
+	dbConfiguredTagVersion = "3" // bump this when we change the database configuration logic
 )
 
 func (inst *Installer) createDatabaseServer(ctx context.Context) (any, error) {
@@ -62,7 +66,8 @@ func (inst *Installer) createDatabaseServer(ctx context.Context) (any, error) {
 			if *existingTag != inst.Config.EnvironmentName {
 				return nil, fmt.Errorf("database server '%s' is already in use by environment '%s'", *existingServerResponse.Name, *existingTag)
 			}
-			tags = existingServerResponse.Tags
+			tags = make(map[string]*string)
+			maps.Copy(tags, existingServerResponse.Tags)
 		}
 	} else {
 		var respErr *azcore.ResponseError
@@ -76,6 +81,9 @@ func (inst *Installer) createDatabaseServer(ctx context.Context) (any, error) {
 		tags = make(map[string]*string)
 	}
 	tags[TagKey] = &inst.Config.EnvironmentName
+	if instanceKey := tags[dbServerInstanceTagKey]; instanceKey == nil || *instanceKey == "" {
+		tags[dbServerInstanceTagKey] = Ptr(uuid.NewString())
+	}
 
 	geoRedundantBackup := armpostgresqlflexibleservers.GeoRedundantBackupEnumDisabled
 	if databaseConfig.BackupGeoRedundancy {
@@ -361,11 +369,17 @@ func (inst *Installer) createDatabase(ctx context.Context, org *OrganizationConf
 		return nil, install.ErrDependencyFailed
 	}
 
-	// check if the database has already been configured and we can skip the steps that follow
-	if migrationRunnerManagedIdentity.Tags != nil {
-		if value, ok := migrationRunnerManagedIdentity.Tags[inst.getDatabaseConfiguredTagKey()]; ok && value != nil && *value == dbConfiguredTagValue {
-			log.Ctx(ctx).Info().Msg("PostgreSQL server is already configured")
-			return nil, nil
+	// check if the database has already been configured and we can skip the steps that follow.
+	// Note that we tag the database server with a GUID so that the tag will not be valid if the database server is deleted and recreated.
+	instanceKeyValue := existingServerResponse.Tags[dbServerInstanceTagKey]
+	var dbConfiguredTagValue string
+	if instanceKeyValue != nil && *instanceKeyValue != "" {
+		dbConfiguredTagValue = fmt.Sprintf("%s-%s", dbConfiguredTagVersion, *instanceKeyValue)
+		if migrationRunnerManagedIdentity.Tags != nil {
+			if value, ok := migrationRunnerManagedIdentity.Tags[inst.getDatabaseConfiguredTagKey()]; ok && value != nil && *value == dbConfiguredTagValue {
+				log.Ctx(ctx).Info().Msg("PostgreSQL server is already configured")
+				return nil, nil
+			}
 		}
 	}
 
@@ -382,20 +396,22 @@ func (inst *Installer) createDatabase(ctx context.Context, org *OrganizationConf
 		return nil, fmt.Errorf("failed to create PostgreSQL roles: %w", err)
 	}
 
-	// add a tag on the server to indicate that it is configured, so we can skip the slow firewall configuration next time
-	if migrationRunnerManagedIdentity.Tags == nil {
-		migrationRunnerManagedIdentity.Tags = make(map[string]*string)
-	}
-	migrationRunnerManagedIdentity.Tags[inst.getDatabaseConfiguredTagKey()] = Ptr(dbConfiguredTagValue)
+	if dbConfiguredTagValue != "" {
+		// add a tag on the server to indicate that it is configured, so we can skip the slow firewall configuration next time
+		if migrationRunnerManagedIdentity.Tags == nil {
+			migrationRunnerManagedIdentity.Tags = make(map[string]*string)
+		}
+		migrationRunnerManagedIdentity.Tags[inst.getDatabaseConfiguredTagKey()] = Ptr(dbConfiguredTagValue)
 
-	tagsClient, err := armresources.NewTagsClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create tags client: %w", err)
-	}
+		tagsClient, err := armresources.NewTagsClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create tags client: %w", err)
+		}
 
-	_, err = tagsClient.CreateOrUpdateAtScope(ctx, *migrationRunnerManagedIdentity.ID, armresources.TagsResource{Properties: &armresources.Tags{Tags: migrationRunnerManagedIdentity.Tags}}, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to tag managed identity: %w", err)
+		_, err = tagsClient.CreateOrUpdateAtScope(ctx, *migrationRunnerManagedIdentity.ID, armresources.TagsResource{Properties: &armresources.Tags{Tags: migrationRunnerManagedIdentity.Tags}}, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to tag managed identity: %w", err)
+		}
 	}
 
 	return nil, nil
@@ -697,6 +713,22 @@ func databaseServerNeedsUpdate(newServer, existingServer armpostgresqlflexiblese
 	}
 	if err := json.Unmarshal(existingJson, &merged); err != nil {
 		panic(fmt.Sprintf("failed to unmarshal existing database server JSON: %v", err))
+	}
+
+	tagsMatch := false
+	if existingServer.Tags != nil && len(existingServer.Tags) == len(newServer.Tags) {
+		tagsMatch = true
+		for k, v := range newServer.Tags {
+			if existingValue, ok := existingServer.Tags[k]; !ok || *existingValue != *v {
+				tagsMatch = false
+				break
+			}
+		}
+	}
+
+	if !tagsMatch {
+		merged.Tags = newServer.Tags
+		needsUpdate = true
 	}
 
 	if *existingServer.Properties.Storage.Type == armpostgresqlflexibleservers.StorageTypePremiumLRS {
