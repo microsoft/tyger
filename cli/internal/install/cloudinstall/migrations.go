@@ -58,8 +58,10 @@ func runWithMinimalTygerInstallation[T any](ctx context.Context, inst *Installer
 }
 
 func (inst *Installer) ListDatabaseVersions(ctx context.Context, allVersions bool) ([]install.DatabaseVersion, error) {
-	org := inst.Config.GetSingleOrg()
+	return inst.listDatabaseVersionsForOrg(ctx, inst.Config.GetSingleOrg(), allVersions)
+}
 
+func (inst *Installer) listDatabaseVersionsForOrg(ctx context.Context, org *OrganizationConfig, allVersions bool) ([]install.DatabaseVersion, error) {
 	return runWithMinimalTygerInstallation(ctx, inst, org, func(ctx context.Context, inst *Installer) ([]install.DatabaseVersion, error) {
 		job, err := inst.getMigrationRunnerJobDefinition(ctx, org)
 		if err != nil {
@@ -142,12 +144,11 @@ func (inst *Installer) ListDatabaseVersions(ctx context.Context, allVersions boo
 
 		log.Debug().Msg("Invoking command in pod")
 
-		return inst.getDatabaseVersionsFromPod(ctx, pod.Name, allVersions)
+		return inst.getDatabaseVersionsFromPod(ctx, org, pod.Name, allVersions)
 	})
 }
 
-func (inst *Installer) getDatabaseVersionsFromPod(ctx context.Context, podName string, allVersions bool) ([]install.DatabaseVersion, error) {
-	org := inst.Config.GetSingleOrg()
+func (inst *Installer) getDatabaseVersionsFromPod(ctx context.Context, org *OrganizationConfig, podName string, allVersions bool) ([]install.DatabaseVersion, error) {
 	stdout, stderr, err := inst.PodExec(ctx, org.Cloud.KubernetesNamespace, podName, "/app/bin/tyger-server", "database", "list-versions")
 	if err != nil {
 		errorLog := ""
@@ -178,147 +179,148 @@ func (inst *Installer) getDatabaseVersionsFromPod(ctx context.Context, podName s
 }
 
 func (inst *Installer) ApplyMigrations(ctx context.Context, targetVersion int, latest, offline, waitForCompletion bool) error {
-	org := inst.Config.GetSingleOrg()
-	_, err := runWithMinimalTygerInstallation(ctx, inst, org, func(ctx context.Context, inst *Installer) (any, error) {
-		versions, err := inst.ListDatabaseVersions(ctx, true)
-		if err != nil {
-			return nil, err
-		}
-
-		current := -1
-		for i := len(versions) - 1; i >= 0; i-- {
-			if versions[i].State == "complete" {
-				current = versions[i].Id
-				break
-			}
-		}
-
-		if latest {
-			targetVersion = versions[len(versions)-1].Id
-			if current == targetVersion {
-				log.Ctx(ctx).Info().Msg("The database is already at the latest version")
-				return nil, nil
-			}
-		} else {
-			if targetVersion <= current {
-				log.Ctx(ctx).Info().Msgf("The database is already at version %d", targetVersion)
-				return nil, nil
-			}
-
-			if targetVersion > versions[len(versions)-1].Id {
-				return nil, fmt.Errorf("target version %d is greater than the latest version %d", targetVersion, versions[len(versions)-1].Id)
-			}
-		}
-
-		if len(versions) == 0 {
-			log.Ctx(ctx).Info().Msg("No migrations to apply")
-			return nil, nil
-		}
-
-		migrations := make([]int, 0)
-		for i, v := range versions {
-			if versions[i].Id > current && versions[i].Id <= targetVersion {
-				migrations = append(migrations, v.Id)
-			}
-		}
-
-		restConfig, err := inst.GetUserRESTConfig(ctx)
-		if err != nil {
-			return nil, err
-		}
-
-		clientset, err := kubernetes.NewForConfig(restConfig)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create kubernetes client: %w", err)
-		}
-
-		existingMigrationJobs, err := clientset.BatchV1().Jobs(org.Cloud.KubernetesNamespace).List(ctx, v1.ListOptions{
-			LabelSelector: fmt.Sprintf("%s=%s", migrationRunnerLabelKey, "true"),
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to list jobs: %w", err)
-		}
-
-		for _, existingJob := range existingMigrationJobs.Items {
-			if existingJob.Status.Succeeded == 0 && existingJob.Status.Failed == 0 {
-				return nil, fmt.Errorf("an existing migration is already in progress")
-			}
-		}
-
-		job, err := inst.getMigrationRunnerJobDefinition(ctx, org)
-		if err != nil {
-			return nil, err
-		}
-
-		jobName := fmt.Sprintf("tyger-migration-runner-%s", RandomAlphanumString(4))
-		job.Name = jobName
-		job.Spec.Template.Name = jobName
-
-		if job.Labels == nil {
-			job.Labels = map[string]string{}
-		}
-		job.Labels[migrationRunnerLabelKey] = "true"
-		job.Spec.Template.Labels[migrationRunnerLabelKey] = "true"
-
-		containers := make([]corev1.Container, len(migrations))
-
-		for i, v := range migrations {
-			container := job.Spec.Template.Spec.Containers[0]
-			container.Args = []string{"database", "migrate", "--target-version", strconv.Itoa(v)}
-			if offline {
-				container.Args = append(container.Args, "--offline")
-			}
-			container.Name = fmt.Sprintf("migration-%d", v)
-			containers[i] = container
-		}
-
-		job.Spec.Template.Spec.InitContainers = containers[:len(containers)-1]
-		job.Spec.Template.Spec.Containers = containers[len(containers)-1:]
-
-		log.Ctx(ctx).Info().Msgf("Starting %d migrations...", len(migrations))
-
-		_, err = clientset.BatchV1().Jobs(org.Cloud.KubernetesNamespace).Create(ctx, job, v1.CreateOptions{})
-		if err != nil {
-			return nil, fmt.Errorf("failed to create job: %w", err)
-		}
-
-		if waitForCompletion {
-			log.Ctx(ctx).Info().Msg("Waiting for migrations to complete...")
-
-			err = wait.PollUntilContextCancel(ctx, 2*time.Second, true, func(ctx context.Context) (bool, error) {
-				j, err := clientset.BatchV1().Jobs(org.Cloud.KubernetesNamespace).Get(ctx, jobName, v1.GetOptions{})
-				if err != nil {
-					return false, err
-				}
-
-				if j.Status.Succeeded == 1 {
-					return true, nil
-				}
-
-				if j.Status.Failed > 0 {
-					return false, fmt.Errorf("migration failed")
-				}
-
-				return false, nil
-			})
-
+	return inst.Config.ForEachOrgInParallel(ctx, func(ctx context.Context, org *OrganizationConfig) error {
+		_, err := runWithMinimalTygerInstallation(ctx, inst, org, func(ctx context.Context, inst *Installer) (any, error) {
+			versions, err := inst.listDatabaseVersionsForOrg(ctx, org, true)
 			if err != nil {
-				return nil, fmt.Errorf("failed to wait for migrations to complete: %w", err)
+				return nil, err
 			}
 
-			log.Ctx(ctx).Info().Msg("Migrations applied successfully")
-		} else {
-			log.Ctx(ctx).Info().Msg("Migrations started successfully. Not waiting for them to complete.")
-		}
+			current := -1
+			for i := len(versions) - 1; i >= 0; i-- {
+				if versions[i].State == "complete" {
+					current = versions[i].Id
+					break
+				}
+			}
 
-		if targetVersion != versions[len(versions)-1].Id {
-			log.Ctx(ctx).Warn().Msg("There are more migrations available.")
-		}
+			if latest {
+				targetVersion = versions[len(versions)-1].Id
+				if current == targetVersion {
+					log.Ctx(ctx).Info().Msg("The database is already at the latest version")
+					return nil, nil
+				}
+			} else {
+				if targetVersion <= current {
+					log.Ctx(ctx).Info().Msgf("The database is already at version %d", targetVersion)
+					return nil, nil
+				}
 
-		return nil, nil
+				if targetVersion > versions[len(versions)-1].Id {
+					return nil, fmt.Errorf("target version %d is greater than the latest version %d", targetVersion, versions[len(versions)-1].Id)
+				}
+			}
+
+			if len(versions) == 0 {
+				log.Ctx(ctx).Info().Msg("No migrations to apply")
+				return nil, nil
+			}
+
+			migrations := make([]int, 0)
+			for i, v := range versions {
+				if versions[i].Id > current && versions[i].Id <= targetVersion {
+					migrations = append(migrations, v.Id)
+				}
+			}
+
+			restConfig, err := inst.GetUserRESTConfig(ctx)
+			if err != nil {
+				return nil, err
+			}
+
+			clientset, err := kubernetes.NewForConfig(restConfig)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create kubernetes client: %w", err)
+			}
+
+			existingMigrationJobs, err := clientset.BatchV1().Jobs(org.Cloud.KubernetesNamespace).List(ctx, v1.ListOptions{
+				LabelSelector: fmt.Sprintf("%s=%s", migrationRunnerLabelKey, "true"),
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to list jobs: %w", err)
+			}
+
+			for _, existingJob := range existingMigrationJobs.Items {
+				if existingJob.Status.Succeeded == 0 && existingJob.Status.Failed == 0 {
+					return nil, fmt.Errorf("an existing migration is already in progress")
+				}
+			}
+
+			job, err := inst.getMigrationRunnerJobDefinition(ctx, org)
+			if err != nil {
+				return nil, err
+			}
+
+			jobName := fmt.Sprintf("tyger-migration-runner-%s", RandomAlphanumString(4))
+			job.Name = jobName
+			job.Spec.Template.Name = jobName
+
+			if job.Labels == nil {
+				job.Labels = map[string]string{}
+			}
+			job.Labels[migrationRunnerLabelKey] = "true"
+			job.Spec.Template.Labels[migrationRunnerLabelKey] = "true"
+
+			containers := make([]corev1.Container, len(migrations))
+
+			for i, v := range migrations {
+				container := job.Spec.Template.Spec.Containers[0]
+				container.Args = []string{"database", "migrate", "--target-version", strconv.Itoa(v)}
+				if offline {
+					container.Args = append(container.Args, "--offline")
+				}
+				container.Name = fmt.Sprintf("migration-%d", v)
+				containers[i] = container
+			}
+
+			job.Spec.Template.Spec.InitContainers = containers[:len(containers)-1]
+			job.Spec.Template.Spec.Containers = containers[len(containers)-1:]
+
+			log.Ctx(ctx).Info().Msgf("Starting %d migrations...", len(migrations))
+
+			_, err = clientset.BatchV1().Jobs(org.Cloud.KubernetesNamespace).Create(ctx, job, v1.CreateOptions{})
+			if err != nil {
+				return nil, fmt.Errorf("failed to create job: %w", err)
+			}
+
+			if waitForCompletion {
+				log.Ctx(ctx).Info().Msg("Waiting for migrations to complete...")
+
+				err = wait.PollUntilContextCancel(ctx, 2*time.Second, true, func(ctx context.Context) (bool, error) {
+					j, err := clientset.BatchV1().Jobs(org.Cloud.KubernetesNamespace).Get(ctx, jobName, v1.GetOptions{})
+					if err != nil {
+						return false, err
+					}
+
+					if j.Status.Succeeded == 1 {
+						return true, nil
+					}
+
+					if j.Status.Failed > 0 {
+						return false, fmt.Errorf("migration failed")
+					}
+
+					return false, nil
+				})
+
+				if err != nil {
+					return nil, fmt.Errorf("failed to wait for migrations to complete: %w", err)
+				}
+
+				log.Ctx(ctx).Info().Msg("Migrations applied successfully")
+			} else {
+				log.Ctx(ctx).Info().Msg("Migrations started successfully. Not waiting for them to complete.")
+			}
+
+			if targetVersion != versions[len(versions)-1].Id {
+				log.Ctx(ctx).Warn().Msg("There are more migrations available.")
+			}
+
+			return nil, nil
+		})
+
+		return err
 	})
-
-	return err
 }
 
 func (inst *Installer) GetMigrationLogs(ctx context.Context, id int, destination io.Writer) error {

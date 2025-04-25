@@ -144,7 +144,7 @@ func NewMigrationsCommand() *cobra.Command {
 }
 
 func NewMigrationApplyCommand() *cobra.Command {
-	flags := newSingleOrgCommonFlags()
+	flags := newMultiOrgFlags()
 	targetVersion := 0
 	latest := false
 	wait := false
