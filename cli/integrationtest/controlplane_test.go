@@ -2441,6 +2441,21 @@ func TestServerApiVersioningErrors(t *testing.T) {
 	require.Contains(t, err.Error(), "Unspecified API version")
 	require.ErrorAs(t, err, &errorInfo)
 	require.Contains(t, errorInfo.ApiVersions, "1.0")
+
+	// Anonymous endpoints, like /metadata, should ignore API version
+	var anonymousEndpoints = []string{
+		"/metadata",
+		"/healthcheck",
+	}
+	for _, endpoint := range anonymousEndpoints {
+		resp, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, fmt.Sprintf("%s?api-version=0.1", endpoint), nil, nil, nil)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+
+		resp, err = controlplane.InvokeRequest(context.Background(), http.MethodGet, fmt.Sprintf("%s?api-version=", endpoint), nil, nil, nil)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+	}
 }
 
 func TestServerApiV1BackwardCompatibility(t *testing.T) {

@@ -9,10 +9,10 @@ namespace Tyger.ControlPlane.ServiceMetadata;
 
 public static class ServiceMetadata
 {
-    public static void MapServiceMetadata(this RouteGroupBuilder root)
+    public static void MapServiceMetadata(this WebApplication app)
     {
         Model.ServiceMetadata? serviceMetadata = null;
-        root.MapGet(
+        app.MapGet(
             "/metadata",
             (IEnumerable<ICapabilitiesContributor> contributor, IOptions<AuthOptions> auth) =>
             {
@@ -40,7 +40,7 @@ public static class ServiceMetadata
                 }
 
                 return serviceMetadata;
-            }).AllowAnonymous().IsApiVersionNeutral();
+            }).AllowAnonymous();
     }
 }
 

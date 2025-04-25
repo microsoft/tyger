@@ -189,9 +189,9 @@ public static class Database
         return 0;
     }
 
-    public static void MapDatabaseVersionInUse(this RouteGroupBuilder root)
+    public static void MapDatabaseVersionInUse(this WebApplication app)
     {
-        root.MapGet("/database-version-in-use", (DatabaseVersions versions, IOptions<KubernetesApiOptions> kubernetesOptions, HttpContext context) =>
+        app.MapGet("/database-version-in-use", (DatabaseVersions versions, IOptions<KubernetesApiOptions> kubernetesOptions, HttpContext context) =>
         {
             if (!string.IsNullOrEmpty(kubernetesOptions.Value.CurrentPodUid))
             {
@@ -221,9 +221,8 @@ public static class Database
 
             return Results.Ok(new DatabaseVersionInUse((int)versions.CachedCurrentVersion));
         })
-        .AllowAnonymous()
         .Produces<DatabaseVersionInUse>()
-        .IsApiVersionNeutral();
+        .AllowAnonymous();
     }
 }
 

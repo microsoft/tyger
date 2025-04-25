@@ -70,17 +70,17 @@ void RunServer()
     app.UseApiV1BackwardCompatibility();
     app.UseAuth();
 
-    var root = app.ConfigureVersionedRouteGroup("/");
-    root.MapBuffers();
-    root.MapCodespecs();
-    root.MapRuns();
-    root.MapServiceMetadata();
-    root.MapDatabaseVersionInUse();
-    root.MapHealthChecks("/healthcheck").AllowAnonymous().IsApiVersionNeutral();
-    root.MapSwagger().AllowAnonymous().IsApiVersionNeutral();
-    root.MapFallback(() => Responses.InvalidRoute("The request path was not recognized."));
+    app.MapServiceMetadata();
+    app.MapDatabaseVersionInUse();
+    app.MapHealthChecks("/healthcheck").AllowAnonymous();
+    app.MapSwagger().AllowAnonymous();
+    app.MapFallback(() => Responses.InvalidRoute("The request path was not recognized.")).AllowAnonymous();
+
+    var api = app.ConfigureVersionedRouteGroup("/");
+    api.MapBuffers();
+    api.MapCodespecs();
+    api.MapRuns();
 
     app.UseOpenApi();
-
     app.Run();
 }

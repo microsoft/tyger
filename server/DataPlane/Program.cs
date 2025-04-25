@@ -27,11 +27,10 @@ app.UseRequestId();
 app.UseBaggage();
 app.UseApiV1BackwardCompatibility();
 
-var root = app.ConfigureVersionedRouteGroup("/");
-root.MapDataPlane();
+app.MapHealthChecks("/healthcheck").AllowAnonymous();
+app.MapFallback(() => Responses.InvalidRoute("The request path was not recognized.")).AllowAnonymous();
 
-root.MapHealthChecks("/healthcheck").AllowAnonymous().IsApiVersionNeutral();
-
-root.MapFallback(() => Responses.InvalidRoute("The request path was not recognized."));
+var api = app.ConfigureVersionedRouteGroup("/");
+api.MapDataPlane();
 
 app.Run();
