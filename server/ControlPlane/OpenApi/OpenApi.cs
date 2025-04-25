@@ -8,8 +8,8 @@ using Microsoft.Extensions.Options;
 using Microsoft.OpenApi.Any;
 using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.SwaggerGen;
-using Tyger.ControlPlane.Model;
 using Tyger.Common.Versioning;
+using Tyger.ControlPlane.Model;
 
 namespace Tyger.ControlPlane.OpenApi;
 
