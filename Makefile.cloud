@@ -1,13 +1,13 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-DEFAULT_ORG=lamna
+CURRENT_ORG=lamna
 ENVIRONMENT_CONFIG_JSON = $(shell scripts/get-config.sh -o json | jq -c)
 
 SECURITY_ENABLED=true
 HELM_NAMESPACE=lamna
 HELM_RELEASE=tyger
-TYGER_URI = https://$(shell echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.organizations[] | select(.name == "${DEFAULT_ORG}") | .api.domainName')
+TYGER_URI = https://$(shell echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.organizations[] | select(.name == "${CURRENT_ORG}") | .api.domainName')
 INSTALL_CLOUD=false
 AUTO_MIGRATE=false
 DOCKER_BUILD_ARCH_FLAGS = --arch amd64
@@ -70,7 +70,7 @@ set-localsettings: set-context
 		echo "Run 'make up' and 'make set-context' before this target"; exit 1
 	fi
 
-	org_json=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -c '.organizations[] | select(.name == "${DEFAULT_ORG}")')
+	org_json=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -c '.organizations[] | select(.name == "${CURRENT_ORG}")')
 
 
 	jq <<- EOF > ${CONTROL_PLANE_SERVER_PATH}/appsettings.local.json
@@ -226,3 +226,8 @@ get-server-logs:
 
 follow-server-logs:
 	kubectl logs deployments/tyger-server --all-pods --follow
+
+integration-test-no-up-fast-only-legacy-org:
+	export TYGER_CACHE_FILE="/home/vscode/.cache/tyger/.tyger-legacy-org"
+	$(MAKE) login CURRENT_ORG=legacy
+	$(MAKE) integration-test-no-up-fast-only

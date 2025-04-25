@@ -287,6 +287,12 @@ jobs:
       DO_NOT_BUILD_IMAGES: "true"
       EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}-amd64
       TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        command: [ 'integration-test-no-up', 'integration-test-no-up-fast-only-legacy-org' ]
+
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -304,7 +310,7 @@ jobs:
       - name: Deploy and test
         run: |
           set -euo pipefail
-          make -s integration-test-no-up
+          make -s ${{ matrix.command }}
 
   build-windows-binaries:
     runs-on: ubuntu-latest
