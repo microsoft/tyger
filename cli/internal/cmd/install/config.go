@@ -4,11 +4,12 @@
 package install
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"math"
 	"os"
 	"os/exec"
@@ -27,8 +28,11 @@ import (
 	"github.com/eiannone/keyboard"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/microsoft/tyger/cli/internal/dataplane"
+	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/microsoft/tyger/cli/internal/install/cloudinstall"
 	"github.com/microsoft/tyger/cli/internal/install/dockerinstall"
+	"github.com/rs/zerolog/log"
+	yaml "sigs.k8s.io/yaml/goyaml.v3"
 
 	"github.com/spf13/cobra"
 
@@ -65,8 +69,18 @@ func newConfigValidateCommand() *cobra.Command {
 		Short:                 "Validate a config file",
 		Long:                  "Validate a config file",
 		DisableFlagsInUseLine: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return validateConfig(inputPath)
+		Run: func(cmd *cobra.Command, args []string) {
+			c, err := parseConfigFromYamlFile(inputPath, nil, false)
+			if err == nil {
+				err = c.(install.Config).QuickValidateConfig(cmd.Context())
+			}
+
+			if err != nil {
+				if !errors.Is(err, install.ErrAlreadyLoggedError) {
+					log.Fatal().Err(err).Send()
+				}
+				os.Exit(1)
+			}
 		},
 	}
 
@@ -74,23 +88,6 @@ func newConfigValidateCommand() *cobra.Command {
 	cmd.MarkFlagRequired("file")
 
 	return cmd
-}
-
-func validateConfig(filePath string) error {
-	c, err := parseConfig(filePath, nil, false)
-	if err != nil {
-		return fmt.Errorf("failed to parse config: %w", err)
-	}
-
-	installer, err := getInstallerFromConfig(c)
-	if err != nil {
-		return fmt.Errorf("failed to get installer from config: %w", err)
-	}
-	if !installer.QuickValidateConfig() {
-		return errors.New("config validation failed")
-	}
-
-	return nil
 }
 
 func newConfigPrettyPrintCommand() *cobra.Command {
@@ -102,8 +99,31 @@ func newConfigPrettyPrintCommand() *cobra.Command {
 		Short:                 "Add documentation to a config file.",
 		Long:                  "Add documentation to a config file.",
 		DisableFlagsInUseLine: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return prettyPrintConfig(inputPath, outputPath)
+		Run: func(cmd *cobra.Command, args []string) {
+			inputFile, err := os.Open(inputPath)
+			if err != nil {
+				log.Fatal().AnErr("error", err).Msg("Failed to read config file")
+			}
+
+			defer inputFile.Close()
+
+			if err := os.MkdirAll(path.Dir(outputPath), 0775); err != nil {
+				log.Fatal().AnErr("error", err).Msg("Failed to create config directory")
+			}
+
+			outputFile, err := os.OpenFile(outputPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+			if err != nil {
+				log.Fatal().AnErr("error", err).Msg("Failed to open config file for writing")
+			}
+
+			defer outputFile.Close()
+
+			if err := prettyPrintConfig(cmd.Context(), inputFile, outputFile); err != nil {
+				if !errors.Is(err, install.ErrAlreadyLoggedError) {
+					log.Fatal().AnErr("error", err).Msg("Failed to pretty print config file")
+				}
+				os.Exit(1)
+			}
 		},
 	}
 
@@ -115,13 +135,18 @@ func newConfigPrettyPrintCommand() *cobra.Command {
 	return cmd
 }
 
-func prettyPrintConfig(inputPath, outputPath string) error {
-	c, err := parseConfig(inputPath, nil, false)
+func prettyPrintConfig(ctx context.Context, input io.Reader, output io.Writer) error {
+	inputBytes, err := io.ReadAll(input)
 	if err != nil {
 		return err
 	}
 
-	if err := validateConfig(inputPath); err != nil {
+	c, err := parseConfigFromYamlBytes(inputBytes, nil, false)
+	if err != nil {
+		return err
+	}
+
+	if err := c.(install.Config).QuickValidateConfig(ctx); err != nil {
 		return err
 	}
 
@@ -129,18 +154,13 @@ func prettyPrintConfig(inputPath, outputPath string) error {
 
 	switch config := c.(type) {
 	case *dockerinstall.DockerEnvironmentConfig:
-		contents, err := os.ReadFile(inputPath)
-		if err != nil {
-			return fmt.Errorf("failed to read config file: %w", err)
-		}
-
-		// no implementation for docker at the moment
-		outputContents = string(contents)
+		_, err := output.Write(inputBytes)
+		return err
 	case *cloudinstall.CloudEnvironmentConfig:
 		// parse the config again to clear the fields that are set during validation
-		c, err = parseConfig(inputPath, nil, false)
+		c, err = parseConfigFromYamlBytes(inputBytes, nil, false)
 		if err != nil {
-			return fmt.Errorf("failed to parse config: %w", err)
+			return err
 		}
 		config = c.(*cloudinstall.CloudEnvironmentConfig)
 
@@ -153,21 +173,20 @@ func prettyPrintConfig(inputPath, outputPath string) error {
 		panic(fmt.Sprintf("unexpected config type: %T", config))
 	}
 
-	if err := os.MkdirAll(path.Dir(outputPath), 0775); err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
-	}
-
-	f, err := os.OpenFile(outputPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to open config file for writing: %w", err)
-	}
-	defer f.Close()
-
-	if _, err := f.Write([]byte(outputContents)); err != nil {
+	if _, err := output.Write([]byte(outputContents)); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 
-	return validateConfig(outputPath)
+	parsedPrettyConfig, err := parseConfigFromYamlBytes([]byte(outputContents), nil, false)
+	if err != nil {
+		return fmt.Errorf("failed to parse config: %w", err)
+	}
+
+	if err := parsedPrettyConfig.(install.Config).QuickValidateConfig(ctx); err != nil {
+		return fmt.Errorf("validation failed on pretty printed config: %w", err)
+	}
+
+	return nil
 }
 
 func newConfigConvertCommand() *cobra.Command {
@@ -179,46 +198,15 @@ func newConfigConvertCommand() *cobra.Command {
 		Long:                  "Convert a config that was created for Tyger versions before v0.11.0.",
 		Short:                 "Convert a config that was created for Tyger versions before v0.11.0.",
 		DisableFlagsInUseLine: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			c, err := parseConfig(inputPath, nil, true)
+		Run: func(cmd *cobra.Command, args []string) {
+			err := convert(cmd.Context(), inputPath, outputPath)
 			if err != nil {
-				return fmt.Errorf("failed to read config file: %w", err)
-			}
-
-			configMap := c.(map[string]any)
-
-			if err := convert(configMap); err != nil {
-				return fmt.Errorf("failed to convert config file: %w", err)
-			}
-
-			serialzedJson, err := json.MarshalIndent(configMap, "", "  ")
-			if err != nil {
-				return fmt.Errorf("failed to serialize config file: %w", err)
-			}
-
-			func() error {
-				if err := os.MkdirAll(path.Dir(outputPath), 0775); err != nil {
-					return fmt.Errorf("failed to create config directory: %w", err)
+				if !errors.Is(err, install.ErrAlreadyLoggedError) {
+					log.Fatal().AnErr("error", err).Send()
 				}
 
-				f, err := os.OpenFile(outputPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-				if err != nil {
-					return fmt.Errorf("failed to open config file for writing: %w", err)
-				}
-				defer f.Close()
-
-				if _, err := f.Write(serialzedJson); err != nil {
-					return fmt.Errorf("failed to write config file: %w", err)
-				}
-
-				return nil
-			}()
-
-			if err := prettyPrintConfig(outputPath, outputPath); err != nil {
-				return fmt.Errorf("failed to pretty print config file: %w", err)
+				os.Exit(1)
 			}
-
-			return nil
 		},
 	}
 
@@ -230,7 +218,14 @@ func newConfigConvertCommand() *cobra.Command {
 	return cmd
 }
 
-func convert(document map[string]any) error {
+func convert(ctx context.Context, inputPath string, outputPath string) error {
+	c, err := parseConfigFromYamlFile(inputPath, nil, true)
+	if err != nil {
+		return fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	document := c.(map[string]any)
+
 	identities := safeGetAndRemove(document, "cloud.compute.identities")
 	storage := safeGetAndRemove(document, "cloud.storage")
 	api := safeGetAndRemove(document, "api")
@@ -250,6 +245,26 @@ func convert(document map[string]any) error {
 	}
 
 	document["organizations"] = []any{org}
+
+	buffer := bytes.Buffer{}
+	if err := yaml.NewEncoder(&buffer).Encode(document); err != nil {
+		return fmt.Errorf("failed to serialize config file: %w", err)
+	}
+
+	if err := os.MkdirAll(path.Dir(outputPath), 0775); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	outputFile, err := os.OpenFile(outputPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open config file for writing: %w", err)
+	}
+
+	defer outputFile.Close()
+
+	if err := prettyPrintConfig(ctx, &buffer, outputFile); err != nil {
+		return fmt.Errorf("failed to pretty print config file: %w", err)
+	}
 
 	return nil
 }

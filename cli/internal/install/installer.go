@@ -35,7 +35,7 @@ var (
 )
 
 type Installer interface {
-	QuickValidateConfig() bool
+	GetConfig() Config
 
 	ApplySingleOrgFilter(org string) error
 	ApplyMultiOrgFilter(orgs []string) error
@@ -48,6 +48,10 @@ type Installer interface {
 	ListDatabaseVersions(ctx context.Context, all bool) ([]DatabaseVersion, error)
 	ApplyMigrations(ctx context.Context, targetVersion int, latest bool, offline bool, wait bool) error
 	GetMigrationLogs(ctx context.Context, id int, destination io.Writer) error
+}
+
+type Config interface {
+	QuickValidateConfig(ctx context.Context) error
 }
 
 type DatabaseVersion struct {

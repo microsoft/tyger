@@ -34,7 +34,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/yaml"
 )
 
@@ -649,15 +648,6 @@ timeoutSeconds: 600`, BasicImage)
 
 	require.Empty(execStdOut)
 }
-
-func mustParseQuentity(s string) *resource.Quantity {
-	q, err := resource.ParseQuantity(s)
-	if err != nil {
-		panic(err)
-	}
-	return &q
-}
-
 func TestCreateCodespecsWithSpecFile(t *testing.T) {
 	t.Parallel()
 

@@ -5,6 +5,7 @@ package install
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -17,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/file"
+	"github.com/knadh/koanf/providers/rawbytes"
 	"github.com/knadh/koanf/v2"
 	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/microsoft/tyger/cli/internal/install/cloudinstall"
@@ -54,7 +56,7 @@ func commonPrerun(ctx context.Context, flags *commonFlags) (context.Context, ins
 		},
 	}
 
-	config, err := parseConfig(flags.configPath, flags.setOverrides, false)
+	config, err := parseConfigFromYamlFile(flags.configPath, flags.setOverrides, false)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to parse config file")
 	}
@@ -73,7 +75,10 @@ func commonPrerun(ctx context.Context, flags *commonFlags) (context.Context, ins
 		log.Ctx(ctx).Warn().Msg("Canceling...")
 	}()
 
-	if !installer.QuickValidateConfig() {
+	if err := installer.GetConfig().QuickValidateConfig(ctx); err != nil {
+		if !errors.Is(err, install.ErrAlreadyLoggedError) {
+			log.Fatal().Err(err).Send()
+		}
 		os.Exit(1)
 	}
 
@@ -113,15 +118,24 @@ func getInstallerFromConfig(config any) (install.Installer, error) {
 		return nil, fmt.Errorf("unexpected config type: %T", config)
 	}
 }
+func parseConfigFromYamlFile(filePath string, overrides map[string]string, toMap bool) (any, error) {
+	config, err := parseConfig(file.Provider(filePath), yaml.Parser(), overrides, toMap)
+	if os.IsNotExist(err) {
+		return nil, fmt.Errorf("config file not found at '%s': %w", filePath, err)
+	}
 
-func parseConfig(filePath string, overrides map[string]string, toMap bool) (any, error) {
+	return config, err
+}
+
+func parseConfigFromYamlBytes(yamlBytes []byte, overrides map[string]string, toMap bool) (any, error) {
+	return parseConfig(rawbytes.Provider(yamlBytes), yaml.Parser(), overrides, toMap)
+}
+
+func parseConfig(provider koanf.Provider, parser koanf.Parser, overrides map[string]string, toMap bool) (any, error) {
 	koanfConfig := koanf.New(".")
 
-	if err := koanfConfig.Load(file.Provider(filePath), yaml.Parser()); err != nil {
-		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("config file not found at %s: %w", filePath, err)
-		}
-		return nil, fmt.Errorf("error reading config file: %w", err)
+	if err := koanfConfig.Load(provider, parser); err != nil {
+		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
 
 	for k, v := range overrides {
@@ -147,7 +161,7 @@ func parseConfig(filePath string, overrides map[string]string, toMap bool) (any,
 		}
 	}
 
-	err := koanfConfig.UnmarshalWithConf("", &config, koanf.UnmarshalConf{
+	unmarshalConf := koanf.UnmarshalConf{
 		Tag: "json",
 		DecoderConfig: &mapstructure.DecoderConfig{
 			WeaklyTypedInput: true,
@@ -155,9 +169,18 @@ func parseConfig(filePath string, overrides map[string]string, toMap bool) (any,
 			Squash:           true,
 			Result:           &config,
 		},
-	})
+	}
+
+	err := koanfConfig.UnmarshalWithConf("", &config, unmarshalConf)
 
 	if err != nil {
+		if _, ok := config.(*cloudinstall.CloudEnvironmentConfig); ok {
+			// see if this is because of the old config format
+			if koanfConfig.Get("api") != nil && koanfConfig.Get("cloud.storage") != nil && koanfConfig.Get("organizations") == nil {
+				return nil, fmt.Errorf("the config file is in an old format. Please convert it to the new format using the command `tyger config convert`: %w", err)
+			}
+		}
+
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 

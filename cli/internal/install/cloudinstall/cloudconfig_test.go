@@ -5,9 +5,11 @@ package cloudinstall
 
 import (
 	"bytes"
+	"context"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
 )
@@ -26,16 +28,23 @@ func TestRenderConfig(t *testing.T) {
 		},
 		BufferStorageAccountName: "acc1",
 		LogsStorageAccountName:   "acc2",
-		DomainName:               "dom.ain",
+		DomainName:               "me.westus.cloudapp.azure.com",
 		ApiTenantId:              "tenant2",
+		DatabaseServerName:       "dbserver",
 	}
 
 	var buf bytes.Buffer
 
 	require.NoError(t, RenderConfig(values, &buf))
 
-	config := CloudEnvironmentConfig{}
+	config := &CloudEnvironmentConfig{}
+
 	require.NoError(t, yaml.UnmarshalStrict(buf.Bytes(), &config))
+
+	errorBuf := bytes.Buffer{}
+	ctx := zerolog.New(&errorBuf).WithContext(context.Background())
+
+	require.NoError(t, config.QuickValidateConfig(ctx), errorBuf.String())
 
 	require.Equal(t, values.EnvironmentName, config.EnvironmentName)
 	require.Equal(t, values.ResourceGroup, config.Cloud.ResourceGroup)

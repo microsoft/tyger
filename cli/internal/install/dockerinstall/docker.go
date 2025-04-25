@@ -76,6 +76,10 @@ type Installer struct {
 	hostPathTranslations map[string]string
 }
 
+func (inst *Installer) GetConfig() install.Config {
+	return inst.Config
+}
+
 func NewInstaller(config *DockerEnvironmentConfig) (*Installer, error) {
 	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {

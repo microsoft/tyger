@@ -66,7 +66,7 @@ func TestCloudMigrations(t *testing.T) {
 		Credential: cred,
 	}
 
-	assert.True(t, installer.QuickValidateConfig())
+	assert.NoError(t, installer.Config.QuickValidateConfig(ctx))
 
 	// this is a dry run to get the Helm values
 	_, helmValuesYaml, err := installer.InstallTygerHelmChart(ctx, installer.Config.GetSingleOrg(), true)

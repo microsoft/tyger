@@ -20,7 +20,6 @@ import (
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/install/cloudinstall"
-	"github.com/microsoft/tyger/cli/internal/install/dockerinstall"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
 )
@@ -206,12 +205,6 @@ func getCloudConfig(t *testing.T) *cloudinstall.CloudEnvironmentConfig {
 	config := cloudinstall.CloudEnvironmentConfig{}
 	require.NoError(t, yaml.UnmarshalStrict([]byte(runCommandSucceeds(t, "../../scripts/get-config.sh")), &config))
 	return &config
-}
-
-func getDockerConfig(t *testing.T) dockerinstall.DockerEnvironmentConfig {
-	config := dockerinstall.DockerEnvironmentConfig{}
-	require.NoError(t, yaml.UnmarshalStrict([]byte(runCommandSucceeds(t, "../../scripts/get-config.sh", "--docker")), &config))
-	return config
 }
 
 func getDevConfig(t *testing.T) map[string]any {
