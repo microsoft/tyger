@@ -225,10 +225,17 @@ func convert(ctx context.Context, inputPath string, outputPath string) error {
 	}
 
 	document := c.(map[string]any)
+	if document["organizations"] != nil {
+		return fmt.Errorf("the given config file appears to already be in the new format")
+	}
 
 	identities := safeGetAndRemove(document, "cloud.compute.identities")
 	storage := safeGetAndRemove(document, "cloud.storage")
 	api := safeGetAndRemove(document, "api")
+
+	if storage == nil || api == nil {
+		return fmt.Errorf("the given config file appears not to be have been valid")
+	}
 
 	if apiMap, ok := api.(map[string]any); ok {
 		apiMap["tlsCertificateProvider"] = string(cloudinstall.TlsCertificateProviderLetsEncrypt)

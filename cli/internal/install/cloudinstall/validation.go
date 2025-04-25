@@ -56,6 +56,11 @@ func (envConfig *CloudEnvironmentConfig) QuickValidateConfig(ctx context.Context
 				hasCompatibilityMode = true
 			}
 
+			if org.Api == nil {
+				validationError(ctx, &success, "The `api` field is required for organization '%s'", org.Name)
+				continue
+			}
+
 			if strings.HasSuffix(org.Api.DomainName, BuiltInDomainNameSuffix) {
 				if hasBuiltInDomain {
 					validationError(ctx, &success, "Only one organization can have a built-in domain name")
