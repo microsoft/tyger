@@ -59,7 +59,6 @@ cloud:
 
   database:
     location: ${TYGER_DATABASE_LOCATION}
-    serverName: jostairstyger
     firewallRules: ${TYGER_ENVIRONMENT_FIREWALL_RULES}
 
 api:
