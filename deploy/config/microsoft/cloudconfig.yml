@@ -61,6 +61,8 @@ cloud:
   database:
     serverName: ${TYGER_ENVIRONMENT_NAME}-tyger
     location: ${TYGER_DATABASE_LOCATION}
+    computeTier: GeneralPurpose
+    vmSize: Standard_D2s_v3
     firewallRules: ${TYGER_ENVIRONMENT_FIREWALL_RULES}
     postgresMajorVersion: 16
 

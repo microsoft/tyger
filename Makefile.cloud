@@ -228,6 +228,7 @@ follow-server-logs:
 	kubectl logs deployments/tyger-server --all-pods --follow
 
 integration-test-no-up-fast-only-legacy-org:
-	export TYGER_CACHE_FILE="/home/vscode/.cache/tyger/.tyger-legacy-org"
+	export TYGER_CACHE_FILE="$${HOME}/.cache/tyger/.tyger-legacy-org"
+	mkdir -p $$(dirname "$${TYGER_CACHE_FILE}")
 	$(MAKE) login CURRENT_ORG=legacy
 	$(MAKE) integration-test-no-up-fast-only
