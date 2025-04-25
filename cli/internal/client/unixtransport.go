@@ -15,7 +15,7 @@ import (
 
 // support for using HTTP over unix sockets
 
-const UnixTransportHostPrefix = "--unix--"
+const UnixTransportHostPrefix = "unix----"
 
 var (
 	errNotSocketHost = errors.New("not a socket path host")

@@ -6,7 +6,9 @@ using Tyger.Common.Configuration;
 using Tyger.Common.Logging;
 using Tyger.Common.Middleware;
 using Tyger.Common.Unix;
+using Tyger.Common.Versioning;
 using Tyger.DataPlane;
+using Tyger.DataPlane.Versioning;
 
 var builder = WebApplication.CreateBuilder();
 
@@ -14,6 +16,7 @@ builder.AddConfigurationSources();
 builder.ConfigureLogging();
 builder.Services.AddEndpointsApiExplorer();
 builder.AddDataPlane();
+builder.AddApiVersioning();
 builder.ConfigureUnixDomainSockets();
 
 var app = builder.Build();
@@ -22,11 +25,13 @@ var app = builder.Build();
 app.UseRequestLogging();
 app.UseRequestId();
 app.UseBaggage();
+app.UseApiV1BackwardCompatibility();
 
-app.MapDataPlane();
+var root = app.ConfigureVersionedRouteGroup("/");
+root.MapDataPlane();
 
-app.MapHealthChecks("/healthcheck").AllowAnonymous();
+root.MapHealthChecks("/healthcheck").AllowAnonymous().IsApiVersionNeutral();
 
-app.MapFallback(() => Responses.InvalidRoute("The request path was not recognized."));
+root.MapFallback(() => Responses.InvalidRoute("The request path was not recognized."));
 
 app.Run();

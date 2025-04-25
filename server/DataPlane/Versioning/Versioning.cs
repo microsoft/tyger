@@ -4,7 +4,7 @@
 using Asp.Versioning;
 using Tyger.Common.Versioning;
 
-namespace Tyger.ControlPlane.Versioning;
+namespace Tyger.DataPlane.Versioning;
 
 public static class ApiVersioning
 {

@@ -855,8 +855,6 @@
       "tyger-server": {
         "type": "Project",
         "dependencies": {
-          "Asp.Versioning.Http": "[8.1.0, )",
-          "Asp.Versioning.Mvc.ApiExplorer": "[8.1.0, )",
           "Azure.Identity": "[1.13.1, )",
           "Azure.Storage.Blobs": "[12.23.0, )",
           "BitFaster.Caching": "[2.5.3, )",
@@ -885,6 +883,8 @@
       "tyger.common": {
         "type": "Project",
         "dependencies": {
+          "Asp.Versioning.Http": "[8.1.0, )",
+          "Asp.Versioning.Mvc.ApiExplorer": "[8.1.0, )",
           "dunet": "[1.11.2, )"
         }
       }

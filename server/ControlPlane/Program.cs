@@ -8,6 +8,7 @@ using Tyger.Common.Configuration;
 using Tyger.Common.Logging;
 using Tyger.Common.Middleware;
 using Tyger.Common.Unix;
+using Tyger.Common.Versioning;
 using Tyger.ControlPlane.Auth;
 using Tyger.ControlPlane.Buffers;
 using Tyger.ControlPlane.Codespecs;

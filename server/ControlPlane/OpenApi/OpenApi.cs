@@ -9,7 +9,7 @@ using Microsoft.OpenApi.Any;
 using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.SwaggerGen;
 using Tyger.ControlPlane.Model;
-using Tyger.ControlPlane.Versioning;
+using Tyger.Common.Versioning;
 
 namespace Tyger.ControlPlane.OpenApi;
 
@@ -117,7 +117,7 @@ internal sealed class ApiVersionParameterFilter : IOperationFilter
             return;
         }
 
-        var versionParam = operation.Parameters.FirstOrDefault(p => p.Name.Equals(ApiVersions.QueryParameterKey, StringComparison.OrdinalIgnoreCase));
+        var versionParam = operation.Parameters.FirstOrDefault(p => p.Name.Equals(ApiVersioning.QueryParameterKey, StringComparison.OrdinalIgnoreCase));
         if (versionParam != null)
         {
             operation.Parameters.Remove(versionParam);

@@ -90,7 +90,7 @@ public class DockerEphemeralBufferProvider : IEphemeralBufferProvider
     public QueryString GetSasQueryString(string bufferId, bool writeable)
     {
         var action = writeable ? SasAction.Create | SasAction.Read : SasAction.Read;
-        var queryString = LocalSasHandler.GetSasQueryString(bufferId, SasResourceType.Blob, action, _signData);
+        var queryString = LocalSasHandler.GetSasQueryString(bufferId, SasResourceType.Blob, action, _signData, "1.0");
         queryString = queryString.Add("relay", "true");
         return queryString;
     }

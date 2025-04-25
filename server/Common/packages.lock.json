@@ -2,11 +2,50 @@
   "version": 1,
   "dependencies": {
     "net9.0": {
+      "Asp.Versioning.Http": {
+        "type": "Direct",
+        "requested": "[8.1.0, )",
+        "resolved": "8.1.0",
+        "contentHash": "Xu4xF62Cu9JqYi/CTa2TiK5kyHoa4EluPynj/bPFWDmlTIPzuJQbBI5RgFYVRFHjFVvWMoA77acRaFu7i7Wzqg==",
+        "dependencies": {
+          "Asp.Versioning.Abstractions": "8.1.0"
+        }
+      },
+      "Asp.Versioning.Mvc.ApiExplorer": {
+        "type": "Direct",
+        "requested": "[8.1.0, )",
+        "resolved": "8.1.0",
+        "contentHash": "a90gW/4TF/14Bjiwg9LqNtdKGC4G3gu02+uynq3bCISfQm48km5chny4Yg5J4hixQPJUwwJJ9Do1G+jM8L9h3g==",
+        "dependencies": {
+          "Asp.Versioning.Mvc": "8.1.0"
+        }
+      },
       "Dunet": {
         "type": "Direct",
         "requested": "[1.11.2, )",
         "resolved": "1.11.2",
         "contentHash": "T6dfqSJ9+gSqnopeuBv6gtnpHlC0lru6XK3NtQQ9fTeDQQa1ynuI8AmDfEcpQu/rWFYJTbu8ZYR5ED8IScVK7A=="
+      },
+      "Asp.Versioning.Abstractions": {
+        "type": "Transitive",
+        "resolved": "8.1.0",
+        "contentHash": "mpeNZyMdvrHztJwR1sXIUQ+3iioEU97YMBnFA9WLbsPOYhGwDJnqJMmEd8ny7kcmS9OjTHoEuX/bSXXY3brIFA==",
+        "dependencies": {
+          "Microsoft.Extensions.Primitives": "8.0.0"
+        }
+      },
+      "Asp.Versioning.Mvc": {
+        "type": "Transitive",
+        "resolved": "8.1.0",
+        "contentHash": "BMAJM2sGsTUw5FQ9upKQt6GFoldWksePgGpYjl56WSRvIuE3UxKZh0gAL+wDTIfLshUZm97VCVxlOGyrcjWz9Q==",
+        "dependencies": {
+          "Asp.Versioning.Http": "8.1.0"
+        }
+      },
+      "Microsoft.Extensions.Primitives": {
+        "type": "Transitive",
+        "resolved": "8.0.0",
+        "contentHash": "bXJEZrW9ny8vjMF1JV253WeLhpEVzFo1lyaZu1vQ4ZxWUlVvknZ/+ftFgVheLubb4eZPSwwxBeqS1JkCOjxd8g=="
       }
     }
   }

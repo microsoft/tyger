@@ -20,7 +20,7 @@ public static class ServiceMetadata
                 {
                     var capabilities = contributor.Aggregate(Capabilities.None, (acc, c) => acc | c.GetCapabilities());
                     var capabilityStrings = Enum.GetValues<Capabilities>().Where(c => c != Capabilities.None && capabilities.HasFlag(c)).Select(c => c.ToString()).ToList();
-                    var apiVersionsSupported = ApiVersions.SupportedVersions().Select(v => v.ToString()).ToList();
+                    var apiVersionsSupported = ApiVersioning.SupportedVersions().Select(v => v.ToString()).ToList();
 
                     serviceMetadata = new Model.ServiceMetadata
                     {
