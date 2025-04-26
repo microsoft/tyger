@@ -15,6 +15,8 @@ import (
 
 // support for using HTTP over unix sockets
 
+const UnixTransportHostPrefix = "unix----"
+
 var (
 	errNotSocketHost = errors.New("not a socket path host")
 	encoding         = base32.StdEncoding.WithPadding(base32.NoPadding)
@@ -89,12 +91,12 @@ func (t *unixAwareTransport) GetUnderlyingTransport() *http.Transport {
 var _ HttpTransportExposer = &unixAwareTransport{}
 
 func encodeUnixPathToHost(socketPath string) string {
-	return fmt.Sprintf("!unix!%s", encoding.EncodeToString([]byte(socketPath)))
+	return fmt.Sprintf("%s%s", UnixTransportHostPrefix, encoding.EncodeToString([]byte(socketPath)))
 }
 
 func decodeUnixPathFromHost(host string) (string, error) {
-	if strings.HasPrefix(host, "!unix!") {
-		if res, err := encoding.DecodeString(host[6:]); err == nil {
+	if strings.HasPrefix(host, UnixTransportHostPrefix) {
+		if res, err := encoding.DecodeString(host[len(UnixTransportHostPrefix):]); err == nil {
 			return string(res), nil
 		}
 	}

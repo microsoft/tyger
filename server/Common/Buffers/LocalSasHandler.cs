@@ -4,6 +4,7 @@
 using System.Globalization;
 using System.Text;
 using Microsoft.AspNetCore.Http.Extensions;
+using Tyger.Common.Versioning;
 
 namespace Tyger.Common.Buffers;
 
@@ -12,7 +13,7 @@ public static class LocalSasHandler
     private const string CurrentSasVersion = "0.1.0";
     public const string SasTimeFormat = "yyyy-MM-ddTHH:mm:ssZ";
 
-    public static QueryString GetSasQueryString(string containerId, SasResourceType resource, SasAction action, SignDataFunc signData)
+    public static QueryString GetSasQueryString(string containerId, SasResourceType resource, SasAction action, SignDataFunc signData, string apiVersion)
     {
         var startTime = DateTimeOffset.UtcNow;
         var endTime = startTime.AddHours(1);
@@ -39,6 +40,7 @@ public static class LocalSasHandler
         var signature = Convert.ToBase64String(signData(Encoding.UTF8.GetBytes(stringToSign)));
 
         var queryBuilder = new QueryBuilder {
+            { ApiVersioning.QueryParameterKey, apiVersion },
             { "sv", CurrentSasVersion },
             { "sp", permissions },
             { "st", FormatTimeForSasSigning(startTime) },

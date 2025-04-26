@@ -41,8 +41,9 @@ func NewStdioProxyCommand() *cobra.Command {
 			tokens := strings.Split(req.URL.Path, ":")
 			socketPath := tokens[0]
 
-			req.Host = ""
-			req.URL.Host = ""
+			// We use placeholder Host values to ensure the Host header is non-empty
+			req.Host = "tyger-server"
+			req.URL.Host = "tyger-server"
 			req.URL.Path = tokens[1]
 			req.Header.Add("Connection", "Close")
 
@@ -118,7 +119,7 @@ func newStdioProxyLoginCommand() *cobra.Command {
 				return err
 			}
 
-			resp, err := c.Get(parsedServerUrl.JoinPath("v1/metadata").String())
+			resp, err := c.Get(parsedServerUrl.JoinPath("metadata").String())
 			if err != nil {
 				return err
 			}

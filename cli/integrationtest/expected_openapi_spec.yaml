@@ -1,9 +1,9 @@
 openapi: 3.0.1
 info:
-  title: tyger-server
+  title: Tyger Server
   version: '1.0'
 paths:
-  /v1/buffers:
+  /buffers:
     post:
       tags:
         - tyger-server
@@ -74,7 +74,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
-  /v1/buffers/restore:
+  /buffers/restore:
     post:
       tags:
         - tyger-server
@@ -87,7 +87,7 @@ paths:
               schema:
                 type: integer
                 format: int32
-  /v1/buffers/count:
+  /buffers/count:
     get:
       tags:
         - tyger-server
@@ -100,7 +100,7 @@ paths:
               schema:
                 type: integer
                 format: int32
-  '/v1/buffers/{id}':
+  '/buffers/{id}':
     get:
       tags:
         - tyger-server
@@ -118,6 +118,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Buffer'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
         '404':
           description: Not Found
           content:
@@ -200,7 +206,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
-  '/v1/buffers/{id}/restore':
+  '/buffers/{id}/restore':
     post:
       tags:
         - tyger-server
@@ -231,7 +237,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
-  '/v1/buffers/{id}/access':
+  '/buffers/{id}/access':
     post:
       tags:
         - tyger-server
@@ -267,7 +273,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
-  /v1/buffers/storage-accounts:
+  /buffers/storage-accounts:
     get:
       tags:
         - tyger-server
@@ -281,7 +287,7 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/StorageAccount'
-  /v1/buffers/export:
+  /buffers/export:
     post:
       tags:
         - tyger-server
@@ -299,7 +305,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Run'
-  /v1/buffers/import:
+  /buffers/import:
     post:
       tags:
         - tyger-server
@@ -317,7 +323,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Run'
-  '/v1/codespecs/{name}':
+  '/codespecs/{name}':
     put:
       tags:
         - tyger-server
@@ -380,7 +386,7 @@ paths:
                   - $ref: '#/components/schemas/JobCodespec'
                   - $ref: '#/components/schemas/WorkerCodespec'
                 additionalProperties: false
-  /v1/codespecs:
+  /codespecs:
     get:
       tags:
         - tyger-server
@@ -405,7 +411,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CodespecPage'
-  '/v1/codespecs/{name}/versions/{version}':
+  '/codespecs/{name}/versions/{version}':
     get:
       tags:
         - tyger-server
@@ -430,7 +436,7 @@ paths:
                   - $ref: '#/components/schemas/JobCodespec'
                   - $ref: '#/components/schemas/WorkerCodespec'
                 additionalProperties: false
-  /v1/runs:
+  /runs:
     post:
       tags:
         - tyger-server
@@ -492,7 +498,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RunPage'
-  /v1/runs/counts:
+  /runs/counts:
     get:
       tags:
         - tyger-server
@@ -537,7 +543,7 @@ paths:
                     type: integer
                     format: int64
                 additionalProperties: false
-  '/v1/runs/{runId}':
+  '/runs/{runId}':
     get:
       tags:
         - tyger-server
@@ -599,7 +605,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
-  '/v1/runs/{runId}/logs':
+  '/runs/{runId}/logs':
     get:
       tags:
         - tyger-server
@@ -636,7 +642,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
-  '/v1/runs/{runId}/cancel':
+  '/runs/{runId}/cancel':
     post:
       tags:
         - tyger-server
@@ -659,7 +665,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
-  /v1/metadata:
+  /metadata:
     get:
       tags:
         - tyger-server
@@ -670,7 +676,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ServiceMetadata'
-  /v1/database-version-in-use:
+  /database-version-in-use:
     get:
       tags:
         - tyger-server
@@ -867,6 +873,11 @@ components:
           type: string
         message:
           type: string
+        apiVersions:
+          type: array
+          items:
+            type: string
+          nullable: true
       additionalProperties: false
     ExportBuffersRequest:
       type: object
@@ -1072,6 +1083,11 @@ components:
           type: string
           nullable: true
         capabilities:
+          type: array
+          items:
+            type: string
+          nullable: true
+        apiVersions:
           type: array
           items:
             type: string

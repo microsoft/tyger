@@ -192,11 +192,11 @@ func TestStatusAfterFinalization(t *testing.T) {
 	require.Equal("Hello: Bonjour", output)
 
 	// force logs to be archived
-	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPost, "v1/runs/_sweep", nil, nil)
+	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPost, "/runs/_sweep", nil, nil, nil)
 	require.Nil(err)
 
 	// force finalization
-	_, err = controlplane.InvokeRequest(context.Background(), http.MethodPost, "v1/runs/_sweep", nil, nil)
+	_, err = controlplane.InvokeRequest(context.Background(), http.MethodPost, "/runs/_sweep", nil, nil, nil)
 	require.Nil(err)
 
 	// get run
@@ -750,7 +750,7 @@ func TestInvalidCodespecNames(t *testing.T) {
 			}
 
 			newCodespec := model.Codespec{Kind: "worker", Image: BasicImage}
-			_, err = controlplane.InvokeRequest(context.Background(), http.MethodPut, fmt.Sprintf("v1/codespecs/%s", tC.name), newCodespec, nil)
+			_, err = controlplane.InvokeRequest(context.Background(), http.MethodPut, fmt.Sprintf("/codespecs/%s", tC.name), nil, newCodespec, nil)
 			if tC.valid {
 				require.Nil(t, err)
 			} else {
@@ -932,11 +932,11 @@ func TestUnrecognizedFieldsRejected(t *testing.T) {
 
 	codespec := model.Codespec{}
 	requestBody := map[string]string{"kind": "job", "image": "x"}
-	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
+	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPut, "/codespecs/tcs", nil, requestBody, &codespec)
 	require.Nil(err)
 
 	requestBody["unknownField"] = "y"
-	_, err = controlplane.InvokeRequest(context.Background(), http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
+	_, err = controlplane.InvokeRequest(context.Background(), http.MethodPut, "/codespecs/tcs", nil, requestBody, &codespec)
 	require.NotNil(err)
 }
 
@@ -946,11 +946,11 @@ func TestInvalidCodespecDiscriminatorRejected(t *testing.T) {
 
 	codespec := model.Codespec{}
 	requestBody := map[string]string{"image": "x"}
-	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
+	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPut, "/codespecs/tcs", nil, requestBody, &codespec)
 	require.ErrorContains(err, "Missing discriminator property 'kind'")
 
 	requestBody["kind"] = "missing"
-	_, err = controlplane.InvokeRequest(context.Background(), http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
+	_, err = controlplane.InvokeRequest(context.Background(), http.MethodPut, "/codespecs/tcs", nil, requestBody, &codespec)
 	require.ErrorContains(err, "Invalid value for the property 'kind'. It can be either 'job' or 'worker'")
 }
 
@@ -960,7 +960,7 @@ func TestInvalidCodespecMissingRequiredFieldsRejected(t *testing.T) {
 
 	codespec := model.Codespec{}
 	requestBody := map[string]string{"kind": "job"}
-	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPut, "v1/codespecs/tcs", requestBody, &codespec)
+	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPut, "/codespecs/tcs", nil, requestBody, &codespec)
 	require.ErrorContains(err, "missing required properties including: 'image'")
 }
 
@@ -977,7 +977,8 @@ func TestOpenApiSpecIsAsExpected(t *testing.T) {
 	client, err := controlplane.GetClientFromCache()
 	require.NoError(t, err)
 
-	swaggerUri := fmt.Sprintf("%s/swagger/v1/swagger.yaml", client.ControlPlaneUrl)
+	swaggerUri := fmt.Sprintf("%s/swagger/v1.0/swagger.yaml", client.ControlPlaneUrl)
+	t.Logf("swaggerUri: %s", swaggerUri)
 	resp, err := client.ControlPlaneClient.Get(swaggerUri)
 	require.Nil(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -1046,9 +1047,9 @@ func TestListRunsPaging(t *testing.T) {
 		runs[runTygerSucceeds(t, "run", "create", "--codespec", "exitimmediately", "--timeout", "10m")] = ""
 	}
 
-	for uri := "v1/runs?limit=5"; uri != ""; {
+	for uri := "/runs?limit=5"; uri != ""; {
 		page := model.Page[model.Run]{}
-		_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, uri, nil, &page)
+		_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, uri, nil, nil, &page)
 		require.Nil(t, err)
 		for _, r := range page.Items {
 			delete(runs, fmt.Sprint(r.Id))
@@ -1137,9 +1138,9 @@ func TestListCodespecsPaging(t *testing.T) {
 	}
 	require.Equal(t, len(codespecs), 10)
 
-	for uri := fmt.Sprintf("v1/codespecs?limit=5&prefix=%s", prefix); uri != ""; {
+	for uri := fmt.Sprintf("/codespecs?limit=5&prefix=%s", prefix); uri != ""; {
 		page := model.Page[model.Codespec]{}
-		_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, uri, nil, &page)
+		_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, uri, nil, nil, &page)
 		require.Nil(t, err)
 		for _, cs := range page.Items {
 			if _, ok := codespecs[*cs.Name]; ok {
@@ -1312,9 +1313,9 @@ func TestListCodespecsWithPrefix(t *testing.T) {
 		codespecMap[codespecNames[i]] = runTygerSucceeds(t, "codespec", "create", codespecNames[i], "--image", BasicImage)
 	}
 
-	uri := "v1/codespecs?prefix=3d_"
+	uri := "/codespecs?prefix=3d_"
 	page := model.Page[model.Codespec]{}
-	_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, uri, nil, &page)
+	_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, uri, nil, nil, &page)
 	require.Nil(t, err)
 	for _, cs := range page.Items {
 		require.Equal(t, strings.HasPrefix(*cs.Name, "3d_"), true)
@@ -1346,7 +1347,7 @@ func TestGetLogsFromPod(t *testing.T) {
 	waitForRunStarted(t, runId)
 
 	// block until we get the first line
-	resp, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, fmt.Sprintf("v1/runs/%s/logs?follow=true", runId), nil, nil, controlplane.WithLeaveResponseOpen())
+	resp, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, fmt.Sprintf("/runs/%s/logs?follow=true", runId), nil, nil, nil, controlplane.WithLeaveResponseOpen())
 	require.Nil(t, err)
 	defer resp.Body.Close()
 	reader := bufio.NewReader(resp.Body)
@@ -1398,7 +1399,7 @@ func TestGetArchivedLogs(t *testing.T) {
 	waitForRunSuccess(t, runId)
 
 	// force logs to be archived
-	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPost, "v1/runs/_sweep", nil, nil)
+	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPost, "/runs/_sweep", nil, nil, nil)
 	require.Nil(t, err)
 
 	logs = runTygerSucceeds(t, "run", "logs", runId)
@@ -1453,7 +1454,7 @@ func TestGetArchivedLogsWithLongLines(t *testing.T) {
 	require.Equal(t, expectedLogs, logs)
 
 	// force logs to be archived
-	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPost, "v1/runs/_sweep", nil, nil)
+	_, err := controlplane.InvokeRequest(context.Background(), http.MethodPost, "/runs/_sweep", nil, nil, nil)
 	require.Nil(t, err)
 
 	logs = runTygerSucceeds(t, "run", "logs", runId)
@@ -1498,7 +1499,7 @@ func TestAuthenticationRequired(t *testing.T) {
 
 	client, err := controlplane.GetClientFromCache()
 	require.NoError(t, err)
-	resp, err := client.ControlPlaneClient.Get(fmt.Sprintf("%s/v1/runs/abc", client.ControlPlaneUrl))
+	resp, err := client.ControlPlaneClient.Get(fmt.Sprintf("%s/runs/abc", client.ControlPlaneUrl))
 	require.Nil(t, err)
 	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
@@ -2402,6 +2403,111 @@ func TestServerLogs(t *testing.T) {
 	lines := strings.Split(logs, "\n")
 	require.Equal(t, 1, len(lines))
 	require.Contains(t, lines[0], `"timestamp"`)
+}
+
+func TestServerApiVersioningErrors(t *testing.T) {
+	t.Parallel()
+
+	bufferId := runTygerSucceeds(t, "buffer", "create")
+
+	errorInfo := &model.ErrorInfo{}
+
+	resp, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, fmt.Sprintf("/buffers/%s?api-version=0.1", bufferId), nil, nil, nil)
+	require.Error(t, err)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	require.Contains(t, err.Error(), "Unsupported API version")
+	require.ErrorAs(t, err, &errorInfo)
+	require.Contains(t, errorInfo.ApiVersions, "1.0")
+
+	resp, err = controlplane.InvokeRequest(context.Background(), http.MethodGet, fmt.Sprintf("/buffers/%s?api-version=", bufferId), nil, nil, nil)
+	require.Error(t, err)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	require.Contains(t, err.Error(), "Unspecified API version")
+	require.ErrorAs(t, err, &errorInfo)
+	require.Contains(t, errorInfo.ApiVersions, "1.0")
+
+	badApiVersionCtx := controlplane.SetApiVersionOnContext(context.Background(), "0.1")
+	resp, err = controlplane.InvokeRequest(badApiVersionCtx, http.MethodGet, fmt.Sprintf("/buffers/%s", bufferId), nil, nil, nil)
+	require.Error(t, err)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	require.Contains(t, err.Error(), "Unsupported API version")
+	require.ErrorAs(t, err, &errorInfo)
+	require.Contains(t, errorInfo.ApiVersions, "1.0")
+
+	missingApiVersionCtx := controlplane.SetApiVersionOnContext(context.Background(), "")
+	resp, err = controlplane.InvokeRequest(missingApiVersionCtx, http.MethodGet, fmt.Sprintf("/buffers/%s", bufferId), nil, nil, nil)
+	require.Error(t, err)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	require.Contains(t, err.Error(), "Unspecified API version")
+	require.ErrorAs(t, err, &errorInfo)
+	require.Contains(t, errorInfo.ApiVersions, "1.0")
+
+	// Anonymous endpoints, like /metadata, should ignore API version
+	var anonymousEndpoints = []string{
+		"/metadata",
+		"/healthcheck",
+	}
+	for _, endpoint := range anonymousEndpoints {
+		resp, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, fmt.Sprintf("%s?api-version=0.1", endpoint), nil, nil, nil)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+
+		resp, err = controlplane.InvokeRequest(context.Background(), http.MethodGet, fmt.Sprintf("%s?api-version=", endpoint), nil, nil, nil)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+	}
+}
+
+func TestServerApiV1BackwardCompatibility(t *testing.T) {
+	t.Parallel()
+
+	metadata := model.ServiceMetadata{}
+	_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, "v1/metadata", nil, nil, &metadata)
+	require.NoError(t, err)
+
+	buffer := model.Buffer{}
+	newBuffer := model.Buffer{}
+	_, err = controlplane.InvokeRequest(context.Background(), http.MethodPost, "/v1/buffers", nil, buffer, &newBuffer)
+	require.NoError(t, err)
+
+	_, err = controlplane.InvokeRequest(context.Background(), http.MethodGet, fmt.Sprintf("v1/buffers/%s", newBuffer.Id), nil, nil, &buffer)
+	require.NoError(t, err)
+	require.Equal(t, newBuffer.Id, buffer.Id)
+
+	count := 0
+	for uri := "/v1/codespecs?limit=5"; uri != ""; {
+		page := model.Page[model.Codespec]{}
+		_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, uri, nil, nil, &page)
+		require.Nil(t, err)
+		count += len(page.Items)
+		if page.NextLink == "" || count > 50 {
+			break
+		}
+		uri = page.NextLink
+	}
+
+	_, err = controlplane.InvokeRequest(context.Background(), http.MethodPost, "v1/runs/_sweep", nil, nil, nil)
+	require.Nil(t, err)
+
+	count = 0
+	for uri := "/v1/runs?limit=5"; uri != ""; {
+		page := model.Page[model.Run]{}
+		_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, uri, nil, nil, &page)
+		require.Nil(t, err)
+		count += len(page.Items)
+		if page.NextLink == "" || count > 50 {
+			break
+		}
+		uri = page.NextLink
+	}
+}
+
+func TestServiceMetadataContainsApiVersions(t *testing.T) {
+	t.Parallel()
+
+	metadata := getServiceMetadata(t)
+	require.NotEmpty(t, metadata.ApiVersions)
+	require.Contains(t, metadata.ApiVersions, "1.0")
 }
 
 func waitForRunStarted(t *testing.T, runId string) model.Run {

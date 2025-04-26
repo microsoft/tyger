@@ -191,7 +191,7 @@ public static class Database
 
     public static void MapDatabaseVersionInUse(this WebApplication app)
     {
-        app.MapGet("/v1/database-version-in-use", (DatabaseVersions versions, IOptions<KubernetesApiOptions> kubernetesOptions, HttpContext context) =>
+        app.MapGet("/database-version-in-use", (DatabaseVersions versions, IOptions<KubernetesApiOptions> kubernetesOptions, HttpContext context) =>
         {
             if (!string.IsNullOrEmpty(kubernetesOptions.Value.CurrentPodUid))
             {
@@ -221,8 +221,8 @@ public static class Database
 
             return Results.Ok(new DatabaseVersionInUse((int)versions.CachedCurrentVersion));
         })
-        .AllowAnonymous()
-        .Produces<DatabaseVersionInUse>();
+        .Produces<DatabaseVersionInUse>()
+        .AllowAnonymous();
     }
 }
 

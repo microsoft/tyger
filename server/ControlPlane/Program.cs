@@ -8,6 +8,7 @@ using Tyger.Common.Configuration;
 using Tyger.Common.Logging;
 using Tyger.Common.Middleware;
 using Tyger.Common.Unix;
+using Tyger.Common.Versioning;
 using Tyger.ControlPlane.Auth;
 using Tyger.ControlPlane.Buffers;
 using Tyger.ControlPlane.Codespecs;
@@ -20,6 +21,7 @@ using Tyger.ControlPlane.Middleware;
 using Tyger.ControlPlane.OpenApi;
 using Tyger.ControlPlane.Runs;
 using Tyger.ControlPlane.ServiceMetadata;
+using Tyger.ControlPlane.Versioning;
 
 var rootCommand = new RootCommand("Tyger Server");
 rootCommand.SetHandler(RunServer);
@@ -39,6 +41,7 @@ void AddCommonServices(IHostApplicationBuilder builder)
     builder.AddDatabase();
     builder.AddCompute();
     builder.AddBuffers();
+    builder.ConfigureExceptionHandling();
     builder.ConfigureLogging();
     builder.AddManagedIdentity();
     builder.AddJsonFormatting();
@@ -53,6 +56,7 @@ void RunServer()
     builder.AddLogArchive();
     builder.AddAuth();
     builder.AddRuns();
+    builder.AddApiVersioning();
     builder.AddOpenApi();
     builder.ConfigureUnixDomainSockets();
 
@@ -63,19 +67,20 @@ void RunServer()
     app.UseRequestId();
     app.UseBaggage();
     app.UseExceptionHandling();
-
-    app.UseOpenApi();
+    app.UseApiV1BackwardCompatibility();
     app.UseAuth();
-
-    app.MapBuffers();
-    app.MapCodespecs();
-    app.MapRuns();
 
     app.MapServiceMetadata();
     app.MapDatabaseVersionInUse();
     app.MapHealthChecks("/healthcheck").AllowAnonymous();
+    app.MapSwagger().AllowAnonymous();
+    app.MapFallback(() => Responses.InvalidRoute("The request path was not recognized.")).AllowAnonymous();
 
-    app.MapFallback(() => Responses.InvalidRoute("The request path was not recognized."));
+    var api = app.ConfigureVersionedRouteGroup("/");
+    api.MapBuffers();
+    api.MapCodespecs();
+    api.MapRuns();
 
+    app.UseOpenApi();
     app.Run();
 }

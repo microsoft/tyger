@@ -16,10 +16,10 @@ public static class DataPlane
         builder.Services.AddHealthChecks().AddCheck<DataPlaneStorageHandler>("DataPlaneStorageHandler");
     }
 
-    public static void MapDataPlane(this WebApplication app)
+    public static void MapDataPlane(this RouteGroupBuilder root)
     {
-        app.MapMethods(
-            "v1/containers/{containerId}",
+        root.MapMethods(
+            "containers/{containerId}",
             [HttpMethods.Head],
             (
                 [FromServices] DataPlaneStorageHandler handler,
@@ -29,8 +29,8 @@ public static class DataPlane
                 handler.HandleHeadContainer(containerId, context);
             });
 
-        app.MapPut(
-            "v1/containers/{containerId}",
+        root.MapPut(
+            "containers/{containerId}",
             (
                 [FromServices] DataPlaneStorageHandler handler,
                 string containerId,
@@ -39,8 +39,8 @@ public static class DataPlane
                 handler.HandlePutContainer(containerId, context);
             });
 
-        app.MapDelete(
-            "v1/containers/{containerId}",
+        root.MapDelete(
+            "containers/{containerId}",
             (
                 [FromServices] DataPlaneStorageHandler handler,
                 string containerId,
@@ -49,8 +49,8 @@ public static class DataPlane
                 handler.HandleDeleteContainer(containerId, context);
             });
 
-        app.MapPut(
-            "v1/containers/{containerId}/{**blobRelativePath}",
+        root.MapPut(
+            "containers/{containerId}/{**blobRelativePath}",
             async (
                 [FromServices] DataPlaneStorageHandler handler,
                 string containerId,
@@ -61,8 +61,8 @@ public static class DataPlane
                 await handler.HandlePutBlob(containerId, blobRelativePath, context, cancellationToken);
             });
 
-        app.MapMethods(
-            "v1/containers/{containerId}/{**blobRelativePath}",
+        root.MapMethods(
+            "containers/{containerId}/{**blobRelativePath}",
             [HttpMethods.Get, HttpMethods.Head],
             async (
                 [FromServices] DataPlaneStorageHandler handler,

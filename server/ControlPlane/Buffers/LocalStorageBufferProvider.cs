@@ -112,8 +112,8 @@ public sealed class LocalStorageBufferProvider : IBufferProvider, IHostedService
 
     public async Task<bool> BufferExists(string id, CancellationToken cancellationToken)
     {
-        var queryString = LocalSasHandler.GetSasQueryString(id, SasResourceType.Container, SasAction.Read, _signData);
-        var req = new HttpRequestMessage(HttpMethod.Head, $"v1/containers/{id}{queryString}");
+        var queryString = LocalSasHandler.GetSasQueryString(id, SasResourceType.Container, SasAction.Read, _signData, "1.0");
+        var req = new HttpRequestMessage(HttpMethod.Head, $"containers/{id}{queryString}");
         var resp = await _dataPlaneClient.SendAsync(req, cancellationToken);
 
         return (int)resp.StatusCode switch
@@ -140,8 +140,8 @@ public sealed class LocalStorageBufferProvider : IBufferProvider, IHostedService
 
         buffer = buffer with { Location = AccountLocation };
 
-        var queryString = LocalSasHandler.GetSasQueryString(buffer.Id, SasResourceType.Container, SasAction.Create, _signData);
-        var resp = await _dataPlaneClient.PutAsync($"v1/containers/{buffer.Id}{queryString}", null, cancellationToken);
+        var queryString = LocalSasHandler.GetSasQueryString(buffer.Id, SasResourceType.Container, SasAction.Create, _signData, "1.0");
+        var resp = await _dataPlaneClient.PutAsync($"containers/{buffer.Id}{queryString}", null, cancellationToken);
         resp.EnsureSuccessStatusCode();
         return await _repository.CreateBuffer(buffer, _storageAccountId, cancellationToken);
     }
@@ -153,8 +153,8 @@ public sealed class LocalStorageBufferProvider : IBufferProvider, IHostedService
         {
             try
             {
-                var queryString = LocalSasHandler.GetSasQueryString(id, SasResourceType.Container, SasAction.Delete, _signData);
-                var resp = await _dataPlaneClient.DeleteAsync($"v1/containers/{id}{queryString}", cancellationToken);
+                var queryString = LocalSasHandler.GetSasQueryString(id, SasResourceType.Container, SasAction.Delete, _signData, "1.0");
+                var resp = await _dataPlaneClient.DeleteAsync($"containers/{id}{queryString}", cancellationToken);
                 resp.EnsureSuccessStatusCode();
 
                 deletedIds.Add(id);
@@ -180,8 +180,8 @@ public sealed class LocalStorageBufferProvider : IBufferProvider, IHostedService
             }
 
             var action = writeable ? SasAction.Create | SasAction.Read : SasAction.Read;
-            var queryString = LocalSasHandler.GetSasQueryString(id, SasResourceType.Blob, action, _signData);
-            responses.Add((id, writeable, new BufferAccess(new Uri(preferTcp ? _baseTcpUrl : _baseUrl, $"v1/containers/{id}{queryString}"))));
+            var queryString = LocalSasHandler.GetSasQueryString(id, SasResourceType.Blob, action, _signData, "1.0");
+            responses.Add((id, writeable, new BufferAccess(new Uri(preferTcp ? _baseTcpUrl : _baseUrl, $"containers/{id}{queryString}"))));
         }
 
         return responses;
@@ -219,8 +219,8 @@ public sealed class LocalStorageBufferProvider : IBufferProvider, IHostedService
 
     public async Task TryMarkBufferAsFailed(string id, CancellationToken cancellationToken)
     {
-        var queryString = LocalSasHandler.GetSasQueryString(id, SasResourceType.Blob, SasAction.Create, _signData);
-        var request = new HttpRequestMessage(HttpMethod.Put, $"v1/containers/{id}/{BufferMetadata.EndMetadataBlobName}{queryString}")
+        var queryString = LocalSasHandler.GetSasQueryString(id, SasResourceType.Blob, SasAction.Create, _signData, "1.0");
+        var request = new HttpRequestMessage(HttpMethod.Put, $"containers/{id}/{BufferMetadata.EndMetadataBlobName}{queryString}")
         {
             Content = new ByteArrayContent(BufferMetadata.FailedEndMetadataContent)
         };

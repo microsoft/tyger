@@ -699,7 +699,7 @@ func readCachedServiceInfo() (*serviceInfo, error) {
 func getServiceMetadata(ctx context.Context, serverUri string) (*model.ServiceMetadata, error) {
 	// Not using a retryable client because when doing `tyger login --local` we first try to use the unix socket
 	// before trying the docker gateway and we don't want to wait for retries.
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/v1/metadata", serverUri), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/metadata", serverUri), nil)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create request: %w", err)
 	}
@@ -710,7 +710,21 @@ func getServiceMetadata(ctx context.Context, serverUri string) (*model.ServiceMe
 	}
 	serviceMetadata := &model.ServiceMetadata{}
 	if err := json.NewDecoder(resp.Body).Decode(serviceMetadata); err != nil {
-		return nil, errors.New("the server URL does not appear to point to a valid tyger server")
+		// Check if the server is older than the client (uses the old `/v1/` path)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/v1/metadata", serverUri), nil)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create request: %w", err)
+		}
+
+		resp, err := client.DefaultClient.HTTPClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		serviceMetadata := &model.ServiceMetadata{}
+		if err := json.NewDecoder(resp.Body).Decode(serviceMetadata); err != nil {
+			return nil, errors.New("the server URL does not appear to point to a valid tyger server")
+		}
+		return nil, errors.New("the server hosts an older version of tyger that is not compatibile with this client")
 	}
 
 	return serviceMetadata, nil
