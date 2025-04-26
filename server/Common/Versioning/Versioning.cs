@@ -120,7 +120,7 @@ public partial class ProblemDetailsErrorBodyWriter : IProblemDetailsWriter
         return false;
     }
 
-    public ValueTask WriteAsync(ProblemDetailsContext context)
+    public async ValueTask WriteAsync(ProblemDetailsContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
 
@@ -132,6 +132,6 @@ public partial class ProblemDetailsErrorBodyWriter : IProblemDetailsWriter
 
         var obj = new ErrorBody(errorCode, errorMessage, _supportedApiVersions);
 
-        return new ValueTask(Results.Json(obj, statusCode: response.StatusCode).ExecuteAsync(context.HttpContext));
+        await Results.Json(obj, statusCode: response.StatusCode).ExecuteAsync(context.HttpContext);
     }
 }
