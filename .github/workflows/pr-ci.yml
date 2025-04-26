@@ -277,6 +277,7 @@ jobs:
           make -s ensure-environment
 
   integration-tests:
+    name: integration-tests (${{ matrix.label }})
     needs:
       - test-azure-needs-hosted-runner
       - get-config
@@ -291,7 +292,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        command: [ 'integration-test-no-up', 'integration-test-no-up-fast-only-legacy-org' ]
+        include:
+          - command: integration-test-no-up
+            label: default org
+          - command: integration-test-no-up-fast-only-legacy-org
+            label: legacy org
 
     steps:
       - name: Checkout
