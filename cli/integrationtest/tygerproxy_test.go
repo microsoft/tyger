@@ -133,22 +133,24 @@ timeoutSeconds: 600`, BasicImage)
 		return nil
 	}
 
+	apiVersion := fmt.Sprintf("%s=%s", controlplane.ApiVersionQueryParam, controlplane.DefaultApiVersion)
+
 	require.NotNil(
 		findEntry(
 			"method", "GET",
-			"url", fmt.Sprintf("/v1/runs/%s", runId)),
+			"url", fmt.Sprintf("/runs/%s?%s", runId, apiVersion)),
 		"Could not find run show in logs")
 
 	require.NotNil(
 		findEntry(
 			"method", "POST",
-			"url", fmt.Sprintf("/v1/buffers/%s/access?writeable=true", inputBufferId)),
+			"url", fmt.Sprintf("/buffers/%s/access?%s&writeable=true", inputBufferId, apiVersion)),
 		"Could not find input buffer access in logs")
 
 	require.NotNil(
 		findEntry(
 			"method", "POST",
-			"url", fmt.Sprintf("/v1/buffers/%s/access?writeable=false", outputBufferId)),
+			"url", fmt.Sprintf("/buffers/%s/access?%s&writeable=false", outputBufferId, apiVersion)),
 		"Could not find output buffer access in logs")
 
 	require.NotNil(
@@ -159,7 +161,7 @@ timeoutSeconds: 600`, BasicImage)
 	require.NotNil(
 		findEntry(
 			"method", "GET",
-			"url", fmt.Sprintf("/v1/runs/%s/logs", runId)),
+			"url", fmt.Sprintf("/runs/%s/logs?%s", runId, apiVersion)),
 		"Could not find run logs request in logs")
 }
 
@@ -182,7 +184,7 @@ func TestProxiedRequestsFromAllowedCIDR(t *testing.T) {
 	require.NoError(err)
 	closeProxy, err := tygerproxy.RunProxy(context.Background(), tygerClient, &proxyOptions, logger)
 	defer closeProxy()
-	resp, err := tygerClient.ControlPlaneClient.Get(fmt.Sprintf("http://localhost:%d/v1/metadata", proxyOptions.Port))
+	resp, err := tygerClient.ControlPlaneClient.Get(fmt.Sprintf("http://localhost:%d/metadata", proxyOptions.Port))
 	require.NoError(err)
 	require.Equal(http.StatusOK, resp.StatusCode)
 }
@@ -206,12 +208,12 @@ func TestProxiedRequestsFromDisallowedAllowedCIDR(t *testing.T) {
 
 	closeProxy, err := tygerproxy.RunProxy(context.Background(), tygerClient, &proxyOptions, logger)
 	defer closeProxy()
-	resp, err := tygerClient.ControlPlaneClient.Get(fmt.Sprintf("http://localhost:%d/v1/runs/1", proxyOptions.Port))
+	resp, err := tygerClient.ControlPlaneClient.Get(fmt.Sprintf("http://localhost:%d/runs/1", proxyOptions.Port))
 	require.NoError(err)
 	require.Equal(http.StatusForbidden, resp.StatusCode)
 
 	// The metadata endpoint should still be accessible from the loopback address
-	resp, err = tygerClient.ControlPlaneClient.Get(fmt.Sprintf("http://localhost:%d/v1/metadata", proxyOptions.Port))
+	resp, err = tygerClient.ControlPlaneClient.Get(fmt.Sprintf("http://localhost:%d/metadata", proxyOptions.Port))
 	require.NoError(err)
 	require.Equal(http.StatusOK, resp.StatusCode)
 }

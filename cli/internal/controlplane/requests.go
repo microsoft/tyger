@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -43,7 +44,7 @@ func WithLeaveResponseOpen() InvokeRequestOptionFunc {
 	}
 }
 
-func InvokeRequest(ctx context.Context, method string, relativeUri string, input interface{}, output interface{}, options ...InvokeRequestOptionFunc) (*http.Response, error) {
+func InvokeRequest(ctx context.Context, method string, relativeUri string, queryParams url.Values, input interface{}, output interface{}, options ...InvokeRequestOptionFunc) (*http.Response, error) {
 	var opts *InvokeRequestOptions
 	if len(options) > 0 {
 		opts = &InvokeRequestOptions{}
@@ -62,7 +63,31 @@ func InvokeRequest(ctx context.Context, method string, relativeUri string, input
 		return nil, fmt.Errorf("run `tyger login` to login to a server: %v", err)
 	}
 
-	absoluteUri := fmt.Sprintf("%s/%s", tygerClient.ControlPlaneUrl, relativeUri)
+	if queryParams == nil {
+		queryParams = url.Values{}
+	}
+
+	if strings.Contains(relativeUri, "?") {
+		url, err := url.Parse(relativeUri)
+		if err != nil {
+			return nil, err
+		}
+		relativeUri = url.Path
+		for key, values := range url.Query() {
+			for _, value := range values {
+				queryParams.Add(key, value)
+			}
+		}
+	}
+
+	if _, exists := queryParams[ApiVersionQueryParam]; !exists {
+		apiVersion := GetApiVersionFromContext(ctx)
+		queryParams.Add(ApiVersionQueryParam, apiVersion)
+	}
+
+	absoluteUri := tygerClient.ControlPlaneUrl.JoinPath(relativeUri)
+	absoluteUri.RawQuery = queryParams.Encode()
+
 	var body io.Reader = nil
 	var serializedBody []byte
 	if input != nil {
@@ -73,7 +98,7 @@ func InvokeRequest(ctx context.Context, method string, relativeUri string, input
 		body = bytes.NewBuffer(serializedBody)
 	}
 
-	req, err := retryablehttp.NewRequestWithContext(ctx, method, absoluteUri, body)
+	req, err := retryablehttp.NewRequestWithContext(ctx, method, absoluteUri.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +145,7 @@ func InvokeRequest(ctx context.Context, method string, relativeUri string, input
 		defer resp.Body.Close()
 		errorResponse := model.ErrorResponse{}
 		if err = json.NewDecoder(resp.Body).Decode(&errorResponse); err == nil {
-			return resp, fmt.Errorf("%s: %s", errorResponse.Error.Code, errorResponse.Error.Message)
+			return resp, &errorResponse.Error
 		}
 
 		return resp, fmt.Errorf("unexpected status code %s", resp.Status)
@@ -143,14 +168,14 @@ func InvokeRequest(ctx context.Context, method string, relativeUri string, input
 	return resp, nil
 }
 
-func InvokePageRequests[T any](ctx context.Context, uri string, limit int, warnIfTruncated bool) error {
+func InvokePageRequests[T any](ctx context.Context, uri string, queryParams url.Values, limit int, warnIfTruncated bool) error {
 	firstPage := true
 	totalPrinted := 0
 	truncated := false
 
 	for uri != "" {
 		page := model.Page[T]{}
-		_, err := InvokeRequest(ctx, http.MethodGet, uri, nil, &page)
+		_, err := InvokeRequest(ctx, http.MethodGet, uri, queryParams, nil, &page)
 		if err != nil {
 			return err
 		}
@@ -200,7 +225,7 @@ End:
 	return nil
 }
 
-func SetFieldsOnEntity(ctx context.Context, relativeUrlPath string, etag string, clearTags bool, tags map[string]string, expiresAt *time.Time, reponseObject any) error {
+func SetFieldsOnEntity(ctx context.Context, relativeUrlPath string, queryParams url.Values, etag string, clearTags bool, tags map[string]string, expiresAt *time.Time, reponseObject any) error {
 	type Resource struct {
 		ETag      string            `json:"eTag"`
 		Tags      map[string]string `json:"tags"`
@@ -216,7 +241,7 @@ func SetFieldsOnEntity(ctx context.Context, relativeUrlPath string, etag string,
 		if clearTags {
 			newTagEntries = tags
 		} else {
-			_, err := InvokeRequest(ctx, http.MethodGet, relativeUrlPath, nil, &resource)
+			_, err := InvokeRequest(ctx, http.MethodGet, relativeUrlPath, queryParams, nil, &resource)
 			if err != nil {
 				return err
 			}
@@ -247,7 +272,7 @@ func SetFieldsOnEntity(ctx context.Context, relativeUrlPath string, etag string,
 			headers.Set("If-Match", requestEtag)
 		}
 
-		resp, err := InvokeRequest(ctx, http.MethodPut, relativeUrlPath, resource, &reponseObject, WithHeaders(headers))
+		resp, err := InvokeRequest(ctx, http.MethodPut, relativeUrlPath, queryParams, resource, &reponseObject, WithHeaders(headers))
 
 		if err != nil {
 			return err

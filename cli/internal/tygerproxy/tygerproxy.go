@@ -67,7 +67,7 @@ func RunProxy(ctx context.Context, tygerClient *client.TygerClient, options *Pro
 
 	// tyger API group
 	r.Group(func(r chi.Router) {
-		r.Route("/v1", func(r chi.Router) {
+		r.Route("/", func(r chi.Router) {
 			r.Route("/runs/{runId}", func(r chi.Router) {
 				r.Get("/", handler.forwardControlPlaneRequest)
 				r.Get("/logs", handler.forwardControlPlaneRequest)
@@ -145,7 +145,7 @@ func CheckProxyAlreadyRunning(options *ProxyOptions) (*ProxyServiceMetadata, err
 func GetExistingProxyMetadata(options *ProxyOptions) *ProxyServiceMetadata {
 	// note: not using retryablehttp here because we are hitting localhost
 	// and we want to fail quickly
-	resp, err := cleanhttp.DefaultClient().Get(fmt.Sprintf("http://localhost:%d/v1/metadata", options.Port))
+	resp, err := cleanhttp.DefaultClient().Get(fmt.Sprintf("http://localhost:%d/metadata", options.Port))
 	if err == nil && resp.StatusCode == http.StatusOK {
 		metadata := ProxyServiceMetadata{}
 		err = json.NewDecoder(resp.Body).Decode(&metadata)
@@ -274,7 +274,7 @@ func createIpFilteringMidleware(options *ProxyOptions) func(http.Handler) http.H
 			if !allowed {
 				// The metadata endpoint is allowed to be called from a loopback address
 				// because `tyger-proxy start` relies on being able to call it
-				if ip.IsLoopback() && r.URL.Path == "/v1/metadata" {
+				if ip.IsLoopback() && r.URL.Path == "/metadata" {
 					allowed = true
 				}
 			}

@@ -18,6 +18,7 @@ type ServiceMetadata struct {
 	CliAppUri      string   `json:"cliAppUri,omitempty"`
 	DataPlaneProxy string   `json:"dataPlaneProxy,omitempty"`
 	Capabilities   []string `json:"capabilities,omitempty"`
+	ApiVersions    []string `json:"apiVersions,omitempty"`
 }
 
 type Buffer struct {
@@ -231,8 +232,13 @@ type ErrorResponse struct {
 }
 
 type ErrorInfo struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	Code        string   `json:"code"`
+	Message     string   `json:"message"`
+	ApiVersions []string `json:"apiVersions,omitempty"`
+}
+
+func (e *ErrorInfo) Error() string {
+	return fmt.Sprintf("%s: %s", e.Code, e.Message)
 }
 
 type NodePool struct {

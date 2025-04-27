@@ -216,7 +216,7 @@ func getDevConfig(t *testing.T) map[string]any {
 func getServiceMetadata(t *testing.T) model.ServiceMetadata {
 	t.Helper()
 	metadata := model.ServiceMetadata{}
-	_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, "v1/metadata", nil, &metadata)
+	_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, "/metadata", nil, nil, &metadata)
 	require.NoError(t, err)
 	return metadata
 }

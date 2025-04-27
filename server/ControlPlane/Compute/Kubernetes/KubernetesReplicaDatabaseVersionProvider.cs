@@ -43,7 +43,7 @@ public class KubernetesReplicaDatabaseVersionProvider : IReplicaDatabaseVersionP
 
                 foreach (var address in ep.Addresses)
                 {
-                    var uri = new Uri($"http://{address}:{port.Port}/v1/database-version-in-use");
+                    var uri = new Uri($"http://{address}:{port.Port}/database-version-in-use");
 
                     var message = new HttpRequestMessage(HttpMethod.Get, uri)
                     {
