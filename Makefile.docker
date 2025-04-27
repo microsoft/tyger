@@ -57,6 +57,7 @@ set-localsettings: ensure-data-plane-cert
 				"username": "tyger-server",
 				"databaseName": "tyger-server",
 				"autoMigrate": "true",
+				"ownersRoleName": "tyger-owners",
 				"tygerServerRoleName": "tyger-server"
 			}
 		}

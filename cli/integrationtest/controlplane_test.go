@@ -34,7 +34,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/yaml"
 )
 
@@ -649,15 +648,6 @@ timeoutSeconds: 600`, BasicImage)
 
 	require.Empty(execStdOut)
 }
-
-func mustParseQuentity(s string) *resource.Quantity {
-	q, err := resource.ParseQuantity(s)
-	if err != nil {
-		panic(err)
-	}
-	return &q
-}
-
 func TestCreateCodespecsWithSpecFile(t *testing.T) {
 	t.Parallel()
 
@@ -2399,7 +2389,7 @@ func TestServerLogs(t *testing.T) {
 		dockerParam = "--docker"
 	}
 
-	logs := runCommandSucceeds(t, "bash", "-c", fmt.Sprintf("tyger api logs --tail 1 -f <(../../scripts/get-config.sh %s)", dockerParam))
+	logs := runCommandSucceeds(t, "bash", "-c", fmt.Sprintf("tyger api logs --tail 1 -f <(../../scripts/get-config.sh %s) --org lamna", dockerParam))
 	lines := strings.Split(logs, "\n")
 	require.Equal(t, 1, len(lines))
 	require.Contains(t, lines[0], `"timestamp"`)

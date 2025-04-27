@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -29,6 +30,7 @@ import (
 	"helm.sh/helm/v3/pkg/storage/driver"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
@@ -38,17 +40,36 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *install.Promise[*rest.Config]) (any, error) {
+const (
+	TraefikNamespace = "traefik"
+)
+
+func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *install.Promise[*rest.Config], keyVaultClientManagedIdentityPromise *install.Promise[*armmsi.Identity]) (any, error) {
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
 		return nil, install.ErrDependencyFailed
 	}
 
-	log.Info().Msg("Installing Traefik")
+	log.Ctx(ctx).Info().Msg("Installing Traefik")
+
+	clientset := kubernetes.NewForConfigOrDie(restConfig)
+	if err := inst.ensureTraefikDynamicConfigMap(ctx, clientset); err != nil {
+		return nil, fmt.Errorf("failed to ensure Traefik dynamic ConfigMap: %w", err)
+	}
+
+	serviceAccountAnnotations := map[string]string{}
+	if keyVaultClientManagedIdentityPromise != nil {
+		kvClientIdentity, err := keyVaultClientManagedIdentityPromise.Await()
+		if err != nil {
+			return nil, install.ErrDependencyFailed
+		}
+
+		serviceAccountAnnotations["azure.workload.identity/client-id"] = *kvClientIdentity.Properties.ClientID
+	}
 
 	traefikConfig := HelmChartConfig{
 		RepoName:    "traefik",
-		Namespace:   "traefik",
+		Namespace:   TraefikNamespace,
 		ReleaseName: "traefik",
 		RepoUrl:     "https://helm.traefik.io/traefik",
 		ChartRef:    "traefik/traefik",
@@ -70,14 +91,47 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 			},
 			"service": map[string]any{
 				"annotations": map[string]any{
-					"service.beta.kubernetes.io/azure-dns-label-name": strings.Split(inst.Config.Api.DomainName, ".")[0],
+					"service.beta.kubernetes.io/azure-dns-label-name": inst.Config.Cloud.Compute.DnsLabel,
 				},
+			},
+			"serviceAccountAnnotations": serviceAccountAnnotations,
+			"volumes": []any{
+				map[string]any{
+					"name":      "traefik-dynamic",
+					"mountPath": "/config",
+					"type":      "configMap",
+				},
+			},
+			"deployment": map[string]any{
+				"additionalVolumes": []any{
+					map[string]any{
+						"name": "kv-certs",
+						"csi": map[string]any{
+							"driver":   "secrets-store.csi.k8s.io",
+							"readOnly": true,
+							"volumeAttributes": map[string]any{
+								"secretProviderClass": inst.Config.Cloud.TlsCertificate.CertificateName,
+							},
+						},
+					},
+				},
+			},
+			"additionalVolumeMounts": []any{
+				map[string]any{
+					"name":      "kv-certs",
+					"mountPath": "/certs",
+					"readOnly":  true,
+				},
+			},
+			"additionalArguments": []string{
+				"--entryPoints.websecure.http.tls=true",
+				"--providers.file.filename=/config/dynamic.toml",
 			},
 		}}
 
 	var overrides *HelmChartConfig
-	if inst.Config.Api.Helm != nil && inst.Config.Api.Helm.Traefik != nil {
-		overrides = inst.Config.Api.Helm.Traefik
+	if inst.Config.Cloud.Compute.Helm != nil && inst.Config.Cloud.Compute.Helm.Traefik != nil {
+		overrides = inst.Config.Cloud.Compute.Helm.Traefik
 	}
 
 	startTime := time.Now().Add(-10 * time.Second)
@@ -97,7 +151,7 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 
 		for _, event := range events.Items {
 			if event.Type == corev1.EventTypeWarning && event.LastTimestamp.After(startTime) {
-				log.Warn().Str("Reason", event.Reason).Msg(event.Message)
+				log.Ctx(ctx).Warn().Str("Reason", event.Reason).Msg(event.Message)
 			}
 		}
 
@@ -107,13 +161,66 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 	return nil, nil
 }
 
+func (inst *Installer) ensureTraefikDynamicConfigMap(ctx context.Context, clientset *kubernetes.Clientset) error {
+	configMapName := "traefik-dynamic"
+	namespace := TraefikNamespace
+
+	desiredData := map[string]string{
+		"dynamic.toml": `
+# Dynamic configuration
+[[tls.certificates]]
+certFile = "/certs/tls.crt"
+keyFile = "/certs/tls.key"
+`,
+	}
+
+	// Check if the ConfigMap already exists
+	existingConfigMap, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, configMapName, metav1.GetOptions{})
+	if err == nil {
+		// ConfigMap exists, check if the data matches
+		if reflect.DeepEqual(existingConfigMap.Data, desiredData) {
+			// No update needed
+			return nil
+		}
+
+		// Update the ConfigMap if the data is different
+		existingConfigMap.Data = desiredData
+		_, err = clientset.CoreV1().ConfigMaps(namespace).Update(ctx, existingConfigMap, metav1.UpdateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to update ConfigMap: %w", err)
+		}
+		return nil
+	}
+
+	if !apierrors.IsNotFound(err) {
+		// Return any error other than "not found"
+		return fmt.Errorf("failed to get ConfigMap: %w", err)
+	}
+
+	// ConfigMap does not exist, create it
+	newConfigMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      configMapName,
+			Namespace: namespace,
+		},
+		Data: desiredData,
+	}
+
+	_, err = clientset.CoreV1().ConfigMaps(namespace).Create(ctx, newConfigMap, metav1.CreateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to create ConfigMap: %w", err)
+	}
+
+	return nil
+}
+
 func (inst *Installer) installCertManager(ctx context.Context, restConfigPromise *install.Promise[*rest.Config]) (any, error) {
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
 		return nil, install.ErrDependencyFailed
 	}
 
-	log.Info().Msg("Installing cert-manager")
+	log.Ctx(ctx).Info().Msg("Installing cert-manager")
 
 	certManagerConfig := HelmChartConfig{
 		Namespace:   "cert-manager",
@@ -128,8 +235,8 @@ func (inst *Installer) installCertManager(ctx context.Context, restConfigPromise
 	}
 
 	var overrides *HelmChartConfig
-	if inst.Config.Api.Helm != nil && inst.Config.Api.Helm.CertManager != nil {
-		overrides = inst.Config.Api.Helm.CertManager
+	if inst.Config.Cloud.Compute.Helm != nil && inst.Config.Cloud.Compute.Helm.CertManager != nil {
+		overrides = inst.Config.Cloud.Compute.Helm.CertManager
 	}
 
 	if _, _, err := installHelmChart(ctx, restConfig, &certManagerConfig, overrides, false); err != nil {
@@ -145,7 +252,7 @@ func (inst *Installer) installNvidiaDevicePlugin(ctx context.Context, restConfig
 		return nil, install.ErrDependencyFailed
 	}
 
-	log.Info().Msg("Installing nvidia-device-plugin")
+	log.Ctx(ctx).Info().Msg("Installing nvidia-device-plugin")
 
 	nvdpConfig := HelmChartConfig{
 		Namespace:   "nvidia-device-plugin",
@@ -187,8 +294,8 @@ func (inst *Installer) installNvidiaDevicePlugin(ctx context.Context, restConfig
 	}
 
 	var overrides *HelmChartConfig
-	if inst.Config.Api.Helm != nil && inst.Config.Api.Helm.NvidiaDevicePlugin != nil {
-		overrides = inst.Config.Api.Helm.NvidiaDevicePlugin
+	if inst.Config.Cloud.Compute.Helm != nil && inst.Config.Cloud.Compute.Helm.NvidiaDevicePlugin != nil {
+		overrides = inst.Config.Cloud.Compute.Helm.NvidiaDevicePlugin
 	}
 
 	if _, _, err := installHelmChart(ctx, restConfig, &nvdpConfig, overrides, false); err != nil {
@@ -209,133 +316,135 @@ func (inst *Installer) InstallTyger(ctx context.Context) error {
 		return fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
-	revision, err := inst.GetTygerInstallationRevision(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get Tyger installation revision: %w", err)
-	}
-
-	logsCtx, cancel := context.WithCancel(ctx)
-	logsMapChan := make(chan map[string][]byte, 1)
-	go func() {
-		results, err := followPodsLogsUntilContextCanceled(logsCtx, clientset, TygerNamespace, fmt.Sprintf("tyger-helm-revision=%d", revision+1))
+	return inst.Config.ForEachOrgInParallel(ctx, func(ctx context.Context, org *OrganizationConfig) error {
+		revision, err := inst.GetTygerInstallationRevision(ctx, org)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to follow Tyger server logs")
+			return fmt.Errorf("failed to get Tyger installation revision: %w", err)
 		}
-		logsMapChan <- results
-	}()
-	_, _, err = inst.InstallTygerHelmChart(ctx, false)
-	cancel()
-	logsMap := <-logsMapChan
-	if err != nil {
-		for _, logs := range logsMap {
-			parsedLogLines, err := install.ParseJsonLogs(logs)
-			if err != nil {
-				continue
-			}
 
-			for _, parsedLogLine := range parsedLogLines {
-				if category, ok := parsedLogLine["category"].(string); ok {
-					if category == "Tyger.ControlPlane.Database.Migrations.DatabaseVersions[DatabaseMigrationRequired]" {
-						if message, ok := parsedLogLine["message"].(string); ok {
-							log.Error().Msg(message)
-						}
-						if args, ok := parsedLogLine["args"].(map[string]any); ok {
-							if version, ok := args["requiredVersion"].(float64); ok {
-								log.Error().Msgf("Run `tyger api uninstall -f <CONFIG_PATH>` followed by `tyger api migrations apply --target-version %d --offline --wait -f <CONFIG_PATH>` followed by `tyger api install -f <CONFIG_PATH>` ", int(version))
-								return install.ErrAlreadyLoggedError
+		logsCtx, cancel := context.WithCancel(ctx)
+		logsMapChan := make(chan map[string][]byte, 1)
+		go func() {
+			results, err := followPodsLogsUntilContextCanceled(logsCtx, clientset, org.Cloud.KubernetesNamespace, fmt.Sprintf("tyger-helm-revision=%d", revision+1))
+			if err != nil {
+				log.Ctx(ctx).Error().Err(err).Msg("Failed to follow Tyger server logs")
+			}
+			logsMapChan <- results
+		}()
+		_, _, err = inst.InstallTygerHelmChart(ctx, org, false)
+		cancel()
+		logsMap := <-logsMapChan
+		if err != nil {
+			for _, logs := range logsMap {
+				parsedLogLines, err := install.ParseJsonLogs(logs)
+				if err != nil {
+					continue
+				}
+
+				for _, parsedLogLine := range parsedLogLines {
+					if category, ok := parsedLogLine["category"].(string); ok {
+						if category == "Tyger.ControlPlane.Database.Migrations.DatabaseVersions[DatabaseMigrationRequired]" {
+							if message, ok := parsedLogLine["message"].(string); ok {
+								log.Ctx(ctx).Error().Msg(message)
+							}
+							if args, ok := parsedLogLine["args"].(map[string]any); ok {
+								if version, ok := args["requiredVersion"].(float64); ok {
+									log.Ctx(ctx).Error().Msgf("Run `tyger api uninstall -f <CONFIG_PATH>` followed by `tyger api migrations apply --target-version %d --offline --wait -f <CONFIG_PATH>` followed by `tyger api install -f <CONFIG_PATH>` ", int(version))
+									return install.ErrAlreadyLoggedError
+								}
 							}
 						}
 					}
 				}
 			}
-		}
 
-		log.Error().Err(err).Msg("Failed to install Tyger Helm chart")
+			log.Ctx(ctx).Error().Err(err).Msg("Failed to install Tyger Helm chart")
 
-		for podName, logs := range logsMap {
-			if len(logs) > 0 {
-				log.Info().Str("pod", podName).Msg("Pod logs:")
-				fmt.Fprintln(os.Stderr, string(logs))
+			for podName, logs := range logsMap {
+				if len(logs) > 0 {
+					log.Ctx(ctx).Info().Str("pod", podName).Msg("Pod logs:")
+					fmt.Fprintln(os.Stderr, string(logs))
+				}
 			}
-		}
 
-		return install.ErrAlreadyLoggedError
-	}
-
-	baseEndpoint := fmt.Sprintf("https://%s", inst.Config.Api.DomainName)
-	healthCheckEndpoint := fmt.Sprintf("%s/healthcheck", baseEndpoint)
-
-	client := client.DefaultClient
-	client.RetryMax = 0 // we do own own retrying here
-
-	for i := 0; ; i++ {
-		req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, healthCheckEndpoint, nil)
-		if err != nil {
-			return fmt.Errorf("failed to create health check request: %w", err)
-		}
-
-		resp, err := client.Do(req)
-		errorLogger := log.Debug()
-		exit := false
-		if i == 60 {
-			exit = true
-			errorLogger = log.Error()
-		}
-		if err != nil {
-			if errors.Is(err, ctx.Err()) {
-				return err
-			}
-			errorLogger.Err(err).Msg("Tyger health check failed")
-		} else if resp.StatusCode != http.StatusOK {
-			errorLogger.Msgf("Tyger health check failed with status code %d", resp.StatusCode)
-		} else {
-			log.Info().Msgf("Tyger API up at %s", baseEndpoint)
-			break
-		}
-
-		if exit {
 			return install.ErrAlreadyLoggedError
 		}
 
-		time.Sleep(time.Second)
-	}
+		baseEndpoint := fmt.Sprintf("https://%s", org.Api.DomainName)
+		healthCheckEndpoint := fmt.Sprintf("%s/healthcheck", baseEndpoint)
 
-	found := false
-	for _, logs := range logsMap {
-		if found {
-			break
-		}
-		parsedLines, err := install.ParseJsonLogs(logs)
-		if err != nil {
-			continue
-		}
+		client := client.DefaultClient
+		client.RetryMax = 0 // we do own own retrying here
 
-		for _, parsedLine := range parsedLines {
-			if category, ok := parsedLine["category"].(string); ok {
-				if category == "Tyger.ControlPlane.Database.Migrations.MigrationRunner[NewerDatabaseVersionsExist]" {
-					log.Warn().Msgf("The database schema should be upgraded. Run `tyger api migrations list` to see the available migrations and `tyger api migrations apply` to apply them.")
-					found = true
-					break
+		for i := 0; ; i++ {
+			req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, healthCheckEndpoint, nil)
+			if err != nil {
+				return fmt.Errorf("failed to create health check request: %w", err)
+			}
+
+			resp, err := client.Do(req)
+			errorLogger := log.Debug()
+			exit := false
+			if i == 60 {
+				exit = true
+				errorLogger = log.Ctx(ctx).Error()
+			}
+			if err != nil {
+				if errors.Is(err, ctx.Err()) {
+					return err
 				}
+				errorLogger.Err(err).Msg("Tyger health check failed")
+			} else if resp.StatusCode != http.StatusOK {
+				errorLogger.Msgf("Tyger health check failed with status code %d", resp.StatusCode)
+			} else {
+				log.Ctx(ctx).Info().Msgf("Tyger API up at %s", baseEndpoint)
+				break
+			}
 
-				if category == "Tyger.ControlPlane.Database.Migrations.MigrationRunner[UsingMostRecentDatabaseVersion]" {
-					log.Debug().Msg("Database schema is up to date")
-					found = true
-					break
+			if exit {
+				return install.ErrAlreadyLoggedError
+			}
+
+			time.Sleep(time.Second)
+		}
+
+		found := false
+		for _, logs := range logsMap {
+			if found {
+				break
+			}
+			parsedLines, err := install.ParseJsonLogs(logs)
+			if err != nil {
+				continue
+			}
+
+			for _, parsedLine := range parsedLines {
+				if category, ok := parsedLine["category"].(string); ok {
+					if category == "Tyger.ControlPlane.Database.Migrations.MigrationRunner[NewerDatabaseVersionsExist]" {
+						log.Ctx(ctx).Warn().Msgf("The database schema should be upgraded. Run `tyger api migrations list` to see the available migrations and `tyger api migrations apply` to apply them.")
+						found = true
+						break
+					}
+
+					if category == "Tyger.ControlPlane.Database.Migrations.MigrationRunner[UsingMostRecentDatabaseVersion]" {
+						log.Debug().Msg("Database schema is up to date")
+						found = true
+						break
+					}
 				}
 			}
 		}
-	}
 
-	if !found {
-		return errors.New("failed to find expected migration log message")
-	}
+		if !found {
+			return errors.New("failed to find expected migration log message")
+		}
 
-	return nil
+		return nil
+	})
 }
 
 // 0 means not installed.
-func (inst *Installer) GetTygerInstallationRevision(ctx context.Context) (int, error) {
+func (inst *Installer) GetTygerInstallationRevision(ctx context.Context, org *OrganizationConfig) (int, error) {
 	restConfig, err := inst.GetUserRESTConfig(ctx)
 	if err != nil {
 		return 0, err
@@ -347,7 +456,7 @@ func (inst *Installer) GetTygerInstallationRevision(ctx context.Context) (int, e
 			DebugLog: func(format string, v ...interface{}) {
 				log.Debug().Msgf(format, v...)
 			},
-			Namespace: DefaultTygerReleaseName,
+			Namespace: org.Cloud.KubernetesNamespace,
 		},
 	}
 
@@ -367,7 +476,7 @@ func (inst *Installer) GetTygerInstallationRevision(ctx context.Context) (int, e
 	return r.Version, nil
 }
 
-func (inst *Installer) InstallTygerHelmChart(ctx context.Context, dryRun bool) (manifest string, valuesYaml string, err error) {
+func (inst *Installer) InstallTygerHelmChart(ctx context.Context, org *OrganizationConfig, dryRun bool) (manifest string, valuesYaml string, err error) {
 	restConfig, err := inst.GetUserRESTConfig(ctx)
 	if err != nil {
 		return "", "", err
@@ -387,19 +496,19 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, dryRun bool) (
 		return "", "", fmt.Errorf("failed to create managed identities client: %w", err)
 	}
 
-	tygerServerIdentity, err := identitiesClient.Get(ctx, inst.Config.Cloud.ResourceGroup, tygerServerManagedIdentityName, nil)
+	tygerServerIdentity, err := identitiesClient.Get(ctx, org.Cloud.ResourceGroup, tygerServerManagedIdentityName, nil)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to get managed identity: %w", err)
 	}
 
-	migrationRunnerIdentity, err := identitiesClient.Get(ctx, inst.Config.Cloud.ResourceGroup, migrationRunnerManagedIdentityName, nil)
+	migrationRunnerIdentity, err := identitiesClient.Get(ctx, org.Cloud.ResourceGroup, migrationRunnerManagedIdentityName, nil)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to get managed identity: %w", err)
 	}
 
 	customIdentitiesValues := make([]map[string]any, 0)
-	for _, identity := range inst.Config.Cloud.Compute.Identities {
-		identity, err := identitiesClient.Get(ctx, inst.Config.Cloud.ResourceGroup, identity, nil)
+	for _, identity := range org.Cloud.Identities {
+		identity, err := identitiesClient.Get(ctx, org.Cloud.ResourceGroup, identity, nil)
 		if err != nil {
 			return "", "", fmt.Errorf("failed to get managed identity: %w", err)
 		}
@@ -418,8 +527,8 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, dryRun bool) (
 	}
 
 	buffersStorageAccountValues := make([]map[string]any, 0)
-	for _, accountConfig := range inst.Config.Cloud.Storage.Buffers {
-		acc, err := storageClient.GetProperties(ctx, inst.Config.Cloud.ResourceGroup, accountConfig.Name, nil)
+	for _, accountConfig := range org.Cloud.Storage.Buffers {
+		acc, err := storageClient.GetProperties(ctx, org.Cloud.ResourceGroup, accountConfig.Name, nil)
 		if err != nil {
 			return "", "", fmt.Errorf("failed to get buffer storage account properties: %w", err)
 		}
@@ -433,7 +542,7 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, dryRun bool) (
 		buffersStorageAccountValues = append(buffersStorageAccountValues, accountValues)
 	}
 
-	logArchiveAccount, err := storageClient.GetProperties(ctx, inst.Config.Cloud.ResourceGroup, inst.Config.Cloud.Storage.Logs.Name, nil)
+	logArchiveAccount, err := storageClient.GetProperties(ctx, org.Cloud.ResourceGroup, org.Cloud.Storage.Logs.Name, nil)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to get logs storage account properties: %w", err)
 	}
@@ -443,10 +552,7 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, dryRun bool) (
 		return "", "", fmt.Errorf("failed to create PostgreSQL server client: %w", err)
 	}
 
-	dbServerName, err := inst.getDatabaseServerName(ctx, &tygerServerIdentity.Identity, false)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to get database server name: %w", err)
-	}
+	dbServerName := inst.Config.Cloud.Database.ServerName
 
 	dbServer, err := dbServersClient.Get(ctx, inst.Config.Cloud.ResourceGroup, dbServerName, nil)
 	if err != nil {
@@ -454,7 +560,7 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, dryRun bool) (
 	}
 
 	helmConfig := HelmChartConfig{
-		Namespace:   TygerNamespace,
+		Namespace:   org.Cloud.KubernetesNamespace,
 		ReleaseName: DefaultTygerReleaseName,
 		ChartRef:    fmt.Sprintf("oci://%s%shelm/tyger", install.ContainerRegistry, install.GetNormalizedContainerRegistryDirectory()),
 		Version:     install.ContainerImageTag,
@@ -463,39 +569,42 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, dryRun bool) (
 			"bufferSidecarImage": fmt.Sprintf("%s%sbuffer-sidecar:%s", install.ContainerRegistry, install.GetNormalizedContainerRegistryDirectory(), install.ContainerImageTag),
 			"bufferCopierImage":  fmt.Sprintf("%s%sbuffer-copier:%s", install.ContainerRegistry, install.GetNormalizedContainerRegistryDirectory(), install.ContainerImageTag),
 			"workerWaiterImage":  fmt.Sprintf("%s%sworker-waiter:%s", install.ContainerRegistry, install.GetNormalizedContainerRegistryDirectory(), install.ContainerImageTag),
-			"hostname":           inst.Config.Api.DomainName,
+			"hostname":           org.Api.DomainName,
 			"location":           inst.Config.Cloud.DefaultLocation,
 			"identity": map[string]any{
 				"tygerServer": map[string]any{
-					"name":     tygerServerIdentity.Name,
-					"clientId": tygerServerIdentity.Properties.ClientID,
+					"name":             *tygerServerIdentity.Name,
+					"databaseRoleName": getDatabaseRoleName(org, *tygerServerIdentity.Name),
+					"clientId":         tygerServerIdentity.Properties.ClientID,
 				},
 				"migrationRunner": map[string]any{
-					"name":     migrationRunnerIdentity.Name,
-					"clientId": migrationRunnerIdentity.Properties.ClientID,
+					"name":             *migrationRunnerIdentity.Name,
+					"databaseRoleName": getDatabaseRoleName(org, *migrationRunnerIdentity.Name),
+					"clientId":         migrationRunnerIdentity.Properties.ClientID,
 				},
 				"custom": customIdentitiesValues,
 			},
 			"security": map[string]any{
 				"enabled":   true,
-				"authority": cloud.AzurePublic.ActiveDirectoryAuthorityHost + inst.Config.Api.Auth.TenantID,
-				"audience":  inst.Config.Api.Auth.ApiAppUri,
-				"cliAppUri": inst.Config.Api.Auth.CliAppUri,
+				"authority": cloud.AzurePublic.ActiveDirectoryAuthorityHost + org.Api.Auth.TenantID,
+				"audience":  org.Api.Auth.ApiAppUri,
+				"cliAppUri": org.Api.Auth.CliAppUri,
 			},
 			"tls": map[string]any{
 				"letsEncrypt": map[string]any{
-					"enabled": true,
+					"enabled": org.Api.TlsCertificateProvider == TlsCertificateProviderLetsEncrypt,
 				},
 			},
 			"database": map[string]any{
-				"host":         *dbServer.Properties.FullyQualifiedDomainName,
-				"databaseName": databaseName,
-				"port":         databasePort,
+				"host":           *dbServer.Properties.FullyQualifiedDomainName,
+				"databaseName":   org.Cloud.DatabaseName,
+				"port":           databasePort,
+				"ownersRoleName": getDatabaseRoleName(org, unqualifiedOwnersRole),
 			},
 			"buffers": map[string]any{
 				"storageAccounts":     buffersStorageAccountValues,
-				"activeLifetime":      inst.Config.Api.Buffers.ActiveLifetime,
-				"softDeletedLifetime": inst.Config.Api.Buffers.SoftDeletedLifetime,
+				"activeLifetime":      org.Api.Buffers.ActiveLifetime,
+				"softDeletedLifetime": org.Api.Buffers.SoftDeletedLifetime,
 			},
 			"logArchive": map[string]any{
 				"storageAccountEndpoint": *logArchiveAccount.Properties.PrimaryEndpoints.Blob,
@@ -505,8 +614,8 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, dryRun bool) (
 	}
 
 	var overrides *HelmChartConfig
-	if inst.Config.Api.Helm != nil && inst.Config.Api.Helm.Tyger != nil {
-		overrides = inst.Config.Api.Helm.Tyger
+	if org.Api.Helm != nil && org.Api.Helm.Tyger != nil {
+		overrides = org.Api.Helm.Tyger
 	}
 
 	adjustSpec := func(cs *helmclient.ChartSpec, c helmclient.Client) error {
@@ -521,9 +630,9 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, dryRun bool) (
 	return manifest, valuesYaml, nil
 }
 
-func (inst *Installer) getMigrationRunnerJobDefinition(ctx context.Context) (*batchv1.Job, error) {
+func (inst *Installer) getMigrationRunnerJobDefinition(ctx context.Context, org *OrganizationConfig) (*batchv1.Job, error) {
 	dryRun := true
-	manifest, _, err := inst.InstallTygerHelmChart(ctx, dryRun)
+	manifest, _, err := inst.InstallTygerHelmChart(ctx, org, dryRun)
 	if err != nil {
 		return nil, err
 	}
@@ -597,7 +706,7 @@ func installHelmChart(
 		release, err = helmClient.InstallOrUpgradeChart(ctx, &chartSpec, nil)
 		if err == nil || i == 30 {
 			if err == nil && i > 0 {
-				log.Info().Msg("Transient Helm error resolved")
+				log.Ctx(ctx).Info().Msg("Transient Helm error resolved")
 			}
 			if release != nil {
 				manifest = release.Manifest
@@ -607,7 +716,7 @@ func installHelmChart(
 
 		if strings.Contains(err.Error(), "the server could not find the requested resource") {
 			// we get this transient error from time to time, related to the installation of CRDs
-			log.Info().Err(err).Msg("Possible transient Helm error. Will retry...")
+			log.Ctx(ctx).Info().Err(err).Msg("Possible transient Helm error. Will retry...")
 			time.Sleep(10 * time.Second)
 		} else {
 			return "", "", err
@@ -679,120 +788,122 @@ func (inst *Installer) UninstallTyger(ctx context.Context, _, _ bool) error {
 		return err
 	}
 
-	// 1. Remove the Helm chart
+	return inst.Config.ForEachOrgInParallel(ctx, func(ctx context.Context, org *OrganizationConfig) error {
+		// 1. Remove the Helm chart
 
-	helmOptions := helmclient.RestConfClientOptions{
-		RestConfig: restConfig,
-		Options: &helmclient.Options{
-			DebugLog: func(format string, v ...interface{}) {
-				log.Debug().Msgf(format, v...)
+		helmOptions := helmclient.RestConfClientOptions{
+			RestConfig: restConfig,
+			Options: &helmclient.Options{
+				DebugLog: func(format string, v ...interface{}) {
+					log.Debug().Msgf(format, v...)
+				},
+				Namespace: org.Cloud.KubernetesNamespace,
 			},
-			Namespace: TygerNamespace,
-		},
-	}
-
-	helmClient, err := helmclient.NewClientFromRestConf(&helmOptions)
-	if err != nil {
-		return fmt.Errorf("failed to create helm client: %w", err)
-	}
-
-	if err := helmClient.UninstallReleaseByName(TygerNamespace); err != nil {
-		if !errors.Is(err, driver.ErrReleaseNotFound) {
-			return fmt.Errorf("failed to uninstall Tyger Helm chart: %w", err)
 		}
-	}
 
-	clientset, err := kubernetes.NewForConfig(restConfig)
-	if err != nil {
-		return fmt.Errorf("failed to create Kubernetes client: %w", err)
-	}
-
-	// 2. Remove the finalizer we put on run pods so that they can be deleted
-
-	tygerRunLabelSelector := "tyger-run"
-
-	pods, err := clientset.CoreV1().Pods(TygerNamespace).List(ctx, metav1.ListOptions{
-		LabelSelector: tygerRunLabelSelector,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to list pods: %w", err)
-	}
-	patchData := []byte(`[ { "op": "remove", "path": "/metadata/finalizers" } ]`)
-	for _, pod := range pods.Items {
-		_, err := clientset.CoreV1().Pods(TygerNamespace).Patch(ctx, pod.Name, types.JSONPatchType, patchData, metav1.PatchOptions{})
+		helmClient, err := helmclient.NewClientFromRestConf(&helmOptions)
 		if err != nil {
-			fmt.Printf("Failed to patch pod %s: %v\n", pod.Name, err)
+			return fmt.Errorf("failed to create helm client: %w", err)
 		}
-	}
 
-	// 3. Delete all the resources created by Tyger
+		if err := helmClient.UninstallReleaseByName(DefaultTygerReleaseName); err != nil {
+			if !errors.Is(err, driver.ErrReleaseNotFound) {
+				return fmt.Errorf("failed to uninstall Tyger Helm chart: %w", err)
+			}
+		}
 
-	deleteOpts := metav1.DeleteOptions{
-		PropagationPolicy: func() *metav1.DeletionPropagation {
-			v := metav1.DeletePropagationForeground
-			return &v
-		}(),
-	}
-
-	// Run pods
-	err = clientset.CoreV1().Pods(TygerNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
-		LabelSelector: tygerRunLabelSelector,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to delete pods: %w", err)
-	}
-
-	// Run jobs
-	err = clientset.BatchV1().Jobs(TygerNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
-		LabelSelector: tygerRunLabelSelector,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to delete jobs: %w", err)
-	}
-	// Run statefulsets
-	err = clientset.AppsV1().StatefulSets(TygerNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
-		LabelSelector: tygerRunLabelSelector,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to delete statefulsets: %w", err)
-	}
-	// Run secrets
-	err = clientset.CoreV1().Secrets(TygerNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
-		LabelSelector: tygerRunLabelSelector,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to delete secrets: %w", err)
-	}
-
-	// Run services. For some reason, there is no DeleteCollection method for services.
-	services, err := clientset.CoreV1().Services(TygerNamespace).List(ctx, metav1.ListOptions{
-		LabelSelector: tygerRunLabelSelector,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to list services: %w", err)
-	}
-	for _, s := range services.Items {
-		err = clientset.CoreV1().Services(TygerNamespace).Delete(ctx, s.Name, deleteOpts)
+		clientset, err := kubernetes.NewForConfig(restConfig)
 		if err != nil {
-			return fmt.Errorf("failed to delete service '%s': %w", s.Name, err)
+			return fmt.Errorf("failed to create Kubernetes client: %w", err)
 		}
-	}
 
-	// Migration jobs
-	err = clientset.BatchV1().Jobs(TygerNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
-		LabelSelector: migrationRunnerLabelKey,
+		// 2. Remove the finalizer we put on run pods so that they can be deleted
+
+		tygerRunLabelSelector := "tyger-run"
+
+		pods, err := clientset.CoreV1().Pods(org.Cloud.KubernetesNamespace).List(ctx, metav1.ListOptions{
+			LabelSelector: tygerRunLabelSelector,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to list pods: %w", err)
+		}
+		patchData := []byte(`[ { "op": "remove", "path": "/metadata/finalizers" } ]`)
+		for _, pod := range pods.Items {
+			_, err := clientset.CoreV1().Pods(org.Cloud.KubernetesNamespace).Patch(ctx, pod.Name, types.JSONPatchType, patchData, metav1.PatchOptions{})
+			if err != nil {
+				fmt.Printf("Failed to patch pod %s: %v\n", pod.Name, err)
+			}
+		}
+
+		// 3. Delete all the resources created by Tyger
+
+		deleteOpts := metav1.DeleteOptions{
+			PropagationPolicy: func() *metav1.DeletionPropagation {
+				v := metav1.DeletePropagationForeground
+				return &v
+			}(),
+		}
+
+		// Run pods
+		err = clientset.CoreV1().Pods(org.Cloud.KubernetesNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
+			LabelSelector: tygerRunLabelSelector,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to delete pods: %w", err)
+		}
+
+		// Run jobs
+		err = clientset.BatchV1().Jobs(org.Cloud.KubernetesNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
+			LabelSelector: tygerRunLabelSelector,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to delete jobs: %w", err)
+		}
+		// Run statefulsets
+		err = clientset.AppsV1().StatefulSets(org.Cloud.KubernetesNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
+			LabelSelector: tygerRunLabelSelector,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to delete statefulsets: %w", err)
+		}
+		// Run secrets
+		err = clientset.CoreV1().Secrets(org.Cloud.KubernetesNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
+			LabelSelector: tygerRunLabelSelector,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to delete secrets: %w", err)
+		}
+
+		// Run services. For some reason, there is no DeleteCollection method for services.
+		services, err := clientset.CoreV1().Services(org.Cloud.KubernetesNamespace).List(ctx, metav1.ListOptions{
+			LabelSelector: tygerRunLabelSelector,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to list services: %w", err)
+		}
+		for _, s := range services.Items {
+			err = clientset.CoreV1().Services(org.Cloud.KubernetesNamespace).Delete(ctx, s.Name, deleteOpts)
+			if err != nil {
+				return fmt.Errorf("failed to delete service '%s': %w", s.Name, err)
+			}
+		}
+
+		// Migration jobs
+		err = clientset.BatchV1().Jobs(org.Cloud.KubernetesNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
+			LabelSelector: migrationRunnerLabelKey,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to delete jobs: %w", err)
+		}
+
+		// Command host pods
+		err = clientset.CoreV1().Pods(org.Cloud.KubernetesNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
+			LabelSelector: commandHostLabelKey,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to delete pods: %w", err)
+		}
+
+		return nil
 	})
-	if err != nil {
-		return fmt.Errorf("failed to delete jobs: %w", err)
-	}
-
-	// Command host pods
-	err = clientset.CoreV1().Pods(TygerNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
-		LabelSelector: commandHostLabelKey,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to delete pods: %w", err)
-	}
-
-	return nil
 }

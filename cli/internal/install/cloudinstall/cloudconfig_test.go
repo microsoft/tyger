@@ -5,9 +5,11 @@ package cloudinstall
 
 import (
 	"bytes"
+	"context"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
 )
@@ -26,16 +28,23 @@ func TestRenderConfig(t *testing.T) {
 		},
 		BufferStorageAccountName: "acc1",
 		LogsStorageAccountName:   "acc2",
-		DomainName:               "dom.ain",
+		DomainName:               "me.westus.cloudapp.azure.com",
 		ApiTenantId:              "tenant2",
+		DatabaseServerName:       "dbserver",
 	}
 
 	var buf bytes.Buffer
 
 	require.NoError(t, RenderConfig(values, &buf))
 
-	config := CloudEnvironmentConfig{}
+	config := &CloudEnvironmentConfig{}
+
 	require.NoError(t, yaml.UnmarshalStrict(buf.Bytes(), &config))
+
+	errorBuf := bytes.Buffer{}
+	ctx := zerolog.New(&errorBuf).WithContext(context.Background())
+
+	require.NoError(t, config.QuickValidateConfig(ctx), errorBuf.String())
 
 	require.Equal(t, values.EnvironmentName, config.EnvironmentName)
 	require.Equal(t, values.ResourceGroup, config.Cloud.ResourceGroup)
@@ -45,8 +54,8 @@ func TestRenderConfig(t *testing.T) {
 	require.Equal(t, values.Principal.Kind, config.Cloud.Compute.ManagementPrincipals[0].Kind)
 	require.Equal(t, values.Principal.ObjectId, config.Cloud.Compute.ManagementPrincipals[0].ObjectId)
 	require.Equal(t, values.Principal.UserPrincipalName, config.Cloud.Compute.ManagementPrincipals[0].UserPrincipalName)
-	require.Equal(t, values.BufferStorageAccountName, config.Cloud.Storage.Buffers[0].Name)
-	require.Equal(t, values.LogsStorageAccountName, config.Cloud.Storage.Logs.Name)
-	require.Equal(t, values.DomainName, config.Api.DomainName)
-	require.Equal(t, values.ApiTenantId, config.Api.Auth.TenantID)
+	require.Equal(t, values.BufferStorageAccountName, config.Organizations[0].Cloud.Storage.Buffers[0].Name)
+	require.Equal(t, values.LogsStorageAccountName, config.Organizations[0].Cloud.Storage.Logs.Name)
+	require.Equal(t, values.DomainName, config.Organizations[0].Api.DomainName)
+	require.Equal(t, values.ApiTenantId, config.Organizations[0].Api.Auth.TenantID)
 }

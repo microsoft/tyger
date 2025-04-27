@@ -12,9 +12,11 @@ identity:
   tygerServer:
     name:
     clientId:
+    databaseRoleName:
   migrationRunner:
     name:
     clientId:
+    databaseRoleName:
 
   custom: [] # { name: abc, clientId: 123 }, ...
 
@@ -26,17 +28,17 @@ security:
 
 hostname:
 tls:
-  enabled: true
   letsEncypt:
     enabled: true
     email:
 
 database:
   host:
-  databaseName: postgres
+  databaseName:
   port: 5432
   autoMigrate: false
   initialDatabaseVersion:
+  ownersRoleName:
 
 buffers:
   storageAccounts: [] # {name: myaccount, location: westus2, endpoint: https://... }, ...

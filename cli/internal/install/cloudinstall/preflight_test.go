@@ -4,6 +4,7 @@
 package cloudinstall
 
 import (
+	"context"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/authorization/armauthorization/v2"
@@ -38,7 +39,7 @@ func TestCheckAccessExactScopeExactPermission(t *testing.T) {
 			RoleDefinitionID: role.ID,
 		},
 	}
-	assert.NoError(t, checkAccess(scope, "Microsoft.Storage/storageAccounts/write", []armauthorization.RoleAssignment{roleAssignment}, map[string]armauthorization.RoleDefinition{*role.ID: role}))
+	assert.NoError(t, checkAccess(context.Background(), scope, "Microsoft.Storage/storageAccounts/write", []armauthorization.RoleAssignment{roleAssignment}, map[string]armauthorization.RoleDefinition{*role.ID: role}))
 }
 
 func TestCheckAccessExactScopeWrongPermission(t *testing.T) {
@@ -63,7 +64,7 @@ func TestCheckAccessExactScopeWrongPermission(t *testing.T) {
 			RoleDefinitionID: role.ID,
 		},
 	}
-	assert.Error(t, checkAccess(scope, "Microsoft.Storage/storageAccounts/read", []armauthorization.RoleAssignment{roleAssignment}, map[string]armauthorization.RoleDefinition{*role.ID: role}))
+	assert.Error(t, checkAccess(context.Background(), scope, "Microsoft.Storage/storageAccounts/read", []armauthorization.RoleAssignment{roleAssignment}, map[string]armauthorization.RoleDefinition{*role.ID: role}))
 }
 
 func TestCheckAccessWrongScopeExactPermission(t *testing.T) {
@@ -88,7 +89,7 @@ func TestCheckAccessWrongScopeExactPermission(t *testing.T) {
 			RoleDefinitionID: role.ID,
 		},
 	}
-	assert.Error(t, checkAccess(scope, "Microsoft.Storage/storageAccounts/write", []armauthorization.RoleAssignment{roleAssignment}, map[string]armauthorization.RoleDefinition{*role.ID: role}))
+	assert.Error(t, checkAccess(context.Background(), scope, "Microsoft.Storage/storageAccounts/write", []armauthorization.RoleAssignment{roleAssignment}, map[string]armauthorization.RoleDefinition{*role.ID: role}))
 }
 
 func TestCheckAccessInheritedExactPermission(t *testing.T) {
@@ -113,7 +114,7 @@ func TestCheckAccessInheritedExactPermission(t *testing.T) {
 			RoleDefinitionID: role.ID,
 		},
 	}
-	assert.NoError(t, checkAccess(scope, "Microsoft.Storage/storageAccounts/write", []armauthorization.RoleAssignment{roleAssignment}, map[string]armauthorization.RoleDefinition{*role.ID: role}))
+	assert.NoError(t, checkAccess(context.Background(), scope, "Microsoft.Storage/storageAccounts/write", []armauthorization.RoleAssignment{roleAssignment}, map[string]armauthorization.RoleDefinition{*role.ID: role}))
 }
 
 func TestCheckAccessInheritedWildcard(t *testing.T) {
@@ -138,7 +139,7 @@ func TestCheckAccessInheritedWildcard(t *testing.T) {
 			RoleDefinitionID: role.ID,
 		},
 	}
-	assert.NoError(t, checkAccess(scope, "Microsoft.Storage/storageAccounts/write", []armauthorization.RoleAssignment{roleAssignment}, map[string]armauthorization.RoleDefinition{*role.ID: role}))
+	assert.NoError(t, checkAccess(context.Background(), scope, "Microsoft.Storage/storageAccounts/write", []armauthorization.RoleAssignment{roleAssignment}, map[string]armauthorization.RoleDefinition{*role.ID: role}))
 }
 
 func TestCheckAccessInheritedWildcardWithNotAction(t *testing.T) {
@@ -166,5 +167,5 @@ func TestCheckAccessInheritedWildcardWithNotAction(t *testing.T) {
 			RoleDefinitionID: role.ID,
 		},
 	}
-	assert.Error(t, checkAccess(scope, "Microsoft.Storage/storageAccounts/write", []armauthorization.RoleAssignment{roleAssignment}, map[string]armauthorization.RoleDefinition{*role.ID: role}))
+	assert.Error(t, checkAccess(context.Background(), scope, "Microsoft.Storage/storageAccounts/write", []armauthorization.RoleAssignment{roleAssignment}, map[string]armauthorization.RoleDefinition{*role.ID: role}))
 }

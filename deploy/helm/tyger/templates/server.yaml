@@ -163,12 +163,14 @@ spec:
               value: {{ .Values.database.host }}
             - name: Database__DatabaseName
               value: {{ .Values.database.databaseName }}
+            - name: Database__OwnersRoleName
+              value: {{ .Values.database.ownersRoleName }}
             - name: Database__Port
               value: "{{ .Values.database.port }}"
             - name: Database__Username
-              value: {{ .Values.identity.tygerServer.name }}
+              value: {{ .Values.identity.tygerServer.databaseRoleName }}
             - name: Database__TygerServerRoleName
-              value: {{ .Values.identity.tygerServer.name }}
+              value: {{ .Values.identity.tygerServer.databaseRoleName }}
             - name: Database__TygerServerIdentity
               value: {{ .Values.identity.tygerServer.name }}
             - name: Database__AutoMigrate
@@ -269,20 +271,13 @@ metadata:
     cert-manager.io/issuer: {{ $tygerName }}-cert
   {{- end }}
 spec:
-  {{- if .Values.tls.enabled }}
   entryPoints:
     - websecure
   {{- if .Values.tls.letsEncrypt.enabled }}
   tls:
     secretName: {{ .Values.hostname }}-tls
-    domains:
-      - main: {{ .Values.hostname }}
   {{- else }}
   tls: {}
-  {{- end }}
-  {{- else }}
-  entryPoints:
-  - web
   {{- end }}
   routes:
   - kind: Rule

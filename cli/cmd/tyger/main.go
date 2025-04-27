@@ -62,6 +62,16 @@ func newRootCommand() *cobra.Command {
 	rootCommand.AddCommand(install.NewIdentitiesCommand(rootCommand))
 	rootCommand.AddCommand(cmd.NewStdioProxyCommand())
 
+	var setSortFlagsFalse func(*cobra.Command)
+	setSortFlagsFalse = func(c *cobra.Command) {
+		c.Flags().SortFlags = false
+		for _, subCmd := range c.Commands() {
+			setSortFlagsFalse(subCmd)
+		}
+	}
+
+	setSortFlagsFalse(rootCommand)
+
 	return rootCommand
 }
 

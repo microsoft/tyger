@@ -455,7 +455,7 @@ func writeEndMetadata(ctx context.Context, httpClient *retryablehttp.Client, con
 
 	err = uploadBlobWithRetry(ctx, httpClient, container.GetEndMetadataUri(), endBytes, encodedMD5Hash, "")
 	if err != nil {
-		log.Warn().Err(err).Msg("Failed to upload optional metadata at the end of the transfer")
+		log.Ctx(ctx).Warn().Err(err).Msg("Failed to upload optional metadata at the end of the transfer")
 	}
 }
 

@@ -22,111 +22,45 @@ import (
 )
 
 const (
-	TygerNamespace          = "tyger"
-	DefaultTygerReleaseName = TygerNamespace
+	DefaultTygerReleaseName = "tyger"
 )
 
-func createTygerNamespace(ctx context.Context, restConfigPromise *install.Promise[*rest.Config]) (any, error) {
+func createKubernetesNamespace(ctx context.Context, restConfigPromise *install.Promise[*rest.Config], namespace string) (string, error) {
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
-		return nil, install.ErrDependencyFailed
+		return namespace, install.ErrDependencyFailed
 	}
 
 	clientset := kubernetes.NewForConfigOrDie(restConfig)
 
-	_, err = clientset.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "tyger"}}, metav1.CreateOptions{})
+	_, err = clientset.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}, metav1.CreateOptions{})
 	if err == nil || apierrors.IsAlreadyExists(err) {
-		return nil, nil
+		return namespace, nil
 	}
 
-	return nil, fmt.Errorf("failed to create 'tyger' namespace: %w", err)
+	return namespace, fmt.Errorf("failed to create '%s' namespace: %w", namespace, err)
 }
 
-func (inst *Installer) createTygerClusterRBAC(ctx context.Context, restConfigPromise *install.Promise[*rest.Config], createTygerNamespacePromise *install.Promise[any]) (any, error) {
-	restConfig, err := restConfigPromise.Await()
-	if err != nil {
-		return nil, install.ErrDependencyFailed
+func deleteKubernetesNamespace(ctx context.Context, restConfig *rest.Config, namespace string) error {
+	clientset := kubernetes.NewForConfigOrDie(restConfig)
+
+	err := clientset.CoreV1().Namespaces().Delete(ctx, namespace, metav1.DeleteOptions{})
+	if err == nil || apierrors.IsNotFound(err) {
+		return nil
 	}
 
-	if _, err := createTygerNamespacePromise.Await(); err != nil {
+	return fmt.Errorf("failed to delete '%s' namespace: %w", namespace, err)
+}
+
+func (inst *Installer) createClusterRBAC(ctx context.Context, restConfigPromise *install.Promise[*rest.Config]) (any, error) {
+	restConfig, err := restConfigPromise.Await()
+	if err != nil {
 		return nil, install.ErrDependencyFailed
 	}
 
 	clientset, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create kubernetes client: %w", err)
-	}
-
-	log.Info().Msgf("Updating RBAC for the '%s' namespace", TygerNamespace)
-
-	role := rbacv1.Role{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "tyger-full-access",
-			Namespace: TygerNamespace,
-		},
-		Rules: []rbacv1.PolicyRule{
-			{
-				APIGroups: []string{"*"},
-				Resources: []string{"*"},
-				Verbs:     []string{"*"},
-			},
-		},
-	}
-
-	roleBinding := rbacv1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "tyger-full-access-rolebinding",
-			Namespace: TygerNamespace,
-		},
-		RoleRef: rbacv1.RoleRef{
-			APIGroup: "rbac.authorization.k8s.io",
-			Kind:     "Role",
-			Name:     role.Name,
-		},
-		Subjects: make([]rbacv1.Subject, 0),
-	}
-
-	for _, principal := range inst.Config.Cloud.Compute.ManagementPrincipals {
-		subject := rbacv1.Subject{
-			Name: principal.ObjectId,
-		}
-		switch principal.Kind {
-		case PrincipalKindServicePrincipal:
-			subject.Kind = string(PrincipalKindUser)
-		case PrincipalKindUser:
-			subject.Kind = string(principal.Kind)
-			// If this is a guest user, the name should be the object ID,
-			// otherwise the name should be the UPN
-			if !strings.Contains(principal.UserPrincipalName, "#EXT#@") {
-				subject.Name = principal.UserPrincipalName
-			}
-		default:
-			subject.Kind = string(principal.Kind)
-		}
-
-		roleBinding.Subjects = append(roleBinding.Subjects, subject)
-	}
-
-	if _, err := clientset.RbacV1().Roles(TygerNamespace).Create(ctx, &role, metav1.CreateOptions{}); err != nil {
-		if apierrors.IsAlreadyExists(err) {
-			_, err = clientset.RbacV1().Roles(TygerNamespace).Update(ctx, &role, metav1.UpdateOptions{})
-			if err != nil {
-				return nil, fmt.Errorf("failed to update role: %w", err)
-			}
-		} else {
-			return nil, fmt.Errorf("failed to create role: %w", err)
-		}
-	}
-
-	if _, err := clientset.RbacV1().RoleBindings(TygerNamespace).Create(ctx, &roleBinding, metav1.CreateOptions{}); err != nil {
-		if apierrors.IsAlreadyExists(err) {
-			_, err = clientset.RbacV1().RoleBindings(TygerNamespace).Update(ctx, &roleBinding, metav1.UpdateOptions{})
-			if err != nil {
-				return nil, fmt.Errorf("failed to update role binding: %w", err)
-			}
-		} else {
-			return nil, fmt.Errorf("failed to create role binding: %w", err)
-		}
 	}
 
 	clusterRole := rbacv1.ClusterRole{
@@ -151,7 +85,7 @@ func (inst *Installer) createTygerClusterRBAC(ctx context.Context, restConfigPro
 			Kind:     "ClusterRole",
 			Name:     clusterRole.Name,
 		},
-		Subjects: roleBinding.Subjects,
+		Subjects: managementPrincipalsToSubjects(inst.Config.Cloud.Compute.ManagementPrincipals),
 	}
 
 	if _, err := clientset.RbacV1().ClusterRoles().Create(ctx, &clusterRole, metav1.CreateOptions{}); err != nil {
@@ -179,7 +113,102 @@ func (inst *Installer) createTygerClusterRBAC(ctx context.Context, restConfigPro
 	return nil, nil
 }
 
-func (inst *Installer) PodExec(ctx context.Context, podName string, command ...string) (stdout *bytes.Buffer, stderr *bytes.Buffer, err error) {
+func (inst *Installer) createNamespaceRBAC(ctx context.Context, restConfigPromise *install.Promise[*rest.Config], createNamespacePromise *install.Promise[string]) (any, error) {
+	restConfig, err := restConfigPromise.Await()
+	if err != nil {
+		return nil, install.ErrDependencyFailed
+	}
+
+	namespace, err := createNamespacePromise.Await()
+	if err != nil {
+		return nil, install.ErrDependencyFailed
+	}
+
+	clientset, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
+
+	log.Ctx(ctx).Info().Msgf("Updating RBAC for the '%s' namespace", namespace)
+
+	role := rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "tyger-full-access",
+			Namespace: namespace,
+		},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{"*"},
+				Resources: []string{"*"},
+				Verbs:     []string{"*"},
+			},
+		},
+	}
+
+	roleBinding := rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "tyger-full-access-rolebinding",
+			Namespace: namespace,
+		},
+		RoleRef: rbacv1.RoleRef{
+			APIGroup: "rbac.authorization.k8s.io",
+			Kind:     "Role",
+			Name:     role.Name,
+		},
+		Subjects: managementPrincipalsToSubjects(inst.Config.Cloud.Compute.ManagementPrincipals),
+	}
+
+	if _, err := clientset.RbacV1().Roles(namespace).Create(ctx, &role, metav1.CreateOptions{}); err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			_, err = clientset.RbacV1().Roles(namespace).Update(ctx, &role, metav1.UpdateOptions{})
+			if err != nil {
+				return nil, fmt.Errorf("failed to update role: %w", err)
+			}
+		} else {
+			return nil, fmt.Errorf("failed to create role: %w", err)
+		}
+	}
+
+	if _, err := clientset.RbacV1().RoleBindings(namespace).Create(ctx, &roleBinding, metav1.CreateOptions{}); err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			_, err = clientset.RbacV1().RoleBindings(namespace).Update(ctx, &roleBinding, metav1.UpdateOptions{})
+			if err != nil {
+				return nil, fmt.Errorf("failed to update role binding: %w", err)
+			}
+		} else {
+			return nil, fmt.Errorf("failed to create role binding: %w", err)
+		}
+	}
+
+	return nil, nil
+}
+
+func managementPrincipalsToSubjects(principals []Principal) []rbacv1.Subject {
+	subjects := make([]rbacv1.Subject, 0, len(principals))
+	for _, principal := range principals {
+		subject := rbacv1.Subject{
+			Name: principal.ObjectId,
+		}
+		switch principal.Kind {
+		case PrincipalKindServicePrincipal:
+			subject.Kind = string(PrincipalKindUser)
+		case PrincipalKindUser:
+			subject.Kind = string(principal.Kind)
+			// If this is a guest user, the name should be the object ID,
+			// otherwise the name should be the UPN
+			if !strings.Contains(principal.UserPrincipalName, "#EXT#@") {
+				subject.Name = principal.UserPrincipalName
+			}
+		default:
+			subject.Kind = string(principal.Kind)
+		}
+
+		subjects = append(subjects, subject)
+	}
+	return subjects
+}
+
+func (inst *Installer) PodExec(ctx context.Context, namespace string, podName string, command ...string) (stdout *bytes.Buffer, stderr *bytes.Buffer, err error) {
 	restConfig, err := inst.GetUserRESTConfig(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -190,7 +219,7 @@ func (inst *Installer) PodExec(ctx context.Context, podName string, command ...s
 		return nil, nil, fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
-	req := clientset.CoreV1().RESTClient().Post().Resource("pods").Name(podName).Namespace(TygerNamespace).SubResource("exec")
+	req := clientset.CoreV1().RESTClient().Post().Resource("pods").Name(podName).Namespace(namespace).SubResource("exec")
 	options := &corev1.PodExecOptions{
 		Command: command,
 		Stdout:  true,

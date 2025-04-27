@@ -8,7 +8,19 @@ cloud:
   logAnalyticsWorkspace:
     resourceGroup: eminence
     name: eminence
+
+  dnsZone:
+    resourceGroup: eminence
+    name: eminence.ms
+
+  tlsCertificate:
+    keyVault:
+      resourceGroup: eminence
+      name: eminence
+    certificateName: eminence-tls-cert
+
   compute:
+    dnsLabel: ${TYGER_ENVIRONMENT_NAME}-tyger
     clusters:
       - name: ${TYGER_ENVIRONMENT_NAME}
         apiHost: true
@@ -39,42 +51,80 @@ cloud:
     privateContainerRegistries:
       - eminence
 
-    identities:
-      - test-identity
-
-  storage:
-    buffers:
-      - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}tygerbuf
-      - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}tygerbuf2
-      - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}tygerbuf3
-        location: ${TYGER_SECONDARY_LOCATION}
-    logs:
-      name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}tygerlog
-
-    networkSecurityPerimeter:
-      nspResourceGroup: NSP-ALL
-      nspName: defaultNSP
-      profile: storageaccounts
+  networkSecurityPerimeter:
+    nspResourceGroup: NSP-ALL
+    nspName: defaultNSP
+    storageProfile:
+      name: storageaccounts
       mode: Learning
 
   database:
+    serverName: ${TYGER_ENVIRONMENT_NAME}-tyger
     location: ${TYGER_DATABASE_LOCATION}
+    computeTier: GeneralPurpose
+    vmSize: Standard_D2s_v3
     firewallRules: ${TYGER_ENVIRONMENT_FIREWALL_RULES}
+    postgresMajorVersion: 16
 
-api:
-  domainName: ${TYGER_ENVIRONMENT_NAME}-tyger.${TYGER_LOCATION}.cloudapp.azure.com
-  auth:
-    tenantId: 76d3279b-830e-4bea-baf8-12863cdeba4c
-    apiAppUri: api://tyger-server
-    cliAppUri: api://tyger-cli
-  buffers:
-    activeLifetime: 0.00:00
-    softDeletedLifetime: 1.00:00
-  helm:
-    tyger:
-      chartRef: ${TYGER_HELM_CHART_DIR}
-      values:
-        image: ${TYGER_SERVER_IMAGE}
-        bufferSidecarImage: ${BUFFER_SIDECAR_IMAGE}
-        bufferCopierImage: ${BUFFER_COPIER_IMAGE}
-        workerWaiterImage: ${WORKER_WAITER_IMAGE}
+organizations:
+  - name: lamna
+    cloud:
+      storage:
+        buffers:
+          - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}lamnabuf
+          - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}lamnabuf2
+          - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}lamnabuf3
+            location: ${TYGER_SECONDARY_LOCATION}
+        logs:
+          name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}lamnalog
+
+      identities:
+        - test-identity
+    api:
+      domainName: lamna-${TYGER_ENVIRONMENT_NAME}.eminence.ms
+      tlsCertificateProvider: KeyVault
+      auth:
+        tenantId: 76d3279b-830e-4bea-baf8-12863cdeba4c
+        apiAppUri: api://tyger-server
+        cliAppUri: api://tyger-cli
+      buffers:
+        activeLifetime: 0.00:00
+        softDeletedLifetime: 1.00:00
+      helm:
+        tyger:
+          chartRef: ${TYGER_HELM_CHART_DIR}
+          values:
+            image: ${TYGER_SERVER_IMAGE}
+            bufferSidecarImage: ${BUFFER_SIDECAR_IMAGE}
+            bufferCopierImage: ${BUFFER_COPIER_IMAGE}
+            workerWaiterImage: ${WORKER_WAITER_IMAGE}
+
+  - name: legacy
+    singleOrganizationCompatibilityMode: true
+    cloud:
+      storage:
+        buffers:
+          - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}legacybuf
+        logs:
+          name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}legacylog
+
+      identities:
+        - test-identity
+    api:
+      domainName: ${TYGER_ENVIRONMENT_NAME}-tyger.${TYGER_LOCATION}.cloudapp.azure.com
+      tlsCertificateProvider: LetsEncrypt
+      auth:
+        tenantId: 76d3279b-830e-4bea-baf8-12863cdeba4c
+        apiAppUri: api://tyger-server
+        cliAppUri: api://tyger-cli
+      buffers:
+        activeLifetime: 0.00:00
+        softDeletedLifetime: 1.00:00
+      helm:
+        tyger:
+          chartRef: ${TYGER_HELM_CHART_DIR}
+          values:
+            image: ${TYGER_SERVER_IMAGE}
+            bufferSidecarImage: ${BUFFER_SIDECAR_IMAGE}
+            bufferCopierImage: ${BUFFER_COPIER_IMAGE}
+            workerWaiterImage: ${WORKER_WAITER_IMAGE}

@@ -32,9 +32,8 @@ func NewIdentitiesCommand(parentCommand *cobra.Command) *cobra.Command {
 }
 
 func newIdentitiesInstallCommand() *cobra.Command {
-	flags := commonFlags{
-		skipLoginAndValidateSubscription: true,
-	}
+	flags := newSingleOrgCommonFlags()
+	flags.skipLoginAndValidateSubscription = true
 
 	cmd := &cobra.Command{
 		Use:                   "install -f CONFIG.yml",
@@ -46,21 +45,23 @@ func newIdentitiesInstallCommand() *cobra.Command {
 
 			cloudInstaller := CheckCloudInstaller(installer)
 
-			cred, err := cloudinstall.NewMiAwareAzureCLICredential(&azidentity.AzureCLICredentialOptions{TenantID: cloudInstaller.Config.Api.Auth.TenantID})
+			org := cloudInstaller.Config.GetSingleOrg()
+
+			cred, err := cloudinstall.NewMiAwareAzureCLICredential(&azidentity.AzureCLICredentialOptions{TenantID: org.Api.Auth.TenantID})
 			if err != nil {
 				return err
 			}
 			for {
 				cloudInstaller.Credential = cred
 				if _, err := cloudinstall.GetGraphToken(ctx, cred); err != nil {
-					fmt.Printf("Run 'az login --tenant %s --allow-no-subscriptions' from another terminal window.\nPress any key when ready...\n\n", cloudInstaller.Config.Api.Auth.TenantID)
+					fmt.Printf("Run 'az login --tenant %s --allow-no-subscriptions' from another terminal window.\nPress any key when ready...\n\n", org.Api.Auth.TenantID)
 					getSingleKey()
 					continue
 				}
 				break
 			}
 
-			log.Info().Msg("Starting identities install")
+			log.Ctx(ctx).Info().Msg("Starting identities install")
 
 			if err := cloudInstaller.InstallIdentities(ctx, cred); err != nil {
 				if !errors.Is(err, install.ErrAlreadyLoggedError) {
@@ -69,7 +70,7 @@ func newIdentitiesInstallCommand() *cobra.Command {
 				os.Exit(1)
 			}
 
-			log.Info().Msg("Install complete")
+			log.Ctx(ctx).Info().Msg("Install complete")
 
 			return nil
 		},

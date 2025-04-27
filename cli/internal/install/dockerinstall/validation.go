@@ -4,6 +4,7 @@
 package dockerinstall
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os/user"
@@ -27,141 +28,141 @@ var (
 	InstallationPathMaxLength = 70
 )
 
-func (inst *Installer) QuickValidateConfig() bool {
+func (envConfig *DockerEnvironmentConfig) QuickValidateConfig(ctx context.Context) error {
 	success := true
 
-	if inst.Config.EnvironmentName == "" {
-		inst.Config.EnvironmentName = DefaultEnvironmentName
-	} else if !NameRegex.MatchString(inst.Config.EnvironmentName) {
-		validationError(&success, "The `environmentName` field must match the pattern %s", NameRegex)
+	if envConfig.EnvironmentName == "" {
+		envConfig.EnvironmentName = DefaultEnvironmentName
+	} else if !NameRegex.MatchString(envConfig.EnvironmentName) {
+		validationError(ctx, &success, "The `environmentName` field must match the pattern %s", NameRegex)
 	}
 
-	if inst.Config.InstallationPath == "" {
-		inst.Config.InstallationPath = DefaultInstallationPath
-	} else if inst.Config.InstallationPath[len(inst.Config.InstallationPath)-1] == '/' {
-		inst.Config.InstallationPath = inst.Config.InstallationPath[:len(inst.Config.InstallationPath)-1]
+	if envConfig.InstallationPath == "" {
+		envConfig.InstallationPath = DefaultInstallationPath
+	} else if envConfig.InstallationPath[len(envConfig.InstallationPath)-1] == '/' {
+		envConfig.InstallationPath = envConfig.InstallationPath[:len(envConfig.InstallationPath)-1]
 	}
 
-	if len(inst.Config.InstallationPath) > InstallationPathMaxLength {
-		validationError(&success, "The `installationPath` field must be at most %d characters long", InstallationPathMaxLength)
+	if len(envConfig.InstallationPath) > InstallationPathMaxLength {
+		validationError(ctx, &success, "The `installationPath` field must be at most %d characters long", InstallationPathMaxLength)
 	}
 
-	if _, err := strconv.Atoi(inst.Config.UserId); err != nil {
-		if inst.Config.UserId == "" {
+	if _, err := strconv.Atoi(envConfig.UserId); err != nil {
+		if envConfig.UserId == "" {
 			currentUser, err := user.Current()
 			if err != nil {
-				validationError(&success, "Unable to determine the current user for the `userId` field")
+				validationError(ctx, &success, "Unable to determine the current user for the `userId` field")
 			} else {
-				inst.Config.UserId = currentUser.Uid
+				envConfig.UserId = currentUser.Uid
 			}
 		} else {
-			u, err := user.Lookup(inst.Config.UserId)
+			u, err := user.Lookup(envConfig.UserId)
 			if err != nil {
-				validationError(&success, "The `userId` field must be a valid user ID or name")
+				validationError(ctx, &success, "The `userId` field must be a valid user ID or name")
 			} else {
-				inst.Config.UserId = u.Uid
+				envConfig.UserId = u.Uid
 			}
 		}
 	}
 
-	if _, err := strconv.Atoi(inst.Config.AllowedGroupId); err != nil {
-		if inst.Config.AllowedGroupId == "" {
+	if _, err := strconv.Atoi(envConfig.AllowedGroupId); err != nil {
+		if envConfig.AllowedGroupId == "" {
 			currentUser, err := user.Current()
 			if err != nil {
-				validationError(&success, "Unable to determine the current user for the `userId` field")
+				validationError(ctx, &success, "Unable to determine the current user for the `userId` field")
 			} else {
-				inst.Config.AllowedGroupId = currentUser.Gid
+				envConfig.AllowedGroupId = currentUser.Gid
 			}
 		} else {
-			g, err := user.LookupGroup(inst.Config.AllowedGroupId)
+			g, err := user.LookupGroup(envConfig.AllowedGroupId)
 			if err != nil {
-				validationError(&success, "The `groupId` field must be a valid group ID or name")
+				validationError(ctx, &success, "The `groupId` field must be a valid group ID or name")
 			} else {
-				inst.Config.AllowedGroupId = g.Gid
+				envConfig.AllowedGroupId = g.Gid
 			}
 		}
 	}
 
-	if inst.Config.SigningKeys.Primary == nil {
-		validationError(&success, "The `signingKeys.primary` field is required")
+	if envConfig.SigningKeys.Primary == nil {
+		validationError(ctx, &success, "The `signingKeys.primary` field is required")
 	} else {
-		if inst.Config.SigningKeys.Primary.PublicKey == "" {
-			validationError(&success, "The `signingKeys.primary.publicKey` field is required to be the path to a public key file PEM file")
+		if envConfig.SigningKeys.Primary.PublicKey == "" {
+			validationError(ctx, &success, "The `signingKeys.primary.publicKey` field is required to be the path to a public key file PEM file")
 		} else {
-			if expanded, err := envsubst.StringRestricted(inst.Config.SigningKeys.Primary.PublicKey, true, false); err != nil {
-				validationError(&success, "Error expanding `signingKeys.primary.publicKey`: %s", err)
+			if expanded, err := envsubst.StringRestricted(envConfig.SigningKeys.Primary.PublicKey, true, false); err != nil {
+				validationError(ctx, &success, "Error expanding `signingKeys.primary.publicKey`: %s", err)
 			} else {
-				inst.Config.SigningKeys.Primary.PublicKey = expanded
+				envConfig.SigningKeys.Primary.PublicKey = expanded
 			}
 		}
-		if inst.Config.SigningKeys.Primary.PrivateKey == "" {
-			validationError(&success, "The `signingKeys.primary.privateKey` field is required to be the path to a private key PEM file")
+		if envConfig.SigningKeys.Primary.PrivateKey == "" {
+			validationError(ctx, &success, "The `signingKeys.primary.privateKey` field is required to be the path to a private key PEM file")
 		} else {
-			if expanded, err := envsubst.StringRestricted(inst.Config.SigningKeys.Primary.PrivateKey, true, false); err != nil {
-				validationError(&success, "Error expanding `signingKeys.primary.privateKey`: %s", err)
+			if expanded, err := envsubst.StringRestricted(envConfig.SigningKeys.Primary.PrivateKey, true, false); err != nil {
+				validationError(ctx, &success, "Error expanding `signingKeys.primary.privateKey`: %s", err)
 			} else {
-				inst.Config.SigningKeys.Primary.PrivateKey = expanded
-			}
-		}
-	}
-
-	if inst.Config.SigningKeys.Secondary != nil {
-		if inst.Config.SigningKeys.Secondary.PublicKey == "" {
-			validationError(&success, "The `signingKeys.secondary.publicKey` field is required to be the path to a public key PEM file")
-		} else {
-			if expanded, err := envsubst.StringRestricted(inst.Config.SigningKeys.Secondary.PublicKey, true, false); err != nil {
-				validationError(&success, "Error expanding `signingKeys.secondary.publicKey`: %s", err)
-			} else {
-				inst.Config.SigningKeys.Secondary.PublicKey = expanded
-			}
-		}
-		if inst.Config.SigningKeys.Secondary.PrivateKey == "" {
-			validationError(&success, "The `signingKeys.secondary.privateKey` field is required to be the path to a private key PEM file")
-		} else {
-			if expanded, err := envsubst.StringRestricted(inst.Config.SigningKeys.Secondary.PrivateKey, true, false); err != nil {
-				validationError(&success, "Error expanding `signingKeys.secondary.privateKey`: %s", err)
-			} else {
-				inst.Config.SigningKeys.Secondary.PrivateKey = expanded
+				envConfig.SigningKeys.Primary.PrivateKey = expanded
 			}
 		}
 	}
 
-	if inst.Config.PostgresImage == "" {
-		inst.Config.PostgresImage = DefaultPostgresImage
-	}
-	if inst.Config.MarinerImage == "" {
-		inst.Config.MarinerImage = DefaultMarinerImage
-	}
-	if inst.Config.ControlPlaneImage == "" {
-		inst.Config.ControlPlaneImage = defaultImage("tyger-server")
-	}
-	if inst.Config.DataPlaneImage == "" {
-		inst.Config.DataPlaneImage = defaultImage("tyger-data-plane-server")
-	}
-	if inst.Config.BufferSidecarImage == "" {
-		inst.Config.BufferSidecarImage = defaultImage("buffer-sidecar")
-	}
-	if inst.Config.GatewayImage == "" {
-		inst.Config.GatewayImage = defaultImage("tyger-cli")
+	if envConfig.SigningKeys.Secondary != nil {
+		if envConfig.SigningKeys.Secondary.PublicKey == "" {
+			validationError(ctx, &success, "The `signingKeys.secondary.publicKey` field is required to be the path to a public key PEM file")
+		} else {
+			if expanded, err := envsubst.StringRestricted(envConfig.SigningKeys.Secondary.PublicKey, true, false); err != nil {
+				validationError(ctx, &success, "Error expanding `signingKeys.secondary.publicKey`: %s", err)
+			} else {
+				envConfig.SigningKeys.Secondary.PublicKey = expanded
+			}
+		}
+		if envConfig.SigningKeys.Secondary.PrivateKey == "" {
+			validationError(ctx, &success, "The `signingKeys.secondary.privateKey` field is required to be the path to a private key PEM file")
+		} else {
+			if expanded, err := envsubst.StringRestricted(envConfig.SigningKeys.Secondary.PrivateKey, true, false); err != nil {
+				validationError(ctx, &success, "Error expanding `signingKeys.secondary.privateKey`: %s", err)
+			} else {
+				envConfig.SigningKeys.Secondary.PrivateKey = expanded
+			}
+		}
 	}
 
-	if inst.Config.UseGateway == nil {
+	if envConfig.PostgresImage == "" {
+		envConfig.PostgresImage = DefaultPostgresImage
+	}
+	if envConfig.MarinerImage == "" {
+		envConfig.MarinerImage = DefaultMarinerImage
+	}
+	if envConfig.ControlPlaneImage == "" {
+		envConfig.ControlPlaneImage = defaultImage("tyger-server")
+	}
+	if envConfig.DataPlaneImage == "" {
+		envConfig.DataPlaneImage = defaultImage("tyger-data-plane-server")
+	}
+	if envConfig.BufferSidecarImage == "" {
+		envConfig.BufferSidecarImage = defaultImage("buffer-sidecar")
+	}
+	if envConfig.GatewayImage == "" {
+		envConfig.GatewayImage = defaultImage("tyger-cli")
+	}
+
+	if envConfig.UseGateway == nil {
 		useGateway := defaultUseGateway()
-		inst.Config.UseGateway = &useGateway
+		envConfig.UseGateway = &useGateway
 	}
 
-	if inst.Config.Network != nil {
-		if inst.Config.Network.Subnet != "" {
-			if _, _, err := net.ParseCIDR(inst.Config.Network.Subnet); err != nil {
-				validationError(&success, "The `network.subnet` field must be a valid CIDR block if specified")
+	if envConfig.Network != nil {
+		if envConfig.Network.Subnet != "" {
+			if _, _, err := net.ParseCIDR(envConfig.Network.Subnet); err != nil {
+				validationError(ctx, &success, "The `network.subnet` field must be a valid CIDR block if specified")
 			}
 		}
 	}
 
-	if inst.Config.Buffers == nil {
-		inst.Config.Buffers = &BuffersConfig{}
+	if envConfig.Buffers == nil {
+		envConfig.Buffers = &BuffersConfig{}
 	}
-	buffersConfig := inst.Config.Buffers
+	buffersConfig := envConfig.Buffers
 	if buffersConfig.ActiveLifetime == "" {
 		buffersConfig.ActiveLifetime = "0.00:00"
 	}
@@ -170,21 +171,25 @@ func (inst *Installer) QuickValidateConfig() bool {
 	}
 
 	if _, err := common.ParseTimeToLive(buffersConfig.ActiveLifetime); err != nil {
-		validationError(&success, "The `buffers.activeLifetime` field must be a valid TTL (D.HH:MM:SS)")
+		validationError(ctx, &success, "The `buffers.activeLifetime` field must be a valid TTL (D.HH:MM:SS)")
 	}
 
 	if _, err := common.ParseTimeToLive(buffersConfig.SoftDeletedLifetime); err != nil {
-		validationError(&success, "The `buffers.softDeletedLifetime` field must be a valid TTL (D.HH:MM:SS)")
+		validationError(ctx, &success, "The `buffers.softDeletedLifetime` field must be a valid TTL (D.HH:MM:SS)")
 	}
 
-	return success
+	if success {
+		return nil
+	}
+
+	return install.ErrAlreadyLoggedError
 }
 
 func defaultImage(repo string) string {
 	return fmt.Sprintf("%s%s%s:%s", install.ContainerRegistry, install.GetNormalizedContainerRegistryDirectory(), repo, install.ContainerImageTag)
 }
 
-func validationError(success *bool, format string, args ...any) {
+func validationError(ctx context.Context, success *bool, format string, args ...any) {
 	*success = false
-	log.Error().Msgf(format, args...)
+	log.Ctx(ctx).Error().Msgf(format, args...)
 }

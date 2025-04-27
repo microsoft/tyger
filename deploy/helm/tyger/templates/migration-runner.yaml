@@ -66,12 +66,14 @@ spec:
               value: {{ .Values.database.host }}
             - name: Database__DatabaseName
               value: {{ .Values.database.databaseName }}
+            - name: Database__OwnersRoleName
+              value: {{ .Values.database.ownersRoleName }}
             - name: Database__Port
               value: "{{ .Values.database.port }}"
             - name: Database__Username
-              value: {{ .Values.identity.migrationRunner.name }}
+              value: {{ .Values.identity.migrationRunner.databaseRoleName }}
             - name: Database__TygerServerRoleName
-              value: {{ .Values.identity.tygerServer.name }}
+              value: {{ .Values.identity.tygerServer.databaseRoleName }}
             - name: Database__TygerServerIdentity
               value: {{ .Values.identity.tygerServer.name }}
             - name: Buffers__CloudStorage__DefaultLocation

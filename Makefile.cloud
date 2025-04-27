@@ -1,12 +1,13 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+CURRENT_ORG=lamna
 ENVIRONMENT_CONFIG_JSON = $(shell scripts/get-config.sh -o json | jq -c)
 
 SECURITY_ENABLED=true
-HELM_NAMESPACE=tyger
+HELM_NAMESPACE=lamna
 HELM_RELEASE=tyger
-TYGER_URI = https://$(shell echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.domainName')
+TYGER_URI = https://$(shell echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.organizations[] | select(.name == "${CURRENT_ORG}") | .api.domainName')
 INSTALL_CLOUD=false
 AUTO_MIGRATE=false
 DOCKER_BUILD_ARCH_FLAGS = --arch amd64
@@ -30,7 +31,7 @@ ensure-environment-conditionally: install-cli
 	fi
 
 remove-environment: install-cli
-	tyger cloud uninstall -f <(scripts/get-config.sh)
+	tyger cloud uninstall -f <(scripts/get-config.sh) --all
 
 # Sets up the az subscription and kubectl config for the current environment
 set-context:
@@ -69,6 +70,9 @@ set-localsettings: set-context
 		echo "Run 'make up' and 'make set-context' before this target"; exit 1
 	fi
 
+	org_json=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -c '.organizations[] | select(.name == "${CURRENT_ORG}")')
+
+
 	jq <<- EOF > ${CONTROL_PLANE_SERVER_PATH}/appsettings.local.json
 		{
 			"logging": { "Console": {"FormatterName": "simple" } },
@@ -77,9 +81,9 @@ set-localsettings: set-context
 			},
 			"auth": {
 				"enabled": "${SECURITY_ENABLED}",
-				"authority": "https://login.microsoftonline.com/$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.auth.tenantId')",
-				"audience": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.auth.apiAppUri')",
-				"cliAppUri": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.auth.cliAppUri')"
+				"authority": "https://login.microsoftonline.com/$$(echo $${org_json} | jq -r '.api.auth.tenantId')",
+				"audience": "$$(echo $${org_json} | jq -r '.api.auth.apiAppUri')",
+				"cliAppUri": "$$(echo $${org_json} | jq -r '.api.auth.cliAppUri')"
 			},
 			"compute": {
 				"kubernetes": {
@@ -87,10 +91,10 @@ set-localsettings: set-context
 					"namespace": "${HELM_NAMESPACE}",
 					"jobServiceAccount": "${HELM_RELEASE}-job",
 					"noOpConfigMap": "${HELM_RELEASE}-no-op",
-					"workerWaiterImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.workerWaiterImage')",
+					"workerWaiterImage": "$$(echo $${org_json} | jq -r '.api.helm.tyger.values.workerWaiterImage')",
 					"clusters": $$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -c '.cloud.compute.clusters'),
 					"currentPodUid": "00000000-0000-0000-0000-000000000000",
-					"customIdentities":  $$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq '.cloud.compute.identities |  map({(.): ("tyger-custom-" + . + "-job")}) | add')
+					"customIdentities":  $$(echo $${org_json} | jq '.cloud.identities |  map({(.): ("tyger-custom-" + . + "-job")}) | add')
 				}
 			},
 			"logArchive": {
@@ -103,19 +107,20 @@ set-localsettings: set-context
 					"defaultLocation": "$$(echo $${helm_values} | jq -r '.location')",
 					"storageAccounts": $$(echo $${helm_values} | jq -c '.buffers.storageAccounts')
 				},
-				"bufferSidecarImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.bufferSidecarImage')",
-				"bufferCopierImage": "$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.api.helm.tyger.values.bufferCopierImage')",
+				"bufferSidecarImage": "$$(echo $${org_json} | jq -r '.api.helm.tyger.values.bufferSidecarImage')",
+				"bufferCopierImage": "$$(echo $${org_json} | jq -r '.api.helm.tyger.values.bufferCopierImage')",
 				"activeLifetime": "$$(echo $${helm_values} | jq -r '.buffers.activeLifetime')",
 				"softDeletedLifetime": "$$(echo $${helm_values} | jq -r '.buffers.softDeletedLifetime')"
 			},
 			"database": {
 				"host": "$$(echo $${helm_values} | jq -r '.database.host')",
 				"databaseName": "$$(echo $${helm_values} | jq -r '.database.databaseName')",
+				"ownersRoleName": "$$(echo $${helm_values} | jq -r '.database.ownersRoleName')",
 				"port": "$$(echo $${helm_values} | jq -r '.database.port')",
 				"username": "$$(az account show | jq -r '.user.name')",
 				"autoMigrate": ${AUTO_MIGRATE},
-				"tygerServerRoleName": "$$(echo $${helm_values} | jq -r '.identity.tygerServer.name')",
-				"tygerServerIdentity": "$$(echo $${helm_values} | jq -r '.identity.tygerServer.name')"
+				"tygerServerRoleName": "$$(echo $${helm_values} | jq -r '.identity.tygerServer.databaseRoleName')",
+				"tygerServerIdentity": "$$(echo $${helm_values} | jq -r '.identity.tygerServer.databaseRoleName')"
 			}
 		}
 	EOF
@@ -221,3 +226,9 @@ get-server-logs:
 
 follow-server-logs:
 	kubectl logs deployments/tyger-server --all-pods --follow
+
+integration-test-no-up-fast-only-legacy-org:
+	export TYGER_CACHE_FILE="$${HOME}/.cache/tyger/.tyger-legacy-org"
+	mkdir -p $$(dirname "$${TYGER_CACHE_FILE}")
+	$(MAKE) login CURRENT_ORG=legacy
+	$(MAKE) integration-test-no-up-fast-only

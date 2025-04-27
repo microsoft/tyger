@@ -52,6 +52,8 @@ func TestCloudMigrations(t *testing.T) {
 		},
 	}))
 
+	config.Organizations = []*cloudinstall.OrganizationConfig{config.Organizations[0]}
+
 	ctx := context.Background()
 
 	cred, err := cloudinstall.NewMiAwareAzureCLICredential(
@@ -64,8 +66,10 @@ func TestCloudMigrations(t *testing.T) {
 		Credential: cred,
 	}
 
-	// this is a try run to get the Helm values
-	_, helmValuesYaml, err := installer.InstallTygerHelmChart(ctx, true)
+	assert.NoError(t, installer.Config.QuickValidateConfig(ctx))
+
+	// this is a dry run to get the Helm values
+	_, helmValuesYaml, err := installer.InstallTygerHelmChart(ctx, installer.Config.GetSingleOrg(), true)
 	require.NoError(t, err)
 
 	helmValues := make(map[string]any)
@@ -87,7 +91,7 @@ func TestCloudMigrations(t *testing.T) {
 
 	temporaryDatabaseName := fmt.Sprintf("tygertest%s", cloudinstall.RandomAlphanumString(8))
 
-	createPsqlCommandBuilder := func() *CmdBuilder {
+	createPsqlCommandBuilder := func(databaseName string) *CmdBuilder {
 		return NewCmdBuilder("psql",
 			"--host", host,
 			"--port", fmt.Sprintf("%d", int(port)),
@@ -96,33 +100,40 @@ func TestCloudMigrations(t *testing.T) {
 			Env("PGPASSWORD", password)
 	}
 
-	createPsqlCommandBuilder().
+	createPsqlCommandBuilder(databaseName).
 		Arg("--command").Arg(fmt.Sprintf("CREATE DATABASE %s", temporaryDatabaseName)).
 		RunSucceeds(t)
 
+	createPsqlCommandBuilder(temporaryDatabaseName).
+		Arg("--command").Arg(fmt.Sprintf("GRANT CREATE, USAGE ON SCHEMA public to \"%s\"; GRANT CREATE, USAGE ON SCHEMA public to \"%s\"", "lamna-tyger-migration-runner", "lamna-tyger-owners")).
+		RunSucceeds(t)
+
 	defer func() {
-		createPsqlCommandBuilder().
+		createPsqlCommandBuilder(databaseName).
 			Arg("--command").Arg(fmt.Sprintf("DROP DATABASE %s", temporaryDatabaseName)).
 			RunSucceeds(t)
 	}()
 
+	config.Organizations[0].Cloud.DatabaseName = temporaryDatabaseName
+
+	b, err := yaml.Marshal(config)
+	require.NoError(t, err)
+	os.WriteFile(configPath, b, 0644)
+
 	tygerMigrationApplyArgs := []string{
 		"api", "migrations", "apply", "--latest", "--offline", "--wait",
 		"-f", configPath,
-		"--set", fmt.Sprintf("api.helm.tyger.values.database.databaseName=%s", temporaryDatabaseName),
 	}
 
 	runTygerSucceeds(t, tygerMigrationApplyArgs...)
 
 	logs := runTygerSucceeds(t, "api", "migrations", "logs", "1",
-		"-f", configPath,
-		"--set", fmt.Sprintf("api.helm.tyger.values.database.databaseName=%s", temporaryDatabaseName))
+		"-f", configPath)
 
 	assert.Contains(t, logs, "Migration 1 complete")
 
 	logs = runTygerSucceeds(t, "api", "migrations", "logs", "2",
-		"-f", configPath,
-		"--set", fmt.Sprintf("api.helm.tyger.values.database.databaseName=%s", temporaryDatabaseName))
+		"-f", configPath)
 
 	assert.Contains(t, logs, "Migration 2 complete")
 }
