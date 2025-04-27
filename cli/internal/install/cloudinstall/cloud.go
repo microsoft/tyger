@@ -456,8 +456,10 @@ func (inst *Installer) createSharedPromises(ctx context.Context) install.Promise
 			return nil, fmt.Errorf("failed to create traefik namespace: %w", err)
 		}
 
-		if err := inst.addSecretProviderClass(ctx, TraefikNamespace, traefikKeyVaultClientManagedIdentityPromise, getAdminCredsPromise); err != nil {
-			return nil, err
+		if traefikKeyVaultClientManagedIdentityPromise != nil {
+			if err := inst.addSecretProviderClass(ctx, TraefikNamespace, traefikKeyVaultClientManagedIdentityPromise, getAdminCredsPromise); err != nil {
+				return nil, err
+			}
 		}
 
 		return inst.installTraefik(ctx, getAdminCredsPromise, traefikKeyVaultClientManagedIdentityPromise)
