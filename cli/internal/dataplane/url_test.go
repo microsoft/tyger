@@ -11,14 +11,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAccessStringIsUri(t *testing.T) {
-	uri, err := GetUriFromAccessString("https://example.com")
+func TestAccessStringIsUrl(t *testing.T) {
+	url, err := GetUrlFromAccessString("https://example.com")
 	assert.Nil(t, err)
-	assert.Equal(t, "https://example.com", uri.String())
+	assert.Equal(t, "https://example.com", url.String())
 }
 
-func TestAccessStringIsInvalidUri(t *testing.T) {
-	_, err := GetUriFromAccessString("notafileoranabsoluteuri")
+func TestAccessStringIsInvalidUrl(t *testing.T) {
+	_, err := GetUrlFromAccessString("notafileoranabsoluteuri")
 	assert.ErrorContains(t, err, "the buffer access string is invalid")
 }
 
@@ -26,20 +26,20 @@ func TestAccessStringIsFile(t *testing.T) {
 	dir := t.TempDir()
 	path := dir + "/access_string.txt"
 	os.WriteFile(path, []byte("https://example.com"), 0644)
-	uri, err := GetUriFromAccessString(path)
+	url, err := GetUrlFromAccessString(path)
 	assert.Nil(t, err)
-	assert.Equal(t, "https://example.com", uri.String())
+	assert.Equal(t, "https://example.com", url.String())
 }
 
-func TestAccessStringIsFileWithInvalidUri(t *testing.T) {
+func TestAccessStringIsFileWithInvalidUrl(t *testing.T) {
 	dir := t.TempDir()
 	path := dir + "/access_string.txt"
 	os.WriteFile(path, []byte("notanabsoluteuri"), 0644)
-	_, err := GetUriFromAccessString(path)
+	_, err := GetUrlFromAccessString(path)
 	assert.ErrorContains(t, err, "the buffer access string is invalid")
 }
 
-func TestAccessStringIsFileWithLargeUri(t *testing.T) {
+func TestAccessStringIsFileWithLargeUrl(t *testing.T) {
 	dir := t.TempDir()
 	path := dir + "/access_string.txt"
 	f, err := os.Create(path)
@@ -50,6 +50,6 @@ func TestAccessStringIsFileWithLargeUri(t *testing.T) {
 	}
 	err = f.Close()
 	require.Nil(t, err)
-	_, err = GetUriFromAccessString(path)
+	_, err = GetUrlFromAccessString(path)
 	assert.ErrorContains(t, err, "the buffer access string is invalid")
 }

@@ -136,8 +136,8 @@ test-no-up: unit-test integration-test-no-up
 full:
 	$(MAKE) test INSTALL_CLOUD=true
 
-get-tyger-uri:
-	echo ${TYGER_URI}
+get-tyger-url:
+	echo ${TYGER_URL}
 
 install-cli:
 	dev_config=$$(scripts/get-config.sh --dev -o json)

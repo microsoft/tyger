@@ -11,8 +11,8 @@ public static partial class LoggerExtensions
     [LoggerMessage(LogLevel.Error, "The job {job} for run was not found in the cluster")]
     public static partial void RunMissingJob(this ILogger logger, string job);
 
-    [LoggerMessage(LogLevel.Information, "Executed Kubernetes API request {method} {uri}. {durationMs} ms. Status code {statusCode}. {errorBody}")]
-    public static partial void ExecutedKubernetesRequest(this ILogger logger, HttpMethod method, string? uri, double durationMs, int statusCode, string? errorBody);
+    [LoggerMessage(LogLevel.Information, "Executed Kubernetes API request {method} {url}. {durationMs} ms. Status code {statusCode}. {errorBody}")]
+    public static partial void ExecutedKubernetesRequest(this ILogger logger, HttpMethod method, string? url, double durationMs, int statusCode, string? errorBody);
 
     [LoggerMessage(LogLevel.Error, "Error listening for new runs.")]
     public static partial void ErrorListeningForNewRuns(this ILogger logger, Exception exception);

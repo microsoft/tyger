@@ -109,7 +109,7 @@ func newStdioProxyLoginCommand() *cobra.Command {
 				return nil
 			}
 
-			parsedServerUrl, err := controlplane.NormalizeServerUri(serverUrl)
+			parsedServerUrl, err := controlplane.NormalizeServerUrl(serverUrl)
 			if err != nil {
 				return err
 			}

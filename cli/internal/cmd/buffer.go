@@ -147,10 +147,10 @@ func newBufferSetCommand() *cobra.Command {
 			if softDeleted {
 				options.Add("softDeleted", strconv.FormatBool(softDeleted))
 			}
-			relativeUri := fmt.Sprintf("/buffers/%s", args[0])
+			relativeUrl := fmt.Sprintf("/buffers/%s", args[0])
 
 			buffer := model.Buffer{}
-			return controlplane.SetFieldsOnEntity(cmd.Context(), relativeUri, options, etag, clearTags, tags, expiresAt, &buffer)
+			return controlplane.SetFieldsOnEntity(cmd.Context(), relativeUrl, options, etag, clearTags, tags, expiresAt, &buffer)
 		},
 	}
 
@@ -179,8 +179,8 @@ func newBufferShowCommand() *cobra.Command {
 			}
 
 			buffer := model.Buffer{}
-			relativeUri := fmt.Sprintf("/buffers/%s", args[0])
-			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, relativeUri, listOptions, nil, &buffer)
+			relativeUrl := fmt.Sprintf("/buffers/%s", args[0])
+			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, relativeUrl, listOptions, nil, &buffer)
 			if err != nil {
 				return err
 			}
@@ -207,17 +207,17 @@ func newBufferAccessCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:                   "access BUFFER_ID [--write]",
-		Short:                 "Get a URI to be able to read or write to a buffer",
-		Long:                  `Get a URI to be able to read or write to a buffer`,
+		Short:                 "Get a URL to be able to read or write to a buffer",
+		Long:                  `Get a URL to be able to read or write to a buffer`,
 		DisableFlagsInUseLine: true,
 		Args:                  exactlyOneArg("buffer ID"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			uri, err := getBufferAccessUri(cmd.Context(), args[0], flags.writeable)
+			url, err := getBufferAccessUrl(cmd.Context(), args[0], flags.writeable)
 			if err != nil {
 				return err
 			}
 
-			fmt.Println(uri)
+			fmt.Println(url)
 			return nil
 		},
 	}
@@ -227,7 +227,7 @@ func newBufferAccessCommand() *cobra.Command {
 	return cmd
 }
 
-func getBufferAccessUri(ctx context.Context, bufferId string, writable bool) (*url.URL, error) {
+func getBufferAccessUrl(ctx context.Context, bufferId string, writable bool) (*url.URL, error) {
 	bufferAccess := model.BufferAccess{}
 
 	queryOptions := url.Values{}
@@ -245,8 +245,8 @@ func getBufferAccessUri(ctx context.Context, bufferId string, writable bool) (*u
 		}
 	}
 
-	uri := fmt.Sprintf("/buffers/%s/access", bufferId)
-	_, err = controlplane.InvokeRequest(ctx, http.MethodPost, uri, queryOptions, nil, &bufferAccess)
+	requestUrl := fmt.Sprintf("/buffers/%s/access", bufferId)
+	_, err = controlplane.InvokeRequest(ctx, http.MethodPost, requestUrl, queryOptions, nil, &bufferAccess)
 	if err != nil {
 		return nil, err
 	}
@@ -258,7 +258,7 @@ func NewBufferReadCommand(openFileFunc func(ctx context.Context, name string, fl
 	outputFilePath := ""
 	dop := dataplane.DefaultReadDop
 	cmd := &cobra.Command{
-		Use:                   "read { BUFFER_ID | BUFFER_SAS_URI | FILE_WITH_SAS_URI } [flags]",
+		Use:                   "read { BUFFER_ID | BUFFER_SAS_URL | FILE_WITH_SAS_URL } [flags]",
 		Short:                 "Reads the contents of a buffer",
 		Long:                  `Reads the contents of a buffer.`,
 		DisableFlagsInUseLine: true,
@@ -270,10 +270,10 @@ func NewBufferReadCommand(openFileFunc func(ctx context.Context, name string, fl
 				log.Fatal().Msg("the degree of parallelism (dop) must be at least 1")
 			}
 
-			uri, err := dataplane.GetUriFromAccessString(args[0])
+			url, err := dataplane.GetUrlFromAccessString(args[0])
 			if err != nil {
-				if err == dataplane.ErrAccessStringNotUri {
-					uri, err = getBufferAccessUri(cmd.Context(), args[0], false)
+				if err == dataplane.ErrAccessStringNotUrl {
+					url, err = getBufferAccessUrl(cmd.Context(), args[0], false)
 					if err != nil {
 						log.Fatal().Err(err).Msg("Unable to get read access to buffer")
 					}
@@ -306,7 +306,7 @@ func NewBufferReadCommand(openFileFunc func(ctx context.Context, name string, fl
 				outputFile = os.Stdout
 			}
 
-			if err := dataplane.Read(ctx, uri, outputFile, dataplane.WithReadDop(dop)); err != nil {
+			if err := dataplane.Read(ctx, url, outputFile, dataplane.WithReadDop(dop)); err != nil {
 				if errors.Is(err, ctx.Err()) {
 					err = ctx.Err()
 				}
@@ -327,7 +327,7 @@ func NewBufferWriteCommand(openFileFunc func(ctx context.Context, name string, f
 	flushIntervalString := dataplane.DefaultFlushInterval.String()
 
 	cmd := &cobra.Command{
-		Use:                   "write { BUFFER_ID | BUFFER_SAS_URI | FILE_WITH_SAS_URI } [flags]",
+		Use:                   "write { BUFFER_ID | BUFFER_SAS_URL | FILE_WITH_SAS_URL } [flags]",
 		Short:                 "Writes to a buffer",
 		Long:                  `Write data to a buffer.`,
 		DisableFlagsInUseLine: true,
@@ -339,10 +339,10 @@ func NewBufferWriteCommand(openFileFunc func(ctx context.Context, name string, f
 				log.Fatal().Msg("the degree of parallelism (dop) must be at least 1")
 			}
 
-			uri, err := dataplane.GetUriFromAccessString(args[0])
+			url, err := dataplane.GetUrlFromAccessString(args[0])
 			if err != nil {
-				if err == dataplane.ErrAccessStringNotUri {
-					uri, err = getBufferAccessUri(cmd.Context(), args[0], true)
+				if err == dataplane.ErrAccessStringNotUrl {
+					url, err = getBufferAccessUrl(cmd.Context(), args[0], true)
 					if err != nil {
 						log.Fatal().Err(err).Msg("Unable to get read access to buffer")
 					}
@@ -408,7 +408,7 @@ func NewBufferWriteCommand(openFileFunc func(ctx context.Context, name string, f
 
 			writeOptions = append(writeOptions, dataplane.WithWriteFlushInterval(parsedFlushInterval))
 
-			err = dataplane.Write(ctx, uri, inputReader, writeOptions...)
+			err = dataplane.Write(ctx, url, inputReader, writeOptions...)
 			if err != nil {
 				if errors.Is(err, ctx.Err()) {
 					err = ctx.Err()
@@ -627,8 +627,8 @@ func newBufferDeleteCommand() *cobra.Command {
 				var deleted []model.Buffer
 				for _, id := range args {
 					buffer := model.Buffer{}
-					relativeUri := fmt.Sprintf("/buffers/%s", id)
-					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodDelete, relativeUri, nil, nil, &buffer); err != nil {
+					relativeUrl := fmt.Sprintf("/buffers/%s", id)
+					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodDelete, relativeUrl, nil, nil, &buffer); err != nil {
 						return err
 					}
 					deleted = append(deleted, buffer)
@@ -698,8 +698,8 @@ func newBufferRestoreCommand() *cobra.Command {
 				var restored []model.Buffer
 				for _, id := range args {
 					buffer := model.Buffer{}
-					relativeUri := fmt.Sprintf("/buffers/%s/restore", id)
-					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, relativeUri, nil, nil, &buffer); err != nil {
+					relativeUrl := fmt.Sprintf("/buffers/%s/restore", id)
+					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPost, relativeUrl, nil, nil, &buffer); err != nil {
 						return err
 					}
 					restored = append(restored, buffer)
@@ -774,8 +774,8 @@ func newBufferPurgeCommand() *cobra.Command {
 				var deleted []model.Buffer
 				for _, id := range args {
 					buffer := model.Buffer{}
-					relativeUri := fmt.Sprintf("/buffers/%s", id)
-					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodDelete, relativeUri, options, nil, &buffer); err != nil {
+					relativeUrl := fmt.Sprintf("/buffers/%s", id)
+					if _, err := controlplane.InvokeRequest(cmd.Context(), http.MethodDelete, relativeUrl, options, nil, &buffer); err != nil {
 						return err
 					}
 					deleted = append(deleted, buffer)

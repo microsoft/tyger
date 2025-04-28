@@ -125,7 +125,7 @@ the Asp.Versioning library offers support for sunsetting/deprecating API version
 ### Test API Version changes
 
 When testing API version changes, the API version can be "overridden" on the Tyger client by
-1.  Supplying the version in the URI directly:
+1.  Supplying the version in the URL directly:
     ```go
 	controlplane.InvokeRequest(context.Background(), http.MethodGet, "/buffers?api-version=2.0", nil, nil, nil)
     ```

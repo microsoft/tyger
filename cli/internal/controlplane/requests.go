@@ -44,7 +44,7 @@ func WithLeaveResponseOpen() InvokeRequestOptionFunc {
 	}
 }
 
-func InvokeRequest(ctx context.Context, method string, relativeUri string, queryParams url.Values, input interface{}, output interface{}, options ...InvokeRequestOptionFunc) (*http.Response, error) {
+func InvokeRequest(ctx context.Context, method string, relativeUrl string, queryParams url.Values, input interface{}, output interface{}, options ...InvokeRequestOptionFunc) (*http.Response, error) {
 	var opts *InvokeRequestOptions
 	if len(options) > 0 {
 		opts = &InvokeRequestOptions{}
@@ -67,12 +67,12 @@ func InvokeRequest(ctx context.Context, method string, relativeUri string, query
 		queryParams = url.Values{}
 	}
 
-	if strings.Contains(relativeUri, "?") {
-		url, err := url.Parse(relativeUri)
+	if strings.Contains(relativeUrl, "?") {
+		url, err := url.Parse(relativeUrl)
 		if err != nil {
 			return nil, err
 		}
-		relativeUri = url.Path
+		relativeUrl = url.Path
 		for key, values := range url.Query() {
 			for _, value := range values {
 				queryParams.Add(key, value)
@@ -85,8 +85,8 @@ func InvokeRequest(ctx context.Context, method string, relativeUri string, query
 		queryParams.Add(ApiVersionQueryParam, apiVersion)
 	}
 
-	absoluteUri := tygerClient.ControlPlaneUrl.JoinPath(relativeUri)
-	absoluteUri.RawQuery = queryParams.Encode()
+	absoluteUrl := tygerClient.ControlPlaneUrl.JoinPath(relativeUrl)
+	absoluteUrl.RawQuery = queryParams.Encode()
 
 	var body io.Reader = nil
 	var serializedBody []byte
@@ -98,7 +98,7 @@ func InvokeRequest(ctx context.Context, method string, relativeUri string, query
 		body = bytes.NewBuffer(serializedBody)
 	}
 
-	req, err := retryablehttp.NewRequestWithContext(ctx, method, absoluteUri.String(), body)
+	req, err := retryablehttp.NewRequestWithContext(ctx, method, absoluteUrl.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -168,14 +168,14 @@ func InvokeRequest(ctx context.Context, method string, relativeUri string, query
 	return resp, nil
 }
 
-func InvokePageRequests[T any](ctx context.Context, uri string, queryParams url.Values, limit int, warnIfTruncated bool) error {
+func InvokePageRequests[T any](ctx context.Context, requestUrl string, queryParams url.Values, limit int, warnIfTruncated bool) error {
 	firstPage := true
 	totalPrinted := 0
 	truncated := false
 
-	for uri != "" {
+	for requestUrl != "" {
 		page := model.Page[T]{}
-		_, err := InvokeRequest(ctx, http.MethodGet, uri, queryParams, nil, &page)
+		_, err := InvokeRequest(ctx, http.MethodGet, requestUrl, queryParams, nil, &page)
 		if err != nil {
 			return err
 		}
@@ -213,7 +213,7 @@ func InvokePageRequests[T any](ctx context.Context, uri string, queryParams url.
 		}
 
 		firstPage = false
-		uri = strings.TrimLeft(page.NextLink, "/")
+		requestUrl = strings.TrimLeft(page.NextLink, "/")
 	}
 End:
 	fmt.Println("\n]")

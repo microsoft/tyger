@@ -363,9 +363,9 @@ Finished:
             qs = qs.Add("follow", "true");
         }
 
-        var uri = new Uri(_client.BaseUri, $"api/v1/namespaces/{_k8sOptions.Namespace}/pods/{podName}/log{qs.ToUriComponent()}");
+        var url = new Uri(_client.BaseUri, $"api/v1/namespaces/{_k8sOptions.Namespace}/pods/{podName}/log{qs.ToUriComponent()}");
 
-        var requestMessage = new HttpRequestMessage(HttpMethod.Get, uri);
+        var requestMessage = new HttpRequestMessage(HttpMethod.Get, url);
         if (_client.Credentials != null)
         {
             cancellationToken.ThrowIfCancellationRequested();

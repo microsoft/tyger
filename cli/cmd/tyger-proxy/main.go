@@ -54,8 +54,8 @@ instrument subsystems that cannot acccess the internet directly`
 func addFileFlag(cmd *cobra.Command, optionsFilePath *string) {
 	cmd.Flags().StringVarP(optionsFilePath, "file", "f", "", `The path to a file containing proxy options. It should be a YAML file with the following structure:
 
-# The Tyger server URI
-serverUri: https://example.com
+# The Tyger server URL
+serverUrl: https://example.com
 
 # The service principal ID
 servicePrincipal: api://my-client
@@ -74,7 +74,7 @@ allowedClientCIDRs:
 # The port to listen on. If not specified, 6888 is used. If 0, a random port is used.
 port: 6888
 
-# The HTTP proxy to use. Can be 'auto[matic]', 'none', or a URI. The default is 'auto'.
+# The HTTP proxy to use. Can be 'auto[matic]', 'none', or a URL. The default is 'auto'.
 proxy: auto
 
 # A path either to a directory or to a file to write logs. If it is a directory, a log file will be created in it.
@@ -129,8 +129,8 @@ func readProxyOptions(optionsFilePath string, options *tygerproxy.ProxyOptions) 
 		return fmt.Errorf("failed to parse options file: %v", err)
 	}
 
-	if options.ServerUri == "" {
-		return errors.New("serverUri must be specified")
+	if options.ServerUrl == "" {
+		return errors.New("serverUrl must be specified")
 	}
 
 	if options.ServicePrincipal == "" {

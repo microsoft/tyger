@@ -58,8 +58,8 @@ func WithReadHttpClient(httpClient *retryablehttp.Client) ReadOption {
 	}
 }
 
-func Read(ctx context.Context, uri *url.URL, outputWriter io.Writer, options ...ReadOption) error {
-	container := &Container{uri}
+func Read(ctx context.Context, url *url.URL, outputWriter io.Writer, options ...ReadOption) error {
+	container := &Container{url}
 	readOptions := &readOptions{
 		dop: DefaultReadDop,
 	}
@@ -72,7 +72,7 @@ func Read(ctx context.Context, uri *url.URL, outputWriter io.Writer, options ...
 		if tygerClient != nil {
 			readOptions.connectionType = tygerClient.ConnectionType()
 			readOptions.httpClient = tygerClient.DataPlaneClient.Client
-			if tygerClient.ConnectionType() == client.TygerConnectionTypeSsh && uri.Scheme == "http+unix" && !container.SupportsRelay() {
+			if tygerClient.ConnectionType() == client.TygerConnectionTypeSsh && url.Scheme == "http+unix" && !container.SupportsRelay() {
 				httpClient, tunnelPool, err := createSshTunnelPoolClient(ctx, tygerClient, container, readOptions.dop)
 				if err != nil {
 					return err
@@ -155,9 +155,9 @@ func Read(ctx context.Context, uri *url.URL, outputWriter io.Writer, options ...
 
 				lock.Unlock()
 
-				blobUri := container.GetBlobUri(blobNumber)
+				blobUrl := container.GetBlobUrl(blobNumber)
 				ctx := log.Ctx(ctx).With().Int64("blobNumber", blobNumber).Logger().WithContext(ctx)
-				respData, err := DownloadBlob(ctx, httpClient, blobUri, &waitForBlobs, &blobNumber, &finalBlobNumber)
+				respData, err := DownloadBlob(ctx, httpClient, blobUrl, &waitForBlobs, &blobNumber, &finalBlobNumber)
 				if err != nil {
 					if err == errPastEndOfBlob {
 						break
@@ -252,7 +252,7 @@ func readBufferStart(ctx context.Context, httpClient *retryablehttp.Client, cont
 	wait := atomic.Bool{}
 	wait.Store(true)
 
-	data, err := DownloadBlob(ctx, httpClient, container.GetStartMetadataUri(), &wait, nil, nil)
+	data, err := DownloadBlob(ctx, httpClient, container.GetStartMetadataUrl(), &wait, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -272,7 +272,7 @@ func pollForBufferEnd(ctx context.Context, httpClient *retryablehttp.Client, con
 	wait.Store(false)
 
 	for ctx.Err() == nil {
-		data, err := DownloadBlob(ctx, httpClient, container.GetEndMetadataUri(), &wait, nil, nil)
+		data, err := DownloadBlob(ctx, httpClient, container.GetEndMetadataUrl(), &wait, nil, nil)
 		if err != nil {
 			if err == ErrNotFound {
 				time.Sleep(5 * time.Second)
@@ -299,7 +299,7 @@ func pollForBufferEnd(ctx context.Context, httpClient *retryablehttp.Client, con
 	return nil
 }
 
-func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUri string, waitForBlob *atomic.Bool, blobNumber *int64, finalBlobNumber *atomic.Int64) (*readData, error) {
+func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUrl string, waitForBlob *atomic.Bool, blobNumber *int64, finalBlobNumber *atomic.Int64) (*readData, error) {
 	// The last error that occurred relating to reading the body. retryablehttp does not retry when these happen
 	// because reading the body happens after the call to HttpClient.Do()
 	var lastBodyReadError *responseBodyReadError
@@ -319,7 +319,7 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUri
 			}
 		}
 
-		req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, blobUri, nil)
+		req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, blobUrl, nil)
 		if err != nil {
 			return nil, err
 		}

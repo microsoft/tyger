@@ -50,10 +50,10 @@ tyger login -f LOGIN_FILE.yaml
 `LOGIN_FILE.yaml` should look like this:
 
 ```yaml
-# The Tyger server URI. Required.
-serverUri: https://example.com
+# The Tyger server URL. Required.
+serverUrl: https://example.com
 
-# The service principal ID or URI. Required.
+# The service principal ID or URL. Required.
 servicePrincipal: api://my-client
 
 # The path to the service principal certificate file
@@ -62,6 +62,6 @@ certificatePath: /a/path/to/a/file.pem
 # The thumbprint of a certificate in a Windows certificate store for service principal authentication (Windows only)
 certificateThumbprint: 92829BFAEB67C738DECE0B255C221CF9E1A46285
 
-# The HTTP proxy setting. Options are 'auto[matic]', 'none', or a URI. Default is 'auto'.
+# The HTTP proxy setting. Options are 'auto[matic]', 'none', or a URL. Default is 'auto'.
 proxy: auto
 ```

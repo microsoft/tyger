@@ -54,7 +54,7 @@ Subsequent commands will be performed against this server.`,
 					return errors.New("--local cannot be specified with a server address")
 				}
 
-				options.ServerUri = controlplane.LocalUriSentinel
+				options.ServerUrl = controlplane.LocalUrlSentinel
 				_, err = controlplane.Login(cmd.Context(), options)
 				return err
 			}
@@ -79,8 +79,8 @@ Subsequent commands will be performed against this server.`,
 					return fmt.Errorf("failed to parse login options file: %v", err)
 				}
 
-				if options.ServerUri == "" {
-					return errors.New("serverUri must be specified")
+				if options.ServerUrl == "" {
+					return errors.New("serverUrl must be specified")
 				}
 
 				if options.CertificateThumbprint != "" && runtime.GOOS != "windows" {
@@ -138,7 +138,7 @@ Subsequent commands will be performed against this server.`,
 					}
 				}
 
-				options.ServerUri = args[0]
+				options.ServerUrl = args[0]
 				_, err := controlplane.Login(cmd.Context(), options)
 				return err
 			default:
@@ -151,8 +151,8 @@ Subsequent commands will be performed against this server.`,
 
 	loginCmd.Flags().StringVarP(&optionsFilePath, "file", "f", "", `The path to a file containing login options. It should be a YAML file with the following structure:
 
-# The Tyger server URI
-serverUri: https://example.com
+# The Tyger server URL
+serverUrl: https://example.com
 
 # The service principal ID
 servicePrincipal: api://my-client
@@ -163,11 +163,11 @@ certificatePath: /a/path/to/a/file.pem
 # The thumbprint of a certificate in a Windows certificate store to use for service principal authentication (Windows only)
 certificateThumbprint: 92829BFAEB67C738DECE0B255C221CF9E1A46285
 
-# The HTTP proxy to use. Can be 'auto[matic]', 'none', or a URI. The default is 'auto'.
+# The HTTP proxy to use. Can be 'auto[matic]', 'none', or a URL. The default is 'auto'.
 proxy: auto
 	`)
 
-	loginCmd.Flags().StringVarP(&options.ServicePrincipal, "service-principal", "s", "", "The service principal app ID or identifier URI")
+	loginCmd.Flags().StringVarP(&options.ServicePrincipal, "service-principal", "s", "", "The service principal app ID or identifier URL")
 	loginCmd.Flags().StringVarP(&options.CertificatePath, "cert-file", "c", "", "The path to the certificate in PEM format to use for service principal authentication")
 
 	if runtime.GOOS == "windows" {
@@ -177,7 +177,7 @@ proxy: auto
 
 	loginCmd.Flags().BoolVarP(&options.UseDeviceCode, "use-device-code", "d", false, "Whether to use the device code flow for user logins. Use this mode when the app can't launch a browser on your behalf.")
 
-	loginCmd.Flags().StringVar(&options.Proxy, "proxy", "auto", "The HTTP proxy to use. Can be 'auto[matic]', 'none', or a URI.")
+	loginCmd.Flags().StringVar(&options.Proxy, "proxy", "auto", "The HTTP proxy to use. Can be 'auto[matic]', 'none', or a URL.")
 
 	loginCmd.Flags().BoolVar(&options.DisableTlsCertificateValidation, "disable-tls-certificate-validation", false, "Disable TLS certificate validation.")
 	loginCmd.Flags().MarkHidden("disable-tls-certificate-validation")
@@ -231,7 +231,7 @@ func newLoginStatusCommand() *cobra.Command {
 				return nil
 			case OutputFormatJson:
 				result := loginStatusResult{
-					ServeUri:  service.String(),
+					ServerUrl: service.String(),
 					Principal: tygerClient.Principal,
 				}
 				if tygerClient.RawProxy != nil {
@@ -255,7 +255,7 @@ func newLoginStatusCommand() *cobra.Command {
 }
 
 type loginStatusResult struct {
-	ServeUri  string                `json:"serverUri"`
+	ServerUrl string                `json:"serverUrl"`
 	Principal string                `json:"principal,omitempty"`
 	Proxy     string                `json:"proxy,omitempty"`
 	Metadata  model.ServiceMetadata `json:"metadata"`

@@ -33,6 +33,7 @@ type commonFlags struct {
 	multiOrg                         *[]string
 	setOverrides                     map[string]string
 	skipLoginAndValidateSubscription bool
+	configPathOptional               bool
 }
 
 func newSingleOrgCommonFlags() commonFlags {
