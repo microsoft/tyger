@@ -57,16 +57,6 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 		return nil, fmt.Errorf("failed to ensure Traefik dynamic ConfigMap: %w", err)
 	}
 
-	serviceAccountAnnotations := map[string]string{}
-	if keyVaultClientManagedIdentityPromise != nil {
-		kvClientIdentity, err := keyVaultClientManagedIdentityPromise.Await()
-		if err != nil {
-			return nil, install.ErrDependencyFailed
-		}
-
-		serviceAccountAnnotations["azure.workload.identity/client-id"] = *kvClientIdentity.Properties.ClientID
-	}
-
 	traefikConfig := HelmChartConfig{
 		RepoName:    "traefik",
 		Namespace:   TraefikNamespace,
@@ -94,40 +84,57 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 					"service.beta.kubernetes.io/azure-dns-label-name": inst.Config.Cloud.Compute.DnsLabel,
 				},
 			},
-			"serviceAccountAnnotations": serviceAccountAnnotations,
-			"volumes": []any{
-				map[string]any{
-					"name":      "traefik-dynamic",
-					"mountPath": "/config",
-					"type":      "configMap",
-				},
+			"additionalArguments": []string{
+				"--entryPoints.websecure.http.tls=true",
 			},
-			"deployment": map[string]any{
-				"additionalVolumes": []any{
-					map[string]any{
-						"name": "kv-certs",
-						"csi": map[string]any{
-							"driver":   "secrets-store.csi.k8s.io",
-							"readOnly": true,
-							"volumeAttributes": map[string]any{
-								"secretProviderClass": inst.Config.Cloud.TlsCertificate.CertificateName,
-							},
+		}}
+
+	usingCertificate := keyVaultClientManagedIdentityPromise != nil
+	if usingCertificate {
+		kvClientIdentity, err := keyVaultClientManagedIdentityPromise.Await()
+		if err != nil {
+			return nil, install.ErrDependencyFailed
+		}
+
+		traefikConfig.Values["serviceAccountAnnotations"] = map[string]any{
+			"azure.workload.identity/client-id": *kvClientIdentity.Properties.ClientID,
+		}
+
+		traefikConfig.Values["volumes"] = []any{
+			map[string]any{
+				"name":      "traefik-dynamic",
+				"mountPath": "/config",
+				"type":      "configMap",
+			},
+		}
+
+		traefikConfig.Values["deployment"] = map[string]any{
+			"additionalVolumes": []any{
+				map[string]any{
+					"name": "kv-certs",
+					"csi": map[string]any{
+						"driver":   "secrets-store.csi.k8s.io",
+						"readOnly": true,
+						"volumeAttributes": map[string]any{
+							"secretProviderClass": inst.Config.Cloud.TlsCertificate.CertificateName,
 						},
 					},
 				},
 			},
-			"additionalVolumeMounts": []any{
-				map[string]any{
-					"name":      "kv-certs",
-					"mountPath": "/certs",
-					"readOnly":  true,
-				},
+		}
+
+		traefikConfig.Values["additionalVolumeMounts"] = []any{
+			map[string]any{
+				"name":      "kv-certs",
+				"mountPath": "/certs",
+				"readOnly":  true,
 			},
-			"additionalArguments": []string{
-				"--entryPoints.websecure.http.tls=true",
-				"--providers.file.filename=/config/dynamic.toml",
-			},
-		}}
+		}
+
+		traefikConfig.Values["additionalArguments"] = append(
+			traefikConfig.Values["additionalArguments"].([]string),
+			"--providers.file.filename=/config/dynamic.toml")
+	}
 
 	var overrides *HelmChartConfig
 	if inst.Config.Cloud.Compute.Helm != nil && inst.Config.Cloud.Compute.Helm.Traefik != nil {

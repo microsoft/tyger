@@ -146,7 +146,7 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 		}
 	}
 
-	if inst.Config.Cloud.TlsCertificate.KeyVault != nil {
+	if inst.Config.Cloud.TlsCertificate != nil && inst.Config.Cloud.TlsCertificate.KeyVault != nil {
 		if cluster.Properties.AddonProfiles == nil {
 			cluster.Properties.AddonProfiles = make(map[string]*armcontainerservice.ManagedClusterAddonProfile)
 		}
