@@ -1011,7 +1011,7 @@ func pullImages(ctx context.Context, newRun model.Run) error {
 				}
 			}
 
-			// clear fields that result in a L that docker won't understand
+			// clear fields that result in a URL that docker won't understand
 			sshParams.CliPath = ""
 			sshParams.SocketPath = ""
 			sshParams.Options = nil
