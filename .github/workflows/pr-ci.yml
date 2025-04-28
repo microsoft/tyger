@@ -398,7 +398,7 @@ jobs:
 
           # Run tests
           .\scripts\Test-CertificateLoginOnWindows.ps1 `
-            -ServerUri $env:TYGER_URL `
+            -ServerUrl $env:TYGER_URL `
             -ServicePrincipal $servicePrincipal `
             -KeyVaultName $keyVaultName `
             -CertificateName $certificateName `
