@@ -9,7 +9,7 @@
 
 param(
     [Parameter(Mandatory = $true)]
-    [string]$ServerUri,
+    [string]$ServerUrl,
 
     [Parameter(Mandatory = $true)]
     [string]$servicePrincipal,
@@ -36,7 +36,7 @@ function RunTests {
 
     # Login with certificate thumbprint given as a command-line argument
 
-    Invoke-NativeCommand tyger login $ServerUri --service-principal $servicePrincipal --cert-thumbprint $Cert.Thumbprint
+    Invoke-NativeCommand tyger login $ServerUrl --service-principal $servicePrincipal --cert-thumbprint $Cert.Thumbprint
     Invoke-NativeCommand tyger run list --limit 1 | Out-Null
 
     # Make the last token appear expired so that we can test refreshing it
@@ -52,7 +52,7 @@ function RunTests {
 
     $optionsFile = New-TemporaryFile
     $options = @{
-        serverUri             = $ServerUri
+        serverUrl             = $ServerUrl
         servicePrincipal      = $servicePrincipal
         certificateThumbprint = $Cert.Thumbprint
         logPath               = [System.IO.Path]::GetTempPath()
@@ -89,7 +89,7 @@ function RunTests {
     # Validate that specifying a certificate file and a certificate thumbprint at the same time is an error
     $certFile = New-TemporaryFile
     Invoke-NativeCommandEnsureFailure -ExpectedErrorSubstring "if any flags in the group [cert-file cert-thumbprint] are set none of the others can" `
-        tyger login $serverUri --service-principal $servicePrincipal --cert-thumbprint $cert.Thumbprint --cert-file $certFile.FullName
+        tyger login $serverUrl --service-principal $servicePrincipal --cert-thumbprint $cert.Thumbprint --cert-file $certFile.FullName
 
     $yamlContent += "certificatePath`: $($certFile.FullName)`r`n"
     Set-Content -Path $optionsFile.FullName -Value $yamlContent

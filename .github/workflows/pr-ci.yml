@@ -165,7 +165,7 @@ jobs:
     outputs:
       IMAGE_TAG: ${{ steps.tag.outputs.IMAGE_TAG }}
       TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
-      TYGER_URI: ${{ steps.set-variables.outputs.TYGER_URI }}
+      TYGER_URL: ${{ steps.set-variables.outputs.TYGER_URL }}
       DEVELOPER_CONFIG_BASE64: ${{ steps.set-variables.outputs.DEVELOPER_CONFIG_BASE64 }}
     steps:
       - name: Checkout
@@ -193,8 +193,8 @@ jobs:
 
           export TYGER_ENVIRONMENT_NAME="${environment_name}"
 
-          tyger_uri=$(make -s get-tyger-uri)
-          echo "TYGER_URI=$tyger_uri" >> "$GITHUB_OUTPUT"
+          tyger_uRL=$(make -s get-tyger-url)
+          echo "TYGER_URL=$tyger_uRL" >> "$GITHUB_OUTPUT"
 
           echo "TYGER_ENVIRONMENT_NAME=$environment_name" >> "$GITHUB_OUTPUT"
           echo "TYGER_ENVIRONMENT_NAME=$environment_name" >> "$GITHUB_ENV"
@@ -381,7 +381,7 @@ jobs:
       - name: Run smoke tests
         env:
           DEVELOPER_CONFIG_BASE64: ${{ needs.get-config.outputs.DEVELOPER_CONFIG_BASE64 }}
-          TYGER_URI: ${{ needs.get-config.outputs.TYGER_URI }}
+          TYGER_URL: ${{ needs.get-config.outputs.TYGER_URL }}
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -391,14 +391,14 @@ jobs:
 
           $developerConfig = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($env:DEVELOPER_CONFIG_BASE64)) | ConvertFrom-Json
 
-          $servicePrincipal = $developerConfig.testAppUri
+          $servicePrincipal = $developerConfig.testAppUrl
           $keyVaultName = $developerConfig.keyVault
           $certificateName = $developerConfig.pkcs12CertSecret.name
           $certificateVersion = $developerConfig.pkcs12CertSecret.version
 
           # Run tests
           .\scripts\Test-CertificateLoginOnWindows.ps1 `
-            -ServerUri $env:TYGER_URI `
+            -ServerUri $env:TYGER_URL `
             -ServicePrincipal $servicePrincipal `
             -KeyVaultName $keyVaultName `
             -CertificateName $certificateName `

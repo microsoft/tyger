@@ -102,7 +102,9 @@ func newCloudUninstallCommand() *cobra.Command {
 
 func addCommonFlags(cmd *cobra.Command, flags *commonFlags) {
 	cmd.Flags().StringVarP(&flags.configPath, "file", "f", "", "path to the installation configuration YAML file")
-	cmd.MarkFlagRequired("file")
+	if !flags.configPathOptional {
+		cmd.MarkFlagRequired("file")
+	}
 	if flags.singleOrg != nil {
 		cmd.Flags().StringVarP(flags.singleOrg, "org", "o", "", "the organization this command will affect")
 	} else if flags.multiOrg != nil {

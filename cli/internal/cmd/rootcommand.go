@@ -85,7 +85,7 @@ func NewCommonRootCommand(commit string) *cobra.Command {
 		},
 	}
 
-	cmd.PersistentFlags().StringVar(&proxy, "proxy", proxy, "The HTTP proxy to use. Can be 'auto[matic]', 'none', or a URI.")
+	cmd.PersistentFlags().StringVar(&proxy, "proxy", proxy, "The HTTP proxy to use. Can be 'auto[matic]', 'none', or a URL.")
 
 	// hide --help as a flag in the usage output
 	cmd.PersistentFlags().BoolP("help", "h", false, "Print usage")

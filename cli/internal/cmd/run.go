@@ -95,8 +95,8 @@ func newRunExecCommand() *cobra.Command {
 		if run.Job.Codespec.Inline != nil {
 			resolvedCodespec = model.Codespec(*run.Job.Codespec.Inline)
 		} else if run.Job.Codespec.Named != nil {
-			relativeUri := fmt.Sprintf("/codespecs/%s", *run.Job.Codespec.Named)
-			_, err := controlplane.InvokeRequest(ctx, http.MethodGet, relativeUri, nil, nil, &resolvedCodespec)
+			relativeUrl := fmt.Sprintf("/codespecs/%s", *run.Job.Codespec.Named)
+			_, err := controlplane.InvokeRequest(ctx, http.MethodGet, relativeUrl, nil, nil, &resolvedCodespec)
 			if err != nil {
 				return err
 			}
@@ -192,19 +192,19 @@ func attachToRunNoBufferIO(ctx context.Context, run model.Run, logs bool, logTim
 func attachToRun(ctx context.Context, run model.Run, inputBufferParameter, outputBufferParameter string, blockSize int, writeDop int, readDop int, logs bool, logTimestamps bool, logSink io.Writer) error {
 	log.Logger = log.Logger.With().Int64("runId", run.Id).Logger()
 	log.Ctx(ctx).Info().Msg("Run created")
-	var inputSasUri *url.URL
-	var outputSasUri *url.URL
+	var inputSasUrl *url.URL
+	var outputSasUrl *url.URL
 	var err error
 	if inputBufferParameter != "" {
 		bufferId := run.Job.Buffers[inputBufferParameter]
-		inputSasUri, err = getBufferAccessUri(ctx, bufferId, true)
+		inputSasUrl, err = getBufferAccessUrl(ctx, bufferId, true)
 		if err != nil {
 			return err
 		}
 	}
 	if outputBufferParameter != "" {
 		bufferId := run.Job.Buffers[outputBufferParameter]
-		outputSasUri, err = getBufferAccessUri(ctx, bufferId, false)
+		outputSasUrl, err = getBufferAccessUrl(ctx, bufferId, false)
 		if err != nil {
 			return err
 		}
@@ -221,11 +221,11 @@ func attachToRun(ctx context.Context, run model.Run, inputBufferParameter, outpu
 		log.Warn().Msg("Canceling...")
 	}()
 
-	if inputSasUri != nil {
+	if inputSasUrl != nil {
 		mainWg.Add(1)
 		go func() {
 			defer mainWg.Done()
-			err := dataplane.Write(ctx, inputSasUri, os.Stdin,
+			err := dataplane.Write(ctx, inputSasUrl, os.Stdin,
 				dataplane.WithWriteBlockSize(blockSize),
 				dataplane.WithWriteDop(writeDop))
 			if err != nil {
@@ -237,11 +237,11 @@ func attachToRun(ctx context.Context, run model.Run, inputBufferParameter, outpu
 		}()
 	}
 
-	if outputSasUri != nil {
+	if outputSasUrl != nil {
 		mainWg.Add(1)
 		go func() {
 			defer mainWg.Done()
-			err := dataplane.Read(ctx, outputSasUri, os.Stdout,
+			err := dataplane.Read(ctx, outputSasUrl, os.Stdout,
 				dataplane.WithReadDop(readDop))
 			if err != nil {
 				if errors.Is(err, ctx.Err()) {
@@ -1011,7 +1011,7 @@ func pullImages(ctx context.Context, newRun model.Run) error {
 				}
 			}
 
-			// clear fields that result in a URI that docker won't underatand
+			// clear fields that result in a L that docker won't understand
 			sshParams.CliPath = ""
 			sshParams.SocketPath = ""
 			sshParams.Options = nil

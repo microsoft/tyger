@@ -254,6 +254,17 @@ For calls to the Tyger API, the `tyger` CLI can use a service principal instead
 of a user's identity. If you want to use a service principal for this purpose,
 you can use an existing one or create a new one on your own.
 
+::: info Note
+
+It is also possible to run this command without the configuration file
+if the server URL is known:
+
+``` bash
+tyger identities install --server-url https://demo-tyger.westus2.cloudapp.azure.com
+```
+
+:::
+
 ## Install the Tyger API
 
 The last step is to install the Tyger API, which can be done by running:

@@ -228,7 +228,7 @@ func TestRunningProxyOnSamePort(t *testing.T) {
 
 	proxyOptions := tygerproxy.ProxyOptions{
 		LoginConfig: controlplane.LoginConfig{
-			ServerUri: tygerClient.ControlPlaneUrl.String(),
+			ServerUrl: tygerClient.ControlPlaneUrl.String(),
 		},
 	}
 	proxyLogBuffer := SyncBuffer{}
@@ -252,7 +252,7 @@ func TestRunningProxyOnSamePortDifferentTarget(t *testing.T) {
 
 	proxyOptions := tygerproxy.ProxyOptions{
 		LoginConfig: controlplane.LoginConfig{
-			ServerUri: tygerClient.ControlPlaneUrl.String(),
+			ServerUrl: tygerClient.ControlPlaneUrl.String(),
 		},
 	}
 	proxyLogBuffer := SyncBuffer{}
@@ -263,7 +263,7 @@ func TestRunningProxyOnSamePortDifferentTarget(t *testing.T) {
 	defer closeProxy()
 
 	secondProxyOptions := *&proxyOptions
-	secondProxyOptions.LoginConfig.ServerUri = "http://someotherserver"
+	secondProxyOptions.LoginConfig.ServerUrl = "http://someotherserver"
 
 	_, err = tygerproxy.RunProxy(context.Background(), tygerClient, &secondProxyOptions, logger)
 	require.ErrorIs(err, tygerproxy.ErrProxyAlreadyRunningWrongTarget)

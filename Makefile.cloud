@@ -7,7 +7,7 @@ ENVIRONMENT_CONFIG_JSON = $(shell scripts/get-config.sh -o json | jq -c)
 SECURITY_ENABLED=true
 HELM_NAMESPACE=lamna
 HELM_RELEASE=tyger
-TYGER_URI = https://$(shell echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.organizations[] | select(.name == "${CURRENT_ORG}") | .api.domainName')
+TYGER_URL = https://$(shell echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.organizations[] | select(.name == "${CURRENT_ORG}") | .api.domainName')
 INSTALL_CLOUD=false
 AUTO_MIGRATE=false
 DOCKER_BUILD_ARCH_FLAGS = --arch amd64
@@ -156,10 +156,10 @@ check-test-client-cert:
 login: install-cli download-test-client-cert
 	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.version')
 	cert_path=$${HOME}/tyger_test_client_cert_$${cert_version}.pem
-	test_app_uri=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.testAppUri')
+	test_app_uri=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.testAppUrl')
 
 	tyger login -f <(cat <<EOF
-	serverUri: ${TYGER_URI}
+	serverurl: ${TYGER_URL}
 	servicePrincipal: $${test_app_uri}
 	certificatePath: $${cert_path}
 	EOF
@@ -168,10 +168,10 @@ login: install-cli download-test-client-cert
 login-local: install-cli download-test-client-cert
 	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.version')
 	cert_path=$${HOME}/tyger_test_client_cert_$${cert_version}.pem
-	test_app_uri=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.testAppUri')
+	test_app_uri=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.testAppUrl')
 
 	tyger login -f <(cat <<EOF
-	serverUri: http://localhost:5000
+	serverUrl: http://localhost:5000
 	servicePrincipal: $${test_app_uri}
 	certificatePath: $${cert_path}
 	EOF
@@ -180,10 +180,10 @@ login-local: install-cli download-test-client-cert
 start-proxy: install-cli download-test-client-cert
 	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.version')
 	cert_path=$${HOME}/tyger_test_client_cert_$${cert_version}.pem
-	test_app_uri=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.testAppUri')
+	test_app_uri=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.testAppUrl')
 
 	tyger-proxy start -f <(cat <<EOF
-	serverUri: ${TYGER_URI}
+	serverUrl: ${TYGER_URL}
 	servicePrincipal: $${test_app_uri}
 	certificatePath: $${cert_path}
 	allowedClientCIDRs: ["127.0.0.1/32"]

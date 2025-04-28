@@ -205,7 +205,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             return Path.Combine(relativePipesPath, bufferParameterName + ".pipe");
         }
 
-        foreach ((var bufferParameterName, (bool write, Uri accessUri)) in bufferMap)
+        foreach ((var bufferParameterName, (bool write, Uri accessUrl)) in bufferMap)
         {
             var sidecarLabels = labels.Add(ContainerNameLabelKey, $"{bufferParameterName}-buffer-sidecar");
 
@@ -221,24 +221,24 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
             var accessFileName = bufferParameterName + ".access";
             var accessFilePath = Path.Combine(absoluteSecretsBase, relativeAccessFilesPath, accessFileName);
-            File.WriteAllText(accessFilePath, accessUri.ToString());
+            File.WriteAllText(accessFilePath, accessUrl.ToString());
             var containerAccessFilePath = Path.Combine(absoluteContainerSecretsBase, relativeAccessFilesPath, accessFileName);
 
             var args = new List<string>();
 
-            bool isRelay = HttpUtility.ParseQueryString(accessUri.Query).Get("relay") is "true";
+            bool isRelay = HttpUtility.ParseQueryString(accessUrl.Query).Get("relay") is "true";
             string? relaySocketPath = null;
             if (isRelay)
             {
                 var unqualifiedBufferId = BufferManager.GetUnqualifiedBufferId(run.Job.Buffers![bufferParameterName]);
                 sidecarLabels = sidecarLabels.Add(EphemeralBufferIdLabelKey, unqualifiedBufferId);
 
-                if (accessUri.Scheme != "http+unix")
+                if (accessUrl.Scheme != "http+unix")
                 {
                     throw new InvalidOperationException("Relay is only supported for http+unix URIs");
                 }
 
-                relaySocketPath = accessUri.AbsolutePath.Split(':')[0];
+                relaySocketPath = accessUrl.AbsolutePath.Split(':')[0];
 
                 // Create a placeholder file for the relay socket. This is so that attempts to connect to the socket will return
                 // a connection refused error instead of a file not found error, so that the client can distinguish between the
@@ -339,9 +339,9 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                     sidecarContainerParameters.User = $"{stat.Uid}:{stat.Gid}";
                 }
             }
-            else if (accessUri.Scheme is "http+unix" or "https+unix")
+            else if (accessUrl.Scheme is "http+unix" or "https+unix")
             {
-                var dataPlaneSocket = accessUri.AbsolutePath.Split(':')[0];
+                var dataPlaneSocket = accessUrl.AbsolutePath.Split(':')[0];
                 sidecarContainerParameters.HostConfig.Mounts.Add(new()
                 {
                     Source = TranslateToHostPath(dataPlaneSocket),

@@ -90,13 +90,13 @@ func TestEndToEnd(t *testing.T) {
 
 	// create an input buffer and a SAS token to be able to write to it
 	inputBufferId := runTygerSucceeds(t, "buffer", "create")
-	inputSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
+	inputSasUrl := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
 
 	// create and output buffer and a SAS token to be able to read from it
 	outputBufferId := runTygerSucceeds(t, "buffer", "create")
-	outputSasUri := runTygerSucceeds(t, "buffer", "access", outputBufferId)
+	outputSasUrl := runTygerSucceeds(t, "buffer", "access", outputBufferId)
 
-	runCommandSucceeds(t, "sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, inputSasUri))
+	runCommandSucceeds(t, "sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, inputSasUrl))
 
 	// create run
 	runId := runTygerSucceeds(t, "run", "create", "--codespec", codespecName, "--timeout", "10m",
@@ -105,7 +105,7 @@ func TestEndToEnd(t *testing.T) {
 
 	run := waitForRunSuccess(t, runId)
 
-	output := runCommandSucceeds(t, "sh", "-c", fmt.Sprintf(`tyger buffer read "%s"`, outputSasUri))
+	output := runCommandSucceeds(t, "sh", "-c", fmt.Sprintf(`tyger buffer read "%s"`, outputSasUrl))
 
 	require.Equal("Hello: Bonjour", output)
 
@@ -234,15 +234,15 @@ timeoutSeconds: 600`, BasicImage)
 	run := getRun(t, runId)
 
 	inputBufferId := run.Job.Buffers["input"]
-	inputSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
+	inputSasUrl := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
 	outputBufferId := run.Job.Buffers["output"]
-	outputSasUri := runTygerSucceeds(t, "buffer", "access", outputBufferId)
+	outputSasUrl := runTygerSucceeds(t, "buffer", "access", outputBufferId)
 
-	runCommandSucceeds(t, "sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, inputSasUri))
+	runCommandSucceeds(t, "sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, inputSasUrl))
 
 	waitForRunSuccess(t, runId)
 
-	output := runCommandSucceeds(t, "sh", "-c", fmt.Sprintf(`tyger buffer read "%s"`, outputSasUri))
+	output := runCommandSucceeds(t, "sh", "-c", fmt.Sprintf(`tyger buffer read "%s"`, outputSasUrl))
 
 	require.Equal("Hello: Bonjour", output)
 }
@@ -967,9 +967,9 @@ func TestOpenApiSpecIsAsExpected(t *testing.T) {
 	client, err := controlplane.GetClientFromCache()
 	require.NoError(t, err)
 
-	swaggerUri := fmt.Sprintf("%s/swagger/v1.0/swagger.yaml", client.ControlPlaneUrl)
-	t.Logf("swaggerUri: %s", swaggerUri)
-	resp, err := client.ControlPlaneClient.Get(swaggerUri)
+	swaggerUrl := fmt.Sprintf("%s/swagger/v1.0/swagger.yaml", client.ControlPlaneUrl)
+	t.Logf("swaggerUrl: %s", swaggerUrl)
+	resp, err := client.ControlPlaneClient.Get(swaggerUrl)
 	require.Nil(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	actualBytes, err := io.ReadAll(resp.Body)
@@ -985,12 +985,12 @@ func TestOpenApiSpecIsAsExpected(t *testing.T) {
 			u := url.URL{
 				Scheme: "http",
 				Host:   "localhost",
-				Path:   strings.Split(swaggerUri, ":")[2],
+				Path:   strings.Split(swaggerUrl, ":")[2],
 			}
 
 			curlCommand = fmt.Sprintf("curl --unix %s %s ", strings.Split(client.ControlPlaneUrl.Path, ":")[0], u.String())
 		} else {
-			curlCommand = fmt.Sprintf("curl %s ", swaggerUri)
+			curlCommand = fmt.Sprintf("curl %s ", swaggerUrl)
 		}
 
 		t.Errorf("Result not as expected. To update, run `%s > %s`\n\nDiff:%v",
@@ -1037,9 +1037,9 @@ func TestListRunsPaging(t *testing.T) {
 		runs[runTygerSucceeds(t, "run", "create", "--codespec", "exitimmediately", "--timeout", "10m")] = ""
 	}
 
-	for uri := "/runs?limit=5"; uri != ""; {
+	for url := "/runs?limit=5"; url != ""; {
 		page := model.Page[model.Run]{}
-		_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, uri, nil, nil, &page)
+		_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, url, nil, nil, &page)
 		require.Nil(t, err)
 		for _, r := range page.Items {
 			delete(runs, fmt.Sprint(r.Id))
@@ -1052,7 +1052,7 @@ func TestListRunsPaging(t *testing.T) {
 			break
 		}
 
-		uri = strings.TrimLeft(page.NextLink, "/")
+		url = strings.TrimLeft(page.NextLink, "/")
 	}
 
 	require.Empty(t, runs)
@@ -1128,9 +1128,9 @@ func TestListCodespecsPaging(t *testing.T) {
 	}
 	require.Equal(t, len(codespecs), 10)
 
-	for uri := fmt.Sprintf("/codespecs?limit=5&prefix=%s", prefix); uri != ""; {
+	for url := fmt.Sprintf("/codespecs?limit=5&prefix=%s", prefix); url != ""; {
 		page := model.Page[model.Codespec]{}
-		_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, uri, nil, nil, &page)
+		_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, url, nil, nil, &page)
 		require.Nil(t, err)
 		for _, cs := range page.Items {
 			if _, ok := codespecs[*cs.Name]; ok {
@@ -1161,7 +1161,7 @@ func TestListCodespecsPaging(t *testing.T) {
 			break
 		}
 
-		uri = strings.TrimLeft(page.NextLink, "/")
+		url = strings.TrimLeft(page.NextLink, "/")
 	}
 
 	require.Equal(t, expectedNames1, returnedNames1)
@@ -1303,9 +1303,9 @@ func TestListCodespecsWithPrefix(t *testing.T) {
 		codespecMap[codespecNames[i]] = runTygerSucceeds(t, "codespec", "create", codespecNames[i], "--image", BasicImage)
 	}
 
-	uri := "/codespecs?prefix=3d_"
+	url := "/codespecs?prefix=3d_"
 	page := model.Page[model.Codespec]{}
-	_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, uri, nil, nil, &page)
+	_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, url, nil, nil, &page)
 	require.Nil(t, err)
 	for _, cs := range page.Items {
 		require.Equal(t, strings.HasPrefix(*cs.Name, "3d_"), true)
@@ -2024,9 +2024,9 @@ func TestBufferPurge(t *testing.T) {
 	bufferId4 := runTygerSucceeds(t, "buffer", "create", "--tag", "delete=true", "--tag", "purge=true")
 	bufferId5 := runTygerSucceeds(t, "buffer", "create", "--tag", "delete=true", "--tag", "purge=false")
 
-	sasUri := runTygerSucceeds(t, "buffer", "access", bufferId1, "-w")
-	runCommandSucceeds(t, "sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, sasUri))
-	runTygerSucceeds(t, "buffer", "read", sasUri)
+	sasUrl := runTygerSucceeds(t, "buffer", "access", bufferId1, "-w")
+	runCommandSucceeds(t, "sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, sasUrl))
+	runTygerSucceeds(t, "buffer", "read", sasUrl)
 
 	runTygerSucceeds(t, "buffer", "delete", bufferId1, bufferId2)
 	bufferJson := runTygerSucceeds(t, "buffer", "purge", bufferId1, bufferId2)
@@ -2051,7 +2051,7 @@ func TestBufferPurge(t *testing.T) {
 		assert.Error(t, err)
 	}
 
-	_, stderr, err := runTyger("buffer", "read", sasUri)
+	_, stderr, err := runTyger("buffer", "read", sasUrl)
 	require.Error(err)
 	require.Contains(stderr, "the buffer does not exist")
 
@@ -2465,30 +2465,30 @@ func TestServerApiV1BackwardCompatibility(t *testing.T) {
 	require.Equal(t, newBuffer.Id, buffer.Id)
 
 	count := 0
-	for uri := "/v1/codespecs?limit=5"; uri != ""; {
+	for url := "/v1/codespecs?limit=5"; url != ""; {
 		page := model.Page[model.Codespec]{}
-		_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, uri, nil, nil, &page)
+		_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, url, nil, nil, &page)
 		require.Nil(t, err)
 		count += len(page.Items)
 		if page.NextLink == "" || count > 50 {
 			break
 		}
-		uri = page.NextLink
+		url = page.NextLink
 	}
 
 	_, err = controlplane.InvokeRequest(context.Background(), http.MethodPost, "v1/runs/_sweep", nil, nil, nil)
 	require.Nil(t, err)
 
 	count = 0
-	for uri := "/v1/runs?limit=5"; uri != ""; {
+	for url := "/v1/runs?limit=5"; url != ""; {
 		page := model.Page[model.Run]{}
-		_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, uri, nil, nil, &page)
+		_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, url, nil, nil, &page)
 		require.Nil(t, err)
 		count += len(page.Items)
 		if page.NextLink == "" || count > 50 {
 			break
 		}
-		uri = page.NextLink
+		url = page.NextLink
 	}
 }
 

@@ -495,7 +495,7 @@ func quickValidateApiConfig(ctx context.Context, success *bool, config *CloudEnv
 			validationError(ctx, success, "The `api.auth.apiAppUri` field is required for organization '%s'", org.Name)
 		} else {
 			if _, err := url.ParseRequestURI(authConfig.ApiAppUri); err != nil {
-				validationError(ctx, success, "The `api.auth.apiAppUri` field must be a valid URI for organization '%s'", org.Name)
+				validationError(ctx, success, "The `api.auth.apiAppUri` field must be a valid URL for organization '%s'", org.Name)
 			}
 		}
 
@@ -503,7 +503,7 @@ func quickValidateApiConfig(ctx context.Context, success *bool, config *CloudEnv
 			validationError(ctx, success, "The `api.auth.cliAppUri` field is required for organization '%s'", org.Name)
 		} else {
 			if _, err := url.ParseRequestURI(authConfig.CliAppUri); err != nil {
-				validationError(ctx, success, "The `api.auth.cliAppUri` field must be a valid URI for organization '%s'", org.Name)
+				validationError(ctx, success, "The `api.auth.cliAppUri` field must be a valid URL for organization '%s'", org.Name)
 			}
 		}
 	}

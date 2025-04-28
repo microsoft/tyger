@@ -43,9 +43,9 @@ public class KubernetesReplicaDatabaseVersionProvider : IReplicaDatabaseVersionP
 
                 foreach (var address in ep.Addresses)
                 {
-                    var uri = new Uri($"http://{address}:{port.Port}/database-version-in-use");
+                    var url = new Uri($"http://{address}:{port.Port}/database-version-in-use");
 
-                    var message = new HttpRequestMessage(HttpMethod.Get, uri)
+                    var message = new HttpRequestMessage(HttpMethod.Get, url)
                     {
                         Headers =
                         {
@@ -58,7 +58,7 @@ public class KubernetesReplicaDatabaseVersionProvider : IReplicaDatabaseVersionP
                     var resp = await httpClient.SendAsync(message, cancellationToken);
                     resp.EnsureSuccessStatusCode();
                     var versionInUse = (await resp.Content.ReadFromJsonAsync<DatabaseVersionInUse>(_jsonSerializerOptions, cancellationToken))!;
-                    yield return (uri, (DatabaseVersion)versionInUse.Id);
+                    yield return (url, (DatabaseVersion)versionInUse.Id);
                 }
             }
         }

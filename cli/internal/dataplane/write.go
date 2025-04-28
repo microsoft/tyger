@@ -81,8 +81,8 @@ func WithWriteMetadataEndWriteTimeout(timeout time.Duration) WriteOption {
 
 // If invalidHashChain is set to true, the value of the hash chain attached to the blob will
 // always be the Inital Value. This should only be set for testing.
-func Write(ctx context.Context, uri *url.URL, inputReader io.Reader, options ...WriteOption) error {
-	container := &Container{uri}
+func Write(ctx context.Context, url *url.URL, inputReader io.Reader, options ...WriteOption) error {
+	container := &Container{url}
 	writeOptions := &writeOptions{
 		dop:                     DefaultWriteDop,
 		blockSize:               DefaultBlockSize,
@@ -103,7 +103,7 @@ func Write(ctx context.Context, uri *url.URL, inputReader io.Reader, options ...
 		if tygerClient != nil {
 			writeOptions.httpClient = tygerClient.DataPlaneClient.Client
 			writeOptions.connectionType = tygerClient.ConnectionType()
-			if tygerClient.ConnectionType() == client.TygerConnectionTypeSsh && uri.Scheme == "http+unix" && !container.SupportsRelay() {
+			if tygerClient.ConnectionType() == client.TygerConnectionTypeSsh && url.Scheme == "http+unix" && !container.SupportsRelay() {
 				httpClient, tunnelPool, err := createSshTunnelPoolClient(ctx, tygerClient, container, writeOptions.dop)
 				if err != nil {
 					return err
@@ -142,7 +142,7 @@ func Write(ctx context.Context, uri *url.URL, inputReader io.Reader, options ...
 		go func() {
 			defer wg.Done()
 			for bb := range outputChannel {
-				blobUrl := container.GetBlobUri(bb.BlobNumber)
+				blobUrl := container.GetBlobUrl(bb.BlobNumber)
 				ctx := log.Ctx(ctx).With().Int64("blobNumber", bb.BlobNumber).Logger().WithContext(ctx)
 				var body any = bb.Contents
 				if len(bb.Contents) == 0 {
@@ -411,10 +411,10 @@ func readInBlocksWithMaximumInterval(ctx context.Context, inputReader io.Reader,
 
 func writeStartMetadata(ctx context.Context, httpClient *retryablehttp.Client, container *Container) error {
 	bufferStartMetadata := BufferStartMetadata{Version: CurrentBufferFormatVersion}
-	startMetadataUri := container.GetStartMetadataUri()
+	startMetadataUrl := container.GetStartMetadataUrl()
 
 	// See if the start metadata blob already exists and error out if it does.
-	req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodHead, startMetadataUri, nil)
+	req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodHead, startMetadataUrl, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create HEAD request: %w", err)
 	}
@@ -440,7 +440,7 @@ func writeStartMetadata(ctx context.Context, httpClient *retryablehttp.Client, c
 	md5Hash := md5.Sum(startBytes)
 	encodedMD5Hash := base64.StdEncoding.EncodeToString(md5Hash[:])
 
-	return uploadBlobWithRetry(ctx, httpClient, startMetadataUri, startBytes, encodedMD5Hash, "")
+	return uploadBlobWithRetry(ctx, httpClient, startMetadataUrl, startBytes, encodedMD5Hash, "")
 }
 
 func writeEndMetadata(ctx context.Context, httpClient *retryablehttp.Client, container *Container, status BufferStatus) {
@@ -453,7 +453,7 @@ func writeEndMetadata(ctx context.Context, httpClient *retryablehttp.Client, con
 	md5Hash := md5.Sum(endBytes)
 	encodedMD5Hash := base64.StdEncoding.EncodeToString(md5Hash[:])
 
-	err = uploadBlobWithRetry(ctx, httpClient, container.GetEndMetadataUri(), endBytes, encodedMD5Hash, "")
+	err = uploadBlobWithRetry(ctx, httpClient, container.GetEndMetadataUrl(), endBytes, encodedMD5Hash, "")
 	if err != nil {
 		log.Ctx(ctx).Warn().Err(err).Msg("Failed to upload optional metadata at the end of the transfer")
 	}

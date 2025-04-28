@@ -35,13 +35,13 @@ const (
 	userScope                           = "Read.Write"
 	servicePrincipalScope               = ".default"
 	discardTokenIfExpiringWithinSeconds = 10 * 60
-	LocalUriSentinel                    = "local"
+	LocalUrlSentinel                    = "local"
 	sshConcurrencyLimit                 = 8
 	dockerConcurrencyLimit              = 6
 )
 
 type LoginConfig struct {
-	ServerUri                       string `json:"serverUri"`
+	ServerUrl                       string `json:"serverUrl"`
 	ServicePrincipal                string `json:"servicePrincipal,omitempty"`
 	CertificatePath                 string `json:"certificatePath,omitempty"`
 	CertificateThumbprint           string `json:"certificateThumbprint,omitempty"`
@@ -57,9 +57,36 @@ type LoginConfig struct {
 	Persisted     bool `json:"-"`
 }
 
+// Handle backwards compatibility with `serverUri` instead of `serverUrl`.
+func (lc *LoginConfig) UnmarshalJSON(data []byte) error {
+	type Alias LoginConfig
+	type LoginConfigWithServerUri struct {
+		*Alias
+		ServerUri string `json:"serverUri,omitempty"`
+	}
+
+	augmentedLoginConfig := &LoginConfigWithServerUri{
+		Alias: (*Alias)(lc),
+	}
+
+	if err := json.Unmarshal(data, augmentedLoginConfig); err != nil {
+		return err
+	}
+
+	if augmentedLoginConfig.ServerUri != "" {
+		if augmentedLoginConfig.ServerUrl != "" && augmentedLoginConfig.ServerUrl != augmentedLoginConfig.ServerUri {
+			return fmt.Errorf("conflicting fields: serverUrl=%q and serverUri=%q", augmentedLoginConfig.ServerUrl, augmentedLoginConfig.ServerUri)
+		}
+
+		lc.ServerUrl = augmentedLoginConfig.ServerUri
+	}
+
+	return nil
+}
+
 type serviceInfo struct {
-	ServerUri                       string `json:"serverUri"`
-	parsedServerUri                 *url.URL
+	ServerUrl                       string `json:"serverUrl"`
+	parsedServerUrl                 *url.URL
 	ClientAppUri                    string `json:"clientAppUri,omitempty"`
 	ClientId                        string `json:"clientId,omitempty"`
 	LastToken                       string `json:"lastToken,omitempty"`
@@ -78,16 +105,43 @@ type serviceInfo struct {
 	confidentialClient              *confidential.Client
 }
 
+// Handle backwards compatibility with `serverUri` instead of `serverUrl`.
+func (si *serviceInfo) UnmarshalJSON(data []byte) error {
+	type Alias serviceInfo
+	type ServiceInfoWithServerUri struct {
+		*Alias
+		ServerUri string `json:"serverUri,omitempty"`
+	}
+
+	augmentedServiceInfo := &ServiceInfoWithServerUri{
+		Alias: (*Alias)(si),
+	}
+
+	if err := json.Unmarshal(data, augmentedServiceInfo); err != nil {
+		return err
+	}
+
+	if augmentedServiceInfo.ServerUri != "" {
+		if augmentedServiceInfo.ServerUrl != "" && augmentedServiceInfo.ServerUrl != augmentedServiceInfo.ServerUri {
+			return fmt.Errorf("conflicting fields: serverUrl=%q and serverUri=%q", augmentedServiceInfo.ServerUrl, augmentedServiceInfo.ServerUri)
+		}
+
+		si.ServerUrl = augmentedServiceInfo.ServerUri
+	}
+
+	return nil
+}
+
 func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error) {
-	if options.ServerUri == LocalUriSentinel {
+	if options.ServerUrl == LocalUrlSentinel {
 		optionsClone := options
-		optionsClone.ServerUri = client.GetDefaultSocketUrl()
+		optionsClone.ServerUrl = client.GetDefaultSocketUrl()
 		c, errUnix := Login(ctx, optionsClone)
 		if errUnix == nil {
 			return c, nil
 		}
 
-		optionsClone.ServerUri = "docker://"
+		optionsClone.ServerUrl = "docker://"
 		c, errDocker := Login(ctx, optionsClone)
 		if errDocker == nil {
 			return c, nil
@@ -96,15 +150,15 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 		return nil, errUnix
 	}
 
-	normalizedServerUri, err := NormalizeServerUri(options.ServerUri)
+	normalizedServerUrl, err := NormalizeServerUrl(options.ServerUrl)
 	if err != nil {
 		return nil, err
 	}
-	options.ServerUri = normalizedServerUri.String()
+	options.ServerUrl = normalizedServerUrl.String()
 
 	si := &serviceInfo{
-		ServerUri:                       options.ServerUri,
-		parsedServerUri:                 normalizedServerUri,
+		ServerUrl:                       options.ServerUrl,
+		parsedServerUrl:                 normalizedServerUrl,
 		Principal:                       options.ServicePrincipal,
 		CertPath:                        options.CertificatePath,
 		CertThumbprint:                  options.CertificateThumbprint,
@@ -122,8 +176,8 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 	}
 
 	var tygerClient *client.TygerClient
-	if normalizedServerUri.Scheme == "docker" {
-		dockerParams, err := client.ParseDockerUrl(normalizedServerUri)
+	if normalizedServerUrl.Scheme == "docker" {
+		dockerParams, err := client.ParseDockerUrl(normalizedServerUrl)
 		if err != nil {
 			return nil, fmt.Errorf("invalid Docker URL: %w", err)
 		}
@@ -136,7 +190,7 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 			return nil, fmt.Errorf("failed to establish a tyger connection: %w. stderr: %s", err, errb.String())
 		}
 
-		socketUrl, err := NormalizeServerUri(outb.String())
+		socketUrl, err := NormalizeServerUrl(outb.String())
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse socket URL: %w", err)
 		}
@@ -146,8 +200,8 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 		}
 
 		dockerParams.SocketPath = strings.Split(socketUrl.Path, ":")[0]
-		si.parsedServerUri = dockerParams.URL()
-		si.ServerUri = si.parsedServerUri.String()
+		si.parsedServerUrl = dockerParams.URL()
+		si.ServerUrl = si.parsedServerUrl.String()
 
 		controlPlaneClientOptions := defaultClientOptions // clone
 		controlPlaneClientOptions.ProxyString = "none"
@@ -170,11 +224,11 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 			GetAccessToken:     si.GetAccessToken,
 			DataPlaneClient:    dataPlaneClient,
 			Principal:          si.Principal,
-			RawControlPlaneUrl: si.parsedServerUri,
+			RawControlPlaneUrl: si.parsedServerUrl,
 			RawProxy:           si.parsedProxy,
 		}
-	} else if normalizedServerUri.Scheme == "ssh" {
-		sshParams, err := client.ParseSshUrl(normalizedServerUri)
+	} else if normalizedServerUrl.Scheme == "ssh" {
+		sshParams, err := client.ParseSshUrl(normalizedServerUrl)
 		if err != nil {
 			return nil, fmt.Errorf("invalid ssh URL: %w", err)
 		}
@@ -196,7 +250,7 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 			return nil, fmt.Errorf("failed to establish a remote tyger connection: %w. stderr: %s", err, errb.String())
 		}
 
-		socketUrl, err := NormalizeServerUri(outb.String())
+		socketUrl, err := NormalizeServerUrl(outb.String())
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse socket URL: %w", err)
 		}
@@ -206,8 +260,8 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 		}
 
 		sshParams.SocketPath = strings.Split(socketUrl.Path, ":")[0]
-		si.parsedServerUri = sshParams.URL()
-		si.ServerUri = si.parsedServerUri.String()
+		si.parsedServerUrl = sshParams.URL()
+		si.ServerUrl = si.parsedServerUrl.String()
 
 		controlPlaneOptions := defaultClientOptions // clone
 		controlPlaneOptions.ProxyString = "none"
@@ -231,7 +285,7 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 			GetAccessToken:     si.GetAccessToken,
 			DataPlaneClient:    dataPlaneClient,
 			Principal:          si.Principal,
-			RawControlPlaneUrl: si.parsedServerUri,
+			RawControlPlaneUrl: si.parsedServerUrl,
 			RawProxy:           si.parsedProxy,
 		}
 	} else {
@@ -239,13 +293,13 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 			return nil, err
 		}
 
-		serviceMetadata, err := getServiceMetadata(ctx, options.ServerUri)
+		serviceMetadata, err := GetServiceMetadata(ctx, options.ServerUrl)
 		if err != nil {
 			return nil, err
 		}
 
 		// augment with data received from the metadata endpoint
-		si.ServerUri = options.ServerUri
+		si.ServerUrl = options.ServerUrl
 		si.Authority = serviceMetadata.Authority
 		si.Audience = serviceMetadata.Audience
 		si.ClientAppUri = serviceMetadata.CliAppUri
@@ -293,13 +347,13 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 			dataPlaneOptions.ProxyString = si.DataPlaneProxy
 		}
 
-		switch si.parsedServerUri.Scheme {
+		switch si.parsedServerUrl.Scheme {
 		case "http+unix", "https+unix":
 			controlPlaneOptions.DisableRetries = true
 			dataPlaneOptions.DisableRetries = true
 		case "http", "https":
 		default:
-			panic(fmt.Sprintf("unhandled scheme: %s", si.parsedServerUri.Scheme))
+			panic(fmt.Sprintf("unhandled scheme: %s", si.parsedServerUrl.Scheme))
 		}
 
 		cpClient, err := client.NewControlPlaneClient(&controlPlaneOptions)
@@ -313,12 +367,12 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 		}
 
 		tygerClient = &client.TygerClient{
-			ControlPlaneUrl:    si.parsedServerUri,
+			ControlPlaneUrl:    si.parsedServerUrl,
 			ControlPlaneClient: cpClient,
 			GetAccessToken:     si.GetAccessToken,
 			DataPlaneClient:    dpClient,
 			Principal:          si.Principal,
-			RawControlPlaneUrl: si.parsedServerUri,
+			RawControlPlaneUrl: si.parsedServerUrl,
 			RawProxy:           si.parsedProxy,
 		}
 	}
@@ -333,11 +387,11 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 	return tygerClient, nil
 }
 
-func NormalizeServerUri(uri string) (*url.URL, error) {
-	uri = strings.TrimRight(uri, "/")
-	parsedUrl, err := url.Parse(uri)
+func NormalizeServerUrl(serverUrl string) (*url.URL, error) {
+	serverUrl = strings.TrimRight(serverUrl, "/")
+	parsedUrl, err := url.Parse(serverUrl)
 	if err != nil || !parsedUrl.IsAbs() {
-		return nil, errors.New("a valid absolute uri is required")
+		return nil, errors.New("a valid absolute URL is required")
 	}
 
 	if parsedUrl.Scheme == "unix" {
@@ -509,7 +563,7 @@ func GetClientFromCache() (*client.TygerClient, error) {
 		return nil, err
 	}
 
-	if si.parsedServerUri == nil {
+	if si.parsedServerUrl == nil {
 		return nil, errors.New("not logged in")
 	}
 
@@ -522,8 +576,8 @@ func GetClientFromCache() (*client.TygerClient, error) {
 		return nil, err
 	}
 
-	if si.parsedServerUri.Scheme == "docker" {
-		dockerParams, err := client.ParseDockerUrl(si.parsedServerUri)
+	if si.parsedServerUrl.Scheme == "docker" {
+		dockerParams, err := client.ParseDockerUrl(si.parsedServerUrl)
 		if err != nil {
 			return nil, fmt.Errorf("invalid ssh URL: %w", err)
 		}
@@ -552,11 +606,11 @@ func GetClientFromCache() (*client.TygerClient, error) {
 			GetAccessToken:     si.GetAccessToken,
 			DataPlaneClient:    dpClient,
 			Principal:          si.Principal,
-			RawControlPlaneUrl: si.parsedServerUri,
+			RawControlPlaneUrl: si.parsedServerUrl,
 			RawProxy:           si.parsedProxy,
 		}, nil
-	} else if si.parsedServerUri.Scheme == "ssh" {
-		sshParams, err := client.ParseSshUrl(si.parsedServerUri)
+	} else if si.parsedServerUrl.Scheme == "ssh" {
+		sshParams, err := client.ParseSshUrl(si.parsedServerUrl)
 		if err != nil {
 			return nil, fmt.Errorf("invalid ssh URL: %w", err)
 		}
@@ -586,7 +640,7 @@ func GetClientFromCache() (*client.TygerClient, error) {
 			GetAccessToken:     si.GetAccessToken,
 			DataPlaneClient:    dpClient,
 			Principal:          si.Principal,
-			RawControlPlaneUrl: si.parsedServerUri,
+			RawControlPlaneUrl: si.parsedServerUrl,
 			RawProxy:           si.parsedProxy,
 		}, nil
 	} else {
@@ -598,7 +652,7 @@ func GetClientFromCache() (*client.TygerClient, error) {
 			dataPlaneOptions.ProxyString = si.DataPlaneProxy
 		}
 
-		switch si.parsedServerUri.Scheme {
+		switch si.parsedServerUrl.Scheme {
 		case "http+unix", "https+unix":
 			controlPlaneOptions.DisableRetries = true
 			dataPlaneOptions.DisableRetries = true
@@ -616,12 +670,12 @@ func GetClientFromCache() (*client.TygerClient, error) {
 		}
 
 		return &client.TygerClient{
-			ControlPlaneUrl:    si.parsedServerUri,
+			ControlPlaneUrl:    si.parsedServerUrl,
 			ControlPlaneClient: controlPlaneClient,
 			GetAccessToken:     si.GetAccessToken,
 			DataPlaneClient:    dataPlaneClient,
 			Principal:          si.Principal,
-			RawControlPlaneUrl: si.parsedServerUri,
+			RawControlPlaneUrl: si.parsedServerUrl,
 			RawProxy:           si.parsedProxy,
 		}, nil
 	}
@@ -629,16 +683,16 @@ func GetClientFromCache() (*client.TygerClient, error) {
 
 func validateServiceInfo(si *serviceInfo) error {
 	var err error
-	if si.ServerUri != "" {
-		si.parsedServerUri, err = NormalizeServerUri(si.ServerUri)
+	if si.ServerUrl != "" {
+		si.parsedServerUrl, err = NormalizeServerUrl(si.ServerUrl)
 		if err != nil {
-			return fmt.Errorf("the server URI is invalid")
+			return fmt.Errorf("the server URL is invalid")
 		}
 	}
 	if si.DataPlaneProxy != "" {
 		si.parsedDataPlaneProxy, err = url.Parse(si.DataPlaneProxy)
 		if err != nil {
-			return fmt.Errorf("the data plane proxy URI is invalid")
+			return fmt.Errorf("the data plane proxy URL is invalid")
 		}
 	}
 
@@ -647,10 +701,10 @@ func validateServiceInfo(si *serviceInfo) error {
 	default:
 		si.parsedProxy, err = url.Parse(si.Proxy)
 		if err != nil || si.parsedProxy.Host == "" {
-			// It may be that the URI was given in the form "host:1234", and the scheme ends up being "host"
+			// It may be that the URL was given in the form "host:1234", and the scheme ends up being "host"
 			si.parsedProxy, err = url.Parse("http://" + si.Proxy)
 			if err != nil {
-				return fmt.Errorf("proxy must be 'auto', 'automatic', '' (same as 'auto/automatic'), 'none', or a valid URI")
+				return fmt.Errorf("proxy must be 'auto', 'automatic', '' (same as 'auto/automatic'), 'none', or a valid URL")
 			}
 		}
 	}
@@ -696,10 +750,10 @@ func readCachedServiceInfo() (*serviceInfo, error) {
 	return &si, nil
 }
 
-func getServiceMetadata(ctx context.Context, serverUri string) (*model.ServiceMetadata, error) {
+func GetServiceMetadata(ctx context.Context, serverUrl string) (*model.ServiceMetadata, error) {
 	// Not using a retryable client because when doing `tyger login --local` we first try to use the unix socket
 	// before trying the docker gateway and we don't want to wait for retries.
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/metadata", serverUri), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/metadata", serverUrl), nil)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create request: %w", err)
 	}
@@ -711,7 +765,7 @@ func getServiceMetadata(ctx context.Context, serverUri string) (*model.ServiceMe
 	serviceMetadata := &model.ServiceMetadata{}
 	if err := json.NewDecoder(resp.Body).Decode(serviceMetadata); err != nil {
 		// Check if the server is older than the client (uses the old `/v1/` path)
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/v1/metadata", serverUri), nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/v1/metadata", serverUrl), nil)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create request: %w", err)
 		}

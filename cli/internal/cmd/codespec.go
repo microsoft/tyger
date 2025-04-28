@@ -306,15 +306,15 @@ func newCodespecShowCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
 
-			relativeUri := fmt.Sprintf("/codespecs/%s", name)
+			relativeUrl := fmt.Sprintf("/codespecs/%s", name)
 			var version *int
 			if cmd.Flag("version").Changed {
 				version = &flags.version
-				relativeUri = fmt.Sprintf("%s/versions/%d", relativeUri, *version)
+				relativeUrl = fmt.Sprintf("%s/versions/%d", relativeUrl, *version)
 			}
 
 			codespec := model.Codespec{}
-			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, relativeUri, nil, nil, &codespec)
+			_, err := controlplane.InvokeRequest(cmd.Context(), http.MethodGet, relativeUrl, nil, nil, &codespec)
 			if err != nil {
 				return err
 			}

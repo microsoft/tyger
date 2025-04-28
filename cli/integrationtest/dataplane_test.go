@@ -38,11 +38,11 @@ func TestReadingWhileWriting(t *testing.T) {
 	t.Parallel()
 
 	bufferName := runTygerSucceeds(t, "buffer", "create")
-	writeSasUri := runTygerSucceeds(t, "buffer", "access", bufferName, "--write")
-	readSasUri := runTygerSucceeds(t, "buffer", "access", bufferName)
+	writeSasUrl := runTygerSucceeds(t, "buffer", "access", bufferName, "--write")
+	readSasUrl := runTygerSucceeds(t, "buffer", "access", bufferName)
 
 	// start the read process
-	readCommand := exec.Command("tyger", "buffer", "read", readSasUri)
+	readCommand := exec.Command("tyger", "buffer", "read", readSasUrl)
 	readStdErr := &bytes.Buffer{}
 	readCommand.Stderr = readStdErr
 	outputHasher := sha256.New()
@@ -51,7 +51,7 @@ func TestReadingWhileWriting(t *testing.T) {
 	assert.NoError(t, readCommand.Start(), "read command failed to start")
 
 	// start the write process
-	writeCommand := exec.Command("tyger", "buffer", "write", writeSasUri)
+	writeCommand := exec.Command("tyger", "buffer", "write", writeSasUrl)
 	inputWriter, err := writeCommand.StdinPipe()
 	require.NoError(t, err)
 
@@ -80,11 +80,11 @@ func TestTrickleLatencyWithFlushInterval(t *testing.T) {
 	t.Parallel()
 
 	bufferName := runTygerSucceeds(t, "buffer", "create")
-	writeSasUri := runTygerSucceeds(t, "buffer", "access", bufferName, "--write")
-	readSasUri := runTygerSucceeds(t, "buffer", "access", bufferName)
+	writeSasUrl := runTygerSucceeds(t, "buffer", "access", bufferName, "--write")
+	readSasUrl := runTygerSucceeds(t, "buffer", "access", bufferName)
 
 	// start the read process
-	readCommand := exec.Command("tyger", "buffer", "read", readSasUri)
+	readCommand := exec.Command("tyger", "buffer", "read", readSasUrl)
 	outputReader, err := readCommand.StdoutPipe()
 	require.NoError(t, err)
 	readStdErr := &bytes.Buffer{}
@@ -93,7 +93,7 @@ func TestTrickleLatencyWithFlushInterval(t *testing.T) {
 	assert.NoError(t, readCommand.Start(), "read command failed to start")
 
 	// start the write process
-	writeCommand := exec.Command("tyger", "buffer", "write", writeSasUri, "--flush-interval", "1s")
+	writeCommand := exec.Command("tyger", "buffer", "write", writeSasUrl, "--flush-interval", "1s")
 	inputWriter, err := writeCommand.StdinPipe()
 	require.NoError(t, err)
 
@@ -144,19 +144,19 @@ func TestAccessStringIsFile(t *testing.T) {
 	t.Parallel()
 
 	bufferName := runTygerSucceeds(t, "buffer", "create")
-	writeSasUri := runTygerSucceeds(t, "buffer", "access", bufferName, "--write")
-	readSasUri := runTygerSucceeds(t, "buffer", "access", bufferName)
+	writeSasUrl := runTygerSucceeds(t, "buffer", "access", bufferName, "--write")
+	readSasUrl := runTygerSucceeds(t, "buffer", "access", bufferName)
 
 	tempDir := t.TempDir()
-	writeSasUriFile := path.Join(tempDir, "write-sas-uri.txt")
-	readSasUriFile := path.Join(tempDir, "read-sas-uri.txt")
+	writeSasUrlFile := path.Join(tempDir, "write-sas-url.txt")
+	readSasUrlFile := path.Join(tempDir, "read-sas-url.txt")
 
-	require.Nil(t, os.WriteFile(writeSasUriFile, []byte(writeSasUri), 0644))
-	require.Nil(t, os.WriteFile(readSasUriFile, []byte(readSasUri), 0644))
+	require.Nil(t, os.WriteFile(writeSasUrlFile, []byte(writeSasUrl), 0644))
+	require.Nil(t, os.WriteFile(readSasUrlFile, []byte(readSasUrl), 0644))
 
 	payload := []byte("hello world")
 
-	writeCommand := exec.Command("tyger", "buffer", "write", writeSasUriFile)
+	writeCommand := exec.Command("tyger", "buffer", "write", writeSasUrlFile)
 	writeCommand.Stdin = bytes.NewBuffer(payload)
 	writeStdErr := bytes.NewBuffer(nil)
 	writeCommand.Stderr = writeStdErr
@@ -164,7 +164,7 @@ func TestAccessStringIsFile(t *testing.T) {
 	t.Log(writeStdErr.String())
 	require.Nil(t, err, "write command failed")
 
-	readCommand := exec.Command("tyger", "buffer", "read", readSasUriFile)
+	readCommand := exec.Command("tyger", "buffer", "read", readSasUrlFile)
 	readStdErr := bytes.NewBuffer(nil)
 	readCommand.Stderr = readStdErr
 	output, err := readCommand.Output()
@@ -188,8 +188,8 @@ func TestNamedPipes(t *testing.T) {
 			t.Parallel()
 
 			bufferName := runTygerSucceeds(t, "buffer", "create")
-			writeSasUri := runTygerSucceeds(t, "buffer", "access", bufferName, "--write")
-			readSasUri := runTygerSucceeds(t, "buffer", "access", bufferName)
+			writeSasUrl := runTygerSucceeds(t, "buffer", "access", bufferName, "--write")
+			readSasUrl := runTygerSucceeds(t, "buffer", "access", bufferName)
 
 			tempDir := t.TempDir()
 			inputPipePath := path.Join(tempDir, "input-pipe")
@@ -198,7 +198,7 @@ func TestNamedPipes(t *testing.T) {
 			require.Nil(t, syscall.Mkfifo(inputPipePath, 0644))
 			require.Nil(t, syscall.Mkfifo(outputPipePath, 0644))
 
-			writeCommand := exec.Command("tyger", "buffer", "write", writeSasUri, "-i", inputPipePath)
+			writeCommand := exec.Command("tyger", "buffer", "write", writeSasUrl, "-i", inputPipePath)
 			writeStdErr := bytes.NewBuffer(nil)
 			writeCommand.Stderr = writeStdErr
 
@@ -216,7 +216,7 @@ func TestNamedPipes(t *testing.T) {
 				inputHash <- h.Sum(nil)
 			}()
 
-			readCommand := exec.Command("tyger", "buffer", "read", readSasUri, "-o", outputPipePath)
+			readCommand := exec.Command("tyger", "buffer", "read", readSasUrl, "-o", outputPipePath)
 			readStdErr := bytes.NewBuffer(nil)
 			readCommand.Stderr = readStdErr
 
@@ -250,7 +250,7 @@ func TestMissingContainer(t *testing.T) {
 	t.Parallel()
 
 	bufferName := runTygerSucceeds(t, "buffer", "create")
-	readSasUri, err := url.Parse(runTygerSucceeds(t, "buffer", "access", bufferName))
+	readSasUrl, err := url.Parse(runTygerSucceeds(t, "buffer", "access", bufferName))
 	require.NoError(t, err)
 
 	client := newInterceptingHttpClient(t, func(req *http.Request, inner http.RoundTripper) (*http.Response, error) {
@@ -264,10 +264,10 @@ func TestMissingContainer(t *testing.T) {
 		return resp, nil
 	})
 
-	err = dataplane.Write(context.Background(), readSasUri, strings.NewReader("Hello"), dataplane.WithWriteHttpClient(client))
+	err = dataplane.Write(context.Background(), readSasUrl, strings.NewReader("Hello"), dataplane.WithWriteHttpClient(client))
 	require.ErrorContains(t, err, "the buffer does not exist")
 
-	err = dataplane.Read(context.Background(), readSasUri, io.Discard, dataplane.WithReadHttpClient(client))
+	err = dataplane.Read(context.Background(), readSasUrl, io.Discard, dataplane.WithReadHttpClient(client))
 	require.ErrorContains(t, err, "the buffer does not exist")
 }
 
@@ -275,7 +275,7 @@ func TestInvalidHashChain(t *testing.T) {
 	t.Parallel()
 
 	inputBufferId := runTygerSucceeds(t, "buffer", "create")
-	writeSasUri, err := url.Parse(runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w"))
+	writeSasUrl, err := url.Parse(runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w"))
 	require.NoError(t, err)
 
 	inputReader := strings.NewReader("Hello")
@@ -285,12 +285,12 @@ func TestInvalidHashChain(t *testing.T) {
 		return inner.RoundTrip(req)
 	})
 
-	err = dataplane.Write(context.Background(), writeSasUri, inputReader, dataplane.WithWriteHttpClient(httpClient))
+	err = dataplane.Write(context.Background(), writeSasUrl, inputReader, dataplane.WithWriteHttpClient(httpClient))
 	require.NoError(t, err, "Failed to write data")
 
-	readSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId)
+	readSasUrl := runTygerSucceeds(t, "buffer", "access", inputBufferId)
 
-	_, stdErr, err := runTyger("buffer", "read", readSasUri)
+	_, stdErr, err := runTyger("buffer", "read", readSasUrl)
 	assert.Contains(t, stdErr, "hash chain mismatch")
 }
 
@@ -298,7 +298,7 @@ func TestMd5HashMismatchOnWrite(t *testing.T) {
 	t.Parallel()
 
 	inputBufferId := runTygerSucceeds(t, "buffer", "create")
-	writeSasUri, err := url.Parse(runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w"))
+	writeSasUrl, err := url.Parse(runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w"))
 	require.NoError(t, err)
 	inputReader := strings.NewReader("Hello")
 	httpClient := newInterceptingHttpClient(t, func(req *http.Request, inner http.RoundTripper) (*http.Response, error) {
@@ -308,7 +308,7 @@ func TestMd5HashMismatchOnWrite(t *testing.T) {
 		return inner.RoundTrip(req)
 	})
 
-	err = dataplane.Write(context.Background(), writeSasUri, inputReader, dataplane.WithWriteHttpClient(httpClient))
+	err = dataplane.Write(context.Background(), writeSasUrl, inputReader, dataplane.WithWriteHttpClient(httpClient))
 	require.ErrorContains(t, err, "MD5 mismatch")
 }
 
@@ -316,37 +316,37 @@ func TestMd5HashMismatchOnWriteRetryAndRecover(t *testing.T) {
 	t.Parallel()
 
 	inputBufferId := runTygerSucceeds(t, "buffer", "create")
-	writeSasUri, err := url.Parse(runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w"))
+	writeSasUrl, err := url.Parse(runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w"))
 	require.NoError(t, err)
 	inputReader := strings.NewReader("Hello")
 
-	failedUris := make(map[string]any)
+	failedUrls := make(map[string]any)
 	httpClient := newInterceptingHttpClient(t, func(req *http.Request, inner http.RoundTripper) (*http.Response, error) {
-		if _, ok := failedUris[req.URL.String()]; ok {
+		if _, ok := failedUrls[req.URL.String()]; ok {
 			return inner.RoundTrip(req)
 		}
 
-		failedUris[req.URL.String()] = nil
+		failedUrls[req.URL.String()] = nil
 		md5Hash := md5.Sum([]byte("invalid"))
 		encodedMD5Hash := base64.StdEncoding.EncodeToString(md5Hash[:])
 		req.Header.Set(dataplane.ContentMD5Header, encodedMD5Hash)
 		return inner.RoundTrip(req)
 	})
 
-	err = dataplane.Write(context.Background(), writeSasUri, inputReader, dataplane.WithWriteHttpClient(httpClient), dataplane.WithWriteDop(1))
+	err = dataplane.Write(context.Background(), writeSasUrl, inputReader, dataplane.WithWriteHttpClient(httpClient), dataplane.WithWriteDop(1))
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(failedUris), 2)
+	require.GreaterOrEqual(t, len(failedUrls), 2)
 }
 
 func TestMd5HashMismatchOnRead(t *testing.T) {
 	t.Parallel()
 
 	inputBufferId := runTygerSucceeds(t, "buffer", "create")
-	writeSasUri, err := url.Parse(runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w"))
+	writeSasUrl, err := url.Parse(runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w"))
 	require.NoError(t, err)
 	inputReader := strings.NewReader("Hello")
 
-	require.NoError(t, dataplane.Write(context.Background(), writeSasUri, inputReader))
+	require.NoError(t, dataplane.Write(context.Background(), writeSasUrl, inputReader))
 
 	httpClient := newInterceptingHttpClient(t, func(req *http.Request, inner http.RoundTripper) (*http.Response, error) {
 		resp, err := inner.RoundTrip(req)
@@ -360,7 +360,7 @@ func TestMd5HashMismatchOnRead(t *testing.T) {
 		return resp, nil
 	})
 
-	err = dataplane.Read(context.Background(), writeSasUri, io.Discard, dataplane.WithReadHttpClient(httpClient))
+	err = dataplane.Read(context.Background(), writeSasUrl, io.Discard, dataplane.WithReadHttpClient(httpClient))
 	require.ErrorContains(t, err, "MD5 mismatch")
 }
 
@@ -368,12 +368,12 @@ func TestMd5HashMismatchOnReadRetryAndRecover(t *testing.T) {
 	t.Parallel()
 
 	inputBufferId := runTygerSucceeds(t, "buffer", "create")
-	writeSasUri, err := url.Parse(runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w"))
+	writeSasUrl, err := url.Parse(runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w"))
 	require.NoError(t, err)
 	inputReader := strings.NewReader("Hello")
-	require.NoError(t, dataplane.Write(context.Background(), writeSasUri, inputReader))
+	require.NoError(t, dataplane.Write(context.Background(), writeSasUrl, inputReader))
 
-	failedUris := make(map[string]any)
+	failedUrls := make(map[string]any)
 	mutex := sync.Mutex{}
 	httpClient := newInterceptingHttpClient(t, func(req *http.Request, inner http.RoundTripper) (*http.Response, error) {
 		resp, err := inner.RoundTrip(req)
@@ -383,33 +383,33 @@ func TestMd5HashMismatchOnReadRetryAndRecover(t *testing.T) {
 
 		mutex.Lock()
 		defer mutex.Unlock()
-		if _, ok := failedUris[req.URL.String()]; ok {
+		if _, ok := failedUrls[req.URL.String()]; ok {
 			return resp, err
 		}
 
-		failedUris[req.URL.String()] = nil
+		failedUrls[req.URL.String()] = nil
 		md5Hash := md5.Sum([]byte("invalid"))
 		encodedMD5Hash := base64.StdEncoding.EncodeToString(md5Hash[:])
 		resp.Header.Set(dataplane.ContentMD5Header, encodedMD5Hash)
 		return resp, nil
 	})
 
-	err = dataplane.Read(context.Background(), writeSasUri, io.Discard, dataplane.WithReadHttpClient(httpClient), dataplane.WithReadDop(1))
+	err = dataplane.Read(context.Background(), writeSasUrl, io.Discard, dataplane.WithReadHttpClient(httpClient), dataplane.WithReadDop(1))
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(failedUris), 2)
+	require.GreaterOrEqual(t, len(failedUrls), 2)
 }
 
 func TestCancellationOnWrite(t *testing.T) {
 	t.Parallel()
 
 	inputBufferId := runTygerSucceeds(t, "buffer", "create", "--tag", fmt.Sprintf("test=%s", t.Name()))
-	writeSasUri, err := url.Parse(runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w"))
+	writeSasUrl, err := url.Parse(runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w"))
 	require.NoError(t, err)
 	inputReader := &infiniteReader{}
 
 	errorChan := make(chan error, 1)
 	go func() {
-		errorChan <- dataplane.Read(context.Background(), writeSasUri, io.Discard)
+		errorChan <- dataplane.Read(context.Background(), writeSasUrl, io.Discard)
 	}()
 
 	writeCtx, cancel := context.WithCancel(context.Background())
@@ -425,7 +425,7 @@ func TestCancellationOnWrite(t *testing.T) {
 	})
 
 	defer cancel()
-	err = dataplane.Write(writeCtx, writeSasUri, inputReader, dataplane.WithWriteHttpClient(writeClient), dataplane.WithWriteMetadataEndWriteTimeout(time.Minute))
+	err = dataplane.Write(writeCtx, writeSasUrl, inputReader, dataplane.WithWriteHttpClient(writeClient), dataplane.WithWriteMetadataEndWriteTimeout(time.Minute))
 	assert.ErrorIs(t, err, context.Canceled)
 
 	assert.ErrorContains(t, <-errorChan, dataplane.ErrBufferFailedState.Error())
@@ -458,11 +458,11 @@ func TestBufferDoubleWriteFailure(t *testing.T) {
 	t.Parallel()
 
 	inputBufferId := runTygerSucceeds(t, "buffer", "create")
-	inputSasUri := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
+	inputSasUrl := runTygerSucceeds(t, "buffer", "access", inputBufferId, "-w")
 
-	runCommandSucceeds(t, "sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, inputSasUri))
+	runCommandSucceeds(t, "sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, inputSasUrl))
 
-	_, _, err := runCommand("sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, inputSasUri))
+	_, _, err := runCommand("sh", "-c", fmt.Sprintf(`echo "Hello" | tyger buffer write "%s"`, inputSasUrl))
 	require.Error(t, err, "Second call to buffer write succeeded")
 
 	var exitError *exec.ExitError

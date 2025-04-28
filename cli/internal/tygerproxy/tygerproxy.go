@@ -36,7 +36,7 @@ type ProxyOptions struct {
 
 type ProxyServiceMetadata struct {
 	model.ServiceMetadata
-	ServerUri string `json:"serverUri"`
+	ServerUrl string `json:"serverUrl"`
 	LogPath   string `json:"logPath,omitempty"`
 }
 
@@ -49,10 +49,10 @@ var (
 type CloseProxyFunc func() error
 
 func RunProxy(ctx context.Context, tygerClient *client.TygerClient, options *ProxyOptions, logger zerolog.Logger) (CloseProxyFunc, error) {
-	controlPlaneTargetUri := tygerClient.ControlPlaneUrl
+	controlPlaneTargetUrl := tygerClient.ControlPlaneUrl
 	handler := proxyHandler{
 		tygerClient:           tygerClient,
-		targetControlPlaneUri: controlPlaneTargetUri,
+		targetControlPlaneUrl: controlPlaneTargetUrl,
 		options:               options,
 		nextProxyFunc:         tygerClient.DataPlaneClient.Proxy,
 	}
@@ -126,8 +126,8 @@ func RunProxy(ctx context.Context, tygerClient *client.TygerClient, options *Pro
 }
 
 func CheckProxyAlreadyRunning(options *ProxyOptions) (*ProxyServiceMetadata, error) {
-	if options.ServerUri == "" {
-		panic("ServerUri must be set")
+	if options.ServerUrl == "" {
+		panic("ServerUrL must be set")
 	}
 
 	existingProxy := GetExistingProxyMetadata(options)
@@ -135,7 +135,7 @@ func CheckProxyAlreadyRunning(options *ProxyOptions) (*ProxyServiceMetadata, err
 		return existingProxy, ErrProxyNotRunning
 	}
 
-	if existingProxy.ServerUri != options.ServerUri {
+	if existingProxy.ServerUrl != options.ServerUrl {
 		return existingProxy, ErrProxyAlreadyRunningWrongTarget
 	}
 
@@ -159,7 +159,7 @@ func GetExistingProxyMetadata(options *ProxyOptions) *ProxyServiceMetadata {
 
 type proxyHandler struct {
 	tygerClient           *client.TygerClient
-	targetControlPlaneUri *url.URL
+	targetControlPlaneUrl *url.URL
 	options               *ProxyOptions
 	nextProxyFunc         func(*http.Request) (*url.URL, error)
 }
@@ -178,7 +178,7 @@ func (h *proxyHandler) handleMetadataRequest(w http.ResponseWriter, r *http.Requ
 		ServiceMetadata: model.ServiceMetadata{
 			DataPlaneProxy: dataPlaneProxyUrl.String(),
 		},
-		ServerUri: h.targetControlPlaneUri.String(),
+		ServerUrl: h.targetControlPlaneUrl.String(),
 		LogPath:   h.options.LogPath,
 	}
 	if err := json.NewEncoder(w).Encode(metadata); err != nil {
@@ -189,13 +189,13 @@ func (h *proxyHandler) handleMetadataRequest(w http.ResponseWriter, r *http.Requ
 func (h *proxyHandler) forwardControlPlaneRequest(w http.ResponseWriter, r *http.Request) {
 	proxyReq := r.Clone(r.Context())
 	proxyReq.RequestURI = "" // need to clear this since the instance will be used for a new request
-	proxyReq.URL.Scheme = h.targetControlPlaneUri.Scheme
-	proxyReq.URL.Host = h.targetControlPlaneUri.Host
-	proxyReq.Host = h.targetControlPlaneUri.Host
-	if h.targetControlPlaneUri.Path != "" {
+	proxyReq.URL.Scheme = h.targetControlPlaneUrl.Scheme
+	proxyReq.URL.Host = h.targetControlPlaneUrl.Host
+	proxyReq.Host = h.targetControlPlaneUrl.Host
+	if h.targetControlPlaneUrl.Path != "" {
 		p := proxyReq.URL.Path
 		proxyReq.URL.Path = "/"
-		proxyReq.URL = proxyReq.URL.JoinPath(h.targetControlPlaneUri.Path, p)
+		proxyReq.URL = proxyReq.URL.JoinPath(h.targetControlPlaneUrl.Path, p)
 	}
 
 	token, err := h.tygerClient.GetAccessToken(r.Context())

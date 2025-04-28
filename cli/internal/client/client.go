@@ -259,10 +259,10 @@ func ParseProxy(proxyString string) (func(r *http.Request) (*url.URL, error), er
 	default:
 		parsedProxy, err := url.Parse(proxyString)
 		if err != nil || parsedProxy.Host == "" {
-			// It may be that the URI was given in the form "host:1234", and the scheme ends up being "host"
+			// It may be that the URL was given in the form "host:1234", and the scheme ends up being "host"
 			parsedProxy, err = url.Parse("http://" + proxyString)
 			if err != nil {
-				return nil, errors.New("proxy must be 'auto', 'automatic', '' (same as 'auto/automatic'), 'none', or a valid URI")
+				return nil, errors.New("proxy must be 'auto', 'automatic', '' (same as 'auto/automatic'), 'none', or a valid URL")
 			}
 		}
 

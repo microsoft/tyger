@@ -67,7 +67,7 @@ func clearBit(value int64, pos int) int64 {
 	return value & mask
 }
 
-func (c *Container) GetBlobUri(blobNumber int64) string {
+func (c *Container) GetBlobUrl(blobNumber int64) string {
 	// We are adopting this logic because:
 	// * The alphabetical sorting of the blob name corresponds to the numerical
 	//   ordering of the blob number.
@@ -127,11 +127,11 @@ func (c *Container) GetBlobUri(blobNumber int64) string {
 	return blobURL.String()
 }
 
-func (c *Container) GetStartMetadataUri() string {
+func (c *Container) GetStartMetadataUrl() string {
 	return c.URL.JoinPath(StartMetadataBlobName).String()
 }
 
-func (c *Container) GetEndMetadataUri() string {
+func (c *Container) GetEndMetadataUrl() string {
 	return c.URL.JoinPath(EndMetadataBlobName).String()
 }
 
