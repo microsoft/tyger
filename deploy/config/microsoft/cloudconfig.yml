@@ -72,9 +72,12 @@ organizations:
       storage:
         buffers:
           - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}lamnabuf
+            dnsEndpointType: AzureDnsZone
           - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}lamnabuf2
+            dnsEndpointType: AzureDnsZone
           - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}lamnabuf3
             location: ${TYGER_SECONDARY_LOCATION}
+            dnsEndpointType: AzureDnsZone
         logs:
           name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}lamnalog
 

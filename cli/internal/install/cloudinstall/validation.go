@@ -391,6 +391,21 @@ func quickValidateStorageAccountConfig(ctx context.Context, success *bool, cloud
 			validationError(ctx, success, "The `%s.sku` field must be one of %v for organization '%s'", path, armstorage.PossibleSKUNameValues(), orgConfig.Name)
 		}
 	}
+
+	if storageConfig.DnsEndpointType == "" {
+		storageConfig.DnsEndpointType = string(armstorage.DNSEndpointTypeStandard)
+	} else {
+		match := false
+		for _, at := range armstorage.PossibleDNSEndpointTypeValues() {
+			if storageConfig.DnsEndpointType == string(at) {
+				match = true
+				break
+			}
+		}
+		if !match {
+			validationError(ctx, success, "The `%s.dnsEndpointType` field must be one of %v for organization '%s'", path, armstorage.PossibleDNSEndpointTypeValues(), orgConfig.Name)
+		}
+	}
 }
 
 func quickValidateOrganizationConfig(ctx context.Context, success *bool, config *CloudEnvironmentConfig, org *OrganizationConfig) {

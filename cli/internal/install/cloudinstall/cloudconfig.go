@@ -166,9 +166,10 @@ type NetworkSecurityPerimeterProfileConfig struct {
 }
 
 type StorageAccountConfig struct {
-	Name     string `json:"name"`
-	Location string `json:"location"`
-	Sku      string `json:"sku"`
+	Name            string `json:"name"`
+	Location        string `json:"location"`
+	Sku             string `json:"sku"`
+	DnsEndpointType string `json:"dnsEndpointType"`
 }
 
 type DatabaseServerConfig struct {
