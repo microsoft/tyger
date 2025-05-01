@@ -2454,11 +2454,19 @@ func TestServerApiV1BackwardCompatibility(t *testing.T) {
 	metadata := model.ServiceMetadata{}
 	_, err := controlplane.InvokeRequest(context.Background(), http.MethodGet, "v1/metadata", nil, nil, &metadata)
 	require.NoError(t, err)
+	_, err = controlplane.InvokeRequest(context.Background(), http.MethodGet, "v1/metadata?api-version=", nil, nil, &metadata)
+	require.NoError(t, err)
+	_, err = controlplane.InvokeRequest(context.Background(), http.MethodGet, "v1/metadata?api-version=0.1", nil, nil, nil)
+	require.NoError(t, err)
 
 	buffer := model.Buffer{}
 	newBuffer := model.Buffer{}
 	_, err = controlplane.InvokeRequest(context.Background(), http.MethodPost, "/v1/buffers", nil, buffer, &newBuffer)
 	require.NoError(t, err)
+	_, err = controlplane.InvokeRequest(context.Background(), http.MethodPost, "/v1/buffers?api-version=", nil, buffer, &newBuffer)
+	require.NoError(t, err)
+	_, err = controlplane.InvokeRequest(context.Background(), http.MethodPost, "/v1/buffers?api-version=0.1", nil, buffer, nil)
+	require.Error(t, err)
 
 	_, err = controlplane.InvokeRequest(context.Background(), http.MethodGet, fmt.Sprintf("v1/buffers/%s", newBuffer.Id), nil, nil, &buffer)
 	require.NoError(t, err)
