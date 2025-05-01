@@ -49,21 +49,18 @@ public sealed class RewriteRules
             var newPath = request.Path.Value?.Replace("/v1/", "/");
             context.HttpContext.Request.Path = newPath;
 
-            var feature = context.HttpContext.Features.Get<IApiVersioningFeature>();
-            if (feature != null)
+            var impliedVersion = new ApiVersion(1, 0);
+
+            var feature = context.HttpContext.Features.Get<IApiVersioningFeature>() ?? new ApiVersioningFeature(context.HttpContext);
+
+            if (feature.RequestedApiVersion != null && feature.RequestedApiVersion != impliedVersion)
             {
-                var v1p0 = new ApiVersion(1, 0);
-                if (feature.RequestedApiVersion == null)
-                {
-                    // Default to API version 1.0
-                    feature.RequestedApiVersion = v1p0;
-                }
-                else if (feature.RequestedApiVersion != v1p0)
-                {
-                    // The old Tyger CLI client does not request an API version, so we force an UnsupportedApiVersion error
-                    feature.RequestedApiVersion = new ApiVersion(0, 0);
-                }
+                // The old Tyger CLI client does not request an API version, so here we force an UnsupportedApiVersion error
+                impliedVersion = new ApiVersion(0, 0);
             }
+
+            feature.RequestedApiVersion = impliedVersion;
+            context.HttpContext.Features.Set(feature);
         }
     }
 }
