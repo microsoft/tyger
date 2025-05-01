@@ -52,6 +52,7 @@ func (inst *Installer) CreateStorageAccount(ctx context.Context,
 			AllowSharedKeyAccess:   Ptr(false),
 			EnableHTTPSTrafficOnly: Ptr(true),
 			MinimumTLSVersion:      Ptr(armstorage.MinimumTLSVersionTLS12),
+			DNSEndpointType:        Ptr(armstorage.DNSEndpointType(storageAccountConfig.DnsEndpointType)),
 		},
 	}
 

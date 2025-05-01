@@ -155,18 +155,13 @@ func quickValidateComputeConfig(ctx context.Context, success *bool, cloudConfig 
 			cluster.KubernetesVersion = DefaultKubernetesVersion
 		}
 
-		if cluster.Sku == "" {
-			cluster.Sku = armcontainerservice.ManagedClusterSKUTierStandard
-		} else {
-			possibleValues := armcontainerservice.PossibleManagedClusterSKUTierValues()
-			if !slices.Contains(possibleValues, cluster.Sku) {
-				formattedPossibleValues := make([]string, len(possibleValues))
-				for i, v := range possibleValues {
-					formattedPossibleValues[i] = fmt.Sprintf("`%s`", v)
-				}
-				validationError(ctx, success, "The `sku` field of the cluster `%s` must be one of [%s]", cluster.Name, strings.Join(formattedPossibleValues, ", "))
-			}
-		}
+		cluster.Sku = validateOptionalEnumField(
+			ctx,
+			success,
+			cluster.Sku,
+			armcontainerservice.ManagedClusterSKUTierStandard,
+			armcontainerservice.PossibleManagedClusterSKUTierValues(),
+			fmt.Sprintf("The `sku` field must be one of %%v for cluster '%s'", cluster.Name))
 
 		if cluster.SystemNodePool == nil {
 			validationError(ctx, success, "The `systemNodePool` field is required on a cluster `%s`", cluster.Name)
@@ -245,14 +240,14 @@ func quickValidateNodePoolConfig(ctx context.Context, success *bool, np *NodePoo
 		validationError(ctx, success, "The `minCount` field must be less than or equal to the `maxCount` field")
 	}
 
-	if np.OsSku == "" {
-		np.OsSku = string(armcontainerservice.OSSKUAzureLinux)
-	} else {
-		supportedValues := []string{string(armcontainerservice.OSSKUAzureLinux), string(armcontainerservice.OSSKUUbuntu)}
-		if !slices.Contains(supportedValues, np.OsSku) {
-			validationError(ctx, success, "The `osSku` field must be one of [%s]", strings.Join(supportedValues, ", "))
-		}
-	}
+	np.OsSku = validateOptionalEnumField(
+		ctx,
+		success,
+		np.OsSku,
+		armcontainerservice.OSSKUAzureLinux,
+		[]armcontainerservice.OSSKU{armcontainerservice.OSSKUAzureLinux, armcontainerservice.OSSKUUbuntu},
+		fmt.Sprintf("The `osSku` field must be one of %%v for node pool '%s'", np.Name))
+
 }
 
 func quickValidateStorageConfig(ctx context.Context, success *bool, cloudConfig *CloudConfig, organizationConfig *OrganizationConfig) {
@@ -316,20 +311,13 @@ func quickValidateDatabaseServerConfig(ctx context.Context, success *bool, cloud
 		databaseConfig.Location = cloudConfig.DefaultLocation
 	}
 
-	if databaseConfig.ComputeTier == "" {
-		databaseConfig.ComputeTier = string(DefaultDatabaseComputeTier)
-	} else {
-		match := false
-		for _, at := range armpostgresqlflexibleservers.PossibleSKUTierValues() {
-			if databaseConfig.ComputeTier == string(at) {
-				match = true
-				break
-			}
-		}
-		if !match {
-			validationError(ctx, success, "The `cloud.database.computeTier` field must be one of %v", armpostgresqlflexibleservers.PossibleSKUTierValues())
-		}
-	}
+	databaseConfig.ComputeTier = validateOptionalEnumField(
+		ctx,
+		success,
+		databaseConfig.ComputeTier,
+		DefaultDatabaseComputeTier,
+		armpostgresqlflexibleservers.PossibleSKUTierValues(),
+		"The `cloud.database.computeTier` field must be one of %v")
 
 	if databaseConfig.VMSize == "" {
 		databaseConfig.VMSize = DefaultDatabaseVMSize
@@ -377,20 +365,21 @@ func quickValidateStorageAccountConfig(ctx context.Context, success *bool, cloud
 		storageConfig.Location = cloudConfig.DefaultLocation
 	}
 
-	if storageConfig.Sku == "" {
-		storageConfig.Sku = string(armstorage.SKUNameStandardLRS)
-	} else {
-		match := false
-		for _, at := range armstorage.PossibleSKUNameValues() {
-			if storageConfig.Sku == string(at) {
-				match = true
-				break
-			}
-		}
-		if !match {
-			validationError(ctx, success, "The `%s.sku` field must be one of %v for organization '%s'", path, armstorage.PossibleSKUNameValues(), orgConfig.Name)
-		}
-	}
+	storageConfig.Sku = validateOptionalEnumField(
+		ctx,
+		success,
+		storageConfig.Sku,
+		armstorage.SKUNameStandardLRS,
+		armstorage.PossibleSKUNameValues(),
+		fmt.Sprintf("The `%s.sku` field must be one of %%v for organization '%s'", path, orgConfig.Name))
+
+	storageConfig.DnsEndpointType = validateOptionalEnumField(
+		ctx,
+		success,
+		storageConfig.DnsEndpointType,
+		armstorage.DNSEndpointTypeStandard,
+		armstorage.PossibleDNSEndpointTypeValues(),
+		fmt.Sprintf("The `%s.dnsEndpointType` field must be one of %%v for organization '%s'", path, orgConfig.Name))
 }
 
 func quickValidateOrganizationConfig(ctx context.Context, success *bool, config *CloudEnvironmentConfig, org *OrganizationConfig) {
@@ -536,4 +525,26 @@ func quickValidateApiConfig(ctx context.Context, success *bool, config *CloudEnv
 func validationError(ctx context.Context, success *bool, format string, args ...any) {
 	*success = false
 	log.Ctx(ctx).Error().Msgf(format, args...)
+}
+
+func validateOptionalEnumField[TField ~string, TEnum ~string](ctx context.Context, success *bool, value TField, defaultValue TEnum, possibleValues []TEnum, errorTemplate string) TField {
+	if value == "" {
+		return TField(defaultValue)
+	}
+
+	for _, pv := range possibleValues {
+		if value == TField(pv) {
+			return value
+		}
+	}
+
+	possibleValuesQuoted := make([]string, len(possibleValues))
+	for i, pv := range possibleValues {
+		possibleValuesQuoted[i] = fmt.Sprintf("`%s`", string(pv))
+	}
+
+	possibleValuesString := fmt.Sprintf("[%s]", strings.Join(possibleValuesQuoted, ", "))
+
+	validationError(ctx, success, errorTemplate, possibleValuesString)
+	return value
 }

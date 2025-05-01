@@ -204,6 +204,8 @@ organizations:
           - name: {{ .Name }}
             {{ optionalField "location" .Location "defaults to defaultLocation" }}
             {{ optionalField "sku" .Sku "defaults to Standard_LRS" }}
+            # dnsEndpointType can be set to `AzureDNSZone` when creating large number of accounts in a single subscription.
+            {{ optionalField "dnsEndpointType" .DnsEndpointType "defaults to Standard." }}
           {{- end }}
 
         # The storage account where run logs will be stored.
@@ -211,6 +213,8 @@ organizations:
           name: {{ .Storage.Logs.Name }}
           {{ optionalField "location" .Storage.Logs.Location "defaults to defaultLocation" }}
           {{ optionalField "sku" .Storage.Logs.Sku "defaults to Standard_LRS" }}
+          # dnsEndpointType can be set to `AzureDNSZone` when creating large number of accounts in a single subscription.
+          {{ optionalField "dnsEndpointType" .Storage.Logs.DnsEndpointType "defaults to Standard." }}
 
       # An optional array of managed identities that will be created in the resource group.
       # These identities are available to runs as workload identities. When updating this list
