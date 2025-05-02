@@ -210,10 +210,6 @@ func quickValidateComputeConfig(ctx context.Context, success *bool, cloudConfig 
 		} else if _, err := uuid.Parse(p.ObjectId); err != nil {
 			validationError(ctx, success, "The `objectId` field must be a GUID")
 		}
-
-		if p.Id != "" {
-			validationError(ctx, success, "The `id` field is no longer supported a management principal. Use `objectId` instead")
-		}
 	}
 }
 
