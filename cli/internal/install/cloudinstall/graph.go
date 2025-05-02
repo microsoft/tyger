@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -20,6 +21,7 @@ import (
 )
 
 var errNotFound = fmt.Errorf("not found")
+var errMultipleFound = fmt.Errorf("multiple found")
 
 func GetGraphToken(ctx context.Context, cred azcore.TokenCredential) (azcore.AccessToken, error) {
 	tokenResponse, err := cred.GetToken(ctx, policy.TokenRequestOptions{
@@ -33,8 +35,8 @@ func GetGraphToken(ctx context.Context, cred azcore.TokenCredential) (azcore.Acc
 }
 
 type aadAppApi struct {
-	RequestedAccessTokenVersion int                          `json:"requestedAccessTokenVersion,omitempty"`
-	Oauth2PermissionScopes      []aadAppAuth2PermissionScope `json:"oauth2PermissionScopes,omitempty"`
+	RequestedAccessTokenVersion int                           `json:"requestedAccessTokenVersion,omitempty"`
+	Oauth2PermissionScopes      []*aadAppAuth2PermissionScope `json:"oauth2PermissionScopes,omitempty"`
 }
 
 type aadAppAuth2PermissionScope struct {
@@ -54,61 +56,82 @@ type aadAppResourceAccess struct {
 }
 
 type aadAppRequiredResourceAccess struct {
-	ResourceAppId  string                 `json:"resourceAppId,omitempty"`
-	ResourceAccess []aadAppResourceAccess `json:"resourceAccess,omitempty"`
+	ResourceAppId  string                  `json:"resourceAppId,omitempty"`
+	ResourceAccess []*aadAppResourceAccess `json:"resourceAccess,omitempty"`
 }
 
 type aadAppPublicClient struct {
 	RedirectUris []string `json:"redirectUris,omitempty"`
 }
 
-type aadApp struct {
-	Id                     string                         `json:"id,omitempty"`
-	AppId                  string                         `json:"appId,omitempty"`
-	DisplayName            string                         `json:"displayName,omitempty"`
-	IdentifierUris         []string                       `json:"identifierUris,omitempty"`
-	SignInAudience         string                         `json:"signInAudience,omitempty"`
-	Api                    aadAppApi                      `json:"api,omitempty"`
-	RequiredResourceAccess []aadAppRequiredResourceAccess `json:"requiredResourceAccess,omitempty"`
-	IsFallbackPublicClient bool                           `json:"isFallbackPublicClient,omitempty"`
-	PublicClient           *aadAppPublicClient            `json:"publicClient,omitempty"`
+type aadAppRole struct {
+	Id                 string   `json:"id,omitempty"`
+	Description        string   `json:"description,omitempty"`
+	DisplayName        string   `json:"displayName,omitempty"`
+	Value              string   `json:"value,omitempty"`
+	AllowedMemberTypes []string `json:"allowedMemberTypes,omitempty"`
+	IsEnabled          bool     `json:"isEnabled,omitempty"`
 }
 
-func GetAppByUri(ctx context.Context, cred azcore.TokenCredential, uri string) (aadApp, error) {
+type aadApp struct {
+	Id                     string                          `json:"id,omitempty"`
+	AppId                  string                          `json:"appId,omitempty"`
+	DisplayName            string                          `json:"displayName,omitempty"`
+	IdentifierUris         []string                        `json:"identifierUris,omitempty"`
+	SignInAudience         string                          `json:"signInAudience,omitempty"`
+	Api                    *aadAppApi                      `json:"api,omitempty"`
+	RequiredResourceAccess []*aadAppRequiredResourceAccess `json:"requiredResourceAccess,omitempty"`
+	IsFallbackPublicClient bool                            `json:"isFallbackPublicClient,omitempty"`
+	PublicClient           *aadAppPublicClient             `json:"publicClient,omitempty"`
+	AppRoles               []*aadAppRole                   `json:"appRoles,omitempty"`
+}
+
+type aadServicePrincipal struct {
+	Id       string        `json:"id,omitempty"`
+	AppRoles []*aadAppRole `json:"appRoles,omitempty"`
+}
+
+type aadAppRoleAssignment struct {
+	Id                   string `json:"id,omitempty"`
+	AppRoleId            string `json:"appRoleId,omitempty"`
+	PrincipalId          string `json:"principalId,omitempty"`
+	PrincipalType        string `json:"principalType,omitempty"`
+	PrincipalDisplayName string `json:"principalDisplayName,omitempty"`
+	ResourceId           string `json:"resourceId,omitempty"`
+}
+
+func GetAppByUri(ctx context.Context, cred azcore.TokenCredential, uri string) (*aadApp, error) {
 	type responseType struct {
 		Value []aadApp `json:"value"`
 	}
 
 	response := responseType{}
 	if err := executeGraphCall(ctx, cred, http.MethodGet, fmt.Sprintf("https://graph.microsoft.com/beta/applications/?$filter=identifierUris/any(x:x%%20eq%%20'%s')", uri), nil, &response); err != nil {
-		return aadApp{}, fmt.Errorf("failed to get app by uri: %w", err)
+		return nil, fmt.Errorf("failed to get app by uri: %w", err)
 	}
 
 	if len(response.Value) == 0 {
-		return aadApp{}, errNotFound
+		return nil, errNotFound
 	}
 
-	return response.Value[0], nil
+	return &response.Value[0], nil
 }
 
-func CreateOrUpdateAppByUri(ctx context.Context, cred azcore.TokenCredential, app aadApp) (objectId string, err error) {
-	existingApp, err := GetAppByUri(ctx, cred, app.IdentifierUris[0])
-	if err != nil && err != errNotFound {
-		return "", fmt.Errorf("failed to get existing app: %w", err)
+func GetServicePrincipalByUri(ctx context.Context, cred azcore.TokenCredential, uri string) (*aadServicePrincipal, error) {
+	type responseType struct {
+		Value []aadServicePrincipal `json:"value"`
 	}
 
-	if err == errNotFound {
-		log.Ctx(ctx).Info().Msgf("Creating app %s", app.IdentifierUris[0])
-		err = executeGraphCall(ctx, cred, http.MethodPost, "https://graph.microsoft.com/beta/applications", app, &existingApp)
-	} else {
-		log.Ctx(ctx).Info().Msgf("Updating app %s", app.IdentifierUris[0])
-		err = executeGraphCall(ctx, cred, http.MethodPatch, fmt.Sprintf("https://graph.microsoft.com/beta/applications/%s", existingApp.Id), app, nil)
+	response := responseType{}
+	if err := executeGraphCall(ctx, cred, http.MethodGet, fmt.Sprintf("https://graph.microsoft.com/beta/servicePrincipals/?$filter=servicePrincipalNames/any(x:x%%20eq%%20'%s')", uri), nil, &response); err != nil {
+		return nil, fmt.Errorf("failed to get app by uri: %w", err)
 	}
 
-	if err != nil {
-		return "", fmt.Errorf("failed to create or update app: %w", err)
+	if len(response.Value) == 0 {
+		return nil, errNotFound
 	}
-	return existingApp.Id, nil
+
+	return &response.Value[0], nil
 }
 
 func ObjectsIdToPrincipals(ctx context.Context, cred azcore.TokenCredential, objectIds []string) ([]Principal, error) {
@@ -245,17 +268,89 @@ func GetServicePrincipalDisplayName(ctx context.Context, cred azcore.TokenCreden
 	return response.DisplayName, nil
 }
 
+func GetObjectIdByServicePrincipalDisplayName(ctx context.Context, cred azcore.TokenCredential, displayName string) (string, error) {
+	type responseType struct {
+		Value []struct {
+			Id string `json:"id"`
+		} `json:"value"`
+	}
+
+	response := responseType{}
+	if err := executeGraphCall(ctx, cred, http.MethodGet, fmt.Sprintf("https://graph.microsoft.com/beta/servicePrincipals?$filter=displayName%%20eq%%20'%s'", url.PathEscape(displayName)), nil, &response); err != nil {
+		return "", fmt.Errorf("failed to get service principal by display name: %w", err)
+	}
+
+	if len(response.Value) == 0 {
+		return "", errNotFound
+	}
+
+	if len(response.Value) > 1 {
+		return "", errMultipleFound
+	}
+
+	return response.Value[0].Id, nil
+}
+
 func GetUserPrincipalName(ctx context.Context, cred azcore.TokenCredential, objectId string) (string, error) {
 	type responseType struct {
 		UserPrincipalName string `json:"userPrincipalName"`
 	}
 
 	response := responseType{}
-	if err := executeGraphCall(ctx, cred, http.MethodGet, fmt.Sprintf("https://graph.microsoft.com/v1.0/users/%s", objectId), nil, &response); err != nil {
-		return "", fmt.Errorf("failed to get user details: %w", err)
+	if err := executeGraphCall(ctx, cred, http.MethodGet, fmt.Sprintf("https://graph.microsoft.com/v1.0/users/%s?$select=userPrincipalName", objectId), nil, &response); err != nil {
+		return "", fmt.Errorf("failed to get user with object ID '%s': %w", objectId, err)
 	}
 
 	return response.UserPrincipalName, nil
+}
+
+func GetObjectIdByUserPrincipalName(ctx context.Context, cred azcore.TokenCredential, userPrincipalName string) (string, error) {
+	type responseType struct {
+		Id string `json:"id"`
+	}
+
+	response := responseType{}
+	if err := executeGraphCall(ctx, cred, http.MethodGet, fmt.Sprintf("https://graph.microsoft.com/v1.0/users/%s?$select=id", url.PathEscape(userPrincipalName)), nil, &response); err != nil {
+		return "", fmt.Errorf("failed to get user by userPrincipalName '%s': %w", userPrincipalName, err)
+	}
+
+	return response.Id, nil
+}
+
+func GetObjectIdByGroupDisplayName(ctx context.Context, cred azcore.TokenCredential, displayName string) (string, error) {
+	type responseType struct {
+		Value []struct {
+			Id string `json:"id"`
+		} `json:"value"`
+	}
+
+	response := responseType{}
+	if err := executeGraphCall(ctx, cred, http.MethodGet, fmt.Sprintf("https://graph.microsoft.com/v1.0/groups?$filter=displayName%%20eq%%20'%s'", url.PathEscape(displayName)), nil, &response); err != nil {
+		return "", fmt.Errorf("failed to get group by display name: %w", err)
+	}
+
+	if len(response.Value) == 0 {
+		return "", errNotFound
+	}
+
+	if len(response.Value) > 1 {
+		return "", errMultipleFound
+	}
+
+	return response.Value[0].Id, nil
+}
+
+func GetGroupDisplayName(ctx context.Context, cred azcore.TokenCredential, objectId string) (string, error) {
+	type responseType struct {
+		DisplayName string `json:"displayName"`
+	}
+
+	response := responseType{}
+	if err := executeGraphCall(ctx, cred, http.MethodGet, fmt.Sprintf("https://graph.microsoft.com/v1.0/groups/%s?$select=displayName", objectId), nil, &response); err != nil {
+		return "", fmt.Errorf("failed to get group with object ID '%s': %w", objectId, err)
+	}
+
+	return response.DisplayName, nil
 }
 
 func CreateServicePrincipal(ctx context.Context, cred azcore.TokenCredential, appId string) (string, error) {
@@ -278,4 +373,40 @@ func CreateServicePrincipal(ctx context.Context, cred azcore.TokenCredential, ap
 	}
 
 	return response.Id, nil
+}
+
+func assignAppRole(ctx context.Context, cred azcore.TokenCredential, serverServicePrincipalId, roleId string, assignment Principal) error {
+	type requestType struct {
+		AppRoleId   string `json:"appRoleId"`
+		PrincipalId string `json:"principalId"`
+		ResourceId  string `json:"resourceId"`
+	}
+
+	requestBody := requestType{
+		AppRoleId:   roleId,
+		PrincipalId: assignment.ObjectId,
+		ResourceId:  serverServicePrincipalId,
+	}
+
+	if err := executeGraphCall(ctx, cred, http.MethodPost, "https://graph.microsoft.com/beta/servicePrincipals/"+serverServicePrincipalId+"/appRoleAssignments", requestBody, nil); err != nil {
+		return fmt.Errorf("failed to assign app role: %w", err)
+	}
+
+	return nil
+}
+
+func removeAppRoleAssignment(ctx context.Context, cred azcore.TokenCredential, assignment aadAppRoleAssignment) error {
+	type requestType struct {
+		Id string `json:"id"`
+	}
+
+	requestBody := requestType{
+		Id: assignment.AppRoleId,
+	}
+
+	if err := executeGraphCall(ctx, cred, http.MethodDelete, fmt.Sprintf("https://graph.microsoft.com/beta/servicePrincipals/%s/appRoleAssignments/%s", assignment.ResourceId, assignment.Id), requestBody, nil); err != nil {
+		return fmt.Errorf("failed to remove app role assignment: %w", err)
+	}
+
+	return nil
 }

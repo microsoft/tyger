@@ -113,12 +113,10 @@ const (
 )
 
 type Principal struct {
-	ObjectId          string        `json:"objectId"`
-	UserPrincipalName string        `json:"userPrincipalName"`
-	Kind              PrincipalKind `json:"kind"`
-
-	// Deprecated: Id is deprecated. Use ObjectId instead
-	Id string `json:"id"`
+	Kind              PrincipalKind `json:"kind" yaml:"kind"`
+	ObjectId          string        `json:"objectId,omitempty" yaml:"objectId,omitempty"`
+	UserPrincipalName string        `json:"userPrincipalName,omitempty" yaml:"userPrincipalName,omitempty"`
+	DisplayName       string        `json:"displayName,omitempty" yaml:"displayName,omitempty"`
 }
 
 func (c *ComputeConfig) GetApiHostCluster() *ClusterConfig {
