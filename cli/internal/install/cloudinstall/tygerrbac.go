@@ -1,14 +1,25 @@
 package cloudinstall
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
+	"text/template"
+
+	_ "embed"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Masterminds/sprig/v3"
 	"github.com/rs/zerolog/log"
+	"gopkg.in/yaml.v3"
 )
+
+//go:embed rbac-pretty.tpl
+var prettyPrintRbacTemplate string
 
 type TygerRbacConfig struct {
 	ServerUrl       string                    `json:"serverUrl" yaml:"serverUrl"`
@@ -182,13 +193,17 @@ func ApplyRbacAssignments(ctx context.Context, cred azcore.TokenCredential, desi
 		return nil, err
 	}
 
-	existingAssignments, err := getAssignments(ctx, cred, serverSp, false)
+	existingAssignments, err := getAssignments(ctx, cred, serverSp, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get existing assignments: %w", err)
 	}
 
 	if err := processRoleAssignmenChanges(ctx, cred, serverSp, desiredRbacConfig.RoleAssignments.Owner, existingAssignments.Owner, roleIds.ownerRoleId, tygerOwnerRoleValue); err != nil {
 		return nil, fmt.Errorf("failed to process owner role assignments: %w", err)
+	}
+
+	if err := processRoleAssignmenChanges(ctx, cred, serverSp, desiredRbacConfig.RoleAssignments.Contributor, existingAssignments.Contributor, roleIds.contributorRoleId, tygerContributorRoleValue); err != nil {
+		return nil, fmt.Errorf("failed to process owner contributor assignments: %w", err)
 	}
 
 	return desiredRbacConfig, nil
@@ -317,4 +332,27 @@ func normalizePrincipal(ctx context.Context, cred azcore.TokenCredential, princi
 	}
 
 	return principal, nil
+}
+
+func PrettyPrintRbacAssignments(config *TygerRbacConfig, writer io.Writer) error {
+	funcMap := sprig.FuncMap()
+	funcMap["toYAML"] = func(v any) string {
+		buf := &bytes.Buffer{}
+		enc := yaml.NewEncoder(buf)
+		enc.SetIndent(2)
+		err := enc.Encode(v)
+		if err != nil {
+			panic(err)
+		}
+
+		return buf.String()
+	}
+
+	funcMap["indentAfterFirst"] = func(spaces int, v string) string {
+		pad := strings.Repeat(" ", spaces)
+		return strings.Replace(v, "\n", "\n"+pad, -1)
+	}
+
+	t := template.Must(template.New("config").Funcs(funcMap).Parse(prettyPrintRbacTemplate))
+	return t.Execute(writer, config)
 }
