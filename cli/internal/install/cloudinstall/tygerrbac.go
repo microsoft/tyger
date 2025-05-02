@@ -48,7 +48,7 @@ func GetRbacAssignments(ctx context.Context, cred azcore.TokenCredential, server
 		return nil, err
 	}
 
-	roleAssignments, err := GetAssignments(ctx, cred, serverSp, populateServicePrincipalName)
+	roleAssignments, err := getAssignments(ctx, cred, serverSp, populateServicePrincipalName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get role assignments: %w", err)
 	}
@@ -81,7 +81,7 @@ func getRoleIds(serverSp *aadServicePrincipal) (roleIds, error) {
 	return roleIds, nil
 }
 
-func GetAssignments(ctx context.Context, cred azcore.TokenCredential, serverSp *aadServicePrincipal, populateServicePrincipalName bool) (*TygerRbacRoleAssignments, error) {
+func getAssignments(ctx context.Context, cred azcore.TokenCredential, serverSp *aadServicePrincipal, populateServicePrincipalName bool) (*TygerRbacRoleAssignments, error) {
 	roleIds, err := getRoleIds(serverSp)
 	if err != nil {
 		return nil, err
@@ -97,38 +97,42 @@ func GetAssignments(ctx context.Context, cred azcore.TokenCredential, serverSp *
 		Contributor: []TygerRbacRoleAssignment{},
 	}
 
-	response := responseType{}
-	if err := executeGraphCall(ctx, cred, http.MethodGet, fmt.Sprintf("https://graph.microsoft.com/v1.0/servicePrincipals/%s/appRoleAssignedTo", serverSp.Id), nil, &response); err != nil {
-		return nil, err
-	}
-
-	for _, assignment := range response.Value {
-		principal := Principal{
-			Kind:        PrincipalKind(assignment.PrincipalType),
-			ObjectId:    assignment.PrincipalId,
-			DisplayName: assignment.PrincipalDisplayName,
+	for url := fmt.Sprintf("https://graph.microsoft.com/v1.0/servicePrincipals/%s/appRoleAssignedTo", serverSp.Id); url != ""; {
+		response := responseType{}
+		if err := executeGraphCall(ctx, cred, http.MethodGet, url, nil, &response); err != nil {
+			return nil, err
 		}
 
-		if principal.Kind == PrincipalKindUser && populateServicePrincipalName {
-			var err error
-			principal.UserPrincipalName, err = GetUserPrincipalName(ctx, cred, principal.ObjectId)
-			if err != nil {
-				return nil, fmt.Errorf("failed to get user principal name: %w", err)
+		for _, assignment := range response.Value {
+			principal := Principal{
+				Kind:        PrincipalKind(assignment.PrincipalType),
+				ObjectId:    assignment.PrincipalId,
+				DisplayName: assignment.PrincipalDisplayName,
 			}
-			principal.DisplayName = ""
+
+			if principal.Kind == PrincipalKindUser && populateServicePrincipalName {
+				var err error
+				principal.UserPrincipalName, err = GetUserPrincipalName(ctx, cred, principal.ObjectId)
+				if err != nil {
+					return nil, fmt.Errorf("failed to get user principal name: %w", err)
+				}
+				principal.DisplayName = ""
+			}
+
+			tygerAssignment := TygerRbacRoleAssignment{
+				Principal: principal,
+				Details:   &assignment,
+			}
+
+			switch assignment.AppRoleId {
+			case roleIds.ownerRoleId:
+				assignments.Owner = append(assignments.Owner, tygerAssignment)
+			case roleIds.contributorRoleId:
+				assignments.Contributor = append(assignments.Contributor, tygerAssignment)
+			}
 		}
 
-		tygerAssignment := TygerRbacRoleAssignment{
-			Principal: principal,
-			Details:   &assignment,
-		}
-
-		switch assignment.AppRoleId {
-		case roleIds.ownerRoleId:
-			assignments.Owner = append(assignments.Owner, tygerAssignment)
-		case roleIds.contributorRoleId:
-			assignments.Contributor = append(assignments.Contributor, tygerAssignment)
-		}
+		url = response.NextLink
 	}
 
 	return assignments, nil
@@ -178,7 +182,7 @@ func ApplyRbacAssignments(ctx context.Context, cred azcore.TokenCredential, desi
 		return nil, err
 	}
 
-	existingAssignments, err := GetAssignments(ctx, cred, serverSp, false)
+	existingAssignments, err := getAssignments(ctx, cred, serverSp, false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get existing assignments: %w", err)
 	}
