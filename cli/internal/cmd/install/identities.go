@@ -129,11 +129,8 @@ func newRbacShowCommand() *cobra.Command {
 				log.Fatal().Err(err).Msg("Unable to get RBAC assignments")
 			}
 
-			enc := yaml.NewEncoder(os.Stdout)
-			enc.SetIndent(2)
-
-			if err := enc.Encode(rbacConfig); err != nil {
-				log.Fatal().Err(err).Msg("Unable to marshal RBAC assignments")
+			if err := cloudinstall.PrettyPrintRbacAssignments(rbacConfig, os.Stdout); err != nil {
+				log.Fatal().Err(err).Msg("Unable to pretty print RBAC assignments")
 			}
 		},
 	}
@@ -171,11 +168,8 @@ func newRbacApplyCommand() *cobra.Command {
 			if normalizedAssignments, err := cloudinstall.ApplyRbacAssignments(cmd.Context(), cred, &rbacConfig, authConfig); err != nil {
 				log.Fatal().Err(err).Msg("Unable to apply RBAC assignments")
 			} else {
-				enc := yaml.NewEncoder(os.Stdout)
-				enc.SetIndent(2)
-
-				if err := enc.Encode(normalizedAssignments); err != nil {
-					log.Fatal().Err(err).Msg("Unable to marshal RBAC assignments")
+				if err := cloudinstall.PrettyPrintRbacAssignments(normalizedAssignments, os.Stdout); err != nil {
+					log.Fatal().Err(err).Msg("Unable to pretty print RBAC assignments")
 				}
 			}
 
