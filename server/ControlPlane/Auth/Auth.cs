@@ -2,19 +2,43 @@
 // Licensed under the MIT License.
 
 using System.ComponentModel.DataAnnotations;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
+using Tyger.Common.Api;
 
 namespace Tyger.ControlPlane.Auth;
 
 public static class Auth
 {
+    private const string OwnerRoleName = "owner";
+    private const string OwnerPolicyName = "owner";
+    private const string ContributorRoleName = "contributor";
+    private const string AtLeastContributorPolityName = "contributor";
+
+    private static readonly Dictionary<string, string[]> s_policyToSatisfyingRoles = new()
+    {
+        { OwnerPolicyName, [ OwnerRoleName ] },
+        { AtLeastContributorPolityName, [ ContributorRoleName, OwnerRoleName ] },
+    };
+
     public static void AddAuth(this IHostApplicationBuilder builder)
     {
         builder.Services.AddOptions<AuthOptions>().BindConfiguration("auth", o => o.ErrorOnUnknownConfiguration = true).ValidateDataAnnotations().ValidateOnStart();
 
-        builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
+        builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(options =>
+        {
+            options.Events = new JwtBearerEvents
+            {
+                OnForbidden = async context =>
+                {
+                    var result = Responses.Forbidden("Insufficient permissions to perform this operation");
+                    await result.ExecuteAsync(context.HttpContext);
+                },
+            };
+        });
+
         builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme).Configure<IOptions<AuthOptions>>((jwtOptions, securityConfiguration) =>
         {
             if (securityConfiguration.Value.Enabled)
@@ -28,9 +52,40 @@ public static class Auth
         builder.Services.AddAuthorization();
         builder.Services.AddOptions<AuthorizationOptions>().Configure<IOptions<AuthOptions>>((authOptions, securityConfigurations) =>
         {
+            bool authPoliciesAdded = false;
             if (securityConfigurations.Value.Enabled)
             {
                 authOptions.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
+
+                if (securityConfigurations.Value.AccessControl.Enabled)
+                {
+                    foreach ((var policy, var satisfyingRoles) in s_policyToSatisfyingRoles)
+                    {
+                        authOptions.AddPolicy(policy, builder =>
+                        {
+                            builder.RequireAuthenticatedUser();
+                            builder.RequireRole(satisfyingRoles);
+                        });
+                    }
+
+                    authPoliciesAdded = true;
+                }
+            }
+
+            if (!authPoliciesAdded)
+            {
+                foreach (var policy in s_policyToSatisfyingRoles)
+                {
+                    authOptions.AddPolicy(policy.Key, builder =>
+                    {
+                        if (securityConfigurations.Value.AccessControl.Enabled)
+                        {
+                            builder.RequireAuthenticatedUser();
+                        }
+
+                        builder.RequireAssertion(context => true);
+                    });
+                }
             }
         });
     }
@@ -43,6 +98,16 @@ public static class Auth
             app.UseAuthorization();
         }
     }
+
+    public static TBuilder RequireAtLeastContributorRole<TBuilder>(this TBuilder builder) where TBuilder : IEndpointConventionBuilder
+    {
+        return builder.RequireAuthorization(AtLeastContributorPolityName);
+    }
+
+    public static TBuilder RequireOwnerRole<TBuilder>(this TBuilder builder) where TBuilder : IEndpointConventionBuilder
+    {
+        return builder.RequireAuthorization(OwnerPolicyName);
+    }
 }
 
 public class AuthOptions : IValidatableObject
@@ -51,6 +116,8 @@ public class AuthOptions : IValidatableObject
     public string? Authority { get; init; }
     public string? Audience { get; init; }
     public string? CliAppUri { get; init; }
+
+    public AccessControlOptions AccessControl { get; init; } = new();
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
@@ -64,4 +131,9 @@ public class AuthOptions : IValidatableObject
             yield return new ValidationResult("When security is enabled, Authority, Audience, and CliAppUri must be specified");
         }
     }
+}
+
+public class AccessControlOptions
+{
+    public bool Enabled { get; set; } = true;
 }
