@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Primitives;
 using Tyger.Common.Api;
 using Tyger.Common.DependencyInjection;
+using Tyger.ControlPlane.Auth;
 using Tyger.ControlPlane.Json;
 using Tyger.ControlPlane.Model;
 using Tyger.ControlPlane.OpenApi;
@@ -137,6 +138,7 @@ public static class Buffers
                 var count = await manager.SoftDeleteBuffers(tagQuery, excludeTagQuery, ttl, purge, cancellationToken);
                 return Results.Ok(count);
             })
+            .RequireOwnerRole()
             .WithName("deleteBuffers")
             .Produces<int>(StatusCodes.Status200OK)
             .Produces<ErrorBody>(StatusCodes.Status400BadRequest);
@@ -263,6 +265,7 @@ public static class Buffers
                     notFound: _ => Responses.NotFound(),
                     preconditionFailed: failed => Responses.PreconditionFailed(failed.Reason));
             })
+            .RequireOwnerRole()
             .WithName("deleteBuffer")
             .Produces<Buffer>(StatusCodes.Status200OK)
             .Produces<ErrorBody>(StatusCodes.Status400BadRequest)
@@ -314,6 +317,7 @@ public static class Buffers
                 var run = await manager.ExportBuffers(exportRequest, cancellationToken);
                 return Results.Json(run, statusCode: StatusCodes.Status201Created);
             })
+            .RequireOwnerRole()
             .WithName("exportBuffers")
             .Accepts<ExportBuffersRequest>("application/json")
             .Produces<Run>(StatusCodes.Status202Accepted);
@@ -324,6 +328,7 @@ public static class Buffers
                 var run = await manager.ImportBuffers(importRequest, cancellationToken);
                 return Results.Json(run, statusCode: StatusCodes.Status201Created);
             })
+            .RequireOwnerRole()
             .WithName("importBuffers")
             .Accepts<ImportBuffersRequest>("application/json")
             .Produces<Run>(StatusCodes.Status202Accepted);

@@ -77,6 +77,8 @@ void RunServer()
     app.MapFallback(() => Responses.InvalidRoute("The request path was not recognized.")).AllowAnonymous();
 
     var api = app.ConfigureVersionedRouteGroup("/");
+    api.RequireAtLeastContributorRole();
+
     api.MapBuffers();
     api.MapCodespecs();
     api.MapRuns();
