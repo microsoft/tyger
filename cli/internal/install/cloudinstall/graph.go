@@ -35,8 +35,9 @@ func GetGraphToken(ctx context.Context, cred azcore.TokenCredential) (azcore.Acc
 }
 
 type aadAppApi struct {
-	RequestedAccessTokenVersion int                           `json:"requestedAccessTokenVersion,omitempty"`
-	Oauth2PermissionScopes      []*aadAppAuth2PermissionScope `json:"oauth2PermissionScopes,omitempty"`
+	RequestedAccessTokenVersion int                               `json:"requestedAccessTokenVersion,omitempty"`
+	Oauth2PermissionScopes      []*aadAppAuth2PermissionScope     `json:"oauth2PermissionScopes,omitempty"`
+	PreAuthorizedApplications   []*aadAppPreAuthorizedApplication `json:"preAuthorizedApplications,omitempty"`
 }
 
 type aadAppAuth2PermissionScope struct {
@@ -74,16 +75,22 @@ type aadAppRole struct {
 }
 
 type aadApp struct {
-	Id                     string                          `json:"id,omitempty"`
-	AppId                  string                          `json:"appId,omitempty"`
-	DisplayName            string                          `json:"displayName,omitempty"`
-	IdentifierUris         []string                        `json:"identifierUris,omitempty"`
-	SignInAudience         string                          `json:"signInAudience,omitempty"`
-	Api                    *aadAppApi                      `json:"api,omitempty"`
-	RequiredResourceAccess []*aadAppRequiredResourceAccess `json:"requiredResourceAccess,omitempty"`
-	IsFallbackPublicClient bool                            `json:"isFallbackPublicClient,omitempty"`
-	PublicClient           *aadAppPublicClient             `json:"publicClient,omitempty"`
-	AppRoles               []*aadAppRole                   `json:"appRoles,omitempty"`
+	Id                         string                          `json:"id,omitempty"`
+	AppId                      string                          `json:"appId,omitempty"`
+	DisplayName                string                          `json:"displayName,omitempty"`
+	IdentifierUris             []string                        `json:"identifierUris,omitempty"`
+	SignInAudience             string                          `json:"signInAudience,omitempty"`
+	ServiceManagementReference string                          `json:"serviceManagementReference,omitempty"`
+	Api                        *aadAppApi                      `json:"api,omitempty"`
+	RequiredResourceAccess     []*aadAppRequiredResourceAccess `json:"requiredResourceAccess,omitempty"`
+	IsFallbackPublicClient     bool                            `json:"isFallbackPublicClient,omitempty"`
+	PublicClient               *aadAppPublicClient             `json:"publicClient,omitempty"`
+	AppRoles                   []*aadAppRole                   `json:"appRoles,omitempty"`
+}
+
+type aadAppPreAuthorizedApplication struct {
+	AppId         string   `json:"appId,omitempty"`
+	PermissionIds []string `json:"permissionIds,omitempty"`
 }
 
 type aadServicePrincipal struct {
@@ -100,18 +107,64 @@ type aadAppRoleAssignment struct {
 	ResourceId           string `json:"resourceId,omitempty"`
 }
 
+func GetAppByAppIdOrUri(ctx context.Context, cred azcore.TokenCredential, appId, uri string) (*aadApp, error) {
+	if appId != "" {
+		response := aadApp{}
+		if err := executeGraphCall(ctx, cred, http.MethodGet, fmt.Sprintf("https://graph.microsoft.com/beta/applications(appId='%s')", appId), nil, &response); err != nil {
+			return nil, fmt.Errorf("failed to get app by id: %w", err)
+		}
+
+		for _, identifierUri := range response.IdentifierUris {
+			if uri != "" {
+				if identifierUri == uri {
+					return &response, nil
+				}
+			}
+		}
+
+		return nil, fmt.Errorf("app with appId %s does not have URI %s", appId, uri)
+	}
+
+	if uri == "" {
+		return nil, errNotFound
+	}
+
+	type responseType struct {
+		Value []aadApp `json:"value"`
+	}
+
+	response := responseType{}
+	if err := executeGraphCall(ctx, cred, http.MethodGet, fmt.Sprintf("https://graph.microsoft.com/beta/applications/?$filter=identifierUris/any(x:x%%20eq%%20'%s')", url.PathEscape(uri)), nil, &response); err != nil {
+		return nil, fmt.Errorf("failed to get app by uri: %w", err)
+	}
+
+	if len(response.Value) == 0 {
+		return nil, errNotFound
+	}
+
+	if len(response.Value) > 1 {
+		return nil, errMultipleFound
+	}
+
+	return &response.Value[0], nil
+}
+
 func GetAppByUri(ctx context.Context, cred azcore.TokenCredential, uri string) (*aadApp, error) {
 	type responseType struct {
 		Value []aadApp `json:"value"`
 	}
 
 	response := responseType{}
-	if err := executeGraphCall(ctx, cred, http.MethodGet, fmt.Sprintf("https://graph.microsoft.com/beta/applications/?$filter=identifierUris/any(x:x%%20eq%%20'%s')", uri), nil, &response); err != nil {
+	if err := executeGraphCall(ctx, cred, http.MethodGet, fmt.Sprintf("https://graph.microsoft.com/beta/applications/?$filter=identifierUris/any(x:x%%20eq%%20'%s')", url.PathEscape(uri)), nil, &response); err != nil {
 		return nil, fmt.Errorf("failed to get app by uri: %w", err)
 	}
 
 	if len(response.Value) == 0 {
 		return nil, errNotFound
+	}
+
+	if len(response.Value) > 1 {
+		return nil, errMultipleFound
 	}
 
 	return &response.Value[0], nil
@@ -123,7 +176,7 @@ func GetServicePrincipalByUri(ctx context.Context, cred azcore.TokenCredential, 
 	}
 
 	response := responseType{}
-	if err := executeGraphCall(ctx, cred, http.MethodGet, fmt.Sprintf("https://graph.microsoft.com/beta/servicePrincipals/?$filter=servicePrincipalNames/any(x:x%%20eq%%20'%s')", uri), nil, &response); err != nil {
+	if err := executeGraphCall(ctx, cred, http.MethodGet, fmt.Sprintf("https://graph.microsoft.com/beta/servicePrincipals/?$filter=servicePrincipalNames/any(x:x%%20eq%%20'%s')", url.PathEscape(uri)), nil, &response); err != nil {
 		return nil, fmt.Errorf("failed to get app by uri: %w", err)
 	}
 

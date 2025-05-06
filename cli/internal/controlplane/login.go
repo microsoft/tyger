@@ -335,7 +335,7 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 				if _, _, err := jwt.NewParser().ParseUnverified(authResult.AccessToken, claims); err != nil {
 					return nil, fmt.Errorf("unable to parse access token: %w", err)
 				} else {
-					si.ClientId = claims["appid"].(string)
+					// si.ClientId = claims["appid"].(string)
 				}
 			}
 		}
