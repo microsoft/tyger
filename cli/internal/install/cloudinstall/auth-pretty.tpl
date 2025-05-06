@@ -1,6 +1,14 @@
+# `tenantId`, `apiAppUri`, and `cliAppUri` must be provided.
+# The command `tyger auth apply` will fill in values for `apiAppId` and `cLiAppId`.
+# All five fields must be copied to the cloud installation configuration file
+# under the section `organizations[].api.auth`.re
 
-# The Tyger API server's URL.
-serverUrl: {{ .ServerUrl }}
+tenantId: {{ if .TenantID -}} {{ .TenantID }} {{- else }} # Required. The Entra ID tenant ID GUID. {{- end }}
+apiAppUri: {{ if .ApiAppUri -}} {{ .ApiAppUri }} {{- else }}# Required.  {{- end }}
+cliAppUri: {{ if .CliAppUri -}} {{ .CliAppUri }} {{- else }}# Required.  {{- end }}
+apiAppId: {{ if .ApiAppId -}} {{ .ApiAppId }} {{- else }} # `tyger auth apply` will fill in this value {{- end }}
+cliAppId: {{ if .CliAppId -}} {{ .CliAppId }} {{- else }} # `tyger auth apply` will fill in this value {{- end }}
+{{ if .ServiceManagementReference -}} serviceManagementReference: {{ .ServiceManagementReference }} {{- end }}
 
 # Principals in role assignments are specified in the following ways:
 #

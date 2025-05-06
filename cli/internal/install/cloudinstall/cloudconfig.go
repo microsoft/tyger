@@ -224,9 +224,12 @@ type OrganizationApiConfig struct {
 }
 
 type AuthConfig struct {
-	TenantID  string `json:"tenantId"`
-	ApiAppUri string `json:"apiAppUri"`
-	CliAppUri string `json:"cliAppUri"`
+	TenantID                   string `json:"tenantId" yaml:"tenantId"`
+	ApiAppUri                  string `json:"apiAppUri" yaml:"apiAppUri"`
+	ApiAppId                   string `json:"apiAppId" yaml:"apiAppId"`
+	CliAppUri                  string `json:"cliAppUri" yaml:"cliAppUri"`
+	CliAppId                   string `json:"cliAppId" yaml:"cliAppId"`
+	ServiceManagementReference string `json:"serviceManagementReference" yaml:"serviceManagementReference"`
 }
 
 type OrganizationHelmConfig struct {
