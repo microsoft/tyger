@@ -184,7 +184,9 @@ func createOrUpdateServerApp(ctx context.Context, authSpec *TygerAuthSpec, cred 
 
 	app.DisplayName = valueOrDefault(app.DisplayName, "Tyger API")
 	app.SignInAudience = valueOrDefault(app.SignInAudience, "AzureADMyOrg")
-	app.Api.RequestedAccessTokenVersion = 2
+	if app.Api.RequestedAccessTokenVersion == 0 {
+		app.Api.RequestedAccessTokenVersion = 2
+	}
 	app.ServiceManagementReference = authSpec.ServiceManagementReference
 
 	var ownerAppRole *aadAppRole

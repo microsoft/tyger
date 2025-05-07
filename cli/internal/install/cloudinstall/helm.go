@@ -594,7 +594,7 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, org *Organizat
 			"security": map[string]any{
 				"enabled":   true,
 				"authority": cloud.AzurePublic.ActiveDirectoryAuthorityHost + org.Api.Auth.TenantID,
-				"audience":  org.Api.Auth.ApiAppId,
+				"audience":  org.Api.Auth.ApiAppUri,
 				"apiAppId":  org.Api.Auth.ApiAppId,
 				"apiAppUri": org.Api.Auth.ApiAppUri,
 				"cliAppUri": org.Api.Auth.CliAppUri,
