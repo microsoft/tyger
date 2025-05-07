@@ -31,8 +31,9 @@ const tygerContributorRoleValue = "contributor"
 var prettyPrintRbacTemplate string
 
 type TygerAuthSpec struct {
-	AuthConfig      `yaml:",inline"`
-	RoleAssignments *TygerRbacRoleAssignments `yaml:"roleAssignments"`
+	AuthConfig                 `yaml:",inline"`
+	ServiceManagementReference string                    `json:"serviceManagementReference" yaml:"serviceManagementReference"`
+	RoleAssignments            *TygerRbacRoleAssignments `yaml:"roleAssignments"`
 }
 
 type TygerRbacRoleAssignment struct {
@@ -105,7 +106,7 @@ func GetAuthSpec(ctx context.Context, config *AuthConfig, cred azcore.TokenCrede
 }
 
 func ApplyAuthSpec(ctx context.Context, authSpec *TygerAuthSpec, cred azcore.TokenCredential) (*TygerAuthSpec, error) {
-	if err := installIdentities(ctx, &authSpec.AuthConfig, cred); err != nil {
+	if err := installIdentities(ctx, authSpec, cred); err != nil {
 		return nil, err
 	}
 
@@ -118,15 +119,15 @@ func ApplyAuthSpec(ctx context.Context, authSpec *TygerAuthSpec, cred azcore.Tok
 	return authSpec, nil
 }
 
-func installIdentities(ctx context.Context, config *AuthConfig, cred azcore.TokenCredential) error {
-	serverApp, err := createOrUpdateServerApp(ctx, config, cred)
+func installIdentities(ctx context.Context, authSpec *TygerAuthSpec, cred azcore.TokenCredential) error {
+	serverApp, err := createOrUpdateServerApp(ctx, authSpec, cred)
 	if err != nil {
 		return err
 	}
 
-	config.ApiAppId = serverApp.AppId
-	if config.ApiAppUri == "" {
-		config.ApiAppUri = serverApp.IdentifierUris[0]
+	authSpec.ApiAppId = serverApp.AppId
+	if authSpec.ApiAppUri == "" {
+		authSpec.ApiAppUri = serverApp.IdentifierUris[0]
 	}
 
 	if _, err := GetServicePrincipalByAppId(ctx, cred, serverApp.AppId); err != nil {
@@ -138,14 +139,14 @@ func installIdentities(ctx context.Context, config *AuthConfig, cred azcore.Toke
 		}
 	}
 
-	cliApp, err := createOrUpdateCliApp(ctx, config, serverApp, cred)
+	cliApp, err := createOrUpdateCliApp(ctx, authSpec, serverApp, cred)
 	if err != nil {
 		return err
 	}
 
-	config.CliAppId = cliApp.AppId
-	if config.CliAppUri == "" {
-		config.CliAppUri = cliApp.IdentifierUris[0]
+	authSpec.CliAppId = cliApp.AppId
+	if authSpec.CliAppUri == "" {
+		authSpec.CliAppUri = cliApp.IdentifierUris[0]
 	}
 
 	if _, err := GetServicePrincipalByAppId(ctx, cred, cliApp.AppId); err != nil {
@@ -164,16 +165,16 @@ func installIdentities(ctx context.Context, config *AuthConfig, cred azcore.Toke
 	return nil
 }
 
-func createOrUpdateServerApp(ctx context.Context, config *AuthConfig, cred azcore.TokenCredential) (*aadApp, error) {
-	if config.ApiAppId == "" && config.ApiAppUri == "" {
+func createOrUpdateServerApp(ctx context.Context, authSpec *TygerAuthSpec, cred azcore.TokenCredential) (*aadApp, error) {
+	if authSpec.ApiAppId == "" && authSpec.ApiAppUri == "" {
 		return nil, errors.New("`apiAppUri` must be set")
 	}
 
-	app, err := GetAppByAppIdOrUri(ctx, cred, config.ApiAppId, config.ApiAppUri)
+	app, err := GetAppByAppIdOrUri(ctx, cred, authSpec.ApiAppId, authSpec.ApiAppUri)
 	if err != nil {
 		if err == errNotFound {
 			app = &aadApp{
-				IdentifierUris: []string{config.ApiAppUri},
+				IdentifierUris: []string{authSpec.ApiAppUri},
 				Api:            &aadAppApi{},
 			}
 		} else {
@@ -184,7 +185,7 @@ func createOrUpdateServerApp(ctx context.Context, config *AuthConfig, cred azcor
 	app.DisplayName = valueOrDefault(app.DisplayName, "Tyger API")
 	app.SignInAudience = valueOrDefault(app.SignInAudience, "AzureADMyOrg")
 	app.Api.RequestedAccessTokenVersion = 2
-	app.ServiceManagementReference = config.ServiceManagementReference
+	app.ServiceManagementReference = authSpec.ServiceManagementReference
 
 	var ownerAppRole *aadAppRole
 	if idx := slices.IndexFunc(app.AppRoles, func(role *aadAppRole) bool {
@@ -242,10 +243,10 @@ func createOrUpdateServerApp(ctx context.Context, config *AuthConfig, cred azcor
 	scope.UserConsentDisplayName = valueOrDefault(scope.UserConsentDisplayName, "Access Tyger API")
 
 	if err == errNotFound {
-		log.Ctx(ctx).Info().Msgf("Creating app %s", config.ApiAppUri)
+		log.Ctx(ctx).Info().Msgf("Creating app %s", authSpec.ApiAppUri)
 		err = executeGraphCall(ctx, cred, http.MethodPost, "https://graph.microsoft.com/beta/applications", app, &app)
 	} else {
-		log.Ctx(ctx).Info().Msgf("Updating app %s", config.ApiAppUri)
+		log.Ctx(ctx).Info().Msgf("Updating app %s", authSpec.ApiAppUri)
 		err = executeGraphCall(ctx, cred, http.MethodPatch, fmt.Sprintf("https://graph.microsoft.com/beta/applications/%s", app.Id), app, nil)
 	}
 
@@ -276,11 +277,12 @@ func addCliAsPreAuthorizedApp(ctx context.Context, serverApp, cliApp *aadApp, cr
 			AppId:         cliApp.AppId,
 			PermissionIds: []string{},
 		}
+		serverApp.Api.PreAuthorizedApplications = append(serverApp.Api.PreAuthorizedApplications, preauthorizedApp)
 	}
 
 	if slices.Index(preauthorizedApp.PermissionIds, scopeId) == -1 {
-		log.Ctx(ctx).Info().Msgf("Adding CLI app %s as pre-authorized app for server app %s", cliApp.AppId, serverApp.AppId)
 		preauthorizedApp.PermissionIds = append(preauthorizedApp.PermissionIds, scopeId)
+		log.Ctx(ctx).Info().Msgf("Adding CLI app %s as pre-authorized app for server app %s", cliApp.AppId, serverApp.AppId)
 		err := executeGraphCall(ctx, cred, http.MethodPatch, fmt.Sprintf("https://graph.microsoft.com/beta/applications/%s", serverApp.Id), serverApp, nil)
 		if err != nil {
 			return fmt.Errorf("failed to add CLI app as pre-authorized app: %w", err)
@@ -290,16 +292,16 @@ func addCliAsPreAuthorizedApp(ctx context.Context, serverApp, cliApp *aadApp, cr
 	return nil
 }
 
-func createOrUpdateCliApp(ctx context.Context, config *AuthConfig, serverApp *aadApp, cred azcore.TokenCredential) (*aadApp, error) {
-	if config.CliAppId == "" && config.CliAppUri == "" {
+func createOrUpdateCliApp(ctx context.Context, authSpec *TygerAuthSpec, serverApp *aadApp, cred azcore.TokenCredential) (*aadApp, error) {
+	if authSpec.CliAppId == "" && authSpec.CliAppUri == "" {
 		return nil, errors.New("`cliAppUri` must be set")
 	}
 
-	app, err := GetAppByAppIdOrUri(ctx, cred, config.CliAppId, config.CliAppUri)
+	app, err := GetAppByAppIdOrUri(ctx, cred, authSpec.CliAppId, authSpec.CliAppUri)
 	if err != nil {
 		if err == errNotFound {
 			app = &aadApp{
-				IdentifierUris:         []string{config.CliAppUri},
+				IdentifierUris:         []string{authSpec.CliAppUri},
 				RequiredResourceAccess: []*aadAppRequiredResourceAccess{},
 			}
 		} else {
@@ -314,7 +316,7 @@ func createOrUpdateCliApp(ctx context.Context, config *AuthConfig, serverApp *aa
 		RedirectUris: []string{"http://localhost"},
 	}
 
-	app.ServiceManagementReference = config.ServiceManagementReference
+	app.ServiceManagementReference = authSpec.ServiceManagementReference
 
 	var requiredResourceAccess *aadAppRequiredResourceAccess
 	if idx := slices.IndexFunc(app.RequiredResourceAccess, func(resourceAccess *aadAppRequiredResourceAccess) bool {
@@ -345,10 +347,10 @@ func createOrUpdateCliApp(ctx context.Context, config *AuthConfig, serverApp *aa
 	}
 
 	if err == errNotFound {
-		log.Ctx(ctx).Info().Msgf("Creating app %s", config.CliAppUri)
+		log.Ctx(ctx).Info().Msgf("Creating app %s", authSpec.CliAppUri)
 		err = executeGraphCall(ctx, cred, http.MethodPost, "https://graph.microsoft.com/beta/applications", app, &app)
 	} else {
-		log.Ctx(ctx).Info().Msgf("Updating app %s", config.CliAppUri)
+		log.Ctx(ctx).Info().Msgf("Updating app %s", authSpec.CliAppUri)
 		err = executeGraphCall(ctx, cred, http.MethodPatch, fmt.Sprintf("https://graph.microsoft.com/beta/applications/%s", app.Id), app, nil)
 	}
 

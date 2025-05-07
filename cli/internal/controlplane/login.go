@@ -302,6 +302,7 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 		si.ServerUrl = options.ServerUrl
 		si.Authority = serviceMetadata.Authority
 		si.Audience = serviceMetadata.Audience
+		si.ClientId = serviceMetadata.CliAppId
 		si.ClientAppUri = serviceMetadata.CliAppUri
 		si.DataPlaneProxy = serviceMetadata.DataPlaneProxy
 
@@ -327,15 +328,22 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 
 			if !useServicePrincipal {
 				si.Principal = authResult.IDToken.PreferredUsername
-
-				// We used the client app URI as the client ID when logging in interactively.
-				// This works, but the refresh token will only be valid for the client ID (GUID).
-				// So we need to extract the client ID from the access token and use that next time.
-				claims := jwt.MapClaims{}
-				if _, _, err := jwt.NewParser().ParseUnverified(authResult.AccessToken, claims); err != nil {
-					return nil, fmt.Errorf("unable to parse access token: %w", err)
-				} else {
-					// si.ClientId = claims["appid"].(string)
+				if si.ClientId == "" {
+					// Earlier serrver versions did not publish the client app ID in the metadata endpoint and used
+					// the client app URI as the client ID.
+					// We used the client app URI as the client ID when logging in interactively.
+					// This works, but the refresh token will only be valid for the client ID (GUID).
+					// So we need to extract the client ID from the access token and use that next time.
+					claims := jwt.MapClaims{}
+					if _, _, err := jwt.NewParser().ParseUnverified(authResult.AccessToken, claims); err != nil {
+						return nil, fmt.Errorf("unable to parse access token: %w", err)
+					} else {
+						var ok bool
+						si.ClientId, ok = claims["appid"].(string)
+						if !ok {
+							return nil, errors.New("unable to extract client ID from access token; the client is not compatible with this version of the CLI")
+						}
+					}
 				}
 			}
 		}
@@ -834,8 +842,12 @@ func (si *serviceInfo) createServicePrincipalCredential() (confidential.Credenti
 }
 
 func (si *serviceInfo) performUserLogin(ctx context.Context, useDeviceCode bool) (authResult public.AuthResult, err error) {
+	clientId := si.ClientId
+	if clientId == "" {
+		clientId = si.ClientAppUri
+	}
 	client, err := public.New(
-		si.ClientAppUri,
+		clientId,
 		public.WithAuthority(si.Authority),
 		public.WithCache(si),
 		public.WithHTTPClient(client.DefaultClient.StandardClient()),

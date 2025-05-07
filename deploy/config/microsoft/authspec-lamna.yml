@@ -1,0 +1,37 @@
+# `tenantId`, `apiAppUri`, and `cliAppUri` must be provided.
+# The command `tyger auth apply` will fill in values for `apiAppId` and `cLiAppId`.
+# All five fields must be copied to the cloud installation configuration file
+# under the section `organizations[].api.auth`.re
+
+tenantId: 72f988bf-86f1-41af-91ab-2d7cd011db47
+apiAppUri: api://tyger-server
+cliAppUri: api://tyger-cli
+apiAppId: fc9d1bea-71ff-4cdb-8a07-69fa7df25f95
+cliAppId: 9985c0a8-7477-4ec8-a784-e24c90d98887
+
+serviceManagementReference: 7933f882-e109-49d5-a771-e1be70099806
+
+# Principals in role assignments are specified in the following ways:
+#
+# For users, specify the object ID and/or the user principal name.
+#   - kind: User
+#     objectId: <objectId>
+#     userPrincipalName: <userPrincipalName>
+#
+# For groups, specify the object ID and/or the group display name.
+#   - kind: Group
+#     objectId: <objectId>
+#     displayName: <displayName>
+#
+# For service principals, specify the object ID and/or the service principal display name.
+#   - kind: ServicePrincipal
+#     objectId: <objectId>
+#     displayName: <displayName>
+
+roleAssignments:
+  owner:
+    - kind: Group
+      objectId: 36043a62-1383-4012-95aa-44da0a4d8012
+      displayName: Biomedical Signal Processing Team ALT
+      
+  contributor: []

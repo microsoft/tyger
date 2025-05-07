@@ -96,7 +96,10 @@ public record ServiceMetadata : ModelBase
 {
     public string? Authority { get; init; }
     public string? Audience { get; init; }
+    public string? ApiAppUri { get; init; }
+    public string? ApiAppId { get; init; }
     public string? CliAppUri { get; init; }
+    public string? CliAppId { get; init; }
     public IEnumerable<string>? Capabilities { get; init; }
     public IEnumerable<string>? ApiVersions { get; init; }
 }

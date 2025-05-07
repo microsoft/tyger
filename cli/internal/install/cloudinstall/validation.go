@@ -491,6 +491,18 @@ func quickValidateApiConfig(ctx context.Context, success *bool, config *CloudEnv
 				validationError(ctx, success, "The `api.auth.cliAppUri` field must be a valid URL for organization '%s'", org.Name)
 			}
 		}
+
+		if authConfig.ApiAppId == "" {
+			validationError(ctx, success, "The `api.auth.apiAppId` field is required for organization '%s'. Run `tyger auth apply` to retrieve the value.", org.Name)
+		} else if _, err := uuid.Parse(authConfig.ApiAppId); err != nil {
+			validationError(ctx, success, "The `api.auth.apiAppId` field must be a GUID for organization '%s'", org.Name)
+		}
+
+		if authConfig.CliAppId == "" {
+			validationError(ctx, success, "The `api.auth.cliAppId` field is required for organization '%s'. Run `tyger auth apply` to retrieve the value.", org.Name)
+		} else if _, err := uuid.Parse(authConfig.CliAppId); err != nil {
+			validationError(ctx, success, "The `api.auth.cliAppId` field must be a GUID for organization '%s'", org.Name)
+		}
 	}
 
 	if apiConfig.Buffers == nil {
