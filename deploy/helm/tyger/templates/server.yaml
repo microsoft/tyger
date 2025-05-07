@@ -124,8 +124,14 @@ spec:
               value: {{ required "When security.enabled is true, a value for security.authority is required" .Values.security.authority }}
             - name: Auth__Audience
               value: {{ required "When security.enabled is true, a value for security.audience is required" .Values.security.audience }}
+            - name: Auth__ApiAppUri
+              value: {{ required "When security.enabled is true, a value for security.apiAppUri is required" .Values.security.apiAppUri }}
+            - name: Auth__ApiAppId
+              value: {{ required "When security.enabled is true, a value for security.apiAppId is required" .Values.security.apiAppId }}
             - name: Auth__CliAppUri
               value: {{ required "When security.enabled is true, a value for security.cliAppUri is required" .Values.security.cliAppUri }}
+            - name: Auth__CliAppId
+              value: {{ required "When security.enabled is true, a value for security.cliAppId is required" .Values.security.cliAppId }}
           {{- end }}
             - name: Compute__Kubernetes__Namespace
               value: {{ .Release.Namespace }}

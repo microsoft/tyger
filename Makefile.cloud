@@ -82,8 +82,11 @@ set-localsettings: set-context
 			"auth": {
 				"enabled": "${SECURITY_ENABLED}",
 				"authority": "https://login.microsoftonline.com/$$(echo $${org_json} | jq -r '.api.auth.tenantId')",
-				"audience": "$$(echo $${org_json} | jq -r '.api.auth.apiAppUri')",
-				"cliAppUri": "$$(echo $${org_json} | jq -r '.api.auth.cliAppUri')"
+				"audience": "$$(echo $${org_json} | jq -r '.api.auth.apiAppId')",
+				"apiAppId": "$$(echo $${org_json} | jq -r '.api.auth.apiAppId')",
+				"apiAppUri": "$$(echo $${org_json} | jq -r '.api.auth.apiAppUri')",
+				"cliAppUri": "$$(echo $${org_json} | jq -r '.api.auth.cliAppUri')",
+				"cliAppId": "$$(echo $${org_json} | jq -r '.api.auth.cliAppId')"
 			},
 			"compute": {
 				"kubernetes": {

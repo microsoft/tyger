@@ -34,7 +34,10 @@ public static class ServiceMetadata
                         {
                             Authority = auth.Value.Authority,
                             Audience = auth.Value.Audience,
-                            CliAppUri = auth.Value.CliAppUri
+                            ApiAppUri = auth.Value.ApiAppUri,
+                            ApiAppId = auth.Value.ApiAppId,
+                            CliAppUri = auth.Value.CliAppUri,
+                            CliAppId = auth.Value.CliAppId,
                         };
                     }
                 }

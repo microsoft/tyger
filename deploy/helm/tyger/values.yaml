@@ -24,7 +24,10 @@ security:
   enabled: true
   authority:
   audience:
+  apiAppUri:
+  apiAppId:
   cliAppUri:
+  cliAppId:
 
 hostname:
 tls:

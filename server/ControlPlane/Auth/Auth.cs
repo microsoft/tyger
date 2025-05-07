@@ -2,7 +2,6 @@
 // Licensed under the MIT License.
 
 using System.ComponentModel.DataAnnotations;
-using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
@@ -43,7 +42,8 @@ public static class Auth
         {
             if (securityConfiguration.Value.Enabled)
             {
-                jwtOptions.Authority = securityConfiguration.Value.Authority;
+                // Tokens using the v2 format use the v2.0 endpoint
+                jwtOptions.Authority = securityConfiguration.Value.Authority + "/v2.0";
                 jwtOptions.Audience = securityConfiguration.Value.Audience;
                 jwtOptions.Challenge = $"Bearer authority={securityConfiguration.Value.Authority}, audience={securityConfiguration.Value.Audience}";
             }
@@ -115,7 +115,10 @@ public class AuthOptions : IValidatableObject
     public bool Enabled { get; set; } = true;
     public string? Authority { get; init; }
     public string? Audience { get; init; }
+    public string? ApiAppUri { get; init; }
+    public string? ApiAppId { get; init; }
     public string? CliAppUri { get; init; }
+    public string? CliAppId { get; init; }
 
     public AccessControlOptions AccessControl { get; init; } = new();
 

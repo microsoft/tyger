@@ -582,20 +582,23 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, org *Organizat
 				"tygerServer": map[string]any{
 					"name":             *tygerServerIdentity.Name,
 					"databaseRoleName": getDatabaseRoleName(org, *tygerServerIdentity.Name),
-					"clientId":         tygerServerIdentity.Properties.ClientID,
+					"clientId":         *tygerServerIdentity.Properties.ClientID,
 				},
 				"migrationRunner": map[string]any{
 					"name":             *migrationRunnerIdentity.Name,
 					"databaseRoleName": getDatabaseRoleName(org, *migrationRunnerIdentity.Name),
-					"clientId":         migrationRunnerIdentity.Properties.ClientID,
+					"clientId":         *migrationRunnerIdentity.Properties.ClientID,
 				},
 				"custom": customIdentitiesValues,
 			},
 			"security": map[string]any{
 				"enabled":   true,
 				"authority": cloud.AzurePublic.ActiveDirectoryAuthorityHost + org.Api.Auth.TenantID,
-				"audience":  org.Api.Auth.ApiAppUri,
+				"audience":  org.Api.Auth.ApiAppId,
+				"apiAppId":  org.Api.Auth.ApiAppId,
+				"apiAppUri": org.Api.Auth.ApiAppUri,
 				"cliAppUri": org.Api.Auth.CliAppUri,
+				"cliAppId":  org.Api.Auth.CliAppId,
 			},
 			"tls": map[string]any{
 				"letsEncrypt": map[string]any{
@@ -605,7 +608,7 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, org *Organizat
 			"database": map[string]any{
 				"host":           *dbServer.Properties.FullyQualifiedDomainName,
 				"databaseName":   org.Cloud.DatabaseName,
-				"port":           databasePort,
+				"port":           fmt.Sprintf("%d", databasePort),
 				"ownersRoleName": getDatabaseRoleName(org, unqualifiedOwnersRole),
 			},
 			"buffers": map[string]any{

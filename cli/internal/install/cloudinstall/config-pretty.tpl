@@ -238,9 +238,6 @@ organizations:
         tenantId: {{ .Auth.TenantID }}
         apiAppUri: {{ .Auth.ApiAppUri }}
         cliAppUri: {{ .Auth.CliAppUri }}
-        {{- if .ServiceManagementReference }}
-        serviceManagementReference: {{ .ServiceManagementReference }}
-        {{- end }}
 
       {{- if (and .Buffers (or .Buffers.ActiveLifetime .Buffers.SoftDeletedLifetime)) }}
 
