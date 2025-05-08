@@ -39,9 +39,10 @@ var (
 )
 
 type readOptions struct {
-	dop            int
-	httpClient     *retryablehttp.Client
-	connectionType client.TygerConnectionType
+	dop                int
+	httpClient         *retryablehttp.Client
+	connectionType     client.TygerConnectionType
+	accessUrlRefresher AccessUrlUpdateFunc
 }
 
 type ReadOption func(o *readOptions)
@@ -58,14 +59,21 @@ func WithReadHttpClient(httpClient *retryablehttp.Client) ReadOption {
 	}
 }
 
+func WithReadAccessUrlRefresher(accessUrlRefresher AccessUrlUpdateFunc) ReadOption {
+	return func(o *readOptions) {
+		o.accessUrlRefresher = accessUrlRefresher
+	}
+}
+
 func Read(ctx context.Context, url *url.URL, outputWriter io.Writer, options ...ReadOption) error {
-	container := &Container{url}
 	readOptions := &readOptions{
 		dop: DefaultReadDop,
 	}
 	for _, o := range options {
 		o(readOptions)
 	}
+
+	container := NewContainer(ctx, url, readOptions.accessUrlRefresher)
 
 	if readOptions.httpClient == nil {
 		tygerClient, _ := controlplane.GetClientFromCache()
@@ -95,6 +103,8 @@ func Read(ctx context.Context, url *url.URL, outputWriter io.Writer, options ...
 		Str("operation", "buffer read").
 		Str("buffer", container.GetContainerName()).
 		Logger().WithContext(ctx)
+
+	container.ctx = ctx
 
 	if container.SupportsRelay() {
 		return readRelay(ctx, httpClient, readOptions.connectionType, container, outputWriter)
@@ -155,9 +165,11 @@ func Read(ctx context.Context, url *url.URL, outputWriter io.Writer, options ...
 
 				lock.Unlock()
 
-				blobUrl := container.GetBlobUrl(blobNumber)
 				ctx := log.Ctx(ctx).With().Int64("blobNumber", blobNumber).Logger().WithContext(ctx)
-				respData, err := DownloadBlob(ctx, httpClient, blobUrl, &waitForBlobs, &blobNumber, &finalBlobNumber)
+				getBlobUrl := func() string {
+					return container.GetBlobUrl(blobNumber)
+				}
+				respData, err := DownloadBlob(ctx, httpClient, getBlobUrl, &waitForBlobs, &blobNumber, &finalBlobNumber)
 				if err != nil {
 					if err == errPastEndOfBlob {
 						break
@@ -168,6 +180,21 @@ func Read(ctx context.Context, url *url.URL, outputWriter io.Writer, options ...
 						c <- BufferBlob{BlobNumber: blobNumber, Error: fmt.Errorf("blob number %d was expected to exist but does not", blobNumber)}
 						break
 					}
+					// TODO JOE: Handle rare but possible SAS expiration errors
+					// if err == ErrInvalidSas {
+					// 	// We need a new Container URI
+					// 	lock.Lock()
+					// 	if container.URL == accessUrl {
+					// 		url, err := getBufferAccessUri(ctx, container.GetContainerName(), false)
+					// 		if err != nil {
+					// 			errorChannel <- fmt.Errorf("error refreshing access URL: %w", err)
+					// 			return
+					// 		}
+					// 		container.URL = url
+					// 	}
+					// 	lock.Unlock()
+					// 	goto retry
+					// }
 					errorChannel <- fmt.Errorf("error downloading blob: %w", err)
 					return
 				}
@@ -252,7 +279,7 @@ func readBufferStart(ctx context.Context, httpClient *retryablehttp.Client, cont
 	wait := atomic.Bool{}
 	wait.Store(true)
 
-	data, err := DownloadBlob(ctx, httpClient, container.GetStartMetadataUrl(), &wait, nil, nil)
+	data, err := DownloadBlob(ctx, httpClient, container.GetStartMetadataUrl, &wait, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -272,7 +299,8 @@ func pollForBufferEnd(ctx context.Context, httpClient *retryablehttp.Client, con
 	wait.Store(false)
 
 	for ctx.Err() == nil {
-		data, err := DownloadBlob(ctx, httpClient, container.GetEndMetadataUrl(), &wait, nil, nil)
+		log.Ctx(ctx).Debug().Msg("JOE: Polling for buffer end")
+		data, err := DownloadBlob(ctx, httpClient, container.GetEndMetadataUrl, &wait, nil, nil)
 		if err != nil {
 			if err == ErrNotFound {
 				time.Sleep(5 * time.Second)
@@ -299,7 +327,8 @@ func pollForBufferEnd(ctx context.Context, httpClient *retryablehttp.Client, con
 	return nil
 }
 
-func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUrl string, waitForBlob *atomic.Bool, blobNumber *int64, finalBlobNumber *atomic.Int64) (*readData, error) {
+// func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUrl string, waitForBlob *atomic.Bool, blobNumber *int64, finalBlobNumber *atomic.Int64) (*readData, error) {
+func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, getBlobUrl func() string, waitForBlob *atomic.Bool, blobNumber *int64, finalBlobNumber *atomic.Int64) (*readData, error) {
 	// The last error that occurred relating to reading the body. retryablehttp does not retry when these happen
 	// because reading the body happens after the call to HttpClient.Do()
 	var lastBodyReadError *responseBodyReadError
@@ -319,7 +348,7 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUrl
 			}
 		}
 
-		req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, blobUrl, nil)
+		req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, getBlobUrl(), nil)
 		if err != nil {
 			return nil, err
 		}
@@ -472,24 +501,30 @@ func handleReadResponse(ctx context.Context, resp *http.Response) (*readData, er
 
 		return &response, nil
 	case http.StatusNotFound:
-		io.Copy(io.Discard, resp.Body)
 		switch resp.Header.Get("x-ms-error-code") {
 		case "BlobNotFound":
+			io.Copy(io.Discard, resp.Body)
 			return nil, ErrNotFound
 		case "ContainerNotFound":
+			io.Copy(io.Discard, resp.Body)
 			return nil, errBufferDoesNotExist
 		}
-		fallthrough
+	case http.StatusForbidden:
+		switch resp.Header.Get("x-ms-error-code") {
+		case "AuthenticationFailed":
+			io.Copy(io.Discard, resp.Body)
+			return nil, ErrInvalidSas
+		}
 	case http.StatusInternalServerError:
 		io.Copy(io.Discard, resp.Body)
 		return nil, errOperationTimeout
 	case http.StatusServiceUnavailable:
 		io.Copy(io.Discard, resp.Body)
 		return nil, errServerBusy
-	default:
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
 	}
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
 }
 
 type responseBodyReadError struct {

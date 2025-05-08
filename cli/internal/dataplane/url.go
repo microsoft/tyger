@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"os"
 	"strings"
+
+	"github.com/rs/zerolog/log"
 )
 
 var (
@@ -18,6 +20,7 @@ var (
 func GetUrlFromAccessString(accessString string) (*url.URL, error) {
 	if fi, err := os.Stat(accessString); err == nil && !fi.IsDir() {
 		if fi.Size() < 2*1024 {
+			log.Debug().Msgf("JOE: Reading access string from file %s, which was modified at %s", accessString, fi.ModTime().Format("2006-01-02 15:04:05"))
 			accessStringBytes, err := os.ReadFile(accessString)
 			if err != nil {
 				return nil, fmt.Errorf("unable to read URL string from file %s: %w", accessString, err)

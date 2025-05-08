@@ -194,6 +194,8 @@ func attachToRun(ctx context.Context, run model.Run, inputBufferParameter, outpu
 	log.Ctx(ctx).Info().Msg("Run created")
 	var inputSasUrl *url.URL
 	var outputSasUrl *url.URL
+	var inputSasRefresher dataplane.AccessUrlUpdateFunc
+	var outputSasRefresher dataplane.AccessUrlUpdateFunc
 	var err error
 	if inputBufferParameter != "" {
 		bufferId := run.Job.Buffers[inputBufferParameter]
@@ -201,12 +203,18 @@ func attachToRun(ctx context.Context, run model.Run, inputBufferParameter, outpu
 		if err != nil {
 			return err
 		}
+		inputSasRefresher = func(ctx context.Context, writeable bool) (*url.URL, error) {
+			return getBufferAccessUrl(ctx, bufferId, writeable)
+		}
 	}
 	if outputBufferParameter != "" {
 		bufferId := run.Job.Buffers[outputBufferParameter]
 		outputSasUrl, err = getBufferAccessUrl(ctx, bufferId, false)
 		if err != nil {
 			return err
+		}
+		outputSasRefresher = func(ctx context.Context, writeable bool) (*url.URL, error) {
+			return getBufferAccessUrl(ctx, bufferId, writeable)
 		}
 	}
 
@@ -227,7 +235,9 @@ func attachToRun(ctx context.Context, run model.Run, inputBufferParameter, outpu
 			defer mainWg.Done()
 			err := dataplane.Write(ctx, inputSasUrl, os.Stdin,
 				dataplane.WithWriteBlockSize(blockSize),
-				dataplane.WithWriteDop(writeDop))
+				dataplane.WithWriteDop(writeDop),
+				dataplane.WithWriteAccessUrlRefresher(inputSasRefresher),
+			)
 			if err != nil {
 				if errors.Is(err, ctx.Err()) {
 					err = ctx.Err()
@@ -242,7 +252,9 @@ func attachToRun(ctx context.Context, run model.Run, inputBufferParameter, outpu
 		go func() {
 			defer mainWg.Done()
 			err := dataplane.Read(ctx, outputSasUrl, os.Stdout,
-				dataplane.WithReadDop(readDop))
+				dataplane.WithReadDop(readDop),
+				dataplane.WithReadAccessUrlRefresher(outputSasRefresher),
+			)
 			if err != nil {
 				if errors.Is(err, ctx.Err()) {
 					err = ctx.Err()

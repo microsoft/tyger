@@ -270,15 +270,30 @@ func NewBufferReadCommand(openFileFunc func(ctx context.Context, name string, fl
 				log.Fatal().Msg("the degree of parallelism (dop) must be at least 1")
 			}
 
-			url, err := dataplane.GetUrlFromAccessString(args[0])
+			// TODO Joe: Make these standalone functions and it'll look prettier
+			var updateAccessUrl dataplane.AccessUrlUpdateFunc
+			accessUrl, err := dataplane.GetUrlFromAccessString(args[0])
 			if err != nil {
 				if err == dataplane.ErrAccessStringNotUrl {
-					url, err = getBufferAccessUrl(cmd.Context(), args[0], false)
+					accessUrl, err = getBufferAccessUrl(cmd.Context(), args[0], true)
 					if err != nil {
 						log.Fatal().Err(err).Msg("Unable to get read access to buffer")
+					} else {
+						updateAccessUrl = func(ctx context.Context, writeable bool) (*url.URL, error) {
+							return getBufferAccessUrl(ctx, args[0], writeable)
+						}
 					}
 				} else {
 					log.Fatal().Err(err).Msg("Invalid buffer access string")
+				}
+			} else {
+				updateAccessUrl = func(ctx context.Context, writeable bool) (*url.URL, error) {
+					url, err := dataplane.GetUrlFromAccessString(args[0])
+					log.Ctx(ctx).Debug().Msgf("Access URL from file: %s", url)
+					if err != nil {
+						return nil, err
+					}
+					return url, nil
 				}
 			}
 
@@ -306,7 +321,12 @@ func NewBufferReadCommand(openFileFunc func(ctx context.Context, name string, fl
 				outputFile = os.Stdout
 			}
 
-			if err := dataplane.Read(ctx, url, outputFile, dataplane.WithReadDop(dop)); err != nil {
+			readOptions := []dataplane.ReadOption{
+				dataplane.WithReadDop(dop),
+				dataplane.WithReadAccessUrlRefresher(updateAccessUrl),
+			}
+
+			if err := dataplane.Read(ctx, accessUrl, outputFile, readOptions...); err != nil {
 				if errors.Is(err, ctx.Err()) {
 					err = ctx.Err()
 				}
@@ -339,15 +359,30 @@ func NewBufferWriteCommand(openFileFunc func(ctx context.Context, name string, f
 				log.Fatal().Msg("the degree of parallelism (dop) must be at least 1")
 			}
 
-			url, err := dataplane.GetUrlFromAccessString(args[0])
+			// TODO Joe: Make these standalone functions and it'll look prettier
+			var updateAccessUrl dataplane.AccessUrlUpdateFunc
+			accessUrl, err := dataplane.GetUrlFromAccessString(args[0])
 			if err != nil {
 				if err == dataplane.ErrAccessStringNotUrl {
-					url, err = getBufferAccessUrl(cmd.Context(), args[0], true)
+					accessUrl, err = getBufferAccessUrl(cmd.Context(), args[0], true)
 					if err != nil {
 						log.Fatal().Err(err).Msg("Unable to get read access to buffer")
+					} else {
+						updateAccessUrl = func(ctx context.Context, writeable bool) (*url.URL, error) {
+							return getBufferAccessUrl(ctx, args[0], writeable)
+						}
 					}
 				} else {
 					log.Fatal().Err(err).Msg("Invalid buffer access string")
+				}
+			} else {
+				updateAccessUrl = func(ctx context.Context, writeable bool) (*url.URL, error) {
+					url, err := dataplane.GetUrlFromAccessString(args[0])
+					log.Ctx(ctx).Debug().Msgf("Access URL from file: %s", url)
+					if err != nil {
+						return nil, err
+					}
+					return url, nil
 				}
 			}
 
@@ -408,7 +443,9 @@ func NewBufferWriteCommand(openFileFunc func(ctx context.Context, name string, f
 
 			writeOptions = append(writeOptions, dataplane.WithWriteFlushInterval(parsedFlushInterval))
 
-			err = dataplane.Write(ctx, url, inputReader, writeOptions...)
+			writeOptions = append(writeOptions, dataplane.WithWriteAccessUrlRefresher(updateAccessUrl))
+
+			err = dataplane.Write(ctx, accessUrl, inputReader, writeOptions...)
 			if err != nil {
 				if errors.Is(err, ctx.Err()) {
 					err = ctx.Err()

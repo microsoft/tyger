@@ -45,6 +45,7 @@ type writeOptions struct {
 	httpClient              *retryablehttp.Client
 	metadataEndWriteTimeout time.Duration
 	connectionType          client.TygerConnectionType
+	accessUrlRefresher      AccessUrlUpdateFunc
 }
 
 type WriteOption func(o *writeOptions)
@@ -79,10 +80,15 @@ func WithWriteMetadataEndWriteTimeout(timeout time.Duration) WriteOption {
 	}
 }
 
+func WithWriteAccessUrlRefresher(refresher AccessUrlUpdateFunc) WriteOption {
+	return func(o *writeOptions) {
+		o.accessUrlRefresher = refresher
+	}
+}
+
 // If invalidHashChain is set to true, the value of the hash chain attached to the blob will
 // always be the Inital Value. This should only be set for testing.
 func Write(ctx context.Context, url *url.URL, inputReader io.Reader, options ...WriteOption) error {
-	container := &Container{url}
 	writeOptions := &writeOptions{
 		dop:                     DefaultWriteDop,
 		blockSize:               DefaultBlockSize,
@@ -92,6 +98,8 @@ func Write(ctx context.Context, url *url.URL, inputReader io.Reader, options ...
 	for _, o := range options {
 		o(writeOptions)
 	}
+
+	container := NewContainer(ctx, url, writeOptions.accessUrlRefresher)
 
 	ctx = log.Ctx(ctx).With().
 		Str("operation", "buffer write").
@@ -122,6 +130,8 @@ func Write(ctx context.Context, url *url.URL, inputReader io.Reader, options ...
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	container.ctx = ctx
+
 	if container.SupportsRelay() {
 		return relayWrite(ctx, httpClient, writeOptions.connectionType, container, inputReader)
 	}
@@ -142,7 +152,6 @@ func Write(ctx context.Context, url *url.URL, inputReader io.Reader, options ...
 		go func() {
 			defer wg.Done()
 			for bb := range outputChannel {
-				blobUrl := container.GetBlobUrl(bb.BlobNumber)
 				ctx := log.Ctx(ctx).With().Int64("blobNumber", bb.BlobNumber).Logger().WithContext(ctx)
 				var body any = bb.Contents
 				if len(bb.Contents) == 0 {
@@ -162,7 +171,28 @@ func Write(ctx context.Context, url *url.URL, inputReader io.Reader, options ...
 
 				bb.CurrentCumulativeHash <- encodedHashChain
 
-				if err := uploadBlobWithRetry(ctx, httpClient, blobUrl, body, encodedMD5Hash, encodedHashChain); err != nil {
+				// TODO Joe: If the SAS URI expires inside the uploadBlobWithRetry loop, we won't be able to update the container URL
+				// It would be better to pass the `container` to the {download,upload}BlobWithRetry functions and generate the URL there
+				// This way, we'll still proactively update SAS URIs, but we can also handle any expiration errors that "slip through"
+				getBlobUrl := func() string {
+					return container.GetBlobUrl(bb.BlobNumber)
+				}
+				if err := uploadBlobWithRetry(ctx, httpClient, getBlobUrl, body, encodedMD5Hash, encodedHashChain); err != nil {
+					// TODO JOE: Handle rare but possible SAS expiration errors
+					// if err == ErrInvalidSas {
+					// 	// We need a new Container URI
+					// 	lock.Lock()
+					// 	if container.URL == accessUrl {
+					// 		url, err := getBufferAccessUri(ctx, container.GetContainerName(), true)
+					// 		if err != nil {
+					// 			errorChannel <- fmt.Errorf("error refreshing access URL: %w", err)
+					// 			return
+					// 		}
+					// 		container.URL = url
+					// 	}
+					// 	lock.Unlock()
+					// 	goto retry
+					// }
 					if !errors.Is(err, ctx.Err()) {
 						log.Debug().Err(err).Msg("Encountered error uploading blob")
 					}
@@ -411,10 +441,9 @@ func readInBlocksWithMaximumInterval(ctx context.Context, inputReader io.Reader,
 
 func writeStartMetadata(ctx context.Context, httpClient *retryablehttp.Client, container *Container) error {
 	bufferStartMetadata := BufferStartMetadata{Version: CurrentBufferFormatVersion}
-	startMetadataUrl := container.GetStartMetadataUrl()
 
 	// See if the start metadata blob already exists and error out if it does.
-	req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodHead, startMetadataUrl, nil)
+	req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodHead, container.GetStartMetadataUrl(), nil)
 	if err != nil {
 		return fmt.Errorf("failed to create HEAD request: %w", err)
 	}
@@ -440,7 +469,7 @@ func writeStartMetadata(ctx context.Context, httpClient *retryablehttp.Client, c
 	md5Hash := md5.Sum(startBytes)
 	encodedMD5Hash := base64.StdEncoding.EncodeToString(md5Hash[:])
 
-	return uploadBlobWithRetry(ctx, httpClient, startMetadataUrl, startBytes, encodedMD5Hash, "")
+	return uploadBlobWithRetry(ctx, httpClient, container.GetStartMetadataUrl, startBytes, encodedMD5Hash, "")
 }
 
 func writeEndMetadata(ctx context.Context, httpClient *retryablehttp.Client, container *Container, status BufferStatus) {
@@ -453,16 +482,16 @@ func writeEndMetadata(ctx context.Context, httpClient *retryablehttp.Client, con
 	md5Hash := md5.Sum(endBytes)
 	encodedMD5Hash := base64.StdEncoding.EncodeToString(md5Hash[:])
 
-	err = uploadBlobWithRetry(ctx, httpClient, container.GetEndMetadataUrl(), endBytes, encodedMD5Hash, "")
+	err = uploadBlobWithRetry(ctx, httpClient, container.GetEndMetadataUrl, endBytes, encodedMD5Hash, "")
 	if err != nil {
 		log.Ctx(ctx).Warn().Err(err).Msg("Failed to upload optional metadata at the end of the transfer")
 	}
 }
 
-func uploadBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, blobUrl string, body any, encodedMD5Hash string, encodedHashChain string) error {
+func uploadBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, getBlobUrl func() string, body any, encodedMD5Hash string, encodedHashChain string) error {
 	start := time.Now()
 	for retryCount := 0; ; retryCount++ {
-		req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodPut, blobUrl, body)
+		req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodPut, getBlobUrl(), body)
 		if err != nil {
 			return fmt.Errorf("unable to create request: %w", err)
 		}
@@ -496,7 +525,7 @@ func uploadBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, 
 			// When retrying failed writes, we might encounter the UnauthorizedBlobOverwrite if the original
 			// write went through. In such cases, we should follow up with a HEAD request to verify the
 			// Content-MD5 and x-ms-meta-cumulative_hash_chain match our expectations.
-			req, err := retryablehttp.NewRequest(http.MethodHead, blobUrl, nil)
+			req, err := retryablehttp.NewRequest(http.MethodHead, getBlobUrl(), nil)
 			if err != nil {
 				return fmt.Errorf("unable to create HEAD request: %w", err)
 			}
@@ -520,6 +549,8 @@ func uploadBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, 
 			return fmt.Errorf("buffer cannot be overwritten")
 		case errBufferDoesNotExist:
 			return err
+		case ErrInvalidSas:
+			return err
 		case errServerBusy, errOperationTimeout:
 			// These errors indicate that we have hit the limit of what the Azure Storage service can handle.
 			// Note that the retryablehttp client will already have retried the request a number of times.
@@ -534,7 +565,7 @@ func uploadBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, 
 	}
 
 	if log.Ctx(ctx).GetLevel() >= zerolog.TraceLevel {
-		parsedUrl, _ := url.Parse(blobUrl)
+		parsedUrl, _ := url.Parse(getBlobUrl())
 		e := log.Ctx(ctx).Trace().Str("blobPath", parsedUrl.Path).Dur("duration", time.Since(start))
 		if bytesBody, ok := body.([]byte); ok {
 			e = e.Int("contentLength", len(bytesBody))
@@ -564,14 +595,16 @@ func handleWriteResponse(resp *http.Response) error {
 			return errMd5Mismatch
 		}
 	case http.StatusForbidden:
-		if resp.Header.Get("x-ms-error-code") == "UnauthorizedBlobOverwrite" {
+		switch resp.Header.Get("x-ms-error-code") {
+		case "UnauthorizedBlobOverwrite":
 			io.Copy(io.Discard, resp.Body)
 			return errBlobOverwrite
-		}
-
-		if resp.Header.Get("x-ms-error-code") == "AuthorizationPermissionMismatch" {
+		case "AuthorizationPermissionMismatch":
 			io.Copy(io.Discard, resp.Body)
 			return errBlobWritePermissionMismatch
+		case "AuthenticationFailed":
+			io.Copy(io.Discard, resp.Body)
+			return ErrInvalidSas
 		}
 	case http.StatusInternalServerError:
 		io.Copy(io.Discard, resp.Body)

@@ -20,6 +20,7 @@
     <PackageReference Include="Generator.Equals" Version="3.2.0" />
     <PackageReference Include="KubernetesClient" Version="15.0.1" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.JsonPatch" Version="9.0.4" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="9.0.1" />

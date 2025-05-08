@@ -153,7 +153,7 @@ public sealed class AzureBlobBufferProvider : IHostedService, IBufferProvider, I
                 BlobContainerName = containerClient.Name,
                 Resource = "c",
                 StartsOn = start,
-                ExpiresOn = start.AddHours(1),
+                ExpiresOn = start.AddSeconds(20),
                 Protocol = SasProtocol.Https
             };
             sasBuilder.SetPermissions(permissions);

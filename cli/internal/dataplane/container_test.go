@@ -4,6 +4,7 @@
 package dataplane
 
 import (
+	"context"
 	"net/url"
 	"testing"
 
@@ -14,7 +15,7 @@ func TestBlobURLGeneration(t *testing.T) {
 	t.Parallel()
 
 	url, _ := url.Parse("")
-	container := Container{URL: url}
+	container := NewContainer(context.Background(), url, nil)
 
 	assert.Equal(t, "00/000", container.GetBlobUrl(0x000))
 	assert.Equal(t, "00/FFF", container.GetBlobUrl(0xFFF))

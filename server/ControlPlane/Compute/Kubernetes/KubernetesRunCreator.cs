@@ -32,6 +32,8 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
     private readonly ILogger<KubernetesRunCreator> _logger;
     private static readonly string[] s_waitForWorkerCommand = ["/no-op/no-op"];
 
+    private readonly List<Task> _refreshTasks = [];
+
     public KubernetesRunCreator(
         IKubernetes client,
         CodespecReader codespecReader,
@@ -448,6 +450,9 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
                     "main",
                     "--log-format",
                     "json",
+                    // TODO Joe: Remove this before PR
+                    "--log-level",
+                    "debug"
                 ],
                 VolumeMounts =
                 [
@@ -505,6 +510,105 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         }
 
         await CreateObjectHandleAlreadyExists(() => _client.CoreV1.CreateNamespacedSecretAsync(buffersSecret, _k8sOptions.Namespace, cancellationToken: cancellationToken));
+
+#pragma warning disable CA1848
+        V1Secret? createdSecret = null;
+        try
+        {
+            createdSecret = await _client.CoreV1.ReadNamespacedSecretAsync(buffersSecret.Name(), _k8sOptions.Namespace, cancellationToken: cancellationToken);
+        }
+        catch (HttpOperationException ex)
+        {
+            _logger.LogError(ex, "Failed to read secret {Name} immediately after creating it", buffersSecret.Name());
+        }
+
+        _logger.LogWarning("Starting buffer secret refresher");
+        var sasRefresher = Task.Run(async () =>
+        {
+
+            var secret = createdSecret!;
+            try
+            {
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    _logger.LogWarning("Buffer secret refresher sleeping...");
+                    await Task.Delay(10000, cancellationToken);
+
+                    var staleSecretData = secret.Data ?? new Dictionary<string, byte[]>();
+                    secret.Data = null;
+
+                    _logger.LogWarning("Buffer secret refresher requesting new access URLs...");
+                    var refreshed = await GetBufferMap(codespec.Buffers, run.Job.Buffers!, cancellationToken);
+                    secret.StringData = refreshed.ToDictionary(p => p.Key, p => p.Value.sasUri.ToString());
+
+                    // TODO: For Reference, when moving to this a BackgroundService elsewhere...
+                    // try
+                    // {
+                    //     await _client.CoreV1.DeleteNamespacedSecretAsync(SecretNameFromRunId(runState.Id), _k8sOptions.Namespace, cancellationToken: cancellationToken);
+                    // }
+                    // catch (HttpOperationException ex) when (ex.Response.StatusCode == HttpStatusCode.NotFound)
+                    // {
+                    // }
+
+                    _logger.LogWarning("Buffer secret refresher patching secret {Name} now...", secret.Metadata.Name);
+
+                    secret = await _client.CoreV1.ReplaceNamespacedSecretAsync(secret, buffersSecret.Name(), _k8sOptions.Namespace, null, null, null, null, cancellationToken);
+
+                    if (secret.Data == null)
+                    {
+                        _logger.LogWarning("Patched secret {Name} does not contain data", secret.Metadata.Name);
+                        break;
+                    }
+
+                    foreach (var (key, value) in secret.Data!)
+                    {
+                        if (value == staleSecretData[key])
+                        {
+                            _logger.LogWarning("Secret {Name} KV NOT UPDATED: {Key} = {Value}", secret.Metadata.Name, key, Encoding.UTF8.GetString(value));
+                        }
+                    }
+
+                    // var patch = new JsonPatchDocument<V1Secret>();
+                    // patch.Replace(s => s.StringData, secret.StringData);
+                    // var patchString = Newtonsoft.Json.JsonConvert.SerializeObject(patch);
+                    // var patchBody = new V1Patch(patchString, V1Patch.PatchType.JsonPatch);
+                    // var patchResponse = await _client.CoreV1.PatchNamespacedSecretAsync(patchBody, buffersSecret.Metadata.Name, _k8sOptions.Namespace, null, null, null, null, null, cancellationToken);
+                    // if (patchResponse == null)
+                    // {
+                    //     _logger.LogWarning("Failed to refresh buffer secret");
+                    //     break;
+                    // }
+
+                    // if (patchResponse.Data == null)
+                    // {
+                    //     _logger.LogWarning("Patched secret {Name} does not contain data", secret.Metadata.Name);
+                    //     break;
+                    // }
+
+                    // var updatedSecret = await _client.CoreV1.ReadNamespacedSecretAsync(buffersSecret.Name(), _k8sOptions.Namespace, cancellationToken: cancellationToken);
+                    // secret = updatedSecret;
+                    // foreach (var (key, value) in secret.Data!)
+                    // {
+                    //     if (value == staleSecretData[key])
+                    //     {
+                    //         _logger.LogWarning("Secret {Name} KV NOT UPDATED: {Key} = {Value}", secret.Metadata.Name, key, Encoding.UTF8.GetString(value));
+                    //     }
+                    // }
+
+                    _logger.LogWarning("Secret {Name} data was patched", secret.Metadata.Name);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Buffer secret refresher failed");
+            }
+        }, cancellationToken);
+
+        _refreshTasks.Add(sasRefresher);
+
+        _logger.LogWarning("Buffer secret refresher started");
+
+#pragma warning restore CA1848
     }
 
     private static V1Container GetMainContainer(V1PodSpec podSpec) => podSpec.Containers.Single(c => c.Name == "main");
