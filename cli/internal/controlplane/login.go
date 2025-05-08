@@ -20,6 +20,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/cache"
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/confidential"
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/public"
@@ -40,11 +43,16 @@ const (
 	dockerConcurrencyLimit              = 6
 )
 
+type AccessToken azcore.AccessToken
+
 type LoginConfig struct {
 	ServerUrl                       string `json:"serverUrl"`
 	ServicePrincipal                string `json:"servicePrincipal,omitempty"`
 	CertificatePath                 string `json:"certificatePath,omitempty"`
 	CertificateThumbprint           string `json:"certificateThumbprint,omitempty"`
+	ManagedIdentity                 bool   `json:"managedIdentity,omitempty"`
+	ManagedIdentityClientId         string `json:"managedIdentityClientId,omitempty"`
+	TargetFederatedIdentity         string `json:"targetFederatedIdentity,omitempty"`
 	Proxy                           string `json:"proxy,omitempty"`
 	DisableTlsCertificateValidation bool   `json:"disableTlsCertificateValidation,omitempty"`
 
@@ -92,6 +100,9 @@ type serviceInfo struct {
 	LastToken                       string `json:"lastToken,omitempty"`
 	LastTokenExpiry                 int64  `json:"lastTokenExpiration,omitempty"`
 	Principal                       string `json:"principal,omitempty"`
+	ManagedIdentity                 bool   `json:"managedIdentity,omitempty"`
+	ManagedIdentityClientId         string `json:"managedIdentityClientId,omitempty"`
+	TargetFederatedIdentity         string `json:"targetFederatedIdentity,omitempty"`
 	CertPath                        string `json:"certPath,omitempty"`
 	CertThumbprint                  string `json:"certThumbprint,omitempty"`
 	Authority                       string `json:"authority,omitempty"`
@@ -162,6 +173,9 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 		Principal:                       options.ServicePrincipal,
 		CertPath:                        options.CertificatePath,
 		CertThumbprint:                  options.CertificateThumbprint,
+		ManagedIdentity:                 options.ManagedIdentity,
+		ManagedIdentityClientId:         options.ManagedIdentityClientId,
+		TargetFederatedIdentity:         options.TargetFederatedIdentity,
 		Proxy:                           options.Proxy,
 		DisableTlsCertificateValidation: options.DisableTlsCertificateValidation,
 	}
@@ -311,23 +325,13 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 		}
 
 		if serviceMetadata.Authority != "" {
-			useServicePrincipal := options.ServicePrincipal != ""
-
-			var authResult public.AuthResult
-			if useServicePrincipal {
+			var authResult AccessToken
+			if options.ServicePrincipal != "" {
 				authResult, err = si.performServicePrincipalLogin(ctx)
+			} else if options.ManagedIdentity {
+				authResult, si.Principal, err = si.performManagedIdentityLogin(ctx, options.ManagedIdentityClientId, options.TargetFederatedIdentity)
 			} else {
-				authResult, err = si.performUserLogin(ctx, options.UseDeviceCode)
-			}
-			if err != nil {
-				return nil, err
-			}
-
-			si.LastToken = authResult.AccessToken
-			si.LastTokenExpiry = authResult.ExpiresOn.Unix()
-
-			if !useServicePrincipal {
-				si.Principal = authResult.IDToken.PreferredUsername
+				authResult, si.Principal, err = si.performUserLogin(ctx, options.UseDeviceCode)
 				if si.ClientId == "" {
 					// Earlier serrver versions did not publish the client app ID in the metadata endpoint and used
 					// the client app URI as the client ID.
@@ -335,7 +339,7 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 					// This works, but the refresh token will only be valid for the client ID (GUID).
 					// So we need to extract the client ID from the access token and use that next time.
 					claims := jwt.MapClaims{}
-					if _, _, err := jwt.NewParser().ParseUnverified(authResult.AccessToken, claims); err != nil {
+					if _, _, err := jwt.NewParser().ParseUnverified(authResult.Token, claims); err != nil {
 						return nil, fmt.Errorf("unable to parse access token: %w", err)
 					} else {
 						var ok bool
@@ -346,6 +350,13 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 					}
 				}
 			}
+
+			if err != nil {
+				return nil, err
+			}
+
+			si.LastToken = authResult.Token
+			si.LastTokenExpiry = authResult.ExpiresOn.Unix()
 		}
 
 		controlPlaneOptions := defaultClientOptions
@@ -382,6 +393,12 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 			Principal:          si.Principal,
 			RawControlPlaneUrl: si.parsedServerUrl,
 			RawProxy:           si.parsedProxy,
+		}
+
+		if serviceMetadata.RbacEnabled {
+			if roles, err := tygerClient.GetRoles(ctx); err == nil && len(roles) == 0 {
+				return nil, errors.New("the principal does not have any assigned roles")
+			}
 		}
 	}
 
@@ -451,14 +468,21 @@ func (c *serviceInfo) GetAccessToken(ctx context.Context) (string, error) {
 		return "", nil
 	}
 
-	var authResult public.AuthResult
+	var accessToken AccessToken
 	if c.CertPath != "" || c.CertThumbprint != "" {
 		var err error
-		authResult, err = c.performServicePrincipalLogin(ctx)
+		accessToken, err = c.performServicePrincipalLogin(ctx)
+		if err != nil {
+			return "", err
+		}
+	} else if c.ManagedIdentity {
+		var err error
+		accessToken, _, err = c.performManagedIdentityLogin(ctx, c.ManagedIdentityClientId, c.TargetFederatedIdentity)
 		if err != nil {
 			return "", err
 		}
 	} else {
+
 		customHttpClient := &clientIdReplacingHttpClient{
 			clientAppUri: c.ClientAppUri,
 			clientAppId:  c.ClientId,
@@ -485,16 +509,21 @@ func (c *serviceInfo) GetAccessToken(ctx context.Context) (string, error) {
 			return "", errors.New("corrupted token cache")
 		}
 
-		authResult, err = client.AcquireTokenSilent(ctx, []string{fmt.Sprintf("%s/%s", c.Audience, userScope)}, public.WithSilentAccount(accounts[0]))
+		authResult, err := client.AcquireTokenSilent(ctx, []string{fmt.Sprintf("%s/%s", c.Audience, userScope)}, public.WithSilentAccount(accounts[0]))
 		if err != nil {
 			return "", err
 		}
+
+		accessToken = AccessToken{
+			Token:     authResult.AccessToken,
+			ExpiresOn: authResult.ExpiresOn,
+		}
 	}
 
-	c.LastToken = authResult.AccessToken
-	c.LastTokenExpiry = authResult.ExpiresOn.Unix()
+	c.LastToken = accessToken.Token
+	c.LastTokenExpiry = accessToken.ExpiresOn.Unix()
 
-	return authResult.AccessToken, c.persist()
+	return accessToken.Token, c.persist()
 }
 
 func GetCachePath() (string, error) {
@@ -792,21 +821,78 @@ func GetServiceMetadata(ctx context.Context, serverUrl string) (*model.ServiceMe
 	return serviceMetadata, nil
 }
 
-func (si *serviceInfo) performServicePrincipalLogin(ctx context.Context) (authResult confidential.AuthResult, err error) {
+func (si *serviceInfo) performManagedIdentityLogin(ctx context.Context, managedIdentityId string, targetFederatedIdentity string) (AccessToken, string, error) {
+	opt := azidentity.ManagedIdentityCredentialOptions{}
+	if managedIdentityId != "" {
+		opt.ID = azidentity.ClientID(managedIdentityId)
+	}
+	cred, err := azidentity.NewManagedIdentityCredential(&opt)
+	if err != nil {
+		return AccessToken{}, "", fmt.Errorf("error creating managed identity credential: %w", err)
+	}
+
+	apiServerScope := fmt.Sprintf("%s/%s", si.Audience, servicePrincipalScope)
+
+	var scopes []string
+	if targetFederatedIdentity != "" {
+		scopes = []string{"api://AzureADTokenExchange/.default"}
+	} else {
+		scopes = []string{apiServerScope}
+	}
+
+	tok, err := cred.GetToken(ctx, policy.TokenRequestOptions{Scopes: scopes})
+	if err != nil {
+		return AccessToken{}, "", err
+	}
+
+	var principal string
+	claims := jwt.MapClaims{}
+	if _, _, err := jwt.NewParser().ParseUnverified(tok.Token, claims); err == nil {
+		principal, _ = claims["azp"].(string)
+	}
+
+	if targetFederatedIdentity == "" {
+		return AccessToken(tok), principal, nil
+	}
+
+	principal = targetFederatedIdentity
+
+	assertionCred := confidential.NewCredFromAssertionCallback(func(ctx context.Context, aro confidential.AssertionRequestOptions) (string, error) {
+		return tok.Token, nil
+	})
+
+	confidentialClient, err := confidential.New(si.Authority, targetFederatedIdentity, assertionCred, confidential.WithHTTPClient(client.DefaultClient.StandardClient()))
+	if err != nil {
+		return AccessToken{}, "", fmt.Errorf("error creating confidential client: %w", err)
+	}
+	authResult, err := confidentialClient.AcquireTokenByCredential(ctx, []string{apiServerScope})
+	if err != nil {
+		return AccessToken{}, "", fmt.Errorf("error performing token exchange: %w", err)
+	}
+
+	return AccessToken{
+		Token:     authResult.AccessToken,
+		ExpiresOn: authResult.ExpiresOn,
+	}, principal, nil
+}
+
+func (si *serviceInfo) performServicePrincipalLogin(ctx context.Context) (AccessToken, error) {
 	newClient := si.confidentialClient == nil
 	if newClient {
 		cred, err := si.createServicePrincipalCredential()
 		if err != nil {
-			return authResult, fmt.Errorf("error creating credential: %w", err)
+			return AccessToken{}, fmt.Errorf("error creating credential: %w", err)
 		}
 
 		client, err := confidential.New(si.Authority, si.Principal, cred, confidential.WithHTTPClient(client.DefaultClient.StandardClient()))
 		if err != nil {
-			return authResult, err
+			return AccessToken{}, err
 		}
 		si.confidentialClient = &client
 	}
 
+	var authResult confidential.AuthResult
+	var err error
 	scopes := []string{fmt.Sprintf("%s/%s", si.Audience, servicePrincipalScope)}
 	if !newClient {
 		authResult, err = si.confidentialClient.AcquireTokenSilent(ctx, scopes)
@@ -815,7 +901,10 @@ func (si *serviceInfo) performServicePrincipalLogin(ctx context.Context) (authRe
 		authResult, err = si.confidentialClient.AcquireTokenByCredential(ctx, scopes)
 	}
 
-	return authResult, err
+	return AccessToken{
+		Token:     authResult.AccessToken,
+		ExpiresOn: authResult.ExpiresOn,
+	}, err
 }
 
 func (si *serviceInfo) createServicePrincipalCredential() (confidential.Credential, error) {
@@ -841,7 +930,7 @@ func (si *serviceInfo) createServicePrincipalCredential() (confidential.Credenti
 	return cred, nil
 }
 
-func (si *serviceInfo) performUserLogin(ctx context.Context, useDeviceCode bool) (authResult public.AuthResult, err error) {
+func (si *serviceInfo) performUserLogin(ctx context.Context, useDeviceCode bool) (AccessToken, string, error) {
 	clientId := si.ClientId
 	if clientId == "" {
 		clientId = si.ClientAppUri
@@ -853,7 +942,7 @@ func (si *serviceInfo) performUserLogin(ctx context.Context, useDeviceCode bool)
 		public.WithHTTPClient(client.DefaultClient.StandardClient()),
 	)
 	if err != nil {
-		return
+		return AccessToken{}, "", err
 	}
 
 	scopes := []string{fmt.Sprintf("%s/%s", si.Audience, userScope)}
@@ -861,11 +950,18 @@ func (si *serviceInfo) performUserLogin(ctx context.Context, useDeviceCode bool)
 	if useDeviceCode {
 		dc, err := client.AcquireTokenByDeviceCode(ctx, scopes)
 		if err != nil {
-			return authResult, err
+			return AccessToken{}, "", err
 		}
 
 		fmt.Println(dc.Result.Message)
-		return dc.AuthenticationResult(ctx)
+		authResult, err := dc.AuthenticationResult(ctx)
+
+		at := AccessToken{
+			Token:     authResult.AccessToken,
+			ExpiresOn: authResult.ExpiresOn,
+		}
+
+		return at, authResult.IDToken.PreferredUsername, err
 	}
 
 	// 🚨HACK ALERT🚨
@@ -900,10 +996,14 @@ func (si *serviceInfo) performUserLogin(ctx context.Context, useDeviceCode bool)
 			"If no web browser is available or if the web browser fails to open, use the device code flow with `tyger login --use-device-code`.")
 	})
 
-	authResult, err = client.AcquireTokenInteractive(ctx, scopes, public.WithRedirectURI("http://localhost:41087"))
+	authResult, err := client.AcquireTokenInteractive(ctx, scopes, public.WithRedirectURI("http://localhost:41087"))
 	timer.Stop()
 	if err == nil {
-		return authResult, err
+		at := AccessToken{
+			Token:     authResult.AccessToken,
+			ExpiresOn: authResult.ExpiresOn,
+		}
+		return at, authResult.IDToken.PreferredUsername, nil
 	}
 
 	var exitError *exec.ExitError
@@ -912,7 +1012,7 @@ func (si *serviceInfo) performUserLogin(ctx context.Context, useDeviceCode bool)
 		return si.performUserLogin(ctx, true)
 	}
 
-	return authResult, err
+	return AccessToken{}, "", err
 }
 
 // Implementing the cache.ExportReplace interface to read in the token cache

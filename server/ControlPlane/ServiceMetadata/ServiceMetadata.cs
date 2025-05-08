@@ -32,6 +32,7 @@ public static class ServiceMetadata
                     {
                         serviceMetadata = serviceMetadata with
                         {
+                            RbacEnabled = auth.Value.Rbac.Enabled,
                             Authority = auth.Value.Authority,
                             Audience = auth.Value.Audience,
                             ApiAppUri = auth.Value.ApiAppUri,

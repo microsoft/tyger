@@ -13,6 +13,7 @@ import (
 )
 
 type ServiceMetadata struct {
+	RbacEnabled    bool     `json:"rbacEnabled,omitempty"`
 	Authority      string   `json:"authority,omitempty"`
 	Audience       string   `json:"audience,omitempty"`
 	ApiAppUri      string   `json:"serverAppUri,omitempty"`
