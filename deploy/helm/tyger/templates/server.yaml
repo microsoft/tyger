@@ -119,6 +119,8 @@ spec:
               value: https://{{ required "A value for hostname is required" .Values.hostname }}
             - name: Auth__Enabled
               value: "{{ .Values.security.enabled }}"
+            - name: Auth__Rbac__Enabled
+              value: "{{ .Values.security.rbacEnabled }}"
           {{- if .Values.security.enabled }}
             - name: Auth__Authority
               value: {{ required "When security.enabled is true, a value for security.authority is required" .Values.security.authority }}

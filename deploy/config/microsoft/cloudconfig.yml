@@ -87,6 +87,7 @@ organizations:
       domainName: lamna-${TYGER_ENVIRONMENT_NAME}.eminence.ms
       tlsCertificateProvider: KeyVault
       auth:
+        rbacEnabled: true
         tenantId: 72f988bf-86f1-41af-91ab-2d7cd011db47
         apiAppUri: api://tyger-server
         cliAppUri: api://tyger-cli
@@ -119,6 +120,7 @@ organizations:
       domainName: ${TYGER_ENVIRONMENT_NAME}-tyger.${TYGER_LOCATION}.cloudapp.azure.com
       tlsCertificateProvider: LetsEncrypt
       auth:
+        rbacEnabled: false
         tenantId: 76d3279b-830e-4bea-baf8-12863cdeba4c
         apiAppUri: api://tyger-server
         cliAppUri: api://tyger-cli

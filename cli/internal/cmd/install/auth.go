@@ -19,6 +19,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
+	"k8s.io/utils/ptr"
 )
 
 func NewAuthCommand() *cobra.Command {
@@ -44,8 +45,9 @@ func newAuthInitCommand() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			authSpec := &cloudinstall.TygerAuthSpec{
 				AuthConfig: cloudinstall.AuthConfig{
-					ApiAppUri: "api://tyger-server",
-					CliAppUri: "api://tyger-cli",
+					RbacEnabled: ptr.To(true),
+					ApiAppUri:   "api://tyger-server",
+					CliAppUri:   "api://tyger-cli",
 				},
 			}
 
@@ -156,11 +158,12 @@ func getAuthConfigFromServerUrl(ctx context.Context, serverUrl string) *cloudins
 	}
 
 	config := &cloudinstall.AuthConfig{
-		TenantID:  segments[0],
-		ApiAppUri: serviceMetadata.ApiAppId,
-		ApiAppId:  serviceMetadata.ApiAppId,
-		CliAppUri: serviceMetadata.CliAppUri,
-		CliAppId:  serviceMetadata.CliAppId,
+		RbacEnabled: &serviceMetadata.RbacEnabled,
+		TenantID:    segments[0],
+		ApiAppUri:   serviceMetadata.ApiAppId,
+		ApiAppId:    serviceMetadata.ApiAppId,
+		CliAppUri:   serviceMetadata.CliAppUri,
+		CliAppId:    serviceMetadata.CliAppId,
 	}
 
 	if config.ApiAppUri == "" {

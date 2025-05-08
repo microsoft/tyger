@@ -94,6 +94,7 @@ public record BufferAccess(Uri Uri) : ModelBase;
 
 public record ServiceMetadata : ModelBase
 {
+    public bool RbacEnabled { get; init; }
     public string? Authority { get; init; }
     public string? Audience { get; init; }
     public string? ApiAppUri { get; init; }

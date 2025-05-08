@@ -472,6 +472,10 @@ func quickValidateApiConfig(ctx context.Context, success *bool, config *CloudEnv
 		validationError(ctx, success, "The `api.auth` field is required for organization '%s'", org.Name)
 	} else {
 		authConfig := apiConfig.Auth
+		if authConfig.RbacEnabled == nil {
+			validationError(ctx, success, "The `api.auth.rbacEnabled` field is required for organization '%s'", org.Name)
+		}
+
 		if authConfig.TenantID == "" {
 			validationError(ctx, success, "The `api.auth.tenantId` field is required for organization '%s'", org.Name)
 		}

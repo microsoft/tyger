@@ -29,7 +29,7 @@ func NewLoginCommand() *cobra.Command {
 	local := false
 
 	loginCmd := &cobra.Command{
-		Use:   "login { SERVER_URL [--service-principal APPID --certificate CERTPATH] [--use-device-code] [--proxy PROXY] } | --file LOGIN_FILE.yaml | --local",
+		Use:   "login { SERVER_URL [--service-principal APPID --certificate CERTPATH] [--use-device-code] [--identity [--identity-client-id [CLIENT_ID]] --federated-identity CLIENT_ID] [--proxy PROXY] } | --file LOGIN_FILE.yaml | --local",
 		Short: "Login to a server",
 		Long: `Login to the Tyger server at the given URL.
 Subsequent commands will be performed against this server.`,
@@ -90,22 +90,58 @@ Subsequent commands will be performed against this server.`,
 				if options.ServicePrincipal != "" {
 					if runtime.GOOS == "windows" {
 						if options.CertificatePath == "" && options.CertificateThumbprint == "" {
-							return errors.New("certificatePath or certificateThumbprint must be specified with when servicePrincipal is specified")
+							return errors.New("when servicePrincipal is set on Windows, either certificatePath or certificateThumbprint must be specified")
 						}
 
 						if options.CertificatePath != "" && options.CertificateThumbprint != "" {
-							return errors.New("certificatePath and certificateThumbprint cannot both be specified")
+							return errors.New("certificatePath and certificateThumbprint cannot both be set on Windows")
 						}
-
 					} else if options.CertificatePath == "" {
-						return errors.New("certificateThumbprint must be specified with when servicePrincipal is specified")
+						return errors.New("when servicePrincipal is set, certificatePath must be specified on non-Windows platforms")
+					}
+
+					if options.UseDeviceCode {
+						return errors.New("useDeviceCode cannot be used when servicePrincipal is set")
+					}
+
+					if options.ManagedIdentity {
+						return errors.New("managedIdentity cannot be used when servicePrincipal is set")
+					}
+
+					if options.ManagedIdentityClientId != "" {
+						return errors.New("managedIdentityClientId can only be set when managedIdentity is used")
+					}
+
+					if options.TargetFederatedIdentity != "" {
+						return errors.New("targetFederatedIdentity can only be set when managedIdentity is used")
+					}
+				} else if options.ManagedIdentity {
+					if options.UseDeviceCode {
+						return errors.New("useDeviceCode cannot be used when managedIdentity is set")
+					}
+
+					if options.CertificatePath != "" {
+						return errors.New("certificatePath cannot be set when managedIdentity is used")
+					}
+
+					if options.CertificateThumbprint != "" {
+						return errors.New("certificateThumbprint cannot be set when managedIdentity is used")
 					}
 				} else {
 					if options.CertificatePath != "" {
-						return errors.New("certificatePath can only be used when servicePrincipal is specified")
+						return errors.New("certificatePath can only be set when servicePrincipal is used")
 					}
+
 					if options.CertificateThumbprint != "" {
-						return errors.New("certificateThumbprint can only be used when servicePrincipal is specified")
+						return errors.New("certificateThumbprint can only be set when servicePrincipal is used")
+					}
+
+					if options.ManagedIdentityClientId != "" {
+						return errors.New("managedIdentityClientId can only be set when managedIdentity is used")
+					}
+
+					if options.TargetFederatedIdentity != "" {
+						return errors.New("targetFederatedIdentity can only be set when managedIdentity is used")
 					}
 				}
 
@@ -129,12 +165,40 @@ Subsequent commands will be performed against this server.`,
 					if options.UseDeviceCode {
 						return errors.New("--use-device-code cannot be used with --service-principal")
 					}
+					if options.ManagedIdentity {
+						return errors.New("--identity cannot be used with --service-principal")
+					}
+					if options.ManagedIdentityClientId != "" {
+						return errors.New("--identity-client-id can only be used with --identity")
+					}
+					if options.TargetFederatedIdentity != "" {
+						return errors.New("--federated-identity can only be used with --identity")
+					}
+				} else if options.ManagedIdentity {
+					if options.UseDeviceCode {
+						return errors.New("--use-device-code cannot be used with --identity")
+					}
+					if options.CertificatePath != "" || options.CertificateThumbprint != "" {
+						return errors.New("--cert-file and --cert-thumbprint cannot be used with --identity")
+					}
+					if options.CertificatePath != "" {
+						return errors.New("--cert-file can only be used with --service-principal")
+					}
+					if options.CertificateThumbprint != "" {
+						return errors.New("--cert-thumbprint can only be used with --service-principal")
+					}
 				} else {
 					if options.CertificatePath != "" {
 						return errors.New("--cert-file can only be used with --service-principal")
 					}
 					if options.CertificateThumbprint != "" {
 						return errors.New("--cert-thumbprint can only be used with --service-principal")
+					}
+					if options.ManagedIdentityClientId != "" {
+						return errors.New("--identity-client-id can only be used with --identity")
+					}
+					if options.TargetFederatedIdentity != "" {
+						return errors.New("--federated-identity can only be used with --identity")
 					}
 				}
 
@@ -177,6 +241,10 @@ proxy: auto
 
 	loginCmd.Flags().BoolVarP(&options.UseDeviceCode, "use-device-code", "d", false, "Whether to use the device code flow for user logins. Use this mode when the app can't launch a browser on your behalf.")
 
+	loginCmd.Flags().BoolVar(&options.ManagedIdentity, "identity", false, "Use Azure Managed Identity for authentication. This is only supported in Azure environments.")
+	loginCmd.Flags().StringVar(&options.ManagedIdentityClientId, "identity-client-id", "", "The client ID of the managed identity to use. If not specified, the system-assigned identity is used, or if not present, the single user-assigned identity.")
+	loginCmd.Flags().StringVar(&options.TargetFederatedIdentity, "federated-identity", "", "Use federated identity to authenticate as this identity using the managed identity. Can only be used with --managed-identity.")
+
 	loginCmd.Flags().StringVar(&options.Proxy, "proxy", "auto", "The HTTP proxy to use. Can be 'auto[matic]', 'none', or a URL.")
 
 	loginCmd.Flags().BoolVar(&options.DisableTlsCertificateValidation, "disable-tls-certificate-validation", false, "Disable TLS certificate validation.")
@@ -208,6 +276,8 @@ func newLoginStatusCommand() *cobra.Command {
 				return fmt.Errorf("run `tyger login` to login to a server: %v", err)
 			}
 
+			roles, _ := tygerClient.GetRoles(cmd.Context())
+
 			service := *tygerClient.RawControlPlaneUrl
 
 			if service.Scheme == "http+unix" {
@@ -220,7 +290,22 @@ func newLoginStatusCommand() *cobra.Command {
 				if tygerClient.Principal == "" {
 					fmt.Printf("You are logged in to %s", service.String())
 				} else {
-					fmt.Printf("You are logged in to %s as %s", service.String(), tygerClient.Principal)
+					fmt.Printf("You are logged in to %s as '%s'", service.String(), tygerClient.Principal)
+				}
+
+				if len(roles) > 0 {
+					for i, role := range roles {
+						roles[i] = fmt.Sprintf("'%s'", role)
+					}
+
+					switch len(roles) {
+					case 1:
+						fmt.Printf(" with role %s", roles[0])
+					case 2:
+						fmt.Printf(" with roles %s and %s", roles[0], roles[1])
+					default:
+						fmt.Printf(" with roles %s, and %s", strings.Join(roles[:len(roles)-1], ", "), roles[len(roles)-1])
+					}
 				}
 
 				if tygerClient.RawProxy != nil {
@@ -233,6 +318,7 @@ func newLoginStatusCommand() *cobra.Command {
 				result := loginStatusResult{
 					ServerUrl: service.String(),
 					Principal: tygerClient.Principal,
+					Roles:     roles,
 				}
 				if tygerClient.RawProxy != nil {
 					result.Proxy = tygerClient.RawProxy.String()
@@ -257,6 +343,7 @@ func newLoginStatusCommand() *cobra.Command {
 type loginStatusResult struct {
 	ServerUrl string                `json:"serverUrl"`
 	Principal string                `json:"principal,omitempty"`
+	Roles     []string              `json:"roles,omitempty"`
 	Proxy     string                `json:"proxy,omitempty"`
 	Metadata  model.ServiceMetadata `json:"metadata"`
 }

@@ -100,7 +100,7 @@ public static class Auth
             {
                 authOptions.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
 
-                if (securityConfigurations.Value.AccessControl.Enabled)
+                if (securityConfigurations.Value.Rbac.Enabled)
                 {
                     foreach ((var policy, var satisfyingRoles) in s_policyToSatisfyingRoles)
                     {
@@ -121,7 +121,7 @@ public static class Auth
                 {
                     authOptions.AddPolicy(policy.Key, builder =>
                     {
-                        if (securityConfigurations.Value.AccessControl.Enabled)
+                        if (securityConfigurations.Value.Rbac.Enabled)
                         {
                             builder.RequireAuthenticatedUser();
                         }
@@ -169,7 +169,7 @@ public class AuthOptions : IValidatableObject
     public string? CliAppUri { get; init; }
     public string? CliAppId { get; init; }
 
-    public AccessControlOptions AccessControl { get; init; } = new();
+    public RbacOptions Rbac { get; init; } = new();
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
@@ -185,7 +185,7 @@ public class AuthOptions : IValidatableObject
     }
 }
 
-public class AccessControlOptions
+public class RbacOptions
 {
     public bool Enabled { get; set; } = true;
 }

@@ -679,6 +679,8 @@ func PrettyPrintAuthSpec(config *TygerAuthSpec, writer io.Writer) error {
 		return strings.Replace(v, "\n", "\n"+pad, -1)
 	}
 
+	funcMap["deref"] = deref
+
 	t := template.Must(template.New("config").Funcs(funcMap).Parse(prettyPrintRbacTemplate))
 	return t.Execute(writer, config)
 }
