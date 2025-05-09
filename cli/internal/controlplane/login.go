@@ -41,7 +41,7 @@ const (
 	LocalUrlSentinel                    = "local"
 	sshConcurrencyLimit                 = 8
 	dockerConcurrencyLimit              = 6
-	azureTokenExchangeAudience          = "api://AzureADTokenExchange/.default"
+	azureTokenExchangeAudience          = "api://AzureADTokenExchange"
 )
 
 type AccessToken azcore.AccessToken
@@ -843,9 +843,9 @@ func (si *serviceInfo) performManagedIdentityLogin(ctx context.Context, managedI
 
 	var scopes []string
 	if targetFederatedIdentity != "" {
-		scopes = []string{azureTokenExchangeAudience}
+		scopes = []string{fmt.Sprintf("%s/%s", azureTokenExchangeAudience, servicePrincipalScope)}
 	} else {
-		scopes = []string{si.getApiServerScope()}
+		scopes = []string{fmt.Sprintf("%s/%s", si.Audience, servicePrincipalScope)}
 	}
 
 	tok, err := cred.GetToken(ctx, policy.TokenRequestOptions{Scopes: scopes})
@@ -919,7 +919,7 @@ func (si *serviceInfo) performFederatedIdentityLogin(ctx context.Context, token 
 	if err != nil {
 		return AccessToken{}, "", fmt.Errorf("error creating confidential client: %w", err)
 	}
-	authResult, err := confidentialClient.AcquireTokenByCredential(ctx, []string{si.getApiServerScope()})
+	authResult, err := confidentialClient.AcquireTokenByCredential(ctx, []string{fmt.Sprintf("%s/%s", si.Audience, servicePrincipalScope)})
 	if err != nil {
 		return AccessToken{}, "", fmt.Errorf("error performing token exchange: %w", err)
 	}
@@ -959,10 +959,6 @@ func (si *serviceInfo) performServicePrincipalLogin(ctx context.Context) (Access
 		Token:     authResult.AccessToken,
 		ExpiresOn: authResult.ExpiresOn,
 	}, err
-}
-
-func (si *serviceInfo) getApiServerScope() string {
-	return fmt.Sprintf("%s/%s", si.Audience, servicePrincipalScope)
 }
 
 func (si *serviceInfo) createServicePrincipalCredential() (confidential.Credential, error) {
