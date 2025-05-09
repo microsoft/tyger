@@ -239,9 +239,12 @@ organizations:
       tlsCertificateProvider: {{ .TlsCertificateProvider }}
 
       auth:
+        rbacEnabled: {{ deref .Auth.RbacEnabled }} # Required. Indicates whether role-based access control is enabled.
         tenantId: {{ .Auth.TenantID }}
         apiAppUri: {{ .Auth.ApiAppUri }}
+        apiAppId: {{ .Auth.ApiAppId }}
         cliAppUri: {{ .Auth.CliAppUri }}
+        cliAppId: {{ .Auth.CliAppUri }}
 
       {{- if (and .Buffers (or .Buffers.ActiveLifetime .Buffers.SoftDeletedLifetime)) }}
 

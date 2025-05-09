@@ -10,6 +10,7 @@ public static class Responses
     public static IResult InvalidInput(string message) => Results.BadRequest(new ErrorBody("InvalidInput", message));
     public static IResult InvalidRoute(string message) => Results.BadRequest(new ErrorBody("InvalidRoute", message));
     public static IResult PreconditionFailed(string message) => Results.Json(new ErrorBody("PreconditionFailed", message), statusCode: StatusCodes.Status412PreconditionFailed);
+    public static IResult Forbidden(string message) => Results.Json(new ErrorBody("Forbidden", message), statusCode: StatusCodes.Status403Forbidden);
 }
 
 public record ErrorBody

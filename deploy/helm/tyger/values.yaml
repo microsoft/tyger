@@ -22,9 +22,13 @@ identity:
 
 security:
   enabled: true
+  rbacEnabled: true
   authority:
   audience:
+  apiAppUri:
+  apiAppId:
   cliAppUri:
+  cliAppId:
 
 hostname:
 tls:

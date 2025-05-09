@@ -113,12 +113,10 @@ const (
 )
 
 type Principal struct {
-	ObjectId          string        `json:"objectId"`
-	UserPrincipalName string        `json:"userPrincipalName"`
-	Kind              PrincipalKind `json:"kind"`
-
-	// Deprecated: Id is deprecated. Use ObjectId instead
-	Id string `json:"id"`
+	Kind              PrincipalKind `json:"kind" yaml:"kind"`
+	ObjectId          string        `json:"objectId,omitempty" yaml:"objectId,omitempty"`
+	UserPrincipalName string        `json:"userPrincipalName,omitempty" yaml:"userPrincipalName,omitempty"`
+	DisplayName       string        `json:"displayName,omitempty" yaml:"displayName,omitempty"`
 }
 
 func (c *ComputeConfig) GetApiHostCluster() *ClusterConfig {
@@ -226,9 +224,12 @@ type OrganizationApiConfig struct {
 }
 
 type AuthConfig struct {
-	TenantID  string `json:"tenantId"`
-	ApiAppUri string `json:"apiAppUri"`
-	CliAppUri string `json:"cliAppUri"`
+	RbacEnabled *bool  `json:"rbacEnabled" yaml:"rbacEnabled"`
+	TenantID    string `json:"tenantId" yaml:"tenantId"`
+	ApiAppUri   string `json:"apiAppUri" yaml:"apiAppUri"`
+	ApiAppId    string `json:"apiAppId" yaml:"apiAppId"`
+	CliAppUri   string `json:"cliAppUri" yaml:"cliAppUri"`
+	CliAppId    string `json:"cliAppId" yaml:"cliAppId"`
 }
 
 type OrganizationHelmConfig struct {
@@ -360,6 +361,7 @@ func funcMap() template.FuncMap {
 	f["renderHelm"] = renderHelm
 	f["renderSharedHelm"] = renderSharedHelm
 	f["renderOrgHelm"] = renderOrgHelm
+	f["deref"] = deref
 	return f
 }
 
@@ -386,6 +388,22 @@ func optionalField(name string, value any, comment string) string {
 	}
 
 	return fmt.Sprintf("%s: %v", name, value)
+}
+
+func deref(v any) string {
+	if v == nil {
+		return ""
+	}
+
+	if ptrValue := reflect.ValueOf(v); ptrValue.Kind() == reflect.Ptr {
+		if ptrValue.IsNil() {
+			return ""
+		}
+
+		return fmt.Sprintf("%v", ptrValue.Elem().Interface())
+	}
+
+	return fmt.Sprintf("%v", v)
 }
 
 func toYAML(v any) string {
