@@ -113,7 +113,7 @@ Subsequent commands will be performed against this server.`,
 					}
 
 					if options.TargetFederatedIdentity != "" {
-						return errors.New("targetFederatedIdentity can only be set when managedIdentity is used")
+						return errors.New("targetFederatedIdentity can only be set when managedIdentity or github is used")
 					}
 				} else if options.ManagedIdentity {
 					if options.UseDeviceCode {
@@ -126,6 +126,22 @@ Subsequent commands will be performed against this server.`,
 
 					if options.CertificateThumbprint != "" {
 						return errors.New("certificateThumbprint cannot be set when managedIdentity is used")
+					}
+				} else if options.GitHub {
+					if options.TargetFederatedIdentity == "" {
+						return errors.New("targetFederatedIdentity must be specified when github is used")
+					}
+
+					if options.UseDeviceCode {
+						return errors.New("useDeviceCode cannot be used when github is set")
+					}
+
+					if options.CertificatePath != "" {
+						return errors.New("certificatePath cannot be set when github is used")
+					}
+
+					if options.CertificateThumbprint != "" {
+						return errors.New("certificateThumbprint cannot be set when github is used")
 					}
 				} else {
 					if options.CertificatePath != "" {
@@ -141,7 +157,7 @@ Subsequent commands will be performed against this server.`,
 					}
 
 					if options.TargetFederatedIdentity != "" {
-						return errors.New("targetFederatedIdentity can only be set when managedIdentity is used")
+						return errors.New("targetFederatedIdentity can only be set when managedIdentity or github is used")
 					}
 				}
 
@@ -172,7 +188,7 @@ Subsequent commands will be performed against this server.`,
 						return errors.New("--identity-client-id can only be used with --identity")
 					}
 					if options.TargetFederatedIdentity != "" {
-						return errors.New("--federated-identity can only be used with --identity")
+						return errors.New("--federated-identity can only be used with --identity or --github")
 					}
 				} else if options.ManagedIdentity {
 					if options.UseDeviceCode {
@@ -180,6 +196,22 @@ Subsequent commands will be performed against this server.`,
 					}
 					if options.CertificatePath != "" || options.CertificateThumbprint != "" {
 						return errors.New("--cert-file and --cert-thumbprint cannot be used with --identity")
+					}
+					if options.CertificatePath != "" {
+						return errors.New("--cert-file can only be used with --service-principal")
+					}
+					if options.CertificateThumbprint != "" {
+						return errors.New("--cert-thumbprint can only be used with --service-principal")
+					}
+				} else if options.GitHub {
+					if options.TargetFederatedIdentity == "" {
+						return errors.New("--federated-identity must be specified with --github")
+					}
+					if options.UseDeviceCode {
+						return errors.New("--use-device-code cannot be used with --github")
+					}
+					if options.CertificatePath != "" || options.CertificateThumbprint != "" {
+						return errors.New("--cert-file and --cert-thumbprint cannot be used with --github")
 					}
 					if options.CertificatePath != "" {
 						return errors.New("--cert-file can only be used with --service-principal")
@@ -198,7 +230,7 @@ Subsequent commands will be performed against this server.`,
 						return errors.New("--identity-client-id can only be used with --identity")
 					}
 					if options.TargetFederatedIdentity != "" {
-						return errors.New("--federated-identity can only be used with --identity")
+						return errors.New("--federated-identity can only be used with --identity or --github")
 					}
 				}
 
@@ -218,14 +250,26 @@ Subsequent commands will be performed against this server.`,
 # The Tyger server URL
 serverUrl: https://example.com
 
-# The service principal ID
+# The service principal ID.
 servicePrincipal: api://my-client
 
-# The path to a file with the service principal certificate
+# The path to a file with the service principal certificate.
+# Can only be specified if servicePrincipal is set.
 certificatePath: /a/path/to/a/file.pem
 
 # The thumbprint of a certificate in a Windows certificate store to use for service principal authentication (Windows only)
+# Can only be specified if servicePrincipal is set.
 certificateThumbprint: 92829BFAEB67C738DECE0B255C221CF9E1A46285
+
+# Whether to use Azure managed identity for authentication.
+managedIdentity: false
+managedIdentityClientId: # Optionally specify the client ID of the managed identity to use.
+
+# Whether to use GitHub Actions tokens with federated identity for authentication.
+github: false
+
+# If using managed identity or GitHub Actions, specify the client ID of the federated identity to authenticate as.
+targetFederatedIdentity: # Optionally specify a federated identity to authenticate as using the managed identity.
 
 # The HTTP proxy to use. Can be 'auto[matic]', 'none', or a URL. The default is 'auto'.
 proxy: auto

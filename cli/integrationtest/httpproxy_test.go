@@ -58,7 +58,7 @@ func TestHttpProxy(t *testing.T) {
 	config := getCloudConfig(t)
 	tygerUrl := fmt.Sprintf("https://%s", getLamnaOrgConfig(config).Api.DomainName)
 	devConfig := getDevConfig(t)
-	testAppUrl := devConfig["testAppUrl"].(string)
+	testAppUri := devConfig["testAppUri"].(string)
 	certVersion := devConfig["pemCertSecret"].(map[string]any)["version"].(string)
 	homeDir, err := os.UserHomeDir()
 	require.NoError(t, err)
@@ -70,7 +70,7 @@ serverUrl: %s
 servicePrincipal: %s
 certificatePath: /client_cert.pem
 logPath: /logs
-`, tygerUrl, testAppUrl)
+`, tygerUrl, testAppUri)
 
 	require.NoError(t, os.WriteFile(credsFilePath, []byte(credsFileContent), 0644))
 

@@ -39,4 +39,8 @@ roleAssignments:
       objectId: fef7e0d4-da9b-42ac-8707-5e206e04ea3a
       displayName: tyger-client-owner
       
-  contributor: []
+  contributor:
+    - kind: ServicePrincipal
+      objectId: 15bf92f7-9210-480f-a6ad-8d576d0baac7
+      displayName: tyger-client-contributor
+      

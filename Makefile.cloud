@@ -156,10 +156,10 @@ check-test-client-cert:
 	cert_path=$${HOME}/tyger_test_client_cert_$${cert_version}.pem
 	[ -f ${TEST_CLIENT_CERT_FILE} ]
 
-login: install-cli download-test-client-cert
+login-legacy: install-cli download-test-client-cert
 	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.version')
 	cert_path=$${HOME}/tyger_test_client_cert_$${cert_version}.pem
-	test_app_uri=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.testAppUrl')
+	test_app_uri=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.testAppUri')
 
 	tyger login -f <(cat <<EOF
 	serverurl: ${TYGER_URL}
@@ -168,22 +168,19 @@ login: install-cli download-test-client-cert
 	EOF
 	)
 
-login-local: install-cli download-test-client-cert
-	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.version')
-	cert_path=$${HOME}/tyger_test_client_cert_$${cert_version}.pem
-	test_app_uri=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.testAppUrl')
+login: install-cli
+	tyger login ${TYGER_URL} --identity --federated-identity api://tyger-client-owner
 
-	tyger login -f <(cat <<EOF
-	serverUrl: http://localhost:5000
-	servicePrincipal: $${test_app_uri}
-	certificatePath: $${cert_path}
-	EOF
-	)
+login-contributor: install-cli
+	tyger login ${TYGER_URL} --identity --federated-identity api://tyger-client-contributor
+
+login-local: install-cli
+	$(MAKE) login TYGER_URL=http://localhost:5000
 
 start-proxy: install-cli download-test-client-cert
 	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.version')
 	cert_path=$${HOME}/tyger_test_client_cert_$${cert_version}.pem
-	test_app_uri=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.testAppUrl')
+	test_app_uri=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.testAppUri')
 
 	tyger-proxy start -f <(cat <<EOF
 	serverUrl: ${TYGER_URL}

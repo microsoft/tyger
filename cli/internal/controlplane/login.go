@@ -52,6 +52,7 @@ type LoginConfig struct {
 	CertificateThumbprint           string `json:"certificateThumbprint,omitempty"`
 	ManagedIdentity                 bool   `json:"managedIdentity,omitempty"`
 	ManagedIdentityClientId         string `json:"managedIdentityClientId,omitempty"`
+	GitHub                          bool   `json:"github,omitempty"`
 	TargetFederatedIdentity         string `json:"targetFederatedIdentity,omitempty"`
 	Proxy                           string `json:"proxy,omitempty"`
 	DisableTlsCertificateValidation bool   `json:"disableTlsCertificateValidation,omitempty"`
@@ -102,6 +103,7 @@ type serviceInfo struct {
 	Principal                       string `json:"principal,omitempty"`
 	ManagedIdentity                 bool   `json:"managedIdentity,omitempty"`
 	ManagedIdentityClientId         string `json:"managedIdentityClientId,omitempty"`
+	GitHub                          bool   `json:"github,omitempty"`
 	TargetFederatedIdentity         string `json:"targetFederatedIdentity,omitempty"`
 	CertPath                        string `json:"certPath,omitempty"`
 	CertThumbprint                  string `json:"certThumbprint,omitempty"`
@@ -330,6 +332,8 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 				authResult, err = si.performServicePrincipalLogin(ctx)
 			} else if options.ManagedIdentity {
 				authResult, si.Principal, err = si.performManagedIdentityLogin(ctx, options.ManagedIdentityClientId, options.TargetFederatedIdentity)
+			} else if options.GitHub {
+				authResult, si.Principal, err = si.performGitHubLogin(ctx, options.TargetFederatedIdentity)
 			} else {
 				authResult, si.Principal, err = si.performUserLogin(ctx, options.UseDeviceCode)
 				if si.ClientId == "" {
@@ -481,8 +485,13 @@ func (c *serviceInfo) GetAccessToken(ctx context.Context) (string, error) {
 		if err != nil {
 			return "", err
 		}
+	} else if c.GitHub {
+		var err error
+		accessToken, _, err = c.performGitHubLogin(ctx, c.TargetFederatedIdentity)
+		if err != nil {
+			return "", err
+		}
 	} else {
-
 		customHttpClient := &clientIdReplacingHttpClient{
 			clientAppUri: c.ClientAppUri,
 			clientAppId:  c.ClientId,
@@ -831,13 +840,11 @@ func (si *serviceInfo) performManagedIdentityLogin(ctx context.Context, managedI
 		return AccessToken{}, "", fmt.Errorf("error creating managed identity credential: %w", err)
 	}
 
-	apiServerScope := fmt.Sprintf("%s/%s", si.Audience, servicePrincipalScope)
-
 	var scopes []string
 	if targetFederatedIdentity != "" {
 		scopes = []string{"api://AzureADTokenExchange/.default"}
 	} else {
-		scopes = []string{apiServerScope}
+		scopes = []string{si.getApiServerScope()}
 	}
 
 	tok, err := cred.GetToken(ctx, policy.TokenRequestOptions{Scopes: scopes})
@@ -855,17 +862,53 @@ func (si *serviceInfo) performManagedIdentityLogin(ctx context.Context, managedI
 		return AccessToken(tok), principal, nil
 	}
 
-	principal = targetFederatedIdentity
+	return si.performFederatedIdentityLogin(ctx, tok.Token, targetFederatedIdentity)
+}
 
+func (si *serviceInfo) performGitHubLogin(ctx context.Context, targetFederatedIdentity string) (AccessToken, string, error) {
+	requestUrl := os.Getenv("ACTIONS_ID_TOKEN_REQUEST_URL")
+	requestToken := os.Getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
+
+	if requestUrl == "" || requestToken == "" {
+		return AccessToken{}, "", errors.New("environment variables ACTIONS_ID_TOKEN_REQUEST_URL or ACTIONS_ID_TOKEN_REQUEST_TOKEN are not set")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestUrl, nil)
+	if err != nil {
+		return AccessToken{}, "", fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", requestToken))
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return AccessToken{}, "", fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return AccessToken{}, "", fmt.Errorf("failed to get OIDC token, status code: %d", resp.StatusCode)
+	}
+
+	var response struct {
+		Value string `json:"value"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return AccessToken{}, "", fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return si.performFederatedIdentityLogin(ctx, response.Value, targetFederatedIdentity)
+}
+
+func (si *serviceInfo) performFederatedIdentityLogin(ctx context.Context, token string, targetFederatedIdentity string) (AccessToken, string, error) {
 	assertionCred := confidential.NewCredFromAssertionCallback(func(ctx context.Context, aro confidential.AssertionRequestOptions) (string, error) {
-		return tok.Token, nil
+		return token, nil
 	})
 
 	confidentialClient, err := confidential.New(si.Authority, targetFederatedIdentity, assertionCred, confidential.WithHTTPClient(client.DefaultClient.StandardClient()))
 	if err != nil {
 		return AccessToken{}, "", fmt.Errorf("error creating confidential client: %w", err)
 	}
-	authResult, err := confidentialClient.AcquireTokenByCredential(ctx, []string{apiServerScope})
+	authResult, err := confidentialClient.AcquireTokenByCredential(ctx, []string{si.getApiServerScope()})
 	if err != nil {
 		return AccessToken{}, "", fmt.Errorf("error performing token exchange: %w", err)
 	}
@@ -873,7 +916,7 @@ func (si *serviceInfo) performManagedIdentityLogin(ctx context.Context, managedI
 	return AccessToken{
 		Token:     authResult.AccessToken,
 		ExpiresOn: authResult.ExpiresOn,
-	}, principal, nil
+	}, targetFederatedIdentity, nil
 }
 
 func (si *serviceInfo) performServicePrincipalLogin(ctx context.Context) (AccessToken, error) {
@@ -905,6 +948,10 @@ func (si *serviceInfo) performServicePrincipalLogin(ctx context.Context) (Access
 		Token:     authResult.AccessToken,
 		ExpiresOn: authResult.ExpiresOn,
 	}, err
+}
+
+func (si *serviceInfo) getApiServerScope() string {
+	return fmt.Sprintf("%s/%s", si.Audience, servicePrincipalScope)
 }
 
 func (si *serviceInfo) createServicePrincipalCredential() (confidential.Credential, error) {
