@@ -287,7 +287,10 @@ proxy: auto
 
 	loginCmd.Flags().BoolVar(&options.ManagedIdentity, "identity", false, "Use Azure Managed Identity for authentication. This is only supported in Azure environments.")
 	loginCmd.Flags().StringVar(&options.ManagedIdentityClientId, "identity-client-id", "", "The client ID of the managed identity to use. If not specified, the system-assigned identity is used, or if not present, the single user-assigned identity.")
-	loginCmd.Flags().StringVar(&options.TargetFederatedIdentity, "federated-identity", "", "Use federated identity to authenticate as this identity using the managed identity. Can only be used with --managed-identity.")
+
+	loginCmd.Flags().BoolVar(&options.GitHub, "github", false, "Use GitHub Actions tokens with federated identity for authentication. Requires --federated-identity to be set.")
+
+	loginCmd.Flags().StringVar(&options.TargetFederatedIdentity, "federated-identity", "", "Use federation to authenticate as this identity. Can only be used with --managed-identity or --github.")
 
 	loginCmd.Flags().StringVar(&options.Proxy, "proxy", "auto", "The HTTP proxy to use. Can be 'auto[matic]', 'none', or a URL.")
 
