@@ -391,7 +391,7 @@ jobs:
 
           $developerConfig = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($env:DEVELOPER_CONFIG_BASE64)) | ConvertFrom-Json
 
-          $servicePrincipal = $developerConfig.testAppUrl
+          $servicePrincipal = $developerConfig.testAppUri
           $keyVaultName = $developerConfig.keyVault
           $certificateName = $developerConfig.pkcs12CertSecret.name
           $certificateVersion = $developerConfig.pkcs12CertSecret.version

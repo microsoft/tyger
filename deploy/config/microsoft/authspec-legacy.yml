@@ -3,6 +3,7 @@
 # All five fields must be copied to the cloud installation configuration file
 # under the section `organizations[].api.auth`.re
 
+rbacEnabled: false # Required. Indicates whether role-based access control is enabled.
 tenantId: 76d3279b-830e-4bea-baf8-12863cdeba4c
 apiAppUri: api://tyger-server
 cliAppUri: api://tyger-cli

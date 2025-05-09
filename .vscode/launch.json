@@ -40,7 +40,7 @@
       "mode": "auto",
       "program": "cli/cmd/tyger",
       "cwd": "${workspaceFolder}",
-      "args": []
+      "args": ["login", "-f", "/workspaces/tyger/creds.yml"]
     },
     {
       "name": "CLI Docker",
