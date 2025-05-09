@@ -41,6 +41,7 @@ const (
 	LocalUrlSentinel                    = "local"
 	sshConcurrencyLimit                 = 8
 	dockerConcurrencyLimit              = 6
+	azureTokenExchangeAudience          = "api://AzureADTokenExchange/.default"
 )
 
 type AccessToken azcore.AccessToken
@@ -842,7 +843,7 @@ func (si *serviceInfo) performManagedIdentityLogin(ctx context.Context, managedI
 
 	var scopes []string
 	if targetFederatedIdentity != "" {
-		scopes = []string{"api://AzureADTokenExchange/.default"}
+		scopes = []string{azureTokenExchangeAudience}
 	} else {
 		scopes = []string{si.getApiServerScope()}
 	}
@@ -872,6 +873,16 @@ func (si *serviceInfo) performGitHubLogin(ctx context.Context, targetFederatedId
 	if requestUrl == "" || requestToken == "" {
 		return AccessToken{}, "", errors.New("environment variables ACTIONS_ID_TOKEN_REQUEST_URL or ACTIONS_ID_TOKEN_REQUEST_TOKEN are not set")
 	}
+
+	parsedRequestUrl, err := url.Parse(requestUrl)
+	if err != nil {
+		return AccessToken{}, "", fmt.Errorf("invalid ACTIONS_ID_TOKEN_REQUEST_URL environment variable: %w", err)
+	}
+
+	query := parsedRequestUrl.Query()
+	query.Set("audience", azureTokenExchangeAudience)
+	parsedRequestUrl.RawQuery = query.Encode()
+	requestUrl = parsedRequestUrl.String()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestUrl, nil)
 	if err != nil {
