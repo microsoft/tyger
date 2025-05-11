@@ -609,7 +609,7 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, org *Organizat
 			"database": map[string]any{
 				"host":           *dbServer.Properties.FullyQualifiedDomainName,
 				"databaseName":   org.Cloud.DatabaseName,
-				"port":           fmt.Sprintf("%d", databasePort),
+				"port":           databasePort,
 				"ownersRoleName": getDatabaseRoleName(org, unqualifiedOwnersRole),
 			},
 			"buffers": map[string]any{

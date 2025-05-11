@@ -2275,6 +2275,10 @@ func TestExport(t *testing.T) {
 		}
 	}
 
+	if location2 == "" {
+		t.Skip("Skipping test because there is no second storage account region")
+	}
+
 	require.NotEmpty(t, location1)
 
 	testId := uuid.NewString()

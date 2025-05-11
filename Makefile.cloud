@@ -1,17 +1,23 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-CURRENT_ORG=lamna
+TYGER_ORG := $(or $(TYGER_ORG), lamna)
 ENVIRONMENT_CONFIG_JSON = $(shell scripts/get-config.sh -o json | jq -c)
 
+TYGER_AUTH_METHOD:=$(or $(if $(filter legacy,${TYGER_ORG}),cert,$(TYGER_AUTH_METHOD)), cert)
+
 SECURITY_ENABLED=true
-HELM_NAMESPACE=lamna
+HELM_NAMESPACE=$(if $(filter legacy,${TYGER_ORG}),tyger,${TYGER_ORG})
 HELM_RELEASE=tyger
-TYGER_URL = https://$(shell echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.organizations[] | select(.name == "${CURRENT_ORG}") | .api.domainName')
+TYGER_URL = https://$(shell echo '${ENVIRONMENT_CONFIG_JSON}' | jq -r '.organizations[] | select(.name == "${TYGER_ORG}") | .api.domainName')
 INSTALL_CLOUD=false
 AUTO_MIGRATE=false
 DOCKER_BUILD_ARCH_FLAGS = --arch amd64
 DOCKER_BUILD_PUSH_FLAGS = --push --push-force
+
+define get-client-uri
+$(if $(filter legacy,${TYGER_ORG}),api://tyger-test-client,$(1))
+endef
 
 pim-elevate:
 	default_justification="Deploying Tyger"
@@ -70,7 +76,7 @@ set-localsettings: set-context
 		echo "Run 'make up' and 'make set-context' before this target"; exit 1
 	fi
 
-	org_json=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -c '.organizations[] | select(.name == "${CURRENT_ORG}")')
+	org_json=$$(echo '${ENVIRONMENT_CONFIG_JSON}' | jq -c '.organizations[] | select(.name == "${TYGER_ORG}")')
 
 
 	jq <<- EOF > ${CONTROL_PLANE_SERVER_PATH}/appsettings.local.json
@@ -156,40 +162,106 @@ check-test-client-cert:
 	cert_path=$${HOME}/tyger_test_client_cert_$${cert_version}.pem
 	[ -f ${TEST_CLIENT_CERT_FILE} ]
 
-login-legacy: install-cli download-test-client-cert
-	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.version')
-	cert_path=$${HOME}/tyger_test_client_cert_$${cert_version}.pem
-	test_app_uri=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.testAppUri')
+_get-login-spec:
+	client_uri=$(call get-client-uri,${TYGER_CLIENT_URI})
+	common_parameters="serverUrl: ${TYGER_URL}"
+	
+	if [[ "${TYGER_AUTH_METHOD}" == "cert" ]]; then
+		$(MAKE) download-test-client-cert
+		cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.version')
+		cert_path=$${HOME}/tyger_test_client_cert_$${cert_version}.pem
 
-	tyger login -f <(cat <<EOF
-	serverurl: ${TYGER_URL}
-	servicePrincipal: $${test_app_uri}
-	certificatePath: $${cert_path}
-	EOF
-	)
+		auth_parameters="
+		servicePrincipal: '$${client_uri}'
+		certificatePath: $${cert_path}"
+	elif [[ "${TYGER_AUTH_METHOD}" == "identity" ]]; then
+		auth_parameters="managedIdentity: true
+		targetFederatedIdentity: '$${client_uri}'"
+	elif [[ "${TYGER_AUTH_METHOD}" == "github" ]]; then
+		auth_parameters="github: true
+		targetFederatedIdentity: '$${client_uri}'"
+	else
+		echo "Unknown authentication method: ${TYGER_AUTH_METHOD}"
+		exit 1
+	fi
+
+	echo "$${common_parameters}
+	$${auth_parameters}
+	"
+
+get-login-spec:
+	$(MAKE) _get-login-spec TYGER_CLIENT_URI=api://tyger-client-owner
+
+_login:
+	tyger login -f <($(MAKE) _get-login-spec)
 
 login: install-cli
-	tyger login ${TYGER_URL} --identity --federated-identity api://tyger-client-owner
+	$(MAKE) _login TYGER_CLIENT_URI=api://tyger-client-owner
 
 login-contributor: install-cli
-	tyger login ${TYGER_URL} --identity --federated-identity api://tyger-client-contributor
+	$(MAKE) _login TYGER_CLIENT_URI=api://tyger-client-contributor
 
 login-local: install-cli
 	$(MAKE) login TYGER_URL=http://localhost:5000
 
-start-proxy: install-cli download-test-client-cert
-	cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.version')
-	cert_path=$${HOME}/tyger_test_client_cert_$${cert_version}.pem
-	test_app_uri=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.testAppUri')
+get-proxy-config:
+	common_parameters="serverUrl: ${TYGER_URL}
+	allowedClientCIDRs: ['127.0.0.1/32']
+	logPath: /tmp/tyger-proxy"
 
-	tyger-proxy start -f <(cat <<EOF
+	client_uri=$(call get-client-uri,api://tyger-client-contributor)
+
+	if [[ "${TYGER_AUTH_METHOD}" == "cert" ]]; then
+		$(MAKE) download-test-client-cert
+		cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.version')
+		cert_path=$${HOME}/tyger_test_client_cert_$${cert_version}.pem
+
+		auth_parameters="
+		servicePrincipal: '$${client_uri}'
+		certificatePath: $${cert_path}"
+	elif [[ "${TYGER_AUTH_METHOD}" == "identity" ]]; then
+		auth_parameters="managedIdentity: true
+		targetFederatedIdentity: '$${client_uri}'"
+	elif [[ "${TYGER_AUTH_METHOD}" == "github" ]]; then
+		auth_parameters="github: true
+		targetFederatedIdentity: '$${client_uri}'"
+	else
+		echo "Unknown authentication method: ${TYGER_AUTH_METHOD}"
+		exit 1
+	fi
+
+	echo "$${common_parameters}
+	$${auth_parameters}
+	"
+
+start-proxy: install-cli
+	common_parameters="
 	serverUrl: ${TYGER_URL}
-	servicePrincipal: $${test_app_uri}
-	certificatePath: $${cert_path}
-	allowedClientCIDRs: ["127.0.0.1/32"]
-	logPath: "/tmp/tyger-proxy"
-	EOF
-	)
+	allowedClientCIDRs: ['127.0.0.1/32']
+	logPath: /tmp/tyger-proxy"
+
+	client_uri=$(call get-client-uri,api://tyger-client-contributor)
+
+	if [[ "${TYGER_AUTH_METHOD}" == "cert" ]]; then
+		$(MAKE) download-test-client-cert
+		cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.version')
+		cert_path=$${HOME}/tyger_test_client_cert_$${cert_version}.pem
+
+		auth_parameters="
+		servicePrincipal: $${client_uri}
+		certificatePath: $${cert_path}"
+	elif [[ "${TYGER_AUTH_METHOD}" == "identity" ]]; then
+		auth_parameters="managedIdentity: true
+		targetFederatedIdentity: $${client_uri}"
+	elif [[ "${TYGER_AUTH_METHOD}" == "github" ]]; then
+		auth_parameters="github: true
+		targetFederatedIdentity: $${client_uri}"
+	else
+		echo "Unknown authentication method: ${TYGER_AUTH_METHOD}"
+		exit 1
+	fi
+
+	tyger-proxy start -f <($(MAKE) get-proxy-config) 
 
 kill-proxy:
 	killall tyger-proxy
@@ -230,5 +302,5 @@ follow-server-logs:
 integration-test-no-up-fast-only-legacy-org:
 	export TYGER_CACHE_FILE="$${HOME}/.cache/tyger/.tyger-legacy-org"
 	mkdir -p $$(dirname "$${TYGER_CACHE_FILE}")
-	$(MAKE) login CURRENT_ORG=legacy
+	$(MAKE) login TYGER_ORG=legacy
 	$(MAKE) integration-test-no-up-fast-only
