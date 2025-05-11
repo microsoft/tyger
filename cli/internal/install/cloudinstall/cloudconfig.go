@@ -270,12 +270,11 @@ type ConfigTemplateValues struct {
 	BufferStorageAccountName string
 	LogsStorageAccountName   string
 	DomainName               string
-	ApiTenantId              string
 	CpuNodePoolMinCount      int32
 	GpuNodePoolMinCount      int32
 }
 
-func RenderConfig(templateValues ConfigTemplateValues, writer io.Writer) error {
+func RenderConfig(templateValues ConfigTemplateValues, authSpec *TygerAuthSpec, writer io.Writer) error {
 	config := CloudEnvironmentConfig{
 		Kind:            EnvironmentKindCloud,
 		EnvironmentName: templateValues.EnvironmentName,
@@ -336,11 +335,7 @@ func RenderConfig(templateValues ConfigTemplateValues, writer io.Writer) error {
 				Api: &OrganizationApiConfig{
 					DomainName:             templateValues.DomainName,
 					TlsCertificateProvider: TlsCertificateProviderLetsEncrypt,
-					Auth: &AuthConfig{
-						TenantID:  templateValues.ApiTenantId,
-						ApiAppUri: "api://tyger-server",
-						CliAppUri: "api://tyger-cli",
-					},
+					Auth:                   &authSpec.AuthConfig,
 				},
 			},
 		},

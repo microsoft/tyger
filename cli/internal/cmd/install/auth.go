@@ -88,6 +88,23 @@ func newAuthShowCommand() *cobra.Command {
 	return cmd
 }
 
+func parseAuthSpecFromFile(filePath string) (*cloudinstall.TygerAuthSpec, error) {
+	contents, err := os.ReadFile(filePath)
+	if err != nil {
+		log.Fatal().Err(err).Msgf("Unable to read file: %s", filePath)
+	}
+
+	buf := bytes.NewBuffer(contents)
+	spec := &cloudinstall.TygerAuthSpec{}
+	decoder := yaml.NewDecoder(buf)
+	decoder.KnownFields(true)
+	if err := decoder.Decode(spec); err != nil {
+		return nil, fmt.Errorf("unable to decode auth spec file: %s: %w", filePath, err)
+	}
+
+	return spec, nil
+}
+
 func newAuthApplyCommand() *cobra.Command {
 	filePath := ""
 	cmd := &cobra.Command{
@@ -96,17 +113,9 @@ func newAuthApplyCommand() *cobra.Command {
 		Long:                  "Apply the access control specification",
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			contents, err := os.ReadFile(filePath)
+			spec, err := parseAuthSpecFromFile(filePath)
 			if err != nil {
-				log.Fatal().Err(err).Msgf("Unable to read file: %s", filePath)
-			}
-
-			buf := bytes.NewBuffer(contents)
-			spec := &cloudinstall.TygerAuthSpec{}
-			decoder := yaml.NewDecoder(buf)
-			decoder.KnownFields(true)
-			if err := decoder.Decode(spec); err != nil {
-				log.Fatal().Err(err).Msgf("Unable to decode file: %s", filePath)
+				log.Fatal().Err(err).Msgf("Unable to load access control specification file: %s", filePath)
 			}
 
 			if spec.TenantID == "" {

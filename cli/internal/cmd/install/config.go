@@ -192,14 +192,15 @@ func prettyPrintConfig(ctx context.Context, input io.Reader, output io.Writer) e
 func newConfigConvertCommand() *cobra.Command {
 	inputPath := ""
 	outputPath := ""
+	authSpecPath := ""
 
 	cmd := &cobra.Command{
-		Use:                   "convert -i FILE.yml -o FILE.yml",
+		Use:                   "convert -i FILE.yml -o FILE.yml [--auth-spec FILE.yml]",
 		Long:                  "Convert a config that was created for Tyger versions before v0.11.0.",
 		Short:                 "Convert a config that was created for Tyger versions before v0.11.0.",
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			err := convert(cmd.Context(), inputPath, outputPath)
+			err := convert(cmd.Context(), inputPath, outputPath, authSpecPath)
 			if err != nil {
 				if !errors.Is(err, install.ErrAlreadyLoggedError) {
 					log.Fatal().AnErr("error", err).Send()
@@ -215,43 +216,57 @@ func newConfigConvertCommand() *cobra.Command {
 	cmd.Flags().StringVarP(&outputPath, "output", "o", "", "The path to the config file to create")
 	cmd.MarkFlagRequired("output")
 
+	cmd.Flags().StringVarP(&authSpecPath, "auth-spec", "a", "", "The path to the access control specification file. Required for cloud environments. You must have run `tyger auth apply` first.")
+
 	return cmd
 }
 
-func convert(ctx context.Context, inputPath string, outputPath string) error {
+func convert(ctx context.Context, inputPath string, outputPath string, authSpecPath string) error {
 	c, err := parseConfigFromYamlFile(inputPath, nil, true)
 	if err != nil {
 		return fmt.Errorf("failed to read config file: %w", err)
 	}
 
 	document := c.(map[string]any)
-	if document["organizations"] != nil {
-		return fmt.Errorf("the given config file appears to already be in the new format")
+
+	if kind, _ := document["kind"].(string); kind != "docker" {
+		if document["organizations"] != nil {
+			return fmt.Errorf("the given config file appears to already be in the new format")
+		}
+
+		if authSpecPath == "" {
+			return errors.New("the --auth-spec flag is required for cloud environments")
+		}
+		authSpec, err := parseAuthSpecFromFile(authSpecPath)
+		if err != nil {
+			return fmt.Errorf("failed to read access control specification file: %w", err)
+		}
+
+		identities := safeGetAndRemove(document, "cloud.compute.identities")
+		storage := safeGetAndRemove(document, "cloud.storage")
+		api := safeGetAndRemove(document, "api")
+
+		if storage == nil || api == nil {
+			return fmt.Errorf("the given config file appears not to be have been valid")
+		}
+
+		if apiMap, ok := api.(map[string]any); ok {
+			apiMap["tlsCertificateProvider"] = string(cloudinstall.TlsCertificateProviderLetsEncrypt)
+			apiMap["auth"] = authSpec.AuthConfig
+		}
+
+		org := map[string]any{
+			"name":                                "default",
+			"singleOrganizationCompatibilityMode": true,
+			"cloud": map[string]any{
+				"storage":    storage,
+				"identities": identities,
+			},
+			"api": api,
+		}
+
+		document["organizations"] = []any{org}
 	}
-
-	identities := safeGetAndRemove(document, "cloud.compute.identities")
-	storage := safeGetAndRemove(document, "cloud.storage")
-	api := safeGetAndRemove(document, "api")
-
-	if storage == nil || api == nil {
-		return fmt.Errorf("the given config file appears not to be have been valid")
-	}
-
-	if apiMap, ok := api.(map[string]any); ok {
-		apiMap["tlsCertificateProvider"] = string(cloudinstall.TlsCertificateProviderLetsEncrypt)
-	}
-
-	org := map[string]any{
-		"name":                                "default",
-		"singleOrganizationCompatibilityMode": true,
-		"cloud": map[string]any{
-			"storage":    storage,
-			"identities": identities,
-		},
-		"api": api,
-	}
-
-	document["organizations"] = []any{org}
 
 	buffer := bytes.Buffer{}
 	if err := yaml.NewEncoder(&buffer).Encode(document); err != nil {
@@ -302,11 +317,12 @@ func safeGetAndRemove(m map[string]any, path string) any {
 
 func newConfigCreateCommand() *cobra.Command {
 	configPath := ""
+	authSpecPath := ""
 
 	cmd := &cobra.Command{
-		Use:                   "create -f FILE.yml",
+		Use:                   "create --auth-spec AUTH.yml -f CONFIG.yml",
 		Short:                 "Create a new config file",
-		Long:                  "Create a new config file",
+		Long:                  "Create a new config file. You must first have run `tyger auth apply` first.",
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if _, err := os.Stat(configPath); err == nil {
@@ -353,7 +369,14 @@ func newConfigCreateCommand() *cobra.Command {
 
 			switch res.id {
 			case cloudinstall.EnvironmentKindCloud:
-				if err := generateCloudConfig(cmd.Context(), f); err != nil {
+				if authSpecPath == "" {
+					return errors.New("the --auth-spec flag is required for cloud environments")
+				}
+				authSpec, err := parseAuthSpecFromFile(authSpecPath)
+				if err != nil {
+					return fmt.Errorf("failed to read access control specification file: %w", err)
+				}
+				if err := generateCloudConfig(cmd.Context(), authSpec, f); err != nil {
 					return err
 				}
 			case dockerinstall.EnvironmentKindDocker:
@@ -372,6 +395,7 @@ func newConfigCreateCommand() *cobra.Command {
 	cmd.Flags().StringVarP(&configPath, "file", "f", "", "The path to the config file to create")
 	cmd.MarkFlagRequired("file")
 
+	cmd.Flags().StringVarP(&authSpecPath, "auth-spec", "a", "", "The path to the access control specification file. Required for cloud environments. You must have run `tyger auth apply` first.")
 	return cmd
 }
 
@@ -487,7 +511,7 @@ PromptPublicKey:
 	return dockerinstall.RenderConfig(templateValues, configFile)
 }
 
-func generateCloudConfig(ctx context.Context, configFile *os.File) error {
+func generateCloudConfig(ctx context.Context, authSpec *cloudinstall.TygerAuthSpec, configFile *os.File) error {
 	if _, err := exec.LookPath("az"); err != nil {
 		return errors.New("please install the Azure CLI (az) first")
 	}
@@ -631,35 +655,7 @@ func generateCloudConfig(ctx context.Context, configFile *os.File) error {
 	}
 	templateValues.DomainName = fmt.Sprintf("%s%s", domainLabel, domainSuffix)
 
-	fmt.Printf("Now for the tenant associated with the Tyger service.\n\n")
-	input := confirmation.New("Do you want to use the same tenant for the Tyger service?", confirmation.Yes)
-	input.WrapMode = promptkit.WordWrap
-	sameTenant, err := input.RunPrompt()
-	if err != nil {
-		return err
-	}
-
-	if sameTenant {
-		templateValues.ApiTenantId = templateValues.TenantId
-	} else {
-		for {
-			res, err := chooseTenant(cred, "Choose a tenant for the Tyger service:", true)
-			if err != nil {
-				return err
-			}
-
-			if res == "other" {
-				fmt.Printf("Run 'az login' in another terminal window.\nPress any key when ready...\n\n")
-				getSingleKey()
-				continue
-			} else {
-				templateValues.ApiTenantId = res
-				break
-			}
-		}
-	}
-
-	err = cloudinstall.RenderConfig(templateValues, configFile)
+	err = cloudinstall.RenderConfig(templateValues, authSpec, configFile)
 	if err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
