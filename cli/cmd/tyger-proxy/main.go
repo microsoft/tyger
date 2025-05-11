@@ -133,20 +133,46 @@ func readProxyOptions(optionsFilePath string, options *tygerproxy.ProxyOptions) 
 		return errors.New("serverUrl must be specified")
 	}
 
-	if options.ServicePrincipal == "" {
-		return errors.New("servicePrincipal must be specified in the options file")
-	}
-
-	if runtime.GOOS == "windows" {
-		if options.CertificatePath == "" && options.CertificateThumbprint == "" {
-			return errors.New("either certificatePath or certificateThumbprint must be specified in the options file")
+	if options.ManagedIdentity {
+		if options.ServicePrincipal != "" {
+			return errors.New("servicePrincipal cannot be specified when using managed identity")
+		}
+		if options.CertificatePath != "" {
+			return errors.New("certificatePath cannot be specified when using managed identity")
+		}
+		if options.CertificateThumbprint != "" {
+			return errors.New("certificateThumbprint cannot be specified when using managed identity")
+		}
+	} else if options.GitHub {
+		if options.ServicePrincipal != "" {
+			return errors.New("servicePrincipal cannot be specified when using GitHub authentication")
+		}
+		if options.CertificatePath != "" {
+			return errors.New("certificatePath cannot be specified when using GitHub authentication")
+		}
+		if options.CertificateThumbprint != "" {
+			return errors.New("certificateThumbprint cannot be specified when using GitHub authentication")
+		}
+	} else {
+		if options.ServicePrincipal == "" {
+			return errors.New("if both managedIdentity and github are both not true, servicePrincipal must be specified in the options file")
 		}
 
-		if options.CertificatePath != "" && options.CertificateThumbprint != "" {
-			return errors.New("certificatePath and certificateThumbprint cannot both be specified")
+		if runtime.GOOS == "windows" {
+			if options.CertificatePath == "" && options.CertificateThumbprint == "" {
+				return errors.New("either certificatePath or certificateThumbprint must be specified in the options file")
+			}
+
+			if options.CertificatePath != "" && options.CertificateThumbprint != "" {
+				return errors.New("certificatePath and certificateThumbprint cannot both be specified")
+			}
+		} else if options.CertificatePath == "" {
+			return errors.New("certificatePath must be specified in the options file")
 		}
-	} else if options.CertificatePath == "" {
-		return errors.New("certificatePath must be specified in the options file")
+
+		if options.TargetFederatedIdentity != "" {
+			return errors.New("targetFederatedIdentity cannot be specified when using service principal authentication")
+		}
 	}
 
 	if optionsFilePath != "-" {

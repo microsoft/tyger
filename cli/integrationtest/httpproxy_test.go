@@ -11,8 +11,10 @@ import (
 	"path"
 	"testing"
 
+	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/yaml"
 )
 
 const composeFile = `
@@ -57,30 +59,32 @@ func TestHttpProxy(t *testing.T) {
 
 	config := getCloudConfig(t)
 	tygerUrl := fmt.Sprintf("https://%s", getLamnaOrgConfig(config).Api.DomainName)
-	devConfig := getDevConfig(t)
-	testAppUri := devConfig["testAppUri"].(string)
-	certVersion := devConfig["pemCertSecret"].(map[string]any)["version"].(string)
-	homeDir, err := os.UserHomeDir()
+
+	proxyConfigString := runCommandSucceeds(t, "make", "-s", "-C", "../..", "get-login-spec")
+
+	proxyConfig := controlplane.LoginConfig{}
+	require.NoError(t, yaml.Unmarshal([]byte(proxyConfigString), &proxyConfig))
+	sourceCertPath := proxyConfig.CertificatePath
+	if sourceCertPath != "" {
+		proxyConfig.CertificatePath = "/client_cert.pem"
+	}
+	proxyConfig.LogPath = "/logs"
+
+	b, err := yaml.Marshal(proxyConfig)
 	require.NoError(t, err)
-	certFilePath := path.Join(homeDir, fmt.Sprintf("tyger_test_client_cert_%s.pem", certVersion))
-
-	credsFilePath := path.Join(t.TempDir(), "creds.yml")
-	credsFileContent := fmt.Sprintf(`
-serverUrl: %s
-servicePrincipal: %s
-certificatePath: /client_cert.pem
-logPath: /logs
-`, tygerUrl, testAppUri)
-
-	require.NoError(t, os.WriteFile(credsFilePath, []byte(credsFileContent), 0644))
+	proxyConfigString = string(b)
+	proxyConfigFilePath := path.Join(t.TempDir(), "proxy-config.yml")
+	require.NoError(t, os.WriteFile(proxyConfigFilePath, []byte(proxyConfigString), 0644))
 
 	tygerPath := runCommandSucceeds(t, "which", "tyger")
 	tygerProxyPath := runCommandSucceeds(t, "which", "tyger-proxy")
 	s.CommandSucceeds("cp", tygerPath, "tyger-proxy:/usr/local/bin/tyger")
 	s.CommandSucceeds("cp", tygerPath, "client:/usr/local/bin/tyger")
 	s.CommandSucceeds("cp", tygerProxyPath, "tyger-proxy:/usr/local/bin/tyger-proxy")
-	s.CommandSucceeds("cp", credsFilePath, "tyger-proxy:/creds.yml")
-	s.CommandSucceeds("cp", certFilePath, "tyger-proxy:/client_cert.pem")
+	s.CommandSucceeds("cp", proxyConfigFilePath, "tyger-proxy:/creds.yml")
+	if sourceCertPath != "" {
+		s.CommandSucceeds("cp", sourceCertPath, "tyger-proxy:/client_cert.pem")
+	}
 
 	s.CommandSucceeds("start", "tyger-proxy")
 

@@ -821,9 +821,13 @@ func GetServiceMetadata(ctx context.Context, serverUrl string) (*model.ServiceMe
 		if err != nil {
 			return nil, err
 		}
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read response body: %w", err)
+		}
 		serviceMetadata := &model.ServiceMetadata{}
-		if err := json.NewDecoder(resp.Body).Decode(serviceMetadata); err != nil {
-			return nil, errors.New("the server URL does not appear to point to a valid tyger server")
+		if err := json.Unmarshal(respBody, &serviceMetadata); err != nil {
+			return nil, fmt.Errorf("the server URL does not appear to point to a valid tyger server: %s; %s", resp.Status, string(respBody))
 		}
 		return nil, errors.New("the server hosts an older version of tyger that is not compatibile with this client")
 	}

@@ -8,10 +8,9 @@ officialPullContainerRegistry:
   fqdn: mcr.microsoft.com
   directory: /tyger
 keyVault: eminence
-testAppUri: api://tyger-test-client
 pemCertSecret:
   name: tyger-test-client-cert
-  version: f46eec43cf524c8eb08f9e88c4742473
+  version: 916c21a84ab8423ea3468288e80287bf
 pkcs12CertSecret:
   name: tyger-test-client-cert-pkcs12
-  version: 1f9995a96c194cca92c1a2e8d7966593
+  version: c7dbcb4c8b7b49e79d9ab5a99f34ff94
