@@ -121,7 +121,7 @@ public static class Auth
                 {
                     authOptions.AddPolicy(policy.Key, builder =>
                     {
-                        if (securityConfigurations.Value.Rbac.Enabled)
+                        if (securityConfigurations.Value.Enabled)
                         {
                             builder.RequireAuthenticatedUser();
                         }
@@ -175,6 +175,7 @@ public class AuthOptions : IValidatableObject
     {
         if (!Enabled)
         {
+            Rbac.Enabled = false;
             yield break;
         }
 
