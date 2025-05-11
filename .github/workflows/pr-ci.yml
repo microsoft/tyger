@@ -393,7 +393,6 @@ jobs:
 
           $developerConfig = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($env:DEVELOPER_CONFIG_BASE64)) | ConvertFrom-Json
 
-          $servicePrincipal = $developerConfig.testAppUri
           $keyVaultName = $developerConfig.keyVault
           $certificateName = $developerConfig.pkcs12CertSecret.name
           $certificateVersion = $developerConfig.pkcs12CertSecret.version
@@ -401,7 +400,7 @@ jobs:
           # Run tests
           .\scripts\Test-CertificateLoginOnWindows.ps1 `
             -ServerUrl $env:TYGER_LEGACY_URL `
-            -ServicePrincipal $servicePrincipal `
+            -ServicePrincipal "api://tyger-test-client" `
             -KeyVaultName $keyVaultName `
             -CertificateName $certificateName `
             -CertificateVersion $certificateVersion
