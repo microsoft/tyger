@@ -240,7 +240,7 @@ organizations:
         apiAppUri: {{ .Auth.ApiAppUri }}
         apiAppId: {{ .Auth.ApiAppId }}
         cliAppUri: {{ .Auth.CliAppUri }}
-        cliAppId: {{ .Auth.CliAppUri }}
+        cliAppId: {{ .Auth.CliAppId }}
 
       {{- if (and .Buffers (or .Buffers.ActiveLifetime .Buffers.SoftDeletedLifetime)) }}
 

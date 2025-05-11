@@ -652,13 +652,13 @@ func normalizePrincipal(ctx context.Context, cred azcore.TokenCredential, princi
 	return principal, nil
 }
 
-func PrettyPrintAuthSpec(config *TygerAuthSpec, writer io.Writer) error {
-	if config == nil {
-		config = &TygerAuthSpec{}
+func PrettyPrintAuthSpec(authSpec *TygerAuthSpec, writer io.Writer) error {
+	if authSpec == nil {
+		authSpec = &TygerAuthSpec{}
 	}
 
-	if config.RoleAssignments == nil {
-		config.RoleAssignments = &TygerRbacRoleAssignments{}
+	if authSpec.RoleAssignments == nil {
+		authSpec.RoleAssignments = &TygerRbacRoleAssignments{}
 	}
 
 	funcMap := sprig.FuncMap()
@@ -682,5 +682,5 @@ func PrettyPrintAuthSpec(config *TygerAuthSpec, writer io.Writer) error {
 	funcMap["deref"] = deref
 
 	t := template.Must(template.New("config").Funcs(funcMap).Parse(prettyPrintRbacTemplate))
-	return t.Execute(writer, config)
+	return t.Execute(writer, authSpec)
 }
