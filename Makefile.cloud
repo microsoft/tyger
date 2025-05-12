@@ -189,11 +189,30 @@ _get-login-spec:
 	$${auth_parameters}
 	"
 
+add-vm-identity:
+	scripts/manage-federated-creds.sh --add-this
+
 get-login-spec:
 	$(MAKE) _get-login-spec TYGER_CLIENT_URI=api://tyger-client-owner
 
 _login:
-	tyger login -f <($(MAKE) _get-login-spec)
+	set +e
+	out=$$(tyger login -f <($(MAKE) _get-login-spec) 2>&1)
+	ret=$$?
+	set -e
+
+	if [[ $$ret -eq 0 ]]; then
+		exit
+	fi
+
+	if [[ "$${TYGER_AUTH_METHOD}" == "identity" && "$$out" == *"AADSTS700211"* ]]; then
+		echo "This VM's managed identity does not appear to have a federated credential on the target application.
+		Run 'make add-vm-identity' to correct this."
+		exit 1
+	fi
+
+	echo $${out}
+	exit 1
 
 login: install-cli
 	$(MAKE) _login TYGER_CLIENT_URI=api://tyger-client-owner
