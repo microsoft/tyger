@@ -94,7 +94,7 @@ Subsequent commands will be performed against this server.`,
 						}
 
 						if options.CertificatePath != "" && options.CertificateThumbprint != "" {
-							return errors.New("certificatePath and certificateThumbprint cannot both be set on Windows")
+							return errors.New("certificatePath and certificateThumbprint cannot both be specified")
 						}
 					} else if options.CertificatePath == "" {
 						return errors.New("when servicePrincipal is set, certificatePath must be specified on non-Windows platforms")
@@ -173,6 +173,9 @@ Subsequent commands will be performed against this server.`,
 					if runtime.GOOS == "windows" {
 						if options.CertificatePath == "" && options.CertificateThumbprint == "" {
 							return errors.New("--cert-file or --cert-thumbprint must be specified with --service-principal")
+						}
+						if options.CertificatePath != "" && options.CertificateThumbprint != "" {
+							return errors.New("--cert-file and --cert-thumbprint cannot both be specified")
 						}
 					} else if options.CertificatePath == "" {
 						return errors.New("--cert-file must be specified with --service-principal")
