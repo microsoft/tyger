@@ -210,10 +210,6 @@ func quickValidateComputeConfig(ctx context.Context, success *bool, cloudConfig 
 		} else if _, err := uuid.Parse(p.ObjectId); err != nil {
 			validationError(ctx, success, "The `objectId` field must be a GUID")
 		}
-
-		if p.Id != "" {
-			validationError(ctx, success, "The `id` field is no longer supported a management principal. Use `objectId` instead")
-		}
 	}
 }
 
@@ -476,6 +472,10 @@ func quickValidateApiConfig(ctx context.Context, success *bool, config *CloudEnv
 		validationError(ctx, success, "The `api.auth` field is required for organization '%s'", org.Name)
 	} else {
 		authConfig := apiConfig.Auth
+		if authConfig.RbacEnabled == nil {
+			validationError(ctx, success, "The `api.auth.rbacEnabled` field is required for organization '%s'", org.Name)
+		}
+
 		if authConfig.TenantID == "" {
 			validationError(ctx, success, "The `api.auth.tenantId` field is required for organization '%s'", org.Name)
 		}
@@ -494,6 +494,18 @@ func quickValidateApiConfig(ctx context.Context, success *bool, config *CloudEnv
 			if _, err := url.ParseRequestURI(authConfig.CliAppUri); err != nil {
 				validationError(ctx, success, "The `api.auth.cliAppUri` field must be a valid URL for organization '%s'", org.Name)
 			}
+		}
+
+		if authConfig.ApiAppId == "" {
+			validationError(ctx, success, "The `api.auth.apiAppId` field is required for organization '%s'. Run `tyger auth apply` to retrieve the value.", org.Name)
+		} else if _, err := uuid.Parse(authConfig.ApiAppId); err != nil {
+			validationError(ctx, success, "The `api.auth.apiAppId` field must be a GUID for organization '%s'", org.Name)
+		}
+
+		if authConfig.CliAppId == "" {
+			validationError(ctx, success, "The `api.auth.cliAppId` field is required for organization '%s'. Run `tyger auth apply` to retrieve the value.", org.Name)
+		} else if _, err := uuid.Parse(authConfig.CliAppId); err != nil {
+			validationError(ctx, success, "The `api.auth.cliAppId` field must be a GUID for organization '%s'", org.Name)
 		}
 	}
 

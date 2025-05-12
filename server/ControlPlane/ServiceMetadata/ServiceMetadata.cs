@@ -32,9 +32,13 @@ public static class ServiceMetadata
                     {
                         serviceMetadata = serviceMetadata with
                         {
+                            RbacEnabled = auth.Value.Rbac.Enabled,
                             Authority = auth.Value.Authority,
                             Audience = auth.Value.Audience,
-                            CliAppUri = auth.Value.CliAppUri
+                            ApiAppUri = auth.Value.ApiAppUri,
+                            ApiAppId = auth.Value.ApiAppId,
+                            CliAppUri = auth.Value.CliAppUri,
+                            CliAppId = auth.Value.CliAppId,
                         };
                     }
                 }
