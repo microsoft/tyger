@@ -483,12 +483,17 @@ timeoutSeconds: 600`, getTestConnectivityImage(t))
 	require.Equal("1234", execStdOut)
 }
 
-func TestEndToEndWithShortBufferAccessTtl(t *testing.T) {
+func TestEndToEndCreateWithShortBufferAccessTtl(t *testing.T) {
 	t.Parallel()
 	skipIfOnlyFastTests(t)
 	require := require.New(t)
 
-	const codespecName = "testcodespecwithbufferaccessttl"
+	scriptPath, err := filepath.Abs("slow_copy.py")
+	require.Nil(err)
+	scriptBytes, err := os.ReadFile(scriptPath)
+	require.Nil(err)
+
+	const codespecName = "testcreatewithbufferaccessttl"
 
 	runTygerSucceeds(t,
 		"codespec",
@@ -498,40 +503,64 @@ func TestEndToEndWithShortBufferAccessTtl(t *testing.T) {
 		"--command",
 		"--",
 		"/bin/bash", "-c",
-		`
+		fmt.Sprintf(`
 set -euo pipefail
-cat << EOF > pv.py
-
-import io
-import sys
-import time
-
-reader = io.BufferedReader(sys.stdin.buffer)
-writer = io.BufferedWriter(sys.stdout.buffer)
-
-buffer_size = 1024*1024
-
-print("Copying stdin to stdout with a rate limit of 1MB/s...", file=sys.stderr)
-count = 0
-while True:
-	start = time.time()
-	chunk = reader.read(buffer_size)
-	if not chunk:
-		break
-	writer.write(chunk)
-	count += len(chunk)
-	duration = time.time() - start
-	if duration < 1:
-		time.sleep(1 - duration)
-
-writer.flush()
-print(f"Finished! Wrote {count / buffer_size} MB", file=sys.stderr)
-
+cat << EOF > slow-copy.py
+%s
 EOF
+cat $(INPUT_PIPE) | python3 slow-copy.py > $(OUTPUT_PIPE)
+`, string(scriptBytes)),
+	)
 
-chmod +x pv.py
-cat $(INPUT_PIPE) | python3 pv.py > $(OUTPUT_PIPE)
-		`,
+	inputBufferId := runTygerSucceeds(t, "buffer", "create")
+	outputBufferId := runTygerSucceeds(t, "buffer", "create")
+
+	genCmd := exec.Command("tyger", "buffer", "gen", "220M")
+	genPipe, err := genCmd.StdoutPipe()
+	require.NoError(err)
+
+	writeCmd := exec.Command("tyger", "buffer", "write", inputBufferId)
+	writeCmd.Stdin = genPipe
+
+	require.NoError(genCmd.Start())
+	require.NoError(writeCmd.Run())
+	require.NoError(genCmd.Wait())
+
+	runId := runTygerSucceeds(t, "run", "create", "--codespec", codespecName, "--buffer-access-ttl", "0.00:01:00", "--buffer", "input="+inputBufferId, "--buffer", "output="+outputBufferId, "--timeout", "10m")
+
+	run := getRun(t, runId)
+	require.Equal(run.BufferAccessTtl, "00:01:00")
+
+	waitForRunSuccess(t, runId)
+}
+
+func TestEndToEndExecWithShortBufferAccessTtl(t *testing.T) {
+	t.Parallel()
+	skipIfOnlyFastTests(t)
+	require := require.New(t)
+
+	scriptPath, err := filepath.Abs("slow_copy.py")
+	require.Nil(err)
+	scriptBytes, err := os.ReadFile(scriptPath)
+	require.Nil(err)
+
+	const codespecName = "testexecwithbufferaccessttl"
+
+	runTygerSucceeds(t,
+		"codespec",
+		"create", codespecName,
+		"-i=input", "-o=output",
+		"--image", AzCliImage,
+		"--command",
+		"--",
+		"/bin/bash", "-c",
+		fmt.Sprintf(`
+set -euo pipefail
+cat << EOF > slow-copy.py
+%s
+EOF
+cat $(INPUT_PIPE) | python3 slow-copy.py > $(OUTPUT_PIPE)
+`, string(scriptBytes)),
 	)
 
 	testCases := []struct {
@@ -545,6 +574,7 @@ cat $(INPUT_PIPE) | python3 pv.py > $(OUTPUT_PIPE)
 	for _, tC := range testCases {
 		tC := tC
 		t.Run(tC.name, func(t *testing.T) {
+			t.Parallel()
 			if tC.ephemeral {
 				skipIfEphemeralBuffersNotSupported(t)
 			}
@@ -553,7 +583,7 @@ cat $(INPUT_PIPE) | python3 pv.py > $(OUTPUT_PIPE)
 			genPipe, err := genCmd.StdoutPipe()
 			require.NoError(err)
 
-			args := []string{"run", "exec", "--codespec", codespecName, "--buffer-access-ttl", "0.00:01:00", "--log-level", "debug"}
+			args := []string{"run", "exec", "--codespec", codespecName, "--buffer-access-ttl", "0.00:01:00", "--log-level", "trace", "--timeout", "10m"}
 			if tC.args != nil {
 				args = append(args, tC.args...)
 			}
