@@ -12,7 +12,7 @@ public interface IBufferProvider
 
     Task<IList<string>> DeleteBuffers(IList<string> ids, CancellationToken cancellationToken);
 
-    Task<IList<(string id, bool writeable, BufferAccess? bufferAccess)>> CreateBufferAccessUrls(IList<(string id, bool writeable)> requests, bool preferTcp, bool checkExists, CancellationToken cancellationToken);
+    Task<IList<(string id, bool writeable, BufferAccess? bufferAccess)>> CreateBufferAccessUrls(IList<(string id, bool writeable)> requests, bool preferTcp, bool checkExists, TimeSpan? accessTtl, CancellationToken cancellationToken);
     IList<StorageAccount> GetStorageAccounts();
 
     Task<Run> ExportBuffers(ExportBuffersRequest exportBufferRequest, CancellationToken cancellationToken);
@@ -23,5 +23,5 @@ public interface IBufferProvider
 
 public interface IEphemeralBufferProvider
 {
-    Task<Uri?> CreateBufferAccessUrl(string id, bool writeable, bool preferTcp, bool fromDocker, CancellationToken cancellationToken);
+    Task<Uri?> CreateBufferAccessUrl(string id, bool writeable, bool preferTcp, bool fromDocker, TimeSpan? accessTtl, CancellationToken cancellationToken);
 }

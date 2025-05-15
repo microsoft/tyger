@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -39,10 +38,9 @@ var (
 )
 
 type readOptions struct {
-	dop                int
-	httpClient         *retryablehttp.Client
-	connectionType     client.TygerConnectionType
-	accessUrlRefresher AccessUrlUpdateFunc
+	dop            int
+	httpClient     *retryablehttp.Client
+	connectionType client.TygerConnectionType
 }
 
 type ReadOption func(o *readOptions)
@@ -59,13 +57,7 @@ func WithReadHttpClient(httpClient *retryablehttp.Client) ReadOption {
 	}
 }
 
-func WithReadAccessUrlRefresher(accessUrlRefresher AccessUrlUpdateFunc) ReadOption {
-	return func(o *readOptions) {
-		o.accessUrlRefresher = accessUrlRefresher
-	}
-}
-
-func Read(ctx context.Context, url *url.URL, outputWriter io.Writer, options ...ReadOption) error {
+func Read(ctx context.Context, container *Container, outputWriter io.Writer, options ...ReadOption) error {
 	readOptions := &readOptions{
 		dop: DefaultReadDop,
 	}
@@ -73,14 +65,17 @@ func Read(ctx context.Context, url *url.URL, outputWriter io.Writer, options ...
 		o(readOptions)
 	}
 
-	container := NewContainer(ctx, url, readOptions.accessUrlRefresher)
+	ctx = log.Ctx(ctx).With().
+		Str("operation", "buffer read").
+		Str("buffer", container.GetContainerName()).
+		Logger().WithContext(ctx)
 
 	if readOptions.httpClient == nil {
 		tygerClient, _ := controlplane.GetClientFromCache()
 		if tygerClient != nil {
 			readOptions.connectionType = tygerClient.ConnectionType()
 			readOptions.httpClient = tygerClient.DataPlaneClient.Client
-			if tygerClient.ConnectionType() == client.TygerConnectionTypeSsh && url.Scheme == "http+unix" && !container.SupportsRelay() {
+			if tygerClient.ConnectionType() == client.TygerConnectionTypeSsh && container.Scheme() == "http+unix" && !container.SupportsRelay() {
 				httpClient, tunnelPool, err := createSshTunnelPoolClient(ctx, tygerClient, container, readOptions.dop)
 				if err != nil {
 					return err
@@ -99,12 +94,7 @@ func Read(ctx context.Context, url *url.URL, outputWriter io.Writer, options ...
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	ctx = log.Ctx(ctx).With().
-		Str("operation", "buffer read").
-		Str("buffer", container.GetContainerName()).
-		Logger().WithContext(ctx)
-
-	container.ctx = ctx
+	container.StartAutoRefresh(ctx)
 
 	if container.SupportsRelay() {
 		return readRelay(ctx, httpClient, readOptions.connectionType, container, outputWriter)
@@ -166,10 +156,7 @@ func Read(ctx context.Context, url *url.URL, outputWriter io.Writer, options ...
 				lock.Unlock()
 
 				ctx := log.Ctx(ctx).With().Int64("blobNumber", blobNumber).Logger().WithContext(ctx)
-				getBlobUrl := func() string {
-					return container.GetBlobUrl(blobNumber)
-				}
-				respData, err := DownloadBlob(ctx, httpClient, getBlobUrl, &waitForBlobs, &blobNumber, &finalBlobNumber)
+				respData, err := DownloadBlob(ctx, httpClient, container, MakeBlobPath(blobNumber), &waitForBlobs, &blobNumber, &finalBlobNumber)
 				if err != nil {
 					if err == errPastEndOfBlob {
 						break
@@ -180,21 +167,6 @@ func Read(ctx context.Context, url *url.URL, outputWriter io.Writer, options ...
 						c <- BufferBlob{BlobNumber: blobNumber, Error: fmt.Errorf("blob number %d was expected to exist but does not", blobNumber)}
 						break
 					}
-					// TODO JOE: Handle rare but possible SAS expiration errors
-					// if err == ErrInvalidSas {
-					// 	// We need a new Container URI
-					// 	lock.Lock()
-					// 	if container.URL == accessUrl {
-					// 		url, err := getBufferAccessUri(ctx, container.GetContainerName(), false)
-					// 		if err != nil {
-					// 			errorChannel <- fmt.Errorf("error refreshing access URL: %w", err)
-					// 			return
-					// 		}
-					// 		container.URL = url
-					// 	}
-					// 	lock.Unlock()
-					// 	goto retry
-					// }
 					errorChannel <- fmt.Errorf("error downloading blob: %w", err)
 					return
 				}
@@ -279,7 +251,7 @@ func readBufferStart(ctx context.Context, httpClient *retryablehttp.Client, cont
 	wait := atomic.Bool{}
 	wait.Store(true)
 
-	data, err := DownloadBlob(ctx, httpClient, container.GetStartMetadataUrl, &wait, nil, nil)
+	data, err := DownloadBlob(ctx, httpClient, container, StartMetadataBlobName, &wait, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -299,8 +271,7 @@ func pollForBufferEnd(ctx context.Context, httpClient *retryablehttp.Client, con
 	wait.Store(false)
 
 	for ctx.Err() == nil {
-		log.Ctx(ctx).Debug().Msg("JOE: Polling for buffer end")
-		data, err := DownloadBlob(ctx, httpClient, container.GetEndMetadataUrl, &wait, nil, nil)
+		data, err := DownloadBlob(ctx, httpClient, container, EndMetadataBlobName, &wait, nil, nil)
 		if err != nil {
 			if err == ErrNotFound {
 				time.Sleep(5 * time.Second)
@@ -327,12 +298,12 @@ func pollForBufferEnd(ctx context.Context, httpClient *retryablehttp.Client, con
 	return nil
 }
 
-// func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUrl string, waitForBlob *atomic.Bool, blobNumber *int64, finalBlobNumber *atomic.Int64) (*readData, error) {
-func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, getBlobUrl func() string, waitForBlob *atomic.Bool, blobNumber *int64, finalBlobNumber *atomic.Int64) (*readData, error) {
+func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, container *Container, blobPath string, waitForBlob *atomic.Bool, blobNumber *int64, finalBlobNumber *atomic.Int64) (*readData, error) {
 	// The last error that occurred relating to reading the body. retryablehttp does not retry when these happen
 	// because reading the body happens after the call to HttpClient.Do()
 	var lastBodyReadError *responseBodyReadError
 
+	retriesDueToInvalidSas := 0
 	for retryCount := 0; ; retryCount++ {
 		start := time.Now()
 
@@ -348,7 +319,7 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, getBlob
 			}
 		}
 
-		req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, getBlobUrl(), nil)
+		req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, container.JoinPath(blobPath), nil)
 		if err != nil {
 			return nil, err
 		}
@@ -417,6 +388,13 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, getBlob
 				// This will only become an error if this blob is before the final blob.
 			}
 			return nil, err
+		}
+		if err == ErrInvalidSas {
+			if retriesDueToInvalidSas < 5 {
+				retriesDueToInvalidSas++
+				log.Ctx(ctx).Debug().Msg("SAS token expired, retrying")
+				continue
+			}
 		}
 		if err == errServerBusy || err == errOperationTimeout {
 			// These errors indicate that we have hit the limit of what the Azure Storage service can handle.

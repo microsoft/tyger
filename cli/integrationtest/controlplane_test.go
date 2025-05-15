@@ -483,6 +483,112 @@ timeoutSeconds: 600`, getTestConnectivityImage(t))
 	require.Equal("1234", execStdOut)
 }
 
+func TestEndToEndWithShortBufferAccessTtl(t *testing.T) {
+	t.Parallel()
+	skipIfOnlyFastTests(t)
+	require := require.New(t)
+
+	const codespecName = "testcodespecwithbufferaccessttl"
+
+	runTygerSucceeds(t,
+		"codespec",
+		"create", codespecName,
+		"-i=input", "-o=output",
+		"--image", AzCliImage,
+		"--command",
+		"--",
+		"/bin/bash", "-c",
+		`
+set -euo pipefail
+cat << EOF > pv.py
+
+import io
+import sys
+import time
+
+reader = io.BufferedReader(sys.stdin.buffer)
+writer = io.BufferedWriter(sys.stdout.buffer)
+
+buffer_size = 1024*1024
+
+print("Copying stdin to stdout with a rate limit of 1MB/s...", file=sys.stderr)
+count = 0
+while True:
+	start = time.time()
+	chunk = reader.read(buffer_size)
+	if not chunk:
+		break
+	writer.write(chunk)
+	count += len(chunk)
+	duration = time.time() - start
+	if duration < 1:
+		time.sleep(1 - duration)
+
+writer.flush()
+print(f"Finished! Wrote {count / buffer_size} MB", file=sys.stderr)
+
+EOF
+
+chmod +x pv.py
+cat $(INPUT_PIPE) | python3 pv.py > $(OUTPUT_PIPE)
+		`,
+	)
+
+	testCases := []struct {
+		name      string
+		ephemeral bool
+		args      []string
+	}{
+		{"auto-created-buffers", false, nil},
+		{"ephemeral-buffers", true, []string{"--buffer", "input=_", "--buffer", "output=_"}},
+	}
+	for _, tC := range testCases {
+		tC := tC
+		t.Run(tC.name, func(t *testing.T) {
+			if tC.ephemeral {
+				skipIfEphemeralBuffersNotSupported(t)
+			}
+
+			genCmd := exec.Command("tyger", "buffer", "gen", "220M")
+			genPipe, err := genCmd.StdoutPipe()
+			require.NoError(err)
+
+			args := []string{"run", "exec", "--codespec", codespecName, "--buffer-access-ttl", "0.00:01:00", "--log-level", "debug"}
+			if tC.args != nil {
+				args = append(args, tC.args...)
+			}
+			execCmd := exec.Command("tyger", args...)
+			execCmd.Stdin = genPipe
+
+			stdErr := &bytes.Buffer{}
+			execCmd.Stderr = stdErr
+
+			execOutPipe, err := execCmd.StdoutPipe()
+			require.NoError(err)
+
+			genCmd.Start()
+			execCmd.Start()
+
+			outByteCount := 0
+			for {
+				buf := make([]byte, 64*1024)
+				n, err := execOutPipe.Read(buf)
+				outByteCount += n
+				if err == io.EOF {
+					break
+				}
+				require.NoError(err)
+			}
+
+			execErr := execCmd.Wait()
+			require.NoError(execErr)
+			require.NoError(genCmd.Wait())
+
+			require.Equal(220*1024*1024, outByteCount)
+		})
+	}
+}
+
 func TestInvalidImage(t *testing.T) {
 	t.Parallel()
 	skipIfUsingUnixSocket(t)
@@ -993,10 +1099,11 @@ func TestOpenApiSpecIsAsExpected(t *testing.T) {
 			curlCommand = fmt.Sprintf("curl %s ", swaggerUrl)
 		}
 
-		t.Errorf("Result not as expected. To update, run `%s > %s`\n\nDiff:%v",
+		t.Errorf("Result not as expected.\n\nDiff: %v\n\nTo update, run `%s > %s`",
+			diff.LineDiff(e, a),
 			curlCommand,
 			expectedFilePath,
-			diff.LineDiff(e, a))
+		)
 	}
 }
 

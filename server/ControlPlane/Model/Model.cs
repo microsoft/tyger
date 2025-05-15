@@ -562,6 +562,11 @@ public partial record Run : ModelBase
     /// </summary>
     public IReadOnlyDictionary<string, string>? Tags { get; init; }
 
+    /// <summary>
+    /// The time to live for the buffers created for the run. If not specified, the default will be used.
+    /// </summary>
+    public TimeSpan? BufferAccessTtl { get; init; }
+
     public string ComputeEtag(XxHash3 hash)
     {
         return _etag = ComputeEtagCore(hash);

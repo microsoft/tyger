@@ -10,6 +10,9 @@ public static class Compute
 {
     public static void AddCompute(this IHostApplicationBuilder builder)
     {
+        builder.Services.AddSingleton<RunBufferAccessRefresher>();
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<RunBufferAccessRefresher>());
+
         var kubernetesSection = builder.Configuration.GetSection("compute:kubernetes");
         var dockerSection = builder.Configuration.GetSection("compute:docker");
         switch (kubernetesSection.Exists(), dockerSection.Exists())

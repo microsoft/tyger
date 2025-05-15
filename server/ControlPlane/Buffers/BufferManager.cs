@@ -104,7 +104,7 @@ public sealed partial class BufferManager
         return await _repository.GetBufferCount(tags, excludeTags, softDeleted, cancellationToken);
     }
 
-    internal async Task<IList<(string id, bool writeable, BufferAccess? bufferAccess)>> CreateBufferAccessUrls(IList<(string id, bool writeable)> requests, bool preferTcp, bool fromDocker, bool checkExists, CancellationToken cancellationToken)
+    internal async Task<IList<(string id, bool writeable, BufferAccess? bufferAccess)>> CreateBufferAccessUrls(IList<(string id, bool writeable)> requests, bool preferTcp, bool fromDocker, bool checkExists, TimeSpan? accessTtl, CancellationToken cancellationToken)
     {
         IList<(string id, bool writeable)> nonEphemeralRequests = requests;
         List<(string id, bool writeable, BufferAccess? bufferAccess)>? responses = null;
@@ -136,7 +136,7 @@ public sealed partial class BufferManager
                 responses ??= [];
                 if (runIdGroup.Success)
                 {
-                    var url = await _ephemeralBufferProvider.CreateBufferAccessUrl(id, writeable, preferTcp, fromDocker, cancellationToken);
+                    var url = await _ephemeralBufferProvider.CreateBufferAccessUrl(id, writeable, preferTcp, fromDocker, accessTtl, cancellationToken);
                     responses.Add((fullId, writeable, url == null ? null : new BufferAccess(url)));
                 }
                 else
@@ -155,7 +155,7 @@ public sealed partial class BufferManager
 
         if (nonEphemeralRequests.Count > 0)
         {
-            var nonEphemeralResponses = await _bufferProvider.CreateBufferAccessUrls(nonEphemeralRequests, preferTcp, checkExists, cancellationToken);
+            var nonEphemeralResponses = await _bufferProvider.CreateBufferAccessUrls(nonEphemeralRequests, preferTcp, checkExists, accessTtl, cancellationToken);
             if (responses == null)
             {
                 return nonEphemeralResponses;

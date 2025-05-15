@@ -1025,6 +1025,11 @@ components:
             type: string
           description: The tags associated with the run.
           nullable: true
+        bufferAccessTtl:
+          type: string
+          description: 'The time to live for the buffers created for the run. If not specified, the default will be used.'
+          format: date-span
+          nullable: true
       additionalProperties: false
     RunCodeTarget:
       required:

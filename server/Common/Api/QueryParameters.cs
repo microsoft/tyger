@@ -25,11 +25,12 @@ public static class QueryParameters
     /// </summary>
     /// <param name="context">The HTTP context.</param>
     /// <param name="ttl">The parsed TTL value, or null if not provided.</param>
+    /// <param name="key">The key to look for in the query string. Default is "ttl".</param>
     /// <returns>true if TTL was parsed or not provided, false if the TTL is invalid</returns>
-    public static bool ParseAndValidateTtlQueryParameter(this HttpContext context, out TimeSpan? ttl)
+    public static bool ParseAndValidateTtlQueryParameter(this HttpContext context, out TimeSpan? ttl, string key = "ttl")
     {
         ttl = null;
-        if (context.Request.Query.TryGetValue("ttl", out var ttlValues))
+        if (context.Request.Query.TryGetValue(key, out var ttlValues))
         {
             if (!TimeSpan.TryParse(ttlValues, out var ttlParsed))
             {

@@ -11,12 +11,23 @@ namespace Tyger.Common.Buffers;
 public static class LocalSasHandler
 {
     private const string CurrentSasVersion = "0.1.0";
+    public static readonly TimeSpan DefaultAccessTtl = TimeSpan.FromHours(1);
     public const string SasTimeFormat = "yyyy-MM-ddTHH:mm:ssZ";
 
-    public static QueryString GetSasQueryString(string containerId, SasResourceType resource, SasAction action, SignDataFunc signData, string apiVersion)
+    public static QueryString GetSasQueryString(string containerId, SasResourceType resource, SasAction action, TimeSpan? accessTtl, SignDataFunc signData, string apiVersion)
     {
         var startTime = DateTimeOffset.UtcNow;
-        var endTime = startTime.AddHours(1);
+        var ttl = accessTtl ?? DefaultAccessTtl;
+        if (ttl < TimeSpan.FromSeconds(1))
+        {
+            throw new ArgumentOutOfRangeException(nameof(accessTtl), "Access TTL must be at least 1 second.");
+        }
+        else if (ttl > DefaultAccessTtl)
+        {
+            throw new ArgumentOutOfRangeException(nameof(accessTtl), $"Access TTL must be less than or equal to {DefaultAccessTtl}");
+        }
+
+        var endTime = startTime.Add(ttl);
 
         string permissions = (resource, action) switch
         {

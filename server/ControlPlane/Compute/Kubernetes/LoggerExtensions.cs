@@ -38,4 +38,9 @@ public static partial class LoggerExtensions
     [LoggerMessage(LogLevel.Error, "Error finalizing run {runId}.")]
     public static partial void ErrorFinalizingRun(this ILogger logger, long runId, Exception exception);
 
+    [LoggerMessage(LogLevel.Information, "Stopping buffer access URL refresh for run {runId}.")]
+    public static partial void StoppingBufferAccessRefresh(this ILogger logger, long runId);
+
+    [LoggerMessage(LogLevel.Information, "Refreshed buffer access URLs for run {runId}.")]
+    public static partial void RefreshedBufferAccessUrls(this ILogger logger, long runId);
 }
