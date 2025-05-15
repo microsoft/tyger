@@ -535,12 +535,11 @@ cat $(INPUT_PIPE) | python3 slow-copy.py > $(OUTPUT_PIPE)
 func TestEndToEndExecWithShortBufferAccessTtl(t *testing.T) {
 	t.Parallel()
 	skipIfOnlyFastTests(t)
-	require := require.New(t)
 
 	scriptPath, err := filepath.Abs("slow_copy.py")
-	require.Nil(err)
+	require.Nil(t, err)
 	scriptBytes, err := os.ReadFile(scriptPath)
-	require.Nil(err)
+	require.Nil(t, err)
 
 	const codespecName = "testexecwithbufferaccessttl"
 
@@ -576,6 +575,8 @@ cat $(INPUT_PIPE) | python3 slow-copy.py > $(OUTPUT_PIPE)
 			if tC.ephemeral {
 				skipIfEphemeralBuffersNotSupported(t)
 			}
+
+			require := require.New(t)
 
 			genCmd := exec.Command("tyger", "buffer", "gen", "220M")
 			genPipe, err := genCmd.StdoutPipe()
