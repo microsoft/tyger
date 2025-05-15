@@ -53,14 +53,12 @@ func init() {
 	log.Logger = log.Logger.Level(zerolog.ErrorLevel)
 
 	if c, _ := controlplane.GetClientFromCache(); c.ControlPlaneUrl.Scheme == "http+unix" {
-		if _, _, err := runCommand("docker", "inspect", BasicImage, GpuImage); err != nil {
-			if stdout, stderr, err := runCommand("docker", "pull", BasicImage); err != nil {
-				fmt.Fprintln(os.Stderr, stderr, stdout)
-				log.Fatal().Err(err).Send()
-			}
-			if stdout, stderr, err := runCommand("docker", "pull", GpuImage); err != nil {
-				fmt.Fprintln(os.Stderr, stderr, stdout)
-				log.Fatal().Err(err).Send()
+		for _, image := range []string{BasicImage, GpuImage, AzCliImage} {
+			if _, _, err := runCommand("docker", "inspect", image); err != nil {
+				if stdout, stderr, err := runCommand("docker", "pull", image); err != nil {
+					fmt.Fprintln(os.Stderr, stderr, stdout)
+					log.Fatal().Err(err).Send()
+				}
 			}
 		}
 	}
