@@ -18,9 +18,9 @@ public static class LocalSasHandler
     {
         var startTime = DateTimeOffset.UtcNow;
         var ttl = accessTtl ?? DefaultAccessTtl;
-        if (ttl < TimeSpan.FromSeconds(1))
+        if (ttl < TimeSpan.FromSeconds(30))
         {
-            throw new ArgumentOutOfRangeException(nameof(accessTtl), "Access TTL must be at least 1 second.");
+            throw new ArgumentOutOfRangeException(nameof(accessTtl), "Access TTL must be at least 30 seconds.");
         }
         else if (ttl > DefaultAccessTtl)
         {

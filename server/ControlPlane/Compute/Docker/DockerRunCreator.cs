@@ -301,8 +301,8 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                         },
                         new()
                         {
-                            Source = TranslateToHostPath(Path.Combine(absoluteSecretsBase, relativeAccessFilesPath, accessFileName)),
-                            Target = Path.Combine(absoluteContainerSecretsBase, relativeAccessFilesPath, accessFileName),
+                            Source = TranslateToHostPath(Path.Combine(absoluteSecretsBase, relativeAccessFilesPath)),
+                            Target = Path.Combine(absoluteContainerSecretsBase, relativeAccessFilesPath),
                             Type = "bind",
                             ReadOnly = true,
                         },
@@ -523,13 +523,19 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                 {
                     var accessFileName = bufferParameterName + ".access";
                     var accessFilePath = Path.Combine(absoluteSecretsBase, relativeAccessFilesPath, accessFileName);
+
                     if (!File.Exists(accessFilePath))
                     {
                         // Stop refreshing
                         return;
                     }
 
-                    File.WriteAllText(accessFilePath, accessUrl.ToString());
+                    // Write to temporary file first
+                    var tempFilePath = Path.Combine(absoluteSecretsBase, relativeAccessFilesPath, accessFileName + ".tmp");
+                    File.WriteAllText(tempFilePath, accessUrl.ToString());
+
+                    // Move the temporary file atomically to the target location
+                    File.Move(tempFilePath, accessFilePath, overwrite: true);
                 }
 
                 _logger.RefreshedBufferAccessUrls(run.Id!.Value);

@@ -127,9 +127,9 @@ public sealed class AzureBlobBufferProvider : IHostedService, IBufferProvider, I
     public async Task<IList<(string id, bool writeable, BufferAccess? bufferAccess)>> CreateBufferAccessUrls(IList<(string id, bool writeable)> requests, bool preferTcp, bool checkExists, TimeSpan? accessTtl, CancellationToken cancellationToken)
     {
         var ttl = accessTtl ?? DefaultAccessTtl;
-        if (ttl < TimeSpan.FromSeconds(1))
+        if (ttl < TimeSpan.FromSeconds(30))
         {
-            throw new ValidationException("Access TTL must be at least 1 second.");
+            throw new ValidationException("Access TTL must be at least 30 seconds.");
         }
         else if (ttl > DefaultAccessTtl)
         {

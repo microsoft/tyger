@@ -166,7 +166,6 @@ func (c *Container) autoUpdateWithClient(ctx context.Context, wg *sync.WaitGroup
 					log.Ctx(ctx).Error().Err(err).Msg("container auto-refresh error")
 					return
 				}
-
 				c.setAccessUrl(ctx, url)
 
 				timeUntilRefresh, err = getTimeUntilRefresh(c.accessUrl)
@@ -225,14 +224,12 @@ func (c *Container) autoUpdateFromFile(ctx context.Context, wg *sync.WaitGroup, 
 
 				if fileWasModified || fileMoved {
 					realSasFile = currentSasFile
-					watcher.Add(sasFile)
 
 					url, err := GetUrlFromAccessString(sasFilePath)
 					if err != nil {
 						log.Ctx(ctx).Error().Err(err).Msg("container auto-refresh error")
 						return
 					}
-
 					c.setAccessUrl(ctx, url)
 				}
 
@@ -249,7 +246,6 @@ func (c *Container) autoUpdateFromFile(ctx context.Context, wg *sync.WaitGroup, 
 	}()
 
 	watcher.Add(sasDir)
-	watcher.Add(sasFile)
 
 	wg.Done()
 	<-finished
@@ -266,16 +262,12 @@ func (c *Container) GetAccessUrl() *url.URL {
 func (c *Container) setAccessUrl(ctx context.Context, accessUrl *url.URL) {
 	if c.lock != nil {
 		c.lock.Lock()
+		defer c.lock.Unlock()
+
+		c.accessUrl = accessUrl
+		se, _ := getSasExpirationTime(accessUrl)
+		log.Ctx(ctx).Info().Msgf("Buffer access URL expires at %s", se.String())
 	}
-
-	c.accessUrl = accessUrl
-
-	if c.lock != nil {
-		c.lock.Unlock()
-	}
-
-	se, _ := getSasExpirationTime(accessUrl)
-	log.Ctx(ctx).Debug().Msgf("New access URL for %s expires at %s", c.GetContainerName(), se.String())
 }
 
 func (c *Container) JoinPath(pathElements ...string) string {
