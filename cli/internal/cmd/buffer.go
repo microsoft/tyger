@@ -276,9 +276,7 @@ func NewBufferReadCommand(openFileFunc func(ctx context.Context, name string, fl
 				outputFile = os.Stdout
 			}
 
-			readOptions := []dataplane.ReadOption{dataplane.WithReadDop(dop)}
-
-			if err := dataplane.Read(ctx, target, outputFile, readOptions...); err != nil {
+			if err := dataplane.Read(ctx, target, outputFile, dataplane.WithReadDop(dop)); err != nil {
 				if errors.Is(err, ctx.Err()) {
 					err = ctx.Err()
 				}

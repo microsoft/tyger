@@ -28,7 +28,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
     private readonly CodespecReader _codespecReader;
     private readonly Channel<(bool leaseHeld, int token)> _leaseStateChangeChannel = Channel.CreateUnbounded<(bool leaseHeld, int token)>();
 
-    private readonly RunBufferAccessRefresher _bufferSasRefresher;
+    private readonly RunBufferAccessRefresher _bufferAccessRefresher;
     private readonly BufferOptions _bufferOptions;
     private readonly KubernetesApiOptions _k8sOptions;
     private readonly ILogger<KubernetesRunCreator> _logger;
@@ -48,7 +48,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
     {
         _client = client;
         _codespecReader = codespecReader;
-        _bufferSasRefresher = bufferSasRefresher;
+        _bufferAccessRefresher = bufferSasRefresher;
         _bufferOptions = bufferOptions.Value;
         _k8sOptions = k8sOptions.Value;
         _logger = logger;
@@ -512,7 +512,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         await CreateObjectHandleAlreadyExists(() => _client.CoreV1.CreateNamespacedSecretAsync(buffersSecret, _k8sOptions.Namespace, cancellationToken: cancellationToken));
 
         // Start background task to refresh the buffer access URLs
-        async Task RefreshBufferSasUrls(CancellationToken ct)
+        async Task RefreshBufferAccessUrls(CancellationToken ct)
         {
             var secret = buffersSecret;
             var bufferAccessTtl = run.BufferAccessTtl ?? AzureBlobBufferProvider.DefaultAccessTtl;
@@ -565,7 +565,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
             }
         }
 
-        _bufferSasRefresher.Add(run.Id!.Value, RefreshBufferSasUrls);
+        _bufferAccessRefresher.Add(run.Id!.Value, RefreshBufferAccessUrls);
     }
 
     private static V1Container GetMainContainer(V1PodSpec podSpec) => podSpec.Containers.Single(c => c.Name == "main");

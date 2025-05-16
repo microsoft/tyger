@@ -229,8 +229,7 @@ func attachToRun(ctx context.Context, run model.Run, inputBufferParameter, outpu
 			defer mainWg.Done()
 			err := dataplane.Write(ctx, writeTarget, os.Stdin,
 				dataplane.WithWriteBlockSize(blockSize),
-				dataplane.WithWriteDop(writeDop),
-			)
+				dataplane.WithWriteDop(writeDop))
 			if err != nil {
 				if errors.Is(err, ctx.Err()) {
 					err = ctx.Err()
@@ -245,8 +244,7 @@ func attachToRun(ctx context.Context, run model.Run, inputBufferParameter, outpu
 		go func() {
 			defer mainWg.Done()
 			err := dataplane.Read(ctx, readTarget, os.Stdout,
-				dataplane.WithReadDop(readDop),
-			)
+				dataplane.WithReadDop(readDop))
 			if err != nil {
 				if errors.Is(err, ctx.Err()) {
 					err = ctx.Err()

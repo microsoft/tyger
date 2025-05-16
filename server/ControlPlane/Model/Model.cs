@@ -563,7 +563,7 @@ public partial record Run : ModelBase
     public IReadOnlyDictionary<string, string>? Tags { get; init; }
 
     /// <summary>
-    /// The time to live for the buffers created for the run. If not specified, the default will be used.
+    /// The time to live for each access URL used to read and write buffers during the run. If not specified, the default will be used.
     /// </summary>
     public TimeSpan? BufferAccessTtl { get; init; }
 

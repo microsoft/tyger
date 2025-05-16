@@ -30,7 +30,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
     private readonly DockerClient _client;
     private readonly CodespecReader _codespecReader;
     private readonly DockerEphemeralBufferProvider _ephemeralBufferProvider;
-    private readonly RunBufferAccessRefresher _bufferSasRefresher;
+    private readonly RunBufferAccessRefresher _bufferAccessRefresher;
     private readonly ILogger<DockerRunCreator> _logger;
 
     private readonly BufferOptions _bufferOptions;
@@ -54,7 +54,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         _client = client;
         _codespecReader = codespecReader;
         _ephemeralBufferProvider = ephemeralBufferProvider;
-        _bufferSasRefresher = bufferSasRefresher;
+        _bufferAccessRefresher = bufferSasRefresher;
         _logger = logger;
         _bufferOptions = bufferOptions.Value;
         _dockerOptions = dockerOptions.Value;
@@ -512,7 +512,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         await Repository.UpdateRunAsResourcesCreated(run.Id!.Value, run, cancellationToken: cancellationToken);
 
         // Start background task to refresh the buffer access URLs
-        async Task RefreshBufferSasUrls(CancellationToken ct)
+        async Task RefreshBufferAccessUrls(CancellationToken ct)
         {
             var bufferAccessTtl = run.BufferAccessTtl ?? LocalSasHandler.DefaultAccessTtl;
             while (!ct.IsCancellationRequested)
@@ -545,7 +545,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             }
         }
 
-        _bufferSasRefresher.Add(run.Id!.Value, RefreshBufferSasUrls);
+        _bufferAccessRefresher.Add(run.Id!.Value, RefreshBufferAccessUrls);
 
         _logger.CreatedRun(run.Id!.Value);
         return run with { Status = RunStatus.Running };
