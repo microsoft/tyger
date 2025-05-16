@@ -30,6 +30,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
     private readonly DockerClient _client;
     private readonly CodespecReader _codespecReader;
     private readonly DockerEphemeralBufferProvider _ephemeralBufferProvider;
+    private readonly RunBufferAccessRefresher _bufferAccessRefresher;
     private readonly ILogger<DockerRunCreator> _logger;
 
     private readonly BufferOptions _bufferOptions;
@@ -43,6 +44,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         CodespecReader codespecReader,
         BufferManager bufferManager,
         DockerEphemeralBufferProvider ephemeralBufferProvider,
+        RunBufferAccessRefresher bufferSasRefresher,
         IOptions<BufferOptions> bufferOptions,
         IOptions<DockerOptions> dockerOptions,
         IOptions<LocalBufferStorageOptions> localBufferStorageOptions,
@@ -52,6 +54,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         _client = client;
         _codespecReader = codespecReader;
         _ephemeralBufferProvider = ephemeralBufferProvider;
+        _bufferAccessRefresher = bufferSasRefresher;
         _logger = logger;
         _bufferOptions = bufferOptions.Value;
         _dockerOptions = dockerOptions.Value;
@@ -155,7 +158,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
         run = await Repository.CreateRun(run, idempotencyKey, cancellationToken);
 
-        var bufferMap = await GetBufferMap(jobCodespec.Buffers, run.Job.Buffers!, cancellationToken);
+        var bufferMap = await GetBufferMap(jobCodespec.Buffers, run.Job.Buffers!, run.BufferAccessTtl, cancellationToken);
         string mainContainerName = MainContainerName(run.Id!.Value);
 
         if (run.Job.Buffers != null)
@@ -169,7 +172,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                     run.Job.Buffers[bufferParameterName] = newBufferId;
                     (var write, _) = bufferMap[bufferParameterName];
                     var unqualifiedBufferId = BufferManager.GetUnqualifiedBufferId(newBufferId);
-                    var sasQueryString = _ephemeralBufferProvider.GetSasQueryString(unqualifiedBufferId, write);
+                    var sasQueryString = _ephemeralBufferProvider.GetSasQueryString(unqualifiedBufferId, write, run.BufferAccessTtl);
                     var accessUri = new Uri($"http+unix://{_dockerOptions.EphemeralBuffersPath}/{bufferIdWithoutPrefix}:{sasQueryString}");
                     bufferMap[bufferParameterName] = (write, accessUri);
                 }
@@ -298,8 +301,8 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                         },
                         new()
                         {
-                            Source = TranslateToHostPath(Path.Combine(absoluteSecretsBase, relativeAccessFilesPath, accessFileName)),
-                            Target = Path.Combine(absoluteContainerSecretsBase, relativeAccessFilesPath, accessFileName),
+                            Source = TranslateToHostPath(Path.Combine(absoluteSecretsBase, relativeAccessFilesPath)),
+                            Target = Path.Combine(absoluteContainerSecretsBase, relativeAccessFilesPath),
                             Type = "bind",
                             ReadOnly = true,
                         },
@@ -507,6 +510,42 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         }
 
         await Repository.UpdateRunAsResourcesCreated(run.Id!.Value, run, cancellationToken: cancellationToken);
+
+        // Start background task to refresh the buffer access URLs
+        async Task RefreshBufferAccessUrls(CancellationToken ct)
+        {
+            var bufferAccessTtl = run.BufferAccessTtl ?? LocalSasHandler.DefaultAccessTtl;
+            while (!ct.IsCancellationRequested)
+            {
+                var bufferMap = await GetBufferMap(jobCodespec.Buffers, run.Job.Buffers!, bufferAccessTtl, ct);
+
+                foreach (var (bufferParameterName, (write, accessUrl)) in bufferMap)
+                {
+                    var accessFileName = bufferParameterName + ".access";
+                    var accessFilePath = Path.Combine(absoluteSecretsBase, relativeAccessFilesPath, accessFileName);
+
+                    if (!File.Exists(accessFilePath))
+                    {
+                        // Stop refreshing
+                        return;
+                    }
+
+                    // Write to temporary file first
+                    var tempFilePath = Path.Combine(absoluteSecretsBase, relativeAccessFilesPath, accessFileName + ".tmp");
+                    File.WriteAllText(tempFilePath, accessUrl.ToString());
+
+                    // Move the temporary file atomically to the target location
+                    File.Move(tempFilePath, accessFilePath, overwrite: true);
+                }
+
+                _logger.RefreshedBufferAccessUrls(run.Id!.Value);
+
+                var timeUntilRefresh = new TimeSpan(bufferAccessTtl.Ticks * 3 / 4);
+                await Task.Delay(timeUntilRefresh, ct);
+            }
+        }
+
+        _bufferAccessRefresher.Add(run.Id!.Value, RefreshBufferAccessUrls);
 
         _logger.CreatedRun(run.Id!.Value);
         return run with { Status = RunStatus.Running };

@@ -22,6 +22,7 @@ namespace Tyger.ControlPlane.Buffers;
 
 public sealed class AzureBlobBufferProvider : IHostedService, IBufferProvider, IHealthCheck
 {
+    public static readonly TimeSpan DefaultAccessTtl = TimeSpan.FromHours(1);
     private readonly BufferOptions _bufferOptions;
     private readonly DatabaseOptions _databaseOptions;
     private readonly TokenCredential _credential;
@@ -123,8 +124,18 @@ public sealed class AzureBlobBufferProvider : IHostedService, IBufferProvider, I
         return [.. deletedIds];
     }
 
-    public async Task<IList<(string id, bool writeable, BufferAccess? bufferAccess)>> CreateBufferAccessUrls(IList<(string id, bool writeable)> requests, bool preferTcp, bool checkExists, CancellationToken cancellationToken)
+    public async Task<IList<(string id, bool writeable, BufferAccess? bufferAccess)>> CreateBufferAccessUrls(IList<(string id, bool writeable)> requests, bool preferTcp, bool checkExists, TimeSpan? accessTtl, CancellationToken cancellationToken)
     {
+        var ttl = accessTtl ?? DefaultAccessTtl;
+        if (ttl < TimeSpan.FromSeconds(30))
+        {
+            throw new ValidationException("Access TTL must be at least 30 seconds.");
+        }
+        else if (ttl > DefaultAccessTtl)
+        {
+            throw new ValidationException($"Access TTL must be less than or equal to {DefaultAccessTtl}.");
+        }
+
         var storageAccountIds = await _repository.GetBufferStorageAccountIds(requests.Select(r => r.id).ToArray(), cancellationToken);
         var results = new List<(string id, bool writeable, BufferAccess? bufferAccess)>(requests.Count);
         foreach (var (id, writeable) in requests)
@@ -153,7 +164,7 @@ public sealed class AzureBlobBufferProvider : IHostedService, IBufferProvider, I
                 BlobContainerName = containerClient.Name,
                 Resource = "c",
                 StartsOn = start,
-                ExpiresOn = start.AddHours(1),
+                ExpiresOn = start.Add(ttl),
                 Protocol = SasProtocol.Https
             };
             sasBuilder.SetPermissions(permissions);

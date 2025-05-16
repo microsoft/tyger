@@ -34,7 +34,7 @@ func createSshTunnelPoolClient(ctx context.Context, tygerClient *client.TygerCli
 
 	dpSshParams := *controlPlaneSshParams
 
-	dpSshParams.SocketPath = strings.Split(container.Path, ":")[0]
+	dpSshParams.SocketPath = strings.Split(container.GetAccessUrl().Path, ":")[0]
 
 	tunnelPool := NewSshTunnelPool(ctx, dpSshParams, count)
 

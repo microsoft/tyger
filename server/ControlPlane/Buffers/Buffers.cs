@@ -282,9 +282,14 @@ public static class Buffers
             .Produces<ErrorBody>(StatusCodes.Status404NotFound)
             .Produces<ErrorBody>(StatusCodes.Status412PreconditionFailed);
 
-        buffers.MapPost("/{id}/access", async (BufferManager manager, string id, bool? writeable, bool? preferTcp, bool? fromDocker, CancellationToken cancellationToken) =>
+        buffers.MapPost("/{id}/access", async (BufferManager manager, HttpContext context, string id, bool? writeable, bool? preferTcp, bool? fromDocker, CancellationToken cancellationToken) =>
             {
-                var bufferAccess = await manager.CreateBufferAccessUrls([(id, writeable == true)], preferTcp == true, fromDocker == true, checkExists: true, cancellationToken);
+                if (!context.ParseAndValidateTtlQueryParameter(out var ttl))
+                {
+                    return Responses.BadRequest("ttl must be a valid, non-negative TimeSpan");
+                }
+
+                var bufferAccess = await manager.CreateBufferAccessUrls([(id, writeable == true)], preferTcp == true, fromDocker == true, checkExists: true, ttl, cancellationToken);
                 if (bufferAccess is [(_, _, null)])
                 {
                     return Responses.NotFound();
