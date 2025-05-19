@@ -94,7 +94,7 @@ func Read(ctx context.Context, container *Container, outputWriter io.Writer, opt
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	container.StartAutoRefresh(ctx)
+	container.SetContext(ctx)
 
 	if container.SupportsRelay() {
 		return readRelay(ctx, httpClient, readOptions.connectionType, container, outputWriter)

@@ -74,18 +74,18 @@ func GetNewBufferAccessUrl(ctx context.Context, bufferId string, writable bool, 
 	return url.Parse(bufferAccess.Uri)
 }
 
-func getSasExpirationTime(accessUrl *url.URL) (time.Time, error) {
+func parseSasQueryTimestamp(accessUrl *url.URL, key string) (time.Time, error) {
 	queryString := accessUrl.Query()
 
-	se := queryString.Get("se")
-	if se == "" {
-		return time.Time{}, fmt.Errorf("SAS expiration not found in access URL %s", accessUrl)
+	value := queryString.Get(key)
+	if value == "" {
+		return time.Time{}, fmt.Errorf("SAS '%s' timestamp not found in access URL %s", key, accessUrl)
 	}
 
-	seParsed, err := time.Parse(time.RFC3339, se)
+	parsed, err := time.Parse(time.RFC3339, value)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("error parsing SAS expiration time %s: %w", se, err)
+		return time.Time{}, fmt.Errorf("error parsing SAS timestamp '%s': %w", value, err)
 	}
 
-	return seParsed, nil
+	return parsed, nil
 }

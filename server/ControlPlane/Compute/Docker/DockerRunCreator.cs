@@ -515,32 +515,39 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         async Task RefreshBufferAccessUrls(CancellationToken ct)
         {
             var bufferAccessTtl = run.BufferAccessTtl ?? LocalSasHandler.DefaultAccessTtl;
+            var accessFilesDirectory = Path.Combine(absoluteSecretsBase, relativeAccessFilesPath);
             while (!ct.IsCancellationRequested)
             {
+                if (!Directory.Exists(accessFilesDirectory))
+                {
+                    // The directory was deleted by DockerRunSweeper, stop refreshing
+                    return;
+                }
+
                 var bufferMap = await GetBufferMap(jobCodespec.Buffers, run.Job.Buffers!, bufferAccessTtl, ct);
 
                 foreach (var (bufferParameterName, (write, accessUrl)) in bufferMap)
                 {
                     var accessFileName = bufferParameterName + ".access";
-                    var accessFilePath = Path.Combine(absoluteSecretsBase, relativeAccessFilesPath, accessFileName);
+                    var accessFilePath = Path.Combine(accessFilesDirectory, accessFileName);
+                    var tempFilePath = Path.Combine(accessFilesDirectory, accessFileName + ".tmp");
 
-                    if (!File.Exists(accessFilePath))
+                    try
                     {
-                        // Stop refreshing
+                        // Write to temporary file first, then move it atomically to the target location
+                        File.WriteAllText(tempFilePath, accessUrl.ToString());
+                        File.Move(tempFilePath, accessFilePath, overwrite: true);
+                    }
+                    catch (DirectoryNotFoundException)
+                    {
+                        // The directory was deleted by DockerRunSweeper, stop refreshing
                         return;
                     }
-
-                    // Write to temporary file first
-                    var tempFilePath = Path.Combine(absoluteSecretsBase, relativeAccessFilesPath, accessFileName + ".tmp");
-                    File.WriteAllText(tempFilePath, accessUrl.ToString());
-
-                    // Move the temporary file atomically to the target location
-                    File.Move(tempFilePath, accessFilePath, overwrite: true);
                 }
 
                 _logger.RefreshedBufferAccessUrls(run.Id!.Value);
 
-                var timeUntilRefresh = new TimeSpan(bufferAccessTtl.Ticks * 3 / 4);
+                var timeUntilRefresh = new TimeSpan((long)(bufferAccessTtl.Ticks * 0.7));
                 await Task.Delay(timeUntilRefresh, ct);
             }
         }

@@ -121,7 +121,7 @@ func Write(ctx context.Context, container *Container, inputReader io.Reader, opt
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	container.StartAutoRefresh(ctx)
+	container.SetContext(ctx)
 
 	if container.SupportsRelay() {
 		return relayWrite(ctx, httpClient, writeOptions.connectionType, container, inputReader)

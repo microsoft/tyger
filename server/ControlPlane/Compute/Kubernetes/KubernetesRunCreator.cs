@@ -560,7 +560,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
 
                 _logger.RefreshedBufferAccessUrls(run.Id!.Value);
 
-                var timeUntilRefresh = new TimeSpan(bufferAccessTtl.Ticks * 3 / 4);
+                var timeUntilRefresh = new TimeSpan((long)(bufferAccessTtl.Ticks * 0.7));
                 await Task.Delay(timeUntilRefresh, ct);
             }
         }

@@ -513,7 +513,7 @@ cat $(INPUT_PIPE) | python3 slow-copy.py > $(OUTPUT_PIPE)
 	inputBufferId := runTygerSucceeds(t, "buffer", "create")
 	outputBufferId := runTygerSucceeds(t, "buffer", "create")
 
-	genCmd := exec.Command("tyger", "buffer", "gen", "220M")
+	genCmd := exec.Command("tyger", "buffer", "gen", "200M")
 	genPipe, err := genCmd.StdoutPipe()
 	require.NoError(err)
 
@@ -578,7 +578,7 @@ cat $(INPUT_PIPE) | python3 slow-copy.py > $(OUTPUT_PIPE)
 
 			require := require.New(t)
 
-			genCmd := exec.Command("tyger", "buffer", "gen", "220M")
+			genCmd := exec.Command("tyger", "buffer", "gen", "200M")
 			genPipe, err := genCmd.StdoutPipe()
 			require.NoError(err)
 
@@ -613,7 +613,7 @@ cat $(INPUT_PIPE) | python3 slow-copy.py > $(OUTPUT_PIPE)
 			require.NoError(execErr)
 			require.NoError(genCmd.Wait())
 
-			require.Equal(220*1024*1024, outByteCount)
+			require.Equal(200*1024*1024, outByteCount)
 		})
 	}
 }

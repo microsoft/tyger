@@ -11,12 +11,10 @@ import (
 	"net/http"
 	"net/url"
 	"path"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/fsnotify/fsnotify"
 	"github.com/rs/zerolog/log"
 )
 
@@ -65,9 +63,11 @@ type BufferEndMetadata struct {
 }
 
 type Container struct {
-	accessUrl  *url.URL
-	lock       *sync.Mutex
-	autoUpdate func(context.Context, *sync.WaitGroup)
+	lock        *sync.Mutex
+	accessUrl   *url.URL
+	refreshTime time.Time
+	ctx         context.Context
+	getNewUrl   func(context.Context) (*url.URL, error)
 }
 
 func NewContainer(accessUrl *url.URL) *Container {
@@ -75,27 +75,10 @@ func NewContainer(accessUrl *url.URL) *Container {
 }
 
 func NewContainerFromFile(ctx context.Context, filename string) (*Container, error) {
-	accessUrl, err := GetUrlFromAccessString(filename)
-	if err != nil {
-		return nil, err
-	}
-
-	c := &Container{
-		accessUrl: accessUrl,
-		lock:      &sync.Mutex{},
-	}
-	c.autoUpdate = func(ctx context.Context, wg *sync.WaitGroup) {
-		c.autoUpdateFromFile(ctx, wg, filename)
-	}
-
-	return c, nil
-}
-
-func NewContainerFromBufferId(ctx context.Context, accessString string, writeable bool, accessTtl string) (*Container, error) {
 	getNewUrl := func(ctx context.Context) (*url.URL, error) {
-		url, err := GetNewBufferAccessUrl(ctx, accessString, writeable, accessTtl)
+		url, err := GetUrlFromAccessString(filename)
 		if err != nil {
-			return nil, fmt.Errorf("unable to get read access to buffer: %w", err)
+			return nil, err
 		}
 		return url, nil
 	}
@@ -108,166 +91,101 @@ func NewContainerFromBufferId(ctx context.Context, accessString string, writeabl
 	c := &Container{
 		accessUrl: accessUrl,
 		lock:      &sync.Mutex{},
-	}
-	c.autoUpdate = func(ctx context.Context, wg *sync.WaitGroup) {
-		c.autoUpdateWithClient(ctx, wg, getNewUrl)
+		ctx:       ctx,
+		getNewUrl: getNewUrl,
 	}
 
 	return c, nil
 }
 
-func (c *Container) StartAutoRefresh(ctx context.Context) {
-	if c.autoUpdate != nil {
-		wg := &sync.WaitGroup{}
-		wg.Add(1)
-		go c.autoUpdate(ctx, wg)
-		wg.Wait()
-	}
-}
-
-func (c *Container) autoUpdateWithClient(ctx context.Context, wg *sync.WaitGroup, getNewUrl func(context.Context) (*url.URL, error)) {
-	if c.accessUrl == nil {
-		panic("accessUrl is nil")
-	}
-
-	getTimeUntilRefresh := func(u *url.URL) (time.Duration, error) {
-		expiresAt, err := getSasExpirationTime(u)
+func NewContainerFromBufferId(ctx context.Context, accessString string, writeable bool, accessTtl string) (*Container, error) {
+	getNewUrl := func(ctx context.Context) (*url.URL, error) {
+		url, err := GetNewBufferAccessUrl(ctx, accessString, writeable, accessTtl)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
-
-		timeUntilExpiration := time.Until(expiresAt)
-		var timeUntilRefresh time.Duration
-		if timeUntilExpiration > 0 {
-			timeUntilRefresh = time.Duration(timeUntilExpiration.Seconds()*0.75) * time.Second
-		}
-
-		return timeUntilRefresh, nil
+		return url, nil
 	}
 
-	timeUntilRefresh, err := getTimeUntilRefresh(c.accessUrl)
+	accessUrl, err := getNewUrl(ctx)
 	if err != nil {
-		log.Ctx(ctx).Error().Err(err).Msg("container auto-refresh error")
-		return
+		return nil, err
 	}
 
-	finished := make(chan bool)
-	go func() {
-		defer func() {
-			finished <- true
-		}()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(timeUntilRefresh):
-				url, err := getNewUrl(ctx)
-				if err != nil {
-					log.Ctx(ctx).Error().Err(err).Msg("container auto-refresh error")
-					return
-				}
-				c.setAccessUrl(ctx, url)
+	refreshTime, err := getSasRefreshTime(accessUrl)
+	if err != nil {
+		return nil, err
+	}
 
-				timeUntilRefresh, err = getTimeUntilRefresh(c.accessUrl)
-				if err != nil {
-					log.Ctx(ctx).Error().Err(err).Msg("container auto-refresh error")
-					return
-				}
-			}
-		}
-	}()
-	wg.Done()
-	<-finished
+	c := &Container{
+		lock:        &sync.Mutex{},
+		accessUrl:   accessUrl,
+		refreshTime: refreshTime,
+		ctx:         ctx,
+		getNewUrl:   getNewUrl,
+	}
+
+	return c, nil
 }
 
-func (c *Container) autoUpdateFromFile(ctx context.Context, wg *sync.WaitGroup, sasFilePath string) {
-	// Read the file to ensure we're not starting with an expired URL
-	url, err := GetUrlFromAccessString(sasFilePath)
-	if err != nil {
-		log.Ctx(ctx).Error().Err(err).Msg("container auto-refresh error")
-		return
-	}
-	c.setAccessUrl(ctx, url)
-
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		err = fmt.Errorf("failed to create file watcher: %w", err)
-		log.Ctx(ctx).Error().Err(err).Msg("container auto-refresh error")
-		return
-	}
-	defer watcher.Close()
-
-	sasFile := filepath.Clean(sasFilePath)
-	sasDir, _ := filepath.Split(sasFile)
-	realSasFile, _ := filepath.EvalSymlinks(sasFilePath)
-
-	finished := make(chan bool)
-	go func() {
-		defer func() {
-			finished <- true
-		}()
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-
-			case event, ok := <-watcher.Events:
-				if !ok {
-					log.Ctx(ctx).Debug().Msg("container auto-refresh file watcher closed")
-					return
-				}
-
-				currentSasFile, _ := filepath.EvalSymlinks(sasFilePath)
-				fileWasModified := filepath.Clean(event.Name) == sasFile && (event.Has(fsnotify.Write) || event.Has(fsnotify.Create))
-				fileMoved := currentSasFile != "" && currentSasFile != realSasFile
-
-				if fileWasModified || fileMoved {
-					realSasFile = currentSasFile
-
-					url, err := GetUrlFromAccessString(sasFilePath)
-					if err != nil {
-						log.Ctx(ctx).Error().Err(err).Msg("container auto-refresh error")
-						return
-					}
-					c.setAccessUrl(ctx, url)
-				}
-
-			case err, ok := <-watcher.Errors:
-				if !ok {
-					log.Ctx(ctx).Debug().Msg("container auto-refresh file watcher closed")
-					return
-				}
-				err = fmt.Errorf("file watcher error: %w", err)
-				log.Ctx(ctx).Error().Err(err).Msg("container auto-refresh error")
-				return
-			}
-		}
-	}()
-
-	watcher.Add(sasDir)
-
-	wg.Done()
-	<-finished
+func (c *Container) SetContext(ctx context.Context) {
+	c.ctx = ctx
 }
 
 func (c *Container) GetAccessUrl() *url.URL {
-	if c.lock != nil {
-		c.lock.Lock()
-		defer c.lock.Unlock()
+	if c.lock == nil {
+		return c.accessUrl
 	}
+
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	retryCount := 0
+	for retryCount = 0; retryCount < 5; retryCount++ {
+
+		if time.Until(c.refreshTime) > 0 {
+			return c.accessUrl
+		}
+
+		url, err := c.getNewUrl(c.ctx)
+		if err != nil {
+			log.Ctx(c.ctx).Error().Err(err).Msg("failed to get new access URL")
+		} else {
+			c.accessUrl = url
+			refreshTime, err := getSasRefreshTime(c.accessUrl)
+			if err != nil {
+				log.Ctx(c.ctx).Error().Err(err).Msg("failed to compute access URL refresh time")
+			} else {
+				c.refreshTime = refreshTime
+				if time.Until(c.refreshTime) > 0 {
+					return c.accessUrl
+				}
+			}
+		}
+
+		time.Sleep(time.Duration(retryCount+1) * time.Second)
+	}
+
+	log.Ctx(c.ctx).Error().Msgf("failed to get a valid access URL after %d retries", retryCount)
+
 	return c.accessUrl
 }
 
-func (c *Container) setAccessUrl(ctx context.Context, accessUrl *url.URL) {
-	if c.lock != nil {
-		c.lock.Lock()
-		defer c.lock.Unlock()
-
-		c.accessUrl = accessUrl
-		se, _ := getSasExpirationTime(accessUrl)
-		log.Ctx(ctx).Info().Msgf("Buffer access URL expires at %s", se.String())
+func getSasRefreshTime(u *url.URL) (time.Time, error) {
+	issuedAt, err := parseSasQueryTimestamp(u, "st")
+	if err != nil {
+		return time.Time{}, err
 	}
+	expiresAt, err := parseSasQueryTimestamp(u, "se")
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	lifetime := expiresAt.Sub(issuedAt)
+
+	threshold := time.Duration(0.85*lifetime.Seconds()) * time.Second
+
+	return issuedAt.Add(threshold), nil
 }
 
 func (c *Container) JoinPath(pathElements ...string) string {
