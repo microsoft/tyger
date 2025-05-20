@@ -31,7 +31,6 @@ type commonFlags struct {
 	configPath                       string
 	singleOrg                        *string
 	multiOrg                         *[]string
-	setOverrides                     map[string]string
 	skipLoginAndValidateSubscription bool
 	configPathOptional               bool
 }
@@ -57,7 +56,7 @@ func commonPrerun(ctx context.Context, flags *commonFlags) (context.Context, ins
 		},
 	}
 
-	config, err := parseConfigFromYamlFile(flags.configPath, flags.setOverrides, false)
+	config, err := parseConfigFromYamlFile(flags.configPath, false)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to parse config file")
 	}
@@ -119,8 +118,9 @@ func getInstallerFromConfig(config any) (install.Installer, error) {
 		return nil, fmt.Errorf("unexpected config type: %T", config)
 	}
 }
-func parseConfigFromYamlFile(filePath string, overrides map[string]string, toMap bool) (any, error) {
-	config, err := parseConfig(file.Provider(filePath), yaml.Parser(), overrides, toMap)
+
+func parseConfigFromYamlFile(filePath string, toMap bool) (any, error) {
+	config, err := parseConfig(filePath, file.Provider(filePath), yaml.Parser(), toMap)
 	if os.IsNotExist(err) {
 		return nil, fmt.Errorf("config file not found at '%s': %w", filePath, err)
 	}
@@ -128,19 +128,15 @@ func parseConfigFromYamlFile(filePath string, overrides map[string]string, toMap
 	return config, err
 }
 
-func parseConfigFromYamlBytes(yamlBytes []byte, overrides map[string]string, toMap bool) (any, error) {
-	return parseConfig(rawbytes.Provider(yamlBytes), yaml.Parser(), overrides, toMap)
+func parseConfigFromYamlBytes(path string, yamlBytes []byte, toMap bool) (any, error) {
+	return parseConfig(path, rawbytes.Provider(yamlBytes), yaml.Parser(), toMap)
 }
 
-func parseConfig(provider koanf.Provider, parser koanf.Parser, overrides map[string]string, toMap bool) (any, error) {
+func parseConfig(path string, provider koanf.Provider, parser koanf.Parser, toMap bool) (any, error) {
 	koanfConfig := koanf.New(".")
 
 	if err := koanfConfig.Load(provider, parser); err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
-	}
-
-	for k, v := range overrides {
-		koanfConfig.Set(k, v)
 	}
 
 	var config any
@@ -152,11 +148,14 @@ func parseConfig(provider koanf.Provider, parser koanf.Parser, overrides map[str
 		switch environmentKind {
 		case nil, cloudinstall.EnvironmentKindCloud:
 			config = &cloudinstall.CloudEnvironmentConfig{
-				Kind: cloudinstall.EnvironmentKindCloud,
+				Kind:     cloudinstall.EnvironmentKindCloud,
+				FilePath: path,
 			}
 		case dockerinstall.EnvironmentKindDocker:
 			config = &dockerinstall.DockerEnvironmentConfig{
-				Kind: dockerinstall.EnvironmentKindDocker}
+				Kind:     dockerinstall.EnvironmentKindDocker,
+				FilePath: path,
+			}
 		default:
 			log.Fatal().Msgf("The `kind` field must be one of `%s` or `%s`. Given value: `%s`", cloudinstall.EnvironmentKindCloud, dockerinstall.EnvironmentKindDocker, environmentKind)
 		}

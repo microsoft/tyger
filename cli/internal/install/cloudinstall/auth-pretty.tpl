@@ -1,10 +1,4 @@
-# `rbacEnabled`, `tenantId`, `apiAppUri`, and `cliAppUri` must be provided.
-# The command `tyger auth apply` will fill in values for `apiAppId` and `cLiAppId`.
-# All five fields must be copied to the cloud installation configuration file
-# under the section `organizations[].api.auth`.re
-
-rbacEnabled: {{ deref .RbacEnabled }} # Required. Indicates whether role-based access control is enabled.
-tenantId: {{ if .TenantID -}} {{ .TenantID }} {{- else }} # Required. The Entra ID tenant ID GUID. {{- end }}
+tenantId: {{ if .TenantID -}} {{ .TenantID }} {{- else }} # Required.{{- end }}
 apiAppUri: {{ if .ApiAppUri -}} {{ .ApiAppUri }} {{- else }}# Required.  {{- end }}
 cliAppUri: {{ if .CliAppUri -}} {{ .CliAppUri }} {{- else }}# Required.  {{- end }}
 apiAppId: {{ if .ApiAppId -}} {{ .ApiAppId }} {{- else }} # `tyger auth apply` will fill in this value {{- end }}

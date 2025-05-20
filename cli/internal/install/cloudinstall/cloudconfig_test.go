@@ -12,7 +12,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/yaml"
 )
 
@@ -35,19 +34,16 @@ func TestRenderConfig(t *testing.T) {
 		DatabaseServerName: "dbserver",
 	}
 
-	authSpec := TygerAuthSpec{
-		AuthConfig: AuthConfig{
-			RbacEnabled: ptr.To(true),
-			TenantID:    "tenant2",
-			ApiAppUri:   "api://tyger-server",
-			ApiAppId:    uuid.New().String(),
-			CliAppUri:   "api://tyger-cli",
-			CliAppId:    uuid.New().String(),
-		},
+	authConfig := AuthConfig{
+		TenantID:  "tenant2",
+		ApiAppUri: "api://tyger-server",
+		ApiAppId:  uuid.New().String(),
+		CliAppUri: "api://tyger-cli",
+		CliAppId:  uuid.New().String(),
 	}
 
 	var buf bytes.Buffer
-	require.NoError(t, RenderConfig(values, &authSpec, &buf))
+	require.NoError(t, RenderConfig(values, &authConfig, &buf))
 
 	config := &CloudEnvironmentConfig{}
 
@@ -70,5 +66,5 @@ func TestRenderConfig(t *testing.T) {
 	require.Equal(t, values.BufferStorageAccountName, config.Organizations[0].Cloud.Storage.Buffers[0].Name)
 	require.Equal(t, values.LogsStorageAccountName, config.Organizations[0].Cloud.Storage.Logs.Name)
 	require.Equal(t, values.DomainName, config.Organizations[0].Api.DomainName)
-	require.Equal(t, authSpec.AuthConfig, *config.Organizations[0].Api.Auth)
+	require.Equal(t, authConfig, *config.Organizations[0].Api.Auth)
 }
