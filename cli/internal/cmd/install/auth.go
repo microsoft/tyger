@@ -4,7 +4,6 @@
 package install
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"net/url"
@@ -18,15 +17,13 @@ import (
 	"github.com/microsoft/tyger/cli/internal/install/cloudinstall"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
-	"k8s.io/utils/ptr"
 )
 
 func NewAuthCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                   "auth",
-		Short:                 "Manage access control",
-		Long:                  "Manage access control",
+		Short:                 "Manage auth",
+		Long:                  "Manage auth",
 		DisableFlagsInUseLine: true,
 	}
 
@@ -39,19 +36,16 @@ func NewAuthCommand() *cobra.Command {
 func newAuthInitCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                   "init",
-		Short:                 "Initialize an access control specification file",
-		Long:                  "Initialize an access control specification file",
+		Short:                 "Initialize an auth specification file",
+		Long:                  "Initialize an auth specification file",
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			authSpec := &cloudinstall.TygerAuthSpec{
-				AuthConfig: cloudinstall.AuthConfig{
-					RbacEnabled: ptr.To(true),
-					ApiAppUri:   "api://tyger-server",
-					CliAppUri:   "api://tyger-cli",
-				},
+			authConfig := &cloudinstall.AuthConfig{
+				ApiAppUri: "api://tyger-server",
+				CliAppUri: "api://tyger-cli",
 			}
 
-			if err := cloudinstall.PrettyPrintAuthSpec(authSpec, os.Stdout); err != nil {
+			if err := cloudinstall.PrettyPrintAuthConfig(authConfig, os.Stdout); err != nil {
 				log.Fatal().Err(err).Send()
 			}
 		},
@@ -65,18 +59,17 @@ func newAuthShowCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:                   "show",
-		Short:                 "Show the access control specification",
-		Long:                  "Show the access control specification",
+		Short:                 "Show the auth specification",
+		Long:                  "Show the auth specification",
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
 			authConfig := getAuthConfigFromServerUrl(cmd.Context(), serverUrl)
 			cred := getCredForTenant(cmd.Context(), authConfig.TenantID)
-			authSpec, err := cloudinstall.GetAuthSpec(cmd.Context(), authConfig, cred)
-			if err != nil {
+			if err := cloudinstall.CompleteAuthConfig(cmd.Context(), authConfig, cred); err != nil {
 				log.Fatal().Err(err).Send()
 			}
 
-			if err := cloudinstall.PrettyPrintAuthSpec(authSpec, os.Stdout); err != nil {
+			if err := cloudinstall.PrettyPrintAuthConfig(authConfig, os.Stdout); err != nil {
 				log.Fatal().Err(err).Send()
 			}
 		},
@@ -88,43 +81,26 @@ func newAuthShowCommand() *cobra.Command {
 	return cmd
 }
 
-func parseAuthSpecFromFile(filePath string) (*cloudinstall.TygerAuthSpec, error) {
-	contents, err := os.ReadFile(filePath)
-	if err != nil {
-		log.Fatal().Err(err).Msgf("Unable to read file: %s", filePath)
-	}
-
-	buf := bytes.NewBuffer(contents)
-	spec := &cloudinstall.TygerAuthSpec{}
-	decoder := yaml.NewDecoder(buf)
-	decoder.KnownFields(true)
-	if err := decoder.Decode(spec); err != nil {
-		return nil, fmt.Errorf("unable to decode auth spec file: %s: %w", filePath, err)
-	}
-
-	return spec, nil
-}
-
 func newAuthApplyCommand() *cobra.Command {
 	filePath := ""
 	cmd := &cobra.Command{
 		Use:                   "apply -f auth.yml",
-		Short:                 "Apply the access control specification",
-		Long:                  "Apply the access control specification",
+		Short:                 "Apply the auth configuration",
+		Long:                  "Apply the auth configuration",
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			spec, err := parseAuthSpecFromFile(filePath)
+			spec, err := cloudinstall.ParseAuthConfigFromFile(filePath)
 			if err != nil {
-				log.Fatal().Err(err).Msgf("Unable to load access control specification file: %s", filePath)
+				log.Fatal().Err(err).Msgf("Unable to load auth specification file: %s", filePath)
 			}
 
 			if spec.TenantID == "" {
-				log.Fatal().Msg("Tenant ID is required in the access control specification file")
+				log.Fatal().Msg("Tenant ID is required in the auth specification file")
 			}
 			cred := getCredForTenant(cmd.Context(), spec.TenantID)
-			normalizedSpec, err := cloudinstall.ApplyAuthSpec(cmd.Context(), spec, cred)
+			normalizedSpec, err := cloudinstall.ApplyAuthConfig(cmd.Context(), spec, cred)
 			if err != nil {
-				log.Fatal().Err(err).Msg("Unable to apply access control specification")
+				log.Fatal().Err(err).Msg("Unable to apply auth specification")
 			}
 
 			f, err := os.OpenFile(filePath, os.O_WRONLY|os.O_TRUNC, 0644)
@@ -133,13 +109,13 @@ func newAuthApplyCommand() *cobra.Command {
 			}
 			defer f.Close()
 
-			if err := cloudinstall.PrettyPrintAuthSpec(normalizedSpec, f); err != nil {
-				log.Fatal().Err(err).Msg("Unable to pretty print access control specification")
+			if err := cloudinstall.PrettyPrintAuthConfig(normalizedSpec, f); err != nil {
+				log.Fatal().Err(err).Msg("Unable to pretty print auth specification")
 			}
 		},
 	}
 
-	cmd.Flags().StringVarP(&filePath, "file", "f", "", "The path to the access control specification file")
+	cmd.Flags().StringVarP(&filePath, "file", "f", "", "The path to the auth specification file")
 	cmd.MarkFlagRequired("file")
 
 	return cmd
@@ -167,12 +143,11 @@ func getAuthConfigFromServerUrl(ctx context.Context, serverUrl string) *cloudins
 	}
 
 	config := &cloudinstall.AuthConfig{
-		RbacEnabled: &serviceMetadata.RbacEnabled,
-		TenantID:    segments[0],
-		ApiAppUri:   serviceMetadata.ApiAppId,
-		ApiAppId:    serviceMetadata.ApiAppId,
-		CliAppUri:   serviceMetadata.CliAppUri,
-		CliAppId:    serviceMetadata.CliAppId,
+		TenantID:  segments[0],
+		ApiAppUri: serviceMetadata.ApiAppId,
+		ApiAppId:  serviceMetadata.ApiAppId,
+		CliAppUri: serviceMetadata.CliAppUri,
+		CliAppId:  serviceMetadata.CliAppId,
 	}
 
 	if config.ApiAppUri == "" {

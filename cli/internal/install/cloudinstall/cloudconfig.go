@@ -6,6 +6,7 @@ package cloudinstall
 import (
 	"context"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"io"
 	"reflect"
@@ -28,6 +29,7 @@ const (
 
 type CloudEnvironmentConfig struct {
 	Kind            string       `json:"kind"`
+	FilePath        string       `json:"-"`
 	EnvironmentName string       `json:"environmentName"`
 	Cloud           *CloudConfig `json:"cloud"`
 
@@ -113,10 +115,36 @@ const (
 )
 
 type Principal struct {
-	Kind              PrincipalKind `json:"kind" yaml:"kind"`
-	ObjectId          string        `json:"objectId,omitempty" yaml:"objectId,omitempty"`
-	UserPrincipalName string        `json:"userPrincipalName,omitempty" yaml:"userPrincipalName,omitempty"`
-	DisplayName       string        `json:"displayName,omitempty" yaml:"displayName,omitempty"`
+	Kind              PrincipalKind `json:"kind"`
+	ObjectId          string        `json:"objectId,omitempty"`
+	UserPrincipalName string        `json:"userPrincipalName,omitempty"`
+	DisplayName       string        `json:"displayName,omitempty"`
+}
+type TygerRbacRoleAssignment struct {
+	Principal
+	Details *aadAppRoleAssignment
+}
+
+func (a *TygerRbacRoleAssignment) UnmarshalJSON(data []byte) error {
+	return json.Unmarshal(data, &a.Principal)
+}
+
+func (a *TygerRbacRoleAssignment) String() string {
+	switch a.Principal.Kind {
+	case PrincipalKindUser:
+		return fmt.Sprintf("user '%s'", a.Principal.UserPrincipalName)
+	case PrincipalKindGroup:
+		return fmt.Sprintf("group '%s'", a.Principal.DisplayName)
+	case PrincipalKindServicePrincipal:
+		return fmt.Sprintf("service principal '%s'", a.Principal.DisplayName)
+	default:
+		panic(fmt.Sprintf("unknown principal kind '%s'", a.Principal.Kind))
+	}
+}
+
+type TygerRbacRoleAssignments struct {
+	Owner       []TygerRbacRoleAssignment `json:"owner" yaml:"owner"`
+	Contributor []TygerRbacRoleAssignment `json:"contributor" yaml:"contributor"`
 }
 
 func (c *ComputeConfig) GetApiHostCluster() *ClusterConfig {
@@ -218,18 +246,20 @@ const (
 type OrganizationApiConfig struct {
 	DomainName             string                  `json:"domainName"`
 	TlsCertificateProvider TlsCertificateProvider  `json:"tlsCertificateProvider"`
+	AuthConfigPath         string                  `json:"authConfigPath"`
 	Auth                   *AuthConfig             `json:"auth"`
 	Buffers                *BuffersConfig          `json:"buffers"`
 	Helm                   *OrganizationHelmConfig `json:"helm"`
 }
 
 type AuthConfig struct {
-	RbacEnabled *bool  `json:"rbacEnabled" yaml:"rbacEnabled"`
-	TenantID    string `json:"tenantId" yaml:"tenantId"`
-	ApiAppUri   string `json:"apiAppUri" yaml:"apiAppUri"`
-	ApiAppId    string `json:"apiAppId" yaml:"apiAppId"`
-	CliAppUri   string `json:"cliAppUri" yaml:"cliAppUri"`
-	CliAppId    string `json:"cliAppId" yaml:"cliAppId"`
+	TenantID                   string                    `json:"tenantId"`
+	ApiAppUri                  string                    `json:"apiAppUri"`
+	ApiAppId                   string                    `json:"apiAppId"`
+	CliAppUri                  string                    `json:"cliAppUri"`
+	CliAppId                   string                    `json:"cliAppId"`
+	ServiceManagementReference string                    `json:"serviceManagementReference"`
+	RoleAssignments            *TygerRbacRoleAssignments `json:"roleAssignments"`
 }
 
 type OrganizationHelmConfig struct {
@@ -274,7 +304,7 @@ type ConfigTemplateValues struct {
 	GpuNodePoolMinCount      int32
 }
 
-func RenderConfig(templateValues ConfigTemplateValues, authSpec *TygerAuthSpec, writer io.Writer) error {
+func RenderConfig(templateValues ConfigTemplateValues, authConfig *AuthConfig, writer io.Writer) error {
 	config := CloudEnvironmentConfig{
 		Kind:            EnvironmentKindCloud,
 		EnvironmentName: templateValues.EnvironmentName,
@@ -335,7 +365,7 @@ func RenderConfig(templateValues ConfigTemplateValues, authSpec *TygerAuthSpec, 
 				Api: &OrganizationApiConfig{
 					DomainName:             templateValues.DomainName,
 					TlsCertificateProvider: TlsCertificateProviderLetsEncrypt,
-					Auth:                   &authSpec.AuthConfig,
+					Auth:                   authConfig,
 				},
 			},
 		},
@@ -356,7 +386,6 @@ func funcMap() template.FuncMap {
 	f["renderHelm"] = renderHelm
 	f["renderSharedHelm"] = renderSharedHelm
 	f["renderOrgHelm"] = renderOrgHelm
-	f["deref"] = deref
 	return f
 }
 
@@ -383,22 +412,6 @@ func optionalField(name string, value any, comment string) string {
 	}
 
 	return fmt.Sprintf("%s: %v", name, value)
-}
-
-func deref(v any) string {
-	if v == nil {
-		return ""
-	}
-
-	if ptrValue := reflect.ValueOf(v); ptrValue.Kind() == reflect.Ptr {
-		if ptrValue.IsNil() {
-			return ""
-		}
-
-		return fmt.Sprintf("%v", ptrValue.Elem().Interface())
-	}
-
-	return fmt.Sprintf("%v", v)
 }
 
 func toYAML(v any) string {

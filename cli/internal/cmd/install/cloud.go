@@ -112,8 +112,6 @@ func addCommonFlags(cmd *cobra.Command, flags *commonFlags) {
 	} else {
 		panic("either singleOrg or multiOrg must be set")
 	}
-
-	cmd.Flags().StringToStringVar(&flags.setOverrides, "set", nil, "override config values (e.g. --set cloud.subscriptionID=1234 --set cloud.resourceGroup=mygroup)")
 }
 
 func CheckCloudInstaller(installer install.Installer) *cloudinstall.Installer {

@@ -593,7 +593,7 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, org *Organizat
 			},
 			"security": map[string]any{
 				"enabled":     true,
-				"rbacEnabled": *org.Api.Auth.RbacEnabled,
+				"rbacEnabled": true,
 				"authority":   cloud.AzurePublic.ActiveDirectoryAuthorityHost + org.Api.Auth.TenantID,
 				"audience":    org.Api.Auth.ApiAppUri,
 				"apiAppId":    org.Api.Auth.ApiAppId,

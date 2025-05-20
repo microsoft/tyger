@@ -86,13 +86,7 @@ organizations:
     api:
       domainName: lamna-${TYGER_ENVIRONMENT_NAME}.eminence.ms
       tlsCertificateProvider: KeyVault
-      auth:
-        rbacEnabled: true
-        tenantId: 72f988bf-86f1-41af-91ab-2d7cd011db47
-        apiAppUri: api://tyger-server
-        cliAppUri: api://tyger-cli
-        apiAppId: fc9d1bea-71ff-4cdb-8a07-69fa7df25f95
-        cliAppId: 9985c0a8-7477-4ec8-a784-e24c90d98887
+      authConfigPath: ${TYGER_ENVIRONMENT_CONFIG_DIR}/authspec-lamna.yml
       buffers:
         activeLifetime: 0.00:00
         softDeletedLifetime: 1.00:00

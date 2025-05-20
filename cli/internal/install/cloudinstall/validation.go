@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -468,45 +469,27 @@ func quickValidateApiConfig(ctx context.Context, success *bool, config *CloudEnv
 		validationError(ctx, success, "The `api.tlsCertificateProvider` field must be one of %s for organization '%s'", []TlsCertificateProvider{TlsCertificateProviderKeyVault, TlsCertificateProviderLetsEncrypt}, org.Name)
 	}
 
-	if apiConfig.Auth == nil {
-		validationError(ctx, success, "The `api.auth` field is required for organization '%s'", org.Name)
-	} else {
-		authConfig := apiConfig.Auth
-		if authConfig.RbacEnabled == nil {
-			validationError(ctx, success, "The `api.auth.rbacEnabled` field is required for organization '%s'", org.Name)
-		}
-
-		if authConfig.TenantID == "" {
-			validationError(ctx, success, "The `api.auth.tenantId` field is required for organization '%s'", org.Name)
-		}
-
-		if authConfig.ApiAppUri == "" {
-			validationError(ctx, success, "The `api.auth.apiAppUri` field is required for organization '%s'", org.Name)
-		} else {
-			if _, err := url.ParseRequestURI(authConfig.ApiAppUri); err != nil {
-				validationError(ctx, success, "The `api.auth.apiAppUri` field must be a valid URL for organization '%s'", org.Name)
+	if apiConfig.AuthConfigPath == "" && apiConfig.Auth == nil {
+		validationError(ctx, success, "Either the `api.authConfigPath` or `api.auth` field is required for organization '%s'", org.Name)
+	} else if apiConfig.AuthConfigPath != "" && apiConfig.Auth != nil {
+		validationError(ctx, success, "Only one of `api.authConfigPath` or `api.auth` field can be specified for organization '%s'", org.Name)
+	} else if apiConfig.AuthConfigPath != "" {
+		var err error
+		if !filepath.IsAbs(apiConfig.AuthConfigPath) {
+			if absDir, err := filepath.Abs(filepath.Dir(config.FilePath)); err == nil {
+				apiConfig.AuthConfigPath = filepath.Join(absDir, apiConfig.AuthConfigPath)
+			} else {
+				validationError(ctx, success, "Unable to get absolute path for auth specification file '%s' for organization '%s': %v", apiConfig.AuthConfigPath, org.Name, err)
 			}
 		}
-
-		if authConfig.CliAppUri == "" {
-			validationError(ctx, success, "The `api.auth.cliAppUri` field is required for organization '%s'", org.Name)
-		} else {
-			if _, err := url.ParseRequestURI(authConfig.CliAppUri); err != nil {
-				validationError(ctx, success, "The `api.auth.cliAppUri` field must be a valid URL for organization '%s'", org.Name)
-			}
+		apiConfig.Auth, err = ParseAuthConfigFromFile(apiConfig.AuthConfigPath)
+		if err != nil {
+			validationError(ctx, success, "Unable to load auth specification file '%s' for organization '%s': %v", apiConfig.AuthConfigPath, org.Name, err)
 		}
+	}
 
-		if authConfig.ApiAppId == "" {
-			validationError(ctx, success, "The `api.auth.apiAppId` field is required for organization '%s'. Run `tyger auth apply` to retrieve the value.", org.Name)
-		} else if _, err := uuid.Parse(authConfig.ApiAppId); err != nil {
-			validationError(ctx, success, "The `api.auth.apiAppId` field must be a GUID for organization '%s'", org.Name)
-		}
-
-		if authConfig.CliAppId == "" {
-			validationError(ctx, success, "The `api.auth.cliAppId` field is required for organization '%s'. Run `tyger auth apply` to retrieve the value.", org.Name)
-		} else if _, err := uuid.Parse(authConfig.CliAppId); err != nil {
-			validationError(ctx, success, "The `api.auth.cliAppId` field must be a GUID for organization '%s'", org.Name)
-		}
+	if apiConfig.Auth != nil {
+		quickValidateAuthConfig(ctx, success, apiConfig.Auth, org)
 	}
 
 	if apiConfig.Buffers == nil {
@@ -531,6 +514,45 @@ func quickValidateApiConfig(ctx context.Context, success *bool, config *CloudEnv
 
 	if apiConfig.Helm == nil {
 		apiConfig.Helm = &OrganizationHelmConfig{}
+	}
+}
+
+func quickValidateAuthConfig(ctx context.Context, success *bool, authConfig *AuthConfig, org *OrganizationConfig) {
+	filePathMessage := ""
+	if org.Api.AuthConfigPath != "" {
+		filePathMessage = fmt.Sprintf(" in file %s", org.Api.AuthConfigPath)
+	}
+
+	if authConfig.TenantID == "" {
+		validationError(ctx, success, "The `api.auth.tenantId` field is required for organization '%s'%s", org.Name, filePathMessage)
+	}
+
+	if authConfig.ApiAppUri == "" {
+		validationError(ctx, success, "The `api.auth.apiAppUri` field is required for organization '%s'%s", org.Name, filePathMessage)
+	} else {
+		if _, err := url.ParseRequestURI(authConfig.ApiAppUri); err != nil {
+			validationError(ctx, success, "The `api.auth.apiAppUri` field must be a valid URL for organization '%s'%s", org.Name, filePathMessage)
+		}
+	}
+
+	if authConfig.CliAppUri == "" {
+		validationError(ctx, success, "The `api.auth.cliAppUri` field is required for organization '%s'%s", org.Name, filePathMessage)
+	} else {
+		if _, err := url.ParseRequestURI(authConfig.CliAppUri); err != nil {
+			validationError(ctx, success, "The `api.auth.cliAppUri` field must be a valid URL for organization '%s'%s", org.Name, filePathMessage)
+		}
+	}
+
+	if authConfig.ApiAppId == "" {
+		validationError(ctx, success, "The `api.auth.apiAppId` field is required for organization '%s'%s. Run `tyger auth apply`.", org.Name, filePathMessage)
+	} else if _, err := uuid.Parse(authConfig.ApiAppId); err != nil {
+		validationError(ctx, success, "The `api.auth.apiAppId` field must be a GUID for organization '%s'", org.Name)
+	}
+
+	if authConfig.CliAppId == "" {
+		validationError(ctx, success, "The `api.auth.cliAppId` field is required for organization '%s'%s. Run `tyger auth apply`.", org.Name, filePathMessage)
+	} else if _, err := uuid.Parse(authConfig.CliAppId); err != nil {
+		validationError(ctx, success, "The `api.auth.cliAppId` field must be a GUID for organization '%s'%s", org.Name, filePathMessage)
 	}
 }
 
