@@ -23,6 +23,6 @@ public static partial class LoggerExtensions
     [LoggerMessage(LogLevel.Warning, "Error reponse {status} reading replica database version")]
     public static partial void ErrorResponseReadingReplicaDatabaseVersion(this ILogger logger, int status);
 
-    [LoggerMessage(LogLevel.Information, "Refreshed buffer access URLs for run {runId}")]
-    public static partial void RefreshedBufferAccessUrls(this ILogger logger, long runId);
+    [LoggerMessage(LogLevel.Information, "Updated secret for run {runId}")]
+    public static partial void UpdatedRunSecret(this ILogger logger, long runId);
 }

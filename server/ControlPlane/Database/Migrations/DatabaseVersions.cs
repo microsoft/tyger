@@ -41,8 +41,12 @@ public enum DatabaseVersion
 
     [Migrator(typeof(Migrator7))]
     [Description("Add soft/hard delete to buffers")]
-    [MinimumSupportedVersion]
-    BufferDelete = 7
+    BufferDelete = 7,
+
+    // [Migrator(typeof(Migrator8))]
+    // [Description("Support long-running compute jobs")]
+    // [MinimumSupportedVersion]
+    // RefreshBufferSecrets = 8
 }
 
 public sealed class DatabaseVersions : BackgroundService, IHealthCheck

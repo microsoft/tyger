@@ -44,15 +44,9 @@ public static partial class LoggerExtensions
     [LoggerMessage(LogLevel.Warning, "RunStateObserver channel {partition} has high count of {count}")]
     public static partial void RunStateObserverHighQueueLength(this ILogger logger, int partition, int count);
 
-    [LoggerMessage(LogLevel.Information, "Starting buffer access refresh task for run {runId}")]
-    public static partial void StartingBufferAccessRefreshTask(this ILogger logger, long runId);
-
-    [LoggerMessage(LogLevel.Information, "Finished buffer access refresh task for run {runId}")]
-    public static partial void FinishedBufferAccessRefreshTask(this ILogger logger, long runId);
-
     [LoggerMessage(LogLevel.Error, "Error in buffer access refresh task for run {runId}")]
-    public static partial void ErrorInBufferAccessRefreshTask(this ILogger logger, Exception e, long runId);
+    public static partial void ErrorInRunSecretUpdate(this ILogger logger, Exception e, long runId);
 
     [LoggerMessage(LogLevel.Error, "Error servicing background buffer access refresh tasks")]
-    public static partial void ErrorInBufferAccessRefresher(this ILogger logger, Exception e);
+    public static partial void ErrorInRunSecretUpdater(this ILogger logger, Exception e);
 }

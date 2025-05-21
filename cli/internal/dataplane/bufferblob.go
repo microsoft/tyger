@@ -98,9 +98,9 @@ func NewContainerFromFile(ctx context.Context, filename string) (*Container, err
 	return c, nil
 }
 
-func NewContainerFromBufferId(ctx context.Context, accessString string, writeable bool, accessTtl string) (*Container, error) {
+func NewContainerFromBufferId(ctx context.Context, bufferId string, writeable bool, accessTtl string) (*Container, error) {
 	getNewUrl := func(ctx context.Context) (*url.URL, error) {
-		url, err := GetNewBufferAccessUrl(ctx, accessString, writeable, accessTtl)
+		url, err := GetNewBufferAccessUrl(ctx, bufferId, writeable, accessTtl)
 		if err != nil {
 			return nil, err
 		}

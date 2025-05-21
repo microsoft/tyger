@@ -1210,6 +1210,82 @@ public class Repository
         }, cancellationToken);
     }
 
+    public async Task InsertRunBufferSecretUpdate(long id, DateTimeOffset updatedAt, DateTimeOffset expiresAt, CancellationToken cancellationToken)
+    {
+        await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
+        {
+            await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+            await using var command = new NpgsqlCommand("""
+                INSERT INTO run_buffer_secret_updates (run_id, updated_at, expires_at)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (run_id) DO UPDATE
+                SET updated_at = $2, expires_at = $3
+                """, conn)
+            {
+                Parameters =
+                {
+                    new() { Value = id, NpgsqlDbType = NpgsqlDbType.Bigint },
+                    new() { Value = updatedAt, NpgsqlDbType = NpgsqlDbType.TimestampTz },
+                    new() { Value = expiresAt, NpgsqlDbType = NpgsqlDbType.TimestampTz },
+                }
+            };
+
+            await command.PrepareAsync(cancellationToken);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }, cancellationToken);
+    }
+
+    public async Task<IList<(long id, Run? run, bool final, DateTimeOffset updatedAt, DateTimeOffset expiresAt)>> GetRunBufferSecretUpdates(CancellationToken cancellationToken)
+    {
+        return await _resiliencePipeline.ExecuteAsync<IList<(long id, Run? run, bool final, DateTimeOffset updatedAt, DateTimeOffset expiresAt)>>(async cancellationToken =>
+        {
+            await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+            await using var command = new NpgsqlCommand("""
+                SELECT secret.run_id, runs.run, runs.final, secret.updated_at, secret.expires_at
+                FROM run_buffer_secret_updates secret
+                LEFT JOIN runs
+                ON secret.run_id = runs.id
+                """, conn);
+
+            await command.PrepareAsync(cancellationToken);
+            await using var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+
+            List<(long id, Run? run, bool final, DateTimeOffset updatedAt, DateTimeOffset expiresAt)> results = [];
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                long id = reader.GetInt64(0);
+                var run = reader.GetFieldValue<Run>(1);
+                var final = reader.GetBoolean(2);
+                var updatedAt = reader.GetDateTime(3);
+                var expiresAt = reader.GetDateTime(4);
+                results.Add((id, run, final, updatedAt, expiresAt));
+            }
+
+            return results;
+        }, cancellationToken);
+    }
+
+    public async Task<int> DeleteRunBufferSecretUpdates(IList<long> ids, CancellationToken cancellationToken)
+    {
+        return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
+        {
+            await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+            await using var command = new NpgsqlCommand("""
+                DELETE FROM run_buffer_secret_updates
+                WHERE run_id = ANY($1)
+                """, conn)
+            {
+                Parameters =
+                {
+                    new() { Value = ids.ToArray(), NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Bigint },
+                }
+            };
+
+            await command.PrepareAsync(cancellationToken);
+            return await command.ExecuteNonQueryAsync(cancellationToken);
+        }, cancellationToken);
+    }
+
     public async Task<bool> CheckBuffersExist(ICollection<string> bufferIds, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>

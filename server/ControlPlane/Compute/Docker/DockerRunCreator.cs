@@ -30,7 +30,6 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
     private readonly DockerClient _client;
     private readonly CodespecReader _codespecReader;
     private readonly DockerEphemeralBufferProvider _ephemeralBufferProvider;
-    private readonly RunBufferAccessRefresher _bufferAccessRefresher;
     private readonly ILogger<DockerRunCreator> _logger;
 
     private readonly BufferOptions _bufferOptions;
@@ -44,7 +43,6 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         CodespecReader codespecReader,
         BufferManager bufferManager,
         DockerEphemeralBufferProvider ephemeralBufferProvider,
-        RunBufferAccessRefresher bufferSasRefresher,
         IOptions<BufferOptions> bufferOptions,
         IOptions<DockerOptions> dockerOptions,
         IOptions<LocalBufferStorageOptions> localBufferStorageOptions,
@@ -54,7 +52,6 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         _client = client;
         _codespecReader = codespecReader;
         _ephemeralBufferProvider = ephemeralBufferProvider;
-        _bufferAccessRefresher = bufferSasRefresher;
         _logger = logger;
         _bufferOptions = bufferOptions.Value;
         _dockerOptions = dockerOptions.Value;
@@ -511,51 +508,55 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
         await Repository.UpdateRunAsResourcesCreated(run.Id!.Value, run, cancellationToken: cancellationToken);
 
-        // Start background task to refresh the buffer access URLs
-        async Task RefreshBufferAccessUrls(CancellationToken ct)
+        _logger.CreatedRun(run.Id!.Value);
+        return run with { Status = RunStatus.Running };
+    }
+
+    // Start background task to refresh the buffer access URLs
+    public async Task<bool> UpdateRunSecret(Run run, CancellationToken cancellationToken)
+    {
+        var absoluteSecretsBase = _dockerOptions.RunSecretsPath;
+        var relativeSecretsPath = run.Id.ToString()!;
+        var relativeAccessFilesPath = Path.Combine(relativeSecretsPath, "access-files");
+
+        var bufferAccessTtl = run.BufferAccessTtl ?? LocalSasHandler.DefaultAccessTtl;
+        var accessFilesDirectory = Path.Combine(absoluteSecretsBase, relativeAccessFilesPath);
+
+        if (run.Job.Codespec is not JobCodespec jobCodespec)
         {
-            var bufferAccessTtl = run.BufferAccessTtl ?? LocalSasHandler.DefaultAccessTtl;
-            var accessFilesDirectory = Path.Combine(absoluteSecretsBase, relativeAccessFilesPath);
-            while (!ct.IsCancellationRequested)
+            return false;
+        }
+
+        if (!Directory.Exists(accessFilesDirectory))
+        {
+            // The directory was deleted by DockerRunSweeper, stop refreshing
+            return false;
+        }
+
+        var bufferMap = await GetBufferMap(jobCodespec.Buffers, run.Job.Buffers!, bufferAccessTtl, cancellationToken);
+
+        foreach (var (bufferParameterName, (write, accessUrl)) in bufferMap)
+        {
+            var accessFileName = bufferParameterName + ".access";
+            var accessFilePath = Path.Combine(accessFilesDirectory, accessFileName);
+            var tempFilePath = Path.Combine(accessFilesDirectory, accessFileName + ".tmp");
+
+            try
             {
-                if (!Directory.Exists(accessFilesDirectory))
-                {
-                    // The directory was deleted by DockerRunSweeper, stop refreshing
-                    return;
-                }
-
-                var bufferMap = await GetBufferMap(jobCodespec.Buffers, run.Job.Buffers!, bufferAccessTtl, ct);
-
-                foreach (var (bufferParameterName, (write, accessUrl)) in bufferMap)
-                {
-                    var accessFileName = bufferParameterName + ".access";
-                    var accessFilePath = Path.Combine(accessFilesDirectory, accessFileName);
-                    var tempFilePath = Path.Combine(accessFilesDirectory, accessFileName + ".tmp");
-
-                    try
-                    {
-                        // Write to temporary file first, then move it atomically to the target location
-                        File.WriteAllText(tempFilePath, accessUrl.ToString());
-                        File.Move(tempFilePath, accessFilePath, overwrite: true);
-                    }
-                    catch (DirectoryNotFoundException)
-                    {
-                        // The directory was deleted by DockerRunSweeper, stop refreshing
-                        return;
-                    }
-                }
-
-                _logger.RefreshedBufferAccessUrls(run.Id!.Value);
-
-                var timeUntilRefresh = new TimeSpan((long)(bufferAccessTtl.Ticks * 0.7));
-                await Task.Delay(timeUntilRefresh, ct);
+                // Write to temporary file first, then move it atomically to the target location
+                File.WriteAllText(tempFilePath, accessUrl.ToString());
+                File.Move(tempFilePath, accessFilePath, overwrite: true);
+            }
+            catch (DirectoryNotFoundException)
+            {
+                // The directory was deleted by DockerRunSweeper, stop refreshing
+                return false;
             }
         }
 
-        _bufferAccessRefresher.Add(run.Id!.Value, RefreshBufferAccessUrls);
+        _logger.UpdatedRunSecret(run.Id!.Value);
 
-        _logger.CreatedRun(run.Id!.Value);
-        return run with { Status = RunStatus.Running };
+        return true;
     }
 
     internal static string MainContainerName(long runId)
