@@ -151,11 +151,16 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             run = run with { Job = run.Job with { Tags = [] } };
         }
 
+        if (run.BufferAccessTtl == null)
+        {
+            run = run with { BufferAccessTtl = LocalSasHandler.DefaultAccessTtl };
+        }
+
         await ProcessBufferArguments(jobCodespec.Buffers, run.Job.Buffers, run.Job.Tags, run.Job.BufferTtl, cancellationToken);
 
         run = await Repository.CreateRun(run, idempotencyKey, cancellationToken);
 
-        var bufferMap = await GetBufferMap(jobCodespec.Buffers, run.Job.Buffers!, run.BufferAccessTtl, cancellationToken);
+        var bufferMap = await GetBufferMap(jobCodespec.Buffers, run.Job.Buffers!, run.BufferAccessTtl!, cancellationToken);
         string mainContainerName = MainContainerName(run.Id!.Value);
 
         if (run.Job.Buffers != null)
@@ -368,6 +373,9 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             startContainersTasks.Add(CreateAndStartContainer(sidecarContainerParameters, isRelay, cancellationToken));
         }
 
+        var secretRefreshTime = CalculateProactiveRefreshTimeFromNow(run.BufferAccessTtl!.Value);
+        await Repository.UpdateRunSecretRefreshTime(run.Id!.Value, secretRefreshTime, cancellationToken);
+
         if (jobCodespec.Sockets != null)
         {
             foreach (var socket in jobCodespec.Sockets)
@@ -512,20 +520,17 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
         return run with { Status = RunStatus.Running };
     }
 
-    // Start background task to refresh the buffer access URLs
     public async Task<bool> UpdateRunSecret(Run run, CancellationToken cancellationToken)
     {
-        var absoluteSecretsBase = _dockerOptions.RunSecretsPath;
-        var relativeSecretsPath = run.Id.ToString()!;
-        var relativeAccessFilesPath = Path.Combine(relativeSecretsPath, "access-files");
-
-        var bufferAccessTtl = run.BufferAccessTtl ?? LocalSasHandler.DefaultAccessTtl;
-        var accessFilesDirectory = Path.Combine(absoluteSecretsBase, relativeAccessFilesPath);
-
         if (run.Job.Codespec is not JobCodespec jobCodespec)
         {
             return false;
         }
+
+        var absoluteSecretsBase = _dockerOptions.RunSecretsPath;
+        var relativeSecretsPath = run.Id.ToString()!;
+        var relativeAccessFilesPath = Path.Combine(relativeSecretsPath, "access-files");
+        var accessFilesDirectory = Path.Combine(absoluteSecretsBase, relativeAccessFilesPath);
 
         if (!Directory.Exists(accessFilesDirectory))
         {
@@ -533,7 +538,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             return false;
         }
 
-        var bufferMap = await GetBufferMap(jobCodespec.Buffers, run.Job.Buffers!, bufferAccessTtl, cancellationToken);
+        var bufferMap = await GetBufferMap(jobCodespec.Buffers, run.Job.Buffers!, run.BufferAccessTtl!, cancellationToken);
 
         foreach (var (bufferParameterName, (write, accessUrl)) in bufferMap)
         {
@@ -554,8 +559,8 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             }
         }
 
-        _logger.UpdatedRunSecret(run.Id!.Value);
-
+        var secretRefreshTime = CalculateProactiveRefreshTimeFromNow(run.BufferAccessTtl!.Value);
+        await Repository.UpdateRunSecretRefreshTime(run.Id!.Value, secretRefreshTime, cancellationToken);
         return true;
     }
 

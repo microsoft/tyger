@@ -115,4 +115,9 @@ public abstract class RunCreatorBase : BackgroundService
 
         return outputMap;
     }
+
+    protected DateTimeOffset CalculateProactiveRefreshTimeFromNow(TimeSpan ttl)
+    {
+        return DateTimeOffset.UtcNow + TimeSpan.FromTicks((long)(ttl.Ticks * 0.70));
+    }
 }

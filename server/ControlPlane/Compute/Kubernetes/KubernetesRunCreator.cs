@@ -180,6 +180,11 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
             run = run with { Job = run.Job with { Buffers = [] } };
         }
 
+        if (run.BufferAccessTtl == null)
+        {
+            run = run with { BufferAccessTtl = AzureBlobBufferProvider.DefaultAccessTtl };
+        }
+
         await ProcessBufferArguments(jobCodespec.Buffers, run.Job.Buffers, run.Job.Tags, run.Job.BufferTtl, cancellationToken);
 
         if (run.Id == null)
@@ -370,9 +375,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         const string FifoMountPath = "/etc/buffer-fifos";
         const string PipeVolumeName = "pipevolume";
 
-        var secretCreatedAt = DateTime.UtcNow;
-        var bufferAccessTtl = run.BufferAccessTtl ?? AzureBlobBufferProvider.DefaultAccessTtl;
-        var bufferMap = await GetBufferMap(codespec.Buffers, run.Job.Buffers!, bufferAccessTtl, cancellationToken);
+        var bufferMap = await GetBufferMap(codespec.Buffers, run.Job.Buffers!, run.BufferAccessTtl!, cancellationToken);
         if (bufferMap == null)
         {
             return;
@@ -509,19 +512,18 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
 
         await CreateObjectHandleAlreadyExists(() => _client.CoreV1.CreateNamespacedSecretAsync(buffersSecret, _k8sOptions.Namespace, cancellationToken: cancellationToken));
 
-        await Repository.InsertRunBufferSecretUpdate(run.Id!.Value, secretCreatedAt, secretCreatedAt + bufferAccessTtl, cancellationToken);
+        var secretRefreshTime = CalculateProactiveRefreshTimeFromNow(run.BufferAccessTtl!.Value);
+        await Repository.UpdateRunSecretRefreshTime(run.Id!.Value, secretRefreshTime, cancellationToken);
     }
 
     public async Task<bool> UpdateRunSecret(Run run, CancellationToken cancellationToken)
     {
-        var bufferAccessTtl = run.BufferAccessTtl ?? AzureBlobBufferProvider.DefaultAccessTtl;
-
         if (run.Job.Codespec is not JobCodespec jobCodespec)
         {
             return false;
         }
 
-        var refreshed = await GetBufferMap(jobCodespec.Buffers, run.Job.Buffers!, bufferAccessTtl, cancellationToken);
+        var refreshed = await GetBufferMap(jobCodespec.Buffers, run.Job.Buffers!, run.BufferAccessTtl!, cancellationToken);
 
         try
         {
@@ -561,11 +563,8 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
             return false;
         }
 
-        var updatedAt = DateTime.UtcNow;
-        var expiresAt = updatedAt + bufferAccessTtl;
-        await Repository.InsertRunBufferSecretUpdate(run.Id!.Value, updatedAt, expiresAt, cancellationToken);
-
-        _logger.UpdatedRunSecret(run.Id!.Value);
+        var secretRefreshTime = CalculateProactiveRefreshTimeFromNow(run.BufferAccessTtl!.Value);
+        await Repository.UpdateRunSecretRefreshTime(run.Id!.Value, secretRefreshTime, cancellationToken);
         return true;
     }
 

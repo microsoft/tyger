@@ -10,11 +10,8 @@ public class Migrator8 : Migrator
         await using var batch = dataSource.CreateBatch();
         batch.BatchCommands.Add(new(
             $"""
-            CREATE TABLE IF NOT EXISTS run_buffer_secret_updates (
-            run_id bigint NOT NULL PRIMARY KEY,
-            updated_at timestamp with time zone NOT NULL,
-            expires_at timestamp with time zone NOT NULL
-            )
+            ALTER TABLE runs
+            ADD COLUMN IF NOT EXISTS secret_refresh_at timestamp with time zone DEFAULT null
             """));
         await batch.ExecuteNonQueryAsync(cancellationToken);
     }
