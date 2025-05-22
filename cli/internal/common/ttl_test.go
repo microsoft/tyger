@@ -63,9 +63,18 @@ func TestParseTimeToLive(t *testing.T) {
 			// Verify the string representation
 			require.True(t, toStringRegex.MatchString(ttl.String()))
 
-			// Verify the Duration representation
+			// Verify conversion to time.Duration
 			totalMillis := 1000 * (int64(ttl.Days)*24*60*60 + int64(ttl.Hours)*60*60 + int64(ttl.Minutes*60) + int64(ttl.Seconds))
-			require.Equal(t, ttl.ToDuration().Milliseconds(), totalMillis)
+			dur := ttl.ToDuration()
+			require.Equal(t, dur.Milliseconds(), totalMillis)
+
+			// Verify conversion back to TimeToLive
+			ttl2 := DurationToTimeToLive(dur)
+			require.Equal(t, ttl.Days, ttl2.Days, "days")
+			require.Equal(t, ttl.Hours, ttl2.Hours, "hours")
+			require.Equal(t, ttl.Minutes, ttl2.Minutes, "minutes")
+			require.Equal(t, ttl.Seconds, ttl2.Seconds, "seconds")
+			require.Equal(t, ttl.String(), ttl2.String(), "string representation")
 		})
 	}
 

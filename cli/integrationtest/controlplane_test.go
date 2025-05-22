@@ -27,6 +27,7 @@ import (
 	"github.com/andreyvit/diff"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/google/uuid"
+	"github.com/microsoft/tyger/cli/internal/common"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/dataplane"
@@ -513,11 +514,11 @@ cat $(INPUT_PIPE) | python3 slow-copy.py > $(OUTPUT_PIPE)
 	inputBufferId := runTygerSucceeds(t, "buffer", "create")
 	outputBufferId := runTygerSucceeds(t, "buffer", "create")
 
-	genCmd := exec.Command("tyger", "buffer", "gen", "200M")
+	genCmd := exec.Command("tyger", "buffer", "gen", "150M")
 	genPipe, err := genCmd.StdoutPipe()
 	require.NoError(err)
 
-	writeCmd := exec.Command("tyger", "buffer", "write", inputBufferId)
+	writeCmd := exec.Command("tyger", "buffer", "write", inputBufferId, "--access-ttl", "0.00:01:00")
 	writeCmd.Stdin = genPipe
 
 	require.NoError(genCmd.Start())
@@ -528,6 +529,25 @@ cat $(INPUT_PIPE) | python3 slow-copy.py > $(OUTPUT_PIPE)
 
 	run := getRun(t, runId)
 	require.Equal(run.BufferAccessTtl, "00:01:00")
+
+	readCmd := exec.Command("tyger", "buffer", "read", outputBufferId, "--access-ttl", "0.00:01:00")
+	readOutPipe, err := readCmd.StdoutPipe()
+	require.NoError(err)
+	require.NoError(readCmd.Start())
+
+	outByteCount := 0
+	for {
+		buf := make([]byte, 64*1024)
+		n, err := readOutPipe.Read(buf)
+		outByteCount += n
+		if err == io.EOF {
+			break
+		}
+		require.NoError(err)
+	}
+
+	require.NoError(readCmd.Wait())
+	require.Equal(150*1024*1024, outByteCount)
 
 	waitForRunSuccess(t, runId)
 }
@@ -578,7 +598,7 @@ cat $(INPUT_PIPE) | python3 slow-copy.py > $(OUTPUT_PIPE)
 
 			require := require.New(t)
 
-			genCmd := exec.Command("tyger", "buffer", "gen", "200M")
+			genCmd := exec.Command("tyger", "buffer", "gen", "150M")
 			genPipe, err := genCmd.StdoutPipe()
 			require.NoError(err)
 
@@ -613,7 +633,7 @@ cat $(INPUT_PIPE) | python3 slow-copy.py > $(OUTPUT_PIPE)
 			require.NoError(execErr)
 			require.NoError(genCmd.Wait())
 
-			require.Equal(200*1024*1024, outByteCount)
+			require.Equal(150*1024*1024, outByteCount)
 		})
 	}
 }
@@ -2634,6 +2654,61 @@ func TestServerApiV1BackwardCompatibility(t *testing.T) {
 		}
 		url = page.NextLink
 	}
+}
+
+func TestBufferAccessUrlUpdates(t *testing.T) {
+	t.Parallel()
+
+	bufferId := runTygerSucceeds(t, "buffer", "create")
+
+	ttl, err := common.ParseTimeToLive("0.00:00:30")
+	require.NoError(t, err)
+
+	t.Run("from buffer id", func(t *testing.T) {
+		t.Parallel()
+		require := require.New(t)
+		container, err := dataplane.NewContainerFromBufferId(context.Background(), bufferId, true, ttl.String())
+		require.NoError(err)
+		firstAccessUrl := container.GetAccessUrl()
+		time.Sleep(30 * time.Second)
+		nextAccessUrl := container.GetAccessUrl()
+		require.NotEqual(firstAccessUrl.String(), nextAccessUrl.String())
+	})
+
+	t.Run("from buffer access url", func(t *testing.T) {
+		t.Parallel()
+		require := require.New(t)
+		accessUrl := runTygerSucceeds(t, "buffer", "access", bufferId, "--access-ttl", ttl.String())
+		container, err := dataplane.NewContainerFromAccessString(context.Background(), accessUrl)
+		require.NoError(err)
+		firstAccessUrl := container.GetAccessUrl()
+		time.Sleep(30 * time.Second)
+		nextAccessUrl := container.GetAccessUrl()
+		require.NotEqual(firstAccessUrl.String(), nextAccessUrl.String())
+	})
+
+	t.Run("from filename", func(t *testing.T) {
+		t.Parallel()
+		require := require.New(t)
+
+		accessUrl := runTygerSucceeds(t, "buffer", "access", bufferId, "--access-ttl", ttl.String())
+
+		tempDir := t.TempDir()
+		accessFilePath := filepath.Join(tempDir, fmt.Sprintf("%s.access", bufferId))
+		require.NoError(os.WriteFile(accessFilePath, []byte(accessUrl), 0644))
+		container, err := dataplane.NewContainerFromAccessFile(context.Background(), accessFilePath)
+		require.NoError(err)
+		accessUrlRead := container.GetAccessUrl()
+		require.Equal(accessUrl, accessUrlRead.String())
+
+		time.Sleep(10 * time.Second)
+		newAccessUrl := runTygerSucceeds(t, "buffer", "access", bufferId, "--access-ttl", ttl.String())
+		require.NotEqual(accessUrl, newAccessUrl)
+		require.NoError(os.WriteFile(accessFilePath, []byte(newAccessUrl), 0644))
+		time.Sleep(20 * time.Second)
+		accessUrlRead = container.GetAccessUrl()
+		require.Equal(newAccessUrl, accessUrlRead.String())
+	})
 }
 
 func TestServiceMetadataContainsApiVersions(t *testing.T) {

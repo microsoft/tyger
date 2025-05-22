@@ -12,7 +12,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/microsoft/tyger/cli/internal/client"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
@@ -23,19 +22,7 @@ var (
 	ErrAccessStringNotUrl = errors.New("the buffer access string is invalid. It must be a URL or the path of a file whose contents is a URL")
 )
 
-func GetUrlFromAccessString(accessString string) (*url.URL, error) {
-	if fi, err := os.Stat(accessString); err == nil && !fi.IsDir() {
-		if fi.Size() < 2*1024 {
-			accessStringBytes, err := os.ReadFile(accessString)
-			if err != nil {
-				return nil, fmt.Errorf("unable to read URL string from file %s: %w", accessString, err)
-			}
-
-			accessString = string(accessStringBytes)
-			accessString = strings.TrimRight(accessString, " \r\n")
-		}
-	}
-
+func ParseBufferAccessUrl(accessString string) (*url.URL, error) {
 	accessUrl, err := url.Parse(accessString)
 	if err != nil || !accessUrl.IsAbs() {
 		return nil, ErrAccessStringNotUrl
@@ -44,7 +31,24 @@ func GetUrlFromAccessString(accessString string) (*url.URL, error) {
 	return accessUrl, nil
 }
 
-func GetNewBufferAccessUrl(ctx context.Context, bufferId string, writable bool, accessTtl string) (*url.URL, error) {
+func GetBufferAccessUrlFromFile(filename string) (*url.URL, error) {
+	accessString := filename
+	if fi, err := os.Stat(filename); err == nil && !fi.IsDir() {
+		if fi.Size() < 2*1024 {
+			accessStringBytes, err := os.ReadFile(filename)
+			if err != nil {
+				return nil, fmt.Errorf("unable to read URL string from file %s: %w", filename, err)
+			}
+
+			accessString = string(accessStringBytes)
+			accessString = strings.TrimRight(accessString, " \r\n")
+		}
+	}
+
+	return ParseBufferAccessUrl(accessString)
+}
+
+func RequestNewBufferAccessUrl(ctx context.Context, bufferId string, writable bool, accessTtl string) (*url.URL, error) {
 	bufferAccess := model.BufferAccess{}
 
 	queryOptions := url.Values{}
@@ -72,20 +76,4 @@ func GetNewBufferAccessUrl(ctx context.Context, bufferId string, writable bool, 
 	}
 
 	return url.Parse(bufferAccess.Uri)
-}
-
-func parseSasQueryTimestamp(accessUrl *url.URL, key string) (time.Time, error) {
-	queryString := accessUrl.Query()
-
-	value := queryString.Get(key)
-	if value == "" {
-		return time.Time{}, fmt.Errorf("SAS '%s' timestamp not found in access URL %s", key, accessUrl)
-	}
-
-	parsed, err := time.Parse(time.RFC3339, value)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("error parsing SAS timestamp '%s': %w", value, err)
-	}
-
-	return parsed, nil
 }

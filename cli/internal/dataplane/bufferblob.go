@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/microsoft/tyger/cli/internal/common"
 	"github.com/rs/zerolog/log"
 )
 
@@ -74,57 +75,86 @@ func NewContainer(accessUrl *url.URL) *Container {
 	return &Container{accessUrl: accessUrl}
 }
 
-func NewContainerFromFile(ctx context.Context, filename string) (*Container, error) {
+func NewContainerFromAccessString(ctx context.Context, accessString string) (*Container, error) {
+	accessUrl, err := ParseBufferAccessUrl(accessString)
+	if err != nil {
+		// Invalid URL, assume it's a file containing the URL
+		return NewContainerFromAccessFile(ctx, accessString)
+	}
+
+	// Valid URL, need to parse the SAS parameters in order to request a new URL later
+	bufferId := path.Base(accessUrl.Path)
+	qv := accessUrl.Query()
+	permissions := qv.Get("sp")
+	writeable := strings.Contains(permissions, "c")
+	st, err := parseSasQueryTimestamp(accessUrl, "st")
+	if err != nil {
+		return nil, err
+	}
+	se, err := parseSasQueryTimestamp(accessUrl, "se")
+	if err != nil {
+		return nil, err
+	}
+	accessTtl := ""
+	d := se.Sub(st)
+	if d > 0 {
+		accessTtl = common.DurationToTimeToLive(d).String()
+	}
+
 	getNewUrl := func(ctx context.Context) (*url.URL, error) {
-		url, err := GetUrlFromAccessString(filename)
+		url, err := RequestNewBufferAccessUrl(ctx, bufferId, writeable, accessTtl)
 		if err != nil {
 			return nil, err
 		}
 		return url, nil
 	}
 
-	accessUrl, err := getNewUrl(ctx)
-	if err != nil {
-		return nil, err
+	return newContainer(ctx, accessUrl, getNewUrl)
+}
+
+func NewContainerFromAccessFile(ctx context.Context, filename string) (*Container, error) {
+	getNewUrl := func(ctx context.Context) (*url.URL, error) {
+		url, err := GetBufferAccessUrlFromFile(filename)
+		if err != nil {
+			return nil, err
+		}
+		return url, nil
 	}
 
-	c := &Container{
-		accessUrl: accessUrl,
-		lock:      &sync.Mutex{},
-		ctx:       ctx,
-		getNewUrl: getNewUrl,
-	}
-
-	return c, nil
+	return newContainer(ctx, nil, getNewUrl)
 }
 
 func NewContainerFromBufferId(ctx context.Context, bufferId string, writeable bool, accessTtl string) (*Container, error) {
 	getNewUrl := func(ctx context.Context) (*url.URL, error) {
-		url, err := GetNewBufferAccessUrl(ctx, bufferId, writeable, accessTtl)
+		url, err := RequestNewBufferAccessUrl(ctx, bufferId, writeable, accessTtl)
 		if err != nil {
 			return nil, err
 		}
 		return url, nil
 	}
 
-	accessUrl, err := getNewUrl(ctx)
-	if err != nil {
-		return nil, err
-	}
+	return newContainer(ctx, nil, getNewUrl)
+}
 
+func newContainer(ctx context.Context, accessUrl *url.URL, getUrl func(context.Context) (*url.URL, error)) (*Container, error) {
+	if accessUrl == nil {
+		url, err := getUrl(ctx)
+		if err != nil {
+			return nil, err
+		}
+		accessUrl = url
+	}
 	refreshTime, err := getSasRefreshTime(accessUrl)
 	if err != nil {
 		return nil, err
 	}
-
 	c := &Container{
 		lock:        &sync.Mutex{},
 		accessUrl:   accessUrl,
 		refreshTime: refreshTime,
 		ctx:         ctx,
-		getNewUrl:   getNewUrl,
+		getNewUrl:   getUrl,
 	}
-
 	return c, nil
 }
 
@@ -140,11 +170,17 @@ func (c *Container) GetAccessUrl() *url.URL {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
+	if time.Until(c.refreshTime) > 0 {
+		return c.accessUrl
+	}
+
 	retryCount := 0
 	for retryCount = 0; retryCount < 5; retryCount++ {
 
-		if time.Until(c.refreshTime) > 0 {
+		select {
+		case <-c.ctx.Done():
 			return c.accessUrl
+		default:
 		}
 
 		url, err := c.getNewUrl(c.ctx)
@@ -154,21 +190,39 @@ func (c *Container) GetAccessUrl() *url.URL {
 			c.accessUrl = url
 			refreshTime, err := getSasRefreshTime(c.accessUrl)
 			if err != nil {
-				log.Ctx(c.ctx).Error().Err(err).Msg("failed to compute access URL refresh time")
+				log.Ctx(c.ctx).Error().Err(err).Msg("failed to calculate access URL refresh time")
 			} else {
 				c.refreshTime = refreshTime
 				if time.Until(c.refreshTime) > 0 {
+					log.Ctx(c.ctx).Warn().Msgf("new access URL for %s needs refresh in %s", path.Base(c.accessUrl.Path), time.Until(c.refreshTime))
 					return c.accessUrl
 				}
 			}
 		}
 
+		log.Ctx(c.ctx).Warn().Msgf("access URL needs refreshed, retrying in %d seconds", retryCount+1)
 		time.Sleep(time.Duration(retryCount+1) * time.Second)
 	}
 
 	log.Ctx(c.ctx).Error().Msgf("failed to get a valid access URL after %d retries", retryCount)
 
 	return c.accessUrl
+}
+
+func parseSasQueryTimestamp(accessUrl *url.URL, key string) (time.Time, error) {
+	queryString := accessUrl.Query()
+
+	value := queryString.Get(key)
+	if value == "" {
+		return time.Time{}, fmt.Errorf("SAS '%s' timestamp not found in access URL %s", key, accessUrl)
+	}
+
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("error parsing SAS timestamp '%s': %w", value, err)
+	}
+
+	return parsed, nil
 }
 
 func getSasRefreshTime(u *url.URL) (time.Time, error) {

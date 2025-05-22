@@ -202,6 +202,7 @@ func newBufferShowCommand() *cobra.Command {
 func newBufferAccessCommand() *cobra.Command {
 	var flags struct {
 		writeable bool
+		ttl       string
 	}
 
 	cmd := &cobra.Command{
@@ -211,7 +212,16 @@ func newBufferAccessCommand() *cobra.Command {
 		DisableFlagsInUseLine: true,
 		Args:                  exactlyOneArg("buffer ID"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			url, err := dataplane.GetNewBufferAccessUrl(cmd.Context(), args[0], flags.writeable, "")
+			accessTtl := ""
+			if flags.ttl != "" {
+				ttl, err := common.ParseTimeToLive(flags.ttl)
+				if err != nil {
+					log.Fatal().Err(err).Msg("Invalid access TTL format")
+				}
+				accessTtl = ttl.String()
+			}
+
+			url, err := dataplane.RequestNewBufferAccessUrl(cmd.Context(), args[0], flags.writeable, accessTtl)
 			if err != nil {
 				return err
 			}
@@ -221,7 +231,9 @@ func newBufferAccessCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVarP(&flags.writeable, "write", "w", false, "request write access instead of read-only access to the buffer.")
+	cmd.Flags().BoolVarP(&flags.writeable, "write", "w", false, "Request write access instead of read-only access to the buffer.")
+	cmd.Flags().StringVar(&flags.ttl, "access-ttl", "", "The time-to-live for the returned access URL (format D.HH:MM:SS).")
+	cmd.Flags().MarkHidden("access-ttl")
 
 	return cmd
 }
@@ -229,6 +241,7 @@ func newBufferAccessCommand() *cobra.Command {
 func NewBufferReadCommand(openFileFunc func(ctx context.Context, name string, flag int, perm fs.FileMode) (*os.File, error)) *cobra.Command {
 	outputFilePath := ""
 	dop := dataplane.DefaultReadDop
+	accessTtl := ""
 	cmd := &cobra.Command{
 		Use:                   "read { BUFFER_ID | BUFFER_SAS_URL | FILE_WITH_SAS_URL } [flags]",
 		Short:                 "Reads the contents of a buffer",
@@ -242,11 +255,22 @@ func NewBufferReadCommand(openFileFunc func(ctx context.Context, name string, fl
 				log.Fatal().Msg("the degree of parallelism (dop) must be at least 1")
 			}
 
+			if accessTtl != "" {
+				ttl, err := common.ParseTimeToLive(accessTtl)
+				if err != nil {
+					log.Fatal().Err(err).Msg("Invalid access TTL format")
+				}
+				accessTtl = ttl.String()
+			}
+
 			var target *dataplane.Container
 			var err error
-			target, err = dataplane.NewContainerFromFile(cmd.Context(), args[0])
+			target, err = dataplane.NewContainerFromAccessString(cmd.Context(), args[0])
+			if err == nil && accessTtl != "" {
+				log.Fatal().Msg("access-ttl is only supported when a buffer ID is specified")
+			}
 			if err != nil && err == dataplane.ErrAccessStringNotUrl {
-				target, err = dataplane.NewContainerFromBufferId(cmd.Context(), args[0], false, "")
+				target, err = dataplane.NewContainerFromBufferId(cmd.Context(), args[0], false, accessTtl)
 			}
 			if err != nil {
 				log.Fatal().Err(err).Msg("Unable to access buffer")
@@ -287,6 +311,8 @@ func NewBufferReadCommand(openFileFunc func(ctx context.Context, name string, fl
 
 	cmd.Flags().StringVarP(&outputFilePath, "output", "o", outputFilePath, "The file write to. If not specified, data is written to standard out.")
 	cmd.Flags().IntVarP(&dop, "dop", "p", dop, "The degree of parallelism")
+	cmd.Flags().StringVar(&accessTtl, "access-ttl", "", "The time-to-live for the access URL used to read the buffer (format D.HH:MM:SS).")
+	cmd.Flags().MarkHidden("access-ttl")
 	return cmd
 }
 
@@ -295,6 +321,7 @@ func NewBufferWriteCommand(openFileFunc func(ctx context.Context, name string, f
 	dop := dataplane.DefaultWriteDop
 	blockSizeString := ""
 	flushIntervalString := dataplane.DefaultFlushInterval.String()
+	accessTtl := ""
 
 	cmd := &cobra.Command{
 		Use:                   "write { BUFFER_ID | BUFFER_SAS_URL | FILE_WITH_SAS_URL } [flags]",
@@ -309,11 +336,22 @@ func NewBufferWriteCommand(openFileFunc func(ctx context.Context, name string, f
 				log.Fatal().Msg("the degree of parallelism (dop) must be at least 1")
 			}
 
+			if accessTtl != "" {
+				ttl, err := common.ParseTimeToLive(accessTtl)
+				if err != nil {
+					log.Fatal().Err(err).Msg("Invalid access TTL format")
+				}
+				accessTtl = ttl.String()
+			}
+
 			var target *dataplane.Container
 			var err error
-			target, err = dataplane.NewContainerFromFile(cmd.Context(), args[0])
+			target, err = dataplane.NewContainerFromAccessString(cmd.Context(), args[0])
+			if err == nil && accessTtl != "" {
+				log.Fatal().Msg("access-ttl is only supported when a buffer ID is specified")
+			}
 			if err != nil && err == dataplane.ErrAccessStringNotUrl {
-				target, err = dataplane.NewContainerFromBufferId(cmd.Context(), args[0], true, "")
+				target, err = dataplane.NewContainerFromBufferId(cmd.Context(), args[0], true, accessTtl)
 			}
 			if err != nil {
 				log.Fatal().Err(err).Msg("Unable to access buffer")
@@ -390,6 +428,8 @@ func NewBufferWriteCommand(openFileFunc func(ctx context.Context, name string, f
 	cmd.Flags().IntVarP(&dop, "dop", "p", dop, "The degree of parallelism")
 	cmd.Flags().StringVarP(&blockSizeString, "block-size", "b", blockSizeString, "Split the stream into blocks of this size.")
 	cmd.Flags().StringVarP(&flushIntervalString, "flush-interval", "f", flushIntervalString, "The longest time to wait before accumulated data is written to the remote service. Data will be flushed either when --block-size of data has been accumulated or when the specified interval has elapsed, whichever comes first. This is ignored if the input is a regular file. Set to 0 to disable.")
+	cmd.Flags().StringVar(&accessTtl, "access-ttl", "", "The time-to-live for the access URL used to write the buffer (format D.HH:MM:SS).")
+	cmd.Flags().MarkHidden("access-ttl")
 	return cmd
 }
 

@@ -537,7 +537,7 @@ func newRunCreateCommandCore(
 
 	cmd.Flags().BoolVar(&flags.pull, "pull", false, "Pull container images. Applies only to Tyger running in Docker.")
 
-	cmd.Flags().StringVar(&flags.bufferAccessTtl, "buffer-access-ttl", "", "The time-to-live for each buffer's SAS URL (format D.HH:MM).")
+	cmd.Flags().StringVar(&flags.bufferAccessTtl, "buffer-access-ttl", "", "The time-to-live for each access URL used to read/write the run's buffers (format D.HH:MM:SS).")
 	cmd.Flags().MarkHidden("buffer-access-ttl")
 
 	return cmd

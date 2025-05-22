@@ -12,13 +12,13 @@ import (
 )
 
 func TestAccessStringIsUrl(t *testing.T) {
-	url, err := GetUrlFromAccessString("https://example.com")
+	url, err := ParseBufferAccessUrl("https://example.com")
 	assert.Nil(t, err)
 	assert.Equal(t, "https://example.com", url.String())
 }
 
 func TestAccessStringIsInvalidUrl(t *testing.T) {
-	_, err := GetUrlFromAccessString("notafileoranabsoluteuri")
+	_, err := ParseBufferAccessUrl("notafileoranabsoluteuri")
 	assert.ErrorContains(t, err, "the buffer access string is invalid")
 }
 
@@ -26,7 +26,7 @@ func TestAccessStringIsFile(t *testing.T) {
 	dir := t.TempDir()
 	path := dir + "/access_string.txt"
 	os.WriteFile(path, []byte("https://example.com"), 0644)
-	url, err := GetUrlFromAccessString(path)
+	url, err := GetBufferAccessUrlFromFile(path)
 	assert.Nil(t, err)
 	assert.Equal(t, "https://example.com", url.String())
 }
@@ -35,7 +35,7 @@ func TestAccessStringIsFileWithInvalidUrl(t *testing.T) {
 	dir := t.TempDir()
 	path := dir + "/access_string.txt"
 	os.WriteFile(path, []byte("notanabsoluteuri"), 0644)
-	_, err := GetUrlFromAccessString(path)
+	_, err := GetBufferAccessUrlFromFile(path)
 	assert.ErrorContains(t, err, "the buffer access string is invalid")
 }
 
@@ -50,6 +50,6 @@ func TestAccessStringIsFileWithLargeUrl(t *testing.T) {
 	}
 	err = f.Close()
 	require.Nil(t, err)
-	_, err = GetUrlFromAccessString(path)
+	_, err = GetBufferAccessUrlFromFile(path)
 	assert.ErrorContains(t, err, "the buffer access string is invalid")
 }
