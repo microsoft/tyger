@@ -237,13 +237,17 @@ organizations:
 
       # Set to KeyVault if using a custom TLS certificate, otherwise set to LetsEncrypt
       tlsCertificateProvider: {{ .TlsCertificateProvider }}
-
-      auth:
-        tenantId: {{ .Auth.TenantID }}
-        apiAppUri: {{ .Auth.ApiAppUri }}
-        apiAppId: {{ .Auth.ApiAppId }}
-        cliAppUri: {{ .Auth.CliAppUri }}
-        cliAppId: {{ .Auth.CliAppId }}
+      {{ if .AccessControlPath }}
+      # Access control configuration is specified in a dedicated file and updated with `tyger access-control apply`
+      accessControlPath: {{ .AccessControlPath }}
+      {{- else }}
+      accessControl:
+        tenantId: {{ .AccessControl.TenantID }}
+        apiAppUri: {{ .AccessControl.ApiAppUri }}
+        apiAppId: {{ .AccessControl.ApiAppId }}
+        cliAppUri: {{ .AccessControl.CliAppUri }}
+        cliAppId: {{ .AccessControl.CliAppId }}
+      {{- end }}
 
       {{- if (and .Buffers (or .Buffers.ActiveLifetime .Buffers.SoftDeletedLifetime)) }}
 

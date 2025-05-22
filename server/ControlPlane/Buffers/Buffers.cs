@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Primitives;
 using Tyger.Common.Api;
 using Tyger.Common.DependencyInjection;
-using Tyger.ControlPlane.Auth;
+using Tyger.ControlPlane.AccessControl;
 using Tyger.ControlPlane.Json;
 using Tyger.ControlPlane.Model;
 using Tyger.ControlPlane.OpenApi;

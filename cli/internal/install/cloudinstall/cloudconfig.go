@@ -115,10 +115,10 @@ const (
 )
 
 type Principal struct {
-	Kind              PrincipalKind `json:"kind"`
-	ObjectId          string        `json:"objectId,omitempty"`
-	UserPrincipalName string        `json:"userPrincipalName,omitempty"`
-	DisplayName       string        `json:"displayName,omitempty"`
+	Kind              PrincipalKind `json:"kind" yaml:"kind"`
+	ObjectId          string        `json:"objectId,omitempty" yaml:"objectId,omitempty"`
+	UserPrincipalName string        `json:"userPrincipalName,omitempty" yaml:"userPrincipalName,omitempty"`
+	DisplayName       string        `json:"displayName,omitempty" `
 }
 type TygerRbacRoleAssignment struct {
 	Principal
@@ -246,13 +246,13 @@ const (
 type OrganizationApiConfig struct {
 	DomainName             string                  `json:"domainName"`
 	TlsCertificateProvider TlsCertificateProvider  `json:"tlsCertificateProvider"`
-	AuthConfigPath         string                  `json:"authConfigPath"`
-	Auth                   *AuthConfig             `json:"auth"`
+	AccessControlPath      string                  `json:"accessControlPath"`
+	AccessControl          *AccessControlConfig    `json:"accessControl"`
 	Buffers                *BuffersConfig          `json:"buffers"`
 	Helm                   *OrganizationHelmConfig `json:"helm"`
 }
 
-type AuthConfig struct {
+type AccessControlConfig struct {
 	TenantID                   string                    `json:"tenantId"`
 	ApiAppUri                  string                    `json:"apiAppUri"`
 	ApiAppId                   string                    `json:"apiAppId"`
@@ -304,7 +304,7 @@ type ConfigTemplateValues struct {
 	GpuNodePoolMinCount      int32
 }
 
-func RenderConfig(templateValues ConfigTemplateValues, authConfig *AuthConfig, writer io.Writer) error {
+func RenderConfig(templateValues ConfigTemplateValues, authConfig *AccessControlConfig, writer io.Writer) error {
 	config := CloudEnvironmentConfig{
 		Kind:            EnvironmentKindCloud,
 		EnvironmentName: templateValues.EnvironmentName,
@@ -365,7 +365,7 @@ func RenderConfig(templateValues ConfigTemplateValues, authConfig *AuthConfig, w
 				Api: &OrganizationApiConfig{
 					DomainName:             templateValues.DomainName,
 					TlsCertificateProvider: TlsCertificateProviderLetsEncrypt,
-					Auth:                   authConfig,
+					AccessControl:          authConfig,
 				},
 			},
 		},

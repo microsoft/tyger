@@ -34,7 +34,7 @@ func TestRenderConfig(t *testing.T) {
 		DatabaseServerName: "dbserver",
 	}
 
-	authConfig := AuthConfig{
+	authConfig := AccessControlConfig{
 		TenantID:  "tenant2",
 		ApiAppUri: "api://tyger-server",
 		ApiAppId:  uuid.New().String(),
@@ -66,5 +66,5 @@ func TestRenderConfig(t *testing.T) {
 	require.Equal(t, values.BufferStorageAccountName, config.Organizations[0].Cloud.Storage.Buffers[0].Name)
 	require.Equal(t, values.LogsStorageAccountName, config.Organizations[0].Cloud.Storage.Logs.Name)
 	require.Equal(t, values.DomainName, config.Organizations[0].Api.DomainName)
-	require.Equal(t, authConfig, *config.Organizations[0].Api.Auth)
+	require.Equal(t, authConfig, *config.Organizations[0].Api.AccessControl)
 }

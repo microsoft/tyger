@@ -117,23 +117,21 @@ spec:
               value: {{ .Values.identity.tygerServer.clientId }}
             - name: ServiceMetadata__ExternalBaseUrl
               value: https://{{ required "A value for hostname is required" .Values.hostname }}
-            - name: Auth__Enabled
-              value: "{{ .Values.security.enabled }}"
-            - name: Auth__Rbac__Enabled
-              value: "{{ .Values.security.rbacEnabled }}"
-          {{- if .Values.security.enabled }}
-            - name: Auth__Authority
-              value: {{ required "When security.enabled is true, a value for security.authority is required" .Values.security.authority }}
-            - name: Auth__Audience
-              value: {{ required "When security.enabled is true, a value for security.audience is required" .Values.security.audience }}
-            - name: Auth__ApiAppUri
-              value: {{ required "When security.enabled is true, a value for security.apiAppUri is required" .Values.security.apiAppUri }}
-            - name: Auth__ApiAppId
-              value: {{ required "When security.enabled is true, a value for security.apiAppId is required" .Values.security.apiAppId }}
-            - name: Auth__CliAppUri
-              value: {{ required "When security.enabled is true, a value for security.cliAppUri is required" .Values.security.cliAppUri }}
-            - name: Auth__CliAppId
-              value: {{ required "When security.enabled is true, a value for security.cliAppId is required" .Values.security.cliAppId }}
+            - name: AccessControl__Enabled
+              value: "{{ .Values.accessControl.enabled }}"
+          {{- if .Values.accessControl.enabled }}
+            - name: AccessControl__Authority
+              value: {{ required "When accessControl.enabled is true, a value for accessControl.authority is required" .Values.accessControl.authority }}
+            - name: AccessControl__Audience
+              value: {{ required "When accessControl.enabled is true, a value for accessControl.audience is required" .Values.accessControl.audience }}
+            - name: AccessControl__ApiAppUri
+              value: {{ required "When accessControl.enabled is true, a value for accessControl.apiAppUri is required" .Values.accessControl.apiAppUri }}
+            - name: AccessControl__ApiAppId
+              value: {{ required "When accessControl.enabled is true, a value for accessControl.apiAppId is required" .Values.accessControl.apiAppId }}
+            - name: AccessControl__CliAppUri
+              value: {{ required "When accessControl.enabled is true, a value for accessControl.cliAppUri is required" .Values.accessControl.cliAppUri }}
+            - name: AccessControl__CliAppId
+              value: {{ required "When accessControl.enabled is true, a value for accessControl.cliAppId is required" .Values.accessControl.cliAppId }}
           {{- end }}
             - name: Compute__Kubernetes__Namespace
               value: {{ .Release.Namespace }}

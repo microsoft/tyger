@@ -192,15 +192,15 @@ func prettyPrintConfig(ctx context.Context, inputPath string, input io.Reader, o
 func newConfigConvertCommand() *cobra.Command {
 	inputPath := ""
 	outputPath := ""
-	authConfigPath := ""
+	accessControlConfigPath := ""
 
 	cmd := &cobra.Command{
-		Use:                   "convert -i FILE.yml -o FILE.yml [--auth-spec FILE.yml]",
+		Use:                   "convert -i FILE.yml -o FILE.yml [--access-control-output FILE.yml]",
 		Long:                  "Convert a config that was created for Tyger versions before v0.11.0.",
 		Short:                 "Convert a config that was created for Tyger versions before v0.11.0.",
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			err := convert(cmd.Context(), inputPath, outputPath, authConfigPath)
+			err := convert(cmd.Context(), inputPath, outputPath, accessControlConfigPath)
 			if err != nil {
 				if !errors.Is(err, install.ErrAlreadyLoggedError) {
 					log.Fatal().AnErr("error", err).Send()
@@ -216,12 +216,12 @@ func newConfigConvertCommand() *cobra.Command {
 	cmd.Flags().StringVarP(&outputPath, "output", "o", "", "The path to the config file to create")
 	cmd.MarkFlagRequired("output")
 
-	cmd.Flags().StringVarP(&authConfigPath, "auth-spec", "a", "", "The path to the auth config file. Required for cloud environments. You must have run `tyger auth apply` first.")
+	cmd.Flags().StringVarP(&accessControlConfigPath, "access-control", "a", "", "The path to the access control config file that will be created for cloud environments.")
 
 	return cmd
 }
 
-func convert(ctx context.Context, inputPath string, outputPath string, authConfigPath string) error {
+func convert(ctx context.Context, inputPath string, outputPath string, accessControlConfigPath string) error {
 	c, err := parseConfigFromYamlFile(inputPath, true)
 	if err != nil {
 		return fmt.Errorf("failed to read config file: %w", err)
@@ -234,12 +234,12 @@ func convert(ctx context.Context, inputPath string, outputPath string, authConfi
 			return fmt.Errorf("the given config file appears to already be in the new format")
 		}
 
-		if authConfigPath == "" {
-			return errors.New("the --auth-spec flag is required for cloud environments")
+		if accessControlConfigPath == "" {
+			return errors.New("the --access-control flag is required for cloud environments")
 		}
-		authConfig, err := cloudinstall.ParseAuthConfigFromFile(authConfigPath)
+		authConfig, err := cloudinstall.ParseAccessControlConfigFromFile(accessControlConfigPath)
 		if err != nil {
-			return fmt.Errorf("failed to read auth config file: %w", err)
+			return fmt.Errorf("failed to read access control config file: %w", err)
 		}
 
 		identities := safeGetAndRemove(document, "cloud.compute.identities")
@@ -252,7 +252,7 @@ func convert(ctx context.Context, inputPath string, outputPath string, authConfi
 
 		if apiMap, ok := api.(map[string]any); ok {
 			apiMap["tlsCertificateProvider"] = string(cloudinstall.TlsCertificateProviderLetsEncrypt)
-			apiMap["auth"] = authConfig
+			apiMap["auth"] = authConfig // TODO: FIX
 		}
 
 		org := map[string]any{
@@ -320,9 +320,9 @@ func newConfigCreateCommand() *cobra.Command {
 	authConfigPath := ""
 
 	cmd := &cobra.Command{
-		Use:                   "create --auth-spec AUTH.yml -f CONFIG.yml",
+		Use:                   "create --config-path CONFIG.yml --access-control-path ACCESSCONTROL.yml",
 		Short:                 "Create a new config file",
-		Long:                  "Create a new config file. You must first have run `tyger auth apply` first.",
+		Long:                  "Create a new config file. You must first have run `tyger access-control apply` first.",
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if _, err := os.Stat(configPath); err == nil {
@@ -370,11 +370,11 @@ func newConfigCreateCommand() *cobra.Command {
 			switch res.id {
 			case cloudinstall.EnvironmentKindCloud:
 				if authConfigPath == "" {
-					return errors.New("the --auth-spec flag is required for cloud environments")
+					return errors.New("the --access-control-path flag is required for cloud environments")
 				}
-				authConfig, err := cloudinstall.ParseAuthConfigFromFile(authConfigPath)
+				authConfig, err := cloudinstall.ParseAccessControlConfigFromFile(authConfigPath)
 				if err != nil {
-					return fmt.Errorf("failed to read auth config file: %w", err)
+					return fmt.Errorf("failed to read access control config file: %w", err)
 				}
 				if err := generateCloudConfig(cmd.Context(), authConfig, f); err != nil {
 					return err
@@ -392,10 +392,10 @@ func newConfigCreateCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&configPath, "file", "f", "", "The path to the config file to create")
+	cmd.Flags().StringVarP(&configPath, "config-path", "c", "", "The path to the config file to create")
 	cmd.MarkFlagRequired("file")
 
-	cmd.Flags().StringVarP(&authConfigPath, "auth-spec", "a", "", "The path to the auth config file. Required for cloud environments. You must have run `tyger auth apply` first.")
+	cmd.Flags().StringVarP(&authConfigPath, "access-control-path", "a", "", "The path to the access control config file. Required for cloud environments.")
 	return cmd
 }
 
@@ -511,7 +511,7 @@ PromptPublicKey:
 	return dockerinstall.RenderConfig(templateValues, configFile)
 }
 
-func generateCloudConfig(ctx context.Context, authConfig *cloudinstall.AuthConfig, configFile *os.File) error {
+func generateCloudConfig(ctx context.Context, authConfig *cloudinstall.AccessControlConfig, configFile *os.File) error {
 	if _, err := exec.LookPath("az"); err != nil {
 		return errors.New("please install the Azure CLI (az) first")
 	}

@@ -31,35 +31,35 @@ const permissionScopeValue = "Read.Write"
 const tygerOwnerRoleValue = "owner"
 const tygerContributorRoleValue = "contributor"
 
-//go:embed auth-pretty.tpl
+//go:embed access-control-pretty.tpl
 var prettyPrintRbacTemplate string
 
-func ParseAuthConfigFromFile(filePath string) (*AuthConfig, error) {
+func ParseAccessControlConfigFromFile(filePath string) (*AccessControlConfig, error) {
 	koanfConfig := koanf.New(".")
 
 	if err := koanfConfig.Load(file.Provider(filePath), kaonfyamlparser.Parser()); err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
 
-	authConfig := &AuthConfig{}
+	accessControlConfig := &AccessControlConfig{}
 	unmarshalConf := koanf.UnmarshalConf{
 		Tag: "json",
 		DecoderConfig: &mapstructure.DecoderConfig{
 			WeaklyTypedInput: true,
 			ErrorUnused:      true,
 			Squash:           true,
-			Result:           &authConfig,
+			Result:           &accessControlConfig,
 		},
 	}
 
-	if err := koanfConfig.UnmarshalWithConf("", &authConfig, unmarshalConf); err != nil {
+	if err := koanfConfig.UnmarshalWithConf("", &accessControlConfig, unmarshalConf); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
-	return authConfig, nil
+	return accessControlConfig, nil
 }
 
-func CompleteAuthConfig(ctx context.Context, config *AuthConfig, cred azcore.TokenCredential) error {
+func CompleteAcessControlConfig(ctx context.Context, config *AccessControlConfig, cred azcore.TokenCredential) error {
 	serverApp, err := GetAppByAppIdOrUri(ctx, cred, config.ApiAppId, config.ApiAppUri)
 	if err != nil {
 		if err != errNotFound {
@@ -100,29 +100,29 @@ func CompleteAuthConfig(ctx context.Context, config *AuthConfig, cred azcore.Tok
 	return nil
 }
 
-func ApplyAuthConfig(ctx context.Context, authConfig *AuthConfig, cred azcore.TokenCredential) (*AuthConfig, error) {
-	if err := installIdentities(ctx, authConfig, cred); err != nil {
+func ApplyAccessControlConfig(ctx context.Context, accessControlConfig *AccessControlConfig, cred azcore.TokenCredential) (*AccessControlConfig, error) {
+	if err := installIdentities(ctx, accessControlConfig, cred); err != nil {
 		return nil, err
 	}
 
-	normalizedAssignments, err := ApplyRbacAssignments(ctx, cred, authConfig)
+	normalizedAssignments, err := ApplyRbacAssignments(ctx, cred, accessControlConfig)
 	if err != nil {
 		return nil, err
 	}
 
-	authConfig.RoleAssignments = normalizedAssignments
-	return authConfig, nil
+	accessControlConfig.RoleAssignments = normalizedAssignments
+	return accessControlConfig, nil
 }
 
-func installIdentities(ctx context.Context, authConfig *AuthConfig, cred azcore.TokenCredential) error {
-	serverApp, err := createOrUpdateServerApp(ctx, authConfig, cred)
+func installIdentities(ctx context.Context, accessControlConfig *AccessControlConfig, cred azcore.TokenCredential) error {
+	serverApp, err := createOrUpdateServerApp(ctx, accessControlConfig, cred)
 	if err != nil {
 		return err
 	}
 
-	authConfig.ApiAppId = serverApp.AppId
-	if authConfig.ApiAppUri == "" {
-		authConfig.ApiAppUri = serverApp.IdentifierUris[0]
+	accessControlConfig.ApiAppId = serverApp.AppId
+	if accessControlConfig.ApiAppUri == "" {
+		accessControlConfig.ApiAppUri = serverApp.IdentifierUris[0]
 	}
 
 	if _, err := GetServicePrincipalByAppId(ctx, cred, serverApp.AppId); err != nil {
@@ -134,14 +134,14 @@ func installIdentities(ctx context.Context, authConfig *AuthConfig, cred azcore.
 		}
 	}
 
-	cliApp, err := createOrUpdateCliApp(ctx, authConfig, serverApp, cred)
+	cliApp, err := createOrUpdateCliApp(ctx, accessControlConfig, serverApp, cred)
 	if err != nil {
 		return err
 	}
 
-	authConfig.CliAppId = cliApp.AppId
-	if authConfig.CliAppUri == "" {
-		authConfig.CliAppUri = cliApp.IdentifierUris[0]
+	accessControlConfig.CliAppId = cliApp.AppId
+	if accessControlConfig.CliAppUri == "" {
+		accessControlConfig.CliAppUri = cliApp.IdentifierUris[0]
 	}
 
 	if _, err := GetServicePrincipalByAppId(ctx, cred, cliApp.AppId); err != nil {
@@ -160,16 +160,16 @@ func installIdentities(ctx context.Context, authConfig *AuthConfig, cred azcore.
 	return nil
 }
 
-func createOrUpdateServerApp(ctx context.Context, authConfig *AuthConfig, cred azcore.TokenCredential) (*aadApp, error) {
-	if authConfig.ApiAppId == "" && authConfig.ApiAppUri == "" {
+func createOrUpdateServerApp(ctx context.Context, accessControlConfig *AccessControlConfig, cred azcore.TokenCredential) (*aadApp, error) {
+	if accessControlConfig.ApiAppId == "" && accessControlConfig.ApiAppUri == "" {
 		return nil, errors.New("`apiAppUri` must be set")
 	}
 
-	app, err := GetAppByAppIdOrUri(ctx, cred, authConfig.ApiAppId, authConfig.ApiAppUri)
+	app, err := GetAppByAppIdOrUri(ctx, cred, accessControlConfig.ApiAppId, accessControlConfig.ApiAppUri)
 	if err != nil {
 		if err == errNotFound {
 			app = &aadApp{
-				IdentifierUris: []string{authConfig.ApiAppUri},
+				IdentifierUris: []string{accessControlConfig.ApiAppUri},
 				Api:            &aadAppApi{},
 			}
 		} else {
@@ -182,7 +182,7 @@ func createOrUpdateServerApp(ctx context.Context, authConfig *AuthConfig, cred a
 	if app.Api.RequestedAccessTokenVersion == 0 {
 		app.Api.RequestedAccessTokenVersion = 2
 	}
-	app.ServiceManagementReference = authConfig.ServiceManagementReference
+	app.ServiceManagementReference = accessControlConfig.ServiceManagementReference
 
 	var ownerAppRole *aadAppRole
 	if idx := slices.IndexFunc(app.AppRoles, func(role *aadAppRole) bool {
@@ -240,10 +240,10 @@ func createOrUpdateServerApp(ctx context.Context, authConfig *AuthConfig, cred a
 	scope.UserConsentDisplayName = valueOrDefault(scope.UserConsentDisplayName, "Access Tyger API")
 
 	if err == errNotFound {
-		log.Ctx(ctx).Info().Msgf("Creating app %s", authConfig.ApiAppUri)
+		log.Ctx(ctx).Info().Msgf("Creating app %s", accessControlConfig.ApiAppUri)
 		err = executeGraphCall(ctx, cred, http.MethodPost, "https://graph.microsoft.com/beta/applications", app, &app)
 	} else {
-		log.Ctx(ctx).Info().Msgf("Updating app %s", authConfig.ApiAppUri)
+		log.Ctx(ctx).Info().Msgf("Updating app %s", accessControlConfig.ApiAppUri)
 		err = executeGraphCall(ctx, cred, http.MethodPatch, fmt.Sprintf("https://graph.microsoft.com/beta/applications/%s", app.Id), app, nil)
 	}
 
@@ -289,16 +289,16 @@ func addCliAsPreAuthorizedApp(ctx context.Context, serverApp, cliApp *aadApp, cr
 	return nil
 }
 
-func createOrUpdateCliApp(ctx context.Context, authConfig *AuthConfig, serverApp *aadApp, cred azcore.TokenCredential) (*aadApp, error) {
-	if authConfig.CliAppId == "" && authConfig.CliAppUri == "" {
+func createOrUpdateCliApp(ctx context.Context, accessControlConfig *AccessControlConfig, serverApp *aadApp, cred azcore.TokenCredential) (*aadApp, error) {
+	if accessControlConfig.CliAppId == "" && accessControlConfig.CliAppUri == "" {
 		return nil, errors.New("`cliAppUri` must be set")
 	}
 
-	app, err := GetAppByAppIdOrUri(ctx, cred, authConfig.CliAppId, authConfig.CliAppUri)
+	app, err := GetAppByAppIdOrUri(ctx, cred, accessControlConfig.CliAppId, accessControlConfig.CliAppUri)
 	if err != nil {
 		if err == errNotFound {
 			app = &aadApp{
-				IdentifierUris:         []string{authConfig.CliAppUri},
+				IdentifierUris:         []string{accessControlConfig.CliAppUri},
 				RequiredResourceAccess: []*aadAppRequiredResourceAccess{},
 			}
 		} else {
@@ -313,7 +313,7 @@ func createOrUpdateCliApp(ctx context.Context, authConfig *AuthConfig, serverApp
 		RedirectUris: []string{"http://localhost"},
 	}
 
-	app.ServiceManagementReference = authConfig.ServiceManagementReference
+	app.ServiceManagementReference = accessControlConfig.ServiceManagementReference
 
 	var requiredResourceAccess *aadAppRequiredResourceAccess
 	if idx := slices.IndexFunc(app.RequiredResourceAccess, func(resourceAccess *aadAppRequiredResourceAccess) bool {
@@ -344,10 +344,10 @@ func createOrUpdateCliApp(ctx context.Context, authConfig *AuthConfig, serverApp
 	}
 
 	if err == errNotFound {
-		log.Ctx(ctx).Info().Msgf("Creating app %s", authConfig.CliAppUri)
+		log.Ctx(ctx).Info().Msgf("Creating app %s", accessControlConfig.CliAppUri)
 		err = executeGraphCall(ctx, cred, http.MethodPost, "https://graph.microsoft.com/beta/applications", app, &app)
 	} else {
-		log.Ctx(ctx).Info().Msgf("Updating app %s", authConfig.CliAppUri)
+		log.Ctx(ctx).Info().Msgf("Updating app %s", accessControlConfig.CliAppUri)
 		err = executeGraphCall(ctx, cred, http.MethodPatch, fmt.Sprintf("https://graph.microsoft.com/beta/applications/%s", app.Id), app, nil)
 	}
 
@@ -365,8 +365,8 @@ func valueOrDefault(value, defaultValue string) string {
 	return value
 }
 
-func getRbacAssignments(ctx context.Context, cred azcore.TokenCredential, authConfig *AuthConfig) (*TygerRbacRoleAssignments, error) {
-	serverSp, err := GetServicePrincipalByUri(ctx, cred, authConfig.ApiAppUri)
+func getRbacAssignments(ctx context.Context, cred azcore.TokenCredential, accessControlConfig *AccessControlConfig) (*TygerRbacRoleAssignments, error) {
+	serverSp, err := GetServicePrincipalByUri(ctx, cred, accessControlConfig.ApiAppUri)
 	if err != nil {
 		if err == errNotFound {
 			return nil, errors.New("run `tyger apply -f` first to create the service principals")
@@ -399,7 +399,7 @@ func getRoleIds(serverSp *aadServicePrincipal) (roleIds, error) {
 	}
 
 	if roleIds.ownerRoleId == "" || roleIds.contributorRoleId == "" {
-		return roleIds, errors.New("run `tyger auth apply` first to create the app roles")
+		return roleIds, errors.New("run `tyger access-control apply` first to create the app roles")
 	}
 
 	return roleIds, nil
@@ -462,40 +462,40 @@ func getAssignments(ctx context.Context, cred azcore.TokenCredential, serverSp *
 	return assignments, nil
 }
 
-func ApplyRbacAssignments(ctx context.Context, cred azcore.TokenCredential, desiredAuthConfig *AuthConfig) (*TygerRbacRoleAssignments, error) {
-	if desiredAuthConfig.RoleAssignments == nil {
-		desiredAuthConfig.RoleAssignments = &TygerRbacRoleAssignments{}
+func ApplyRbacAssignments(ctx context.Context, cred azcore.TokenCredential, desiredAccessControlConfig *AccessControlConfig) (*TygerRbacRoleAssignments, error) {
+	if desiredAccessControlConfig.RoleAssignments == nil {
+		desiredAccessControlConfig.RoleAssignments = &TygerRbacRoleAssignments{}
 	}
 
-	if desiredAuthConfig.RoleAssignments.Owner == nil {
-		desiredAuthConfig.RoleAssignments.Owner = []TygerRbacRoleAssignment{}
+	if desiredAccessControlConfig.RoleAssignments.Owner == nil {
+		desiredAccessControlConfig.RoleAssignments.Owner = []TygerRbacRoleAssignment{}
 	}
-	if desiredAuthConfig.RoleAssignments.Contributor == nil {
-		desiredAuthConfig.RoleAssignments.Contributor = []TygerRbacRoleAssignment{}
+	if desiredAccessControlConfig.RoleAssignments.Contributor == nil {
+		desiredAccessControlConfig.RoleAssignments.Contributor = []TygerRbacRoleAssignment{}
 	}
 
 	log.Info().Msgf("Validating requested assignments")
-	for i, assignment := range desiredAuthConfig.RoleAssignments.Owner {
+	for i, assignment := range desiredAccessControlConfig.RoleAssignments.Owner {
 		normalizedPrincipal, err := normalizePrincipal(ctx, cred, assignment.Principal)
 		if err != nil {
 			return nil, err
 		}
-		desiredAuthConfig.RoleAssignments.Owner[i].Principal = normalizedPrincipal
+		desiredAccessControlConfig.RoleAssignments.Owner[i].Principal = normalizedPrincipal
 	}
 
-	for i, assignment := range desiredAuthConfig.RoleAssignments.Contributor {
+	for i, assignment := range desiredAccessControlConfig.RoleAssignments.Contributor {
 		normalizedPrincipal, err := normalizePrincipal(ctx, cred, assignment.Principal)
 		if err != nil {
 			return nil, err
 		}
-		desiredAuthConfig.RoleAssignments.Contributor[i].Principal = normalizedPrincipal
+		desiredAccessControlConfig.RoleAssignments.Contributor[i].Principal = normalizedPrincipal
 	}
 
 	log.Info().Msgf("Getting existing assignments")
-	serverSp, err := GetServicePrincipalByUri(ctx, cred, desiredAuthConfig.ApiAppUri)
+	serverSp, err := GetServicePrincipalByUri(ctx, cred, desiredAccessControlConfig.ApiAppUri)
 	if err != nil {
 		if err == errNotFound {
-			return nil, errors.New("run `tyger auth apply` first to create the service principals")
+			return nil, errors.New("run `tyger access-control apply` first to create the service principals")
 		}
 
 		return nil, err
@@ -511,15 +511,15 @@ func ApplyRbacAssignments(ctx context.Context, cred azcore.TokenCredential, desi
 		return nil, fmt.Errorf("failed to get existing assignments: %w", err)
 	}
 
-	if err := processRoleAssignmenChanges(ctx, cred, serverSp, desiredAuthConfig.RoleAssignments.Owner, existingAssignments.Owner, roleIds.ownerRoleId, tygerOwnerRoleValue); err != nil {
+	if err := processRoleAssignmenChanges(ctx, cred, serverSp, desiredAccessControlConfig.RoleAssignments.Owner, existingAssignments.Owner, roleIds.ownerRoleId, tygerOwnerRoleValue); err != nil {
 		return nil, fmt.Errorf("failed to process owner role assignments: %w", err)
 	}
 
-	if err := processRoleAssignmenChanges(ctx, cred, serverSp, desiredAuthConfig.RoleAssignments.Contributor, existingAssignments.Contributor, roleIds.contributorRoleId, tygerContributorRoleValue); err != nil {
+	if err := processRoleAssignmenChanges(ctx, cred, serverSp, desiredAccessControlConfig.RoleAssignments.Contributor, existingAssignments.Contributor, roleIds.contributorRoleId, tygerContributorRoleValue); err != nil {
 		return nil, fmt.Errorf("failed to process owner contributor assignments: %w", err)
 	}
 
-	return desiredAuthConfig.RoleAssignments, nil
+	return desiredAccessControlConfig.RoleAssignments, nil
 }
 
 func processRoleAssignmenChanges(ctx context.Context, cred azcore.TokenCredential, serverSp *aadServicePrincipal, desiredAssignments, existingAssignments []TygerRbacRoleAssignment, roleId, roleName string) error {
@@ -647,13 +647,13 @@ func normalizePrincipal(ctx context.Context, cred azcore.TokenCredential, princi
 	return principal, nil
 }
 
-func PrettyPrintAuthConfig(authConfig *AuthConfig, writer io.Writer) error {
-	if authConfig == nil {
-		authConfig = &AuthConfig{}
+func PrettyPrintAccessControlConfig(accessControlConfig *AccessControlConfig, writer io.Writer) error {
+	if accessControlConfig == nil {
+		accessControlConfig = &AccessControlConfig{}
 	}
 
-	if authConfig.RoleAssignments == nil {
-		authConfig.RoleAssignments = &TygerRbacRoleAssignments{}
+	if accessControlConfig.RoleAssignments == nil {
+		accessControlConfig.RoleAssignments = &TygerRbacRoleAssignments{}
 	}
 
 	funcMap := sprig.FuncMap()
@@ -675,5 +675,5 @@ func PrettyPrintAuthConfig(authConfig *AuthConfig, writer io.Writer) error {
 	}
 
 	t := template.Must(template.New("config").Funcs(funcMap).Parse(prettyPrintRbacTemplate))
-	return t.Execute(writer, authConfig)
+	return t.Execute(writer, accessControlConfig)
 }

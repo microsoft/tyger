@@ -85,14 +85,14 @@ set-localsettings: set-context
 			"serviceMetadata": {
 				"externalBaseUrl": "http://localhost:5000"
 			},
-			"auth": {
+			"accessControl": {
 				"enabled": "${SECURITY_ENABLED}",
-				"authority": "https://login.microsoftonline.com/$$(echo $${org_json} | jq -r '.api.auth.tenantId')",
-				"audience": "$$(echo $${org_json} | jq -r '.api.auth.apiAppId')",
-				"apiAppId": "$$(echo $${org_json} | jq -r '.api.auth.apiAppId')",
-				"apiAppUri": "$$(echo $${org_json} | jq -r '.api.auth.apiAppUri')",
-				"cliAppUri": "$$(echo $${org_json} | jq -r '.api.auth.cliAppUri')",
-				"cliAppId": "$$(echo $${org_json} | jq -r '.api.auth.cliAppId')"
+				"authority": "https://login.microsoftonline.com/$$(echo $${org_json} | jq -r '.api.accessControl.tenantId')",
+				"audience": "$$(echo $${org_json} | jq -r '.api.accessControl.apiAppId')",
+				"apiAppId": "$$(echo $${org_json} | jq -r '.api.accessControl.apiAppId')",
+				"apiAppUri": "$$(echo $${org_json} | jq -r '.api.accessControl.apiAppUri')",
+				"cliAppUri": "$$(echo $${org_json} | jq -r '.api.accessControl.cliAppUri')",
+				"cliAppId": "$$(echo $${org_json} | jq -r '.api.accessControl.cliAppId')"
 			},
 			"compute": {
 				"kubernetes": {
