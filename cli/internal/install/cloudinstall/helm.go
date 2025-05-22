@@ -591,15 +591,14 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, org *Organizat
 				},
 				"custom": customIdentitiesValues,
 			},
-			"security": map[string]any{
-				"enabled":     true,
-				"rbacEnabled": true,
-				"authority":   cloud.AzurePublic.ActiveDirectoryAuthorityHost + org.Api.Auth.TenantID,
-				"audience":    org.Api.Auth.ApiAppUri,
-				"apiAppId":    org.Api.Auth.ApiAppId,
-				"apiAppUri":   org.Api.Auth.ApiAppUri,
-				"cliAppUri":   org.Api.Auth.CliAppUri,
-				"cliAppId":    org.Api.Auth.CliAppId,
+			"accessControl": map[string]any{
+				"enabled":   true,
+				"authority": cloud.AzurePublic.ActiveDirectoryAuthorityHost + org.Api.AccessControl.TenantID,
+				"audience":  org.Api.AccessControl.ApiAppUri,
+				"apiAppId":  org.Api.AccessControl.ApiAppId,
+				"apiAppUri": org.Api.AccessControl.ApiAppUri,
+				"cliAppUri": org.Api.AccessControl.CliAppUri,
+				"cliAppId":  org.Api.AccessControl.CliAppId,
 			},
 			"tls": map[string]any{
 				"letsEncrypt": map[string]any{

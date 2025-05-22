@@ -26,7 +26,7 @@ set-localsettings: ensure-data-plane-cert
 		{
 			"urls": "http://unix:$${install_path}/control-plane/tyger.sock",
 			"logging": { "Console": {"FormatterName": "simple" } },
-			"auth": {
+			"accessControl": {
 				"enabled": "false"
 			},
 			"compute": {

@@ -25,7 +25,7 @@ func TestConvertConfig(t *testing.T) {
 	newPath := path.Join(tempdir, "new-config.yaml")
 	require.NoError(t, os.WriteFile(oldPath, []byte(oldConfig), 0644))
 
-	authConfig := &cloudinstall.AuthConfig{
+	authConfig := &cloudinstall.AccessControlConfig{
 		TenantID:  "705ef40b-9fa6-45a3-ba0c-b7ced9af6dce",
 		ApiAppUri: "api://tyger-server",
 		ApiAppId:  uuid.New().String(),
@@ -39,7 +39,7 @@ func TestConvertConfig(t *testing.T) {
 	require.NoError(t, err)
 	defer authConfigFile.Close()
 
-	cloudinstall.PrettyPrintAuthConfig(authConfig, authConfigFile)
+	cloudinstall.PrettyPrintAccessControlConfig(authConfig, authConfigFile)
 	authConfigFile.Close()
 
 	errorBuf := bytes.Buffer{}

@@ -1,12 +1,8 @@
-# `rbacEnabled`, `tenantId`, `apiAppUri`, and `cliAppUri` must be provided.
-# The command `tyger auth apply` will fill in values for `apiAppId` and `cLiAppId`.
-# All five fields must be copied to the cloud installation configuration file
-# under the section `organizations[].api.auth`.
 
-rbacEnabled: true # Required. Indicates whether role-based access control is enabled.
 tenantId: 72f988bf-86f1-41af-91ab-2d7cd011db47
 apiAppUri: api://tyger-server
 cliAppUri: api://tyger-cli
+
 apiAppId: fc9d1bea-71ff-4cdb-8a07-69fa7df25f95
 cliAppId: 9985c0a8-7477-4ec8-a784-e24c90d98887
 

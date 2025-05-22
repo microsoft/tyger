@@ -20,9 +20,8 @@ identity:
 
   custom: [] # { name: abc, clientId: 123 }, ...
 
-security:
+accessControl:
   enabled: true
-  rbacEnabled: true
   authority:
   audience:
   apiAppUri:

@@ -9,9 +9,9 @@ using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.Net.Http.Headers;
 using Tyger.Common.Api;
 
-namespace Tyger.ControlPlane.Auth;
+namespace Tyger.ControlPlane.AccessControl;
 
-public static class Auth
+public static class AccessControl
 {
     private const string OwnerRoleName = "owner";
     private const string OwnerPolicyName = "owner";
@@ -30,9 +30,9 @@ public static class Auth
         { AtLeastContributorPolityName, [ ContributorRoleName, OwnerRoleName ] },
     };
 
-    public static void AddAuth(this IHostApplicationBuilder builder)
+    public static void AddAccessControl(this IHostApplicationBuilder builder)
     {
-        builder.Services.AddOptions<AuthOptions>().BindConfiguration("auth", o => o.ErrorOnUnknownConfiguration = true).ValidateDataAnnotations().ValidateOnStart();
+        builder.Services.AddOptions<AccessControlOptions>().BindConfiguration("accessControl", o => o.ErrorOnUnknownConfiguration = true).ValidateDataAnnotations().ValidateOnStart();
 
         builder.Services.AddAuthentication(options =>
             {
@@ -68,7 +68,7 @@ public static class Auth
             .AddJwtBearer(EntraV1Scheme)
             .AddJwtBearer(EntraV2Scheme);
 
-        builder.Services.AddOptions<JwtBearerOptions>(EntraV1Scheme).Configure<IOptions<AuthOptions>>((jwtOptions, securityConfiguration) =>
+        builder.Services.AddOptions<JwtBearerOptions>(EntraV1Scheme).Configure<IOptions<AccessControlOptions>>((jwtOptions, securityConfiguration) =>
         {
             if (securityConfiguration.Value.Enabled)
             {
@@ -80,7 +80,7 @@ public static class Auth
             }
         });
 
-        builder.Services.AddOptions<JwtBearerOptions>(EntraV2Scheme).Configure<IOptions<AuthOptions>>((jwtOptions, securityConfiguration) =>
+        builder.Services.AddOptions<JwtBearerOptions>(EntraV2Scheme).Configure<IOptions<AccessControlOptions>>((jwtOptions, securityConfiguration) =>
         {
             if (securityConfiguration.Value.Enabled)
             {
@@ -93,39 +93,26 @@ public static class Auth
         });
 
         builder.Services.AddAuthorization();
-        builder.Services.AddOptions<AuthorizationOptions>().Configure<IOptions<AuthOptions>>((authOptions, securityConfigurations) =>
+        builder.Services.AddOptions<AuthorizationOptions>().Configure<IOptions<AccessControlOptions>>((authOptions, securityConfigurations) =>
         {
-            bool authPoliciesAdded = false;
             if (securityConfigurations.Value.Enabled)
             {
                 authOptions.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
-
-                if (securityConfigurations.Value.Rbac.Enabled)
+                foreach ((var policy, var satisfyingRoles) in s_policyToSatisfyingRoles)
                 {
-                    foreach ((var policy, var satisfyingRoles) in s_policyToSatisfyingRoles)
+                    authOptions.AddPolicy(policy, builder =>
                     {
-                        authOptions.AddPolicy(policy, builder =>
-                        {
-                            builder.RequireAuthenticatedUser();
-                            builder.RequireRole(satisfyingRoles);
-                        });
-                    }
-
-                    authPoliciesAdded = true;
+                        builder.RequireAuthenticatedUser();
+                        builder.RequireRole(satisfyingRoles);
+                    });
                 }
             }
-
-            if (!authPoliciesAdded)
+            else
             {
                 foreach (var policy in s_policyToSatisfyingRoles)
                 {
                     authOptions.AddPolicy(policy.Key, builder =>
                     {
-                        if (securityConfigurations.Value.Enabled)
-                        {
-                            builder.RequireAuthenticatedUser();
-                        }
-
                         builder.RequireAssertion(context => true);
                     });
                 }
@@ -135,7 +122,7 @@ public static class Auth
 
     public static void UseAuth(this WebApplication app)
     {
-        if (app.Services.GetRequiredService<IOptions<AuthOptions>>().Value.Enabled)
+        if (app.Services.GetRequiredService<IOptions<AccessControlOptions>>().Value.Enabled)
         {
             app.UseAuthentication();
             app.UseAuthorization();
@@ -159,7 +146,7 @@ public static class Auth
     }
 }
 
-public class AuthOptions : IValidatableObject
+public class AccessControlOptions : IValidatableObject
 {
     public bool Enabled { get; set; } = true;
     public string? Authority { get; init; }
@@ -169,24 +156,11 @@ public class AuthOptions : IValidatableObject
     public string? CliAppUri { get; init; }
     public string? CliAppId { get; init; }
 
-    public RbacOptions Rbac { get; init; } = new();
-
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
-        if (!Enabled)
-        {
-            Rbac.Enabled = false;
-            yield break;
-        }
-
         if (string.IsNullOrWhiteSpace(Authority) || string.IsNullOrWhiteSpace(Audience))
         {
             yield return new ValidationResult("When security is enabled, Authority, Audience, and CliAppUri must be specified");
         }
     }
-}
-
-public class RbacOptions
-{
-    public bool Enabled { get; set; } = true;
 }

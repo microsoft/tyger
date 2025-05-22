@@ -9,7 +9,7 @@ using Tyger.Common.Logging;
 using Tyger.Common.Middleware;
 using Tyger.Common.Unix;
 using Tyger.Common.Versioning;
-using Tyger.ControlPlane.Auth;
+using Tyger.ControlPlane.AccessControl;
 using Tyger.ControlPlane.Buffers;
 using Tyger.ControlPlane.Codespecs;
 using Tyger.ControlPlane.Compute;
@@ -54,7 +54,7 @@ void RunServer()
     AddCommonServices(builder);
     builder.AddCodespecs();
     builder.AddLogArchive();
-    builder.AddAuth();
+    builder.AddAccessControl();
     builder.AddRuns();
     builder.AddApiVersioning();
     builder.AddOpenApi();
