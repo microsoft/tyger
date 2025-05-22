@@ -64,15 +64,14 @@ type BufferEndMetadata struct {
 }
 
 type Container struct {
-	lock        *sync.Mutex
-	accessUrl   *url.URL
-	refreshTime time.Time
-	ctx         context.Context
-	getNewUrl   func(context.Context) (*url.URL, error)
+	lock      *sync.Mutex
+	accessUrl *url.URL
+	ctx       context.Context
+	getNewUrl func(context.Context) (*url.URL, error)
 }
 
 func NewContainer(accessUrl *url.URL) *Container {
-	return &Container{accessUrl: accessUrl}
+	return &Container{accessUrl: accessUrl, lock: &sync.Mutex{}}
 }
 
 func NewContainerFromAccessString(ctx context.Context, accessString string) (*Container, error) {
@@ -144,16 +143,11 @@ func newContainer(ctx context.Context, accessUrl *url.URL, getUrl func(context.C
 		}
 		accessUrl = url
 	}
-	refreshTime, err := getSasRefreshTime(accessUrl)
-	if err != nil {
-		return nil, err
-	}
 	c := &Container{
-		lock:        &sync.Mutex{},
-		accessUrl:   accessUrl,
-		refreshTime: refreshTime,
-		ctx:         ctx,
-		getNewUrl:   getUrl,
+		lock:      &sync.Mutex{},
+		accessUrl: accessUrl,
+		ctx:       ctx,
+		getNewUrl: getUrl,
 	}
 	return c, nil
 }
@@ -162,51 +156,62 @@ func (c *Container) SetContext(ctx context.Context) {
 	c.ctx = ctx
 }
 
-func (c *Container) GetAccessUrl() *url.URL {
-	if c.lock == nil {
-		return c.accessUrl
-	}
+// CurrentAccessUrl returns the current access URL without attempting to refresh.
+func (c *Container) CurrentAccessUrl() *url.URL {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return c.accessUrl
+}
 
+// GetValidAccessUrl returns a valid access URL, refreshing it if necessary.
+func (c *Container) GetValidAccessUrl() (*url.URL, error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	if time.Until(c.refreshTime) > 0 {
-		return c.accessUrl
+	// Does the URL need to be refreshed?
+	refreshTime, err := calculateProactiveSasRefreshTime(c.accessUrl)
+	if err != nil {
+		return c.accessUrl, err
+	}
+	if time.Until(refreshTime) > 0 {
+		return c.accessUrl, nil
 	}
 
-	retryCount := 0
-	for retryCount = 0; retryCount < 5; retryCount++ {
+	// Attempt to refresh
+	const MaxRetries = 5
+	for retryCount := 0; retryCount < MaxRetries; retryCount++ {
 
 		select {
 		case <-c.ctx.Done():
-			return c.accessUrl
+			return c.accessUrl, c.ctx.Err()
 		default:
 		}
 
 		url, err := c.getNewUrl(c.ctx)
 		if err != nil {
-			log.Ctx(c.ctx).Error().Err(err).Msg("failed to get new access URL")
-		} else {
-			c.accessUrl = url
-			refreshTime, err := getSasRefreshTime(c.accessUrl)
-			if err != nil {
-				log.Ctx(c.ctx).Error().Err(err).Msg("failed to calculate access URL refresh time")
-			} else {
-				c.refreshTime = refreshTime
-				if time.Until(c.refreshTime) > 0 {
-					log.Ctx(c.ctx).Warn().Msgf("new access URL for %s needs refresh in %s", path.Base(c.accessUrl.Path), time.Until(c.refreshTime))
-					return c.accessUrl
-				}
-			}
+			return nil, fmt.Errorf("failed to get new access URL: %w", err)
 		}
 
-		log.Ctx(c.ctx).Warn().Msgf("access URL needs refreshed, retrying in %d seconds", retryCount+1)
-		time.Sleep(time.Duration(retryCount+1) * time.Second)
+		c.accessUrl = url
+
+		// Is the URL about to expire?
+		expiresAt, err := parseSasQueryTimestamp(c.accessUrl, "se")
+		if err != nil {
+			return nil, err
+		}
+		expired := time.Now().Add(2 * time.Second).After(expiresAt)
+		if expired {
+			log.Ctx(c.ctx).Trace().Msgf("access URL expired, retrying refresh in %d seconds", retryCount+1)
+			time.Sleep(time.Duration(retryCount+1) * time.Second)
+			continue
+		}
+
+		// Good to go
+		log.Ctx(c.ctx).Trace().Msgf("got new access URL for %s", path.Base(c.accessUrl.Path))
+		return c.accessUrl, nil
 	}
 
-	log.Ctx(c.ctx).Error().Msgf("failed to get a valid access URL after %d retries", retryCount)
-
-	return c.accessUrl
+	return nil, fmt.Errorf("failed to get a valid access URL after %d retries", MaxRetries)
 }
 
 func parseSasQueryTimestamp(accessUrl *url.URL, key string) (time.Time, error) {
@@ -225,7 +230,7 @@ func parseSasQueryTimestamp(accessUrl *url.URL, key string) (time.Time, error) {
 	return parsed, nil
 }
 
-func getSasRefreshTime(u *url.URL) (time.Time, error) {
+func calculateProactiveSasRefreshTime(u *url.URL) (time.Time, error) {
 	issuedAt, err := parseSasQueryTimestamp(u, "st")
 	if err != nil {
 		return time.Time{}, err
@@ -236,14 +241,8 @@ func getSasRefreshTime(u *url.URL) (time.Time, error) {
 	}
 
 	lifetime := expiresAt.Sub(issuedAt)
-
 	threshold := time.Duration(0.85*lifetime.Seconds()) * time.Second
-
 	return issuedAt.Add(threshold), nil
-}
-
-func (c *Container) JoinPath(pathElements ...string) string {
-	return c.GetAccessUrl().JoinPath(pathElements...).String()
 }
 
 func MakeBlobPath(blobNumber int64) string {
@@ -305,16 +304,16 @@ func MakeBlobPath(blobNumber int64) string {
 }
 
 func (c *Container) GetContainerName() string {
-	return path.Base(c.GetAccessUrl().Path)
+	return path.Base(c.CurrentAccessUrl().Path)
 }
 
 func (c *Container) SupportsRelay() bool {
-	relayParam, ok := c.GetAccessUrl().Query()["relay"]
+	relayParam, ok := c.CurrentAccessUrl().Query()["relay"]
 	return ok && len(relayParam) == 1 && relayParam[0] == "true"
 }
 
 func (c *Container) Scheme() string {
-	return c.GetAccessUrl().Scheme
+	return c.CurrentAccessUrl().Scheme
 }
 
 func AddCommonBlobRequestHeaders(header http.Header) {

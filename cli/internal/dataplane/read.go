@@ -319,7 +319,11 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, contain
 			}
 		}
 
-		req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, container.JoinPath(blobPath), nil)
+		containerUrl, err := container.GetValidAccessUrl()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get access URL: %w", err)
+		}
+		req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, containerUrl.JoinPath(blobPath).String(), nil)
 		if err != nil {
 			return nil, err
 		}
@@ -394,6 +398,8 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, contain
 				retriesDueToInvalidSas++
 				log.Ctx(ctx).Debug().Msg("SAS token expired, retrying")
 				continue
+			} else {
+				return nil, fmt.Errorf("failed to read blob: %w", client.RedactHttpError(err))
 			}
 		}
 		if err == errServerBusy || err == errOperationTimeout {

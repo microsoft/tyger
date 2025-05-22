@@ -14,7 +14,6 @@ import (
 	"io"
 	"iter"
 	"net/http"
-	"net/url"
 	"sync"
 	"time"
 
@@ -413,8 +412,11 @@ func writeStartMetadata(ctx context.Context, httpClient *retryablehttp.Client, c
 	bufferStartMetadata := BufferStartMetadata{Version: CurrentBufferFormatVersion}
 
 	// See if the start metadata blob already exists and error out if it does.
-	url := container.JoinPath(StartMetadataBlobName)
-	req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+	containerUrl, err := container.GetValidAccessUrl()
+	if err != nil {
+		return fmt.Errorf("failed to get access URL: %w", err)
+	}
+	req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodHead, containerUrl.JoinPath(StartMetadataBlobName).String(), nil)
 	if err != nil {
 		return fmt.Errorf("failed to create HEAD request: %w", err)
 	}
@@ -463,7 +465,11 @@ func uploadBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, 
 	start := time.Now()
 	retriesDueToInvalidSas := 0
 	for retryCount := 0; ; retryCount++ {
-		req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodPut, container.JoinPath(blobPath), body)
+		containerUrl, err := container.GetValidAccessUrl()
+		if err != nil {
+			return fmt.Errorf("failed to get access URL: %w", err)
+		}
+		req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodPut, containerUrl.JoinPath(blobPath).String(), body)
 		if err != nil {
 			return fmt.Errorf("unable to create request: %w", err)
 		}
@@ -497,7 +503,11 @@ func uploadBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, 
 			// When retrying failed writes, we might encounter the UnauthorizedBlobOverwrite if the original
 			// write went through. In such cases, we should follow up with a HEAD request to verify the
 			// Content-MD5 and x-ms-meta-cumulative_hash_chain match our expectations.
-			req, err := retryablehttp.NewRequest(http.MethodHead, container.JoinPath(blobPath), nil)
+			containerUrl, err = container.GetValidAccessUrl()
+			if err != nil {
+				return fmt.Errorf("failed to get access URL: %w", err)
+			}
+			req, err := retryablehttp.NewRequest(http.MethodHead, containerUrl.JoinPath(blobPath).String(), nil)
 			if err != nil {
 				return fmt.Errorf("unable to create HEAD request: %w", err)
 			}
@@ -526,8 +536,9 @@ func uploadBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, 
 				retriesDueToInvalidSas++
 				log.Ctx(ctx).Debug().Msg("SAS token expired, retrying")
 				continue
+			} else {
+				return fmt.Errorf("failed to upload blob: %w", client.RedactHttpError(err))
 			}
-			return err
 		case errServerBusy, errOperationTimeout:
 			// These errors indicate that we have hit the limit of what the Azure Storage service can handle.
 			// Note that the retryablehttp client will already have retried the request a number of times.
@@ -542,8 +553,8 @@ func uploadBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, 
 	}
 
 	if log.Ctx(ctx).GetLevel() >= zerolog.TraceLevel {
-		parsedUrl, _ := url.Parse(container.JoinPath(blobPath))
-		e := log.Ctx(ctx).Trace().Str("blobPath", parsedUrl.Path).Dur("duration", time.Since(start))
+		blobUrl := container.CurrentAccessUrl().JoinPath(blobPath)
+		e := log.Ctx(ctx).Trace().Str("blobPath", blobUrl.Path).Dur("duration", time.Since(start))
 		if bytesBody, ok := body.([]byte); ok {
 			e = e.Int("contentLength", len(bytesBody))
 		} else if body == nil {
