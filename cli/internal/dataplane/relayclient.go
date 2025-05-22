@@ -41,7 +41,7 @@ func relayWrite(ctx context.Context, httpClient *retryablehttp.Client, connectio
 
 	partiallyBufferedReader := NewPartiallyBufferedReader(inputReader, 64*1024)
 
-	containerUrl, err := container.GetValidAccessUrl()
+	containerUrl, err := container.GetValidAccessUrl(ctx)
 	if err != nil {
 		return fmt.Errorf("error getting access URL: %w", err)
 	}
@@ -89,7 +89,7 @@ func readRelay(ctx context.Context, httpClient *retryablehttp.Client, connection
 	httpClient = client.CloneRetryableClient(httpClient)
 	httpClient.HTTPClient.Timeout = 0
 
-	containerUrl, err := container.GetValidAccessUrl()
+	containerUrl, err := container.GetValidAccessUrl(ctx)
 	if err != nil {
 		return fmt.Errorf("error getting access URL: %w", err)
 	}
@@ -154,7 +154,7 @@ func relayErrorCodeToErr(errorCode string) error {
 
 func pingRelay(ctx context.Context, container *Container, httpClient *retryablehttp.Client, connectionType client.TygerConnectionType) error {
 	log.Ctx(ctx).Info().Msg("Attempting to connect to relay server...")
-	containerUrl, err := container.GetValidAccessUrl()
+	containerUrl, err := container.GetValidAccessUrl(ctx)
 	if err != nil {
 		return fmt.Errorf("error getting access URL: %w", err)
 	}

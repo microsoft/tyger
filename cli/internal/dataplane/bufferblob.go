@@ -66,7 +66,6 @@ type BufferEndMetadata struct {
 type Container struct {
 	lock      *sync.Mutex
 	accessUrl *url.URL
-	ctx       context.Context
 	getNewUrl func(context.Context) (*url.URL, error)
 }
 
@@ -146,14 +145,9 @@ func newContainer(ctx context.Context, accessUrl *url.URL, getUrl func(context.C
 	c := &Container{
 		lock:      &sync.Mutex{},
 		accessUrl: accessUrl,
-		ctx:       ctx,
 		getNewUrl: getUrl,
 	}
 	return c, nil
-}
-
-func (c *Container) SetContext(ctx context.Context) {
-	c.ctx = ctx
 }
 
 // CurrentAccessUrl returns the current access URL without attempting to refresh.
@@ -164,7 +158,7 @@ func (c *Container) CurrentAccessUrl() *url.URL {
 }
 
 // GetValidAccessUrl returns a valid access URL, refreshing it if necessary.
-func (c *Container) GetValidAccessUrl() (*url.URL, error) {
+func (c *Container) GetValidAccessUrl(ctx context.Context) (*url.URL, error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -182,12 +176,12 @@ func (c *Container) GetValidAccessUrl() (*url.URL, error) {
 	for retryCount := 0; retryCount < MaxRetries; retryCount++ {
 
 		select {
-		case <-c.ctx.Done():
-			return c.accessUrl, c.ctx.Err()
+		case <-ctx.Done():
+			return c.accessUrl, ctx.Err()
 		default:
 		}
 
-		url, err := c.getNewUrl(c.ctx)
+		url, err := c.getNewUrl(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get new access URL: %w", err)
 		}
@@ -201,13 +195,13 @@ func (c *Container) GetValidAccessUrl() (*url.URL, error) {
 		}
 		expired := time.Now().Add(2 * time.Second).After(expiresAt)
 		if expired {
-			log.Ctx(c.ctx).Trace().Msgf("access URL expired, retrying refresh in %d seconds", retryCount+1)
+			log.Ctx(ctx).Trace().Msgf("access URL expired, retrying refresh in %d seconds", retryCount+1)
 			time.Sleep(time.Duration(retryCount+1) * time.Second)
 			continue
 		}
 
 		// Good to go
-		log.Ctx(c.ctx).Trace().Msgf("got new access URL for %s", path.Base(c.accessUrl.Path))
+		log.Ctx(ctx).Trace().Msgf("got new access URL for %s", path.Base(c.accessUrl.Path))
 		return c.accessUrl, nil
 	}
 

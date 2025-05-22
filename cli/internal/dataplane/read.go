@@ -94,8 +94,6 @@ func Read(ctx context.Context, container *Container, outputWriter io.Writer, opt
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	container.SetContext(ctx)
-
 	if container.SupportsRelay() {
 		return readRelay(ctx, httpClient, readOptions.connectionType, container, outputWriter)
 	}
@@ -319,7 +317,7 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, contain
 			}
 		}
 
-		containerUrl, err := container.GetValidAccessUrl()
+		containerUrl, err := container.GetValidAccessUrl(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get access URL: %w", err)
 		}

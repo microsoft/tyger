@@ -120,8 +120,6 @@ func Write(ctx context.Context, container *Container, inputReader io.Reader, opt
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	container.SetContext(ctx)
-
 	if container.SupportsRelay() {
 		return relayWrite(ctx, httpClient, writeOptions.connectionType, container, inputReader)
 	}
@@ -412,7 +410,7 @@ func writeStartMetadata(ctx context.Context, httpClient *retryablehttp.Client, c
 	bufferStartMetadata := BufferStartMetadata{Version: CurrentBufferFormatVersion}
 
 	// See if the start metadata blob already exists and error out if it does.
-	containerUrl, err := container.GetValidAccessUrl()
+	containerUrl, err := container.GetValidAccessUrl(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get access URL: %w", err)
 	}
@@ -465,7 +463,7 @@ func uploadBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, 
 	start := time.Now()
 	retriesDueToInvalidSas := 0
 	for retryCount := 0; ; retryCount++ {
-		containerUrl, err := container.GetValidAccessUrl()
+		containerUrl, err := container.GetValidAccessUrl(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to get access URL: %w", err)
 		}
@@ -503,7 +501,7 @@ func uploadBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, 
 			// When retrying failed writes, we might encounter the UnauthorizedBlobOverwrite if the original
 			// write went through. In such cases, we should follow up with a HEAD request to verify the
 			// Content-MD5 and x-ms-meta-cumulative_hash_chain match our expectations.
-			containerUrl, err = container.GetValidAccessUrl()
+			containerUrl, err = container.GetValidAccessUrl(ctx)
 			if err != nil {
 				return fmt.Errorf("failed to get access URL: %w", err)
 			}
