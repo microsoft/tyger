@@ -86,10 +86,7 @@ organizations:
     api:
       domainName: lamna-${TYGER_ENVIRONMENT_NAME}.eminence.ms
       tlsCertificateProvider: KeyVault
-      auth:
-        tenantId: 76d3279b-830e-4bea-baf8-12863cdeba4c
-        apiAppUri: api://tyger-server
-        cliAppUri: api://tyger-cli
+      accessControlPath: ${TYGER_ENVIRONMENT_CONFIG_DIR}/accesscontrol-lamna.yml
       buffers:
         activeLifetime: 0.00:00
         softDeletedLifetime: 1.00:00
@@ -116,10 +113,12 @@ organizations:
     api:
       domainName: ${TYGER_ENVIRONMENT_NAME}-tyger.${TYGER_LOCATION}.cloudapp.azure.com
       tlsCertificateProvider: LetsEncrypt
-      auth:
+      accessControl:
         tenantId: 76d3279b-830e-4bea-baf8-12863cdeba4c
         apiAppUri: api://tyger-server
         cliAppUri: api://tyger-cli
+        apiAppId: e8229c82-a93e-4a2a-a983-d3ed35f2f62c
+        cliAppId: f13d0630-3b5f-4a9f-aafa-34bd3bb6062b
       buffers:
         activeLifetime: 0.00:00
         softDeletedLifetime: 1.00:00

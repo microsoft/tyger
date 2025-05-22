@@ -70,7 +70,7 @@ func newConfigValidateCommand() *cobra.Command {
 		Long:                  "Validate a config file",
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			c, err := parseConfigFromYamlFile(inputPath, nil, false)
+			c, err := parseConfigFromYamlFile(inputPath, false)
 			if err == nil {
 				err = c.(install.Config).QuickValidateConfig(cmd.Context())
 			}
@@ -118,7 +118,7 @@ func newConfigPrettyPrintCommand() *cobra.Command {
 
 			defer outputFile.Close()
 
-			if err := prettyPrintConfig(cmd.Context(), inputFile, outputFile); err != nil {
+			if err := prettyPrintConfig(cmd.Context(), inputPath, inputFile, outputFile); err != nil {
 				if !errors.Is(err, install.ErrAlreadyLoggedError) {
 					log.Fatal().AnErr("error", err).Msg("Failed to pretty print config file")
 				}
@@ -135,13 +135,13 @@ func newConfigPrettyPrintCommand() *cobra.Command {
 	return cmd
 }
 
-func prettyPrintConfig(ctx context.Context, input io.Reader, output io.Writer) error {
+func prettyPrintConfig(ctx context.Context, inputPath string, input io.Reader, output io.Writer) error {
 	inputBytes, err := io.ReadAll(input)
 	if err != nil {
 		return err
 	}
 
-	c, err := parseConfigFromYamlBytes(inputBytes, nil, false)
+	c, err := parseConfigFromYamlBytes(inputPath, inputBytes, false)
 	if err != nil {
 		return err
 	}
@@ -158,7 +158,7 @@ func prettyPrintConfig(ctx context.Context, input io.Reader, output io.Writer) e
 		return err
 	case *cloudinstall.CloudEnvironmentConfig:
 		// parse the config again to clear the fields that are set during validation
-		c, err = parseConfigFromYamlBytes(inputBytes, nil, false)
+		c, err = parseConfigFromYamlBytes(inputPath, inputBytes, false)
 		if err != nil {
 			return err
 		}
@@ -177,7 +177,7 @@ func prettyPrintConfig(ctx context.Context, input io.Reader, output io.Writer) e
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 
-	parsedPrettyConfig, err := parseConfigFromYamlBytes([]byte(outputContents), nil, false)
+	parsedPrettyConfig, err := parseConfigFromYamlBytes(inputPath, []byte(outputContents), false)
 	if err != nil {
 		return fmt.Errorf("failed to parse config: %w", err)
 	}
@@ -192,14 +192,15 @@ func prettyPrintConfig(ctx context.Context, input io.Reader, output io.Writer) e
 func newConfigConvertCommand() *cobra.Command {
 	inputPath := ""
 	outputPath := ""
+	accessControlConfigPath := ""
 
 	cmd := &cobra.Command{
-		Use:                   "convert -i FILE.yml -o FILE.yml",
+		Use:                   "convert -i FILE.yml -o FILE.yml [--access-control-output FILE.yml]",
 		Long:                  "Convert a config that was created for Tyger versions before v0.11.0.",
 		Short:                 "Convert a config that was created for Tyger versions before v0.11.0.",
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			err := convert(cmd.Context(), inputPath, outputPath)
+			err := convert(cmd.Context(), inputPath, outputPath, accessControlConfigPath)
 			if err != nil {
 				if !errors.Is(err, install.ErrAlreadyLoggedError) {
 					log.Fatal().AnErr("error", err).Send()
@@ -215,43 +216,57 @@ func newConfigConvertCommand() *cobra.Command {
 	cmd.Flags().StringVarP(&outputPath, "output", "o", "", "The path to the config file to create")
 	cmd.MarkFlagRequired("output")
 
+	cmd.Flags().StringVarP(&accessControlConfigPath, "access-control", "a", "", "The path to the access control config file that will be created for cloud environments.")
+
 	return cmd
 }
 
-func convert(ctx context.Context, inputPath string, outputPath string) error {
-	c, err := parseConfigFromYamlFile(inputPath, nil, true)
+func convert(ctx context.Context, inputPath string, outputPath string, accessControlConfigPath string) error {
+	c, err := parseConfigFromYamlFile(inputPath, true)
 	if err != nil {
 		return fmt.Errorf("failed to read config file: %w", err)
 	}
 
 	document := c.(map[string]any)
-	if document["organizations"] != nil {
-		return fmt.Errorf("the given config file appears to already be in the new format")
+
+	if kind, _ := document["kind"].(string); kind != "docker" {
+		if document["organizations"] != nil {
+			return fmt.Errorf("the given config file appears to already be in the new format")
+		}
+
+		if accessControlConfigPath == "" {
+			return errors.New("the --access-control flag is required for cloud environments")
+		}
+		authConfig, err := cloudinstall.ParseAccessControlConfigFromFile(accessControlConfigPath)
+		if err != nil {
+			return fmt.Errorf("failed to read access control config file: %w", err)
+		}
+
+		identities := safeGetAndRemove(document, "cloud.compute.identities")
+		storage := safeGetAndRemove(document, "cloud.storage")
+		api := safeGetAndRemove(document, "api")
+
+		if storage == nil || api == nil {
+			return fmt.Errorf("the given config file appears not to be have been valid")
+		}
+
+		if apiMap, ok := api.(map[string]any); ok {
+			apiMap["tlsCertificateProvider"] = string(cloudinstall.TlsCertificateProviderLetsEncrypt)
+			apiMap["auth"] = authConfig // TODO: FIX
+		}
+
+		org := map[string]any{
+			"name":                                "default",
+			"singleOrganizationCompatibilityMode": true,
+			"cloud": map[string]any{
+				"storage":    storage,
+				"identities": identities,
+			},
+			"api": api,
+		}
+
+		document["organizations"] = []any{org}
 	}
-
-	identities := safeGetAndRemove(document, "cloud.compute.identities")
-	storage := safeGetAndRemove(document, "cloud.storage")
-	api := safeGetAndRemove(document, "api")
-
-	if storage == nil || api == nil {
-		return fmt.Errorf("the given config file appears not to be have been valid")
-	}
-
-	if apiMap, ok := api.(map[string]any); ok {
-		apiMap["tlsCertificateProvider"] = string(cloudinstall.TlsCertificateProviderLetsEncrypt)
-	}
-
-	org := map[string]any{
-		"name":                                "default",
-		"singleOrganizationCompatibilityMode": true,
-		"cloud": map[string]any{
-			"storage":    storage,
-			"identities": identities,
-		},
-		"api": api,
-	}
-
-	document["organizations"] = []any{org}
 
 	buffer := bytes.Buffer{}
 	if err := yaml.NewEncoder(&buffer).Encode(document); err != nil {
@@ -269,7 +284,7 @@ func convert(ctx context.Context, inputPath string, outputPath string) error {
 
 	defer outputFile.Close()
 
-	if err := prettyPrintConfig(ctx, &buffer, outputFile); err != nil {
+	if err := prettyPrintConfig(ctx, inputPath, &buffer, outputFile); err != nil {
 		return fmt.Errorf("failed to pretty print config file: %w", err)
 	}
 
@@ -302,11 +317,12 @@ func safeGetAndRemove(m map[string]any, path string) any {
 
 func newConfigCreateCommand() *cobra.Command {
 	configPath := ""
+	authConfigPath := ""
 
 	cmd := &cobra.Command{
-		Use:                   "create -f FILE.yml",
+		Use:                   "create --config-path CONFIG.yml --access-control-path ACCESSCONTROL.yml",
 		Short:                 "Create a new config file",
-		Long:                  "Create a new config file",
+		Long:                  "Create a new config file. You must first have run `tyger access-control apply` first.",
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if _, err := os.Stat(configPath); err == nil {
@@ -353,7 +369,14 @@ func newConfigCreateCommand() *cobra.Command {
 
 			switch res.id {
 			case cloudinstall.EnvironmentKindCloud:
-				if err := generateCloudConfig(cmd.Context(), f); err != nil {
+				if authConfigPath == "" {
+					return errors.New("the --access-control-path flag is required for cloud environments")
+				}
+				authConfig, err := cloudinstall.ParseAccessControlConfigFromFile(authConfigPath)
+				if err != nil {
+					return fmt.Errorf("failed to read access control config file: %w", err)
+				}
+				if err := generateCloudConfig(cmd.Context(), authConfig, f); err != nil {
 					return err
 				}
 			case dockerinstall.EnvironmentKindDocker:
@@ -369,9 +392,10 @@ func newConfigCreateCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&configPath, "file", "f", "", "The path to the config file to create")
+	cmd.Flags().StringVarP(&configPath, "config-path", "c", "", "The path to the config file to create")
 	cmd.MarkFlagRequired("file")
 
+	cmd.Flags().StringVarP(&authConfigPath, "access-control-path", "a", "", "The path to the access control config file. Required for cloud environments.")
 	return cmd
 }
 
@@ -487,7 +511,7 @@ PromptPublicKey:
 	return dockerinstall.RenderConfig(templateValues, configFile)
 }
 
-func generateCloudConfig(ctx context.Context, configFile *os.File) error {
+func generateCloudConfig(ctx context.Context, authConfig *cloudinstall.AccessControlConfig, configFile *os.File) error {
 	if _, err := exec.LookPath("az"); err != nil {
 		return errors.New("please install the Azure CLI (az) first")
 	}
@@ -631,35 +655,7 @@ func generateCloudConfig(ctx context.Context, configFile *os.File) error {
 	}
 	templateValues.DomainName = fmt.Sprintf("%s%s", domainLabel, domainSuffix)
 
-	fmt.Printf("Now for the tenant associated with the Tyger service.\n\n")
-	input := confirmation.New("Do you want to use the same tenant for the Tyger service?", confirmation.Yes)
-	input.WrapMode = promptkit.WordWrap
-	sameTenant, err := input.RunPrompt()
-	if err != nil {
-		return err
-	}
-
-	if sameTenant {
-		templateValues.ApiTenantId = templateValues.TenantId
-	} else {
-		for {
-			res, err := chooseTenant(cred, "Choose a tenant for the Tyger service:", true)
-			if err != nil {
-				return err
-			}
-
-			if res == "other" {
-				fmt.Printf("Run 'az login' in another terminal window.\nPress any key when ready...\n\n")
-				getSingleKey()
-				continue
-			} else {
-				templateValues.ApiTenantId = res
-				break
-			}
-		}
-	}
-
-	err = cloudinstall.RenderConfig(templateValues, configFile)
+	err = cloudinstall.RenderConfig(templateValues, authConfig, configFile)
 	if err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}

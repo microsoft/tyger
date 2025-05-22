@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 using Microsoft.Extensions.Options;
-using Tyger.ControlPlane.Auth;
+using Tyger.ControlPlane.AccessControl;
 using Tyger.ControlPlane.Versioning;
 
 namespace Tyger.ControlPlane.ServiceMetadata;
@@ -14,7 +14,7 @@ public static class ServiceMetadata
         Model.ServiceMetadata? serviceMetadata = null;
         app.MapGet(
             "/metadata",
-            (IEnumerable<ICapabilitiesContributor> contributor, IOptions<AuthOptions> auth) =>
+            (IEnumerable<ICapabilitiesContributor> contributor, IOptions<AccessControlOptions> accessControl) =>
             {
                 if (serviceMetadata is null)
                 {
@@ -28,13 +28,17 @@ public static class ServiceMetadata
                         ApiVersions = apiVersionsSupported
                     };
 
-                    if (auth.Value.Enabled)
+                    if (accessControl.Value.Enabled)
                     {
                         serviceMetadata = serviceMetadata with
                         {
-                            Authority = auth.Value.Authority,
-                            Audience = auth.Value.Audience,
-                            CliAppUri = auth.Value.CliAppUri
+                            RbacEnabled = true,
+                            Authority = accessControl.Value.Authority,
+                            Audience = accessControl.Value.Audience,
+                            ApiAppUri = accessControl.Value.ApiAppUri,
+                            ApiAppId = accessControl.Value.ApiAppId,
+                            CliAppUri = accessControl.Value.CliAppUri,
+                            CliAppId = accessControl.Value.CliAppId,
                         };
                     }
                 }

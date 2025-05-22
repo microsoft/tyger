@@ -190,7 +190,7 @@ func attachToRunNoBufferIO(ctx context.Context, run model.Run, logs bool, logTim
 }
 
 func attachToRun(ctx context.Context, run model.Run, inputBufferParameter, outputBufferParameter string, blockSize int, writeDop int, readDop int, logs bool, logTimestamps bool, logSink io.Writer) error {
-	log.Logger = log.Logger.With().Int64("runId", run.Id).Logger()
+	ctx = log.Logger.With().Int64("runId", run.Id).Logger().WithContext(ctx)
 	log.Ctx(ctx).Info().Msg("Run created")
 	var inputSasUrl *url.URL
 	var outputSasUrl *url.URL

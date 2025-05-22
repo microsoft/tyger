@@ -6,6 +6,7 @@ package cloudinstall
 import (
 	"context"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"io"
 	"reflect"
@@ -28,6 +29,7 @@ const (
 
 type CloudEnvironmentConfig struct {
 	Kind            string       `json:"kind"`
+	FilePath        string       `json:"-"`
 	EnvironmentName string       `json:"environmentName"`
 	Cloud           *CloudConfig `json:"cloud"`
 
@@ -113,12 +115,36 @@ const (
 )
 
 type Principal struct {
-	ObjectId          string        `json:"objectId"`
-	UserPrincipalName string        `json:"userPrincipalName"`
-	Kind              PrincipalKind `json:"kind"`
+	Kind              PrincipalKind `json:"kind" yaml:"kind"`
+	ObjectId          string        `json:"objectId,omitempty" yaml:"objectId,omitempty"`
+	UserPrincipalName string        `json:"userPrincipalName,omitempty" yaml:"userPrincipalName,omitempty"`
+	DisplayName       string        `json:"displayName,omitempty" `
+}
+type TygerRbacRoleAssignment struct {
+	Principal
+	Details *aadAppRoleAssignment
+}
 
-	// Deprecated: Id is deprecated. Use ObjectId instead
-	Id string `json:"id"`
+func (a *TygerRbacRoleAssignment) UnmarshalJSON(data []byte) error {
+	return json.Unmarshal(data, &a.Principal)
+}
+
+func (a *TygerRbacRoleAssignment) String() string {
+	switch a.Principal.Kind {
+	case PrincipalKindUser:
+		return fmt.Sprintf("user '%s'", a.Principal.UserPrincipalName)
+	case PrincipalKindGroup:
+		return fmt.Sprintf("group '%s'", a.Principal.DisplayName)
+	case PrincipalKindServicePrincipal:
+		return fmt.Sprintf("service principal '%s'", a.Principal.DisplayName)
+	default:
+		panic(fmt.Sprintf("unknown principal kind '%s'", a.Principal.Kind))
+	}
+}
+
+type TygerRbacRoleAssignments struct {
+	Owner       []TygerRbacRoleAssignment `json:"owner" yaml:"owner"`
+	Contributor []TygerRbacRoleAssignment `json:"contributor" yaml:"contributor"`
 }
 
 func (c *ComputeConfig) GetApiHostCluster() *ClusterConfig {
@@ -220,15 +246,20 @@ const (
 type OrganizationApiConfig struct {
 	DomainName             string                  `json:"domainName"`
 	TlsCertificateProvider TlsCertificateProvider  `json:"tlsCertificateProvider"`
-	Auth                   *AuthConfig             `json:"auth"`
+	AccessControlPath      string                  `json:"accessControlPath"`
+	AccessControl          *AccessControlConfig    `json:"accessControl"`
 	Buffers                *BuffersConfig          `json:"buffers"`
 	Helm                   *OrganizationHelmConfig `json:"helm"`
 }
 
-type AuthConfig struct {
-	TenantID  string `json:"tenantId"`
-	ApiAppUri string `json:"apiAppUri"`
-	CliAppUri string `json:"cliAppUri"`
+type AccessControlConfig struct {
+	TenantID                   string                    `json:"tenantId"`
+	ApiAppUri                  string                    `json:"apiAppUri"`
+	ApiAppId                   string                    `json:"apiAppId"`
+	CliAppUri                  string                    `json:"cliAppUri"`
+	CliAppId                   string                    `json:"cliAppId"`
+	ServiceManagementReference string                    `json:"serviceManagementReference"`
+	RoleAssignments            *TygerRbacRoleAssignments `json:"roleAssignments"`
 }
 
 type OrganizationHelmConfig struct {
@@ -269,12 +300,11 @@ type ConfigTemplateValues struct {
 	BufferStorageAccountName string
 	LogsStorageAccountName   string
 	DomainName               string
-	ApiTenantId              string
 	CpuNodePoolMinCount      int32
 	GpuNodePoolMinCount      int32
 }
 
-func RenderConfig(templateValues ConfigTemplateValues, writer io.Writer) error {
+func RenderConfig(templateValues ConfigTemplateValues, authConfig *AccessControlConfig, writer io.Writer) error {
 	config := CloudEnvironmentConfig{
 		Kind:            EnvironmentKindCloud,
 		EnvironmentName: templateValues.EnvironmentName,
@@ -335,11 +365,7 @@ func RenderConfig(templateValues ConfigTemplateValues, writer io.Writer) error {
 				Api: &OrganizationApiConfig{
 					DomainName:             templateValues.DomainName,
 					TlsCertificateProvider: TlsCertificateProviderLetsEncrypt,
-					Auth: &AuthConfig{
-						TenantID:  templateValues.ApiTenantId,
-						ApiAppUri: "api://tyger-server",
-						CliAppUri: "api://tyger-cli",
-					},
+					AccessControl:          authConfig,
 				},
 			},
 		},

@@ -20,7 +20,8 @@ const (
 )
 
 type DockerEnvironmentConfig struct {
-	Kind string `json:"kind"`
+	Kind     string `json:"kind"`
+	FilePath string `json:"-"`
 
 	EnvironmentName string `json:"environmentName"`
 

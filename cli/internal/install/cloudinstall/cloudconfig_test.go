@@ -6,6 +6,7 @@ package cloudinstall
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
@@ -29,17 +30,25 @@ func TestRenderConfig(t *testing.T) {
 		BufferStorageAccountName: "acc1",
 		LogsStorageAccountName:   "acc2",
 		DomainName:               "me.westus.cloudapp.azure.com",
-		ApiTenantId:              "tenant2",
-		DatabaseServerName:       "dbserver",
+
+		DatabaseServerName: "dbserver",
+	}
+
+	authConfig := AccessControlConfig{
+		TenantID:  "tenant2",
+		ApiAppUri: "api://tyger-server",
+		ApiAppId:  uuid.New().String(),
+		CliAppUri: "api://tyger-cli",
+		CliAppId:  uuid.New().String(),
 	}
 
 	var buf bytes.Buffer
-
-	require.NoError(t, RenderConfig(values, &buf))
+	require.NoError(t, RenderConfig(values, &authConfig, &buf))
 
 	config := &CloudEnvironmentConfig{}
 
 	require.NoError(t, yaml.UnmarshalStrict(buf.Bytes(), &config))
+	fmt.Println(buf.String())
 
 	errorBuf := bytes.Buffer{}
 	ctx := zerolog.New(&errorBuf).WithContext(context.Background())
@@ -57,5 +66,5 @@ func TestRenderConfig(t *testing.T) {
 	require.Equal(t, values.BufferStorageAccountName, config.Organizations[0].Cloud.Storage.Buffers[0].Name)
 	require.Equal(t, values.LogsStorageAccountName, config.Organizations[0].Cloud.Storage.Logs.Name)
 	require.Equal(t, values.DomainName, config.Organizations[0].Api.DomainName)
-	require.Equal(t, values.ApiTenantId, config.Organizations[0].Api.Auth.TenantID)
+	require.Equal(t, authConfig, *config.Organizations[0].Api.AccessControl)
 }

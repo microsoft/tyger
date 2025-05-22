@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/mattn/go-ieproxy"
 	"github.com/pkg/errors"
@@ -187,6 +188,29 @@ func (c *TygerClient) ConnectionType() TygerConnectionType {
 	default:
 		return TygerConnectionTypeTcp
 	}
+}
+
+func (c *TygerClient) GetRoles(ctx context.Context) ([]string, error) {
+	tok, err := c.GetAccessToken(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	claims := jwt.MapClaims{}
+	if _, _, err := jwt.NewParser().ParseUnverified(tok, claims); err == nil {
+		roles, _ := claims["roles"].([]any)
+		if roles != nil {
+			roleStrings := []string{}
+			for _, role := range roles {
+				if roleString, ok := role.(string); ok {
+					roleStrings = append(roleStrings, roleString)
+				}
+			}
+			return roleStrings, nil
+		}
+	}
+
+	return []string{}, nil
 }
 
 type HttpTransportOption func(*http.Transport)

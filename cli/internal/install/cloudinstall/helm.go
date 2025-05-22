@@ -582,20 +582,23 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, org *Organizat
 				"tygerServer": map[string]any{
 					"name":             *tygerServerIdentity.Name,
 					"databaseRoleName": getDatabaseRoleName(org, *tygerServerIdentity.Name),
-					"clientId":         tygerServerIdentity.Properties.ClientID,
+					"clientId":         *tygerServerIdentity.Properties.ClientID,
 				},
 				"migrationRunner": map[string]any{
 					"name":             *migrationRunnerIdentity.Name,
 					"databaseRoleName": getDatabaseRoleName(org, *migrationRunnerIdentity.Name),
-					"clientId":         migrationRunnerIdentity.Properties.ClientID,
+					"clientId":         *migrationRunnerIdentity.Properties.ClientID,
 				},
 				"custom": customIdentitiesValues,
 			},
-			"security": map[string]any{
+			"accessControl": map[string]any{
 				"enabled":   true,
-				"authority": cloud.AzurePublic.ActiveDirectoryAuthorityHost + org.Api.Auth.TenantID,
-				"audience":  org.Api.Auth.ApiAppUri,
-				"cliAppUri": org.Api.Auth.CliAppUri,
+				"authority": cloud.AzurePublic.ActiveDirectoryAuthorityHost + org.Api.AccessControl.TenantID,
+				"audience":  org.Api.AccessControl.ApiAppUri,
+				"apiAppId":  org.Api.AccessControl.ApiAppId,
+				"apiAppUri": org.Api.AccessControl.ApiAppUri,
+				"cliAppUri": org.Api.AccessControl.CliAppUri,
+				"cliAppId":  org.Api.AccessControl.CliAppId,
 			},
 			"tls": map[string]any{
 				"letsEncrypt": map[string]any{
