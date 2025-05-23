@@ -86,7 +86,28 @@ organizations:
     api:
       domainName: lamna-${TYGER_ENVIRONMENT_NAME}.eminence.ms
       tlsCertificateProvider: KeyVault
-      accessControlPath: ${TYGER_ENVIRONMENT_CONFIG_DIR}/accesscontrol-lamna.yml
+      accessControl:
+        tenantId: 72f988bf-86f1-41af-91ab-2d7cd011db47
+        apiAppUri: api://tyger-server
+        cliAppUri: api://tyger-cli
+        apiAppId: fc9d1bea-71ff-4cdb-8a07-69fa7df25f95
+        cliAppId: 9985c0a8-7477-4ec8-a784-e24c90d98887
+        serviceManagementReference: 7933f882-e109-49d5-a771-e1be70099806
+        roleAssignments:
+          owner:
+            - kind: Group
+              objectId: 36043a62-1383-4012-95aa-44da0a4d8012
+              displayName: Biomedical Signal Processing Team ALT
+
+            - kind: ServicePrincipal
+              objectId: fef7e0d4-da9b-42ac-8707-5e206e04ea3a
+              displayName: tyger-client-owner
+
+          contributor:
+            - kind: ServicePrincipal
+              objectId: 15bf92f7-9210-480f-a6ad-8d576d0baac7
+              displayName: tyger-client-contributor
+
       buffers:
         activeLifetime: 0.00:00
         softDeletedLifetime: 1.00:00

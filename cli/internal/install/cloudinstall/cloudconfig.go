@@ -4,6 +4,7 @@
 package cloudinstall
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
 	"encoding/json"
@@ -28,9 +29,9 @@ const (
 )
 
 type CloudEnvironmentConfig struct {
-	install.ConfigCommon
-	EnvironmentName string       `json:"environmentName"`
-	Cloud           *CloudConfig `json:"cloud"`
+	install.ConfigCommon `json:",inline"`
+	EnvironmentName      string       `json:"environmentName"`
+	Cloud                *CloudConfig `json:"cloud"`
 
 	Organizations []*OrganizationConfig `json:"organizations"`
 }
@@ -117,11 +118,12 @@ type Principal struct {
 	Kind              PrincipalKind `json:"kind" yaml:"kind"`
 	ObjectId          string        `json:"objectId,omitempty" yaml:"objectId,omitempty"`
 	UserPrincipalName string        `json:"userPrincipalName,omitempty" yaml:"userPrincipalName,omitempty"`
-	DisplayName       string        `json:"displayName,omitempty" `
+	DisplayName       string        `json:"displayName,omitempty" yaml:"displayName,omitempty"`
 }
+
 type TygerRbacRoleAssignment struct {
-	Principal
-	Details *aadAppRoleAssignment
+	Principal `json:",inline"`
+	Details   *aadAppRoleAssignment `json:"-"`
 }
 
 func (a *TygerRbacRoleAssignment) UnmarshalJSON(data []byte) error {
@@ -245,7 +247,6 @@ const (
 type OrganizationApiConfig struct {
 	DomainName             string                  `json:"domainName"`
 	TlsCertificateProvider TlsCertificateProvider  `json:"tlsCertificateProvider"`
-	AccessControlPath      string                  `json:"accessControlPath"`
 	AccessControl          *AccessControlConfig    `json:"accessControl"`
 	Buffers                *BuffersConfig          `json:"buffers"`
 	Helm                   *OrganizationHelmConfig `json:"helm"`
@@ -387,6 +388,16 @@ func funcMap() template.FuncMap {
 	f["renderHelm"] = renderHelm
 	f["renderSharedHelm"] = renderSharedHelm
 	f["renderOrgHelm"] = renderOrgHelm
+	f["renderAccessControlConfig"] = func(config *AccessControlConfig) string {
+		buf := bytes.Buffer{}
+		err := PrettyPrintAccessControlConfig(config, &buf)
+		if err != nil {
+			log.Fatal().Err(err).Msg("failed to pretty print access control config")
+		}
+
+		return buf.String()
+	}
+
 	return f
 }
 

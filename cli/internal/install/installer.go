@@ -51,8 +51,7 @@ type Installer interface {
 }
 
 type ConfigCommon struct {
-	Kind     string `json:"kind"`
-	FilePath string `json:"-"`
+	Kind string `json:"kind"`
 }
 
 type ValidatableConfig interface {

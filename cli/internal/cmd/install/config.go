@@ -75,7 +75,7 @@ func newConfigValidateCommand() *cobra.Command {
 				log.Fatal().AnErr("error", err).Msg("Failed to read config file")
 			}
 
-			c, err := parseConfigFromYamlBytes(inputPath, yamlBytes)
+			c, err := parseConfigFromYamlBytes(yamlBytes)
 			if err == nil {
 				err = c.QuickValidateConfig(cmd.Context())
 			}
@@ -123,7 +123,7 @@ func newConfigPrettyPrintCommand() *cobra.Command {
 
 			defer outputFile.Close()
 
-			if err := prettyPrintConfig(cmd.Context(), inputPath, inputFile, outputFile); err != nil {
+			if err := prettyPrintConfig(cmd.Context(), inputFile, outputFile); err != nil {
 				if !errors.Is(err, install.ErrAlreadyLoggedError) {
 					log.Fatal().AnErr("error", err).Msg("Failed to pretty print config file")
 				}
@@ -140,13 +140,13 @@ func newConfigPrettyPrintCommand() *cobra.Command {
 	return cmd
 }
 
-func prettyPrintConfig(ctx context.Context, inputPath string, input io.Reader, output io.Writer) error {
+func prettyPrintConfig(ctx context.Context, input io.Reader, output io.Writer) error {
 	inputBytes, err := io.ReadAll(input)
 	if err != nil {
 		return err
 	}
 
-	c, err := parseConfigFromYamlBytes(inputPath, inputBytes)
+	c, err := parseConfigFromYamlBytes(inputBytes)
 	if err != nil {
 		return err
 	}
@@ -163,7 +163,7 @@ func prettyPrintConfig(ctx context.Context, inputPath string, input io.Reader, o
 		return err
 	case *cloudinstall.CloudEnvironmentConfig:
 		// parse the config again to clear the fields that are set during validation
-		c, err = parseConfigFromYamlBytes(inputPath, inputBytes)
+		c, err = parseConfigFromYamlBytes(inputBytes)
 		if err != nil {
 			return err
 		}
@@ -182,12 +182,12 @@ func prettyPrintConfig(ctx context.Context, inputPath string, input io.Reader, o
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 
-	parsedPrettyConfig, err := parseConfigFromYamlBytes(inputPath, []byte(outputContents))
+	parsedPrettyConfig, err := parseConfigFromYamlBytes([]byte(outputContents))
 	if err != nil {
 		return fmt.Errorf("failed to parse config: %w", err)
 	}
 
-	if err := parsedPrettyConfig.(install.ValidatableConfig).QuickValidateConfig(ctx); err != nil {
+	if err := parsedPrettyConfig.QuickValidateConfig(ctx); err != nil {
 		return fmt.Errorf("validation failed on pretty printed config: %w", err)
 	}
 
@@ -205,7 +205,7 @@ func newConfigConvertCommand() *cobra.Command {
 		Short:                 "Convert a config that was created for Tyger versions before v0.11.0.",
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			err := convert(cmd.Context(), inputPath, outputPath, accessControlConfigPath)
+			err := convert(cmd.Context(), inputPath, outputPath)
 			if err != nil {
 				if !errors.Is(err, install.ErrAlreadyLoggedError) {
 					log.Fatal().AnErr("error", err).Send()
@@ -226,13 +226,13 @@ func newConfigConvertCommand() *cobra.Command {
 	return cmd
 }
 
-func convert(ctx context.Context, inputPath string, outputPath string, accessControlConfigPath string) error {
+func convert(ctx context.Context, inputPath string, outputPath string) error {
 	yamlBytes, err := os.ReadFile(inputPath)
 	if err != nil {
 		return fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	document, err := parseConfigFromYamlBytesToMap(inputPath, yamlBytes)
+	document, err := parseConfigFromYamlBytesToMap(yamlBytes)
 	if err != nil {
 		return err
 	}
@@ -284,7 +284,7 @@ func convert(ctx context.Context, inputPath string, outputPath string, accessCon
 
 	defer outputFile.Close()
 
-	if err := prettyPrintConfig(ctx, inputPath, &buffer, outputFile); err != nil {
+	if err := prettyPrintConfig(ctx, &buffer, outputFile); err != nil {
 		return fmt.Errorf("failed to pretty print config file: %w", err)
 	}
 

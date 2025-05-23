@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net"
 	"net/url"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -469,26 +468,9 @@ func quickValidateApiConfig(ctx context.Context, success *bool, config *CloudEnv
 		validationError(ctx, success, "The `api.tlsCertificateProvider` field must be one of %s for organization '%s'", []TlsCertificateProvider{TlsCertificateProviderKeyVault, TlsCertificateProviderLetsEncrypt}, org.Name)
 	}
 
-	if apiConfig.AccessControlPath == "" && apiConfig.AccessControl == nil {
-		validationError(ctx, success, "Either the `api.accessControlPath` or `api.accessControl` field is required for organization '%s'", org.Name)
-	} else if apiConfig.AccessControlPath != "" && apiConfig.AccessControl != nil {
-		validationError(ctx, success, "Only one of `api.accessControlPath` or `api.accessControl` field can be specified for organization '%s'", org.Name)
-	} else if apiConfig.AccessControlPath != "" {
-		var err error
-		if !filepath.IsAbs(apiConfig.AccessControlPath) {
-			if absDir, err := filepath.Abs(filepath.Dir(config.FilePath)); err == nil {
-				apiConfig.AccessControlPath = filepath.Join(absDir, apiConfig.AccessControlPath)
-			} else {
-				validationError(ctx, success, "Unable to get absolute path for access control configuration file '%s' for organization '%s': %v", apiConfig.AccessControlPath, org.Name, err)
-			}
-		}
-		apiConfig.AccessControl, err = ParseAccessControlConfigFromFile(apiConfig.AccessControlPath)
-		if err != nil {
-			validationError(ctx, success, "Unable to load access control configuration file '%s' for organization '%s': %v", apiConfig.AccessControlPath, org.Name, err)
-		}
-	}
-
-	if apiConfig.AccessControl != nil {
+	if apiConfig.AccessControl == nil {
+		validationError(ctx, success, "The `api.accessControl` field is required for organization '%s'", org.Name)
+	} else {
 		quickValidateAuthConfig(ctx, success, apiConfig.AccessControl, org)
 	}
 
@@ -518,42 +500,36 @@ func quickValidateApiConfig(ctx context.Context, success *bool, config *CloudEnv
 }
 
 func quickValidateAuthConfig(ctx context.Context, success *bool, authConfig *AccessControlConfig, org *OrganizationConfig) {
-	// TODO: fix paths!!
-	filePathMessage := ""
-	if org.Api.AccessControlPath != "" {
-		filePathMessage = fmt.Sprintf(" in file %s", org.Api.AccessControlPath)
-	}
-
 	if authConfig.TenantID == "" {
-		validationError(ctx, success, "The `api.accessControl.tenantId` field is required for organization '%s'%s", org.Name, filePathMessage)
+		validationError(ctx, success, "The `api.accessControl.tenantId` field is required for organization '%s'", org.Name)
 	}
 
 	if authConfig.ApiAppUri == "" {
-		validationError(ctx, success, "The `api.accessControl.apiAppUri` field is required for organization '%s'%s", org.Name, filePathMessage)
+		validationError(ctx, success, "The `api.accessControl.apiAppUri` field is required for organization '%s'", org.Name)
 	} else {
 		if _, err := url.ParseRequestURI(authConfig.ApiAppUri); err != nil {
-			validationError(ctx, success, "The `api.accessControl.apiAppUri` field must be a valid URL for organization '%s'%s", org.Name, filePathMessage)
+			validationError(ctx, success, "The `api.accessControl.apiAppUri` field must be a valid URL for organization '%s'", org.Name)
 		}
 	}
 
 	if authConfig.CliAppUri == "" {
-		validationError(ctx, success, "The `api.accessControl.cliAppUri` field is required for organization '%s'%s", org.Name, filePathMessage)
+		validationError(ctx, success, "The `api.accessControl.cliAppUri` field is required for organization '%s", org.Name)
 	} else {
 		if _, err := url.ParseRequestURI(authConfig.CliAppUri); err != nil {
-			validationError(ctx, success, "The `api.accessControl.cliAppUri` field must be a valid URL for organization '%s'%s", org.Name, filePathMessage)
+			validationError(ctx, success, "The `api.accessControl.cliAppUri` field must be a valid URL for organization '%s'", org.Name)
 		}
 	}
 
 	if authConfig.ApiAppId == "" {
-		validationError(ctx, success, "The `api.accessControl.apiAppId` field is required for organization '%s'%s. Run `tyger access-control apply`.", org.Name, filePathMessage)
+		validationError(ctx, success, "The `api.accessControl.apiAppId` field is required for organization '%s'. Run `tyger access-control apply`.", org.Name)
 	} else if _, err := uuid.Parse(authConfig.ApiAppId); err != nil {
 		validationError(ctx, success, "The `api.accessControl.apiAppId` field must be a GUID for organization '%s'", org.Name)
 	}
 
 	if authConfig.CliAppId == "" {
-		validationError(ctx, success, "The `api.accessControl.cliAppId` field is required for organization '%s'%s. Run `tyger access-control apply`.", org.Name, filePathMessage)
+		validationError(ctx, success, "The `api.accessControl.cliAppId` field is required for organization '%s'. Run `tyger access-control apply`.", org.Name)
 	} else if _, err := uuid.Parse(authConfig.CliAppId); err != nil {
-		validationError(ctx, success, "The `api.accessControl.cliAppId` field must be a GUID for organization '%s'%s", org.Name, filePathMessage)
+		validationError(ctx, success, "The `api.accessControl.cliAppId` field must be a GUID for organization '%s'", org.Name)
 	}
 }
 

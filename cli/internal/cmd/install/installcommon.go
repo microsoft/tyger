@@ -14,13 +14,14 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/goccy/go-yaml"
 	"github.com/google/uuid"
 	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/microsoft/tyger/cli/internal/install/cloudinstall"
 	"github.com/microsoft/tyger/cli/internal/install/dockerinstall"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/term"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"sigs.k8s.io/yaml"
 )
 
 type commonFlags struct {
@@ -57,7 +58,7 @@ func commonPrerun(ctx context.Context, flags *commonFlags) (context.Context, ins
 		log.Fatal().Err(err).Msg("Failed to read config file")
 	}
 
-	config, err := parseConfigFromYamlBytes(flags.configPath, yamlBytes)
+	config, err := parseConfigFromYamlBytes(yamlBytes)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to parse config file")
 	}
@@ -120,8 +121,9 @@ func newInstallerFromConfig(config install.ValidatableConfig) (install.Installer
 	}
 }
 
-func parseConfigFromYamlBytesToMap(path string, yamlBytes []byte) (map[string]any, error) {
+func parseConfigFromYamlBytesToMap(yamlBytes []byte) (map[string]any, error) {
 	config := make(map[string]any)
+
 	if err := yaml.Unmarshal(yamlBytes, &config); err != nil {
 		return nil, fmt.Errorf("failed to decode config file: %w", err)
 	}
@@ -129,7 +131,7 @@ func parseConfigFromYamlBytesToMap(path string, yamlBytes []byte) (map[string]an
 	return config, nil
 }
 
-func parseConfigFromYamlBytes(path string, yamlBytes []byte) (install.ValidatableConfig, error) {
+func parseConfigFromYamlBytes(yamlBytes []byte) (install.ValidatableConfig, error) {
 	installCommon := install.ConfigCommon{}
 	if err := yaml.Unmarshal(yamlBytes, &installCommon); err != nil {
 		return nil, fmt.Errorf("failed to decode config file: %w", err)
@@ -140,34 +142,43 @@ func parseConfigFromYamlBytes(path string, yamlBytes []byte) (install.Validatabl
 	}
 
 	var config install.ValidatableConfig
+	var decodeErr error
 	switch installCommon.Kind {
 	case cloudinstall.EnvironmentKindCloud:
-		config = &cloudinstall.CloudEnvironmentConfig{}
+		cfg := cloudinstall.CloudEnvironmentConfig{}
+		config = &cfg
+		if decodeErr = yaml.UnmarshalWithOptions(yamlBytes, &cfg, yaml.Strict()); decodeErr == nil {
+			return config, nil
+		}
+
 	case dockerinstall.EnvironmentKindDocker:
-		config = &dockerinstall.DockerEnvironmentConfig{}
+		cfg := dockerinstall.DockerEnvironmentConfig{}
+		config = &cfg
+		if decodeErr = yaml.UnmarshalWithOptions(yamlBytes, &cfg, yaml.Strict()); decodeErr == nil {
+			return config, nil
+		}
 	case "":
 		return nil, fmt.Errorf("the `kind` field is required in the config file")
 	default:
 		return nil, fmt.Errorf("the `kind` field must be either `%s` or `%s`. Given value: `%s`", cloudinstall.EnvironmentKindCloud, dockerinstall.EnvironmentKindDocker, installCommon.Kind)
 	}
 
-	var decodeErr error
-	if decodeErr = yaml.UnmarshalStrict(yamlBytes, &config); decodeErr == nil {
-		return config, nil
-	}
-
 	// There was an error decoding the config. See if this is because of an old config format
 	if installCommon.Kind == cloudinstall.EnvironmentKindCloud {
-		if document, err := parseConfigFromYamlBytesToMap(path, yamlBytes); err == nil {
+		if document, err := parseConfigFromYamlBytesToMap(yamlBytes); err == nil {
 			if document["api"] != nil &&
 				document["organizations"] != nil &&
 				document["cloud"] != nil && document["cloud"].(map[string]any)["storage"] != nil {
-				return nil, fmt.Errorf("the config file is in an old format. Please convert it to the new format using the command `tyger config convert`: %w", err)
+				return nil, fmt.Errorf("the config file is in an old format. Please convert it to the new format using the command `tyger config convert`")
 			}
 		}
 	}
 
-	return nil, fmt.Errorf("failed to decode config file: %w", decodeErr)
+	log.Error().Msg("failed to decode config file")
+
+	fmt.Fprintln(os.Stderr, yaml.FormatError(decodeErr, term.IsTerminal(int(os.Stderr.Fd())), true))
+
+	return nil, install.ErrAlreadyLoggedError
 }
 
 func loginAndValidateSubscription(ctx context.Context, cloudInstaller *cloudinstall.Installer) (context.Context, error) {

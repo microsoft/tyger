@@ -40,7 +40,12 @@
       "mode": "auto",
       "program": "cli/cmd/tyger",
       "cwd": "${workspaceFolder}",
-      "args": ["login", "-f", "/workspaces/tyger/creds.yml"]
+      "args": [
+        "access-control",
+        "apply",
+        "-f",
+        "/workspaces/tyger/deploy/config/microsoft/accesscontrol-lamna.yml"
+      ]
     },
     {
       "name": "CLI Docker",

@@ -44,11 +44,11 @@ func TestConvertConfig(t *testing.T) {
 
 	errorBuf := bytes.Buffer{}
 	ctx := zerolog.New(&errorBuf).WithContext(context.Background())
-	require.NoError(t, convert(ctx, oldPath, newPath, authConfigPath), errorBuf.String())
+	require.NoError(t, convert(ctx, oldPath, newPath), errorBuf.String())
 }
 
 func TestParseOldConfigSuggestsConversion(t *testing.T) {
-	_, err := parseConfigFromYamlBytes("x.yml", []byte(oldConfig))
+	_, err := parseConfigFromYamlBytes([]byte(oldConfig))
 
 	require.Contains(t, err.Error(), "tyger config convert")
 }

@@ -1,4 +1,3 @@
-
 tenantId: {{ if .TenantID -}} {{ .TenantID }} {{- else }} # Required. {{- end }}
 apiAppUri: {{ if .ApiAppUri -}} {{ .ApiAppUri }} {{- else }}# Required. {{- end }}
 cliAppUri: {{ if .CliAppUri -}} {{ .CliAppUri }} {{- else }}# Required. {{- end }}
