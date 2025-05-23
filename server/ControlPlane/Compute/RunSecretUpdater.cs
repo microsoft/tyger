@@ -51,9 +51,6 @@ public class RunSecretUpdater : BackgroundService
             {
                 if (!await _runCreator.UpdateRunSecret(run, stoppingToken))
                 {
-#pragma warning disable
-                    _logger.LogInformation("Unable to update secret for run {runId}", run.Id!.Value);
-#pragma warning enable
                     // Not updated, e.g. secret has been deleted
                     continue;
                 }
