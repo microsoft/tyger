@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"text/template"
+
+	"github.com/microsoft/tyger/cli/internal/install"
 )
 
 //go:embed config.tpl
@@ -20,8 +22,7 @@ const (
 )
 
 type DockerEnvironmentConfig struct {
-	Kind     string `json:"kind"`
-	FilePath string `json:"-"`
+	install.ConfigCommon
 
 	EnvironmentName string `json:"environmentName"`
 

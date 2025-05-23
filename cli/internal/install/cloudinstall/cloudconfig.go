@@ -28,8 +28,7 @@ const (
 )
 
 type CloudEnvironmentConfig struct {
-	Kind            string       `json:"kind"`
-	FilePath        string       `json:"-"`
+	install.ConfigCommon
 	EnvironmentName string       `json:"environmentName"`
 	Cloud           *CloudConfig `json:"cloud"`
 
@@ -306,7 +305,9 @@ type ConfigTemplateValues struct {
 
 func RenderConfig(templateValues ConfigTemplateValues, authConfig *AccessControlConfig, writer io.Writer) error {
 	config := CloudEnvironmentConfig{
-		Kind:            EnvironmentKindCloud,
+		ConfigCommon: install.ConfigCommon{
+			Kind: EnvironmentKindCloud,
+		},
 		EnvironmentName: templateValues.EnvironmentName,
 		Cloud: &CloudConfig{
 			TenantID:        templateValues.TenantId,

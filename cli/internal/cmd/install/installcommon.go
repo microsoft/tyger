@@ -14,17 +14,13 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
-	"github.com/go-viper/mapstructure/v2"
 	"github.com/google/uuid"
-	"github.com/knadh/koanf/parsers/yaml"
-	"github.com/knadh/koanf/providers/file"
-	"github.com/knadh/koanf/providers/rawbytes"
-	"github.com/knadh/koanf/v2"
 	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/microsoft/tyger/cli/internal/install/cloudinstall"
 	"github.com/microsoft/tyger/cli/internal/install/dockerinstall"
 	"github.com/rs/zerolog/log"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"sigs.k8s.io/yaml"
 )
 
 type commonFlags struct {
@@ -56,12 +52,17 @@ func commonPrerun(ctx context.Context, flags *commonFlags) (context.Context, ins
 		},
 	}
 
-	config, err := parseConfigFromYamlFile(flags.configPath, false)
+	yamlBytes, err := os.ReadFile(flags.configPath)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to read config file")
+	}
+
+	config, err := parseConfigFromYamlBytes(flags.configPath, yamlBytes)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to parse config file")
 	}
 
-	installer, err := getInstallerFromConfig(config)
+	installer, err := newInstallerFromConfig(config)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to get installer from config")
 	}
@@ -106,7 +107,7 @@ func commonPrerun(ctx context.Context, flags *commonFlags) (context.Context, ins
 	return ctx, installer
 }
 
-func getInstallerFromConfig(config any) (install.Installer, error) {
+func newInstallerFromConfig(config install.ValidatableConfig) (install.Installer, error) {
 	switch c := config.(type) {
 	case *cloudinstall.CloudEnvironmentConfig:
 		return &cloudinstall.Installer{
@@ -119,72 +120,54 @@ func getInstallerFromConfig(config any) (install.Installer, error) {
 	}
 }
 
-func parseConfigFromYamlFile(filePath string, toMap bool) (any, error) {
-	config, err := parseConfig(filePath, file.Provider(filePath), yaml.Parser(), toMap)
-	if os.IsNotExist(err) {
-		return nil, fmt.Errorf("config file not found at '%s': %w", filePath, err)
-	}
-
-	return config, err
-}
-
-func parseConfigFromYamlBytes(path string, yamlBytes []byte, toMap bool) (any, error) {
-	return parseConfig(path, rawbytes.Provider(yamlBytes), yaml.Parser(), toMap)
-}
-
-func parseConfig(path string, provider koanf.Provider, parser koanf.Parser, toMap bool) (any, error) {
-	koanfConfig := koanf.New(".")
-
-	if err := koanfConfig.Load(provider, parser); err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
-	}
-
-	var config any
-	if toMap {
-		config = make(map[string]any)
-	} else {
-		environmentKind := koanfConfig.Get("kind")
-
-		switch environmentKind {
-		case nil, cloudinstall.EnvironmentKindCloud:
-			config = &cloudinstall.CloudEnvironmentConfig{
-				Kind:     cloudinstall.EnvironmentKindCloud,
-				FilePath: path,
-			}
-		case dockerinstall.EnvironmentKindDocker:
-			config = &dockerinstall.DockerEnvironmentConfig{
-				Kind:     dockerinstall.EnvironmentKindDocker,
-				FilePath: path,
-			}
-		default:
-			log.Fatal().Msgf("The `kind` field must be one of `%s` or `%s`. Given value: `%s`", cloudinstall.EnvironmentKindCloud, dockerinstall.EnvironmentKindDocker, environmentKind)
-		}
-	}
-
-	unmarshalConf := koanf.UnmarshalConf{
-		Tag: "json",
-		DecoderConfig: &mapstructure.DecoderConfig{
-			WeaklyTypedInput: true,
-			ErrorUnused:      true,
-			Squash:           true,
-			Result:           &config,
-		},
-	}
-
-	err := koanfConfig.UnmarshalWithConf("", &config, unmarshalConf)
-
-	if err != nil {
-		if _, ok := config.(*cloudinstall.CloudEnvironmentConfig); ok {
-			// see if this is because of the old config format
-			if koanfConfig.Get("api") != nil && koanfConfig.Get("cloud.storage") != nil && koanfConfig.Get("organizations") == nil {
-				return nil, fmt.Errorf("the config file is in an old format. Please convert it to the new format using the command `tyger config convert`: %w", err)
-			}
-		}
-
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
+func parseConfigFromYamlBytesToMap(path string, yamlBytes []byte) (map[string]any, error) {
+	config := make(map[string]any)
+	if err := yaml.Unmarshal(yamlBytes, &config); err != nil {
+		return nil, fmt.Errorf("failed to decode config file: %w", err)
 	}
 
 	return config, nil
+}
+
+func parseConfigFromYamlBytes(path string, yamlBytes []byte) (install.ValidatableConfig, error) {
+	installCommon := install.ConfigCommon{}
+	if err := yaml.Unmarshal(yamlBytes, &installCommon); err != nil {
+		return nil, fmt.Errorf("failed to decode config file: %w", err)
+	}
+
+	if installCommon.Kind == "" {
+		return nil, fmt.Errorf("the `kind` field is required in the config file")
+	}
+
+	var config install.ValidatableConfig
+	switch installCommon.Kind {
+	case cloudinstall.EnvironmentKindCloud:
+		config = &cloudinstall.CloudEnvironmentConfig{}
+	case dockerinstall.EnvironmentKindDocker:
+		config = &dockerinstall.DockerEnvironmentConfig{}
+	case "":
+		return nil, fmt.Errorf("the `kind` field is required in the config file")
+	default:
+		return nil, fmt.Errorf("the `kind` field must be either `%s` or `%s`. Given value: `%s`", cloudinstall.EnvironmentKindCloud, dockerinstall.EnvironmentKindDocker, installCommon.Kind)
+	}
+
+	var decodeErr error
+	if decodeErr = yaml.UnmarshalStrict(yamlBytes, &config); decodeErr == nil {
+		return config, nil
+	}
+
+	// There was an error decoding the config. See if this is because of an old config format
+	if installCommon.Kind == cloudinstall.EnvironmentKindCloud {
+		if document, err := parseConfigFromYamlBytesToMap(path, yamlBytes); err == nil {
+			if document["api"] != nil &&
+				document["organizations"] != nil &&
+				document["cloud"] != nil && document["cloud"].(map[string]any)["storage"] != nil {
+				return nil, fmt.Errorf("the config file is in an old format. Please convert it to the new format using the command `tyger config convert`: %w", err)
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("failed to decode config file: %w", decodeErr)
 }
 
 func loginAndValidateSubscription(ctx context.Context, cloudInstaller *cloudinstall.Installer) (context.Context, error) {

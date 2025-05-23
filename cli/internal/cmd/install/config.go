@@ -70,9 +70,14 @@ func newConfigValidateCommand() *cobra.Command {
 		Long:                  "Validate a config file",
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			c, err := parseConfigFromYamlFile(inputPath, false)
+			yamlBytes, err := os.ReadFile(inputPath)
+			if err != nil {
+				log.Fatal().AnErr("error", err).Msg("Failed to read config file")
+			}
+
+			c, err := parseConfigFromYamlBytes(inputPath, yamlBytes)
 			if err == nil {
-				err = c.(install.Config).QuickValidateConfig(cmd.Context())
+				err = c.QuickValidateConfig(cmd.Context())
 			}
 
 			if err != nil {
@@ -141,12 +146,12 @@ func prettyPrintConfig(ctx context.Context, inputPath string, input io.Reader, o
 		return err
 	}
 
-	c, err := parseConfigFromYamlBytes(inputPath, inputBytes, false)
+	c, err := parseConfigFromYamlBytes(inputPath, inputBytes)
 	if err != nil {
 		return err
 	}
 
-	if err := c.(install.Config).QuickValidateConfig(ctx); err != nil {
+	if err := c.QuickValidateConfig(ctx); err != nil {
 		return err
 	}
 
@@ -158,7 +163,7 @@ func prettyPrintConfig(ctx context.Context, inputPath string, input io.Reader, o
 		return err
 	case *cloudinstall.CloudEnvironmentConfig:
 		// parse the config again to clear the fields that are set during validation
-		c, err = parseConfigFromYamlBytes(inputPath, inputBytes, false)
+		c, err = parseConfigFromYamlBytes(inputPath, inputBytes)
 		if err != nil {
 			return err
 		}
@@ -177,12 +182,12 @@ func prettyPrintConfig(ctx context.Context, inputPath string, input io.Reader, o
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 
-	parsedPrettyConfig, err := parseConfigFromYamlBytes(inputPath, []byte(outputContents), false)
+	parsedPrettyConfig, err := parseConfigFromYamlBytes(inputPath, []byte(outputContents))
 	if err != nil {
 		return fmt.Errorf("failed to parse config: %w", err)
 	}
 
-	if err := parsedPrettyConfig.(install.Config).QuickValidateConfig(ctx); err != nil {
+	if err := parsedPrettyConfig.(install.ValidatableConfig).QuickValidateConfig(ctx); err != nil {
 		return fmt.Errorf("validation failed on pretty printed config: %w", err)
 	}
 
@@ -195,7 +200,7 @@ func newConfigConvertCommand() *cobra.Command {
 	accessControlConfigPath := ""
 
 	cmd := &cobra.Command{
-		Use:                   "convert -i FILE.yml -o FILE.yml [--access-control-output FILE.yml]",
+		Use:                   "convert -i FILE.yml -o FILE.yml",
 		Long:                  "Convert a config that was created for Tyger versions before v0.11.0.",
 		Short:                 "Convert a config that was created for Tyger versions before v0.11.0.",
 		DisableFlagsInUseLine: true,
@@ -222,24 +227,19 @@ func newConfigConvertCommand() *cobra.Command {
 }
 
 func convert(ctx context.Context, inputPath string, outputPath string, accessControlConfigPath string) error {
-	c, err := parseConfigFromYamlFile(inputPath, true)
+	yamlBytes, err := os.ReadFile(inputPath)
 	if err != nil {
 		return fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	document := c.(map[string]any)
+	document, err := parseConfigFromYamlBytesToMap(inputPath, yamlBytes)
+	if err != nil {
+		return err
+	}
 
 	if kind, _ := document["kind"].(string); kind != "docker" {
 		if document["organizations"] != nil {
 			return fmt.Errorf("the given config file appears to already be in the new format")
-		}
-
-		if accessControlConfigPath == "" {
-			return errors.New("the --access-control flag is required for cloud environments")
-		}
-		authConfig, err := cloudinstall.ParseAccessControlConfigFromFile(accessControlConfigPath)
-		if err != nil {
-			return fmt.Errorf("failed to read access control config file: %w", err)
 		}
 
 		identities := safeGetAndRemove(document, "cloud.compute.identities")
@@ -252,7 +252,7 @@ func convert(ctx context.Context, inputPath string, outputPath string, accessCon
 
 		if apiMap, ok := api.(map[string]any); ok {
 			apiMap["tlsCertificateProvider"] = string(cloudinstall.TlsCertificateProviderLetsEncrypt)
-			apiMap["auth"] = authConfig // TODO: FIX
+			// apiMap["auth"] = authConfig // TODO: FIX
 		}
 
 		org := map[string]any{

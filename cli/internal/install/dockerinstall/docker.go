@@ -76,7 +76,7 @@ type Installer struct {
 	hostPathTranslations map[string]string
 }
 
-func (inst *Installer) GetConfig() install.Config {
+func (inst *Installer) GetConfig() install.ValidatableConfig {
 	return inst.Config
 }
 

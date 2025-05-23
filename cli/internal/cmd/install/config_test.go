@@ -48,7 +48,7 @@ func TestConvertConfig(t *testing.T) {
 }
 
 func TestParseOldConfigSuggestsConversion(t *testing.T) {
-	_, err := parseConfigFromYamlBytes("x.yml", []byte(oldConfig), false)
+	_, err := parseConfigFromYamlBytes("x.yml", []byte(oldConfig))
 
 	require.Contains(t, err.Error(), "tyger config convert")
 }
