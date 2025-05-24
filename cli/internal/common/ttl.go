@@ -33,6 +33,25 @@ func (ttl TimeToLive) ToDuration() time.Duration {
 		time.Duration(ttl.Seconds)*time.Second
 }
 
+func DurationToTimeToLive(d time.Duration) TimeToLive {
+	d = d.Round(time.Second)
+
+	seconds := int(d.Seconds())
+	minutes := seconds / 60
+	seconds = seconds % 60
+	hours := minutes / 60
+	minutes = minutes % 60
+	days := hours / 24
+	hours = hours % 24
+
+	return TimeToLive{
+		Days:    days,
+		Hours:   hours,
+		Minutes: minutes,
+		Seconds: seconds,
+	}
+}
+
 // ParseTimeToLive parses a string in the format "D.HH:MM:SS" into a TimeToLive struct.
 // The string can also be in the format "D.HH:MM" or "D.HH" or just "D".
 func ParseTimeToLive(ttl string) (TimeToLive, error) {

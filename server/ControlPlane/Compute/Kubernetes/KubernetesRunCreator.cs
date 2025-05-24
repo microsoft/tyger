@@ -180,6 +180,11 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
             run = run with { Job = run.Job with { Buffers = [] } };
         }
 
+        if (run.BufferAccessTtl == null)
+        {
+            run = run with { BufferAccessTtl = AzureBlobBufferProvider.DefaultAccessTtl };
+        }
+
         await ProcessBufferArguments(jobCodespec.Buffers, run.Job.Buffers, run.Job.Tags, run.Job.BufferTtl, cancellationToken);
 
         if (run.Id == null)
@@ -218,12 +223,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         jobPod.Metadata.Annotations = annotations;
         jobPod.Spec.ActiveDeadlineSeconds = run.TimeoutSeconds;
 
-        var bufferMap = await GetBufferMap(jobCodespec.Buffers, run.Job.Buffers, cancellationToken);
-
-        if (bufferMap != null)
-        {
-            await AddBufferProxySidecars(jobPod, run, bufferMap, jobCodespec, cancellationToken);
-        }
+        await AddBufferProxySidecars(jobPod, run, jobCodespec, cancellationToken);
 
         if (run.Worker != null)
         {
@@ -369,11 +369,17 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         return Enumerable.Range(0, run.Worker!.Replicas).Select(i => $"{StatefulSetNameFromRunId(run.Id!.Value)}-{i}.{StatefulSetNameFromRunId(run.Id.Value)}.{_k8sOptions.Namespace}.svc.cluster.local").ToArray();
     }
 
-    private async Task AddBufferProxySidecars(V1Pod jobPod, Run run, Dictionary<string, (bool write, Uri sasUri)> bufferMap, JobCodespec codespec, CancellationToken cancellationToken)
+    private async Task AddBufferProxySidecars(V1Pod jobPod, Run run, JobCodespec codespec, CancellationToken cancellationToken)
     {
         const string SecretMountPath = "/etc/buffer-sas-tokens";
         const string FifoMountPath = "/etc/buffer-fifos";
         const string PipeVolumeName = "pipevolume";
+
+        var bufferMap = await GetBufferMap(codespec.Buffers, run.Job.Buffers!, run.BufferAccessTtl!, cancellationToken);
+        if (bufferMap == null)
+        {
+            return;
+        }
 
         var mainContainer = GetMainContainer(jobPod.Spec);
         mainContainer.Env ??= [];
@@ -505,6 +511,61 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         }
 
         await CreateObjectHandleAlreadyExists(() => _client.CoreV1.CreateNamespacedSecretAsync(buffersSecret, _k8sOptions.Namespace, cancellationToken: cancellationToken));
+
+        var secretRefreshTime = CalculateProactiveRefreshTimeFromNow(run.BufferAccessTtl!.Value);
+        await Repository.UpdateRunSecretRefreshTime(run.Id!.Value, secretRefreshTime, cancellationToken);
+    }
+
+    public async Task<bool> UpdateRunSecret(Run run, CancellationToken cancellationToken)
+    {
+        if (run.Job.Codespec is not JobCodespec jobCodespec)
+        {
+            return false;
+        }
+
+        var refreshed = await GetBufferMap(jobCodespec.Buffers, run.Job.Buffers!, run.BufferAccessTtl!, cancellationToken);
+
+        try
+        {
+            // Patch the secret with new buffer access URLs
+            var patchString = JsonSerializer.Serialize(new
+            {
+                stringData = refreshed.ToDictionary(p => p.Key, p => p.Value.sasUri.ToString()),
+            });
+            var patchBody = new V1Patch(patchString, V1Patch.PatchType.MergePatch);
+            var buffersSecretName = SecretNameFromRunId(run.Id!.Value);
+            await _client.CoreV1.PatchNamespacedSecretAsync(patchBody, buffersSecretName, _k8sOptions.Namespace, null, null, null, null, null, cancellationToken);
+        }
+        catch (HttpOperationException ex) when (ex.Response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Conflict)
+        {
+            return false;
+        }
+
+        try
+        {
+            // Patch an annotation on the job pod metadata to trigger a refresh of the secret
+            var patchString = JsonSerializer.Serialize(new
+            {
+                metadata = new
+                {
+                    annotations = new Dictionary<string, string>
+                                {
+                                    { "buffer-sas-token-update", DateTime.UtcNow.ToString(format: "o") }
+                                }
+                }
+            });
+            var patchBody = new V1Patch(patchString, V1Patch.PatchType.MergePatch);
+            var jobPodName = JobPodName(run.Id!.Value, 0);
+            await _client.CoreV1.PatchNamespacedPodAsync(patchBody, jobPodName, _k8sOptions.Namespace, null, null, null, null, null, cancellationToken);
+        }
+        catch (HttpOperationException ex) when (ex.Response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Conflict)
+        {
+            return false;
+        }
+
+        var secretRefreshTime = CalculateProactiveRefreshTimeFromNow(run.BufferAccessTtl!.Value);
+        await Repository.UpdateRunSecretRefreshTime(run.Id!.Value, secretRefreshTime, cancellationToken);
+        return true;
     }
 
     private static V1Container GetMainContainer(V1PodSpec podSpec) => podSpec.Containers.Single(c => c.Name == "main");

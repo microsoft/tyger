@@ -73,7 +73,7 @@ public abstract class RunCreatorBase : BackgroundService
     }
 
     // Assuming arguments are already validated
-    protected async Task<Dictionary<string, (bool write, Uri sasUri)>> GetBufferMap(BufferParameters? parameters, Dictionary<string, string> arguments, CancellationToken cancellationToken)
+    protected async Task<Dictionary<string, (bool write, Uri sasUri)>> GetBufferMap(BufferParameters? parameters, Dictionary<string, string> arguments, TimeSpan? accessTtl, CancellationToken cancellationToken)
     {
         if (arguments is null or { Count: 0 })
         {
@@ -98,7 +98,7 @@ public abstract class RunCreatorBase : BackgroundService
             }
         }
 
-        var responses = await BufferManager.CreateBufferAccessUrls(requests, preferTcp: false, fromDocker: false, checkExists: false, cancellationToken);
+        var responses = await BufferManager.CreateBufferAccessUrls(requests, preferTcp: false, fromDocker: false, checkExists: false, accessTtl, cancellationToken);
         var outputMap = new Dictionary<string, (bool write, Uri sasUri)>();
         foreach (var (id, writeable, bufferAccess) in responses)
         {
@@ -114,5 +114,10 @@ public abstract class RunCreatorBase : BackgroundService
         }
 
         return outputMap;
+    }
+
+    protected DateTimeOffset CalculateProactiveRefreshTimeFromNow(TimeSpan ttl)
+    {
+        return DateTimeOffset.UtcNow + TimeSpan.FromTicks((long)(ttl.Ticks * 0.70));
     }
 }

@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -58,8 +57,7 @@ func WithReadHttpClient(httpClient *retryablehttp.Client) ReadOption {
 	}
 }
 
-func Read(ctx context.Context, url *url.URL, outputWriter io.Writer, options ...ReadOption) error {
-	container := &Container{url}
+func Read(ctx context.Context, container *Container, outputWriter io.Writer, options ...ReadOption) error {
 	readOptions := &readOptions{
 		dop: DefaultReadDop,
 	}
@@ -67,12 +65,17 @@ func Read(ctx context.Context, url *url.URL, outputWriter io.Writer, options ...
 		o(readOptions)
 	}
 
+	ctx = log.Ctx(ctx).With().
+		Str("operation", "buffer read").
+		Str("buffer", container.GetContainerName()).
+		Logger().WithContext(ctx)
+
 	if readOptions.httpClient == nil {
 		tygerClient, _ := controlplane.GetClientFromCache()
 		if tygerClient != nil {
 			readOptions.connectionType = tygerClient.ConnectionType()
 			readOptions.httpClient = tygerClient.DataPlaneClient.Client
-			if tygerClient.ConnectionType() == client.TygerConnectionTypeSsh && url.Scheme == "http+unix" && !container.SupportsRelay() {
+			if tygerClient.ConnectionType() == client.TygerConnectionTypeSsh && container.Scheme() == "http+unix" && !container.SupportsRelay() {
 				httpClient, tunnelPool, err := createSshTunnelPoolClient(ctx, tygerClient, container, readOptions.dop)
 				if err != nil {
 					return err
@@ -90,11 +93,6 @@ func Read(ctx context.Context, url *url.URL, outputWriter io.Writer, options ...
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-
-	ctx = log.Ctx(ctx).With().
-		Str("operation", "buffer read").
-		Str("buffer", container.GetContainerName()).
-		Logger().WithContext(ctx)
 
 	if container.SupportsRelay() {
 		return readRelay(ctx, httpClient, readOptions.connectionType, container, outputWriter)
@@ -155,9 +153,8 @@ func Read(ctx context.Context, url *url.URL, outputWriter io.Writer, options ...
 
 				lock.Unlock()
 
-				blobUrl := container.GetBlobUrl(blobNumber)
 				ctx := log.Ctx(ctx).With().Int64("blobNumber", blobNumber).Logger().WithContext(ctx)
-				respData, err := DownloadBlob(ctx, httpClient, blobUrl, &waitForBlobs, &blobNumber, &finalBlobNumber)
+				respData, err := DownloadBlob(ctx, httpClient, container, MakeBlobPath(blobNumber), &waitForBlobs, &blobNumber, &finalBlobNumber)
 				if err != nil {
 					if err == errPastEndOfBlob {
 						break
@@ -252,7 +249,7 @@ func readBufferStart(ctx context.Context, httpClient *retryablehttp.Client, cont
 	wait := atomic.Bool{}
 	wait.Store(true)
 
-	data, err := DownloadBlob(ctx, httpClient, container.GetStartMetadataUrl(), &wait, nil, nil)
+	data, err := DownloadBlob(ctx, httpClient, container, StartMetadataBlobName, &wait, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -272,7 +269,7 @@ func pollForBufferEnd(ctx context.Context, httpClient *retryablehttp.Client, con
 	wait.Store(false)
 
 	for ctx.Err() == nil {
-		data, err := DownloadBlob(ctx, httpClient, container.GetEndMetadataUrl(), &wait, nil, nil)
+		data, err := DownloadBlob(ctx, httpClient, container, EndMetadataBlobName, &wait, nil, nil)
 		if err != nil {
 			if err == ErrNotFound {
 				time.Sleep(5 * time.Second)
@@ -299,11 +296,12 @@ func pollForBufferEnd(ctx context.Context, httpClient *retryablehttp.Client, con
 	return nil
 }
 
-func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUrl string, waitForBlob *atomic.Bool, blobNumber *int64, finalBlobNumber *atomic.Int64) (*readData, error) {
+func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, container *Container, blobPath string, waitForBlob *atomic.Bool, blobNumber *int64, finalBlobNumber *atomic.Int64) (*readData, error) {
 	// The last error that occurred relating to reading the body. retryablehttp does not retry when these happen
 	// because reading the body happens after the call to HttpClient.Do()
 	var lastBodyReadError *responseBodyReadError
 
+	retriesDueToInvalidSas := 0
 	for retryCount := 0; ; retryCount++ {
 		start := time.Now()
 
@@ -319,7 +317,11 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUrl
 			}
 		}
 
-		req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, blobUrl, nil)
+		containerUrl, err := container.GetValidAccessUrl(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get access URL: %w", err)
+		}
+		req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, containerUrl.JoinPath(blobPath).String(), nil)
 		if err != nil {
 			return nil, err
 		}
@@ -388,6 +390,15 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, blobUrl
 				// This will only become an error if this blob is before the final blob.
 			}
 			return nil, err
+		}
+		if err == ErrInvalidSas {
+			if retriesDueToInvalidSas < 5 {
+				retriesDueToInvalidSas++
+				log.Ctx(ctx).Debug().Msg("SAS token expired, retrying")
+				continue
+			} else {
+				return nil, fmt.Errorf("failed to read blob: %w", client.RedactHttpError(err))
+			}
 		}
 		if err == errServerBusy || err == errOperationTimeout {
 			// These errors indicate that we have hit the limit of what the Azure Storage service can handle.
@@ -472,24 +483,30 @@ func handleReadResponse(ctx context.Context, resp *http.Response) (*readData, er
 
 		return &response, nil
 	case http.StatusNotFound:
-		io.Copy(io.Discard, resp.Body)
 		switch resp.Header.Get("x-ms-error-code") {
 		case "BlobNotFound":
+			io.Copy(io.Discard, resp.Body)
 			return nil, ErrNotFound
 		case "ContainerNotFound":
+			io.Copy(io.Discard, resp.Body)
 			return nil, errBufferDoesNotExist
 		}
-		fallthrough
+	case http.StatusForbidden:
+		switch resp.Header.Get("x-ms-error-code") {
+		case "AuthenticationFailed":
+			io.Copy(io.Discard, resp.Body)
+			return nil, ErrInvalidSas
+		}
 	case http.StatusInternalServerError:
 		io.Copy(io.Discard, resp.Body)
 		return nil, errOperationTimeout
 	case http.StatusServiceUnavailable:
 		io.Copy(io.Discard, resp.Body)
 		return nil, errServerBusy
-	default:
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
 	}
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
 }
 
 type responseBodyReadError struct {

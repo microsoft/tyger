@@ -1210,6 +1210,58 @@ public class Repository
         }, cancellationToken);
     }
 
+    public async Task UpdateRunSecretRefreshTime(long id, DateTimeOffset refreshAt, CancellationToken cancellationToken)
+    {
+        await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
+        {
+            await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+            await using var command = new NpgsqlCommand("""
+                UPDATE runs
+                SET secret_refresh_at = $2
+                WHERE id = $1
+                """, conn)
+            {
+                Parameters =
+                {
+                    new() { Value = id, NpgsqlDbType = NpgsqlDbType.Bigint },
+                    new() { Value = refreshAt, NpgsqlDbType = NpgsqlDbType.TimestampTz },
+                }
+            };
+
+            await command.PrepareAsync(cancellationToken);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }, cancellationToken);
+    }
+
+    public async Task<IList<Run>> GetRunsReadyForSecretRefresh(CancellationToken cancellationToken)
+    {
+        return await _resiliencePipeline.ExecuteAsync<IList<Run>>(async cancellationToken =>
+        {
+            await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+            await using var command = new NpgsqlCommand($"""
+                SELECT run
+                FROM runs
+                WHERE secret_refresh_at <= now() AT TIME ZONE 'utc'
+                AND resources_created = true
+                AND final = false
+                """, conn);
+            await command.PrepareAsync(cancellationToken);
+            await using var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+
+            List<Run> results = [];
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var run = reader.GetFieldValue<Run>(0);
+                if (!run.Status.IsTerminal())
+                {
+                    results.Add(run);
+                }
+            }
+
+            return results;
+        }, cancellationToken);
+    }
+
     public async Task<bool> CheckBuffersExist(ICollection<string> bufferIds, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>

@@ -32,6 +32,7 @@ import (
 	"github.com/hashicorp/go-cleanhttp"
 	"github.com/kaz-yamam0t0/go-timeparser/timeparser"
 	"github.com/microsoft/tyger/cli/internal/client"
+	"github.com/microsoft/tyger/cli/internal/common"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/dataplane"
@@ -190,21 +191,22 @@ func attachToRunNoBufferIO(ctx context.Context, run model.Run, logs bool, logTim
 }
 
 func attachToRun(ctx context.Context, run model.Run, inputBufferParameter, outputBufferParameter string, blockSize int, writeDop int, readDop int, logs bool, logTimestamps bool, logSink io.Writer) error {
-	log.Logger = log.Logger.With().Int64("runId", run.Id).Logger()
+	ctx = log.Ctx(ctx).With().Int64("runId", run.Id).Logger().WithContext(ctx)
 	log.Ctx(ctx).Info().Msg("Run created")
-	var inputSasUrl *url.URL
-	var outputSasUrl *url.URL
+	var writeTarget *dataplane.Container
+	var readTarget *dataplane.Container
 	var err error
+
 	if inputBufferParameter != "" {
 		bufferId := run.Job.Buffers[inputBufferParameter]
-		inputSasUrl, err = getBufferAccessUrl(ctx, bufferId, true)
+		writeTarget, err = dataplane.NewContainerFromBufferId(ctx, bufferId, true, run.BufferAccessTtl)
 		if err != nil {
 			return err
 		}
 	}
 	if outputBufferParameter != "" {
 		bufferId := run.Job.Buffers[outputBufferParameter]
-		outputSasUrl, err = getBufferAccessUrl(ctx, bufferId, false)
+		readTarget, err = dataplane.NewContainerFromBufferId(ctx, bufferId, false, run.BufferAccessTtl)
 		if err != nil {
 			return err
 		}
@@ -221,11 +223,11 @@ func attachToRun(ctx context.Context, run model.Run, inputBufferParameter, outpu
 		log.Warn().Msg("Canceling...")
 	}()
 
-	if inputSasUrl != nil {
+	if writeTarget != nil {
 		mainWg.Add(1)
 		go func() {
 			defer mainWg.Done()
-			err := dataplane.Write(ctx, inputSasUrl, os.Stdin,
+			err := dataplane.Write(ctx, writeTarget, os.Stdin,
 				dataplane.WithWriteBlockSize(blockSize),
 				dataplane.WithWriteDop(writeDop))
 			if err != nil {
@@ -237,11 +239,11 @@ func attachToRun(ctx context.Context, run model.Run, inputBufferParameter, outpu
 		}()
 	}
 
-	if outputSasUrl != nil {
+	if readTarget != nil {
 		mainWg.Add(1)
 		go func() {
 			defer mainWg.Done()
-			err := dataplane.Read(ctx, outputSasUrl, os.Stdout,
+			err := dataplane.Read(ctx, readTarget, os.Stdout,
 				dataplane.WithReadDop(readDop))
 			if err != nil {
 				if errors.Is(err, ctx.Err()) {
@@ -356,13 +358,14 @@ func newRunCreateCommandCore(
 		replicas        int
 	}
 	var flags struct {
-		specFile string
-		job      codeTargetFlags
-		worker   codeTargetFlags
-		cluster  string
-		timeout  string
-		pull     bool
-		tags     map[string]string
+		specFile        string
+		job             codeTargetFlags
+		worker          codeTargetFlags
+		cluster         string
+		timeout         string
+		pull            bool
+		tags            map[string]string
+		bufferAccessTtl string
 	}
 
 	getCodespecRef := func(ctf codeTargetFlags) model.CodespecRef {
@@ -475,6 +478,14 @@ func newRunCreateCommandCore(
 				}
 			}
 
+			if flags.bufferAccessTtl != "" {
+				ttl, err := common.ParseTimeToLive(flags.bufferAccessTtl)
+				if err != nil {
+					return err
+				}
+				newRun.BufferAccessTtl = ttl.String()
+			}
+
 			if preValidate != nil {
 				err := preValidate(cmd.Context(), newRun)
 				if err != nil {
@@ -525,6 +536,9 @@ func newRunCreateCommandCore(
 	cmd.Flags().StringToStringVar(&flags.tags, "tag", nil, "A key-value tag to be added to the run. Can be specified multiple times.")
 
 	cmd.Flags().BoolVar(&flags.pull, "pull", false, "Pull container images. Applies only to Tyger running in Docker.")
+
+	cmd.Flags().StringVar(&flags.bufferAccessTtl, "buffer-access-ttl", "", "The time-to-live for each access URL used to read/write the run's buffers (format D.HH:MM:SS).")
+	cmd.Flags().MarkHidden("buffer-access-ttl")
 
 	return cmd
 }

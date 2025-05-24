@@ -151,11 +151,16 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
             run = run with { Job = run.Job with { Tags = [] } };
         }
 
+        if (run.BufferAccessTtl == null)
+        {
+            run = run with { BufferAccessTtl = LocalSasHandler.DefaultAccessTtl };
+        }
+
         await ProcessBufferArguments(jobCodespec.Buffers, run.Job.Buffers, run.Job.Tags, run.Job.BufferTtl, cancellationToken);
 
         run = await Repository.CreateRun(run, idempotencyKey, cancellationToken);
 
-        var bufferMap = await GetBufferMap(jobCodespec.Buffers, run.Job.Buffers!, cancellationToken);
+        var bufferMap = await GetBufferMap(jobCodespec.Buffers, run.Job.Buffers!, run.BufferAccessTtl!, cancellationToken);
         string mainContainerName = MainContainerName(run.Id!.Value);
 
         if (run.Job.Buffers != null)
@@ -169,7 +174,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                     run.Job.Buffers[bufferParameterName] = newBufferId;
                     (var write, _) = bufferMap[bufferParameterName];
                     var unqualifiedBufferId = BufferManager.GetUnqualifiedBufferId(newBufferId);
-                    var sasQueryString = _ephemeralBufferProvider.GetSasQueryString(unqualifiedBufferId, write);
+                    var sasQueryString = _ephemeralBufferProvider.GetSasQueryString(unqualifiedBufferId, write, run.BufferAccessTtl);
                     var accessUri = new Uri($"http+unix://{_dockerOptions.EphemeralBuffersPath}/{bufferIdWithoutPrefix}:{sasQueryString}");
                     bufferMap[bufferParameterName] = (write, accessUri);
                 }
@@ -298,8 +303,8 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                         },
                         new()
                         {
-                            Source = TranslateToHostPath(Path.Combine(absoluteSecretsBase, relativeAccessFilesPath, accessFileName)),
-                            Target = Path.Combine(absoluteContainerSecretsBase, relativeAccessFilesPath, accessFileName),
+                            Source = TranslateToHostPath(Path.Combine(absoluteSecretsBase, relativeAccessFilesPath)),
+                            Target = Path.Combine(absoluteContainerSecretsBase, relativeAccessFilesPath),
                             Type = "bind",
                             ReadOnly = true,
                         },
@@ -367,6 +372,9 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
             startContainersTasks.Add(CreateAndStartContainer(sidecarContainerParameters, isRelay, cancellationToken));
         }
+
+        var secretRefreshTime = CalculateProactiveRefreshTimeFromNow(run.BufferAccessTtl!.Value);
+        await Repository.UpdateRunSecretRefreshTime(run.Id!.Value, secretRefreshTime, cancellationToken);
 
         if (jobCodespec.Sockets != null)
         {
@@ -510,6 +518,50 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
         _logger.CreatedRun(run.Id!.Value);
         return run with { Status = RunStatus.Running };
+    }
+
+    public async Task<bool> UpdateRunSecret(Run run, CancellationToken cancellationToken)
+    {
+        if (run.Job.Codespec is not JobCodespec jobCodespec)
+        {
+            return false;
+        }
+
+        var absoluteSecretsBase = _dockerOptions.RunSecretsPath;
+        var relativeSecretsPath = run.Id.ToString()!;
+        var relativeAccessFilesPath = Path.Combine(relativeSecretsPath, "access-files");
+        var accessFilesDirectory = Path.Combine(absoluteSecretsBase, relativeAccessFilesPath);
+
+        if (!Directory.Exists(accessFilesDirectory))
+        {
+            // The directory was deleted by DockerRunSweeper, stop refreshing
+            return false;
+        }
+
+        var bufferMap = await GetBufferMap(jobCodespec.Buffers, run.Job.Buffers!, run.BufferAccessTtl!, cancellationToken);
+
+        foreach (var (bufferParameterName, (write, accessUrl)) in bufferMap)
+        {
+            var accessFileName = bufferParameterName + ".access";
+            var accessFilePath = Path.Combine(accessFilesDirectory, accessFileName);
+            var tempFilePath = Path.Combine(accessFilesDirectory, accessFileName + ".tmp");
+
+            try
+            {
+                // Write to temporary file first, then move it atomically to the target location
+                File.WriteAllText(tempFilePath, accessUrl.ToString());
+                File.Move(tempFilePath, accessFilePath, overwrite: true);
+            }
+            catch (DirectoryNotFoundException)
+            {
+                // The directory was deleted by DockerRunSweeper, stop refreshing
+                return false;
+            }
+        }
+
+        var secretRefreshTime = CalculateProactiveRefreshTimeFromNow(run.BufferAccessTtl!.Value);
+        await Repository.UpdateRunSecretRefreshTime(run.Id!.Value, secretRefreshTime, cancellationToken);
+        return true;
     }
 
     internal static string MainContainerName(long runId)

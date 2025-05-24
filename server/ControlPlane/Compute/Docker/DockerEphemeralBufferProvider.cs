@@ -21,7 +21,7 @@ public class DockerEphemeralBufferProvider : IEphemeralBufferProvider
             DigitalSignature.CreateAsymmetricAlgorithmFromPem(bufferOptions.Value.PrimarySigningPrivateKeyPath));
     }
 
-    public async Task<Uri?> CreateBufferAccessUrl(string id, bool writeable, bool preferTcp, bool fromDocker, CancellationToken cancellationToken)
+    public async Task<Uri?> CreateBufferAccessUrl(string id, bool writeable, bool preferTcp, bool fromDocker, TimeSpan? accessTtl, CancellationToken cancellationToken)
     {
         var containers = await _client.Containers
             .ListContainersAsync(
@@ -44,7 +44,7 @@ public class DockerEphemeralBufferProvider : IEphemeralBufferProvider
             throw new InvalidOperationException($"Multiple containers found for ephemeral buffer {id}");
         }
 
-        QueryString queryString = GetSasQueryString(id, writeable);
+        QueryString queryString = GetSasQueryString(id, writeable, accessTtl);
 
         if (!preferTcp)
         {
@@ -87,10 +87,10 @@ public class DockerEphemeralBufferProvider : IEphemeralBufferProvider
         }
     }
 
-    public QueryString GetSasQueryString(string bufferId, bool writeable)
+    public QueryString GetSasQueryString(string bufferId, bool writeable, TimeSpan? accessTtl)
     {
         var action = writeable ? SasAction.Create | SasAction.Read : SasAction.Read;
-        var queryString = LocalSasHandler.GetSasQueryString(bufferId, SasResourceType.Blob, action, _signData, "1.0");
+        var queryString = LocalSasHandler.GetSasQueryString(bufferId, SasResourceType.Blob, action, accessTtl, _signData, "1.0");
         queryString = queryString.Add("relay", "true");
         return queryString;
     }

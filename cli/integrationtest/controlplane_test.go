@@ -27,6 +27,7 @@ import (
 	"github.com/andreyvit/diff"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/google/uuid"
+	"github.com/microsoft/tyger/cli/internal/common"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/dataplane"
@@ -53,14 +54,12 @@ func init() {
 	log.Logger = log.Logger.Level(zerolog.ErrorLevel)
 
 	if c, _ := controlplane.GetClientFromCache(); c.ControlPlaneUrl.Scheme == "http+unix" {
-		if _, _, err := runCommand("docker", "inspect", BasicImage, GpuImage); err != nil {
-			if stdout, stderr, err := runCommand("docker", "pull", BasicImage); err != nil {
-				fmt.Fprintln(os.Stderr, stderr, stdout)
-				log.Fatal().Err(err).Send()
-			}
-			if stdout, stderr, err := runCommand("docker", "pull", GpuImage); err != nil {
-				fmt.Fprintln(os.Stderr, stderr, stdout)
-				log.Fatal().Err(err).Send()
+		for _, image := range []string{BasicImage, GpuImage, AzCliImage} {
+			if _, _, err := runCommand("docker", "inspect", image); err != nil {
+				if stdout, stderr, err := runCommand("docker", "pull", image); err != nil {
+					fmt.Fprintln(os.Stderr, stderr, stdout)
+					log.Fatal().Err(err).Send()
+				}
 			}
 		}
 	}
@@ -481,6 +480,162 @@ timeoutSeconds: 600`, getTestConnectivityImage(t))
 		RunSucceeds(t)
 
 	require.Equal("1234", execStdOut)
+}
+
+func TestEndToEndCreateWithShortBufferAccessTtl(t *testing.T) {
+	t.Parallel()
+	skipIfOnlyFastTests(t)
+	require := require.New(t)
+
+	scriptPath, err := filepath.Abs("slow_copy.py")
+	require.Nil(err)
+	scriptBytes, err := os.ReadFile(scriptPath)
+	require.Nil(err)
+
+	const codespecName = "testcreatewithbufferaccessttl"
+
+	runTygerSucceeds(t,
+		"codespec",
+		"create", codespecName,
+		"-i=input", "-o=output",
+		"--image", AzCliImage,
+		"--command",
+		"--",
+		"/bin/bash", "-c",
+		fmt.Sprintf(`
+set -euo pipefail
+cat << EOF > slow-copy.py
+%s
+EOF
+cat $(INPUT_PIPE) | python3 slow-copy.py > $(OUTPUT_PIPE)
+`, string(scriptBytes)),
+	)
+
+	inputBufferId := runTygerSucceeds(t, "buffer", "create")
+	outputBufferId := runTygerSucceeds(t, "buffer", "create")
+
+	genCmd := exec.Command("tyger", "buffer", "gen", "150M")
+	genPipe, err := genCmd.StdoutPipe()
+	require.NoError(err)
+
+	writeCmd := exec.Command("tyger", "buffer", "write", inputBufferId, "--access-ttl", "0.00:01:00")
+	writeCmd.Stdin = genPipe
+
+	require.NoError(genCmd.Start())
+	require.NoError(writeCmd.Run())
+	require.NoError(genCmd.Wait())
+
+	runId := runTygerSucceeds(t, "run", "create", "--codespec", codespecName, "--buffer-access-ttl", "0.00:01:00", "--buffer", "input="+inputBufferId, "--buffer", "output="+outputBufferId, "--timeout", "10m")
+
+	run := getRun(t, runId)
+	require.Equal(run.BufferAccessTtl, "00:01:00")
+
+	readCmd := exec.Command("tyger", "buffer", "read", outputBufferId, "--access-ttl", "0.00:01:00")
+	readOutPipe, err := readCmd.StdoutPipe()
+	require.NoError(err)
+	require.NoError(readCmd.Start())
+
+	outByteCount := 0
+	for {
+		buf := make([]byte, 64*1024)
+		n, err := readOutPipe.Read(buf)
+		outByteCount += n
+		if err == io.EOF {
+			break
+		}
+		require.NoError(err)
+	}
+
+	require.NoError(readCmd.Wait())
+	require.Equal(150*1024*1024, outByteCount)
+
+	waitForRunSuccess(t, runId)
+}
+
+func TestEndToEndExecWithShortBufferAccessTtl(t *testing.T) {
+	t.Parallel()
+	skipIfOnlyFastTests(t)
+
+	scriptPath, err := filepath.Abs("slow_copy.py")
+	require.Nil(t, err)
+	scriptBytes, err := os.ReadFile(scriptPath)
+	require.Nil(t, err)
+
+	const codespecName = "testexecwithbufferaccessttl"
+
+	runTygerSucceeds(t,
+		"codespec",
+		"create", codespecName,
+		"-i=input", "-o=output",
+		"--image", AzCliImage,
+		"--command",
+		"--",
+		"/bin/bash", "-c",
+		fmt.Sprintf(`
+set -euo pipefail
+cat << EOF > slow-copy.py
+%s
+EOF
+cat $(INPUT_PIPE) | python3 slow-copy.py > $(OUTPUT_PIPE)
+`, string(scriptBytes)),
+	)
+
+	testCases := []struct {
+		name      string
+		ephemeral bool
+		args      []string
+	}{
+		{"auto-created-buffers", false, nil},
+		{"ephemeral-buffers", true, []string{"--buffer", "input=_", "--buffer", "output=_"}},
+	}
+	for _, tC := range testCases {
+		tC := tC
+		t.Run(tC.name, func(t *testing.T) {
+			t.Parallel()
+			if tC.ephemeral {
+				skipIfEphemeralBuffersNotSupported(t)
+			}
+
+			require := require.New(t)
+
+			genCmd := exec.Command("tyger", "buffer", "gen", "150M")
+			genPipe, err := genCmd.StdoutPipe()
+			require.NoError(err)
+
+			args := []string{"run", "exec", "--codespec", codespecName, "--buffer-access-ttl", "0.00:01:00", "--log-level", "trace", "--timeout", "10m"}
+			if tC.args != nil {
+				args = append(args, tC.args...)
+			}
+			execCmd := exec.Command("tyger", args...)
+			execCmd.Stdin = genPipe
+
+			stdErr := &bytes.Buffer{}
+			execCmd.Stderr = stdErr
+
+			execOutPipe, err := execCmd.StdoutPipe()
+			require.NoError(err)
+
+			genCmd.Start()
+			execCmd.Start()
+
+			outByteCount := 0
+			for {
+				buf := make([]byte, 64*1024)
+				n, err := execOutPipe.Read(buf)
+				outByteCount += n
+				if err == io.EOF {
+					break
+				}
+				require.NoError(err)
+			}
+
+			execErr := execCmd.Wait()
+			require.NoError(execErr)
+			require.NoError(genCmd.Wait())
+
+			require.Equal(150*1024*1024, outByteCount)
+		})
+	}
 }
 
 func TestInvalidImage(t *testing.T) {
@@ -993,10 +1148,11 @@ func TestOpenApiSpecIsAsExpected(t *testing.T) {
 			curlCommand = fmt.Sprintf("curl %s ", swaggerUrl)
 		}
 
-		t.Errorf("Result not as expected. To update, run `%s > %s`\n\nDiff:%v",
+		t.Errorf("Result not as expected.\n\nDiff: %v\n\nTo update, run `%s > %s`",
+			diff.LineDiff(e, a),
 			curlCommand,
 			expectedFilePath,
-			diff.LineDiff(e, a))
+		)
 	}
 }
 
@@ -2498,6 +2654,70 @@ func TestServerApiV1BackwardCompatibility(t *testing.T) {
 		}
 		url = page.NextLink
 	}
+}
+
+func TestBufferAccessUrlUpdates(t *testing.T) {
+	t.Parallel()
+
+	bufferId := runTygerSucceeds(t, "buffer", "create")
+
+	ttl, err := common.ParseTimeToLive("0.00:00:30")
+	require.NoError(t, err)
+
+	t.Run("from buffer id", func(t *testing.T) {
+		t.Parallel()
+		require := require.New(t)
+		container, err := dataplane.NewContainerFromBufferId(context.Background(), bufferId, true, ttl.String())
+		require.NoError(err)
+		firstAccessUrl, err := container.GetValidAccessUrl(context.Background())
+		require.NoError(err)
+		time.Sleep(31 * time.Second)
+		nextAccessUrl, err := container.GetValidAccessUrl(context.Background())
+		require.NoError(err)
+		require.NotEqual(firstAccessUrl.String(), nextAccessUrl.String())
+	})
+
+	t.Run("from filename", func(t *testing.T) {
+		t.Parallel()
+		require := require.New(t)
+
+		accessUrl := runTygerSucceeds(t, "buffer", "access", bufferId, "--access-ttl", ttl.String())
+
+		tempDir := t.TempDir()
+		accessFilePath := filepath.Join(tempDir, fmt.Sprintf("%s.access", bufferId))
+		require.NoError(os.WriteFile(accessFilePath, []byte(accessUrl), 0644))
+		container, err := dataplane.NewContainerFromAccessFile(context.Background(), accessFilePath)
+		require.NoError(err)
+		accessUrlRead, err := container.GetValidAccessUrl(context.Background())
+		require.NoError(err)
+		require.Equal(accessUrl, accessUrlRead.String())
+
+		time.Sleep(10 * time.Second)
+		newAccessUrl := runTygerSucceeds(t, "buffer", "access", bufferId, "--access-ttl", ttl.String())
+		require.NotEqual(accessUrl, newAccessUrl)
+		require.NoError(os.WriteFile(accessFilePath, []byte(newAccessUrl), 0644))
+		time.Sleep(21 * time.Second)
+		accessUrlRead, err = container.GetValidAccessUrl(context.Background())
+		require.NoError(err)
+		require.Equal(newAccessUrl, accessUrlRead.String())
+	})
+
+	t.Run("from buffer access url", func(t *testing.T) {
+		t.Parallel()
+		require := require.New(t)
+		accessUrl := runTygerSucceeds(t, "buffer", "access", bufferId, "--access-ttl", ttl.String())
+		container, err := dataplane.NewContainerFromAccessString(context.Background(), accessUrl)
+		require.NoError(err)
+		firstAccessUrl, err := container.GetValidAccessUrl(context.Background())
+		require.NoError(err)
+		require.Equal(accessUrl, firstAccessUrl.String())
+		time.Sleep(31 * time.Second)
+		// URL will not be refreshed because the input is a SAS URL (the user may not be logged into Tyger)
+		nextAccessUrl, err := container.GetValidAccessUrl(context.Background())
+		require.Nil(nextAccessUrl)
+		require.Error(err)
+		require.ErrorContains(err, "access URL expired and cannot be refreshed")
+	})
 }
 
 func TestServiceMetadataContainsApiVersions(t *testing.T) {

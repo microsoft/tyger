@@ -4,6 +4,7 @@
 package dataplane
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math/bits"
@@ -11,7 +12,10 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 type BufferStatus string
@@ -59,15 +63,190 @@ type BufferEndMetadata struct {
 }
 
 type Container struct {
-	*url.URL
+	lock        *sync.Mutex
+	accessUrl   *url.URL
+	refreshTime time.Time
+	getNewUrl   func(context.Context) (*url.URL, error)
 }
 
-func clearBit(value int64, pos int) int64 {
-	mask := int64(^(1 << pos))
-	return value & mask
+func NewContainer(accessUrl *url.URL) *Container {
+	return &Container{
+		lock:      &sync.Mutex{},
+		accessUrl: accessUrl,
+		getNewUrl: nil,
+	}
 }
 
-func (c *Container) GetBlobUrl(blobNumber int64) string {
+func NewContainerFromAccessString(ctx context.Context, accessString string) (*Container, error) {
+	accessUrl, err := ParseBufferAccessUrl(accessString)
+	if err != nil {
+		// Invalid URL, assume it's a file containing the URL
+		return NewContainerFromAccessFile(ctx, accessString)
+	}
+
+	// We don't refresh if a SAS URL is provided - the user may not be logged into Tyger
+	return newContainer(ctx, accessUrl, nil)
+}
+
+func NewContainerFromAccessFile(ctx context.Context, filename string) (*Container, error) {
+	getNewUrl := func(ctx context.Context) (*url.URL, error) {
+		url, err := GetBufferAccessUrlFromFile(filename)
+		if err != nil {
+			return nil, err
+		}
+		return url, nil
+	}
+
+	return newContainer(ctx, nil, getNewUrl)
+}
+
+func NewContainerFromBufferId(ctx context.Context, bufferId string, writeable bool, accessTtl string) (*Container, error) {
+	getNewUrl := func(ctx context.Context) (*url.URL, error) {
+		url, err := RequestNewBufferAccessUrl(ctx, bufferId, writeable, accessTtl)
+		if err != nil {
+			return nil, err
+		}
+		return url, nil
+	}
+
+	return newContainer(ctx, nil, getNewUrl)
+}
+
+func newContainer(ctx context.Context, accessUrl *url.URL, getUrl func(context.Context) (*url.URL, error)) (*Container, error) {
+	if accessUrl == nil {
+		if getUrl == nil {
+			return nil, fmt.Errorf("no access URL or function to get a new URL provided")
+		}
+		url, err := getUrl(ctx)
+		if err != nil {
+			return nil, err
+		}
+		accessUrl = url
+	}
+	refreshTime, err := calculateProactiveSasRefreshTime(accessUrl)
+	if err != nil {
+		return nil, err
+	}
+	c := &Container{
+		lock:        &sync.Mutex{},
+		accessUrl:   accessUrl,
+		refreshTime: refreshTime,
+		getNewUrl:   getUrl,
+	}
+	return c, nil
+}
+
+// CurrentAccessUrl returns the current access URL without attempting to refresh.
+func (c *Container) CurrentAccessUrl() *url.URL {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return c.accessUrl
+}
+
+// GetValidAccessUrl returns a valid access URL, refreshing it if necessary.
+func (c *Container) GetValidAccessUrl(ctx context.Context) (*url.URL, error) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	// Does the URL need to be refreshed?
+	if time.Until(c.refreshTime) > 0 {
+		return c.accessUrl, nil
+	}
+
+	// If it can't be refreshed, check if it's expired and return it
+	if c.getNewUrl == nil {
+		expired, err := isUrlExpired(c.accessUrl)
+		if err != nil {
+			return nil, err
+		}
+		if expired {
+			return nil, fmt.Errorf("access URL expired and cannot be refreshed")
+		}
+		return c.accessUrl, nil
+	}
+
+	// Attempt to refresh
+	const MaxRetries = 5
+	for retryCount := 0; retryCount < MaxRetries; retryCount++ {
+
+		select {
+		case <-ctx.Done():
+			return c.accessUrl, ctx.Err()
+		default:
+		}
+
+		// Refresh and update Container
+		url, err := c.getNewUrl(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to refresh access URL: %w", err)
+		}
+		c.accessUrl = url
+
+		refreshTime, err := calculateProactiveSasRefreshTime(c.accessUrl)
+		if err != nil {
+			return nil, err
+		}
+		c.refreshTime = refreshTime
+
+		// Is the URL about to expire?
+		expired, err := isUrlExpired(c.accessUrl)
+		if err != nil {
+			return nil, fmt.Errorf("failed to refresh access URL: %w", err)
+		}
+		if expired {
+			log.Ctx(ctx).Trace().Msgf("access URL expired, retrying refresh in %d seconds", retryCount+1)
+			time.Sleep(time.Duration(retryCount+1) * time.Second)
+			continue
+		}
+
+		// Good to go
+		log.Ctx(ctx).Trace().Msgf("got new access URL for %s", path.Base(c.accessUrl.Path))
+		return c.accessUrl, nil
+	}
+
+	return nil, fmt.Errorf("failed to refresh access URL after %d retries", MaxRetries)
+}
+
+func isUrlExpired(accessUrl *url.URL) (bool, error) {
+	expiresAt, err := parseSasQueryTimestamp(accessUrl, "se")
+	if err != nil {
+		return true, err
+	}
+	return time.Now().Add(2 * time.Second).After(expiresAt), nil
+}
+
+func parseSasQueryTimestamp(accessUrl *url.URL, key string) (time.Time, error) {
+	queryString := accessUrl.Query()
+
+	value := queryString.Get(key)
+	if value == "" {
+		return time.Time{}, fmt.Errorf("SAS timestamp '%s' not found", key)
+	}
+
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("error parsing SAS timestamp '%s': %w", value, err)
+	}
+
+	return parsed, nil
+}
+
+func calculateProactiveSasRefreshTime(u *url.URL) (time.Time, error) {
+	issuedAt, err := parseSasQueryTimestamp(u, "st")
+	if err != nil {
+		return time.Time{}, err
+	}
+	expiresAt, err := parseSasQueryTimestamp(u, "se")
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	lifetime := expiresAt.Sub(issuedAt)
+	threshold := time.Duration(0.85*lifetime.Seconds()) * time.Second
+	return issuedAt.Add(threshold), nil
+}
+
+func MakeBlobPath(blobNumber int64) string {
 	// We are adopting this logic because:
 	// * The alphabetical sorting of the blob name corresponds to the numerical
 	//   ordering of the blob number.
@@ -122,29 +301,28 @@ func (c *Container) GetBlobUrl(blobNumber int64) string {
 	}
 
 	// and finally add the file number
-	blobURL := c.URL.JoinPath(builder.String(), fmt.Sprintf("%03X", fileNumber))
-
-	return blobURL.String()
-}
-
-func (c *Container) GetStartMetadataUrl() string {
-	return c.URL.JoinPath(StartMetadataBlobName).String()
-}
-
-func (c *Container) GetEndMetadataUrl() string {
-	return c.URL.JoinPath(EndMetadataBlobName).String()
+	return fmt.Sprintf("%s/%03X", builder.String(), fileNumber)
 }
 
 func (c *Container) GetContainerName() string {
-	return path.Base(c.Path)
+	return path.Base(c.CurrentAccessUrl().Path)
 }
 
 func (c *Container) SupportsRelay() bool {
-	relayParam, ok := c.Query()["relay"]
+	relayParam, ok := c.CurrentAccessUrl().Query()["relay"]
 	return ok && len(relayParam) == 1 && relayParam[0] == "true"
+}
+
+func (c *Container) Scheme() string {
+	return c.CurrentAccessUrl().Scheme
 }
 
 func AddCommonBlobRequestHeaders(header http.Header) {
 	header.Add("Date", time.Now().Format(time.RFC1123Z))
 	header.Add("x-ms-version", "2021-08-06")
+}
+
+func clearBit(value int64, pos int) int64 {
+	mask := int64(^(1 << pos))
+	return value & mask
 }

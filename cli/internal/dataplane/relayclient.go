@@ -41,7 +41,11 @@ func relayWrite(ctx context.Context, httpClient *retryablehttp.Client, connectio
 
 	partiallyBufferedReader := NewPartiallyBufferedReader(inputReader, 64*1024)
 
-	request, err := http.NewRequestWithContext(ctx, http.MethodPut, container.String(), partiallyBufferedReader)
+	containerUrl, err := container.GetValidAccessUrl(ctx)
+	if err != nil {
+		return fmt.Errorf("error getting access URL: %w", err)
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPut, containerUrl.String(), partiallyBufferedReader)
 	if err != nil {
 		return fmt.Errorf("error creating request: %w", err)
 	}
@@ -85,7 +89,11 @@ func readRelay(ctx context.Context, httpClient *retryablehttp.Client, connection
 	httpClient = client.CloneRetryableClient(httpClient)
 	httpClient.HTTPClient.Timeout = 0
 
-	request, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, container.String(), nil)
+	containerUrl, err := container.GetValidAccessUrl(ctx)
+	if err != nil {
+		return fmt.Errorf("error getting access URL: %w", err)
+	}
+	request, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, containerUrl.String(), nil)
 	if err != nil {
 		return fmt.Errorf("error creating request: %w", err)
 	}
@@ -144,8 +152,12 @@ func relayErrorCodeToErr(errorCode string) error {
 	}
 }
 
-func pingRelay(ctx context.Context, containerUrl *Container, httpClient *retryablehttp.Client, connectionType client.TygerConnectionType) error {
+func pingRelay(ctx context.Context, container *Container, httpClient *retryablehttp.Client, connectionType client.TygerConnectionType) error {
 	log.Ctx(ctx).Info().Msg("Attempting to connect to relay server...")
+	containerUrl, err := container.GetValidAccessUrl(ctx)
+	if err != nil {
+		return fmt.Errorf("error getting access URL: %w", err)
+	}
 	headRequest, err := http.NewRequestWithContext(ctx, http.MethodHead, containerUrl.String(), nil)
 	if err != nil {
 		return fmt.Errorf("error creating request: %w", err)

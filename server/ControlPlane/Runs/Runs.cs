@@ -267,6 +267,7 @@ public static class Runs
 public interface IRunCreator
 {
     Task<Run> CreateRun(Run run, string? idempotencyKey, CancellationToken cancellationToken);
+    Task<bool> UpdateRunSecret(Run run, CancellationToken cancellationToken);
 }
 
 public interface IRunReader

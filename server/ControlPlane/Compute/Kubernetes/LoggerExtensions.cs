@@ -37,5 +37,4 @@ public static partial class LoggerExtensions
 
     [LoggerMessage(LogLevel.Error, "Error finalizing run {runId}.")]
     public static partial void ErrorFinalizingRun(this ILogger logger, long runId, Exception exception);
-
 }

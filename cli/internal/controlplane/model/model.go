@@ -138,13 +138,14 @@ func (ref CodespecRef) MarshalJSON() ([]byte, error) {
 
 type Run struct {
 	RunMetadata
-	Kind           string            `json:"kind,omitempty"`
-	Job            RunCodeTarget     `json:"job,omitempty"`
-	Worker         *RunCodeTarget    `json:"worker,omitempty"`
-	Cluster        string            `json:"cluster,omitempty"`
-	TimeoutSeconds *int              `json:"timeoutSeconds,omitempty"`
-	Tags           map[string]string `json:"tags,omitempty"`
-	ETag           string            `json:"eTag,omitempty"`
+	Kind            string            `json:"kind,omitempty"`
+	Job             RunCodeTarget     `json:"job,omitempty"`
+	Worker          *RunCodeTarget    `json:"worker,omitempty"`
+	Cluster         string            `json:"cluster,omitempty"`
+	TimeoutSeconds  *int              `json:"timeoutSeconds,omitempty"`
+	Tags            map[string]string `json:"tags,omitempty"`
+	ETag            string            `json:"eTag,omitempty"`
+	BufferAccessTtl string            `json:"bufferAccessTtl,omitempty"`
 }
 
 type RunStatus uint
