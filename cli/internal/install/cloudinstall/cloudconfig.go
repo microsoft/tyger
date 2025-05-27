@@ -249,7 +249,6 @@ const (
 type OrganizationApiConfig struct {
 	DomainName             string                  `json:"domainName"`
 	TlsCertificateProvider TlsCertificateProvider  `json:"tlsCertificateProvider"`
-	DeprecatedAuth         any                     `json:"auth,omitempty"` // deprecated, use accessControl instead
 	AccessControl          *AccessControlConfig    `json:"accessControl"`
 	Buffers                *BuffersConfig          `json:"buffers"`
 	Helm                   *OrganizationHelmConfig `json:"helm"`

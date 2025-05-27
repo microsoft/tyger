@@ -468,10 +468,6 @@ func quickValidateApiConfig(ctx context.Context, success *bool, config *CloudEnv
 		validationError(ctx, success, "The `api.tlsCertificateProvider` field must be one of %s for organization '%s'", []TlsCertificateProvider{TlsCertificateProviderKeyVault, TlsCertificateProviderLetsEncrypt}, org.Name)
 	}
 
-	if apiConfig.DeprecatedAuth != nil {
-		validationError(ctx, success, "The `api.auth` field has been renamed to `api.accessControl`.")
-	}
-
 	if apiConfig.AccessControl == nil {
 		validationError(ctx, success, "The `api.accessControl` field is required for organization '%s'", org.Name)
 	} else {

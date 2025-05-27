@@ -1,0 +1,156 @@
+kind: azureCloud
+environmentName: demo
+
+cloud:
+  tenantId: 2dda111b-8b49-4193-b6ad-7ad797aa552f
+  subscriptionId: 17f10121-f320-4d47-928f-3d42adb68e01
+  resourceGroup: demo
+  defaultLocation: westus2
+
+  # Optionally point an existing Log Analytics workspace to send logs to.
+  # logAnalyticsWorkspace:
+    # resourceGroup:
+    # name:
+
+  # Optionaly use a custom DNS zone
+  # dnsZone
+    # resourceGroup:
+    # name:
+
+  # Optionally provide a TLS certificate, if not using Let's Encrypt
+  # tlsCertificate:
+    # keyVault:
+    #   resourceGroup:
+    #   name:
+    # certificateName:
+
+  compute:
+    clusters:
+      - name: demo
+        apiHost: true
+        kubernetesVersion: "1.30"
+        sku:
+        # location: defaults to Standard
+        systemNodePool:
+          name: system
+          vmSize: Standard_DS2_v2
+          minCount: 1
+          maxCount: 3
+          # osSku: defaults to AzureLinux
+
+        userNodePools:
+          - name: cpunp
+            vmSize: Standard_DS2_v2
+            minCount: 1
+            maxCount: 10
+            # osSku: defaults to AzureLinux
+          - name: gpunp
+            vmSize: Standard_NC6s_v3
+            minCount: 0
+            maxCount: 10
+            # osSku: defaults to AzureLinux
+
+    # These are the principals that will have the ability to run `tyger api install`.
+    # They will have access to the "tyger" namespace in each cluster and will have
+    # the necessary Azure RBAC role assignments.
+    # For users:
+    #   "kind" must be set to "User"
+    #   "objectId" must be set to the object ID GUID
+    #   "userPrincipalName" must be set (this is usually the email address, unless this is a guest account)
+    # For groups:
+    #   "kind" must be set to "Group"
+    #   "objectId" must be set to the object ID GUID
+    # For service principals:
+    #   "kind" must be set to "ServicePrincipal"
+    #   "objectId" must be set to the object ID GUID
+    managementPrincipals:
+      - kind: User
+        userPrincipalName: me@example.com
+        objectId: 18c9e451-88aa-47d2-ae4f-1d34d55dc50c
+
+    # The names of private container registries that the clusters must
+    # be able to pull from.
+    # privateContainerRegistries:
+    #   - myprivateregistry
+
+    # This must be set if using a custom DNS zone and needs to be globally unique for the Azure region.
+    # Each organization's domain name will have a CNAME record pointing to the domain name formed
+    # by this value, which will be <dnslabel>.<region>.cloudapp.azure.com
+    # dnsLabel:
+
+    # Optional Helm chart overrides
+    # helm:
+      # traefik:
+        # repoName:
+        # repoUrl: not set if using `chartRef`
+        # chartRef: e.g. oci://...
+        # version:
+        # values:
+      # certManager:
+      # nvidiaDevicePlugin:
+
+  database:
+    serverName: demo-tyger
+    postgresMajorVersion: 16
+    # location: Defaults to defaultLocation
+    # computeTier: Defaults to Burstable
+    # vmSize: Defaults to Standard_B1ms
+    # storageSizeGB: Defaults to 32 (the minimum supported)
+    # backupRetentionDays: Defaults to 7
+    # backupGeoRedundancy: Defaults to false
+
+    # Firewall rules to control where the database can be accessed from,
+    # in addition to the control-plane cluster.
+    # firewallRules:
+    #  - name:
+    #    startIpAddress:
+    #    endIpAddress:
+
+organizations:
+  - name: default
+    cloud:
+      storage:
+        # Storage accounts for buffers.
+        buffers:
+          - name: demowestus2buf
+            # location: defaults to defaultLocation
+            # sku: defaults to Standard_LRS
+
+        # The storage account where run logs will be stored.
+        logs:
+          name: demotygerlogs
+          # location: defaults to defaultLocation
+          # sku: defaults to Standard_LRS
+
+      # An optional array of managed identities that will be created in the resource group.
+      # These identities are available to runs as workload identities. When updating this list
+      # both `tyger cloud install` and `tyger api installed` must be run.
+      # identities:
+      # - my-identity
+
+    api:
+      # The fully qualified domain name for the Tyger API.
+      domainName: demo-tyger.westus2.cloudapp.azure.com
+
+      # Set to KeyVault if using a custom TLS certificate, otherwise set to LetsEncrypt
+      tlsCertificateProvider: LetsEncrypt
+
+      auth:
+        tenantId: 72f988bf-86f1-41af-91ab-2d7cd011db47
+        apiAppUri: api://tyger-server
+        cliAppUri: api://tyger-cli
+
+      # buffers:
+        # TTL for active buffers before they are automatically soft-deleted (D.HH:MM:SS) (0 = never expire)
+        # activeLifetime: defaults to 0.00:00
+        # TTL for soft-deleted buffers before they are automatically purged forever (D.HH:MM:SS) (0 = purge immediately)
+        # softDeletedLifetime: default to 1.00:00
+
+      # Optional Helm chart overrides
+      # helm:
+        # tyger:
+          # repoName:
+          # repoUrl: not set if using `chartRef`
+          # chartRef: e.g. oci://...
+          # version:
+          # values:

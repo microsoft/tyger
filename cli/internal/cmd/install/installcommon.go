@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"regexp"
 	"syscall"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
@@ -169,14 +170,8 @@ func parseConfig(yamlBytes []byte) (install.ValidatableConfig, error) {
 	}
 
 	// There was an error decoding the config. See if this is because of an old config format
-	if installCommon.Kind == cloudinstall.ConfigKindCloud {
-		if document, err := parseConfigToMap(yamlBytes); err == nil {
-			if document["api"] != nil &&
-				document["organizations"] == nil &&
-				document["cloud"] != nil && document["cloud"].(map[string]any)["storage"] != nil {
-				return nil, fmt.Errorf("the config file is in an old format. Please convert it to the new format using the command `tyger config convert`")
-			}
-		}
+	if conversionErr := checkConfigFileNeedsConversion(*installCommon, decodeErr, yamlBytes); conversionErr != decodeErr {
+		return nil, conversionErr
 	}
 
 	log.Error().Msg("failed to decode config file")
@@ -184,6 +179,69 @@ func parseConfig(yamlBytes []byte) (install.ValidatableConfig, error) {
 	fmt.Fprintln(os.Stderr, yaml.FormatError(decodeErr, term.IsTerminal(int(os.Stderr.Fd())), true))
 
 	return nil, install.ErrAlreadyLoggedError
+}
+
+func checkConfigFileNeedsConversion(installCommon install.ConfigFileCommon, decodeErr error, yamlBytes []byte) error {
+	if installCommon.Kind != cloudinstall.ConfigKindCloud {
+		return decodeErr
+	}
+
+	configAst, err := parseConfigToAst(yamlBytes)
+	if err != nil {
+		return decodeErr
+	}
+
+	isPreOrganizationsConfig := func() bool {
+		if p, err := yaml.PathString("$.api"); err != nil {
+			panic(fmt.Errorf("failed to create YAML path: %w", err))
+		} else if n, _ := p.FilterNode(configAst); n != nil && n.Type() == ast.MappingType {
+			return true
+		}
+
+		if p, err := yaml.PathString("$.cloud.storage"); err != nil {
+			panic(fmt.Errorf("failed to create YAML path: %w", err))
+		} else if n, _ := p.FilterNode(configAst); n != nil && n.Type() == ast.MappingType {
+			return true
+		}
+
+		if p, err := yaml.PathString("$.organizations"); err != nil {
+			panic(fmt.Errorf("failed to create YAML path: %w", err))
+		} else if n, _ := p.FilterNode(configAst); n == nil {
+			return true
+		}
+
+		return false
+	}
+
+	isPreAccessControlConfig := func() bool {
+		var unknownFieldErr *yaml.UnknownFieldError
+		if !errors.As(decodeErr, &unknownFieldErr) {
+			return false
+		}
+
+		if unknownFieldErr.Token.Value != "auth" {
+			return false
+		}
+
+		visitor := &tokenFinderVisitor{target: unknownFieldErr.Token}
+		ast.Walk(visitor, configAst)
+		if visitor.foundNode != nil {
+			pathRegex := regexp.MustCompile(`\$\.organizations\[\d+\]\.api\.auth`)
+			return pathRegex.MatchString(visitor.foundNode.GetPath())
+		}
+
+		return true
+	}
+
+	if isPreOrganizationsConfig() {
+		return fmt.Errorf("the config file appears to be in an old format. Please convert it to the new format using the command `tyger config convert`")
+	}
+
+	if isPreAccessControlConfig() {
+		return fmt.Errorf("the access control config file appears to be in an old for old format. The `auth` field has been renamed to `accessControl`. You can use `tyger config convert` to convert it to the new format.`")
+	}
+
+	return decodeErr
 }
 
 func parseConfigToMap(yamlBytes []byte) (map[string]any, error) {

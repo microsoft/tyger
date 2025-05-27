@@ -16,7 +16,6 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/goccy/go-yaml"
-	"github.com/goccy/go-yaml/ast"
 	"github.com/google/uuid"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/install"
@@ -267,60 +266,6 @@ func newAccessControlPrettyPrintCommand() *cobra.Command {
 	cmd.MarkFlagRequired("output")
 
 	return cmd
-}
-
-func mergeAst(dst, src ast.Node) {
-	switch src := src.(type) {
-	case *ast.MappingNode:
-		dst, ok := dst.(*ast.MappingNode)
-		if !ok {
-			return
-		}
-
-		dstKeyToValueMap := make(map[string]*ast.MappingValueNode)
-
-		for _, item := range dst.Values {
-			key := item.Key.String()
-			dstKeyToValueMap[key] = item
-		}
-
-		for _, item := range src.Values {
-			key := item.Key.String()
-			if dstMappingValue, exists := dstKeyToValueMap[key]; exists {
-				if dstMappingValue.Value == nil {
-					dstMappingValue.Value = item.Value
-				} else {
-					dstComment := dstMappingValue.Value.GetComment()
-					mergeAst(dstMappingValue.Value, item.Value)
-					switch item.Value.Type() {
-					case ast.MappingType, ast.SequenceType:
-					default:
-						dstMappingValue.Value = item.Value
-						if dstComment != nil {
-							dstMappingValue.Value.SetComment(dstComment)
-						}
-					}
-				}
-			} else {
-				colDiff := dst.Values[0].Key.GetToken().Position.Column - item.Key.GetToken().Position.Column
-				item.AddColumn(colDiff)
-				dst.Values = append(dst.Values, item)
-			}
-		}
-
-	case *ast.SequenceNode:
-		dst, ok := dst.(*ast.SequenceNode)
-		if !ok {
-			return
-		}
-		if len(src.Values) != len(dst.Values) {
-			panic("Merging sequence nodes with different lengths is not implemented")
-		}
-
-		for i, srcItem := range src.Values {
-			mergeAst(dst.Values[i], srcItem)
-		}
-	}
 }
 
 func getAccessControlConfigFromServerUrl(ctx context.Context, serverUrl string) *cloudinstall.AccessControlConfig {
