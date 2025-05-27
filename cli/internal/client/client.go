@@ -190,7 +190,7 @@ func (c *TygerClient) ConnectionType() TygerConnectionType {
 	}
 }
 
-func (c *TygerClient) GetRoles(ctx context.Context) ([]string, error) {
+func (c *TygerClient) GetRoleAssignments(ctx context.Context) ([]string, error) {
 	tok, err := c.GetAccessToken(ctx)
 	if err != nil {
 		return nil, err

@@ -255,32 +255,6 @@ get-proxy-config:
 	"
 
 start-proxy: install-cli
-	common_parameters="
-	serverUrl: ${TYGER_URL}
-	allowedClientCIDRs: ['127.0.0.1/32']
-	logPath: /tmp/tyger-proxy"
-
-	client_uri=$(call get-client-uri,api://tyger-client-contributor)
-
-	if [[ "${TYGER_AUTH_METHOD}" == "cert" ]]; then
-		$(MAKE) download-test-client-cert
-		cert_version=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.pemCertSecret.version')
-		cert_path=$${HOME}/tyger_test_client_cert_$${cert_version}.pem
-
-		auth_parameters="
-		servicePrincipal: $${client_uri}
-		certificatePath: $${cert_path}"
-	elif [[ "${TYGER_AUTH_METHOD}" == "identity" ]]; then
-		auth_parameters="managedIdentity: true
-		targetFederatedIdentity: $${client_uri}"
-	elif [[ "${TYGER_AUTH_METHOD}" == "github" ]]; then
-		auth_parameters="github: true
-		targetFederatedIdentity: $${client_uri}"
-	else
-		echo "Unknown authentication method: ${TYGER_AUTH_METHOD}"
-		exit 1
-	fi
-
 	tyger-proxy start -f <($(MAKE) get-proxy-config) 
 
 kill-proxy:

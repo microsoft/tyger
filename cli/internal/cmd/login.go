@@ -326,7 +326,7 @@ func newLoginStatusCommand() *cobra.Command {
 				return fmt.Errorf("run `tyger login` to login to a server: %v", err)
 			}
 
-			roles, _ := tygerClient.GetRoles(cmd.Context())
+			roles, _ := tygerClient.GetRoleAssignments(cmd.Context())
 
 			service := *tygerClient.RawControlPlaneUrl
 

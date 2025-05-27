@@ -67,7 +67,6 @@ done
 
 this_dir=$(dirname "${0}")
 config_dir=$(realpath "${TYGER_ENVIRONMENT_CONFIG_DIR:-${this_dir}/../deploy/config/microsoft}")
-export TYGER_ENVIRONMENT_CONFIG_DIR="${config_dir}"
 
 devconfig_path="${config_dir}/devconfig.yml"
 

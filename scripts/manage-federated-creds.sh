@@ -3,8 +3,6 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-#! /usr/bin/env bash
-
 set -euo pipefail
 
 usage() {

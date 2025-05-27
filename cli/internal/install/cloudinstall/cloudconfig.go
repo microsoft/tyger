@@ -507,7 +507,7 @@ func renderSharedHelm(config *SharedHelmConfig) string {
 		w.WriteString(indent(4, renderHelm(config.NvidiaDevicePlugin)))
 	}
 
-	return alignCommentStarts(w.String())
+	return alignConsecutiveCommentLinesByColumn(w.String())
 }
 
 func renderOrgHelm(config *OrganizationHelmConfig) string {
@@ -526,10 +526,25 @@ func renderOrgHelm(config *OrganizationHelmConfig) string {
 	}
 
 	w.WriteString(indent(4, renderHelm(config.Tyger)))
-	return alignCommentStarts(w.String())
+	return alignConsecutiveCommentLinesByColumn(w.String())
 }
 
-func alignCommentStarts(yamlString string) string {
+// github.com/goccy/go-yaml gets confused when editing YAML files with comment blocks
+// that are not aligned. So this function aligns consecutive comment lines.
+// For example, this:
+//
+//	# helm:
+//	  # traefik:
+//	    # repoName:
+//	    # repoUrl: not set if using `chartRef`
+//
+// Becomes:
+//
+//	# helm:
+//	#   traefik:
+//	#     repoName:
+//	#     repoUrl: not set if using `chartRef`
+func alignConsecutiveCommentLinesByColumn(yamlString string) string {
 	lines := strings.Split(yamlString, "\n")
 	var result []string
 

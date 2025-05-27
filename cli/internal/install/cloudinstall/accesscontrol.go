@@ -482,18 +482,18 @@ func ApplyRbacAssignments(ctx context.Context, cred azcore.TokenCredential, desi
 		return nil, fmt.Errorf("failed to get existing assignments: %w", err)
 	}
 
-	if err := processRoleAssignmenChanges(ctx, cred, serverSp, desiredAccessControlConfig.RoleAssignments.Owner, existingAssignments.Owner, roleIds.ownerRoleId, tygerOwnerRoleValue); err != nil {
+	if err := processRoleAssignmentChanges(ctx, cred, serverSp, desiredAccessControlConfig.RoleAssignments.Owner, existingAssignments.Owner, roleIds.ownerRoleId, tygerOwnerRoleValue); err != nil {
 		return nil, fmt.Errorf("failed to process owner role assignments: %w", err)
 	}
 
-	if err := processRoleAssignmenChanges(ctx, cred, serverSp, desiredAccessControlConfig.RoleAssignments.Contributor, existingAssignments.Contributor, roleIds.contributorRoleId, tygerContributorRoleValue); err != nil {
+	if err := processRoleAssignmentChanges(ctx, cred, serverSp, desiredAccessControlConfig.RoleAssignments.Contributor, existingAssignments.Contributor, roleIds.contributorRoleId, tygerContributorRoleValue); err != nil {
 		return nil, fmt.Errorf("failed to process owner contributor assignments: %w", err)
 	}
 
 	return desiredAccessControlConfig.RoleAssignments, nil
 }
 
-func processRoleAssignmenChanges(ctx context.Context, cred azcore.TokenCredential, serverSp *aadServicePrincipal, desiredAssignments, existingAssignments []TygerRbacRoleAssignment, roleId, roleName string) error {
+func processRoleAssignmentChanges(ctx context.Context, cred azcore.TokenCredential, serverSp *aadServicePrincipal, desiredAssignments, existingAssignments []TygerRbacRoleAssignment, roleId, roleName string) error {
 	desiredMap := make(map[string]TygerRbacRoleAssignment)
 	for _, assignment := range desiredAssignments {
 		desiredMap[assignment.Principal.ObjectId] = assignment

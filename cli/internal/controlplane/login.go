@@ -338,7 +338,7 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 			} else {
 				authResult, si.Principal, err = si.performUserLogin(ctx, options.UseDeviceCode)
 				if si.ClientId == "" {
-					// Earlier serrver versions did not publish the client app ID in the metadata endpoint and used
+					// Earlier server versions did not publish the client app ID in the metadata endpoint and used
 					// the client app URI as the client ID.
 					// We used the client app URI as the client ID when logging in interactively.
 					// This works, but the refresh token will only be valid for the client ID (GUID).
@@ -401,7 +401,7 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 		}
 
 		if serviceMetadata.RbacEnabled {
-			if roles, err := tygerClient.GetRoles(ctx); err == nil && len(roles) == 0 {
+			if roles, err := tygerClient.GetRoleAssignments(ctx); err == nil && len(roles) == 0 {
 				return nil, errors.New("the principal does not have any assigned roles")
 			}
 		}
