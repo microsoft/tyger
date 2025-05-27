@@ -525,13 +525,13 @@ func quickValidateAccessControlConfig(ctx context.Context, success *bool, authCo
 	}
 
 	if authConfig.ApiAppId == "" {
-		validationError(ctx, success, "The `api.accessControl.apiAppId` field is required for organization '%s'. Run `tyger access-control apply`.", org.Name)
+		validationError(ctx, success, "The `api.accessControl.apiAppId` field is required for organization '%s'. Run `tyger access-control apply` to populate the value`.", org.Name)
 	} else if _, err := uuid.Parse(authConfig.ApiAppId); err != nil {
 		validationError(ctx, success, "The `api.accessControl.apiAppId` field must be a GUID for organization '%s'", org.Name)
 	}
 
 	if authConfig.CliAppId == "" {
-		validationError(ctx, success, "The `api.accessControl.cliAppId` field is required for organization '%s'. Run `tyger access-control apply`.", org.Name)
+		validationError(ctx, success, "The `api.accessControl.cliAppId` field is required for organization '%s'. Run `tyger access-control apply` to populate the value`.", org.Name)
 	} else if _, err := uuid.Parse(authConfig.CliAppId); err != nil {
 		validationError(ctx, success, "The `api.accessControl.cliAppId` field must be a GUID for organization '%s'", org.Name)
 	}

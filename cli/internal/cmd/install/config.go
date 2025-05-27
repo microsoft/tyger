@@ -197,7 +197,6 @@ func prettyPrintConfig(ctx context.Context, input io.Reader, output io.Writer, v
 func newConfigConvertCommand() *cobra.Command {
 	inputPath := ""
 	outputPath := ""
-	accessControlConfigPath := ""
 
 	cmd := &cobra.Command{
 		Use:                   "convert -i FILE.yml -o FILE.yml",
@@ -220,8 +219,6 @@ func newConfigConvertCommand() *cobra.Command {
 	cmd.MarkFlagRequired("input")
 	cmd.Flags().StringVarP(&outputPath, "output", "o", "", "The path to the config file to create")
 	cmd.MarkFlagRequired("output")
-
-	cmd.Flags().StringVarP(&accessControlConfigPath, "access-control", "a", "", "The path to the access control config file that will be created for cloud environments.")
 
 	return cmd
 }
@@ -318,9 +315,9 @@ func safeGetAndRemove(m map[string]any, path string) any {
 func newConfigCreateCommand() *cobra.Command {
 	configPath := ""
 	cmd := &cobra.Command{
-		Use:                   "create --config-path CONFIG.yml --access-control-path ACCESSCONTROL.yml",
+		Use:                   "create -f FILE.yml",
 		Short:                 "Create a new config file",
-		Long:                  "Create a new config file. You must first have run `tyger access-control apply` first.",
+		Long:                  "Create a new config file",
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if _, err := os.Stat(configPath); err == nil {
@@ -383,8 +380,9 @@ func newConfigCreateCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&configPath, "config-path", "c", "", "The path to the config file to create")
+	cmd.Flags().StringVarP(&configPath, "file", "f", "", "The path to the config file to create")
 	cmd.MarkFlagRequired("file")
+
 	return cmd
 }
 
@@ -643,6 +641,34 @@ func generateCloudConfig(ctx context.Context, configFile *os.File) error {
 		return err
 	}
 	templateValues.DomainName = fmt.Sprintf("%s%s", domainLabel, domainSuffix)
+
+	fmt.Printf("Now for the tenant associated with the Tyger service.\n\n")
+	input := confirmation.New("Do you want to use the same tenant for the Tyger service?", confirmation.Yes)
+	input.WrapMode = promptkit.WordWrap
+	sameTenant, err := input.RunPrompt()
+	if err != nil {
+		return err
+	}
+
+	if sameTenant {
+		templateValues.ApiTenantId = templateValues.TenantId
+	} else {
+		for {
+			res, err := chooseTenant(cred, "Choose a tenant for the Tyger service:", true)
+			if err != nil {
+				return err
+			}
+
+			if res == "other" {
+				fmt.Printf("Run 'az login --allow-no-subscriptions' in another terminal window.\nPress any key when ready...\n\n")
+				getSingleKey()
+				continue
+			} else {
+				templateValues.ApiTenantId = res
+				break
+			}
+		}
+	}
 
 	err = cloudinstall.RenderConfig(templateValues, configFile)
 	if err != nil {
