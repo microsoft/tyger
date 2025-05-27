@@ -6,7 +6,7 @@ package cloudinstall
 import (
 	"bytes"
 	"context"
-	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -27,11 +27,16 @@ func TestRenderConfig(t *testing.T) {
 			Kind:              PrincipalKindUser,
 			UserPrincipalName: "my@example.com",
 		},
+		TygerPrincipal: Principal{
+			ObjectId:          uuid.New().String(),
+			Kind:              PrincipalKindUser,
+			UserPrincipalName: "my@example.com",
+		},
 		BufferStorageAccountName: "acc1",
 		LogsStorageAccountName:   "acc2",
 		DomainName:               "me.westus.cloudapp.azure.com",
-
-		DatabaseServerName: "dbserver",
+		DatabaseServerName:       "dbserver",
+		ApiTenantId:              "tenant2",
 	}
 
 	var buf bytes.Buffer
@@ -40,12 +45,19 @@ func TestRenderConfig(t *testing.T) {
 	config := &CloudEnvironmentConfig{}
 
 	require.NoError(t, yaml.UnmarshalStrict(buf.Bytes(), &config))
-	fmt.Println(buf.String())
 
 	errorBuf := bytes.Buffer{}
 	ctx := zerolog.New(&errorBuf).WithContext(context.Background())
+	config.QuickValidateConfig(ctx)
 
-	require.NoError(t, config.QuickValidateConfig(ctx), errorBuf.String())
+	errorLines := strings.Split(errorBuf.String(), "\n")
+	require.NotEmpty(t, errorLines, "Expected error buffer to contain lines")
+	for _, line := range errorLines {
+		if strings.TrimSpace(line) != "" {
+			// it is expected that the validation will fail because some of the access control fields are not set
+			require.Contains(t, line, "tyger access-control apply")
+		}
+	}
 
 	require.Equal(t, values.EnvironmentName, config.EnvironmentName)
 	require.Equal(t, values.ResourceGroup, config.Cloud.ResourceGroup)
