@@ -301,7 +301,8 @@ type ConfigTemplateValues struct {
 	SubscriptionId           string
 	DefaultLocation          string
 	KubernetesVersion        string
-	Principal                Principal
+	ManagementPrincipal      Principal
+	TygerPrincipal           Principal
 	DatabaseServerName       string
 	PostgresMajorVersion     int
 	BufferStorageAccountName string
@@ -350,7 +351,7 @@ func RenderConfig(templateValues ConfigTemplateValues, writer io.Writer) error {
 							}},
 					},
 				},
-				ManagementPrincipals: []Principal{templateValues.Principal},
+				ManagementPrincipals: []Principal{templateValues.ManagementPrincipal},
 			},
 			Database: &DatabaseServerConfig{
 				ServerName:           templateValues.DatabaseServerName,
@@ -379,6 +380,13 @@ func RenderConfig(templateValues ConfigTemplateValues, writer io.Writer) error {
 						TenantID:  templateValues.ApiTenantId,
 						ApiAppUri: "api://tyger-server",
 						CliAppUri: "api://tyger-cli",
+						RoleAssignments: &TygerRbacRoleAssignments{
+							Owner: []TygerRbacRoleAssignment{
+								{
+									Principal: templateValues.TygerPrincipal,
+								},
+							},
+						},
 					},
 				},
 			},

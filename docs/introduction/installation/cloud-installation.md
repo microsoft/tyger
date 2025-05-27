@@ -7,17 +7,17 @@ The steps for installing Tyger are:
 
 1. Install the `tyger` CLI.
 2. Create an installation config file.
-3. Install cloud resources.
-4. Install authentication identities.
+3. Set up access control.
+4. Install cloud resources.
 5. Install the Tyger API.
 
 After installing the `tyger` CLI, you will use it for the subsequent steps.
 
-For step (3), you will need to have the Owner role at a resource group or the
-subscription level.
-
-For step (4), you will need permissions to create applications in your Microsoft
+For step (3), you will need permissions to create applications in your Microsoft
 Entra tenant.
+
+For step (4), you will need to have the Owner role at a resource group or the
+subscription level.
 
 Step (5) does not require either of these.
 
@@ -83,7 +83,7 @@ cloud:
     clusters:
       - name: demo
         apiHost: true
-        kubernetesVersion: "1.30"
+        kubernetesVersion: "1.32"
         sku:
         # location: defaults to Standard
         systemNodePool:
@@ -135,14 +135,14 @@ cloud:
 
     # Optional Helm chart overrides
     # helm:
-      # traefik:
-        # repoName:
-        # repoUrl: not set if using `chartRef`
-        # chartRef: e.g. oci://...
-        # version:
-        # values:
-      # certManager:
-      # nvidiaDevicePlugin:
+    #   traefik:
+    #     repoName:
+    #     repoUrl: not set if using `chartRef`
+    #     chartRef: e.g. oci://...
+    #     version:
+    #     values:
+    #   certManager:
+    #   nvidiaDevicePlugin:
 
   database:
     serverName: demo-tyger
@@ -170,12 +170,16 @@ organizations:
           - name: demowestus2buf
             # location: defaults to defaultLocation
             # sku: defaults to Standard_LRS
+            # dnsEndpointType can be set to `AzureDNSZone` when creating large number of accounts in a single subscription.
+            # dnsEndpointType: defaults to Standard.
 
         # The storage account where run logs will be stored.
         logs:
           name: demotygerlogs
           # location: defaults to defaultLocation
           # sku: defaults to Standard_LRS
+          # dnsEndpointType can be set to `AzureDNSZone` when creating large number of accounts in a single subscription.
+          # dnsEndpointType: defaults to Standard.
 
       # An optional array of managed identities that will be created in the resource group.
       # These identities are available to runs as workload identities. When updating this list
@@ -190,10 +194,55 @@ organizations:
       # Set to KeyVault if using a custom TLS certificate, otherwise set to LetsEncrypt
       tlsCertificateProvider: LetsEncrypt
 
-      auth:
+      accessControl:
         tenantId: 72f988bf-86f1-41af-91ab-2d7cd011db47
         apiAppUri: api://tyger-server
         cliAppUri: api://tyger-cli
+
+        apiAppId: "" # `tyger access-control apply` will fill in this value
+        cliAppId: "" # `tyger access-control apply` will fill in this value
+
+        # Principals in role assignments are specified in the following ways:
+        #
+        # For users, specify the object ID and/or the user principal name.
+        #   - kind: User
+        #     objectId: <objectId>
+        #     userPrincipalName: <userPrincipalName>
+        #
+        # For groups, specify the object ID and/or the group display name.
+        #   - kind: Group
+        #     objectId: <objectId>
+        #     displayName: <displayName>
+        #
+        # For service principals, specify the object ID and/or the service principal display name.
+        #   - kind: ServicePrincipal
+        #     objectId: <objectId>
+        #     displayName: <displayName>
+
+        # Example:
+        #
+        # roleAssignments:
+        #   owner:
+        #     - kind: User
+        #       objectId: c5e5d858-b954-4bef-b704-71b63e761f69
+        #       userPrincipalName: me@example.com
+        #
+        #     - kind: ServicePrincipal
+        #       objectId: 32b73951-e5eb-4a75-8479-23374021f46a
+        #       displayName: my-service-principal
+        #
+        #   contributor:
+        #     - kind: Group
+        #       objectId: f939c89c-94ed-46b9-8fbd-726cf747f231
+        #       displayName: my-group
+
+        roleAssignments:
+          owner:
+            - kind: User
+              objectId: 18c9e451-88aa-47d2-ae4f-1d34d55dc50c
+              userPrincipalName: me@example.com
+
+          contributor: []
 
       # buffers:
         # TTL for active buffers before they are automatically soft-deleted (D.HH:MM:SS) (0 = never expire)
@@ -203,12 +252,12 @@ organizations:
 
       # Optional Helm chart overrides
       # helm:
-        # tyger:
-          # repoName:
-          # repoUrl: not set if using `chartRef`
-          # chartRef: e.g. oci://...
-          # version:
-          # values:
+      #   tyger:
+      #     repoName:
+      #     repoUrl: not set if using `chartRef`
+      #     chartRef: e.g. oci://...
+      #     version:
+      #     values:
 ```
 
 All of the installation commands (`tyger cloud install`, `tyger api install`,
@@ -226,6 +275,59 @@ You can also reformat it with the default comments with:
 tyger config pretty-print -i FILE.yml -o FILE.yml
 ```
 
+## Set up access control
+
+Tyger uses [Microsoft Entra
+ID](https://www.microsoft.com/en-ca/security/business/identity-access/microsoft-entra-id)
+for authentication and authorization. You will need to create app registrations
+for the API and CLI so that users can obtain an OAuth token to the API, and
+then explicilty grant users access to the API. Both of these can be done by editing
+the config file and running:
+
+``` bash
+tyger config apply -f config.yml
+```
+
+The part of the config file to edit is under the path `organizations[*].api.accessControl`.
+
+The first part of that section is parameters for authentication:
+
+```yaml
+tenantId: 72f988bf-86f1-41af-91ab-2d7cd011db47
+apiAppUri: api://tyger-server
+cliAppUri: api://tyger-cli
+
+apiAppId: "" # `tyger access-control apply` will fill in this value
+cliAppId: "" # `tyger access-control apply` will fill in this value
+```
+
+Review the values for `tenantId`, `apiAppUri`, and `apiAppUri`. `apiAppId` and
+`cliAppId` will be updated with IDs when `tyger config apply` is run.
+
+The next section determines who can access to the Tyger API. There are two
+roles: owner and contributor. Owners can perform any operation. Contributors can
+perform all operation except deleting, exporting, and importing buffers.
+
+```yaml
+roleAssignments:
+  owner:
+    - kind: User
+      objectId: 18c9e451-88aa-47d2-ae4f-1d34d55dc50c
+      userPrincipalName: me@example.com
+
+  contributor: []
+```
+
+You can assign users, groups, and service principals to these two roles. To
+specify a principal, provide its object ID and/or its userPrincipalName (for
+users) or displayName (for groups and service principals).
+
+`tyger access-control apply` is idempotent and can be run multiple times.
+Normally, you would run it every time you want to add or remove role
+assignments. Role assignments are stored in Entra ID and not in the Tyger API.
+After updating role assignments, you will likely have to perform `tyger login`
+in order for the new role assignment to take effect.
+
 ## Install cloud resources
 
 To create and configure the necessary cloud components for Tyger (Azure
@@ -237,33 +339,6 @@ tyger cloud install -f config.yml
 
 If later on you need to make changes to your cloud resources, you can update the
 config file and run this command again.
-
-## Install authentication identities
-
-Execute the following to install Entra ID applications for the `tyger` CLI and
-the Tyger API. These are needed for OAuth authentication:
-
-```bash
-tyger identities install -f config.yml
-```
-
-This command is idempotent and can be run multiple times. You will receive errors if
-you do not have sufficient permissions.
-
-For calls to the Tyger API, the `tyger` CLI can use a service principal instead
-of a user's identity. If you want to use a service principal for this purpose,
-you can use an existing one or create a new one on your own.
-
-::: info Note
-
-It is also possible to run this command without the configuration file
-if the server URL is known:
-
-``` bash
-tyger identities install --server-url https://demo-tyger.westus2.cloudapp.azure.com
-```
-
-:::
 
 ## Install the Tyger API
 

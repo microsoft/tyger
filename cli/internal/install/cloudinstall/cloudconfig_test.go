@@ -22,7 +22,7 @@ func TestRenderConfig(t *testing.T) {
 		TenantId:        "tenant",
 		SubscriptionId:  "sub",
 		DefaultLocation: "westus",
-		Principal: Principal{
+		ManagementPrincipal: Principal{
 			ObjectId:          uuid.New().String(),
 			Kind:              PrincipalKindUser,
 			UserPrincipalName: "my@example.com",
@@ -52,9 +52,9 @@ func TestRenderConfig(t *testing.T) {
 	require.Equal(t, values.TenantId, config.Cloud.TenantID)
 	require.Equal(t, values.SubscriptionId, config.Cloud.SubscriptionID)
 	require.Equal(t, values.DefaultLocation, config.Cloud.DefaultLocation)
-	require.Equal(t, values.Principal.Kind, config.Cloud.Compute.ManagementPrincipals[0].Kind)
-	require.Equal(t, values.Principal.ObjectId, config.Cloud.Compute.ManagementPrincipals[0].ObjectId)
-	require.Equal(t, values.Principal.UserPrincipalName, config.Cloud.Compute.ManagementPrincipals[0].UserPrincipalName)
+	require.Equal(t, values.ManagementPrincipal.Kind, config.Cloud.Compute.ManagementPrincipals[0].Kind)
+	require.Equal(t, values.ManagementPrincipal.ObjectId, config.Cloud.Compute.ManagementPrincipals[0].ObjectId)
+	require.Equal(t, values.ManagementPrincipal.UserPrincipalName, config.Cloud.Compute.ManagementPrincipals[0].UserPrincipalName)
 	require.Equal(t, values.BufferStorageAccountName, config.Organizations[0].Cloud.Storage.Buffers[0].Name)
 	require.Equal(t, values.LogsStorageAccountName, config.Organizations[0].Cloud.Storage.Logs.Name)
 	require.Equal(t, values.DomainName, config.Organizations[0].Api.DomainName)

@@ -576,7 +576,7 @@ func generateCloudConfig(ctx context.Context, configFile *os.File) error {
 		return err
 	}
 
-	templateValues.Principal = principal.Principal
+	templateValues.ManagementPrincipal = principal.Principal
 
 	for {
 		templateValues.SubscriptionId, err = chooseSubscription(tenantCred)
@@ -680,6 +680,13 @@ func generateCloudConfig(ctx context.Context, configFile *os.File) error {
 			}
 		}
 	}
+
+	principal, err = getCurrentPrincipal(ctx, cred)
+	if err != nil {
+		return err
+	}
+
+	templateValues.TygerPrincipal = principal.Principal
 
 	err = cloudinstall.RenderConfig(templateValues, configFile)
 	if err != nil {
