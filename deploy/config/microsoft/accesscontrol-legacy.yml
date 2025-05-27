@@ -41,5 +41,12 @@ cliAppId: f13d0630-3b5f-4a9f-aafa-34bd3bb6062b
 #       displayName: my-group
 
 roleAssignments:
-  owner: []
+  owner:
+    - kind: Group
+      objectId: e3a3c857-4dfa-4d73-b23d-3c1d8f6128ff
+      displayName: Tyger Owners
+    - kind: ServicePrincipal
+      objectId: 7461b6b1-3b29-4610-935f-e708d52f628e
+      displayName: tyger-test-client
+
   contributor: []
