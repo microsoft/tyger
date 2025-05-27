@@ -22,7 +22,7 @@ const (
 )
 
 type DockerEnvironmentConfig struct {
-	install.ConfigFileCommon
+	install.ConfigFileCommon `json:",inline"`
 
 	EnvironmentName string `json:"environmentName"`
 

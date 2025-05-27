@@ -1,3 +1,8 @@
+#!/usr/bin/env bash
+
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 #! /usr/bin/env bash
 
 set -euo pipefail
@@ -5,7 +10,7 @@ set -euo pipefail
 usage() {
     cat <<EOF
 
-managed-federated-creds.sh {--add-this | --remove-others}
+manage-federated-creds.sh {--add-this | --remove-others}
 
 Use this script with --add-this to add this VM's managed identity to the federated credentials
 of the api://tyger-client-owner and api://tyger-client-contributor applications.

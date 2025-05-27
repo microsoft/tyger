@@ -10,8 +10,6 @@ import (
 	"path"
 	"testing"
 
-	"github.com/google/uuid"
-	"github.com/microsoft/tyger/cli/internal/install/cloudinstall"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 )
@@ -26,22 +24,29 @@ func TestConvertPreOrganizationsConfig(t *testing.T) {
 	newPath := path.Join(tempdir, "new-config.yaml")
 	require.NoError(t, os.WriteFile(oldPath, []byte(preOrganizationsConfig), 0644))
 
-	authConfig := &cloudinstall.AccessControlConfig{
-		TenantID:  "705ef40b-9fa6-45a3-ba0c-b7ced9af6dce",
-		ApiAppUri: "api://tyger-server",
-		ApiAppId:  uuid.New().String(),
-		CliAppUri: "api://tyger-cli",
-		CliAppId:  uuid.New().String(),
-	}
-
 	authConfigPath := path.Join(tempdir, "authconfig.yml")
 
 	authConfigFile, err := os.OpenFile(authConfigPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
 	require.NoError(t, err)
 	defer authConfigFile.Close()
 
-	cloudinstall.PrettyPrintAccessControlConfig(authConfig, authConfigFile)
-	authConfigFile.Close()
+	errorBuf := bytes.Buffer{}
+	ctx := zerolog.New(&errorBuf).WithContext(context.Background())
+	require.NoError(t, convert(ctx, oldPath, newPath), errorBuf.String())
+}
+
+func TestConvertPreAccessControlConfig(t *testing.T) {
+	tempdir := t.TempDir()
+
+	oldPath := path.Join(tempdir, "old-config.json")
+	newPath := path.Join(tempdir, "new-config.yaml")
+	require.NoError(t, os.WriteFile(oldPath, []byte(preAccessControlConfig), 0644))
+
+	authConfigPath := path.Join(tempdir, "authconfig.yml")
+
+	authConfigFile, err := os.OpenFile(authConfigPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
+	require.NoError(t, err)
+	defer authConfigFile.Close()
 
 	errorBuf := bytes.Buffer{}
 	ctx := zerolog.New(&errorBuf).WithContext(context.Background())

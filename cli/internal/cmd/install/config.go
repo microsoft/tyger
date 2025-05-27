@@ -235,34 +235,45 @@ func convert(ctx context.Context, inputPath string, outputPath string) error {
 	}
 
 	if kind, _ := document["kind"].(string); kind != "docker" {
-		if document["organizations"] != nil {
-			return fmt.Errorf("the given config file appears to already be in the new format")
+		if document["organizations"] == nil {
+			identities := safeGetAndRemove(document, "cloud.compute.identities")
+			storage := safeGetAndRemove(document, "cloud.storage")
+			api := safeGetAndRemove(document, "api")
+
+			if storage == nil || api == nil {
+				return fmt.Errorf("the given config file appears not to be have been valid")
+			}
+
+			if apiMap, ok := api.(map[string]any); ok {
+				apiMap["tlsCertificateProvider"] = string(cloudinstall.TlsCertificateProviderLetsEncrypt)
+				apiMap["accessControl"] = safeGetAndRemove(apiMap, "auth")
+			}
+
+			org := map[string]any{
+				"name":                                "default",
+				"singleOrganizationCompatibilityMode": true,
+				"cloud": map[string]any{
+					"storage":    storage,
+					"identities": identities,
+				},
+				"api": api,
+			}
+
+			document["organizations"] = []any{org}
 		}
+	}
 
-		identities := safeGetAndRemove(document, "cloud.compute.identities")
-		storage := safeGetAndRemove(document, "cloud.storage")
-		api := safeGetAndRemove(document, "api")
-
-		if storage == nil || api == nil {
-			return fmt.Errorf("the given config file appears not to be have been valid")
+	if orgs, ok := document["organizations"].([]any); ok {
+		for _, org := range orgs {
+			if orgMap, ok := org.(map[string]any); ok {
+				if apiMap, ok := orgMap["api"].(map[string]any); ok {
+					auth := safeGetAndRemove(apiMap, "auth")
+					if auth != nil {
+						apiMap["accessControl"] = auth
+					}
+				}
+			}
 		}
-
-		if apiMap, ok := api.(map[string]any); ok {
-			apiMap["tlsCertificateProvider"] = string(cloudinstall.TlsCertificateProviderLetsEncrypt)
-			apiMap["accessControl"] = safeGetAndRemove(apiMap, "auth")
-		}
-
-		org := map[string]any{
-			"name":                                "default",
-			"singleOrganizationCompatibilityMode": true,
-			"cloud": map[string]any{
-				"storage":    storage,
-				"identities": identities,
-			},
-			"api": api,
-		}
-
-		document["organizations"] = []any{org}
 	}
 
 	buffer := bytes.Buffer{}

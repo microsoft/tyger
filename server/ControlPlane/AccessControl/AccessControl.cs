@@ -158,6 +158,11 @@ public class AccessControlOptions : IValidatableObject
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
+        if (!Enabled)
+        {
+            yield break;
+        }
+
         if (string.IsNullOrWhiteSpace(Authority) || string.IsNullOrWhiteSpace(Audience))
         {
             yield return new ValidationResult("When security is enabled, Authority, Audience, and CliAppUri must be specified");
