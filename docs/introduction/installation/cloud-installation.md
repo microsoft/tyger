@@ -281,7 +281,7 @@ Tyger uses [Microsoft Entra
 ID](https://www.microsoft.com/en-ca/security/business/identity-access/microsoft-entra-id)
 for authentication and authorization. You will need to create app registrations
 for the API and CLI so that users can obtain an OAuth token to the API, and
-then explicilty grant users access to the API. Both of these can be done by editing
+then explicitly grant users access to the API. Both of these can be done by editing
 the config file and running:
 
 ``` bash
@@ -325,8 +325,11 @@ users) or displayName (for groups and service principals).
 `tyger access-control apply` is idempotent and can be run multiple times.
 Normally, you would run it every time you want to add or remove role
 assignments. Role assignments are stored in Entra ID and not in the Tyger API.
-After updating role assignments, you will likely have to perform `tyger login`
-in order for the new role assignment to take effect.
+After updating role assignments, you will likely have to perform [`tyger
+login`](../../guides/login.md) in order for the new role assignment to take
+effect. This is because the roles assignments are part of the OAuth token that
+Entra issues, and these tokens are typically valid for an hour and cached by the
+`tyger` CLI.
 
 ## Install cloud resources
 
