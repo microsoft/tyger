@@ -75,7 +75,7 @@ func newConfigValidateCommand() *cobra.Command {
 				log.Fatal().AnErr("error", err).Msg("Failed to read config file")
 			}
 
-			c, err := parseConfigFromYamlBytes(yamlBytes)
+			c, err := parseConfig(yamlBytes)
 			if err == nil {
 				err = c.QuickValidateConfig(cmd.Context())
 			}
@@ -105,29 +105,25 @@ func newConfigPrettyPrintCommand() *cobra.Command {
 		Long:                  "Add documentation to a config file.",
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			inputFile, err := os.Open(inputPath)
+			inputFileBytes, err := os.ReadFile(inputPath)
 			if err != nil {
 				log.Fatal().AnErr("error", err).Msg("Failed to read config file")
 			}
 
-			defer inputFile.Close()
+			outputBuffer := bytes.Buffer{}
+			if err := prettyPrintConfig(cmd.Context(), bytes.NewBuffer(inputFileBytes), &outputBuffer, true); err != nil {
+				if !errors.Is(err, install.ErrAlreadyLoggedError) {
+					log.Fatal().AnErr("error", err).Msg("Failed to pretty print config file")
+				}
+				os.Exit(1)
+			}
 
 			if err := os.MkdirAll(path.Dir(outputPath), 0775); err != nil {
 				log.Fatal().AnErr("error", err).Msg("Failed to create config directory")
 			}
 
-			outputFile, err := os.OpenFile(outputPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-			if err != nil {
-				log.Fatal().AnErr("error", err).Msg("Failed to open config file for writing")
-			}
-
-			defer outputFile.Close()
-
-			if err := prettyPrintConfig(cmd.Context(), inputFile, outputFile); err != nil {
-				if !errors.Is(err, install.ErrAlreadyLoggedError) {
-					log.Fatal().AnErr("error", err).Msg("Failed to pretty print config file")
-				}
-				os.Exit(1)
+			if err := os.WriteFile(outputPath, outputBuffer.Bytes(), 0644); err != nil {
+				log.Fatal().AnErr("error", err).Msg("Failed to write config file")
 			}
 		},
 	}
@@ -140,19 +136,21 @@ func newConfigPrettyPrintCommand() *cobra.Command {
 	return cmd
 }
 
-func prettyPrintConfig(ctx context.Context, input io.Reader, output io.Writer) error {
+func prettyPrintConfig(ctx context.Context, input io.Reader, output io.Writer, validate bool) error {
 	inputBytes, err := io.ReadAll(input)
 	if err != nil {
 		return err
 	}
 
-	c, err := parseConfigFromYamlBytes(inputBytes)
+	c, err := parseConfig(inputBytes)
 	if err != nil {
 		return err
 	}
 
-	if err := c.QuickValidateConfig(ctx); err != nil {
-		return err
+	if validate {
+		if err := c.QuickValidateConfig(ctx); err != nil {
+			return err
+		}
 	}
 
 	var outputContents string
@@ -163,7 +161,7 @@ func prettyPrintConfig(ctx context.Context, input io.Reader, output io.Writer) e
 		return err
 	case *cloudinstall.CloudEnvironmentConfig:
 		// parse the config again to clear the fields that are set during validation
-		c, err = parseConfigFromYamlBytes(inputBytes)
+		c, err = parseConfig(inputBytes)
 		if err != nil {
 			return err
 		}
@@ -182,13 +180,15 @@ func prettyPrintConfig(ctx context.Context, input io.Reader, output io.Writer) e
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 
-	parsedPrettyConfig, err := parseConfigFromYamlBytes([]byte(outputContents))
+	parsedPrettyConfig, err := parseConfig([]byte(outputContents))
 	if err != nil {
 		return fmt.Errorf("failed to parse config: %w", err)
 	}
 
-	if err := parsedPrettyConfig.QuickValidateConfig(ctx); err != nil {
-		return fmt.Errorf("validation failed on pretty printed config: %w", err)
+	if validate {
+		if err := parsedPrettyConfig.QuickValidateConfig(ctx); err != nil {
+			return fmt.Errorf("validation failed on pretty printed config: %w", err)
+		}
 	}
 
 	return nil
@@ -232,7 +232,7 @@ func convert(ctx context.Context, inputPath string, outputPath string) error {
 		return fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	document, err := parseConfigFromYamlBytesToMap(yamlBytes)
+	document, err := parseConfigToMap(yamlBytes)
 	if err != nil {
 		return err
 	}
@@ -252,7 +252,7 @@ func convert(ctx context.Context, inputPath string, outputPath string) error {
 
 		if apiMap, ok := api.(map[string]any); ok {
 			apiMap["tlsCertificateProvider"] = string(cloudinstall.TlsCertificateProviderLetsEncrypt)
-			// apiMap["auth"] = authConfig // TODO: FIX
+			apiMap["accessControl"] = safeGetAndRemove(apiMap, "auth")
 		}
 
 		org := map[string]any{
@@ -284,7 +284,7 @@ func convert(ctx context.Context, inputPath string, outputPath string) error {
 
 	defer outputFile.Close()
 
-	if err := prettyPrintConfig(ctx, &buffer, outputFile); err != nil {
+	if err := prettyPrintConfig(ctx, &buffer, outputFile, false); err != nil {
 		return fmt.Errorf("failed to pretty print config file: %w", err)
 	}
 
@@ -317,8 +317,6 @@ func safeGetAndRemove(m map[string]any, path string) any {
 
 func newConfigCreateCommand() *cobra.Command {
 	configPath := ""
-	authConfigPath := ""
-
 	cmd := &cobra.Command{
 		Use:                   "create --config-path CONFIG.yml --access-control-path ACCESSCONTROL.yml",
 		Short:                 "Create a new config file",
@@ -350,8 +348,8 @@ func newConfigCreateCommand() *cobra.Command {
 			defer f.Close()
 
 			options := []IdAndName{
-				{cloudinstall.EnvironmentKindCloud, "Azure cloud"},
-				{dockerinstall.EnvironmentKindDocker, "Docker"},
+				{cloudinstall.ConfigKindCloud, "Azure cloud"},
+				{dockerinstall.ConfigKindDocker, "Docker"},
 			}
 
 			s := selection.New(
@@ -368,18 +366,11 @@ func newConfigCreateCommand() *cobra.Command {
 			fmt.Println()
 
 			switch res.id {
-			case cloudinstall.EnvironmentKindCloud:
-				if authConfigPath == "" {
-					return errors.New("the --access-control-path flag is required for cloud environments")
-				}
-				authConfig, err := cloudinstall.ParseAccessControlConfigFromFile(authConfigPath)
-				if err != nil {
-					return fmt.Errorf("failed to read access control config file: %w", err)
-				}
-				if err := generateCloudConfig(cmd.Context(), authConfig, f); err != nil {
+			case cloudinstall.ConfigKindCloud:
+				if err := generateCloudConfig(cmd.Context(), f); err != nil {
 					return err
 				}
-			case dockerinstall.EnvironmentKindDocker:
+			case dockerinstall.ConfigKindDocker:
 				if err := generateDockerConfig(f); err != nil {
 					return err
 				}
@@ -394,8 +385,6 @@ func newConfigCreateCommand() *cobra.Command {
 
 	cmd.Flags().StringVarP(&configPath, "config-path", "c", "", "The path to the config file to create")
 	cmd.MarkFlagRequired("file")
-
-	cmd.Flags().StringVarP(&authConfigPath, "access-control-path", "a", "", "The path to the access control config file. Required for cloud environments.")
 	return cmd
 }
 
@@ -511,7 +500,7 @@ PromptPublicKey:
 	return dockerinstall.RenderConfig(templateValues, configFile)
 }
 
-func generateCloudConfig(ctx context.Context, authConfig *cloudinstall.AccessControlConfig, configFile *os.File) error {
+func generateCloudConfig(ctx context.Context, configFile *os.File) error {
 	if _, err := exec.LookPath("az"); err != nil {
 		return errors.New("please install the Azure CLI (az) first")
 	}
@@ -655,7 +644,7 @@ func generateCloudConfig(ctx context.Context, authConfig *cloudinstall.AccessCon
 	}
 	templateValues.DomainName = fmt.Sprintf("%s%s", domainLabel, domainSuffix)
 
-	err = cloudinstall.RenderConfig(templateValues, authConfig, configFile)
+	err = cloudinstall.RenderConfig(templateValues, configFile)
 	if err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}

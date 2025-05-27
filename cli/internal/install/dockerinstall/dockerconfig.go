@@ -18,11 +18,11 @@ import (
 var configTemplate string
 
 const (
-	EnvironmentKindDocker = "docker"
+	ConfigKindDocker = "docker"
 )
 
 type DockerEnvironmentConfig struct {
-	install.ConfigCommon
+	install.ConfigFileCommon
 
 	EnvironmentName string `json:"environmentName"`
 

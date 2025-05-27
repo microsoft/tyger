@@ -238,7 +238,7 @@ organizations:
       # Set to KeyVault if using a custom TLS certificate, otherwise set to LetsEncrypt
       tlsCertificateProvider: {{ .TlsCertificateProvider }}
 
-      accessControl: {{ renderAccessControlConfig .AccessControl | trim | nindent 8 }}
+      accessControl: {{- renderAccessControlConfig .AccessControl | trim | nindent 8 }}
       {{- if (and .Buffers (or .Buffers.ActiveLifetime .Buffers.SoftDeletedLifetime)) }}
 
       buffers:

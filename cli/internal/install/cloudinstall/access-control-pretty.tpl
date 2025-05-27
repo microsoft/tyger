@@ -1,9 +1,13 @@
-tenantId: {{ if .TenantID -}} {{ .TenantID }} {{- else }} # Required. {{- end }}
-apiAppUri: {{ if .ApiAppUri -}} {{ .ApiAppUri }} {{- else }}# Required. {{- end }}
-cliAppUri: {{ if .CliAppUri -}} {{ .CliAppUri }} {{- else }}# Required. {{- end }}
+{{ if .Kind -}}
+kind: {{ .Kind }}
+{{- end }}
 
-apiAppId: {{ if .ApiAppId -}} {{ .ApiAppId }} {{- else }} # `tyger access-control apply` will fill in this value {{- end }}
-cliAppId: {{ if .CliAppId -}} {{ .CliAppId }} {{- else }} # `tyger access-control apply` will fill in this value {{- end }}
+tenantId: {{ if .TenantID -}} {{ .TenantID }} {{- else -}} # Required. {{- end }}
+apiAppUri: {{ if .ApiAppUri -}} {{ .ApiAppUri }} {{- else -}} # Required. {{- end }}
+cliAppUri: {{ if .CliAppUri -}} {{ .CliAppUri }} {{- else -}} # Required. {{- end }}
+
+apiAppId: {{ if .ApiAppId -}} {{ .ApiAppId }} {{- else -}} "" # `tyger access-control apply` will fill in this value {{- end }}
+cliAppId: {{ if .CliAppId -}} {{ .CliAppId }} {{- else -}} "" # `tyger access-control apply` will fill in this value {{- end }}
 {{- if .ServiceManagementReference }}
 
 serviceManagementReference: {{ .ServiceManagementReference }}

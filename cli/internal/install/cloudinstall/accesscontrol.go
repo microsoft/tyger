@@ -18,11 +18,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Masterminds/sprig/v3"
-	"github.com/go-viper/mapstructure/v2"
 	"github.com/google/uuid"
-	kaonfyamlparser "github.com/knadh/koanf/parsers/yaml"
-	"github.com/knadh/koanf/providers/file"
-	"github.com/knadh/koanf/v2"
 	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v3"
 )
@@ -33,31 +29,6 @@ const tygerContributorRoleValue = "contributor"
 
 //go:embed access-control-pretty.tpl
 var prettyPrintRbacTemplate string
-
-func ParseAccessControlConfigFromFile(filePath string) (*AccessControlConfig, error) {
-	koanfConfig := koanf.New(".")
-
-	if err := koanfConfig.Load(file.Provider(filePath), kaonfyamlparser.Parser()); err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
-	}
-
-	accessControlConfig := &AccessControlConfig{}
-	unmarshalConf := koanf.UnmarshalConf{
-		Tag: "json",
-		DecoderConfig: &mapstructure.DecoderConfig{
-			WeaklyTypedInput: true,
-			ErrorUnused:      true,
-			Squash:           true,
-			Result:           &accessControlConfig,
-		},
-	}
-
-	if err := koanfConfig.UnmarshalWithConf("", &accessControlConfig, unmarshalConf); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
-	}
-
-	return accessControlConfig, nil
-}
 
 func CompleteAcessControlConfig(ctx context.Context, config *AccessControlConfig, cred azcore.TokenCredential) error {
 	serverApp, err := GetAppByAppIdOrUri(ctx, cred, config.ApiAppId, config.ApiAppUri)
@@ -648,8 +619,16 @@ func normalizePrincipal(ctx context.Context, cred azcore.TokenCredential, princi
 }
 
 func PrettyPrintAccessControlConfig(accessControlConfig *AccessControlConfig, writer io.Writer) error {
+	return PrettyPrintStandaloneAccessControlConfig(&StandaloneAccessControlConfig{AccessControlConfig: accessControlConfig}, writer)
+}
+
+func PrettyPrintStandaloneAccessControlConfig(accessControlConfig *StandaloneAccessControlConfig, writer io.Writer) error {
 	if accessControlConfig == nil {
-		accessControlConfig = &AccessControlConfig{}
+		accessControlConfig = &StandaloneAccessControlConfig{}
+	}
+
+	if accessControlConfig.AccessControlConfig == nil {
+		accessControlConfig.AccessControlConfig = &AccessControlConfig{}
 	}
 
 	if accessControlConfig.RoleAssignments == nil {

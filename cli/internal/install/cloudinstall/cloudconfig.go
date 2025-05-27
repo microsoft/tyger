@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"strings"
 	"text/template"
+	"unicode"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v4"
 	"github.com/Masterminds/sprig/v3"
@@ -25,13 +26,14 @@ import (
 var prettyPrintConfigTemplate string
 
 const (
-	EnvironmentKindCloud = "azureCloud"
+	ConfigKindCloud         = "azureCloud"
+	ConfigKindAccessControl = "accessControl"
 )
 
 type CloudEnvironmentConfig struct {
-	install.ConfigCommon `json:",inline"`
-	EnvironmentName      string       `json:"environmentName"`
-	Cloud                *CloudConfig `json:"cloud"`
+	install.ConfigFileCommon `json:",inline"`
+	EnvironmentName          string       `json:"environmentName"`
+	Cloud                    *CloudConfig `json:"cloud"`
 
 	Organizations []*OrganizationConfig `json:"organizations"`
 }
@@ -247,9 +249,15 @@ const (
 type OrganizationApiConfig struct {
 	DomainName             string                  `json:"domainName"`
 	TlsCertificateProvider TlsCertificateProvider  `json:"tlsCertificateProvider"`
+	DeprecatedAuth         any                     `json:"auth,omitempty"` // deprecated, use accessControl instead
 	AccessControl          *AccessControlConfig    `json:"accessControl"`
 	Buffers                *BuffersConfig          `json:"buffers"`
 	Helm                   *OrganizationHelmConfig `json:"helm"`
+}
+
+type StandaloneAccessControlConfig struct {
+	install.ConfigFileCommon `json:",inline"`
+	*AccessControlConfig     `json:",inline"`
 }
 
 type AccessControlConfig struct {
@@ -258,7 +266,7 @@ type AccessControlConfig struct {
 	ApiAppId                   string                    `json:"apiAppId"`
 	CliAppUri                  string                    `json:"cliAppUri"`
 	CliAppId                   string                    `json:"cliAppId"`
-	ServiceManagementReference string                    `json:"serviceManagementReference"`
+	ServiceManagementReference string                    `json:"serviceManagementReference,omitempty"`
 	RoleAssignments            *TygerRbacRoleAssignments `json:"roleAssignments"`
 }
 
@@ -300,14 +308,15 @@ type ConfigTemplateValues struct {
 	BufferStorageAccountName string
 	LogsStorageAccountName   string
 	DomainName               string
+	ApiTenantId              string
 	CpuNodePoolMinCount      int32
 	GpuNodePoolMinCount      int32
 }
 
-func RenderConfig(templateValues ConfigTemplateValues, authConfig *AccessControlConfig, writer io.Writer) error {
+func RenderConfig(templateValues ConfigTemplateValues, writer io.Writer) error {
 	config := CloudEnvironmentConfig{
-		ConfigCommon: install.ConfigCommon{
-			Kind: EnvironmentKindCloud,
+		ConfigFileCommon: install.ConfigFileCommon{
+			Kind: ConfigKindCloud,
 		},
 		EnvironmentName: templateValues.EnvironmentName,
 		Cloud: &CloudConfig{
@@ -367,7 +376,11 @@ func RenderConfig(templateValues ConfigTemplateValues, authConfig *AccessControl
 				Api: &OrganizationApiConfig{
 					DomainName:             templateValues.DomainName,
 					TlsCertificateProvider: TlsCertificateProviderLetsEncrypt,
-					AccessControl:          authConfig,
+					AccessControl: &AccessControlConfig{
+						TenantID:  templateValues.ApiTenantId,
+						ApiAppUri: "api://tyger-server",
+						CliAppUri: "api://tyger-cli",
+					},
 				},
 			},
 		},
@@ -383,9 +396,10 @@ func PrettyPrintConfig(config *CloudEnvironmentConfig, writer io.Writer) error {
 
 func funcMap() template.FuncMap {
 	f := sprig.FuncMap()
+	f["indent"] = indent
+	f["nindent"] = nindent
 	f["toYAML"] = toYAML
 	f["optionalField"] = optionalField
-	f["renderHelm"] = renderHelm
 	f["renderSharedHelm"] = renderSharedHelm
 	f["renderOrgHelm"] = renderOrgHelm
 	f["renderAccessControlConfig"] = func(config *AccessControlConfig) string {
@@ -486,7 +500,7 @@ func renderSharedHelm(config *SharedHelmConfig) string {
 		w.WriteString(indent(4, renderHelm(config.NvidiaDevicePlugin)))
 	}
 
-	return w.String()
+	return alignCommentStarts(w.String())
 }
 
 func renderOrgHelm(config *OrganizationHelmConfig) string {
@@ -505,10 +519,67 @@ func renderOrgHelm(config *OrganizationHelmConfig) string {
 	}
 
 	w.WriteString(indent(4, renderHelm(config.Tyger)))
-	return w.String()
+	return alignCommentStarts(w.String())
+}
+
+func alignCommentStarts(yamlString string) string {
+	lines := strings.Split(yamlString, "\n")
+	var result []string
+
+	var commentBlock []string
+	var minHashCol int
+
+	flushBlock := func() {
+		if len(commentBlock) == 0 {
+			return
+		}
+		// Find the minimum column where '#' appears in the block
+		minHashCol = -1
+		for _, line := range commentBlock {
+			hashIdx := strings.Index(line, "#")
+			if hashIdx >= 0 && (minHashCol == -1 || hashIdx < minHashCol) {
+				minHashCol = hashIdx
+			}
+		}
+		// Align all '#' to minHashCol
+		for _, line := range commentBlock {
+			hashIdx := strings.Index(line, "#")
+			afterHash := line[hashIdx+1:]
+			aligned := strings.Repeat(" ", minHashCol) + "#" + strings.Repeat(" ", max(0, hashIdx-minHashCol)) + afterHash
+			result = append(result, aligned)
+		}
+		commentBlock = nil
+		minHashCol = 0
+	}
+
+	for _, line := range lines {
+		trimmed := strings.TrimLeft(line, " ")
+		if strings.HasPrefix(trimmed, "#") {
+			commentBlock = append(commentBlock, line)
+		} else {
+			flushBlock()
+			result = append(result, line)
+		}
+	}
+	flushBlock()
+	return strings.Join(result, "\n")
 }
 
 func indent(spaces int, v string) string {
 	pad := strings.Repeat(" ", spaces)
-	return pad + strings.Replace(v, "\n", "\n"+pad, -1)
+	lines := strings.Split(v, "\n")
+	for i := range lines {
+		line := strings.TrimRightFunc(lines[i], unicode.IsSpace)
+		if len(line) > 0 {
+			line = pad + line
+		}
+
+		lines[i] = line
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func nindent(spaces int, v string) string {
+	return "\n" + indent(spaces, v)
 }

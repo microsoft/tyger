@@ -118,7 +118,7 @@ func CheckCloudInstaller(installer install.Installer) *cloudinstall.Installer {
 	cloudInstaller, ok := installer.(*cloudinstall.Installer)
 
 	if !ok {
-		log.Fatal().Msgf("This command is only supported on configurations where the `kind` field is `%s`.", cloudinstall.EnvironmentKindCloud)
+		log.Fatal().Msgf("This command is only supported on configurations where the `kind` field is `%s`.", cloudinstall.ConfigKindCloud)
 	}
 
 	return cloudInstaller

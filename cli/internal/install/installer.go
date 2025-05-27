@@ -50,7 +50,7 @@ type Installer interface {
 	GetMigrationLogs(ctx context.Context, id int, destination io.Writer) error
 }
 
-type ConfigCommon struct {
+type ConfigFileCommon struct {
 	Kind string `json:"kind"`
 }
 

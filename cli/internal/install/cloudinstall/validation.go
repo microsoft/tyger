@@ -468,10 +468,14 @@ func quickValidateApiConfig(ctx context.Context, success *bool, config *CloudEnv
 		validationError(ctx, success, "The `api.tlsCertificateProvider` field must be one of %s for organization '%s'", []TlsCertificateProvider{TlsCertificateProviderKeyVault, TlsCertificateProviderLetsEncrypt}, org.Name)
 	}
 
+	if apiConfig.DeprecatedAuth != nil {
+		validationError(ctx, success, "The `api.auth` field has been renamed to `api.accessControl`.")
+	}
+
 	if apiConfig.AccessControl == nil {
 		validationError(ctx, success, "The `api.accessControl` field is required for organization '%s'", org.Name)
 	} else {
-		quickValidateAuthConfig(ctx, success, apiConfig.AccessControl, org)
+		quickValidateAccessControlConfig(ctx, success, apiConfig.AccessControl, org)
 	}
 
 	if apiConfig.Buffers == nil {
@@ -499,7 +503,7 @@ func quickValidateApiConfig(ctx context.Context, success *bool, config *CloudEnv
 	}
 }
 
-func quickValidateAuthConfig(ctx context.Context, success *bool, authConfig *AccessControlConfig, org *OrganizationConfig) {
+func quickValidateAccessControlConfig(ctx context.Context, success *bool, authConfig *AccessControlConfig, org *OrganizationConfig) {
 	if authConfig.TenantID == "" {
 		validationError(ctx, success, "The `api.accessControl.tenantId` field is required for organization '%s'", org.Name)
 	}

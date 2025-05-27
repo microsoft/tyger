@@ -44,7 +44,9 @@
         "access-control",
         "apply",
         "-f",
-        "/workspaces/tyger/deploy/config/microsoft/accesscontrol-lamna.yml"
+        "/workspaces/tyger/config.yml",
+        "--org",
+        "lamna"
       ]
     },
     {

@@ -15,6 +15,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/goccy/go-yaml"
+	"github.com/goccy/go-yaml/ast"
+	"github.com/goccy/go-yaml/parser"
 	"github.com/google/uuid"
 	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/microsoft/tyger/cli/internal/install/cloudinstall"
@@ -58,7 +60,7 @@ func commonPrerun(ctx context.Context, flags *commonFlags) (context.Context, ins
 		log.Fatal().Err(err).Msg("Failed to read config file")
 	}
 
-	config, err := parseConfigFromYamlBytes(yamlBytes)
+	config, err := parseConfig(yamlBytes)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to parse config file")
 	}
@@ -121,20 +123,23 @@ func newInstallerFromConfig(config install.ValidatableConfig) (install.Installer
 	}
 }
 
-func parseConfigFromYamlBytesToMap(yamlBytes []byte) (map[string]any, error) {
-	config := make(map[string]any)
-
-	if err := yaml.Unmarshal(yamlBytes, &config); err != nil {
+func parseConfigFileCommon(yamlBytes []byte) (*install.ConfigFileCommon, error) {
+	installCommon := &install.ConfigFileCommon{}
+	if err := yaml.UnmarshalWithOptions(yamlBytes, installCommon); err != nil {
 		return nil, fmt.Errorf("failed to decode config file: %w", err)
 	}
 
-	return config, nil
+	if installCommon.Kind == "" {
+		return nil, fmt.Errorf("the `kind` field is required in the config file")
+	}
+
+	return installCommon, nil
 }
 
-func parseConfigFromYamlBytes(yamlBytes []byte) (install.ValidatableConfig, error) {
-	installCommon := install.ConfigCommon{}
-	if err := yaml.Unmarshal(yamlBytes, &installCommon); err != nil {
-		return nil, fmt.Errorf("failed to decode config file: %w", err)
+func parseConfig(yamlBytes []byte) (install.ValidatableConfig, error) {
+	installCommon, err := parseConfigFileCommon(yamlBytes)
+	if err != nil {
+		return nil, err
 	}
 
 	if installCommon.Kind == "" {
@@ -144,14 +149,14 @@ func parseConfigFromYamlBytes(yamlBytes []byte) (install.ValidatableConfig, erro
 	var config install.ValidatableConfig
 	var decodeErr error
 	switch installCommon.Kind {
-	case cloudinstall.EnvironmentKindCloud:
+	case cloudinstall.ConfigKindCloud:
 		cfg := cloudinstall.CloudEnvironmentConfig{}
 		config = &cfg
 		if decodeErr = yaml.UnmarshalWithOptions(yamlBytes, &cfg, yaml.Strict()); decodeErr == nil {
 			return config, nil
 		}
 
-	case dockerinstall.EnvironmentKindDocker:
+	case dockerinstall.ConfigKindDocker:
 		cfg := dockerinstall.DockerEnvironmentConfig{}
 		config = &cfg
 		if decodeErr = yaml.UnmarshalWithOptions(yamlBytes, &cfg, yaml.Strict()); decodeErr == nil {
@@ -160,14 +165,14 @@ func parseConfigFromYamlBytes(yamlBytes []byte) (install.ValidatableConfig, erro
 	case "":
 		return nil, fmt.Errorf("the `kind` field is required in the config file")
 	default:
-		return nil, fmt.Errorf("the `kind` field must be either `%s` or `%s`. Given value: `%s`", cloudinstall.EnvironmentKindCloud, dockerinstall.EnvironmentKindDocker, installCommon.Kind)
+		return nil, fmt.Errorf("the `kind` field must be either `%s` or `%s`. Given value: `%s`", cloudinstall.ConfigKindCloud, dockerinstall.ConfigKindDocker, installCommon.Kind)
 	}
 
 	// There was an error decoding the config. See if this is because of an old config format
-	if installCommon.Kind == cloudinstall.EnvironmentKindCloud {
-		if document, err := parseConfigFromYamlBytesToMap(yamlBytes); err == nil {
+	if installCommon.Kind == cloudinstall.ConfigKindCloud {
+		if document, err := parseConfigToMap(yamlBytes); err == nil {
 			if document["api"] != nil &&
-				document["organizations"] != nil &&
+				document["organizations"] == nil &&
 				document["cloud"] != nil && document["cloud"].(map[string]any)["storage"] != nil {
 				return nil, fmt.Errorf("the config file is in an old format. Please convert it to the new format using the command `tyger config convert`")
 			}
@@ -179,6 +184,51 @@ func parseConfigFromYamlBytes(yamlBytes []byte) (install.ValidatableConfig, erro
 	fmt.Fprintln(os.Stderr, yaml.FormatError(decodeErr, term.IsTerminal(int(os.Stderr.Fd())), true))
 
 	return nil, install.ErrAlreadyLoggedError
+}
+
+func parseConfigToMap(yamlBytes []byte) (map[string]any, error) {
+	config := make(map[string]any)
+
+	if err := yaml.Unmarshal(yamlBytes, &config); err != nil {
+		return nil, fmt.Errorf("failed to decode config file: %w", err)
+	}
+
+	return config, nil
+}
+
+func parseConfigToAst(yamlBytes []byte) (ast.Node, error) {
+	file, err := parser.ParseBytes(yamlBytes, parser.ParseComments)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	}
+
+	if len(file.Docs) > 1 {
+		return nil, fmt.Errorf("the config file contains multiple documents, which is not supported")
+	}
+
+	return file.Docs[0].Body, nil
+}
+
+func parseStandaloneAccessControlConfig(yamlBytes []byte) (*cloudinstall.StandaloneAccessControlConfig, error) {
+	ac := cloudinstall.StandaloneAccessControlConfig{}
+	if err := yaml.UnmarshalWithOptions(yamlBytes, &ac, yaml.Strict()); err != nil {
+		return nil, fmt.Errorf("failed to decode access control config file: %w", err)
+	}
+
+	return &ac, nil
+}
+
+func parseStandaloneAccessControlConfigToAst(yamlBytes []byte) (ast.Node, error) {
+	file, err := parser.ParseBytes(yamlBytes, parser.ParseComments)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse access control config file: %w", err)
+	}
+
+	if len(file.Docs) > 1 {
+		return nil, fmt.Errorf("the access control config file contains multiple documents, which is not supported")
+	}
+
+	return file.Docs[0].Body, nil
 }
 
 func loginAndValidateSubscription(ctx context.Context, cloudInstaller *cloudinstall.Installer) (context.Context, error) {

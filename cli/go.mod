@@ -34,6 +34,7 @@ require (
 	github.com/getkin/kin-openapi v0.131.0
 	github.com/go-chi/chi/v5 v5.2.0
 	github.com/go-viper/mapstructure/v2 v2.2.1
+	github.com/goccy/go-yaml v1.17.1
 	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-cleanhttp v0.5.2
@@ -42,7 +43,6 @@ require (
 	github.com/jackc/pgx/v5 v5.7.1
 	github.com/knadh/koanf/parsers/yaml v0.1.0
 	github.com/knadh/koanf/providers/file v1.1.2
-	github.com/knadh/koanf/providers/rawbytes v1.0.0
 	github.com/knadh/koanf/v2 v2.1.2
 	github.com/mattn/go-ieproxy v0.0.12
 	github.com/mittwald/go-helm-client v0.12.16
@@ -116,7 +116,6 @@ require (
 	github.com/go-openapi/jsonreference v0.21.0 // indirect
 	github.com/go-openapi/swag v0.23.0 // indirect
 	github.com/gobwas/glob v0.2.3 // indirect
-	github.com/goccy/go-yaml v1.17.1 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/btree v1.1.3 // indirect
 	github.com/google/gnostic-models v0.6.9 // indirect

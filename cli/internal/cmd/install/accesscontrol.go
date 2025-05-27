@@ -4,16 +4,22 @@
 package install
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/url"
 	"os"
+	"path"
+	"slices"
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/goccy/go-yaml"
+	"github.com/goccy/go-yaml/ast"
 	"github.com/google/uuid"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
+	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/microsoft/tyger/cli/internal/install/cloudinstall"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -27,25 +33,31 @@ func NewAccessControlCommand() *cobra.Command {
 		DisableFlagsInUseLine: true,
 	}
 
+	cmd.AddCommand(newAccessControlApplyCommand())
+	cmd.AddCommand(newAccessControlPrettyPrintCommand())
 	cmd.AddCommand(newAccessControlInitCommand())
 	cmd.AddCommand(newAccessControlShowCommand())
-	cmd.AddCommand(newAccessControlApplyCommand())
 	return cmd
 }
 
 func newAccessControlInitCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                   "init",
-		Short:                 "Initialize an access control specification file",
-		Long:                  "Initialize an access control specification file",
+		Short:                 "Initialize a standalone access control configuration file",
+		Long:                  "Initialize a standalone access control configuration file",
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			accessControlConfig := &cloudinstall.AccessControlConfig{
-				ApiAppUri: "api://tyger-server",
-				CliAppUri: "api://tyger-cli",
+			accessControlConfig := &cloudinstall.StandaloneAccessControlConfig{
+				ConfigFileCommon: install.ConfigFileCommon{
+					Kind: cloudinstall.ConfigKindAccessControl,
+				},
+				AccessControlConfig: &cloudinstall.AccessControlConfig{
+					ApiAppUri: "api://tyger-server",
+					CliAppUri: "api://tyger-cli",
+				},
 			}
 
-			if err := cloudinstall.PrettyPrintAccessControlConfig(accessControlConfig, os.Stdout); err != nil {
+			if err := cloudinstall.PrettyPrintStandaloneAccessControlConfig(accessControlConfig, os.Stdout); err != nil {
 				log.Fatal().Err(err).Send()
 			}
 		},
@@ -69,7 +81,14 @@ func newAccessControlShowCommand() *cobra.Command {
 				log.Fatal().Err(err).Send()
 			}
 
-			if err := cloudinstall.PrettyPrintAccessControlConfig(accessControlConfig, os.Stdout); err != nil {
+			standaloneConfig := &cloudinstall.StandaloneAccessControlConfig{
+				ConfigFileCommon: install.ConfigFileCommon{
+					Kind: cloudinstall.ConfigKindAccessControl,
+				},
+				AccessControlConfig: accessControlConfig,
+			}
+
+			if err := cloudinstall.PrettyPrintStandaloneAccessControlConfig(standaloneConfig, os.Stdout); err != nil {
 				log.Fatal().Err(err).Send()
 			}
 		},
@@ -83,42 +102,225 @@ func newAccessControlShowCommand() *cobra.Command {
 
 func newAccessControlApplyCommand() *cobra.Command {
 	filePath := ""
+	organization := ""
 	cmd := &cobra.Command{
 		Use:                   "apply -f access-control.yml",
 		Short:                 "Apply the access control configuration",
 		Long:                  "Apply the access control configuration",
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			spec, err := cloudinstall.ParseAccessControlConfigFromFile(filePath)
+			yamlBytes, err := os.ReadFile(filePath)
 			if err != nil {
-				log.Fatal().Err(err).Msgf("Unable to load access control specification file: %s", filePath)
+				log.Fatal().Err(err).Msgf("Unable to read configuration file: %s", filePath)
 			}
 
-			if spec.TenantID == "" {
-				log.Fatal().Msg("Tenant ID is required in the access control specification file")
+			installCommon, err := parseConfigFileCommon(yamlBytes)
+			if err != nil {
+				log.Fatal().Err(err).Msgf("Unable to parse configuration file: %s", filePath)
 			}
-			cred := getCredForTenant(cmd.Context(), spec.TenantID)
-			normalizedSpec, err := cloudinstall.ApplyAccessControlConfig(cmd.Context(), spec, cred)
+
+			var desiredAccessControlConfig *cloudinstall.AccessControlConfig
+			orgIndex := 0
+			switch installCommon.Kind {
+			case cloudinstall.ConfigKindCloud:
+				c, err := parseConfig(yamlBytes)
+				if err != nil {
+					log.Fatal().Err(err).Msgf("Unable to parse cloud configuration file: %s", filePath)
+				}
+
+				cloudConfig := c.(*cloudinstall.CloudEnvironmentConfig)
+				var orgConfig *cloudinstall.OrganizationConfig
+				if organization != "" {
+					if orgIndex = slices.IndexFunc(cloudConfig.Organizations, func(o *cloudinstall.OrganizationConfig) bool {
+						return o.Name == organization
+					}); orgIndex != -1 {
+						orgConfig = cloudConfig.Organizations[orgIndex]
+					} else {
+						log.Fatal().Msgf("Organization '%s' not found in the cloud configuration", organization)
+					}
+				} else if len(cloudConfig.Organizations) == 1 {
+					orgConfig = cloudConfig.Organizations[0]
+					organization = orgConfig.Name
+				} else if len(cloudConfig.Organizations) > 1 {
+					log.Fatal().Msg("Multiple organizations found in the cloud configuration. Please specify the organization using --org flag.")
+				} else {
+					log.Fatal().Msg("No organizations found in the cloud configuration. Please add an organization to the cloud configuration.")
+				}
+
+				if orgConfig.Api == nil {
+					log.Fatal().Msg("The `api` field is required in the organization configuration")
+				}
+				desiredAccessControlConfig = orgConfig.Api.AccessControl
+				if desiredAccessControlConfig == nil {
+					log.Fatal().Msg("The `api.accessControl` field is required in the organization configuration")
+				}
+
+			case cloudinstall.ConfigKindAccessControl:
+				standalongConfig, err := parseStandaloneAccessControlConfig(yamlBytes)
+				if err != nil {
+					log.Fatal().Err(err).Msgf("Unable to parse access control specification file: %s", filePath)
+				}
+
+				desiredAccessControlConfig = standalongConfig.AccessControlConfig
+			}
+
+			if desiredAccessControlConfig.TenantID == "" {
+				log.Fatal().Msg("The `tenantId` field is required in the access control specification file")
+			}
+
+			cred := getCredForTenant(cmd.Context(), desiredAccessControlConfig.TenantID)
+			completedAccessControlConfig, err := cloudinstall.ApplyAccessControlConfig(cmd.Context(), desiredAccessControlConfig, cred)
 			if err != nil {
 				log.Fatal().Err(err).Msg("Unable to apply access control specification")
 			}
 
-			f, err := os.OpenFile(filePath, os.O_WRONLY|os.O_TRUNC, 0644)
+			completedAccessControlAst, err := yaml.ValueToNode(completedAccessControlConfig, yaml.IndentSequence(true))
 			if err != nil {
-				log.Fatal().Err(err).Msgf("Unable to open file for writing: %s", filePath)
+				log.Fatal().Err(err).Msg("Unable to convert access control specification to AST")
 			}
-			defer f.Close()
 
-			if err := cloudinstall.PrettyPrintAccessControlConfig(normalizedSpec, f); err != nil {
-				log.Fatal().Err(err).Msg("Unable to pretty print access control specification")
+			switch installCommon.Kind {
+			case cloudinstall.ConfigKindCloud:
+				cloudConfigAst, err := parseConfigToAst(yamlBytes)
+				if err != nil {
+					log.Fatal().Err(err).Msgf("Unable to parse cloud configuration file: %s", filePath)
+				}
+
+				path, err := yaml.PathString(fmt.Sprintf("$.organizations[%d].api.accessControl", orgIndex))
+				if err != nil {
+					panic(fmt.Errorf("unable to create YAML path: %w", err))
+				}
+
+				accessControlAst, err := path.FilterNode(cloudConfigAst)
+				if err != nil {
+					panic(fmt.Errorf("unable to filter YAML path: %w", err))
+				}
+
+				mergeAst(accessControlAst, completedAccessControlAst)
+				if err := os.WriteFile(filePath, []byte(cloudConfigAst.String()+"\n"), 0644); err != nil {
+					log.Fatal().Err(err).Msgf("Unable to write updated cloud configuration file: %s", filePath)
+				}
+			case cloudinstall.ConfigKindAccessControl:
+				originalAst, err := parseStandaloneAccessControlConfigToAst(yamlBytes)
+				if err != nil {
+					log.Fatal().Err(err).Msgf("Unable to parse access control specification file: %s", filePath)
+				}
+
+				mergeAst(originalAst, completedAccessControlAst)
+				if err := os.WriteFile(filePath, []byte(originalAst.String()+"\n"), 0644); err != nil {
+					log.Fatal().Err(err).Msgf("Unable to write updated access control specification file: %s", filePath)
+				}
 			}
 		},
 	}
 
-	cmd.Flags().StringVarP(&filePath, "file", "f", "", "The path to the access control specification file")
+	cmd.Flags().StringVarP(&filePath, "file", "f", "", "The path to cloud environment file or standalone access control configuration file")
 	cmd.MarkFlagRequired("file")
 
+	cmd.Flags().StringVarP(&organization, "org", "o", "", "Then organization name for which to apply the access control configuration. Does not apply to standalone access control configuration files.")
 	return cmd
+}
+
+func newAccessControlPrettyPrintCommand() *cobra.Command {
+	inputPath := ""
+	outputPath := ""
+
+	cmd := &cobra.Command{
+		Use:                   "pretty-print -f access-control.yml",
+		Short:                 "Pretty print a standalone access control configuration file",
+		Long:                  "Pretty print a standalone access control configuration file",
+		DisableFlagsInUseLine: true,
+		Run: func(cmd *cobra.Command, args []string) {
+			yamlBytes, err := os.ReadFile(inputPath)
+			if err != nil {
+				log.Fatal().Err(err).Msgf("Unable to read configuration file: %s", inputPath)
+			}
+
+			var accessControlConfig *cloudinstall.StandaloneAccessControlConfig
+			if installCommon, err := parseConfigFileCommon(yamlBytes); err == nil && installCommon.Kind == cloudinstall.ConfigKindAccessControl {
+				accessControlConfig, err = parseStandaloneAccessControlConfig(yamlBytes)
+				if err != nil {
+					log.Fatal().Err(err).Msgf("Unable to parse access control configuration file: %s", inputPath)
+				}
+			} else {
+				log.Fatal().Msgf("The file '%s' is not a valid standalone access control configuration file", inputPath)
+			}
+
+			outputBuffer := bytes.Buffer{}
+			if err := cloudinstall.PrettyPrintStandaloneAccessControlConfig(accessControlConfig, &outputBuffer); err != nil {
+				log.Fatal().Err(err).Send()
+			}
+
+			if err := os.MkdirAll(path.Dir(outputPath), 0775); err != nil {
+				log.Fatal().AnErr("error", err).Msg("Failed to create config directory")
+			}
+
+			if err := os.WriteFile(outputPath, outputBuffer.Bytes(), 0644); err != nil {
+				log.Fatal().AnErr("error", err).Msg("Failed to write config file")
+			}
+		},
+	}
+
+	cmd.Flags().StringVarP(&inputPath, "input", "i", "", "The path to the config file to read")
+	cmd.MarkFlagRequired("input")
+	cmd.Flags().StringVarP(&outputPath, "output", "o", "", "The path to the config file to create")
+	cmd.MarkFlagRequired("output")
+
+	return cmd
+}
+
+func mergeAst(dst, src ast.Node) {
+	switch src := src.(type) {
+	case *ast.MappingNode:
+		dst, ok := dst.(*ast.MappingNode)
+		if !ok {
+			return
+		}
+
+		dstKeyToValueMap := make(map[string]*ast.MappingValueNode)
+
+		for _, item := range dst.Values {
+			key := item.Key.String()
+			dstKeyToValueMap[key] = item
+		}
+
+		for _, item := range src.Values {
+			key := item.Key.String()
+			if dstMappingValue, exists := dstKeyToValueMap[key]; exists {
+				if dstMappingValue.Value == nil {
+					dstMappingValue.Value = item.Value
+				} else {
+					dstComment := dstMappingValue.Value.GetComment()
+					mergeAst(dstMappingValue.Value, item.Value)
+					switch item.Value.Type() {
+					case ast.MappingType, ast.SequenceType:
+					default:
+						dstMappingValue.Value = item.Value
+						if dstComment != nil {
+							dstMappingValue.Value.SetComment(dstComment)
+						}
+					}
+				}
+			} else {
+				colDiff := dst.Values[0].Key.GetToken().Position.Column - item.Key.GetToken().Position.Column
+				item.AddColumn(colDiff)
+				dst.Values = append(dst.Values, item)
+			}
+		}
+
+	case *ast.SequenceNode:
+		dst, ok := dst.(*ast.SequenceNode)
+		if !ok {
+			return
+		}
+		if len(src.Values) != len(dst.Values) {
+			panic("Merging sequence nodes with different lengths is not implemented")
+		}
+
+		for i, srcItem := range src.Values {
+			mergeAst(dst.Values[i], srcItem)
+		}
+	}
 }
 
 func getAccessControlConfigFromServerUrl(ctx context.Context, serverUrl string) *cloudinstall.AccessControlConfig {
