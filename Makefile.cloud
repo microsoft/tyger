@@ -1,6 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+# To use the legacy organization, set the TYGER_ORG environment variable to "legacy" when calling `make`.
 TYGER_ORG := $(or $(TYGER_ORG), lamna)
 ENVIRONMENT_CONFIG_JSON = $(shell scripts/get-config.sh -o json | jq -c)
 
