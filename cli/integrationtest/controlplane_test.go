@@ -1855,6 +1855,7 @@ func TestBufferSetTtl(t *testing.T) {
 
 func TestBufferSetTtlOnDeletedBuffer(t *testing.T) {
 	t.Parallel()
+	skipIfNotOwner(t)
 	require := require.New(t)
 
 	bufferId := runTygerSucceeds(t, "buffer", "create")
@@ -2002,6 +2003,7 @@ func TestBufferListWithoutTags(t *testing.T) {
 
 func TestBufferDeleteById(t *testing.T) {
 	t.Parallel()
+	skipIfNotOwner(t)
 	require := require.New(t)
 
 	bufferId := runTygerSucceeds(t, "buffer", "create")
@@ -2028,6 +2030,7 @@ func TestBufferDeleteById(t *testing.T) {
 
 func TestBufferDeletionStates(t *testing.T) {
 	t.Parallel()
+	skipIfNotOwner(t)
 	require := require.New(t)
 
 	bufferId := runTygerSucceeds(t, "buffer", "create")
@@ -2080,6 +2083,7 @@ func TestBufferDeletionStates(t *testing.T) {
 
 func TestBufferDeleteMultipleIds(t *testing.T) {
 	t.Parallel()
+	skipIfNotOwner(t)
 	require := require.New(t)
 
 	bufferId1 := runTygerSucceeds(t, "buffer", "create")
@@ -2108,6 +2112,7 @@ func TestBufferDeleteMultipleIds(t *testing.T) {
 
 func TestBufferDeleteByTag(t *testing.T) {
 	t.Parallel()
+	skipIfNotOwner(t)
 	require := require.New(t)
 
 	uniqueId := uuid.New().String()
@@ -2145,6 +2150,7 @@ func TestBufferDeleteByTag(t *testing.T) {
 }
 
 func TestBufferDeleteAll(t *testing.T) {
+	skipIfNotOwner(t)
 	require := require.New(t)
 
 	bufferId1 := runTygerSucceeds(t, "buffer", "create")
@@ -2170,6 +2176,7 @@ func TestBufferDeleteAll(t *testing.T) {
 
 func TestBufferPurge(t *testing.T) {
 	t.Parallel()
+	skipIfNotOwner(t)
 	skipIfOnlyFastTests(t)
 
 	require := require.New(t)
@@ -2254,6 +2261,7 @@ func TestBufferSetTtlTriggersDeleter(t *testing.T) {
 
 func TestCreateRunWithDeletedBuffer(t *testing.T) {
 	t.Parallel()
+	skipIfNotOwner(t)
 	require := require.New(t)
 
 	// create a codespec
@@ -2406,6 +2414,7 @@ func TestExport(t *testing.T) {
 	t.Parallel()
 	skipIfOnlyFastTests(t)
 	skipIfUsingUnixSocket(t)
+	skipIfNotOwner(t)
 
 	saString := runTygerSucceeds(t, "buffer", "storage-account", "list")
 	var saList []model.StorageAccount
@@ -2730,6 +2739,56 @@ func TestServiceMetadataContainsApiVersions(t *testing.T) {
 	metadata := getServiceMetadata(t)
 	require.NotEmpty(t, metadata.ApiVersions)
 	require.Contains(t, metadata.ApiVersions, "1.0")
+}
+
+func TestExpectedRoleAssignments(t *testing.T) {
+	t.Parallel()
+	if assertRoleFlag == nil || *assertRoleFlag == "" {
+		t.Skip("Skipping test because --assert-role flag is not set")
+	}
+
+	roleAssignments := getRoleAssignments(t)
+	require.Exactly(t, []string{*assertRoleFlag}, roleAssignments, "Role assignments do not match expected values")
+}
+
+func TestForbiddenOperationsWithContributorRole(t *testing.T) {
+	t.Parallel()
+	roles := getRoleAssignments(t)
+	if len(roles) != 1 || roles[0] != "contributor" {
+		t.Skip("Skipping test because the user does not have the 'contributor' role")
+	}
+
+	_, stdErr, err := runTyger("buffer", "delete", "123")
+	require.Error(t, err)
+	require.Contains(t, stdErr, "Forbidden")
+
+	_, stdErr, err = runTyger("buffer", "delete", "--tag", "testtag=123", "--force")
+	require.Error(t, err)
+	require.Contains(t, stdErr, "Forbidden")
+
+	_, stdErr, err = runTyger("buffer", "purge", "123")
+	require.Error(t, err)
+	require.Contains(t, stdErr, "Forbidden")
+
+	_, stdErr, err = runTyger("buffer", "purge", "--tag", "testtag=123", "--force")
+	require.Error(t, err)
+	require.Contains(t, stdErr, "Forbidden")
+
+	_, stdErr, err = runTyger("buffer", "restore", "123")
+	require.Error(t, err)
+	require.Contains(t, stdErr, "Forbidden")
+
+	_, stdErr, err = runTyger("buffer", "restore", "--tag", "testtag=123", "--force")
+	require.Error(t, err)
+	require.Contains(t, stdErr, "Forbidden")
+
+	_, stdErr, err = runTyger("buffer", "export", "https://something")
+	require.Error(t, err)
+	require.Contains(t, stdErr, "Forbidden")
+
+	_, stdErr, err = runTyger("buffer", "import")
+	require.Error(t, err)
+	require.Contains(t, stdErr, "Forbidden")
 }
 
 func waitForRunStarted(t *testing.T, runId string) model.Run {

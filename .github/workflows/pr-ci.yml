@@ -295,8 +295,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - command: integration-test-no-up
-            label: default org
+          - command: integration-test-no-up-default-org-owner
+            label: default org (owner)
+          - command: integration-test-no-up-default-org-contributor
+            label: default org (contributor)
           - command: integration-test-no-up-fast-only-legacy-org
             label: legacy org
 

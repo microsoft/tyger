@@ -151,6 +151,7 @@ public static class Buffers
                 var count = await manager.RestoreBuffers(tagQuery, excludeTagQuery, cancellationToken);
                 return Results.Ok(count);
             })
+            .RequireOwnerRole()
             .WithName("restoreBuffers")
             .Produces<int>(StatusCodes.Status200OK);
 
@@ -281,6 +282,7 @@ public static class Buffers
                     preconditionFailed: failed => Responses.PreconditionFailed(failed.Reason));
             })
             .WithName("restoreBuffer")
+            .RequireOwnerRole()
             .Produces<int>(StatusCodes.Status200OK)
             .Produces<ErrorBody>(StatusCodes.Status404NotFound)
             .Produces<ErrorBody>(StatusCodes.Status412PreconditionFailed);

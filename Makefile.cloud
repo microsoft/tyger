@@ -293,6 +293,18 @@ get-server-logs:
 follow-server-logs:
 	kubectl logs deployments/tyger-server --all-pods --follow
 
+integration-test-no-up-default-org-owner:
+	export TYGER_CACHE_FILE="$${HOME}/.cache/tyger/.tyger-default-org-owner"
+	mkdir -p $$(dirname "$${TYGER_CACHE_FILE}")
+	$(MAKE) login TYGER_ORG=lamna
+	$(MAKE) integration-test-no-up INTEGRATION_TEST_FLAGS="-assert-role owner"
+
+integration-test-no-up-default-org-contributor:
+	export TYGER_CACHE_FILE="$${HOME}/.cache/tyger/.tyger-default-org-contributor"
+	mkdir -p $$(dirname "$${TYGER_CACHE_FILE}")
+	$(MAKE) login-contributor TYGER_ORG=lamna
+	$(MAKE) integration-test-no-up INTEGRATION_TEST_FLAGS="-fast -assert-role contributor"
+
 integration-test-no-up-fast-only-legacy-org:
 	export TYGER_CACHE_FILE="$${HOME}/.cache/tyger/.tyger-legacy-org"
 	mkdir -p $$(dirname "$${TYGER_CACHE_FILE}")

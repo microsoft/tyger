@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
+	"slices"
 	"testing"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 
 var (
 	runOnlyFastTestsFlag = flag.Bool("fast", false, "only run \"fast\" tests")
+	assertRoleFlag       = flag.String("assert-role", "", "assert that the user has this role before running the test")
 )
 
 type CmdBuilder struct {
@@ -304,6 +306,32 @@ func skipIfNotUsingUnixSocketDirectly(t *testing.T) {
 func skipIfOnlyFastTests(t *testing.T) {
 	if *runOnlyFastTestsFlag {
 		t.Skip("Skipping test because --fast flag is set")
+	}
+}
+
+func getRoleAssignments(t *testing.T) []string {
+	t.Helper()
+	c, err := controlplane.GetClientFromCache()
+	if err != nil {
+		t.Fatalf("Failed to get control plane client: %v", err)
+	}
+
+	roles, err := c.GetRoleAssignments(context.Background())
+	if err != nil {
+		t.Fatalf("Failed to get role assignments: %v", err)
+	}
+
+	return roles
+}
+
+func skipIfNotOwner(t *testing.T) {
+	t.Helper()
+	metadata := getServiceMetadata(t)
+	if metadata.RbacEnabled {
+		roles := getRoleAssignments(t)
+		if !slices.Contains(roles, "owner") {
+			t.Skip("Skipping test because the user is not an owner")
+		}
 	}
 }
 
