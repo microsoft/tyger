@@ -155,12 +155,12 @@ func newAccessControlApplyCommand() *cobra.Command {
 				}
 
 			case cloudinstall.ConfigKindAccessControl:
-				standalongConfig, err := parseStandaloneAccessControlConfig(yamlBytes)
+				standaloneConfig, err := parseStandaloneAccessControlConfig(yamlBytes)
 				if err != nil {
 					log.Fatal().Err(err).Msgf("Unable to parse access control specification file: %s", filePath)
 				}
 
-				desiredAccessControlConfig = standalongConfig.AccessControlConfig
+				desiredAccessControlConfig = standaloneConfig.AccessControlConfig
 			}
 
 			if desiredAccessControlConfig.TenantID == "" {

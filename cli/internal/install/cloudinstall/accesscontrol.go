@@ -462,6 +462,10 @@ func ApplyRbacAssignments(ctx context.Context, cred azcore.TokenCredential, desi
 		desiredAccessControlConfig.RoleAssignments.Contributor[i].Principal = normalizedPrincipal
 	}
 
+	if len(desiredAccessControlConfig.RoleAssignments.Owner) == 0 && len(desiredAccessControlConfig.RoleAssignments.Contributor) == 0 {
+		log.Info().Msg("No role assignments specified. The Tyger API will not be accessible to anyone.")
+	}
+
 	log.Info().Msgf("Getting existing assignments")
 	serverSp, err := GetServicePrincipalByUri(ctx, cred, desiredAccessControlConfig.ApiAppUri)
 	if err != nil {
