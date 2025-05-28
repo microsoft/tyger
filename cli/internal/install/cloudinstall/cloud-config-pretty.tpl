@@ -25,7 +25,7 @@ cloud:
     resourceGroup: {{ .DnsZone.ResourceGroup }}
     name: {{ .DnsZone.Name }}
   {{- else -}}
-  # dnsZone
+  # dnsZone:
     # resourceGroup:
     # name:
   {{- end }}

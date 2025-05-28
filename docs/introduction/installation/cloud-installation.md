@@ -68,7 +68,7 @@ cloud:
     # name:
 
   # Optionaly use a custom DNS zone
-  # dnsZone
+  # dnsZone:
     # resourceGroup:
     # name:
 
@@ -285,7 +285,7 @@ then explicitly grant users access to the API. Both of these can be done by edit
 the config file and running:
 
 ``` bash
-tyger config apply -f config.yml
+tyger access-control apply -f config.yml
 ```
 
 The part of the config file to edit is under the path `organizations[*].api.accessControl`.
