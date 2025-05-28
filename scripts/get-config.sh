@@ -157,6 +157,14 @@ else
 fi
 
 if [[ "$pretty_print_template" == true ]]; then
+  # set environment variables referenced in the templates that could be empty so that the output is deterministic
+  export TYGER_ENVIRONMENT_FIREWALL_RULES='[{ "name": "dummy", "startIpAddress": "0.0.0.0", "endIpAddress": "0.0.0.0"}]'
+  export BUFFER_COPIER_IMAGE="dummy"
+  export BUFFER_SIDECAR_IMAGE="dummy"
+  export TYGER_SERVER_IMAGE="dummy"
+  export WORKER_WAITER_IMAGE="dummy"
+  export GATEWAY_IMAGE="dummy"
+  export TYGER_DATA_PLANE_SERVER_IMAGE="dummy"
   tyger config pretty-print -i <(envsubst <"${config_path}") -o "${config_path}" --template "${config_path}"
   exit
 fi

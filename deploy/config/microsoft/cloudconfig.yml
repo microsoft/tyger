@@ -105,9 +105,6 @@ cloud:
     # Firewall rules to control where the database can be accessed from,
     # in addition to the control-plane cluster.
     firewallRules: ${TYGER_ENVIRONMENT_FIREWALL_RULES}
-    #  - name:
-    #    startIpAddress:
-    #    endIpAddress:
 
   networkSecurityPerimeter:
     nspResourceGroup: NSP-ALL
