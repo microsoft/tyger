@@ -148,7 +148,7 @@ func createOrUpdateServerApp(ctx context.Context, accessControlConfig *AccessCon
 
 	initialAppBytes, _ := json.Marshal(app)
 
-	app.DisplayName = valueOrDefault(app.DisplayName, "Tyger API")
+	app.DisplayName = valueOrDefault(app.DisplayName, fmt.Sprintf("Tyger API (%s)", accessControlConfig.ApiAppUri))
 	app.SignInAudience = valueOrDefault(app.SignInAudience, "AzureADMyOrg")
 	if app.Api.RequestedAccessTokenVersion == 0 {
 		app.Api.RequestedAccessTokenVersion = 2
@@ -284,7 +284,7 @@ func createOrUpdateCliApp(ctx context.Context, accessControlConfig *AccessContro
 
 	initialAppBytes, _ := json.Marshal(app)
 
-	app.DisplayName = valueOrDefault(app.DisplayName, "Tyger CLI")
+	app.DisplayName = valueOrDefault(app.DisplayName, fmt.Sprintf("Tyger CLI (%s)", accessControlConfig.CliAppUri))
 	app.SignInAudience = valueOrDefault(app.SignInAudience, "AzureADMyOrg")
 	app.IsFallbackPublicClient = true
 	app.PublicClient = &aadAppPublicClient{
