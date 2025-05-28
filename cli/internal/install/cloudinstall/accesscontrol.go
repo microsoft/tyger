@@ -5,6 +5,7 @@ package cloudinstall
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -145,6 +146,8 @@ func createOrUpdateServerApp(ctx context.Context, accessControlConfig *AccessCon
 		}
 	}
 
+	initialAppBytes, _ := json.Marshal(app)
+
 	app.DisplayName = valueOrDefault(app.DisplayName, "Tyger API")
 	app.SignInAudience = valueOrDefault(app.SignInAudience, "AzureADMyOrg")
 	if app.Api.RequestedAccessTokenVersion == 0 {
@@ -211,8 +214,13 @@ func createOrUpdateServerApp(ctx context.Context, accessControlConfig *AccessCon
 		log.Ctx(ctx).Info().Msgf("Creating app %s", accessControlConfig.ApiAppUri)
 		err = executeGraphCall(ctx, cred, http.MethodPost, "https://graph.microsoft.com/beta/applications", app, &app)
 	} else {
-		log.Ctx(ctx).Info().Msgf("Updating app %s", accessControlConfig.ApiAppUri)
-		err = executeGraphCall(ctx, cred, http.MethodPatch, fmt.Sprintf("https://graph.microsoft.com/beta/applications/%s", app.Id), app, nil)
+		updatedAppBytes, _ := json.Marshal(app)
+		if string(initialAppBytes) == string(updatedAppBytes) {
+			log.Ctx(ctx).Info().Msgf("No changes detected for app %s, skipping update", accessControlConfig.ApiAppUri)
+		} else {
+			log.Ctx(ctx).Info().Msgf("Updating app %s", accessControlConfig.ApiAppUri)
+			err = executeGraphCall(ctx, cred, http.MethodPatch, fmt.Sprintf("https://graph.microsoft.com/beta/applications/%s", app.Id), app, nil)
+		}
 	}
 
 	if err != nil {
@@ -274,6 +282,8 @@ func createOrUpdateCliApp(ctx context.Context, accessControlConfig *AccessContro
 		}
 	}
 
+	initialAppBytes, _ := json.Marshal(app)
+
 	app.DisplayName = valueOrDefault(app.DisplayName, "Tyger CLI")
 	app.SignInAudience = valueOrDefault(app.SignInAudience, "AzureADMyOrg")
 	app.IsFallbackPublicClient = true
@@ -315,8 +325,13 @@ func createOrUpdateCliApp(ctx context.Context, accessControlConfig *AccessContro
 		log.Ctx(ctx).Info().Msgf("Creating app %s", accessControlConfig.CliAppUri)
 		err = executeGraphCall(ctx, cred, http.MethodPost, "https://graph.microsoft.com/beta/applications", app, &app)
 	} else {
-		log.Ctx(ctx).Info().Msgf("Updating app %s", accessControlConfig.CliAppUri)
-		err = executeGraphCall(ctx, cred, http.MethodPatch, fmt.Sprintf("https://graph.microsoft.com/beta/applications/%s", app.Id), app, nil)
+		updatedAppBytes, _ := json.Marshal(app)
+		if string(initialAppBytes) == string(updatedAppBytes) {
+			log.Ctx(ctx).Info().Msgf("No changes detected for app %s, skipping update", accessControlConfig.CliAppUri)
+		} else {
+			log.Ctx(ctx).Info().Msgf("Updating app %s", accessControlConfig.CliAppUri)
+			err = executeGraphCall(ctx, cred, http.MethodPatch, fmt.Sprintf("https://graph.microsoft.com/beta/applications/%s", app.Id), app, nil)
+		}
 	}
 
 	if err != nil {
@@ -483,18 +498,23 @@ func ApplyRbacAssignments(ctx context.Context, cred azcore.TokenCredential, desi
 		return nil, fmt.Errorf("failed to get existing assignments: %w", err)
 	}
 
-	if err := processRoleAssignmentChanges(ctx, cred, serverSp, desiredAccessControlConfig.RoleAssignments.Owner, existingAssignments.Owner, roleIds.ownerRoleId, tygerOwnerRoleValue); err != nil {
+	isChanged := false
+	if err := processRoleAssignmentChanges(ctx, cred, serverSp, desiredAccessControlConfig.RoleAssignments.Owner, existingAssignments.Owner, roleIds.ownerRoleId, tygerOwnerRoleValue, &isChanged); err != nil {
 		return nil, fmt.Errorf("failed to process owner role assignments: %w", err)
 	}
 
-	if err := processRoleAssignmentChanges(ctx, cred, serverSp, desiredAccessControlConfig.RoleAssignments.Contributor, existingAssignments.Contributor, roleIds.contributorRoleId, tygerContributorRoleValue); err != nil {
+	if err := processRoleAssignmentChanges(ctx, cred, serverSp, desiredAccessControlConfig.RoleAssignments.Contributor, existingAssignments.Contributor, roleIds.contributorRoleId, tygerContributorRoleValue, &isChanged); err != nil {
 		return nil, fmt.Errorf("failed to process owner contributor assignments: %w", err)
+	}
+
+	if !isChanged {
+		log.Info().Msg("No changes in role assignments detected")
 	}
 
 	return desiredAccessControlConfig.RoleAssignments, nil
 }
 
-func processRoleAssignmentChanges(ctx context.Context, cred azcore.TokenCredential, serverSp *aadServicePrincipal, desiredAssignments, existingAssignments []TygerRbacRoleAssignment, roleId, roleName string) error {
+func processRoleAssignmentChanges(ctx context.Context, cred azcore.TokenCredential, serverSp *aadServicePrincipal, desiredAssignments, existingAssignments []TygerRbacRoleAssignment, roleId, roleName string, isChanged *bool) error {
 	desiredMap := make(map[string]TygerRbacRoleAssignment)
 	for _, assignment := range desiredAssignments {
 		desiredMap[assignment.Principal.ObjectId] = assignment
@@ -508,6 +528,7 @@ func processRoleAssignmentChanges(ctx context.Context, cred azcore.TokenCredenti
 	for _, assignment := range desiredAssignments {
 		if _, ok := existingMap[assignment.Principal.ObjectId]; !ok {
 			log.Info().Msgf("Assigning %s role to %s", roleName, assignment.String())
+			*isChanged = true
 			if err := assignAppRole(ctx, cred, serverSp.Id, roleId, assignment.Principal); err != nil {
 				return fmt.Errorf("failed to assign role: %w", err)
 			}
@@ -517,6 +538,7 @@ func processRoleAssignmentChanges(ctx context.Context, cred azcore.TokenCredenti
 	for _, assignment := range existingAssignments {
 		if _, ok := desiredMap[assignment.Principal.ObjectId]; !ok {
 			log.Info().Msgf("Removing %s role from %s", roleName, assignment.String())
+			*isChanged = true
 			if err := removeAppRoleAssignment(ctx, cred, *assignment.Details); err != nil {
 				return fmt.Errorf("failed to remove role: %w", err)
 			}
