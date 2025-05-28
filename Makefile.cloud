@@ -206,9 +206,9 @@ _login:
 		exit
 	fi
 
-	if [[ "$${TYGER_AUTH_METHOD}" == "identity" && "$$out" == *"AADSTS700211"* ]]; then
-		echo "This VM's managed identity does not appear to have a federated credential on the target application.
-		Run 'make add-vm-identity' to correct this."
+	if [[ "$${TYGER_AUTH_METHOD}" == "identity" && ( "$$out" == *"AADSTS700211"* || "$$out" == *"AADSTS700213"* || "$$out" == *"AADSTS70021"* ) ]]; then
+		echo -e "\033[0;31mThis VM's managed identity does not appear to have a federated credential on the target application.
+		Run 'make add-vm-identity' to correct this.\033[0m"
 		exit 1
 	fi
 
