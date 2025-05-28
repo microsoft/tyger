@@ -168,7 +168,7 @@ cloud:
         endIpAddress: {{ .EndIpAddress }}
       {{- end }}
     {{- else }}
-    # firewallRules:
+    firewallRules:
     #  - name:
     #    startIpAddress:
     #    endIpAddress:
