@@ -5,7 +5,6 @@ package cloudinstall
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -20,6 +19,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/postgresql/armpostgresqlflexibleservers/v4"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage"
+	goccyyaml "github.com/goccy/go-yaml"
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/microsoft/tyger/cli/internal/client"
 	"github.com/microsoft/tyger/cli/internal/install"
@@ -489,12 +489,12 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, org *Organizat
 		return "", "", err
 	}
 
-	clustersConfigJson, err := json.Marshal(inst.Config.Cloud.Compute.Clusters)
+	clustersConfigYaml, err := goccyyaml.Marshal(inst.Config.Cloud.Compute.Clusters)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to marshal cluster configuration: %w", err)
 	}
 	clustersConfig := make([]map[string]any, 0)
-	if err := json.Unmarshal(clustersConfigJson, &clustersConfig); err != nil {
+	if err := goccyyaml.Unmarshal(clustersConfigYaml, &clustersConfig); err != nil {
 		return "", "", fmt.Errorf("failed to unmarshal cluster configuration: %w", err)
 	}
 
