@@ -4,23 +4,20 @@
 package cloudinstall
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"slices"
-	"strings"
 	"text/template"
 
 	_ "embed"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
-	"github.com/Masterminds/sprig/v3"
 	"github.com/google/uuid"
+	"github.com/microsoft/tyger/cli/internal/templatefunctions"
 	"github.com/rs/zerolog/log"
-	"gopkg.in/yaml.v3"
 )
 
 const permissionScopeValue = "Read.Write"
@@ -639,24 +636,6 @@ func PrettyPrintStandaloneAccessControlConfig(accessControlConfig *StandaloneAcc
 		accessControlConfig.RoleAssignments = &TygerRbacRoleAssignments{}
 	}
 
-	funcMap := sprig.FuncMap()
-	funcMap["toYAML"] = func(v any) string {
-		buf := &bytes.Buffer{}
-		enc := yaml.NewEncoder(buf)
-		enc.SetIndent(2)
-		err := enc.Encode(v)
-		if err != nil {
-			panic(err)
-		}
-
-		return buf.String()
-	}
-
-	funcMap["indentAfterFirst"] = func(spaces int, v string) string {
-		pad := strings.Repeat(" ", spaces)
-		return strings.Replace(v, "\n", "\n"+pad, -1)
-	}
-
-	t := template.Must(template.New("config").Funcs(funcMap).Parse(prettyPrintRbacTemplate))
+	t := template.Must(template.New("config").Funcs(templatefunctions.GetFuncMap()).Parse(prettyPrintRbacTemplate))
 	return t.Execute(writer, accessControlConfig)
 }

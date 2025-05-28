@@ -153,18 +153,22 @@ func prettyPrintConfig(ctx context.Context, input io.Reader, output io.Writer, v
 		}
 	}
 
+	// parse the config again to clear the fields that are set during validation
+	c, err = parseConfig(inputBytes)
+	if err != nil {
+		return err
+	}
+
 	var outputContents string
 
 	switch config := c.(type) {
 	case *dockerinstall.DockerEnvironmentConfig:
-		_, err := output.Write(inputBytes)
-		return err
-	case *cloudinstall.CloudEnvironmentConfig:
-		// parse the config again to clear the fields that are set during validation
-		c, err = parseConfig(inputBytes)
-		if err != nil {
-			return err
+		buf := &strings.Builder{}
+		if err := dockerinstall.PrettyPrintConfig(config, buf); err != nil {
+			return fmt.Errorf("failed to pretty print config: %w", err)
 		}
+		outputContents = buf.String()
+	case *cloudinstall.CloudEnvironmentConfig:
 		config = c.(*cloudinstall.CloudEnvironmentConfig)
 
 		buf := &strings.Builder{}

@@ -51,7 +51,7 @@ type Installer interface {
 }
 
 type ConfigFileCommon struct {
-	Kind string `json:"kind"`
+	Kind string `yaml:"kind"`
 }
 
 type ValidatableConfig interface {
