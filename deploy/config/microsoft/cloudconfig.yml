@@ -1,18 +1,23 @@
 kind: azureCloud
 environmentName: ${TYGER_ENVIRONMENT_NAME}
+
 cloud:
   tenantId: 72f988bf-86f1-41af-91ab-2d7cd011db47
   subscriptionId: 87d8acb3-5176-4651-b457-6ab9cefd8e3d
-  defaultLocation: ${TYGER_LOCATION}
   resourceGroup: ${TYGER_ENVIRONMENT_NAME}
+  defaultLocation: ${TYGER_LOCATION}
+
+  # Optionally point an existing Log Analytics workspace to send logs to.
   logAnalyticsWorkspace:
     resourceGroup: eminence
     name: eminence
 
+  # Optionaly use a custom DNS zone
   dnsZone:
     resourceGroup: eminence
     name: eminence.ms
 
+  # Optionally provide a TLS certificate, if not using Let's Encrypt
   tlsCertificate:
     keyVault:
       resourceGroup: eminence
@@ -20,36 +25,120 @@ cloud:
     certificateName: eminence-tls-cert
 
   compute:
-    dnsLabel: ${TYGER_ENVIRONMENT_NAME}-tyger
     clusters:
       - name: ${TYGER_ENVIRONMENT_NAME}
         apiHost: true
-        sku: Standard
         kubernetesVersion: "1.32"
+        sku: Standard
+        # location: defaults to Standard
         systemNodePool:
           name: system
           vmSize: ${TYGER_SYSTEM_NODE_SKU}
           minCount: 1
           maxCount: 3
+          # osSku: defaults to AzureLinux
+
         userNodePools:
           - name: cpunp
             vmSize: ${TYGER_CPU_NODE_SKU}
             minCount: ${TYGER_MIN_CPU_NODE_COUNT}
             maxCount: 10
+            # osSku: defaults to AzureLinux
           - name: gpunp
             vmSize: ${TYGER_GPU_NODE_SKU}
             minCount: ${TYGER_MIN_GPU_NODE_COUNT}
             maxCount: 10
+            # osSku: defaults to AzureLinux
 
+    # These are the principals that will have the ability to run `tyger api install`.
+    # They will have access to the "tyger" namespace in each cluster and will have
+    # the necessary Azure RBAC role assignments.
+    # For users:
+    #   "kind" must be set to "User"
+    #   "objectId" must be set to the object ID GUID
+    #   "userPrincipalName" must be set (this is usually the email address, unless this is a guest account)
+    # For groups:
+    #   "kind" must be set to "Group"
+    #   "objectId" must be set to the object ID GUID
+    # For service principals:
+    #   "kind" must be set to "ServicePrincipal"
+    #   "objectId" must be set to the object ID GUID
     managementPrincipals:
-      - objectId: 2e092785-472a-4ea1-9700-4d15646d9e91
-        kind: ServicePrincipal
-      - objectId: 36043a62-1383-4012-95aa-44da0a4d8012
-        kind: Group
+      - kind: ServicePrincipal
+        objectId: 2e092785-472a-4ea1-9700-4d15646d9e91
+      - kind: Group
+        objectId: 36043a62-1383-4012-95aa-44da0a4d8012
 
     localDevelopmentIdentityId: 36043a62-1383-4012-95aa-44da0a4d8012
+
+    # The names of private container registries that the clusters must
+    # be able to pull from.
     privateContainerRegistries:
       - eminence
+
+    # This must be set if using a custom DNS zone and needs to be globally unique for the Azure region.
+    # Each organization's domain name will have a CNAME record pointing to the domain name formed
+    # by this value, which will be <dnslabel>.<region>.cloudapp.azure.com
+    dnsLabel: ${TYGER_ENVIRONMENT_NAME}-tyger
+
+    # Optional Helm chart overrides
+    # helm:
+    #   traefik:
+    #     repoName:
+    #     repoUrl: not set if using `chartRef`
+    #     chartRef: e.g. oci://...
+    #     version:
+    #     values:
+    #   certManager:
+    #   nvidiaDevicePlugin:
+
+  database:
+    serverName: ${TYGER_ENVIRONMENT_NAME}-tyger
+    postgresMajorVersion: 16
+    location: ${TYGER_DATABASE_LOCATION}
+    computeTier: GeneralPurpose
+    vmSize: Standard_D2s_v3
+    # storageSizeGB: Defaults to 32 (the minimum supported)
+    # backupRetentionDays: Defaults to 7
+    # backupGeoRedundancy: Defaults to false
+
+    # Firewall rules to control where the database can be accessed from,
+    # in addition to the control-plane cluster.
+    # firewallRules:
+    #  - name:
+    #    startIpAddress:
+    #    endIpAddress:
+    # storageSizeGB: Defaults to 32 (the minimum supported)
+    # backupRetentionDays: Defaults to 7
+    # backupGeoRedundancy: Defaults to false
+
+    # Firewall rules to control where the database can be accessed from,
+    # in addition to the control-plane cluster.
+    # firewallRules:
+    #  - name:
+    #    startIpAddress:
+    #    endIpAddress:
+    # storageSizeGB: Defaults to 32 (the minimum supported)
+    # backupRetentionDays: Defaults to 7
+    # backupGeoRedundancy: Defaults to false
+
+    # Firewall rules to control where the database can be accessed from,
+    # in addition to the control-plane cluster.
+    # firewallRules:
+    #  - name:
+    #    startIpAddress:
+    #    endIpAddress:
+    # storageSizeGB: Defaults to 32 (the minimum supported)
+    # backupRetentionDays: Defaults to 7
+    # backupGeoRedundancy: Defaults to false
+
+    # Firewall rules to control where the database can be accessed from,
+    # in addition to the control-plane cluster.
+    # firewallRules:
+    #  - name:
+    #    startIpAddress:
+    #    endIpAddress:
+    firewallRules: ${TYGER_ENVIRONMENT_FIREWALL_RULES}
 
   networkSecurityPerimeter:
     nspResourceGroup: NSP-ALL
@@ -58,41 +147,76 @@ cloud:
       name: storageaccounts
       mode: Learning
 
-  database:
-    serverName: ${TYGER_ENVIRONMENT_NAME}-tyger
-    location: ${TYGER_DATABASE_LOCATION}
-    computeTier: GeneralPurpose
-    vmSize: Standard_D2s_v3
-    firewallRules: ${TYGER_ENVIRONMENT_FIREWALL_RULES}
-    postgresMajorVersion: 16
-
 organizations:
   - name: lamna
     cloud:
       storage:
+        # Storage accounts for buffers.
         buffers:
           - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}lamnabuf
+            # location: defaults to defaultLocation
+            # sku: defaults to Standard_LRS
+            # dnsEndpointType can be set to `AzureDNSZone` when creating large number of accounts in a single subscription.
             dnsEndpointType: AzureDnsZone
           - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}lamnabuf2
+            # location: defaults to defaultLocation
+            # sku: defaults to Standard_LRS
+            # dnsEndpointType can be set to `AzureDNSZone` when creating large number of accounts in a single subscription.
             dnsEndpointType: AzureDnsZone
           - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}lamnabuf3
             location: ${TYGER_SECONDARY_LOCATION}
+            # sku: defaults to Standard_LRS
+            # dnsEndpointType can be set to `AzureDNSZone` when creating large number of accounts in a single subscription.
             dnsEndpointType: AzureDnsZone
+
+        # The storage account where run logs will be stored.
         logs:
           name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}lamnalog
+          # location: defaults to defaultLocation
+          # sku: defaults to Standard_LRS
+          # dnsEndpointType can be set to `AzureDNSZone` when creating large number of accounts in a single subscription.
+          # dnsEndpointType: defaults to Standard.
 
+      # An optional array of managed identities that will be created in the resource group.
+      # These identities are available to runs as workload identities. When updating this list
+      # both `tyger cloud install` and `tyger api installed` must be run.
       identities:
         - test-identity
+
     api:
+      # The fully qualified domain name for the Tyger API.
       domainName: lamna-${TYGER_ENVIRONMENT_NAME}.eminence.ms
+
+      # Set to KeyVault if using a custom TLS certificate, otherwise set to LetsEncrypt
       tlsCertificateProvider: KeyVault
+
       accessControl:
         tenantId: 72f988bf-86f1-41af-91ab-2d7cd011db47
         apiAppUri: api://tyger-server
         cliAppUri: api://tyger-cli
+
         apiAppId: fc9d1bea-71ff-4cdb-8a07-69fa7df25f95
         cliAppId: 9985c0a8-7477-4ec8-a784-e24c90d98887
+
         serviceManagementReference: 7933f882-e109-49d5-a771-e1be70099806
+
+        # Principals in role assignments are specified in the following ways:
+        #
+        # For users, specify the object ID and/or the user principal name.
+        #   - kind: User
+        #     objectId: <objectId>
+        #     userPrincipalName: <userPrincipalName>
+        #
+        # For groups, specify the object ID and/or the group display name.
+        #   - kind: Group
+        #     objectId: <objectId>
+        #     displayName: <displayName>
+        #
+        # For service principals, specify the object ID and/or the service principal display name.
+        #   - kind: ServicePrincipal
+        #     objectId: <objectId>
+        #     displayName: <displayName>
+
         roleAssignments:
           owner:
             - kind: Group
@@ -109,45 +233,118 @@ organizations:
               displayName: tyger-client-contributor
 
       buffers:
+        # TTL for active buffers before they are automatically soft-deleted (D.HH:MM:SS) (0 = never expire)
         activeLifetime: 0.00:00
+        # TTL for soft-deleted buffers before they are automatically purged forever (D.HH:MM:SS) (0 = purge immediately)
         softDeletedLifetime: 1.00:00
+
+      # Optional Helm chart overrides
       helm:
         tyger:
+          # repoName:
+          # repoUrl: not set if using `chartRef`
           chartRef: ${TYGER_HELM_CHART_DIR}
+          # version:
           values:
-            image: ${TYGER_SERVER_IMAGE}
-            bufferSidecarImage: ${BUFFER_SIDECAR_IMAGE}
             bufferCopierImage: ${BUFFER_COPIER_IMAGE}
+            bufferSidecarImage: ${BUFFER_SIDECAR_IMAGE}
+            image: ${TYGER_SERVER_IMAGE}
             workerWaiterImage: ${WORKER_WAITER_IMAGE}
 
   - name: legacy
     singleOrganizationCompatibilityMode: true
     cloud:
       storage:
+        # Storage accounts for buffers.
         buffers:
           - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}legacybuf
+            # location: defaults to defaultLocation
+            # sku: defaults to Standard_LRS
+            # dnsEndpointType can be set to `AzureDNSZone` when creating large number of accounts in a single subscription.
+            # dnsEndpointType: defaults to Standard.
+
+        # The storage account where run logs will be stored.
         logs:
           name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}legacylog
+          # location: defaults to defaultLocation
+          # sku: defaults to Standard_LRS
+          # dnsEndpointType can be set to `AzureDNSZone` when creating large number of accounts in a single subscription.
+          # dnsEndpointType: defaults to Standard.
 
+      # An optional array of managed identities that will be created in the resource group.
+      # These identities are available to runs as workload identities. When updating this list
+      # both `tyger cloud install` and `tyger api installed` must be run.
       identities:
         - test-identity
+
     api:
+      # The fully qualified domain name for the Tyger API.
       domainName: ${TYGER_ENVIRONMENT_NAME}-tyger.${TYGER_LOCATION}.cloudapp.azure.com
+
+      # Set to KeyVault if using a custom TLS certificate, otherwise set to LetsEncrypt
       tlsCertificateProvider: LetsEncrypt
+
       accessControl:
         tenantId: 76d3279b-830e-4bea-baf8-12863cdeba4c
         apiAppUri: api://tyger-server
         cliAppUri: api://tyger-cli
+
         apiAppId: e8229c82-a93e-4a2a-a983-d3ed35f2f62c
         cliAppId: f13d0630-3b5f-4a9f-aafa-34bd3bb6062b
+
+        # Principals in role assignments are specified in the following ways:
+        #
+        # For users, specify the object ID and/or the user principal name.
+        #   - kind: User
+        #     objectId: <objectId>
+        #     userPrincipalName: <userPrincipalName>
+        #
+        # For groups, specify the object ID and/or the group display name.
+        #   - kind: Group
+        #     objectId: <objectId>
+        #     displayName: <displayName>
+        #
+        # For service principals, specify the object ID and/or the service principal display name.
+        #   - kind: ServicePrincipal
+        #     objectId: <objectId>
+        #     displayName: <displayName>
+
+        # Example:
+        #
+        # roleAssignments:
+        #   owner:
+        #     - kind: User
+        #       objectId: c5e5d858-b954-4bef-b704-71b63e761f69
+        #       userPrincipalName: me@example.com
+        #
+        #     - kind: ServicePrincipal
+        #       objectId: 32b73951-e5eb-4a75-8479-23374021f46a
+        #       displayName: my-service-principal
+        #
+        #   contributor:
+        #     - kind: Group
+        #       objectId: f939c89c-94ed-46b9-8fbd-726cf747f231
+        #       displayName: my-group
+
+        roleAssignments:
+          owner: []
+          contributor: []
+
       buffers:
+        # TTL for active buffers before they are automatically soft-deleted (D.HH:MM:SS) (0 = never expire)
         activeLifetime: 0.00:00
+        # TTL for soft-deleted buffers before they are automatically purged forever (D.HH:MM:SS) (0 = purge immediately)
         softDeletedLifetime: 1.00:00
+
+      # Optional Helm chart overrides
       helm:
         tyger:
+          # repoName:
+          # repoUrl: not set if using `chartRef`
           chartRef: ${TYGER_HELM_CHART_DIR}
+          # version:
           values:
-            image: ${TYGER_SERVER_IMAGE}
-            bufferSidecarImage: ${BUFFER_SIDECAR_IMAGE}
             bufferCopierImage: ${BUFFER_COPIER_IMAGE}
+            bufferSidecarImage: ${BUFFER_SIDECAR_IMAGE}
+            image: ${TYGER_SERVER_IMAGE}
             workerWaiterImage: ${WORKER_WAITER_IMAGE}

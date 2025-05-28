@@ -82,6 +82,17 @@ jobs:
           set -euo pipefail
           make unit-test
 
+      - name: Verify config templates pretty-printed
+        run: |
+          set -euo pipefail
+
+          make -s pretty-print-config-templates
+          if [[ `git status --porcelain` ]]; then
+            git diff
+            echo "ERROR: config templates need to be updated. Run 'make pretty-print-config-templates'"
+            exit 1
+          fi
+
       - name: Generate NOTICE.txt
         run: |
           set -euo pipefail

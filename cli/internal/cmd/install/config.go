@@ -98,6 +98,7 @@ func newConfigValidateCommand() *cobra.Command {
 func newConfigPrettyPrintCommand() *cobra.Command {
 	inputPath := ""
 	outputPath := ""
+	templatePath := ""
 
 	cmd := &cobra.Command{
 		Use:                   "pretty-print -i FILE.yml -o FILE.yml",
@@ -118,6 +119,29 @@ func newConfigPrettyPrintCommand() *cobra.Command {
 				os.Exit(1)
 			}
 
+			if templatePath != "" {
+				// Restore with unexpanded environment variables from the template file.
+				templateBytes, err := os.ReadFile(templatePath)
+				if err != nil {
+					log.Fatal().AnErr("error", err).Msg("Failed to read template file")
+				}
+
+				templateNode, err := parseConfigToAst(templateBytes)
+				if err != nil {
+					log.Fatal().AnErr("error", err).Msg("Failed to parse template file")
+				}
+
+				prettyPrintedAst, err := parseConfigToAst(outputBuffer.Bytes())
+				if err != nil {
+					log.Fatal().AnErr("error", err).Msg("Failed to parse pretty printed config file")
+				}
+
+				mergeAst(prettyPrintedAst, templateNode)
+
+				outputBuffer.Reset()
+				outputBuffer.WriteString(prettyPrintedAst.String() + "\n")
+			}
+
 			if err := os.MkdirAll(path.Dir(outputPath), 0775); err != nil {
 				log.Fatal().AnErr("error", err).Msg("Failed to create config directory")
 			}
@@ -132,6 +156,9 @@ func newConfigPrettyPrintCommand() *cobra.Command {
 	cmd.MarkFlagRequired("input")
 	cmd.Flags().StringVarP(&outputPath, "output", "o", "", "The path to the config file to create")
 	cmd.MarkFlagRequired("output")
+
+	cmd.Flags().StringVar(&templatePath, "template", "", "Internal. The original template with unexpanded environment variables")
+	cmd.Flags().MarkHidden("template")
 
 	return cmd
 }

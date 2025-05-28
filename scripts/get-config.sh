@@ -20,11 +20,12 @@ Other environment variables that can be set to change the output are:
 Usage: $0 [--dev] [-e|--expression expression]
 
 Options:
-  --dev               Render the development config instead of the tyger config
-  --docker            Render the docker tyger config instead of the cloud config
-  -e | --expression   The expression to evaluate. Defaults to '.'
-  -o | --output       The output format. Defaults to 'yaml'
-  -h, --help          Brings up this menu
+  --dev                    Render the development config instead of the tyger config
+  --docker                 Render the docker tyger config instead of the cloud config
+  -e | --expression        The expression to evaluate. Defaults to '.'
+  -o | --output            The output format. Defaults to 'yaml'
+  --pretty-print-template  Pretty-print the template file instead of rendering the config
+  -h, --help               Brings up this menu
 EOF
 }
 
@@ -32,6 +33,7 @@ dev=false
 docker=false
 expression="."
 format="yaml"
+pretty_print_template=false
 
 while [[ $# -gt 0 ]]; do
   key="$1"
@@ -52,6 +54,10 @@ while [[ $# -gt 0 ]]; do
   -o | --output)
     format="$2"
     shift 2
+    ;;
+  --pretty-print-template)
+    pretty_print_template=true
+    shift
     ;;
   -h | --help)
     usage
@@ -148,6 +154,11 @@ else
     export WORKER_WAITER_IMAGE
     export BUFFER_COPIER_IMAGE
   fi
+fi
+
+if [[ "$pretty_print_template" == true ]]; then
+  tyger config pretty-print -i <(envsubst <"${config_path}") -o "${config_path}" --template "${config_path}"
+  exit
 fi
 
 envsubst <"${config_path}" | yq eval -e "${expression}" -o "${format}" -
