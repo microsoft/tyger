@@ -72,21 +72,12 @@ signingKeys:
 # network:
 #   subnet: 172.20.0.0/16
 
-# Optionally specify container images to use.
-# controlPlaneImage:
-# dataPlaneImage:
-# bufferSidecarImage:
-# gatewayImage:
-# postgresImage:
-# marinerImage:
-
 # buffers:
 #   TTL for active buffers before they are automatically soft-deleted (D.HH:MM:SS) (0 = never expire)
 #   activeLifetime: defaults to 0.00:00
 #
 #   TTL for soft-deleted buffers before they are automatically purged forever (D.HH:MM:SS) (0 = purge immediately)
 #   softDeletedLifetime: default to 1.00:00
-
 ```
 
 All of the installation commands (`tyger api install`, `tyger api uninstall`,

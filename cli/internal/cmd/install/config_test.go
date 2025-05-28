@@ -54,14 +54,14 @@ func TestConvertPreAccessControlConfig(t *testing.T) {
 }
 
 func TestParsePreOrganizationConfigSuggestsConversion(t *testing.T) {
-	_, err := parseConfig([]byte(preOrganizationsConfig))
+	_, err := ParseConfig([]byte(preOrganizationsConfig))
 	require.Error(t, err)
 
 	require.Contains(t, err.Error(), "tyger config convert")
 }
 
 func TestParsePreAccessControlConfigSuggestsConversion(t *testing.T) {
-	_, err := parseConfig([]byte(preAccessControlConfig))
+	_, err := ParseConfig([]byte(preAccessControlConfig))
 	require.Error(t, err)
 
 	require.Contains(t, err.Error(), "tyger config convert")

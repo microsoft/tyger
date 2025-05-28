@@ -61,7 +61,7 @@ func commonPrerun(ctx context.Context, flags *commonFlags) (context.Context, ins
 		log.Fatal().Err(err).Msg("Failed to read config file")
 	}
 
-	config, err := parseConfig(yamlBytes)
+	config, err := ParseConfig(yamlBytes)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to parse config file")
 	}
@@ -124,7 +124,7 @@ func newInstallerFromConfig(config install.ValidatableConfig) (install.Installer
 	}
 }
 
-func parseConfigFileCommon(yamlBytes []byte) (*install.ConfigFileCommon, error) {
+func ParseConfigFileCommon(yamlBytes []byte) (*install.ConfigFileCommon, error) {
 	installCommon := &install.ConfigFileCommon{}
 	if err := yaml.UnmarshalWithOptions(yamlBytes, installCommon); err != nil {
 		return nil, fmt.Errorf("failed to decode config file: %w", err)
@@ -137,8 +137,8 @@ func parseConfigFileCommon(yamlBytes []byte) (*install.ConfigFileCommon, error) 
 	return installCommon, nil
 }
 
-func parseConfig(yamlBytes []byte) (install.ValidatableConfig, error) {
-	installCommon, err := parseConfigFileCommon(yamlBytes)
+func ParseConfig(yamlBytes []byte) (install.ValidatableConfig, error) {
+	installCommon, err := ParseConfigFileCommon(yamlBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +186,7 @@ func checkConfigFileNeedsConversion(installCommon install.ConfigFileCommon, deco
 		return decodeErr
 	}
 
-	configAst, err := parseConfigToAst(yamlBytes)
+	configAst, err := ParseConfigToAst(yamlBytes)
 	if err != nil {
 		return decodeErr
 	}
@@ -244,7 +244,7 @@ func checkConfigFileNeedsConversion(installCommon install.ConfigFileCommon, deco
 	return decodeErr
 }
 
-func parseConfigToMap(yamlBytes []byte) (map[string]any, error) {
+func ParseConfigToMap(yamlBytes []byte) (map[string]any, error) {
 	config := make(map[string]any)
 
 	if err := yaml.Unmarshal(yamlBytes, &config); err != nil {
@@ -254,7 +254,7 @@ func parseConfigToMap(yamlBytes []byte) (map[string]any, error) {
 	return config, nil
 }
 
-func parseConfigToAst(yamlBytes []byte) (ast.Node, error) {
+func ParseConfigToAst(yamlBytes []byte) (ast.Node, error) {
 	file, err := parser.ParseBytes(yamlBytes, parser.ParseComments)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)

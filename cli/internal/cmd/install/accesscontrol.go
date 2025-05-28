@@ -113,7 +113,7 @@ func newAccessControlApplyCommand() *cobra.Command {
 				log.Fatal().Err(err).Msgf("Unable to read configuration file: %s", filePath)
 			}
 
-			installCommon, err := parseConfigFileCommon(yamlBytes)
+			installCommon, err := ParseConfigFileCommon(yamlBytes)
 			if err != nil {
 				log.Fatal().Err(err).Msgf("Unable to parse configuration file: %s", filePath)
 			}
@@ -122,7 +122,7 @@ func newAccessControlApplyCommand() *cobra.Command {
 			orgIndex := 0
 			switch installCommon.Kind {
 			case cloudinstall.ConfigKindCloud:
-				c, err := parseConfig(yamlBytes)
+				c, err := ParseConfig(yamlBytes)
 				if err != nil {
 					log.Fatal().Err(err).Msgf("Unable to parse cloud configuration file: %s", filePath)
 				}
@@ -180,7 +180,7 @@ func newAccessControlApplyCommand() *cobra.Command {
 
 			switch installCommon.Kind {
 			case cloudinstall.ConfigKindCloud:
-				cloudConfigAst, err := parseConfigToAst(yamlBytes)
+				cloudConfigAst, err := ParseConfigToAst(yamlBytes)
 				if err != nil {
 					log.Fatal().Err(err).Msgf("Unable to parse cloud configuration file: %s", filePath)
 				}
@@ -236,7 +236,7 @@ func newAccessControlPrettyPrintCommand() *cobra.Command {
 			}
 
 			var accessControlConfig *cloudinstall.StandaloneAccessControlConfig
-			if installCommon, err := parseConfigFileCommon(yamlBytes); err == nil && installCommon.Kind == cloudinstall.ConfigKindAccessControl {
+			if installCommon, err := ParseConfigFileCommon(yamlBytes); err == nil && installCommon.Kind == cloudinstall.ConfigKindAccessControl {
 				accessControlConfig, err = parseStandaloneAccessControlConfig(yamlBytes)
 				if err != nil {
 					log.Fatal().Err(err).Msgf("Unable to parse access control configuration file: %s", inputPath)

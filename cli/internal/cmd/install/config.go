@@ -75,7 +75,7 @@ func newConfigValidateCommand() *cobra.Command {
 				log.Fatal().AnErr("error", err).Msg("Failed to read config file")
 			}
 
-			c, err := parseConfig(yamlBytes)
+			c, err := ParseConfig(yamlBytes)
 			if err == nil {
 				err = c.QuickValidateConfig(cmd.Context())
 			}
@@ -126,12 +126,12 @@ func newConfigPrettyPrintCommand() *cobra.Command {
 					log.Fatal().AnErr("error", err).Msg("Failed to read template file")
 				}
 
-				templateNode, err := parseConfigToAst(templateBytes)
+				templateNode, err := ParseConfigToAst(templateBytes)
 				if err != nil {
 					log.Fatal().AnErr("error", err).Msg("Failed to parse template file")
 				}
 
-				prettyPrintedAst, err := parseConfigToAst(outputBuffer.Bytes())
+				prettyPrintedAst, err := ParseConfigToAst(outputBuffer.Bytes())
 				if err != nil {
 					log.Fatal().AnErr("error", err).Msg("Failed to parse pretty printed config file")
 				}
@@ -169,7 +169,7 @@ func prettyPrintConfig(ctx context.Context, input io.Reader, output io.Writer, v
 		return err
 	}
 
-	c, err := parseConfig(inputBytes)
+	c, err := ParseConfig(inputBytes)
 	if err != nil {
 		return err
 	}
@@ -181,7 +181,7 @@ func prettyPrintConfig(ctx context.Context, input io.Reader, output io.Writer, v
 	}
 
 	// parse the config again to clear the fields that are set during validation
-	c, err = parseConfig(inputBytes)
+	c, err = ParseConfig(inputBytes)
 	if err != nil {
 		return err
 	}
@@ -211,7 +211,7 @@ func prettyPrintConfig(ctx context.Context, input io.Reader, output io.Writer, v
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 
-	parsedPrettyConfig, err := parseConfig([]byte(outputContents))
+	parsedPrettyConfig, err := ParseConfig([]byte(outputContents))
 	if err != nil {
 		return fmt.Errorf("failed to parse config: %w", err)
 	}
@@ -260,7 +260,7 @@ func convert(ctx context.Context, inputPath string, outputPath string) error {
 		return fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	document, err := parseConfigToMap(yamlBytes)
+	document, err := ParseConfigToMap(yamlBytes)
 	if err != nil {
 		return err
 	}

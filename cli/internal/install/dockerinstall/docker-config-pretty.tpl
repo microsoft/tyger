@@ -69,18 +69,6 @@ network:
 # network:
 #   subnet: 172.20.0.0/16
 {{- end }}
-
-# Optionally specify container images to use.
-{{ optionalField "controlPlaneImage" .ControlPlaneImage "" }}
-{{ optionalField "dataPlaneImage" .DataPlaneImage "" }}
-{{ optionalField "bufferSidecarImage" .BufferSidecarImage "" }}
-{{ optionalField "gatewayImage" .GatewayImage "" }}
-{{ optionalField "postgresImage" .PostgresImage "" }}
-{{ optionalField "marinerImage" .MarinerImage "" -}}
-{{ if .InitialDatabaseVersion -}}
-# Undocumented field for development
-initialDatabaseVersion: {{ .InitialDatabaseVersion }}
-{{- end }}
 {{- if (and .Buffers (or .Buffers.ActiveLifetime .Buffers.SoftDeletedLifetime)) }}
 
 buffers:
@@ -90,11 +78,33 @@ buffers:
   # TTL for soft-deleted buffers before they are automatically purged forever (D.HH:MM:SS) (0 = purge immediately)
   {{ optionalField "softDeletedLifetime" .Buffers.SoftDeletedLifetime "defaults to 1.00:00" }}
 {{- else }}
-
 # buffers:
 #   TTL for active buffers before they are automatically soft-deleted (D.HH:MM:SS) (0 = never expire)
 #   activeLifetime: defaults to 0.00:00
 #
 #   TTL for soft-deleted buffers before they are automatically purged forever (D.HH:MM:SS) (0 = purge immediately)
 #   softDeletedLifetime: default to 1.00:00
+{{- end }}
+{{- if (or .ControlPlaneImage .ControlPlaneImage .DataPlaneImage .GatewayImage .BufferSidecarImage .PostgresImage .MarinerImage .InitialDatabaseVersion) }}
+{{ if .ControlPlaneImage }}
+controlPlaneImage: {{ .ControlPlaneImage }}
+{{- end }}
+{{- if .DataPlaneImage }}
+dataPlaneImage: {{ .DataPlaneImage }}
+{{- end }}
+{{- if .GatewayImage }}
+gatewayImage: {{ .GatewayImage }}
+{{- end }}
+{{- if .BufferSidecarImage }}
+bufferSidecarImage: {{ .BufferSidecarImage }}
+{{- end }}
+{{- if .PostgresImage }}
+postgresImage: {{ .PostgresImage }}
+{{- end }}
+{{- if .MarinerImage }}
+marinerImage: {{ .MarinerImage }}
+{{- end }}
+{{- if .InitialDatabaseVersion }}
+initialDatabaseVersion: {{ .InitialDatabaseVersion }}
+{{- end }}
 {{- end }}
