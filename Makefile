@@ -110,7 +110,7 @@ publish-images-to-ghcr:
 	registry="ghcr.io"
 	registry_directory="microsoft/tyger"
 	
-	scripts/build-images.sh --push --push-force --arch amd64 --arch arm64 --tyger-server --tag "$${tag}" --registry "$${registry}" --registry-directory "$${registry_directory}"
+	scripts/build-images.sh --push --push-force --arch amd64 --arch arm64 --tyger-server --helm --tag "$${tag}" --registry "$${registry}" --registry-directory "$${registry_directory}"
 
 prepare-wip-binaries:
 	tag="$$(git describe --tags)-$$(date +'%Y%m%d%H%M%S')"
