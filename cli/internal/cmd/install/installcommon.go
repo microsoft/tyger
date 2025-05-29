@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path"
 	"regexp"
 	"syscall"
 
@@ -314,4 +315,32 @@ func loginAndValidateSubscription(ctx context.Context, cloudInstaller *cloudinst
 	}
 
 	return ctx, nil
+}
+
+func writeToOutputPathOrStdoutFatalOnError(outputPath string, data []byte) {
+	if outputPath == "" || outputPath == "-" {
+		if _, err := os.Stdout.Write(data); err != nil {
+			log.Fatal().AnErr("error", err).Msg("Failed to write output to stdout")
+		}
+		return
+	}
+
+	if err := os.MkdirAll(path.Dir(outputPath), 0775); err != nil {
+		log.Fatal().AnErr("error", err).Msg("Failed to create output directory")
+	}
+
+	f, err := os.OpenFile(outputPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		log.Fatal().AnErr("error", err).Msgf("Failed to open output file: %s", outputPath)
+	}
+
+	defer f.Close()
+
+	_, err = f.Write(data)
+	if err == nil {
+		err = f.Close()
+	}
+	if err != nil {
+		log.Fatal().AnErr("error", err).Msgf("Failed to write output: %s", outputPath)
+	}
 }
