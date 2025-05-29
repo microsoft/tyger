@@ -106,9 +106,9 @@ func addCommonFlags(cmd *cobra.Command, flags *commonFlags) {
 		cmd.MarkFlagRequired("file")
 	}
 	if flags.singleOrg != nil {
-		cmd.Flags().StringVarP(flags.singleOrg, "org", "o", "", "the organization this command will affect")
+		cmd.Flags().StringVar(flags.singleOrg, "org", "", "the organization this command will affect")
 	} else if flags.multiOrg != nil {
-		cmd.Flags().StringArrayVarP(flags.multiOrg, "org", "o", nil, "restrict this command to the specified organizations")
+		cmd.Flags().StringArrayVar(flags.multiOrg, "org", nil, "restrict this command to the specified organizations")
 	} else {
 		panic("either singleOrg or multiOrg must be set")
 	}

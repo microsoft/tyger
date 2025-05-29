@@ -98,14 +98,28 @@ func newConfigValidateCommand() *cobra.Command {
 func newConfigPrettyPrintCommand() *cobra.Command {
 	inputPath := ""
 	outputPath := ""
+	singleFilePath := ""
 	templatePath := ""
 
 	cmd := &cobra.Command{
-		Use:                   "pretty-print -i FILE.yml -o FILE.yml",
+		Use:                   "pretty-print -f FILE.yml | { -i INPUT.yml [-o OUTPUT.yml] }",
 		Short:                 "Add documentation to a config file.",
 		Long:                  "Add documentation to a config file.",
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
+			if singleFilePath != "" {
+				if inputPath != "" {
+					log.Fatal().Msg("Cannot specify both --input and --file flags")
+				}
+				if outputPath != "" {
+					log.Fatal().Msg("Cannot specify both --output and --file flags")
+				}
+				outputPath = singleFilePath
+				inputPath = singleFilePath
+			} else if inputPath == "" {
+				log.Fatal().Msg("Either --file or --input must be specified")
+			}
+
 			inputFileBytes, err := os.ReadFile(inputPath)
 			if err != nil {
 				log.Fatal().AnErr("error", err).Msg("Failed to read config file")
@@ -142,20 +156,13 @@ func newConfigPrettyPrintCommand() *cobra.Command {
 				outputBuffer.WriteString(prettyPrintedAst.String() + "\n")
 			}
 
-			if err := os.MkdirAll(path.Dir(outputPath), 0775); err != nil {
-				log.Fatal().AnErr("error", err).Msg("Failed to create config directory")
-			}
-
-			if err := os.WriteFile(outputPath, outputBuffer.Bytes(), 0644); err != nil {
-				log.Fatal().AnErr("error", err).Msg("Failed to write config file")
-			}
+			writeToOutputPathOrStdoutFatalOnError(outputPath, outputBuffer.Bytes())
 		},
 	}
 
 	cmd.Flags().StringVarP(&inputPath, "input", "i", "", "The path to the config file to read")
-	cmd.MarkFlagRequired("input")
 	cmd.Flags().StringVarP(&outputPath, "output", "o", "", "The path to the config file to create")
-	cmd.MarkFlagRequired("output")
+	cmd.Flags().StringVarP(&singleFilePath, "file", "f", "", "The path to the configuration file to update in-place. Equivalent to --input and --output with the same value.")
 
 	cmd.Flags().StringVar(&templatePath, "template", "", "Internal. The original template with unexpanded environment variables")
 	cmd.Flags().MarkHidden("template")
@@ -231,8 +238,8 @@ func newConfigConvertCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:                   "convert -i FILE.yml -o FILE.yml",
-		Long:                  "Convert a config that was created for Tyger versions before v0.11.0.",
-		Short:                 "Convert a config that was created for Tyger versions before v0.11.0.",
+		Long:                  "Convert a config file in a older format.",
+		Short:                 "Convert a config file in a older format.",
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
 			err := convert(cmd.Context(), inputPath, outputPath)

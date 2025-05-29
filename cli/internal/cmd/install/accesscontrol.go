@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"path"
 	"slices"
 	"strings"
 
@@ -40,8 +39,10 @@ func NewAccessControlCommand() *cobra.Command {
 }
 
 func newAccessControlInitCommand() *cobra.Command {
+	outputFilePath := ""
+
 	cmd := &cobra.Command{
-		Use:                   "init",
+		Use:                   "init [-f FILE.yml]",
 		Short:                 "Initialize a standalone access control configuration file",
 		Long:                  "Initialize a standalone access control configuration file",
 		DisableFlagsInUseLine: true,
@@ -56,20 +57,26 @@ func newAccessControlInitCommand() *cobra.Command {
 				},
 			}
 
-			if err := cloudinstall.PrettyPrintStandaloneAccessControlConfig(accessControlConfig, os.Stdout); err != nil {
+			buffer := bytes.Buffer{}
+			if err := cloudinstall.PrettyPrintStandaloneAccessControlConfig(accessControlConfig, &buffer); err != nil {
 				log.Fatal().Err(err).Send()
 			}
+
+			writeToOutputPathOrStdoutFatalOnError(outputFilePath, buffer.Bytes())
 		},
 	}
+
+	cmd.Flags().StringVarP(&outputFilePath, "file", "f", "", "The path to the output file to save the access control specification. If not specified, the output will be printed to stdout.")
 
 	return cmd
 }
 
 func newAccessControlShowCommand() *cobra.Command {
 	serverUrl := ""
+	outputFilePath := ""
 
 	cmd := &cobra.Command{
-		Use:                   "show",
+		Use:                   "show --server-url URL [-f FILE.yml]",
 		Short:                 "Show the access control specification",
 		Long:                  "Show the access control specification",
 		DisableFlagsInUseLine: true,
@@ -87,14 +94,19 @@ func newAccessControlShowCommand() *cobra.Command {
 				AccessControlConfig: accessControlConfig,
 			}
 
-			if err := cloudinstall.PrettyPrintStandaloneAccessControlConfig(standaloneConfig, os.Stdout); err != nil {
+			buffer := bytes.Buffer{}
+			if err := cloudinstall.PrettyPrintStandaloneAccessControlConfig(standaloneConfig, &buffer); err != nil {
 				log.Fatal().Err(err).Send()
 			}
+
+			writeToOutputPathOrStdoutFatalOnError(outputFilePath, buffer.Bytes())
 		},
 	}
 
 	cmd.Flags().StringVar(&serverUrl, "server-url", "", "The Tyger server URL")
 	cmd.MarkFlagRequired("server-url")
+
+	cmd.Flags().StringVarP(&outputFilePath, "file", "f", "", "The path to the output file to save the access control specification. If not specified, the output will be printed to stdout.")
 
 	return cmd
 }
@@ -216,20 +228,34 @@ func newAccessControlApplyCommand() *cobra.Command {
 	cmd.Flags().StringVarP(&filePath, "file", "f", "", "The path to cloud environment file or standalone access control configuration file")
 	cmd.MarkFlagRequired("file")
 
-	cmd.Flags().StringVarP(&organization, "org", "o", "", "Then organization name for which to apply the access control configuration. Does not apply to standalone access control configuration files.")
+	cmd.Flags().StringVar(&organization, "org", "", "The organization name for which to apply the access control configuration. Does not apply to standalone access control configuration files.")
 	return cmd
 }
 
 func newAccessControlPrettyPrintCommand() *cobra.Command {
 	inputPath := ""
 	outputPath := ""
+	singleFilePath := ""
 
 	cmd := &cobra.Command{
-		Use:                   "pretty-print -f access-control.yml",
+		Use:                   "pretty-print -f FILE.yml | { -i INPUT.yml [-o OUTPUT.yml] }",
 		Short:                 "Pretty print a standalone access control configuration file",
 		Long:                  "Pretty print a standalone access control configuration file",
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
+			if singleFilePath != "" {
+				if inputPath != "" {
+					log.Fatal().Msg("Cannot specify both --input and --file flags")
+				}
+				if outputPath != "" {
+					log.Fatal().Msg("Cannot specify both --output and --file flags")
+				}
+				outputPath = singleFilePath
+				inputPath = singleFilePath
+			} else if inputPath == "" {
+				log.Fatal().Msg("Either --file or --input must be specified")
+			}
+
 			yamlBytes, err := os.ReadFile(inputPath)
 			if err != nil {
 				log.Fatal().Err(err).Msgf("Unable to read configuration file: %s", inputPath)
@@ -250,20 +276,13 @@ func newAccessControlPrettyPrintCommand() *cobra.Command {
 				log.Fatal().Err(err).Send()
 			}
 
-			if err := os.MkdirAll(path.Dir(outputPath), 0775); err != nil {
-				log.Fatal().AnErr("error", err).Msg("Failed to create config directory")
-			}
-
-			if err := os.WriteFile(outputPath, outputBuffer.Bytes(), 0644); err != nil {
-				log.Fatal().AnErr("error", err).Msg("Failed to write config file")
-			}
+			writeToOutputPathOrStdoutFatalOnError(outputPath, outputBuffer.Bytes())
 		},
 	}
 
 	cmd.Flags().StringVarP(&inputPath, "input", "i", "", "The path to the config file to read")
-	cmd.MarkFlagRequired("input")
-	cmd.Flags().StringVarP(&outputPath, "output", "o", "", "The path to the config file to create")
-	cmd.MarkFlagRequired("output")
+	cmd.Flags().StringVarP(&outputPath, "output", "o", "", "The path to the config file to create. If not specified and --file is not used, the output will be printed to stdout.")
+	cmd.Flags().StringVarP(&singleFilePath, "file", "f", "", "The path to the configuration file to update in-place. Equivalent to --input and --output with the same value.")
 
 	return cmd
 }

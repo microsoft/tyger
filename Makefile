@@ -23,7 +23,7 @@ include Makefile.docker
 endif
 
 get-config:
-	echo '${ENVIRONMENT_CONFIG_JSON}' | yq -P
+	./scripts/get-config.sh
 
 pretty-print-config-templates: install-cli
 	scripts/get-config.sh --pretty-print-template

@@ -169,4 +169,11 @@ if [[ "$pretty_print_template" == true ]]; then
   exit
 fi
 
-envsubst <"${config_path}" | yq eval -e "${expression}" -o "${format}" -
+rendered_config=$(envsubst <"${config_path}")
+
+if [[ "${format}" == "yaml" && "${expression}" == "." ]]; then
+  echo "${rendered_config}"
+  exit
+fi
+
+echo "${rendered_config}" | yq eval -e "${expression}" -o "${format}" -
