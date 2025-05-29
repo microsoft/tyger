@@ -269,7 +269,7 @@ public static class Runs
                 await runSweeper.SweepRuns(cancellationToken);
             }
         })
-        .RequireOwnerRole()
+        .RequireAtLeastContributorRole()
         .ExcludeFromDescription();
     }
 }
