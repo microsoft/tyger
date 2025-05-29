@@ -248,6 +248,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: publish images
+        run: |
+          set -euo pipefail
+
+          make publish-images-to-ghcr
+
   # up:
   #   needs:
   #     - test-azure-needs-hosted-runner
