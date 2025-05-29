@@ -223,31 +223,31 @@ jobs:
           echo "DEVELOPER_CONFIG_BASE64=$developer_config_base64" >> "$GITHUB_OUTPUT"
           echo "DEVELOPER_CONFIG_BASE64=$developer_config_base64" >> "$GITHUB_ENV"
 
-publish-to-ghcr:
-  runs-on: ubuntu-latest
-  needs: get-config
-  defaults:
-    run:
-      shell: bash
-  env:
-    TYGER_MIN_NODE_COUNT: "1"
-    DO_NOT_BUILD_IMAGES: "true"
-    EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}-amd64
-    TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
+  publish-to-ghcr:
+    runs-on: ubuntu-latest
+    needs: get-config
+    defaults:
+      run:
+        shell: bash
+    env:
+      TYGER_MIN_NODE_COUNT: "1"
+      DO_NOT_BUILD_IMAGES: "true"
+      EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}-amd64
+      TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
 
-  steps:
-    - name: Checkout
-      uses: actions/checkout@v3
-      with:
-        fetch-depth: 0
-    - name: Login to GitHub Container Registry
-      if: github.event_name != 'pull_request'
-      uses: docker/login-action@327cd5a69de6c009b9ce71bce8395f28e651bf99 # was v3 but now v6 with this commit for security reasons have pinned tag (commit SHA) for 3rd party
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Login to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@327cd5a69de6c009b9ce71bce8395f28e651bf99 # was v3 but now v6 with this commit for security reasons have pinned tag (commit SHA) for 3rd party
 
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
   # up:
   #   needs:
