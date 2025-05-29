@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Primitives;
 using Tyger.Common.Api;
+using Tyger.ControlPlane.AccessControl;
 using Tyger.ControlPlane.Database;
 using Tyger.ControlPlane.Json;
 using Tyger.ControlPlane.Logging;
@@ -50,6 +51,7 @@ public static class Runs
 
             return Results.Created($"/runs/{createdRun.Id}", createdRun);
         })
+        .RequireAtLeastContributorRole()
         .Accepts<Run>("application/json")
         .Produces<Run>(StatusCodes.Status201Created)
         .Produces<ErrorBody>(StatusCodes.Status400BadRequest);
@@ -101,6 +103,7 @@ public static class Runs
 
             return new RunPage(items, nextLink == null ? null : new Uri(nextLink));
         })
+        .RequireAtLeastContributorRole()
         .WithTagsQueryParameters();
 
         runs.MapGet("/counts", async (IRunReader runReader, DateTimeOffset? since, HttpContext context) =>
@@ -108,6 +111,7 @@ public static class Runs
             var runs = await runReader.GetRunCounts(since, context.GetTagQueryParameters(), context.RequestAborted);
             return Results.Ok(runs);
         })
+        .RequireAtLeastContributorRole()
         .WithTagsQueryParameters()
         .Produces<IDictionary<RunStatus, long>>(StatusCodes.Status200OK);
 
@@ -155,6 +159,7 @@ public static class Runs
 
             return Results.Empty;
         })
+        .RequireAtLeastContributorRole()
         .Produces<Run>(StatusCodes.Status200OK)
         .Produces<ErrorBody>(StatusCodes.Status404NotFound);
 
@@ -191,6 +196,7 @@ public static class Runs
 
             await pipeline.Process(context.Response.BodyWriter, context.RequestAborted);
         })
+        .RequireAtLeastContributorRole()
         .Produces(StatusCodes.Status200OK, null, "text/plain")
         .Produces<ErrorBody>(StatusCodes.Status404NotFound);
 
@@ -212,6 +218,7 @@ public static class Runs
 
             return Results.Accepted(value: run);
         })
+        .RequireAtLeastContributorRole()
         .Produces<Run>(StatusCodes.Status202Accepted)
         .Produces<ErrorBody>(StatusCodes.Status404NotFound);
 
@@ -247,6 +254,7 @@ public static class Runs
                 notFound: _ => Results.NotFound(),
                 preconditionFailed: _ => Results.StatusCode(StatusCodes.Status412PreconditionFailed));
         })
+        .RequireAtLeastContributorRole()
         .WithName("setRunTags")
         .Accepts<RunUpdate>("application/json")
         .Produces<Run>(StatusCodes.Status200OK)
@@ -260,7 +268,9 @@ public static class Runs
             {
                 await runSweeper.SweepRuns(cancellationToken);
             }
-        }).ExcludeFromDescription();
+        })
+        .RequireOwnerRole()
+        .ExcludeFromDescription();
     }
 }
 

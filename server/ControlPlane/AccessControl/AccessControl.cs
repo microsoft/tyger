@@ -127,6 +127,28 @@ public static class AccessControl
             app.UseAuthentication();
             app.UseAuthorization();
         }
+
+        // Make sure we don't have any endpoints that are missing authorization metadata.
+        app.Lifetime.ApplicationStarted.Register(() =>
+        {
+            var logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(AccessControl).FullName!);
+
+            bool fail = false;
+            var endpointDataSource = app.Services.GetRequiredService<EndpointDataSource>();
+            foreach (var endpoint in endpointDataSource.Endpoints.OfType<RouteEndpoint>())
+            {
+                if (!endpoint.Metadata.Any(md => md is IAuthorizeData or IAllowAnonymous))
+                {
+                    logger.AuthorizationNotSpecifiedOnEndpoint(endpoint.DisplayName ?? endpoint.RoutePattern?.RawText ?? "Unknown");
+                    fail = true;
+                }
+            }
+
+            if (fail)
+            {
+                app.Lifetime.StopApplication();
+            }
+        });
     }
 
     public static TBuilder RequireAtLeastContributorRole<TBuilder>(this TBuilder builder) where TBuilder : IEndpointConventionBuilder
