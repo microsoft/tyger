@@ -4,34 +4,35 @@
 package cloudinstall
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"io"
-	"reflect"
 	"strings"
 	"text/template"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v4"
-	"github.com/Masterminds/sprig/v3"
 	"github.com/microsoft/tyger/cli/internal/install"
+	"github.com/microsoft/tyger/cli/internal/templatefunctions"
 	"github.com/rs/zerolog/log"
-	"sigs.k8s.io/yaml"
 )
 
-//go:embed config-pretty.tpl
+//go:embed cloud-config-pretty.tpl
 var prettyPrintConfigTemplate string
 
 const (
-	EnvironmentKindCloud = "azureCloud"
+	ConfigKindCloud         = "azureCloud"
+	ConfigKindAccessControl = "accessControl"
 )
 
 type CloudEnvironmentConfig struct {
-	Kind            string       `json:"kind"`
-	EnvironmentName string       `json:"environmentName"`
-	Cloud           *CloudConfig `json:"cloud"`
+	install.ConfigFileCommon `yaml:",inline"`
+	EnvironmentName          string       `yaml:"environmentName"`
+	Cloud                    *CloudConfig `yaml:"cloud"`
 
-	Organizations []*OrganizationConfig `json:"organizations"`
+	Organizations []*OrganizationConfig `yaml:"organizations"`
 }
 
 func (c *CloudEnvironmentConfig) GetSingleOrg() *OrganizationConfig {
@@ -63,27 +64,27 @@ func (c *CloudEnvironmentConfig) ForEachOrgInParallel(ctx context.Context, actio
 }
 
 type CloudConfig struct {
-	TenantID              string                `json:"tenantId"`
-	SubscriptionID        string                `json:"subscriptionId"`
-	DefaultLocation       string                `json:"defaultLocation"`
-	ResourceGroup         string                `json:"resourceGroup"`
-	Compute               *ComputeConfig        `json:"compute"`
-	Database              *DatabaseServerConfig `json:"database"`
-	LogAnalyticsWorkspace *NamedAzureResource   `json:"logAnalyticsWorkspace"`
-	DnsZone               *NamedAzureResource   `json:"dnsZone"`
-	TlsCertificate        *TlsCertificate       `json:"tlsCertificate"`
+	TenantID              string                `yaml:"tenantId"`
+	SubscriptionID        string                `yaml:"subscriptionId"`
+	DefaultLocation       string                `yaml:"defaultLocation"`
+	ResourceGroup         string                `yaml:"resourceGroup"`
+	Compute               *ComputeConfig        `yaml:"compute"`
+	Database              *DatabaseServerConfig `yaml:"database"`
+	LogAnalyticsWorkspace *NamedAzureResource   `yaml:"logAnalyticsWorkspace"`
+	DnsZone               *NamedAzureResource   `yaml:"dnsZone"`
+	TlsCertificate        *TlsCertificate       `yaml:"tlsCertificate"`
 
 	// Internal support for associating resources with a network security perimeter profile
-	NetworkSecurityPerimeter *NetworkSecurityPerimeterConfig `json:"networkSecurityPerimeter"`
+	NetworkSecurityPerimeter *NetworkSecurityPerimeterConfig `yaml:"networkSecurityPerimeter"`
 }
 
 type ComputeConfig struct {
-	Clusters                   []*ClusterConfig  `json:"clusters"`
-	ManagementPrincipals       []Principal       `json:"managementPrincipals"`
-	LocalDevelopmentIdentityId string            `json:"localDevelopmentIdentityId"` // undocumented - for local development only
-	PrivateContainerRegistries []string          `json:"privateContainerRegistries"`
-	DnsLabel                   string            `json:"dnsLabel"`
-	Helm                       *SharedHelmConfig `json:"helm"`
+	Clusters                   []*ClusterConfig  `yaml:"clusters"`
+	ManagementPrincipals       []Principal       `yaml:"managementPrincipals"`
+	LocalDevelopmentIdentityId string            `yaml:"localDevelopmentIdentityId"` // undocumented - for local development only
+	PrivateContainerRegistries []string          `yaml:"privateContainerRegistries"`
+	DnsLabel                   string            `yaml:"dnsLabel"`
+	Helm                       *SharedHelmConfig `yaml:"helm"`
 }
 
 func (c *ComputeConfig) GetManagementPrincipalIds() []string {
@@ -95,13 +96,13 @@ func (c *ComputeConfig) GetManagementPrincipalIds() []string {
 }
 
 type TlsCertificate struct {
-	KeyVault        *NamedAzureResource `json:"keyVault"`
-	CertificateName string              `json:"certificateName"`
+	KeyVault        *NamedAzureResource `yaml:"keyVault"`
+	CertificateName string              `yaml:"certificateName"`
 }
 
 type NamedAzureResource struct {
-	ResourceGroup string `json:"resourceGroup"`
-	Name          string `json:"name"`
+	ResourceGroup string `yaml:"resourceGroup"`
+	Name          string `yaml:"name"`
 }
 
 type PrincipalKind string
@@ -113,12 +114,37 @@ const (
 )
 
 type Principal struct {
-	ObjectId          string        `json:"objectId"`
-	UserPrincipalName string        `json:"userPrincipalName"`
-	Kind              PrincipalKind `json:"kind"`
+	Kind              PrincipalKind `yaml:"kind"`
+	ObjectId          string        `yaml:"objectId,omitempty"`
+	UserPrincipalName string        `yaml:"userPrincipalName,omitempty"`
+	DisplayName       string        `yaml:"displayName,omitempty"`
+}
 
-	// Deprecated: Id is deprecated. Use ObjectId instead
-	Id string `json:"id"`
+type TygerRbacRoleAssignment struct {
+	Principal `yaml:",inline"`
+	Details   *aadAppRoleAssignment `yaml:"-"`
+}
+
+func (a *TygerRbacRoleAssignment) UnmarshalJSON(data []byte) error {
+	return json.Unmarshal(data, &a.Principal)
+}
+
+func (a *TygerRbacRoleAssignment) String() string {
+	switch a.Principal.Kind {
+	case PrincipalKindUser:
+		return fmt.Sprintf("user '%s'", a.Principal.UserPrincipalName)
+	case PrincipalKindGroup:
+		return fmt.Sprintf("group '%s'", a.Principal.DisplayName)
+	case PrincipalKindServicePrincipal:
+		return fmt.Sprintf("service principal '%s'", a.Principal.DisplayName)
+	default:
+		panic(fmt.Sprintf("unknown principal kind '%s'", a.Principal.Kind))
+	}
+}
+
+type TygerRbacRoleAssignments struct {
+	Owner       []TygerRbacRoleAssignment `yaml:"owner"`
+	Contributor []TygerRbacRoleAssignment `yaml:"contributor"`
 }
 
 func (c *ComputeConfig) GetApiHostCluster() *ClusterConfig {
@@ -132,82 +158,82 @@ func (c *ComputeConfig) GetApiHostCluster() *ClusterConfig {
 }
 
 type ClusterConfig struct {
-	Name              string                                    `json:"name"`
-	ApiHost           bool                                      `json:"apiHost"`
-	Location          string                                    `json:"location"`
-	Sku               armcontainerservice.ManagedClusterSKUTier `json:"sku"`
-	KubernetesVersion string                                    `json:"kubernetesVersion,omitempty"`
-	SystemNodePool    *NodePoolConfig                           `json:"systemNodePool"`
-	UserNodePools     []*NodePoolConfig                         `json:"userNodePools"`
+	Name              string                                    `yaml:"name"`
+	ApiHost           bool                                      `yaml:"apiHost"`
+	Location          string                                    `yaml:"location"`
+	Sku               armcontainerservice.ManagedClusterSKUTier `yaml:"sku"`
+	KubernetesVersion string                                    `yaml:"kubernetesVersion,omitempty"`
+	SystemNodePool    *NodePoolConfig                           `yaml:"systemNodePool"`
+	UserNodePools     []*NodePoolConfig                         `yaml:"userNodePools"`
 }
 
 type NodePoolConfig struct {
-	Name     string `json:"name"`
-	VMSize   string `json:"vmSize"`
-	OsSku    string `json:"osSku"`
-	MinCount int32  `json:"minCount"`
-	MaxCount int32  `json:"maxCount"`
+	Name     string `yaml:"name"`
+	VMSize   string `yaml:"vmSize"`
+	OsSku    string `yaml:"osSku"`
+	MinCount int32  `yaml:"minCount"`
+	MaxCount int32  `yaml:"maxCount"`
 }
 
 type StorageConfig struct {
-	Buffers []*StorageAccountConfig `json:"buffers"`
-	Logs    *StorageAccountConfig   `json:"logs"`
+	Buffers []*StorageAccountConfig `yaml:"buffers"`
+	Logs    *StorageAccountConfig   `yaml:"logs"`
 }
 
 type NetworkSecurityPerimeterConfig struct {
-	NspResourceGroup string                                 `json:"nspResourceGroup"`
-	NspName          string                                 `json:"nspName"`
-	StorageProfile   *NetworkSecurityPerimeterProfileConfig `json:"storageProfile"`
+	NspResourceGroup string                                 `yaml:"nspResourceGroup"`
+	NspName          string                                 `yaml:"nspName"`
+	StorageProfile   *NetworkSecurityPerimeterProfileConfig `yaml:"storageProfile"`
 }
 
 type NetworkSecurityPerimeterProfileConfig struct {
-	Name string `json:"name"`
-	Mode string `json:"mode"`
+	Name string `yaml:"name"`
+	Mode string `yaml:"mode"`
 }
 
 type StorageAccountConfig struct {
-	Name            string `json:"name"`
-	Location        string `json:"location"`
-	Sku             string `json:"sku"`
-	DnsEndpointType string `json:"dnsEndpointType"`
+	Name            string `yaml:"name"`
+	Location        string `yaml:"location"`
+	Sku             string `yaml:"sku"`
+	DnsEndpointType string `yaml:"dnsEndpointType"`
 }
 
 type DatabaseServerConfig struct {
-	ServerName           string          `json:"serverName"`
-	Location             string          `json:"location"`
-	ComputeTier          string          `json:"computeTier"`
-	VMSize               string          `json:"vmSize"`
-	FirewallRules        []*FirewallRule `json:"firewallRules,omitempty"`
-	PostgresMajorVersion *int            `json:"postgresMajorVersion"`
-	StorageSizeGB        *int            `json:"storageSizeGB"`
-	BackupRetentionDays  *int            `json:"backupRetentionDays"`
-	BackupGeoRedundancy  bool            `json:"backupGeoRedundancy"`
+	ServerName           string          `yaml:"serverName"`
+	Location             string          `yaml:"location"`
+	ComputeTier          string          `yaml:"computeTier"`
+	VMSize               string          `yaml:"vmSize"`
+	FirewallRules        []*FirewallRule `yaml:"firewallRules,omitempty"`
+	PostgresMajorVersion *int            `yaml:"postgresMajorVersion"`
+	StorageSizeGB        *int            `yaml:"storageSizeGB"`
+	BackupRetentionDays  *int            `yaml:"backupRetentionDays"`
+	BackupGeoRedundancy  bool            `yaml:"backupGeoRedundancy"`
 }
 
 type FirewallRule struct {
-	Name           string `json:"name"`
-	StartIpAddress string `json:"startIpAddress"`
-	EndIpAddress   string `json:"endIpAddress"`
+	Name           string `yaml:"name"`
+	StartIpAddress string `yaml:"startIpAddress"`
+	EndIpAddress   string `yaml:"endIpAddress"`
 }
 
 type OrganizationConfig struct {
-	Name                                string                   `json:"name"`
-	SingleOrganizationCompatibilityMode bool                     `json:"singleOrganizationCompatibilityMode"`
-	Cloud                               *OrganizationCloudConfig `json:"cloud"`
-	Api                                 *OrganizationApiConfig   `json:"api"`
+	Name                                string                   `yaml:"name"`
+	SingleOrganizationCompatibilityMode bool                     `yaml:"singleOrganizationCompatibilityMode"`
+	Cloud                               *OrganizationCloudConfig `yaml:"cloud"`
+	Api                                 *OrganizationApiConfig   `yaml:"api"`
 }
 
 type OrganizationCloudConfig struct {
-	ResourceGroup       string                     `json:"-"`
-	DatabaseName        string                     `json:"databaseName"`
-	KubernetesNamespace string                     `json:"-"`
-	Storage             *OrganizationStorageConfig `json:"storage"`
-	Identities          []string                   `json:"identities"`
+	ResourceGroup       string                     `yaml:"-"`
+	DatabaseName        string                     `yaml:"databaseName"`
+	KubernetesNamespace string                     `yaml:"-"`
+	Storage             *OrganizationStorageConfig `yaml:"storage"`
+	Identities          []string                   `yaml:"identities"`
 }
 
 type OrganizationStorageConfig struct {
-	Buffers []*StorageAccountConfig `json:"buffers"`
-	Logs    *StorageAccountConfig   `json:"logs"`
+	Buffers []*StorageAccountConfig `yaml:"buffers"`
+	Logs    *StorageAccountConfig   `yaml:"logs"`
 }
 
 type TlsCertificateProvider string
@@ -218,42 +244,51 @@ const (
 )
 
 type OrganizationApiConfig struct {
-	DomainName             string                  `json:"domainName"`
-	TlsCertificateProvider TlsCertificateProvider  `json:"tlsCertificateProvider"`
-	Auth                   *AuthConfig             `json:"auth"`
-	Buffers                *BuffersConfig          `json:"buffers"`
-	Helm                   *OrganizationHelmConfig `json:"helm"`
+	DomainName             string                  `yaml:"domainName"`
+	TlsCertificateProvider TlsCertificateProvider  `yaml:"tlsCertificateProvider"`
+	AccessControl          *AccessControlConfig    `yaml:"accessControl"`
+	Buffers                *BuffersConfig          `yaml:"buffers"`
+	Helm                   *OrganizationHelmConfig `yaml:"helm"`
 }
 
-type AuthConfig struct {
-	TenantID  string `json:"tenantId"`
-	ApiAppUri string `json:"apiAppUri"`
-	CliAppUri string `json:"cliAppUri"`
+type StandaloneAccessControlConfig struct {
+	install.ConfigFileCommon `yaml:",inline"`
+	*AccessControlConfig     `yaml:",inline"`
+}
+
+type AccessControlConfig struct {
+	TenantID                   string                    `yaml:"tenantId"`
+	ApiAppUri                  string                    `yaml:"apiAppUri"`
+	ApiAppId                   string                    `yaml:"apiAppId"`
+	CliAppUri                  string                    `yaml:"cliAppUri"`
+	CliAppId                   string                    `yaml:"cliAppId"`
+	ServiceManagementReference string                    `yaml:"serviceManagementReference,omitempty"`
+	RoleAssignments            *TygerRbacRoleAssignments `yaml:"roleAssignments"`
 }
 
 type OrganizationHelmConfig struct {
-	Tyger *HelmChartConfig `json:"tyger"`
+	Tyger *HelmChartConfig `yaml:"tyger"`
 }
 
 type SharedHelmConfig struct {
-	Traefik            *HelmChartConfig `json:"traefik"`
-	CertManager        *HelmChartConfig `json:"certManager"`
-	NvidiaDevicePlugin *HelmChartConfig `json:"nvidiaDevicePlugin"`
+	Traefik            *HelmChartConfig `yaml:"traefik"`
+	CertManager        *HelmChartConfig `yaml:"certManager"`
+	NvidiaDevicePlugin *HelmChartConfig `yaml:"nvidiaDevicePlugin"`
 }
 
 type HelmChartConfig struct {
-	Namespace   string         `json:"namespace"`
-	ReleaseName string         `json:"releaseName"`
-	RepoName    string         `json:"repoName"`
-	RepoUrl     string         `json:"repoUrl"`
-	Version     string         `json:"version"`
-	ChartRef    string         `json:"chartRef"`
-	Values      map[string]any `json:"values"`
+	Namespace   string         `yaml:"namespace"`
+	ReleaseName string         `yaml:"releaseName"`
+	RepoName    string         `yaml:"repoName"`
+	RepoUrl     string         `yaml:"repoUrl"`
+	Version     string         `yaml:"version"`
+	ChartRef    string         `yaml:"chartRef"`
+	Values      map[string]any `yaml:"values"`
 }
 
 type BuffersConfig struct {
-	ActiveLifetime      string `json:"activeLifetime"`
-	SoftDeletedLifetime string `json:"softDeletedLifetime"`
+	ActiveLifetime      string `yaml:"activeLifetime"`
+	SoftDeletedLifetime string `yaml:"softDeletedLifetime"`
 }
 
 type ConfigTemplateValues struct {
@@ -263,7 +298,8 @@ type ConfigTemplateValues struct {
 	SubscriptionId           string
 	DefaultLocation          string
 	KubernetesVersion        string
-	Principal                Principal
+	ManagementPrincipal      Principal
+	TygerPrincipal           Principal
 	DatabaseServerName       string
 	PostgresMajorVersion     int
 	BufferStorageAccountName string
@@ -276,7 +312,9 @@ type ConfigTemplateValues struct {
 
 func RenderConfig(templateValues ConfigTemplateValues, writer io.Writer) error {
 	config := CloudEnvironmentConfig{
-		Kind:            EnvironmentKindCloud,
+		ConfigFileCommon: install.ConfigFileCommon{
+			Kind: ConfigKindCloud,
+		},
 		EnvironmentName: templateValues.EnvironmentName,
 		Cloud: &CloudConfig{
 			TenantID:        templateValues.TenantId,
@@ -310,7 +348,7 @@ func RenderConfig(templateValues ConfigTemplateValues, writer io.Writer) error {
 							}},
 					},
 				},
-				ManagementPrincipals: []Principal{templateValues.Principal},
+				ManagementPrincipals: []Principal{templateValues.ManagementPrincipal},
 			},
 			Database: &DatabaseServerConfig{
 				ServerName:           templateValues.DatabaseServerName,
@@ -335,10 +373,17 @@ func RenderConfig(templateValues ConfigTemplateValues, writer io.Writer) error {
 				Api: &OrganizationApiConfig{
 					DomainName:             templateValues.DomainName,
 					TlsCertificateProvider: TlsCertificateProviderLetsEncrypt,
-					Auth: &AuthConfig{
+					AccessControl: &AccessControlConfig{
 						TenantID:  templateValues.ApiTenantId,
 						ApiAppUri: "api://tyger-server",
 						CliAppUri: "api://tyger-cli",
+						RoleAssignments: &TygerRbacRoleAssignments{
+							Owner: []TygerRbacRoleAssignment{
+								{
+									Principal: templateValues.TygerPrincipal,
+								},
+							},
+						},
 					},
 				},
 			},
@@ -354,47 +399,20 @@ func PrettyPrintConfig(config *CloudEnvironmentConfig, writer io.Writer) error {
 }
 
 func funcMap() template.FuncMap {
-	f := sprig.FuncMap()
-	f["toYAML"] = toYAML
-	f["optionalField"] = optionalField
-	f["renderHelm"] = renderHelm
+	f := templatefunctions.GetFuncMap()
 	f["renderSharedHelm"] = renderSharedHelm
 	f["renderOrgHelm"] = renderOrgHelm
-	return f
-}
-
-func optionalField(name string, value any, comment string) string {
-	// treat “empty” the same way Go’s templates do
-	isEmpty := func(x any) bool {
-		return x == nil ||
-			x == "" ||
-			x == false ||
-			(reflect.ValueOf(x).Kind() == reflect.Slice &&
-				reflect.ValueOf(x).Len() == 0)
-	}
-
-	if isEmpty(value) {
-		if comment != "" {
-			comment = " " + comment
+	f["renderAccessControlConfig"] = func(config *AccessControlConfig) string {
+		buf := bytes.Buffer{}
+		err := PrettyPrintAccessControlConfig(config, &buf)
+		if err != nil {
+			log.Fatal().Err(err).Msg("failed to pretty print access control config")
 		}
 
-		return fmt.Sprintf("# %s:%s", name, comment)
+		return buf.String()
 	}
 
-	if ptrValue := reflect.ValueOf(value); ptrValue.Kind() == reflect.Ptr && !ptrValue.IsNil() {
-		value = ptrValue.Elem().Interface()
-	}
-
-	return fmt.Sprintf("%s: %v", name, value)
-}
-
-func toYAML(v any) string {
-	data, err := yaml.Marshal(v)
-	if err != nil {
-		// Swallow errors inside of a template.
-		return ""
-	}
-	return strings.TrimSuffix(string(data), "\n")
+	return f
 }
 
 func renderHelm(config *HelmChartConfig) string {
@@ -403,13 +421,13 @@ func renderHelm(config *HelmChartConfig) string {
 		config = &HelmChartConfig{}
 	}
 
-	fmt.Fprintf(w, "%s\n", optionalField("repoName", config.RepoName, ""))
-	fmt.Fprintf(w, "%s\n", optionalField("repoUrl", config.RepoUrl, "not set if using `chartRef`"))
-	fmt.Fprintf(w, "%s\n", optionalField("chartRef", config.ChartRef, "e.g. oci://..."))
-	fmt.Fprintf(w, "%s\n", optionalField("version", config.Version, ""))
+	fmt.Fprintf(w, "%s\n", templatefunctions.OptionalField("repoName", config.RepoName, ""))
+	fmt.Fprintf(w, "%s\n", templatefunctions.OptionalField("repoUrl", config.RepoUrl, "not set if using `chartRef`"))
+	fmt.Fprintf(w, "%s\n", templatefunctions.OptionalField("chartRef", config.ChartRef, "e.g. oci://..."))
+	fmt.Fprintf(w, "%s\n", templatefunctions.OptionalField("version", config.Version, ""))
 	if len(config.Values) > 0 {
 		w.WriteString("values:\n")
-		w.WriteString(indent(2, toYAML(config.Values)))
+		w.WriteString(templatefunctions.Indent(2, templatefunctions.ToYaml(config.Values)))
 	} else {
 		fmt.Fprintf(w, "# values:")
 	}
@@ -432,23 +450,23 @@ func renderSharedHelm(config *SharedHelmConfig) string {
 		w.WriteString("  traefik:\n")
 	}
 
-	w.WriteString(indent(4, renderHelm(config.Traefik)) + "\n")
+	w.WriteString(templatefunctions.Indent(4, renderHelm(config.Traefik)) + "\n")
 
 	if config.CertManager == nil {
 		w.WriteString("  # certManager:\n")
 	} else {
 		w.WriteString("  certManager:\n")
-		w.WriteString(indent(4, renderHelm(config.CertManager)) + "\n")
+		w.WriteString(templatefunctions.Indent(4, renderHelm(config.CertManager)) + "\n")
 	}
 
 	if config.NvidiaDevicePlugin == nil {
 		w.WriteString("  # nvidiaDevicePlugin:")
 	} else {
 		w.WriteString("  nvidiaDevicePlugin:\n")
-		w.WriteString(indent(4, renderHelm(config.NvidiaDevicePlugin)))
+		w.WriteString(templatefunctions.Indent(4, renderHelm(config.NvidiaDevicePlugin)))
 	}
 
-	return w.String()
+	return templatefunctions.AlignConsecutiveCommentLinesByColumn(w.String())
 }
 
 func renderOrgHelm(config *OrganizationHelmConfig) string {
@@ -466,11 +484,6 @@ func renderOrgHelm(config *OrganizationHelmConfig) string {
 		w.WriteString("  tyger:\n")
 	}
 
-	w.WriteString(indent(4, renderHelm(config.Tyger)))
-	return w.String()
-}
-
-func indent(spaces int, v string) string {
-	pad := strings.Repeat(" ", spaces)
-	return pad + strings.Replace(v, "\n", "\n"+pad, -1)
+	w.WriteString(templatefunctions.Indent(4, renderHelm(config.Tyger)))
+	return templatefunctions.AlignConsecutiveCommentLinesByColumn(w.String())
 }

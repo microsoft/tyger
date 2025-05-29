@@ -18,6 +18,8 @@ env:
 
   CAN_ACCESS_SECRETS: ${{ secrets.CAN_ACCESS_SECRETS }}
 
+  TYGER_TYGER_AUTH_METHOD: "github"
+
 jobs:
 
   # If this is running a Dependabot PR or PR from a fork, it we won't have access to secrets
@@ -48,11 +50,14 @@ jobs:
 
   unit-tests-and-format:
     runs-on: ubuntu-latest
+    needs:
+      - get-config
     defaults:
       run:
         shell: bash
     env:
       TYGER_MIN_NODE_COUNT: "1"
+      TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -79,6 +84,17 @@ jobs:
         run: |
           set -euo pipefail
           make unit-test
+
+      - name: Verify config templates pretty-printed
+        run: |
+          set -euo pipefail
+
+          make -s pretty-print-config-templates
+          if [[ `git status --porcelain` ]]; then
+            git diff
+            echo "ERROR: config templates need to be updated. Run 'make pretty-print-config-templates'"
+            exit 1
+          fi
 
       - name: Generate NOTICE.txt
         run: |
@@ -165,7 +181,7 @@ jobs:
     outputs:
       IMAGE_TAG: ${{ steps.tag.outputs.IMAGE_TAG }}
       TYGER_ENVIRONMENT_NAME: ${{ steps.set-variables.outputs.TYGER_ENVIRONMENT_NAME }}
-      TYGER_URL: ${{ steps.set-variables.outputs.TYGER_URL }}
+      TYGER_LEGACY_URL: ${{ steps.set-variables.outputs.TYGER_LEGACY_URL }}
       DEVELOPER_CONFIG_BASE64: ${{ steps.set-variables.outputs.DEVELOPER_CONFIG_BASE64 }}
     steps:
       - name: Checkout
@@ -193,8 +209,8 @@ jobs:
 
           export TYGER_ENVIRONMENT_NAME="${environment_name}"
 
-          tyger_uRL=$(make -s get-tyger-url)
-          echo "TYGER_URL=$tyger_uRL" >> "$GITHUB_OUTPUT"
+          tyger_legacy_url=$(make -s get-tyger-url TYGER_ORG=legacy)
+          echo "TYGER_LEGACY_URL=$tyger_legacy_url" >> "$GITHUB_OUTPUT"
 
           echo "TYGER_ENVIRONMENT_NAME=$environment_name" >> "$GITHUB_OUTPUT"
           echo "TYGER_ENVIRONMENT_NAME=$environment_name" >> "$GITHUB_ENV"
@@ -293,8 +309,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - command: integration-test-no-up
-            label: default org
+          - command: integration-test-no-up-default-org-owner
+            label: default org (owner)
+          - command: integration-test-no-up-default-org-contributor
+            label: default org (contributor)
           - command: integration-test-no-up-fast-only-legacy-org
             label: legacy org
 
@@ -381,7 +399,7 @@ jobs:
       - name: Run smoke tests
         env:
           DEVELOPER_CONFIG_BASE64: ${{ needs.get-config.outputs.DEVELOPER_CONFIG_BASE64 }}
-          TYGER_URL: ${{ needs.get-config.outputs.TYGER_URL }}
+          TYGER_LEGACY_URL: ${{ needs.get-config.outputs.TYGER_LEGACY_URL }}
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -391,15 +409,14 @@ jobs:
 
           $developerConfig = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($env:DEVELOPER_CONFIG_BASE64)) | ConvertFrom-Json
 
-          $servicePrincipal = $developerConfig.testAppUrl
           $keyVaultName = $developerConfig.keyVault
           $certificateName = $developerConfig.pkcs12CertSecret.name
           $certificateVersion = $developerConfig.pkcs12CertSecret.version
 
           # Run tests
           .\scripts\Test-CertificateLoginOnWindows.ps1 `
-            -ServerUrl $env:TYGER_URL `
-            -ServicePrincipal $servicePrincipal `
+            -ServerUrl $env:TYGER_LEGACY_URL `
+            -ServicePrincipal "api://tyger-test-client" `
             -KeyVaultName $keyVaultName `
             -CertificateName $certificateName `
             -CertificateVersion $certificateVersion

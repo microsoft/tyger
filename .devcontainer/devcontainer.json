@@ -91,7 +91,8 @@
     "DOCKER_BUIKDKIT": "1",
     "DEVCONTAINER_HOST_HOME": "${localEnv:HOME}",
     "TYGER_ACCESSING_FROM_DOCKER": "1",
-    "TYGER_DOCKER_HOST_PATH_TRANSLATIONS": "${containerWorkspaceFolder}=${localWorkspaceFolder}"
+    "TYGER_DOCKER_HOST_PATH_TRANSLATIONS": "${containerWorkspaceFolder}=${localWorkspaceFolder}",
+    "TYGER_AUTH_METHOD": "identity"
   },
 
   "forwardPorts": [

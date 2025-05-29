@@ -1,24 +1,49 @@
 kind: docker
 
-
+# The path where Tyger will be installed
 installationPath: ${TYGER_INSTALLATION_PATH}
+
+# Optionally specify the user id that the services will run as
+# userId:
+
+# Optionally specify the user group ID that will be allowed
+# to access the Tyger API
+# allowedGroupId:
+
+# The port on which the data plane API will listen
 dataPlanePort: 46339
 
+# Whether to use the gateway service
+useGateway: true
+
+# Specify asymmetric signing keys for the data plane service.
+# These can be generated with `tyger api generate-signing-key`
+# These files must not be stored in a source code repository.
 signingKeys:
   primary:
     public: ${HOME}/tyger_local_signing_key_public.pem
     private: ${HOME}/tyger_local_signing_key_private.pem
 
-useGateway: true
+  # Optionally specify a secondary key pair.
+  # The primary key will always be used for signing requests.
+  # Signature validation will accept payloads signed with either the
+  # primary or secondary key.
+  # secondary:
+  #   public:
+  #   private:
 
-controlPlaneImage: ${TYGER_SERVER_IMAGE}
-dataPlaneImage: ${TYGER_DATA_PLANE_SERVER_IMAGE}
-bufferSidecarImage: ${BUFFER_SIDECAR_IMAGE}
-gatewayImage: ${GATEWAY_IMAGE}
-
+# Optionally specify settings for the Docker network to be created
 network:
   subnet: 172.20.0.0/16
 
 buffers:
+  # TTL for active buffers before they are automatically soft-deleted (D.HH:MM:SS) (0 = never expire)
   activeLifetime: 0.00:00
+
+  # TTL for soft-deleted buffers before they are automatically purged forever (D.HH:MM:SS) (0 = purge immediately)
   softDeletedLifetime: 0.12:00:00
+
+controlPlaneImage: ${TYGER_SERVER_IMAGE}
+dataPlaneImage: ${TYGER_DATA_PLANE_SERVER_IMAGE}
+gatewayImage: ${GATEWAY_IMAGE}
+bufferSidecarImage: ${BUFFER_SIDECAR_IMAGE}

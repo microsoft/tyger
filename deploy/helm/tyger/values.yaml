@@ -20,11 +20,14 @@ identity:
 
   custom: [] # { name: abc, clientId: 123 }, ...
 
-security:
+accessControl:
   enabled: true
   authority:
   audience:
+  apiAppUri:
+  apiAppId:
   cliAppUri:
+  cliAppId:
 
 hostname:
 tls:

@@ -1078,13 +1078,24 @@ components:
     ServiceMetadata:
       type: object
       properties:
+        rbacEnabled:
+          type: boolean
         authority:
           type: string
           nullable: true
         audience:
           type: string
           nullable: true
+        apiAppUri:
+          type: string
+          nullable: true
+        apiAppId:
+          type: string
+          nullable: true
         cliAppUri:
+          type: string
+          nullable: true
+        cliAppId:
           type: string
           nullable: true
         capabilities:

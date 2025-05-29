@@ -25,7 +25,7 @@ cloud:
     resourceGroup: {{ .DnsZone.ResourceGroup }}
     name: {{ .DnsZone.Name }}
   {{- else -}}
-  # dnsZone
+  # dnsZone:
     # resourceGroup:
     # name:
   {{- end }}
@@ -238,11 +238,7 @@ organizations:
       # Set to KeyVault if using a custom TLS certificate, otherwise set to LetsEncrypt
       tlsCertificateProvider: {{ .TlsCertificateProvider }}
 
-      auth:
-        tenantId: {{ .Auth.TenantID }}
-        apiAppUri: {{ .Auth.ApiAppUri }}
-        cliAppUri: {{ .Auth.CliAppUri }}
-
+      accessControl: {{- renderAccessControlConfig .AccessControl | trim | nindent 8 }}
       {{- if (and .Buffers (or .Buffers.ActiveLifetime .Buffers.SoftDeletedLifetime)) }}
 
       buffers:
@@ -264,5 +260,4 @@ organizations:
     {{- end}}
 
   {{- end}}
-
 {{- end }}

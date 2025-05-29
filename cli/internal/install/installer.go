@@ -35,7 +35,7 @@ var (
 )
 
 type Installer interface {
-	GetConfig() Config
+	GetConfig() ValidatableConfig
 
 	ApplySingleOrgFilter(org string) error
 	ApplyMultiOrgFilter(orgs []string) error
@@ -50,7 +50,11 @@ type Installer interface {
 	GetMigrationLogs(ctx context.Context, id int, destination io.Writer) error
 }
 
-type Config interface {
+type ConfigFileCommon struct {
+	Kind string `yaml:"kind"`
+}
+
+type ValidatableConfig interface {
 	QuickValidateConfig(ctx context.Context) error
 }
 

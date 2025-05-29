@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Primitives;
 using Tyger.Common.Api;
 using Tyger.Common.DependencyInjection;
+using Tyger.ControlPlane.AccessControl;
 using Tyger.ControlPlane.Json;
 using Tyger.ControlPlane.Model;
 using Tyger.ControlPlane.OpenApi;
@@ -71,6 +72,7 @@ public static class Buffers
                 context.Response.Headers.ETag = buffer.ETag;
                 return Results.Created($"/buffers/{buffer.Id}", buffer);
             })
+            .RequireAtLeastContributorRole()
             .Accepts<Buffer>("application/json")
             .WithName("createBuffer")
             .Produces<Buffer>(StatusCodes.Status201Created);
@@ -110,6 +112,7 @@ public static class Buffers
 
                 return Results.Ok(new BufferPage(buffers.AsReadOnly(), nextLink == null ? null : new Uri(nextLink)));
             })
+            .RequireAtLeastContributorRole()
             .WithName("getBuffers")
             .Produces<BufferPage>()
             .Produces<ErrorBody>(StatusCodes.Status400BadRequest)
@@ -137,6 +140,7 @@ public static class Buffers
                 var count = await manager.SoftDeleteBuffers(tagQuery, excludeTagQuery, ttl, purge, cancellationToken);
                 return Results.Ok(count);
             })
+            .RequireOwnerRole()
             .WithName("deleteBuffers")
             .Produces<int>(StatusCodes.Status200OK)
             .Produces<ErrorBody>(StatusCodes.Status400BadRequest);
@@ -149,6 +153,7 @@ public static class Buffers
                 var count = await manager.RestoreBuffers(tagQuery, excludeTagQuery, cancellationToken);
                 return Results.Ok(count);
             })
+            .RequireOwnerRole()
             .WithName("restoreBuffers")
             .Produces<int>(StatusCodes.Status200OK);
 
@@ -169,6 +174,7 @@ public static class Buffers
                 var count = await manager.GetBufferCount(tagQuery, excludeTagQuery, softDeleted, cancellationToken);
                 return Results.Ok(count);
             })
+            .RequireAtLeastContributorRole()
             .WithName("getBufferCount")
             .Produces<int>(StatusCodes.Status200OK);
 
@@ -192,6 +198,7 @@ public static class Buffers
 
                 return Responses.NotFound();
             })
+            .RequireAtLeastContributorRole()
             .WithName("getBufferById")
             .Produces<Buffer>(StatusCodes.Status200OK)
             .Produces<ErrorBody>(StatusCodes.Status400BadRequest)
@@ -234,6 +241,7 @@ public static class Buffers
                     notFound: _ => Responses.NotFound(),
                     preconditionFailed: failed => Responses.PreconditionFailed(failed.Reason));
             })
+            .RequireAtLeastContributorRole()
             .WithName("setBufferTags")
             .Accepts<BufferUpdate>("application/json")
             .Produces<Buffer>(StatusCodes.Status200OK)
@@ -263,6 +271,7 @@ public static class Buffers
                     notFound: _ => Responses.NotFound(),
                     preconditionFailed: failed => Responses.PreconditionFailed(failed.Reason));
             })
+            .RequireOwnerRole()
             .WithName("deleteBuffer")
             .Produces<Buffer>(StatusCodes.Status200OK)
             .Produces<ErrorBody>(StatusCodes.Status400BadRequest)
@@ -277,6 +286,7 @@ public static class Buffers
                     notFound: _ => Responses.NotFound(),
                     preconditionFailed: failed => Responses.PreconditionFailed(failed.Reason));
             })
+            .RequireOwnerRole()
             .WithName("restoreBuffer")
             .Produces<int>(StatusCodes.Status200OK)
             .Produces<ErrorBody>(StatusCodes.Status404NotFound)
@@ -297,6 +307,7 @@ public static class Buffers
 
                 return Results.Json(bufferAccess[0].bufferAccess, statusCode: StatusCodes.Status201Created);
             })
+            .RequireAtLeastContributorRole()
             .WithName("getBufferAccessString")
             .Produces<BufferAccess>(StatusCodes.Status201Created)
             .Produces<ErrorBody>(StatusCodes.Status404NotFound);
@@ -305,6 +316,7 @@ public static class Buffers
             {
                 return Results.Ok(manager.GetStorageAccounts());
             })
+            .RequireAtLeastContributorRole()
             .WithName("getStorageAccounts")
             .Produces<IList<StorageAccount>>(StatusCodes.Status200OK);
 
@@ -314,6 +326,7 @@ public static class Buffers
                 var run = await manager.ExportBuffers(exportRequest, cancellationToken);
                 return Results.Json(run, statusCode: StatusCodes.Status201Created);
             })
+            .RequireOwnerRole()
             .WithName("exportBuffers")
             .Accepts<ExportBuffersRequest>("application/json")
             .Produces<Run>(StatusCodes.Status202Accepted);
@@ -324,6 +337,7 @@ public static class Buffers
                 var run = await manager.ImportBuffers(importRequest, cancellationToken);
                 return Results.Json(run, statusCode: StatusCodes.Status201Created);
             })
+            .RequireOwnerRole()
             .WithName("importBuffers")
             .Accepts<ImportBuffersRequest>("application/json")
             .Produces<Run>(StatusCodes.Status202Accepted);

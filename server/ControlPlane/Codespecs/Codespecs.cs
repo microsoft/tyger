@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Primitives;
 using Tyger.Common.Api;
+using Tyger.ControlPlane.AccessControl;
 using Tyger.ControlPlane.Database;
 using Tyger.ControlPlane.Json;
 using Tyger.ControlPlane.Model;
@@ -43,6 +44,7 @@ public static class Codespecs
             context.Response.Headers.Location = $"/codespecs/{name}/{codespec.Version}";
             return Results.Json(codespec, statusCode: codespec.Version == 1 ? StatusCodes.Status201Created : StatusCodes.Status200OK);
         })
+        .RequireAtLeastContributorRole()
         .Accepts<Codespec>("application/json")
         .Produces<Codespec>(StatusCodes.Status200OK)
         .Produces<Codespec>(StatusCodes.Status201Created)
@@ -59,6 +61,7 @@ public static class Codespecs
             context.Response.Headers.Location = $"/codespecs/{name}/{codespec.Version}";
             return Results.Ok(codespec);
         })
+        .RequireAtLeastContributorRole()
         .Produces<Codespec>();
 
         codespecs.MapGet("/", async (Repository repository, int? limit, string? prefix, [FromQuery(Name = "_ct")] string? continuationToken, HttpContext context) =>
@@ -84,6 +87,7 @@ public static class Codespecs
 
             return Results.Ok(new CodespecPage(codespecs.AsReadOnly(), nextLink == null ? null : new Uri(nextLink)));
         })
+        .RequireAtLeastContributorRole()
         .Produces<CodespecPage>();
 
         codespecs.MapGet("/{name}/versions/{version}", async (string name, string version, Repository repository, CancellationToken cancellationToken) =>
@@ -101,6 +105,7 @@ public static class Codespecs
 
             return Results.Ok(codespec);
         })
+        .RequireAtLeastContributorRole()
         .Produces<Codespec>();
     }
 }

@@ -42,15 +42,12 @@ The installation configuration file typically looks like this:
 ```yaml
 kind: docker
 
-# The installation path. Defaults to /opt/tyger.
-installationPath:
-
 # Optionally specify the user id that the services will run as
-userId:
+# userId:
 
 # Optionally specify the user group ID that will be allowed
 # to access the Tyger API
-allowedGroupId:
+# allowedGroupId:
 
 # The port on which the data plane API will listen
 dataPlanePort: 46339
@@ -68,27 +65,19 @@ signingKeys:
   # Signature validation will accept payloads signed with either the
   # primary or secondary key.
   # secondary:
-  #  private:
-  #  public:
-
-# Settings for all buffers
-buffers:
-  # TTL for active buffers before they are automatically soft-deleted (D.HH:MM:SS) (0 = never expire)
-  activeLifetime: 0.00:00
-  # TTL for soft-deleted buffers before they are automatically purged forever (D.HH:MM:SS) (0 = purge immediately)
-  softDeletedLifetime: 1.00:00
+  #   public:
+  #   private:
 
 # Optionally specify settings for the Docker network to be created
 # network:
-#  subnet: 172.20.0.0/16
+#   subnet: 172.20.0.0/16
 
-# Optionally specify container images to use.
-# controlPlaneImage:
-# dataPlaneImage:
-# bufferSidecarImage:
-# gatewayImage:
-# gatewayImage:
-
+# buffers:
+#   TTL for active buffers before they are automatically soft-deleted (D.HH:MM:SS) (0 = never expire)
+#   activeLifetime: defaults to 0.00:00
+#
+#   TTL for soft-deleted buffers before they are automatically purged forever (D.HH:MM:SS) (0 = purge immediately)
+#   softDeletedLifetime: default to 1.00:00
 ```
 
 All of the installation commands (`tyger api install`, `tyger api uninstall`,

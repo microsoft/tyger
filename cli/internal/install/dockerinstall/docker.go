@@ -76,7 +76,7 @@ type Installer struct {
 	hostPathTranslations map[string]string
 }
 
-func (inst *Installer) GetConfig() install.Config {
+func (inst *Installer) GetConfig() install.ValidatableConfig {
 	return inst.Config
 }
 
@@ -283,7 +283,8 @@ func (inst *Installer) createControlPlaneContainer(ctx context.Context, checkGpu
 			Env: []string{
 				fmt.Sprintf("Urls=http://unix:%s/control-plane/tyger.sock", inst.Config.InstallationPath),
 				"SocketPermissions=660",
-				"Auth__Enabled=false",
+				"Auth__Enabled=false", // Leaving this in for migration testing
+				"AccessControl__Enabled=false",
 				fmt.Sprintf("Compute__Docker__RunSecretsPath=%s/control-plane/run-secrets", inst.Config.InstallationPath),
 				fmt.Sprintf("Compute__Docker__EphemeralBuffersPath=%s/ephemeral", inst.Config.InstallationPath),
 				fmt.Sprintf("Compute__Docker__GpuSupport=%t", gpuAvailable),

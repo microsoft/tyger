@@ -70,9 +70,14 @@ func newConfigValidateCommand() *cobra.Command {
 		Long:                  "Validate a config file",
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			c, err := parseConfigFromYamlFile(inputPath, nil, false)
+			yamlBytes, err := os.ReadFile(inputPath)
+			if err != nil {
+				log.Fatal().AnErr("error", err).Msg("Failed to read config file")
+			}
+
+			c, err := ParseConfig(yamlBytes)
 			if err == nil {
-				err = c.(install.Config).QuickValidateConfig(cmd.Context())
+				err = c.QuickValidateConfig(cmd.Context())
 			}
 
 			if err != nil {
@@ -93,6 +98,7 @@ func newConfigValidateCommand() *cobra.Command {
 func newConfigPrettyPrintCommand() *cobra.Command {
 	inputPath := ""
 	outputPath := ""
+	templatePath := ""
 
 	cmd := &cobra.Command{
 		Use:                   "pretty-print -i FILE.yml -o FILE.yml",
@@ -100,29 +106,48 @@ func newConfigPrettyPrintCommand() *cobra.Command {
 		Long:                  "Add documentation to a config file.",
 		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			inputFile, err := os.Open(inputPath)
+			inputFileBytes, err := os.ReadFile(inputPath)
 			if err != nil {
 				log.Fatal().AnErr("error", err).Msg("Failed to read config file")
 			}
 
-			defer inputFile.Close()
+			outputBuffer := bytes.Buffer{}
+			if err := prettyPrintConfig(cmd.Context(), bytes.NewBuffer(inputFileBytes), &outputBuffer, true); err != nil {
+				if !errors.Is(err, install.ErrAlreadyLoggedError) {
+					log.Fatal().AnErr("error", err).Msg("Failed to pretty print config file")
+				}
+				os.Exit(1)
+			}
+
+			if templatePath != "" {
+				// Restore with unexpanded environment variables from the template file.
+				templateBytes, err := os.ReadFile(templatePath)
+				if err != nil {
+					log.Fatal().AnErr("error", err).Msg("Failed to read template file")
+				}
+
+				templateNode, err := ParseConfigToAst(templateBytes)
+				if err != nil {
+					log.Fatal().AnErr("error", err).Msg("Failed to parse template file")
+				}
+
+				prettyPrintedAst, err := ParseConfigToAst(outputBuffer.Bytes())
+				if err != nil {
+					log.Fatal().AnErr("error", err).Msg("Failed to parse pretty printed config file")
+				}
+
+				mergeAst(prettyPrintedAst, templateNode)
+
+				outputBuffer.Reset()
+				outputBuffer.WriteString(prettyPrintedAst.String() + "\n")
+			}
 
 			if err := os.MkdirAll(path.Dir(outputPath), 0775); err != nil {
 				log.Fatal().AnErr("error", err).Msg("Failed to create config directory")
 			}
 
-			outputFile, err := os.OpenFile(outputPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-			if err != nil {
-				log.Fatal().AnErr("error", err).Msg("Failed to open config file for writing")
-			}
-
-			defer outputFile.Close()
-
-			if err := prettyPrintConfig(cmd.Context(), inputFile, outputFile); err != nil {
-				if !errors.Is(err, install.ErrAlreadyLoggedError) {
-					log.Fatal().AnErr("error", err).Msg("Failed to pretty print config file")
-				}
-				os.Exit(1)
+			if err := os.WriteFile(outputPath, outputBuffer.Bytes(), 0644); err != nil {
+				log.Fatal().AnErr("error", err).Msg("Failed to write config file")
 			}
 		},
 	}
@@ -132,21 +157,32 @@ func newConfigPrettyPrintCommand() *cobra.Command {
 	cmd.Flags().StringVarP(&outputPath, "output", "o", "", "The path to the config file to create")
 	cmd.MarkFlagRequired("output")
 
+	cmd.Flags().StringVar(&templatePath, "template", "", "Internal. The original template with unexpanded environment variables")
+	cmd.Flags().MarkHidden("template")
+
 	return cmd
 }
 
-func prettyPrintConfig(ctx context.Context, input io.Reader, output io.Writer) error {
+func prettyPrintConfig(ctx context.Context, input io.Reader, output io.Writer, validate bool) error {
 	inputBytes, err := io.ReadAll(input)
 	if err != nil {
 		return err
 	}
 
-	c, err := parseConfigFromYamlBytes(inputBytes, nil, false)
+	c, err := ParseConfig(inputBytes)
 	if err != nil {
 		return err
 	}
 
-	if err := c.(install.Config).QuickValidateConfig(ctx); err != nil {
+	if validate {
+		if err := c.QuickValidateConfig(ctx); err != nil {
+			return err
+		}
+	}
+
+	// parse the config again to clear the fields that are set during validation
+	c, err = ParseConfig(inputBytes)
+	if err != nil {
 		return err
 	}
 
@@ -154,14 +190,12 @@ func prettyPrintConfig(ctx context.Context, input io.Reader, output io.Writer) e
 
 	switch config := c.(type) {
 	case *dockerinstall.DockerEnvironmentConfig:
-		_, err := output.Write(inputBytes)
-		return err
-	case *cloudinstall.CloudEnvironmentConfig:
-		// parse the config again to clear the fields that are set during validation
-		c, err = parseConfigFromYamlBytes(inputBytes, nil, false)
-		if err != nil {
-			return err
+		buf := &strings.Builder{}
+		if err := dockerinstall.PrettyPrintConfig(config, buf); err != nil {
+			return fmt.Errorf("failed to pretty print config: %w", err)
 		}
+		outputContents = buf.String()
+	case *cloudinstall.CloudEnvironmentConfig:
 		config = c.(*cloudinstall.CloudEnvironmentConfig)
 
 		buf := &strings.Builder{}
@@ -177,13 +211,15 @@ func prettyPrintConfig(ctx context.Context, input io.Reader, output io.Writer) e
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 
-	parsedPrettyConfig, err := parseConfigFromYamlBytes([]byte(outputContents), nil, false)
+	parsedPrettyConfig, err := ParseConfig([]byte(outputContents))
 	if err != nil {
 		return fmt.Errorf("failed to parse config: %w", err)
 	}
 
-	if err := parsedPrettyConfig.(install.Config).QuickValidateConfig(ctx); err != nil {
-		return fmt.Errorf("validation failed on pretty printed config: %w", err)
+	if validate {
+		if err := parsedPrettyConfig.QuickValidateConfig(ctx); err != nil {
+			return fmt.Errorf("validation failed on pretty printed config: %w", err)
+		}
 	}
 
 	return nil
@@ -219,39 +255,57 @@ func newConfigConvertCommand() *cobra.Command {
 }
 
 func convert(ctx context.Context, inputPath string, outputPath string) error {
-	c, err := parseConfigFromYamlFile(inputPath, nil, true)
+	yamlBytes, err := os.ReadFile(inputPath)
 	if err != nil {
 		return fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	document := c.(map[string]any)
-	if document["organizations"] != nil {
-		return fmt.Errorf("the given config file appears to already be in the new format")
+	document, err := ParseConfigToMap(yamlBytes)
+	if err != nil {
+		return err
 	}
 
-	identities := safeGetAndRemove(document, "cloud.compute.identities")
-	storage := safeGetAndRemove(document, "cloud.storage")
-	api := safeGetAndRemove(document, "api")
+	if kind, _ := document["kind"].(string); kind != "docker" {
+		if document["organizations"] == nil {
+			identities := safeGetAndRemove(document, "cloud.compute.identities")
+			storage := safeGetAndRemove(document, "cloud.storage")
+			api := safeGetAndRemove(document, "api")
 
-	if storage == nil || api == nil {
-		return fmt.Errorf("the given config file appears not to be have been valid")
+			if storage == nil || api == nil {
+				return fmt.Errorf("the given config file appears not to be have been valid")
+			}
+
+			if apiMap, ok := api.(map[string]any); ok {
+				apiMap["tlsCertificateProvider"] = string(cloudinstall.TlsCertificateProviderLetsEncrypt)
+				apiMap["accessControl"] = safeGetAndRemove(apiMap, "auth")
+			}
+
+			org := map[string]any{
+				"name":                                "default",
+				"singleOrganizationCompatibilityMode": true,
+				"cloud": map[string]any{
+					"storage":    storage,
+					"identities": identities,
+				},
+				"api": api,
+			}
+
+			document["organizations"] = []any{org}
+		}
 	}
 
-	if apiMap, ok := api.(map[string]any); ok {
-		apiMap["tlsCertificateProvider"] = string(cloudinstall.TlsCertificateProviderLetsEncrypt)
+	if orgs, ok := document["organizations"].([]any); ok {
+		for _, org := range orgs {
+			if orgMap, ok := org.(map[string]any); ok {
+				if apiMap, ok := orgMap["api"].(map[string]any); ok {
+					auth := safeGetAndRemove(apiMap, "auth")
+					if auth != nil {
+						apiMap["accessControl"] = auth
+					}
+				}
+			}
+		}
 	}
-
-	org := map[string]any{
-		"name":                                "default",
-		"singleOrganizationCompatibilityMode": true,
-		"cloud": map[string]any{
-			"storage":    storage,
-			"identities": identities,
-		},
-		"api": api,
-	}
-
-	document["organizations"] = []any{org}
 
 	buffer := bytes.Buffer{}
 	if err := yaml.NewEncoder(&buffer).Encode(document); err != nil {
@@ -269,7 +323,7 @@ func convert(ctx context.Context, inputPath string, outputPath string) error {
 
 	defer outputFile.Close()
 
-	if err := prettyPrintConfig(ctx, &buffer, outputFile); err != nil {
+	if err := prettyPrintConfig(ctx, &buffer, outputFile, false); err != nil {
 		return fmt.Errorf("failed to pretty print config file: %w", err)
 	}
 
@@ -302,7 +356,6 @@ func safeGetAndRemove(m map[string]any, path string) any {
 
 func newConfigCreateCommand() *cobra.Command {
 	configPath := ""
-
 	cmd := &cobra.Command{
 		Use:                   "create -f FILE.yml",
 		Short:                 "Create a new config file",
@@ -334,8 +387,8 @@ func newConfigCreateCommand() *cobra.Command {
 			defer f.Close()
 
 			options := []IdAndName{
-				{cloudinstall.EnvironmentKindCloud, "Azure cloud"},
-				{dockerinstall.EnvironmentKindDocker, "Docker"},
+				{cloudinstall.ConfigKindCloud, "Azure cloud"},
+				{dockerinstall.ConfigKindDocker, "Docker"},
 			}
 
 			s := selection.New(
@@ -352,11 +405,11 @@ func newConfigCreateCommand() *cobra.Command {
 			fmt.Println()
 
 			switch res.id {
-			case cloudinstall.EnvironmentKindCloud:
+			case cloudinstall.ConfigKindCloud:
 				if err := generateCloudConfig(cmd.Context(), f); err != nil {
 					return err
 				}
-			case dockerinstall.EnvironmentKindDocker:
+			case dockerinstall.ConfigKindDocker:
 				if err := generateDockerConfig(f); err != nil {
 					return err
 				}
@@ -554,7 +607,7 @@ func generateCloudConfig(ctx context.Context, configFile *os.File) error {
 		return err
 	}
 
-	templateValues.Principal = principal.Principal
+	templateValues.ManagementPrincipal = principal.Principal
 
 	for {
 		templateValues.SubscriptionId, err = chooseSubscription(tenantCred)
@@ -649,7 +702,7 @@ func generateCloudConfig(ctx context.Context, configFile *os.File) error {
 			}
 
 			if res == "other" {
-				fmt.Printf("Run 'az login' in another terminal window.\nPress any key when ready...\n\n")
+				fmt.Printf("Run 'az login --allow-no-subscriptions' in another terminal window.\nPress any key when ready...\n\n")
 				getSingleKey()
 				continue
 			} else {
@@ -658,6 +711,13 @@ func generateCloudConfig(ctx context.Context, configFile *os.File) error {
 			}
 		}
 	}
+
+	principal, err = getCurrentPrincipal(ctx, cred)
+	if err != nil {
+		return err
+	}
+
+	templateValues.TygerPrincipal = principal.Principal
 
 	err = cloudinstall.RenderConfig(templateValues, configFile)
 	if err != nil {

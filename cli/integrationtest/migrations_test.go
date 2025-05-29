@@ -15,15 +15,12 @@ import (
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
-	"github.com/go-viper/mapstructure/v2"
+	"github.com/goccy/go-yaml"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/knadh/koanf/providers/file"
-	"github.com/knadh/koanf/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"sigs.k8s.io/yaml"
 
-	koanfyaml "github.com/knadh/koanf/parsers/yaml"
+	"github.com/microsoft/tyger/cli/internal/cmd/install"
 	"github.com/microsoft/tyger/cli/internal/dataplane"
 	"github.com/microsoft/tyger/cli/internal/install/cloudinstall"
 )
@@ -38,20 +35,13 @@ func TestCloudMigrations(t *testing.T) {
 	configPath := fmt.Sprintf("%s/environment-config.yaml", tempDir)
 	require.NoError(t, os.WriteFile(configPath, []byte(environmentConfig), 0644))
 
-	config := cloudinstall.CloudEnvironmentConfig{}
+	configBytes, err := os.ReadFile(configPath)
+	require.NoError(t, err)
 
-	koanfConfig := koanf.New(".")
-	require.NoError(t, koanfConfig.Load(file.Provider(configPath), koanfyaml.Parser()))
-	require.NoError(t, koanfConfig.UnmarshalWithConf("", &config, koanf.UnmarshalConf{
-		Tag: "json",
-		DecoderConfig: &mapstructure.DecoderConfig{
-			WeaklyTypedInput: true,
-			ErrorUnused:      true,
-			Squash:           true,
-			Result:           &config,
-		},
-	}))
+	vc, err := install.ParseConfig(configBytes)
+	require.NoError(t, err)
 
+	config := vc.(*cloudinstall.CloudEnvironmentConfig)
 	config.Organizations = []*cloudinstall.OrganizationConfig{config.Organizations[0]}
 
 	ctx := context.Background()
@@ -62,7 +52,7 @@ func TestCloudMigrations(t *testing.T) {
 		})
 
 	installer := cloudinstall.Installer{
-		Config:     &config,
+		Config:     config,
 		Credential: cred,
 	}
 
@@ -86,7 +76,7 @@ func TestCloudMigrations(t *testing.T) {
 	}
 
 	host := helmValues["database"].(map[string]any)["host"].(string)
-	port := helmValues["database"].(map[string]any)["port"].(float64)
+	port := helmValues["database"].(map[string]any)["port"].(uint64)
 	databaseName := helmValues["database"].(map[string]any)["databaseName"].(string)
 
 	temporaryDatabaseName := fmt.Sprintf("tygertest%s", cloudinstall.RandomAlphanumString(8))
@@ -94,7 +84,7 @@ func TestCloudMigrations(t *testing.T) {
 	createPsqlCommandBuilder := func(databaseName string) *CmdBuilder {
 		return NewCmdBuilder("psql",
 			"--host", host,
-			"--port", fmt.Sprintf("%d", int(port)),
+			"--port", fmt.Sprintf("%d", port),
 			"--username", username,
 			"--dbname", databaseName).
 			Env("PGPASSWORD", password)

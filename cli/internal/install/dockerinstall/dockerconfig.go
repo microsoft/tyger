@@ -8,64 +8,66 @@ import (
 	"fmt"
 	"io"
 	"strconv"
-	"strings"
 	"text/template"
+
+	"github.com/microsoft/tyger/cli/internal/install"
+	"github.com/microsoft/tyger/cli/internal/templatefunctions"
 )
 
-//go:embed config.tpl
-var configTemplate string
+//go:embed docker-config-pretty.tpl
+var prettyPrintConfigTemplate string
 
 const (
-	EnvironmentKindDocker = "docker"
+	ConfigKindDocker = "docker"
 )
 
 type DockerEnvironmentConfig struct {
-	Kind string `json:"kind"`
+	install.ConfigFileCommon `yaml:",inline"`
 
-	EnvironmentName string `json:"environmentName"`
+	EnvironmentName string `yaml:"environmentName"`
 
-	DataPlanePort int `json:"dataPlanePort"`
+	DataPlanePort int `yaml:"dataPlanePort"`
 
-	UserId         string `json:"userId"`
-	AllowedGroupId string `json:"allowedGroupId"`
+	UserId         string `yaml:"userId"`
+	AllowedGroupId string `yaml:"allowedGroupId"`
 
-	InstallationPath string `json:"installationPath"`
+	InstallationPath string `yaml:"installationPath"`
 
-	PostgresImage      string `json:"postgresImage"`
-	MarinerImage       string `json:"marinerImage"`
-	ControlPlaneImage  string `json:"controlPlaneImage"`
-	DataPlaneImage     string `json:"dataPlaneImage"`
-	BufferSidecarImage string `json:"bufferSidecarImage"`
-	GatewayImage       string `json:"gatewayImage"`
+	PostgresImage      string `yaml:"postgresImage"`
+	MarinerImage       string `yaml:"marinerImage"`
+	ControlPlaneImage  string `yaml:"controlPlaneImage"`
+	DataPlaneImage     string `yaml:"dataPlaneImage"`
+	BufferSidecarImage string `yaml:"bufferSidecarImage"`
+	GatewayImage       string `yaml:"gatewayImage"`
 
-	UseGateway *bool `json:"useGateway"`
+	UseGateway *bool `yaml:"useGateway"`
 
-	SigningKeys DataPlaneSigningKeys `json:"signingKeys"`
+	SigningKeys DataPlaneSigningKeys `yaml:"signingKeys"`
 
-	InitialDatabaseVersion *int `json:"initialDatabaseVersion"`
+	InitialDatabaseVersion *int `yaml:"initialDatabaseVersion"`
 
-	Network *NetworkConfig `json:"network"`
+	Network *NetworkConfig `yaml:"network"`
 
-	Buffers *BuffersConfig `json:"buffers"`
+	Buffers *BuffersConfig `yaml:"buffers"`
 }
 
 type DataPlaneSigningKeys struct {
-	Primary   *KeyPair `json:"primary"`
-	Secondary *KeyPair `json:"secondary"`
+	Primary   *KeyPair `yaml:"primary"`
+	Secondary *KeyPair `yaml:"secondary"`
 }
 
 type KeyPair struct {
-	PublicKey  string `json:"public"`
-	PrivateKey string `json:"private"`
+	PublicKey  string `yaml:"public"`
+	PrivateKey string `yaml:"private"`
 }
 
 type NetworkConfig struct {
-	Subnet string `json:"subnet"`
+	Subnet string `yaml:"subnet"`
 }
 
 type BuffersConfig struct {
-	ActiveLifetime      string `json:"activeLifetime"`
-	SoftDeletedLifetime string `json:"softDeletedLifetime"`
+	ActiveLifetime      string `yaml:"activeLifetime"`
+	SoftDeletedLifetime string `yaml:"softDeletedLifetime"`
 }
 
 func (c *DockerEnvironmentConfig) GetGroupIdInt() int {
@@ -95,11 +97,23 @@ type ConfigTemplateValues struct {
 }
 
 func RenderConfig(templateValues ConfigTemplateValues, writer io.Writer) error {
-	funcs := map[string]any{
-		"contains": strings.Contains,
+	config := DockerEnvironmentConfig{
+		ConfigFileCommon: install.ConfigFileCommon{
+			Kind: ConfigKindDocker,
+		},
+		DataPlanePort: templateValues.DataPlanePort,
+		SigningKeys: DataPlaneSigningKeys{
+			Primary: &KeyPair{
+				PublicKey:  templateValues.PublicSigningKeyPath,
+				PrivateKey: templateValues.PrivateSigningKeyPath,
+			},
+		},
 	}
 
-	t := template.Must(template.New("config").Funcs(funcs).Parse(configTemplate))
+	return PrettyPrintConfig(&config, writer)
+}
 
-	return t.Execute(writer, templateValues)
+func PrettyPrintConfig(config *DockerEnvironmentConfig, writer io.Writer) error {
+	t := template.Must(template.New("config").Funcs(templatefunctions.GetFuncMap()).Parse(prettyPrintConfigTemplate))
+	return t.Execute(writer, config)
 }

@@ -1,0 +1,52 @@
+kind: accessControl
+
+tenantId: 76d3279b-830e-4bea-baf8-12863cdeba4c
+apiAppUri: api://tyger-server
+cliAppUri: api://tyger-cli
+apiAppId: e8229c82-a93e-4a2a-a983-d3ed35f2f62c
+cliAppId: f13d0630-3b5f-4a9f-aafa-34bd3bb6062b
+
+# Principals in role assignments are specified in the following ways:
+#
+# For users, specify the object ID and/or the user principal name.
+#   - kind: User
+#     objectId: <objectId>
+#     userPrincipalName: <userPrincipalName>
+#
+# For groups, specify the object ID and/or the group display name.
+#   - kind: Group
+#     objectId: <objectId>
+#     displayName: <displayName>
+#
+# For service principals, specify the object ID and/or the service principal display name.
+#   - kind: ServicePrincipal
+#     objectId: <objectId>
+#     displayName: <displayName>
+
+# Example:
+#
+# roleAssignments:
+#   owner:
+#     - kind: User
+#       objectId: c5e5d858-b954-4bef-b704-71b63e761f69
+#       userPrincipalName: me@example.com
+#
+#     - kind: ServicePrincipal
+#       objectId: 32b73951-e5eb-4a75-8479-23374021f46a
+#       displayName: my-service-principal
+#
+#   contributor:
+#     - kind: Group
+#       objectId: f939c89c-94ed-46b9-8fbd-726cf747f231
+#       displayName: my-group
+
+roleAssignments:
+  owner:
+    - kind: Group
+      objectId: e3a3c857-4dfa-4d73-b23d-3c1d8f6128ff
+      displayName: Tyger Owners
+    - kind: ServicePrincipal
+      objectId: 7461b6b1-3b29-4610-935f-e708d52f628e
+      displayName: tyger-test-client
+
+  contributor: []

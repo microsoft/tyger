@@ -9,21 +9,21 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"regexp"
 	"syscall"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
-	"github.com/go-viper/mapstructure/v2"
+	"github.com/goccy/go-yaml"
+	"github.com/goccy/go-yaml/ast"
+	"github.com/goccy/go-yaml/parser"
 	"github.com/google/uuid"
-	"github.com/knadh/koanf/parsers/yaml"
-	"github.com/knadh/koanf/providers/file"
-	"github.com/knadh/koanf/providers/rawbytes"
-	"github.com/knadh/koanf/v2"
 	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/microsoft/tyger/cli/internal/install/cloudinstall"
 	"github.com/microsoft/tyger/cli/internal/install/dockerinstall"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/term"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 )
 
@@ -31,7 +31,6 @@ type commonFlags struct {
 	configPath                       string
 	singleOrg                        *string
 	multiOrg                         *[]string
-	setOverrides                     map[string]string
 	skipLoginAndValidateSubscription bool
 	configPathOptional               bool
 }
@@ -57,12 +56,17 @@ func commonPrerun(ctx context.Context, flags *commonFlags) (context.Context, ins
 		},
 	}
 
-	config, err := parseConfigFromYamlFile(flags.configPath, flags.setOverrides, false)
+	yamlBytes, err := os.ReadFile(flags.configPath)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to read config file")
+	}
+
+	config, err := ParseConfig(yamlBytes)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to parse config file")
 	}
 
-	installer, err := getInstallerFromConfig(config)
+	installer, err := newInstallerFromConfig(config)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to get installer from config")
 	}
@@ -107,7 +111,7 @@ func commonPrerun(ctx context.Context, flags *commonFlags) (context.Context, ins
 	return ctx, installer
 }
 
-func getInstallerFromConfig(config any) (install.Installer, error) {
+func newInstallerFromConfig(config install.ValidatableConfig) (install.Installer, error) {
 	switch c := config.(type) {
 	case *cloudinstall.CloudEnvironmentConfig:
 		return &cloudinstall.Installer{
@@ -119,73 +123,170 @@ func getInstallerFromConfig(config any) (install.Installer, error) {
 		return nil, fmt.Errorf("unexpected config type: %T", config)
 	}
 }
-func parseConfigFromYamlFile(filePath string, overrides map[string]string, toMap bool) (any, error) {
-	config, err := parseConfig(file.Provider(filePath), yaml.Parser(), overrides, toMap)
-	if os.IsNotExist(err) {
-		return nil, fmt.Errorf("config file not found at '%s': %w", filePath, err)
+
+func ParseConfigFileCommon(yamlBytes []byte) (*install.ConfigFileCommon, error) {
+	installCommon := &install.ConfigFileCommon{}
+	if err := yaml.UnmarshalWithOptions(yamlBytes, installCommon); err != nil {
+		return nil, fmt.Errorf("failed to decode config file: %w", err)
 	}
 
-	return config, err
+	if installCommon.Kind == "" {
+		return nil, fmt.Errorf("the `kind` field is required in the config file")
+	}
+
+	return installCommon, nil
 }
 
-func parseConfigFromYamlBytes(yamlBytes []byte, overrides map[string]string, toMap bool) (any, error) {
-	return parseConfig(rawbytes.Provider(yamlBytes), yaml.Parser(), overrides, toMap)
-}
-
-func parseConfig(provider koanf.Provider, parser koanf.Parser, overrides map[string]string, toMap bool) (any, error) {
-	koanfConfig := koanf.New(".")
-
-	if err := koanfConfig.Load(provider, parser); err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
-	}
-
-	for k, v := range overrides {
-		koanfConfig.Set(k, v)
-	}
-
-	var config any
-	if toMap {
-		config = make(map[string]any)
-	} else {
-		environmentKind := koanfConfig.Get("kind")
-
-		switch environmentKind {
-		case nil, cloudinstall.EnvironmentKindCloud:
-			config = &cloudinstall.CloudEnvironmentConfig{
-				Kind: cloudinstall.EnvironmentKindCloud,
-			}
-		case dockerinstall.EnvironmentKindDocker:
-			config = &dockerinstall.DockerEnvironmentConfig{
-				Kind: dockerinstall.EnvironmentKindDocker}
-		default:
-			log.Fatal().Msgf("The `kind` field must be one of `%s` or `%s`. Given value: `%s`", cloudinstall.EnvironmentKindCloud, dockerinstall.EnvironmentKindDocker, environmentKind)
-		}
-	}
-
-	unmarshalConf := koanf.UnmarshalConf{
-		Tag: "json",
-		DecoderConfig: &mapstructure.DecoderConfig{
-			WeaklyTypedInput: true,
-			ErrorUnused:      true,
-			Squash:           true,
-			Result:           &config,
-		},
-	}
-
-	err := koanfConfig.UnmarshalWithConf("", &config, unmarshalConf)
-
+func ParseConfig(yamlBytes []byte) (install.ValidatableConfig, error) {
+	installCommon, err := ParseConfigFileCommon(yamlBytes)
 	if err != nil {
-		if _, ok := config.(*cloudinstall.CloudEnvironmentConfig); ok {
-			// see if this is because of the old config format
-			if koanfConfig.Get("api") != nil && koanfConfig.Get("cloud.storage") != nil && koanfConfig.Get("organizations") == nil {
-				return nil, fmt.Errorf("the config file is in an old format. Please convert it to the new format using the command `tyger config convert`: %w", err)
-			}
+		return nil, err
+	}
+
+	if installCommon.Kind == "" {
+		return nil, fmt.Errorf("the `kind` field is required in the config file")
+	}
+
+	var config install.ValidatableConfig
+	var decodeErr error
+	switch installCommon.Kind {
+	case cloudinstall.ConfigKindCloud:
+		cfg := cloudinstall.CloudEnvironmentConfig{}
+		config = &cfg
+		if decodeErr = yaml.UnmarshalWithOptions(yamlBytes, &cfg, yaml.Strict()); decodeErr == nil {
+			return config, nil
 		}
 
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	case dockerinstall.ConfigKindDocker:
+		cfg := dockerinstall.DockerEnvironmentConfig{}
+		config = &cfg
+		if decodeErr = yaml.UnmarshalWithOptions(yamlBytes, &cfg, yaml.Strict()); decodeErr == nil {
+			return config, nil
+		}
+	case "":
+		return nil, fmt.Errorf("the `kind` field is required in the config file")
+	default:
+		return nil, fmt.Errorf("the `kind` field must be either `%s` or `%s`. Given value: `%s`", cloudinstall.ConfigKindCloud, dockerinstall.ConfigKindDocker, installCommon.Kind)
+	}
+
+	// There was an error decoding the config. See if this is because of an old config format
+	if conversionErr := checkConfigFileNeedsConversion(*installCommon, decodeErr, yamlBytes); conversionErr != decodeErr {
+		return nil, conversionErr
+	}
+
+	log.Error().Msg("failed to decode config file")
+
+	fmt.Fprintln(os.Stderr, yaml.FormatError(decodeErr, term.IsTerminal(int(os.Stderr.Fd())), true))
+
+	return nil, install.ErrAlreadyLoggedError
+}
+
+func checkConfigFileNeedsConversion(installCommon install.ConfigFileCommon, decodeErr error, yamlBytes []byte) error {
+	if installCommon.Kind != cloudinstall.ConfigKindCloud {
+		return decodeErr
+	}
+
+	configAst, err := ParseConfigToAst(yamlBytes)
+	if err != nil {
+		return decodeErr
+	}
+
+	isPreOrganizationsConfig := func() bool {
+		if p, err := yaml.PathString("$.api"); err != nil {
+			panic(fmt.Errorf("failed to create YAML path: %w", err))
+		} else if n, _ := p.FilterNode(configAst); n != nil && n.Type() == ast.MappingType {
+			return true
+		}
+
+		if p, err := yaml.PathString("$.cloud.storage"); err != nil {
+			panic(fmt.Errorf("failed to create YAML path: %w", err))
+		} else if n, _ := p.FilterNode(configAst); n != nil && n.Type() == ast.MappingType {
+			return true
+		}
+
+		if p, err := yaml.PathString("$.organizations"); err != nil {
+			panic(fmt.Errorf("failed to create YAML path: %w", err))
+		} else if n, _ := p.FilterNode(configAst); n == nil {
+			return true
+		}
+
+		return false
+	}
+
+	isPreAccessControlConfig := func() bool {
+		var unknownFieldErr *yaml.UnknownFieldError
+		if !errors.As(decodeErr, &unknownFieldErr) {
+			return false
+		}
+
+		if unknownFieldErr.Token.Value != "auth" {
+			return false
+		}
+
+		visitor := &tokenFinderVisitor{target: unknownFieldErr.Token}
+		ast.Walk(visitor, configAst)
+		if visitor.foundNode != nil {
+			pathRegex := regexp.MustCompile(`\$\.organizations\[\d+\]\.api\.auth`)
+			return pathRegex.MatchString(visitor.foundNode.GetPath())
+		}
+
+		return true
+	}
+
+	if isPreOrganizationsConfig() {
+		return fmt.Errorf("the config file appears to be in an old format. Please convert it to the new format using the command `tyger config convert`")
+	}
+
+	if isPreAccessControlConfig() {
+		return fmt.Errorf("the access control config file appears to be in an old for old format. The `auth` field has been renamed to `accessControl`. You can use `tyger config convert` to convert it to the new format.`")
+	}
+
+	return decodeErr
+}
+
+func ParseConfigToMap(yamlBytes []byte) (map[string]any, error) {
+	config := make(map[string]any)
+
+	if err := yaml.Unmarshal(yamlBytes, &config); err != nil {
+		return nil, fmt.Errorf("failed to decode config file: %w", err)
 	}
 
 	return config, nil
+}
+
+func ParseConfigToAst(yamlBytes []byte) (ast.Node, error) {
+	file, err := parser.ParseBytes(yamlBytes, parser.ParseComments)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	}
+
+	if len(file.Docs) > 1 {
+		return nil, fmt.Errorf("the config file contains multiple documents, which is not supported")
+	}
+
+	return file.Docs[0].Body, nil
+}
+
+func parseStandaloneAccessControlConfig(yamlBytes []byte) (*cloudinstall.StandaloneAccessControlConfig, error) {
+	ac := cloudinstall.StandaloneAccessControlConfig{}
+	if err := yaml.UnmarshalWithOptions(yamlBytes, &ac, yaml.Strict()); err != nil {
+		return nil, fmt.Errorf("failed to decode access control config file: %w", err)
+	}
+
+	return &ac, nil
+}
+
+func parseStandaloneAccessControlConfigToAst(yamlBytes []byte) (ast.Node, error) {
+	file, err := parser.ParseBytes(yamlBytes, parser.ParseComments)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse access control config file: %w", err)
+	}
+
+	if len(file.Docs) > 1 {
+		return nil, fmt.Errorf("the access control config file contains multiple documents, which is not supported")
+	}
+
+	return file.Docs[0].Body, nil
 }
 
 func loginAndValidateSubscription(ctx context.Context, cloudInstaller *cloudinstall.Installer) (context.Context, error) {

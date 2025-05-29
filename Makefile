@@ -25,6 +25,10 @@ endif
 get-config:
 	echo '${ENVIRONMENT_CONFIG_JSON}' | yq -P
 
+pretty-print-config-templates: install-cli
+	scripts/get-config.sh --pretty-print-template
+	scripts/get-config.sh --docker --pretty-print-template
+
 open-docker-window:
 	code /workspaces/tyger-docker
 
