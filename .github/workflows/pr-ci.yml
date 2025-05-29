@@ -241,7 +241,6 @@ jobs:
         with:
           fetch-depth: 0
       - name: Login to GitHub Container Registry
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@327cd5a69de6c009b9ce71bce8395f28e651bf99 # was v3 but now v6 with this commit for security reasons have pinned tag (commit SHA) for 3rd party
 
         with:
