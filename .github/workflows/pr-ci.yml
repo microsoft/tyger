@@ -192,7 +192,13 @@ jobs:
       - name: Generate tag
         id: tag
         run: |
-          echo "IMAGE_TAG=$(date +'%Y%m%d%H%M%S')-$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "ref_name=pr${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+          else
+            echo "ref_name=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
+
+          echo "IMAGE_TAG=$(date +'%Y-%m-%d-%H-%M')-${ref_name}-$($GITHUB_SHA | cut -c 1-7)" >> "$GITHUB_OUTPUT"
 
       - name: Set variables
         id: set-variables
