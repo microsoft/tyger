@@ -284,14 +284,14 @@ jobs:
       - name: Upload binaries (linux_x86_64)
         uses: actions/upload-artifact@v4
         with:
-          name: linux_x86_64.tar.gz
-          path: cli/dist/linux_x86_64.tar.gz
+          name: tyger_linux_x86_64.tar.gz
+          path: cli/dist/tyger_linux_x86_64.tar.gz
 
       - name: Upload binaries (windows_x86_64)
         uses: actions/upload-artifact@v4
         with:
-          name: windows_x86_64.tar.gz
-          path: cli/dist/windows_x86_64.tar.gz
+          name: tyger_windows_x86_64.zip
+          path: cli/dist/tyger_windows_x86_64.zip
 
   # up:
   #   needs:
