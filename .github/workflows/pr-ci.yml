@@ -257,8 +257,20 @@ jobs:
       - name: publish images
         run: |
           set -euo pipefail
-
           make publish-images-to-ghcr
+
+      - name: set goreleaser variables
+        run: |
+          set -euo pipefail
+          echo "GORELEASER_CONTAINER_REGISTRY=ghcr.io" >> $GITHUB_ENV
+          echo "GORELEASER_CONTAINER_REGISTRY_DIRECTORY=/${GITHUB_REPOSITORY}" >> $GITHUB_ENV
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v5
+        with:
+          version: v1.21.2
+          workdir: cli
+          args: release --clean --skip publish
 
   # up:
   #   needs:
@@ -286,7 +298,7 @@ jobs:
 
   #     - name: Log in to ACR
   #       run: |
-  #         make login-wip-acr
+  #         make login-acr
 
   #     - uses: actions/setup-go@v4
   #       with:
@@ -395,7 +407,6 @@ jobs:
   #       run: |
   #         set -eo pipefail
 
-  #         export CGO_ENABLED=1
   #         export GOOS=windows
   #         export GOARCH=amd64
 
@@ -612,14 +623,14 @@ jobs:
   #       run: |
   #         set -euo pipefail
   #         official_pull_container_registry=$(echo "$DEVELOPER_CONFIG_BASE64" | base64 -d | jq -r '.officialPullContainerRegistry.fqdn')
-  #         echo "OFFICIAL_PULL_CONTAINER_REGISTRY=$(echo $official_pull_container_registry)" >> $GITHUB_ENV
+  #         echo "GORELEASER_CONTAINER_REGISTRY=$(echo $official_pull_container_registry)" >> $GITHUB_ENV
   #         official_pull_container_registry_directory=$(echo "$DEVELOPER_CONFIG_BASE64" | base64 -d | jq -r '.officialPullContainerRegistry.directory // ""')
-  #         echo "OFFICIAL_PULL_CONTAINER_REGISTRY_DIRECTORY=$(echo $official_pull_container_registry_directory)" >> $GITHUB_ENV
+  #         echo "GORELEASER_CONTAINER_REGISTRY_DIRECTORY=$(echo $official_pull_container_registry_directory)" >> $GITHUB_ENV
 
   #     - name: test image published
   #       run: |
   #         set -euo pipefail
-  #         docker pull "${OFFICIAL_PULL_CONTAINER_REGISTRY}${OFFICIAL_PULL_CONTAINER_REGISTRY_DIRECTORY}/tyger-server:$(git describe --tags)"
+  #         docker pull "${GORELEASER_CONTAINER_REGISTRY}${GORELEASER_CONTAINER_REGISTRY_DIRECTORY}/tyger-server:$(git describe --tags)"
 
   #     - name: Run GoReleaser
   #       uses: goreleaser/goreleaser-action@v5

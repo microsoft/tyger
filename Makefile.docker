@@ -5,7 +5,7 @@ ENVIRONMENT_CONFIG_JSON = $(shell scripts/get-config.sh --docker -o json | jq -c
 DOCKER_BUILD_ARCH_FLAGS = --arch $$(dpkg --print-architecture)
 DOCKER_BUILD_PUSH_FLAGS = 
 
-login-wip-acr:
+login-acr:
 	# do nothing. We don't push any images local docker mode.
 
 set-localsettings: ensure-data-plane-cert
