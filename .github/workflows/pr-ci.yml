@@ -258,7 +258,7 @@ jobs:
           set -euo pipefail
           make -s -j 4 publish-ghcr
 
-      - name: Set Ggoreleaser variables
+      - name: Set Goreleaser variables
         run: |
           set -euo pipefail
           echo "GORELEASER_CONTAINER_REGISTRY=ghcr.io" >> $GITHUB_ENV
@@ -276,13 +276,14 @@ jobs:
           args: release --clean --snapshot --skip publish
 
       - name: Upload binaries
-        uses: actions/upload-artifact@v4
-        with:
-          name: binaries
-          path: |
-            cli/dist/*.tar.gz
-            cli/dist/*.zip
-
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for file in cli/dist/*.tar.gz cli/dist/*.zip; do
+            name=$(basename "$file")
+            echo "Uploading $file as artifact '$name'"
+            gh run upload-artifact --name "$name" "$file"
+          done
   # up:
   #   needs:
   #     - test-azure-needs-hosted-runner
