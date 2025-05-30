@@ -275,15 +275,24 @@ jobs:
           workdir: cli
           args: release --clean --snapshot --skip publish
 
-      - name: Upload binaries
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          for file in cli/dist/*.tar.gz cli/dist/*.zip; do
-            name=$(basename "$file")
-            echo "Uploading $file as artifact '$name'"
-            gh run upload-artifact --name "$name" "$file"
-          done
+      - name: Upload binaries (tyger_linux_arm64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: tyger_linux_arm64.tar.gz
+          path: cli/dist/tyger_linux_arm64.tar.gz
+
+      - name: Upload binaries (linux_x86_64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux_x86_64.tar.gz
+          path: cli/dist/linux_x86_64.tar.gz
+
+      - name: Upload binaries (windows_x86_64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows_x86_64.tar.gz
+          path: cli/dist/windows_x86_64.tar.gz
+
   # up:
   #   needs:
   #     - test-azure-needs-hosted-runner
