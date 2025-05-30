@@ -253,16 +253,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: publish images
+      - name: Publish images
         run: |
           set -euo pipefail
           make -s -j 4 publish-ghcr
 
-      - name: set goreleaser variables
+      - name: Set Ggoreleaser variables
         run: |
           set -euo pipefail
           echo "GORELEASER_CONTAINER_REGISTRY=ghcr.io" >> $GITHUB_ENV
           echo "GORELEASER_CONTAINER_REGISTRY_DIRECTORY=/${GITHUB_REPOSITORY}" >> $GITHUB_ENV
+          if [[ -z "$(git tag --points-at HEAD)" ]]; then
+            # Set a tag for goreleaser
+            git tag $(git describe --tags)
+          fi
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v5
@@ -270,6 +274,14 @@ jobs:
           version: v1.21.2
           workdir: cli
           args: release --clean --snapshot --skip publish
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries
+          path: |
+            cli/dist/*.tar.gz
+            cli/dist/*.zip
 
   # up:
   #   needs:
