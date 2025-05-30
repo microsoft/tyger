@@ -269,7 +269,7 @@ jobs:
         with:
           version: v1.21.2
           workdir: cli
-          args: release --clean --skip publish
+          args: release --clean --snapshot --skip publish
 
   # up:
   #   needs:
