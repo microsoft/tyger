@@ -237,7 +237,6 @@ jobs:
         shell: bash
     env:
       TYGER_MIN_NODE_COUNT: "1"
-      DO_NOT_BUILD_IMAGES: "true"
       EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}
       TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
 
