@@ -257,7 +257,7 @@ jobs:
       - name: publish images
         run: |
           set -euo pipefail
-          make publish-ghcr
+          make -s -j 4 publish-ghcr
 
       - name: set goreleaser variables
         run: |

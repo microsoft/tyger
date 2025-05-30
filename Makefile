@@ -106,7 +106,6 @@ publish-official-images:
 publish-ghcr:
 	container_registry_spec="{\"fqdn\": \"ghcr.io\", \"directory\": \"/$${GITHUB_REPOSITORY}\"}"
 	$(MAKE) DOCKER_BUILD_ARCH_FLAGS="--arch amd64 --arch arm64" CONTAINER_REGISTRY_SPEC="$${container_registry_spec}" docker-build docker-build-helm
-	$(MAKE) install-cli
 
 prepare-wip-binaries:
 	tag="$$(git describe --tags)-$$(date +'%Y%m%d%H%M%S')"
