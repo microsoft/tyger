@@ -195,7 +195,7 @@ jobs:
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             ref_name="pr${{ github.event.pull_request.number }}"
           else
-            ref_name="${{ github.ref_name }}"
+            ref_name=$(echo "${{ github.ref_name }}" | sed 's/[^a-zA-Z0-9._-]/_/g')
           fi
 
           echo "IMAGE_TAG=$(date +'%Y-%m-%d-%H-%M')-${ref_name}-$(echo "$GITHUB_SHA" | cut -c 1-7)" >> "$GITHUB_OUTPUT"
