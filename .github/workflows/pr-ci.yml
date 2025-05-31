@@ -275,23 +275,51 @@ jobs:
           workdir: cli
           args: release --clean --snapshot --skip publish
 
+      - name: Prepare binaries for upload
+        run: |
+          set -euo pipefail
+          cd cli/dist
+          find . -mindepth 1 ! -name '*.tar.gz' ! -name '*.zip' -exec rm -rf {} +
+          for archive in tyger_*.tar.gz tyger_*.zip; do
+            if [[ -f "$archive" ]]; then
+              # Extract the platform part from tyger_platform.ext
+              platform=$(echo "$archive" | sed -E 's/^tyger_(.+)\.(tar\.gz|zip)$/\1/')
+              mkdir -p "tyger_$platform"
+              if [[ "$archive" == *.tar.gz ]]; then
+                tar -xzf "$archive" -C "tyger_$platform"
+              elif [[ "$archive" == *.zip ]]; then
+                unzip -q "$archive" -d "tyger_$platform"
+              fi
+            fi
+          done
+
+          # Delete all archive files
+          rm -f *.tar.gz *.zip
+
+
       - name: Upload binaries (tyger_linux_arm64)
         uses: actions/upload-artifact@v4
         with:
-          name: tyger_linux_arm64.tar.gz
-          path: cli/dist/tyger_linux_arm64.tar.gz
+          name: tyger_linux_arm64
+          path: |
+            cli/dist/tyger_linux_arm64/tyger
+            cli/dist/tyger_linux_arm64/tyger-proxy
 
       - name: Upload binaries (linux_x86_64)
         uses: actions/upload-artifact@v4
         with:
-          name: tyger_linux_x86_64.tar.gz
-          path: cli/dist/tyger_linux_x86_64.tar.gz
+          name: tyger_linux_x86_64
+          path: |
+            cli/dist/tyger_linux_x86_64/tyger
+            cli/dist/tyger_linux_x86_64/tyger-proxy
 
       - name: Upload binaries (windows_x86_64)
         uses: actions/upload-artifact@v4
         with:
-          name: tyger_windows_x86_64.zip
-          path: cli/dist/tyger_windows_x86_64.zip
+          name: tyger_windows_x86_64
+          path: |
+            cli/dist/tyger_windows_x86_64/tyger.exe
+            cli/dist/tyger_windows_x86_64/tyger-proxy.exe
 
   # up:
   #   needs:
