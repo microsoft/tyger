@@ -242,12 +242,16 @@ if [[ -n "${buffer_sidecar:-}" ]]; then
 fi
 
 if [[ -n "${helm:-}" ]]; then
-  echo "logging in to ACR to publish helm chart..."
-  "$(dirname "${0}")/check-az-login.sh"
 
-  token=$(az acr login --name "${container_registry_fqdn}" --expose-token --output tsv --query accessToken --only-show-errors)
-  username="00000000-0000-0000-0000-000000000000"
-  echo "${token}" | docker login "${container_registry_fqdn}" -u "${username}" --password-stdin
+  # If we are pushing to an Azure Container Registry, we need to do a special login
+  if [[ "${container_registry_fqdn}" =~ \.azurecr\.io$ ]]; then
+    echo "logging in to ACR to publish helm chart..."
+    "$(dirname "${0}")/check-az-login.sh"
+
+    token=$(az acr login --name "${container_registry_fqdn}" --expose-token --output tsv --query accessToken --only-show-errors)
+    username="00000000-0000-0000-0000-000000000000"
+    echo "${token}" | docker login "${container_registry_fqdn}" -u "${username}" --password-stdin
+  fi
 
   helm_repo_namespace="oci://${container_registry_fqdn}${registry_dir}helm"
   chart_dir=${repo_root_dir}/deploy/helm/tyger
