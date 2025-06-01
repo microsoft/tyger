@@ -12,6 +12,8 @@ DATA_PLANE_SERVER_PATH=server/DataPlane
 
 DEVELOPER_CONFIG_JSON = $(shell scripts/get-config.sh --dev -o json | jq -c)
 
+CONTAINER_REGISTRY_SPEC = $(shell echo '${DEVELOPER_CONFIG_JSON}' | jq -r '.wipContainerRegistry')
+
 INTEGRATION_TEST_FLAGS = ""
 
 ifeq ($(TYGER_ENVIRONMENT_TYPE),)
@@ -73,37 +75,37 @@ _docker-build:
 	target_arg="--${DOCKER_BUILD_TARGET}"
 
 	tag=$${EXPLICIT_IMAGE_TAG:-dev}
-	dev_config=$$(scripts/get-config.sh --dev -o json)
+	container_registry_spec='${CONTAINER_REGISTRY_SPEC}'
+	registry=$$(echo "$${container_registry_spec}" | jq -r '.fqdn')
+	directory=$$(echo "$${container_registry_spec}" | jq -r '.directory // ""')
 
-	registry=$$(echo "$${dev_config}" | jq -r '.wipContainerRegistry.fqdn')
-	directory=$$(echo "$${dev_config}" | jq -r '.wipContainerRegistry.directory // ""')
 	scripts/build-images.sh $$target_arg ${DOCKER_BUILD_ARCH_FLAGS} ${DOCKER_BUILD_PUSH_FLAGS} --tag "$$tag" --registry "$${registry}" --registry-directory "$${directory}"
 
-docker-build-test: login-wip-acr
+docker-build-test: login-acr
 	$(MAKE) _docker-build DOCKER_BUILD_TARGET=test-connectivity
 
-docker-build-tyger-server: login-wip-acr
+docker-build-tyger-server: login-acr
 	$(MAKE) _docker-build DOCKER_BUILD_TARGET=tyger-server
 
-docker-build-buffer-sidecar: login-wip-acr
+docker-build-buffer-sidecar: login-acr
 	$(MAKE) _docker-build DOCKER_BUILD_TARGET=buffer-sidecar
 
-docker-build-worker-waiter: login-wip-acr
+docker-build-worker-waiter: login-acr
 	$(MAKE) _docker-build DOCKER_BUILD_TARGET=worker-waiter
 
-docker-build-helm: login-wip-acr
+docker-build-helm: login-acr
 	$(MAKE) _docker-build DOCKER_BUILD_TARGET=helm
 
 docker-build: docker-build-test docker-build-tyger-server docker-build-buffer-sidecar docker-build-worker-waiter
 
 publish-official-images:
-	dev_config=$$(scripts/get-config.sh --dev -o json)
-	registry=$$(echo "$${dev_config}" | jq -r '.officialPushContainerRegistry.fqdn')
-	registry_name=$$(echo "$$registry" | cut -d'.' -f1)
-	az acr login --name "$${registry_name}"
-	registry_directory=$$(echo "$${dev_config}" | jq -r '.officialPushContainerRegistry.directory // ""')
-	tag=$$(git describe --tags)
-	scripts/build-images.sh --push --push-force --arch amd64 --arch arm64 --tyger-server --worker-waiter --buffer-sidecar --helm --tag "$${tag}" --registry "$${registry}" --registry-directory "$${registry_directory}"
+	container_registry_spec=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -c '.officialPushContainerRegistry')
+	export EXPLICIT_IMAGE_TAG="$$(git describe --tags)"
+	$(MAKE) DOCKER_BUILD_ARCH_FLAGS="--arch amd64 --arch arm64" CONTAINER_REGISTRY_SPEC="$${container_registry_spec}" docker-build docker-build-helm
+
+publish-ghcr:
+	container_registry_spec="{\"fqdn\": \"ghcr.io\", \"directory\": \"/$${GITHUB_REPOSITORY}\"}"
+	$(MAKE) DOCKER_BUILD_ARCH_FLAGS="--arch amd64 --arch arm64" CONTAINER_REGISTRY_SPEC="$${container_registry_spec}" docker-build docker-build-helm
 
 prepare-wip-binaries:
 	tag="$$(git describe --tags)-$$(date +'%Y%m%d%H%M%S')"
