@@ -499,6 +499,7 @@ jobs:
         run: |
           set -euo pipefail
 
+          chmod +x binaries_linux_x86_64/tyger
           export PATH="${GITHUB_WORKSPACE}/binaries_linux_x86_64:$PATH"
 
           # Get the config but remove Helm overrides (where we specify image names)
