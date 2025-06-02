@@ -63,11 +63,13 @@ set-context:
 		fi
 	done
 
-login-wip-acr:
-	registry=$$(scripts/get-config.sh --dev -e .wipContainerRegistry.fqdn)
-	if ! ./scripts/check-docker-login.sh "$${registry}"; then
-		registry_name=$$(echo "$$registry" | cut -d'.' -f1)
-		az acr login --name "$${registry_name}"
+login-acr:
+	registry=$$(echo '${CONTAINER_REGISTRY_SPEC}' | jq -r '.fqdn')
+	if [[ "$${registry}" =~ \.azurecr\.io$$ ]]; then
+		if ! ./scripts/check-docker-login.sh "$${registry}"; then
+			registry_name=$$(echo "$${registry}" | cut -d'.' -f1)
+			az acr login --name "$${registry_name}"
+		fi
 	fi
 
 set-localsettings: set-context
