@@ -493,40 +493,58 @@ func (c *serviceInfo) GetAccessToken(ctx context.Context) (string, error) {
 			return "", err
 		}
 	} else {
-		customHttpClient := &clientIdReplacingHttpClient{
-			clientAppUri: c.ClientAppUri,
-			clientAppId:  c.ClientId,
-			innerClient:  http.DefaultClient,
+		obtainTokenFromRefreshToken := func(clientId string) (AccessToken, error) {
+			options := []public.Option{
+				public.WithAuthority(c.Authority),
+				public.WithCache(c),
+			}
+
+			if clientId == c.ClientAppUri {
+				customHttpClient := &clientIdReplacingHttpClient{
+					clientAppUri: c.ClientAppUri,
+					clientAppId:  c.ClientId,
+					innerClient:  http.DefaultClient,
+				}
+
+				options = append(options, public.WithHTTPClient(customHttpClient))
+			}
+
+			// fall back to using the refresh token from the cache
+			client, err := public.New(clientId, options...)
+
+			if err != nil {
+				return AccessToken{}, err
+			}
+
+			accounts, err := client.Accounts(ctx)
+			if err != nil {
+				return AccessToken{}, fmt.Errorf("unable to get accounts from token cache: %w", err)
+			}
+			if len(accounts) != 1 {
+				return AccessToken{}, errors.New("corrupted token cache")
+			}
+
+			authResult, err := client.AcquireTokenSilent(ctx, []string{fmt.Sprintf("%s/%s", c.Audience, userScope)}, public.WithSilentAccount(accounts[0]))
+			if err != nil {
+				return AccessToken{}, err
+			}
+
+			return AccessToken{
+				Token:     authResult.AccessToken,
+				ExpiresOn: authResult.ExpiresOn,
+			}, nil
 		}
 
-		// fall back to using the refresh token from the cache
-		client, err := public.New(
-			c.ClientAppUri,
-			public.WithAuthority(c.Authority),
-			public.WithCache(c),
-			public.WithHTTPClient(customHttpClient),
-		)
-
+		var err error
+		accessToken, err = obtainTokenFromRefreshToken(c.ClientId)
 		if err != nil {
-			return "", err
-		}
-
-		accounts, err := client.Accounts(ctx)
-		if err != nil {
-			return "", fmt.Errorf("unable to get accounts from token cache: %w", err)
-		}
-		if len(accounts) != 1 {
-			return "", errors.New("corrupted token cache")
-		}
-
-		authResult, err := client.AcquireTokenSilent(ctx, []string{fmt.Sprintf("%s/%s", c.Audience, userScope)}, public.WithSilentAccount(accounts[0]))
-		if err != nil {
-			return "", err
-		}
-
-		accessToken = AccessToken{
-			Token:     authResult.AccessToken,
-			ExpiresOn: authResult.ExpiresOn,
+			// In earlier versions, we logged in using the app identifier uri.
+			// If that is how the refresh token was obtained, we need to do the cache lookup using
+			// that as the client ID.
+			accessToken, err = obtainTokenFromRefreshToken(c.ClientAppUri)
+			if err != nil {
+				return "", err
+			}
 		}
 	}
 
@@ -1077,7 +1095,7 @@ func (si *serviceInfo) performUserLogin(ctx context.Context, useDeviceCode bool)
 func (si *serviceInfo) Replace(ctx context.Context, unmarshaler cache.Unmarshaler, hints cache.ReplaceHints) error {
 	data, err := base64.StdEncoding.DecodeString(si.FullCache)
 	if err == nil {
-		unmarshaler.Unmarshal(data)
+		err = unmarshaler.Unmarshal(data)
 	}
 
 	return err
