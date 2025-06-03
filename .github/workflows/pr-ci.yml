@@ -178,10 +178,9 @@ jobs:
           set -eo pipefail
 
           # Determine the image tag to use.
+          image_tag="$(git tag --points-at HEAD)"
 
-          if [[ -z "$(git tag --points-at HEAD)" ]]; then
-            image_tag=$(git describe --tags)
-          else
+          if [[ -z "$image_tag" ]]; then
             if [[ "${{ github.event_name }}" == "pull_request" ]]; then
               ref_name="pr${{ github.event.pull_request.number }}"
             else
@@ -477,7 +476,6 @@ jobs:
       run:
         shell: bash
     env:
-      EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}-amd64
       TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
 
     steps:
