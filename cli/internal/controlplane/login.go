@@ -500,13 +500,13 @@ func (c *serviceInfo) GetAccessToken(ctx context.Context) (string, error) {
 			}
 
 			if clientId == c.ClientAppUri {
-				customHttpClient := &clientIdReplacingHttpClient{
+				cachedClientId := &clientIdReplacingHttpClient{
 					clientAppUri: c.ClientAppUri,
 					clientAppId:  c.ClientId,
 					innerClient:  http.DefaultClient,
 				}
 
-				options = append(options, public.WithHTTPClient(customHttpClient))
+				options = append(options, public.WithHTTPClient(cachedClientId))
 			}
 
 			// fall back to using the refresh token from the cache
