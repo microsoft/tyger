@@ -317,7 +317,7 @@ jobs:
     env:
       TYGER_MIN_NODE_COUNT: "1"
       DO_NOT_BUILD_IMAGES: "true"
-      EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}
+      EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}-amd64
       TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
 
     steps:
@@ -385,7 +385,7 @@ jobs:
     env:
       TYGER_MIN_NODE_COUNT: "1"
       DO_NOT_BUILD_IMAGES: "true"
-      EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}
+      EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}-amd64
       TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
 
     strategy:
