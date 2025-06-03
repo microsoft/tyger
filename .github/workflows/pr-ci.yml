@@ -476,7 +476,6 @@ jobs:
       run:
         shell: bash
     env:
-      EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}
       TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
 
     steps:
