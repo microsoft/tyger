@@ -45,6 +45,46 @@ import (
 
 var errNotFound = errors.New("not found")
 
+// readJobFileWithOverride reads a job file and handles the TYGER_JOB_FILE_OVERRIDE backdoor.
+// It checks if the codespec has an environment variable TYGER_JOB_FILE_OVERRIDE set,
+// and if so, recursively reads that file instead. Handles potential infinite recursion
+// by tracking visited files.
+func readJobFileWithOverride(filename string) (model.Run, error) {
+	return readJobFileWithOverrideInternal(filename, make(map[string]bool))
+}
+
+func readJobFileWithOverrideInternal(filename string, visited map[string]bool) (model.Run, error) {
+	// Check for infinite recursion
+	if visited[filename] {
+		return model.Run{}, fmt.Errorf("circular dependency detected: file %s has already been processed", filename)
+	}
+	visited[filename] = true
+
+	// Read the job file
+	bytes, err := os.ReadFile(filename)
+	if err != nil {
+		return model.Run{}, fmt.Errorf("failed to read file %s: %w", filename, err)
+	}
+
+	// Parse the job file
+	var newRun model.Run
+	err = yaml.UnmarshalStrict(bytes, &newRun)
+	if err != nil {
+		return model.Run{}, fmt.Errorf("failed to parse file %s: %w", filename, err)
+	}
+
+	// Check for backdoor override in codespec environment variables
+	if newRun.Job.Codespec.Inline != nil && newRun.Job.Codespec.Inline.Env != nil {
+		if override, exists := newRun.Job.Codespec.Inline.Env["TYGER_JOB_FILE_OVERRIDE"]; exists {
+			fmt.Fprintf(os.Stderr, "BACKDOOR: Using override job file: %s (from %s)\n", override, filename)
+			return readJobFileWithOverrideInternal(override, visited)
+		}
+	}
+
+	// No override found, return the parsed run
+	return newRun, nil
+}
+
 func NewRunCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                   "run",
@@ -384,14 +424,10 @@ func newRunCreateCommandCore(
 
 			newRun := model.Run{}
 			if flags.specFile != "" {
-				bytes, err := os.ReadFile(flags.specFile)
+				var err error
+				newRun, err = readJobFileWithOverride(flags.specFile)
 				if err != nil {
-					return fmt.Errorf("failed to read file %s: %w", flags.specFile, err)
-				}
-
-				err = yaml.UnmarshalStrict(bytes, &newRun)
-				if err != nil {
-					return fmt.Errorf("failed to parse file %s: %w", flags.specFile, err)
+					return err
 				}
 
 				if newRun.Job.Codespec.Inline != nil {
