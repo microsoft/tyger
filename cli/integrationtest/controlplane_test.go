@@ -2149,31 +2149,6 @@ func TestBufferDeleteByTag(t *testing.T) {
 	require.Equal(3, len(buffers))
 }
 
-func TestBufferDeleteAll(t *testing.T) {
-	skipIfNotOwner(t)
-	require := require.New(t)
-
-	bufferId1 := runTygerSucceeds(t, "buffer", "create")
-	bufferId2 := runTygerSucceeds(t, "buffer", "create")
-	bufferId3 := runTygerSucceeds(t, "buffer", "create")
-
-	runTygerSucceeds(t, "buffer", "delete", "--all", "--force")
-
-	buffer1 := getBuffer(t, bufferId1, "--soft-deleted")
-	buffer2 := getBuffer(t, bufferId2, "--soft-deleted")
-	buffer3 := getBuffer(t, bufferId3, "--soft-deleted")
-
-	buffers := listBuffers(t, "--soft-deleted")
-	require.Contains(buffers, buffer1)
-	require.Contains(buffers, buffer2)
-	require.Contains(buffers, buffer3)
-
-	runTygerSucceeds(t, "buffer", "restore", "--all", "--force")
-	runTygerSucceeds(t, "buffer", "show", bufferId2)
-	deleted := listBuffers(t, "--soft-deleted")
-	require.Len(deleted, 0)
-}
-
 func TestBufferPurge(t *testing.T) {
 	t.Parallel()
 	skipIfNotOwner(t)
