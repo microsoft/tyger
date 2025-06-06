@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -73,8 +74,19 @@ func readJobFileWithOverrideInternal(filename string, visited map[string]bool) (
 	// Check for backdoor override in codespec environment variables
 	if newRun.Job.Codespec.Inline != nil && newRun.Job.Codespec.Inline.Env != nil {
 		if override, exists := newRun.Job.Codespec.Inline.Env["TYGER_JOB_FILE_OVERRIDE"]; exists {
-			fmt.Fprintf(os.Stderr, "BACKDOOR: Using override job file: %s (from %s)\n", override, filename)
-			return readJobFileWithOverrideInternal(override, visited)
+			// Resolve relative paths relative to the current file's directory
+			var resolvedOverride string
+			if filepath.IsAbs(override) {
+				resolvedOverride = override
+			} else {
+				// Get the directory of the current file
+				currentDir := filepath.Dir(filename)
+				// Join the current directory with the relative override path
+				resolvedOverride = filepath.Join(currentDir, override)
+			}
+
+			fmt.Fprintf(os.Stderr, "BACKDOOR: Using override job file: %s (from %s)\n", resolvedOverride, filename)
+			return readJobFileWithOverrideInternal(resolvedOverride, visited)
 		}
 	}
 
