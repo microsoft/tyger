@@ -46,9 +46,6 @@ import (
 var errNotFound = errors.New("not found")
 
 // readJobFileWithOverride reads a job file and handles the TYGER_JOB_FILE_OVERRIDE backdoor.
-// It checks if the codespec has an environment variable TYGER_JOB_FILE_OVERRIDE set,
-// and if so, recursively reads that file instead. Handles potential infinite recursion
-// by tracking visited files.
 func readJobFileWithOverride(filename string) (model.Run, error) {
 	return readJobFileWithOverrideInternal(filename, make(map[string]bool))
 }
