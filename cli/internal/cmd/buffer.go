@@ -862,7 +862,7 @@ func confirmBulkBufferOperation(ctx context.Context, operation string, options u
 		return false, err
 	}
 	if count > 0 {
-		input := confirmation.New(fmt.Sprintf("Are you sure you want to %s %d buffers?", operation, count), confirmation.Yes)
+		input := confirmation.New(fmt.Sprintf("Are you sure you want to %s %d buffers?", operation, count), confirmation.No)
 		input.WrapMode = promptkit.WordWrap
 		confirmed, err := input.RunPrompt()
 		if err != nil {
