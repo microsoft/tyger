@@ -739,8 +739,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
 
     private static bool DoesVmHaveSupportedGpu(string vmSize)
     {
-        return vmSize.StartsWith("Standard_N", StringComparison.OrdinalIgnoreCase) &&
-            !vmSize.EndsWith("_v4", StringComparison.OrdinalIgnoreCase); // unsupported AMD GPU
+        return vmSize.StartsWith("Standard_N", StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task CreateObjectHandleAlreadyExists(Func<Task> createObject)
