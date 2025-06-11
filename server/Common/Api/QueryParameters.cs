@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+using System.ComponentModel.DataAnnotations;
+
 namespace Tyger.Common.Api;
 
 public static class QueryParameters
@@ -47,5 +49,15 @@ public static class QueryParameters
         }
 
         return true;
+    }
+
+    public static uint GetValidatedPageLimit(int? limit, uint defaultLimit = 20, uint maxLimit = 2000)
+    {
+        return limit switch
+        {
+            null => defaultLimit,
+            < 0 => throw new ValidationException("Limit must be a non-negative integer."),
+            _ => (uint)Math.Min(limit.Value, maxLimit)
+        };
     }
 }

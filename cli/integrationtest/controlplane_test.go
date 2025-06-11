@@ -1214,6 +1214,54 @@ func TestListRunsPaging(t *testing.T) {
 	require.Empty(t, runs)
 }
 
+func TestListRunsBoundaries(t *testing.T) {
+	t.Parallel()
+
+	_, stderr, _err := runTyger("run", "list", "--limit", "-1")
+	require.Error(t, _err)
+	require.Contains(t, stderr, "Limit must be a non-negative integer")
+
+	runs := []model.Run{}
+	output := runTygerSucceeds(t, "run", "list", "--limit", "0")
+	require.NoError(t, json.Unmarshal([]byte(output), &runs))
+	require.Empty(t, runs)
+
+	output = runTygerSucceeds(t, "run", "list", "--limit", "3000")
+	require.NoError(t, json.Unmarshal([]byte(output), &runs))
+}
+
+func TestListBuffersBoundaries(t *testing.T) {
+	t.Parallel()
+
+	_, stderr, _err := runTyger("buffer", "list", "--limit", "-1")
+	require.Error(t, _err)
+	require.Contains(t, stderr, "Limit must be a non-negative integer")
+
+	buffers := []model.Buffer{}
+	output := runTygerSucceeds(t, "buffer", "list", "--limit", "0")
+	require.NoError(t, json.Unmarshal([]byte(output), &buffers))
+	require.Empty(t, buffers)
+
+	output = runTygerSucceeds(t, "buffer", "list", "--limit", "3000")
+	require.NoError(t, json.Unmarshal([]byte(output), &buffers))
+}
+
+func TestListCodespecsBoundaries(t *testing.T) {
+	t.Parallel()
+
+	_, stderr, _err := runTyger("codespec", "list", "--limit", "-1")
+	require.Error(t, _err)
+	require.Contains(t, stderr, "Limit must be a non-negative integer")
+
+	codespecs := []model.Codespec{}
+	output := runTygerSucceeds(t, "codespec", "list", "--limit", "0")
+	require.NoError(t, json.Unmarshal([]byte(output), &codespecs))
+	require.Empty(t, codespecs)
+
+	output = runTygerSucceeds(t, "codespec", "list", "--limit", "3000")
+	require.NoError(t, json.Unmarshal([]byte(output), &codespecs))
+}
+
 func TestListCodespecsFromCli(t *testing.T) {
 	t.Parallel()
 	prefix := strings.ToLower(t.Name()) + "_"

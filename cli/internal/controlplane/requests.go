@@ -168,7 +168,7 @@ func InvokeRequest(ctx context.Context, method string, relativeUrl string, query
 	return resp, nil
 }
 
-func InvokePageRequests[T any](ctx context.Context, requestUrl string, queryParams url.Values, limit int, warnIfTruncated bool) error {
+func InvokePageRequests[T any](ctx context.Context, requestUrl string, queryParams url.Values, totalLimit int, warnIfTruncated bool) error {
 	firstPage := true
 	totalPrinted := 0
 	truncated := false
@@ -179,6 +179,7 @@ func InvokePageRequests[T any](ctx context.Context, requestUrl string, queryPara
 		if err != nil {
 			return err
 		}
+		queryParams = nil // Clear query params for subsequent requests
 
 		if firstPage && page.NextLink == "" {
 			formattedRuns, err := json.MarshalIndent(page.Items, "  ", "  ")
@@ -206,7 +207,7 @@ func InvokePageRequests[T any](ctx context.Context, requestUrl string, queryPara
 
 			fmt.Print(string(formattedRun))
 			totalPrinted++
-			if totalPrinted == limit {
+			if totalPrinted == totalLimit {
 				truncated = i < len(page.Items)-1 || page.NextLink != ""
 				goto End
 			}

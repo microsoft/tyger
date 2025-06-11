@@ -124,8 +124,13 @@ public class Repository
         }, cancellationToken);
     }
 
-    public async Task<(IList<Codespec>, string? nextContinuationToken)> GetCodespecs(int limit, string? prefix, string? continuationToken, CancellationToken cancellationToken)
+    public async Task<(IList<Codespec>, string? nextContinuationToken)> GetCodespecs(uint limit, string? prefix, string? continuationToken, CancellationToken cancellationToken)
     {
+        if (limit == 0)
+        {
+            return ([], null);
+        }
+
         return await _resiliencePipeline.ExecuteAsync<(IList<Codespec>, string? nextContinuationToken)>(async cancellationToken =>
         {
             var pagingName = "";
@@ -162,7 +167,7 @@ public class Repository
             {
                 Parameters =
                 {
-                    new() { NpgsqlDbType = NpgsqlDbType.Integer, Value = limit + 1 },
+                    new() { NpgsqlDbType = NpgsqlDbType.Integer, Value = (int)limit + 1 },
                     new() { NpgsqlDbType = NpgsqlDbType.Text, Value = prefix + "%" },
                     new() { NpgsqlDbType = NpgsqlDbType.Text, Value = pagingName },
                 }
@@ -183,7 +188,7 @@ public class Repository
 
             if (results.Count == limit + 1)
             {
-                results.RemoveAt(limit);
+                results.RemoveAt((int)limit);
                 var last = results[^1];
                 string newToken = Base32.ZBase32.Encode(Encoding.ASCII.GetBytes(JsonSerializer.Serialize(new[] { last.Name }, _serializerOptions)));
                 return (results, newToken);
@@ -992,12 +997,17 @@ public class Repository
 
     public async Task<(IList<(Run run, bool final)>, string? nextContinuationToken)> GetRuns(GetRunsOptions options, CancellationToken cancellationToken)
     {
+        if (options.Limit <= 0)
+        {
+            return ([], null);
+        }
+
         return await _resiliencePipeline.ExecuteAsync<(IList<(Run run, bool final)>, string? nextContinuationToken)>(async cancellationToken =>
         {
             await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
             await using var tx = await conn.BeginTransactionAsync(cancellationToken);
 
-            int queryLimit = options.Limit + 1;
+            uint queryLimit = options.Limit + 1;
             HashSet<RunStatus>? inMemoryStatusFilter = null;
             if (_runAugmenter != null && options.Statuses is { Length: > 0 })
             {
@@ -1010,7 +1020,7 @@ public class Repository
                     """, conn, tx);
                 await nonFinalCountQuery.PrepareAsync(cancellationToken);
                 var nonFinalCount = (long)(await nonFinalCountQuery.ExecuteScalarAsync(cancellationToken))!;
-                queryLimit += (int)Math.Min(nonFinalCount, 1000);
+                queryLimit += (uint)Math.Min(nonFinalCount, 1000);
                 if (nonFinalCount > 0)
                 {
                     inMemoryStatusFilter = [.. options.Statuses.Select(status => Enum.Parse<RunStatus>(status))];
@@ -1102,7 +1112,7 @@ public class Repository
 
             sb.AppendLine("    ORDER BY created_at DESC, id DESC");
             sb.AppendLine($"    LIMIT ${++paramNumber}");
-            parameters.Add(new() { Value = queryLimit, NpgsqlDbType = NpgsqlDbType.Integer });
+            parameters.Add(new() { Value = (int)queryLimit, NpgsqlDbType = NpgsqlDbType.Integer });
             sb.AppendLine(")");
 
             sb.AppendLine($"""
@@ -1169,7 +1179,7 @@ public class Repository
 
             if (results.Count == options.Limit + 1)
             {
-                results.RemoveAt(options.Limit);
+                results.RemoveAt((int)options.Limit);
                 var (run, final) = results[^1];
                 string newToken = Base32.ZBase32.Encode(Encoding.ASCII.GetBytes(JsonSerializer.Serialize(new[] { run.CreatedAt!.Value.UtcTicks, run.Id!.Value }, _serializerOptions)));
                 return (results, newToken);
@@ -1410,8 +1420,13 @@ public class Repository
     }
 
     public async Task<(IList<Buffer>, string? nextContinuationToken)> GetBuffers(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags,
-            bool whereSoftDeleted, int limit, string? continuationToken, CancellationToken cancellationToken)
+            bool whereSoftDeleted, uint limit, string? continuationToken, CancellationToken cancellationToken)
     {
+        if (limit == 0)
+        {
+            return ([], null);
+        }
+
         return await _resiliencePipeline.ExecuteAsync<(IList<Buffer>, string? nextContinuationToken)>(async cancellationToken =>
         {
             await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
@@ -1420,7 +1435,7 @@ public class Repository
                 Connection = conn,
                 Parameters =
                 {
-                    new() { Value = limit + 1, NpgsqlDbType = NpgsqlDbType.Integer },
+                    new() { Value = (int)limit + 1, NpgsqlDbType = NpgsqlDbType.Integer },
                 }
             };
 
@@ -1612,7 +1627,7 @@ public class Repository
 
                 if (results.Count == limit + 1)
                 {
-                    results.RemoveAt(limit);
+                    results.RemoveAt((int)limit);
                     var last = results[^1];
                     string newToken = Base32.ZBase32.Encode(Encoding.ASCII.GetBytes(JsonSerializer.Serialize(new object[] { last.CreatedAt!.Value.UtcTicks, last.Id }, _serializerOptions)));
                     return (results, newToken);
@@ -2802,7 +2817,7 @@ public enum GetRunOptions
     SkipTags = 2,
 }
 
-public record GetRunsOptions(int Limit)
+public record GetRunsOptions(uint Limit)
 {
     public bool OnlyResourcesCreated { get; init; }
     public DateTimeOffset? Since { get; init; }
