@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -476,7 +475,7 @@ The SIZE argument must be a number with an optional unit (e.g. 10MB). 1KB and 1K
 }
 
 func newBufferListCommand() *cobra.Command {
-	limit := 0
+	totalLimit := 1000
 	tagEntries := make(map[string]string)
 	excludeTagEntries := make(map[string]string)
 	softDeleted := false
@@ -488,11 +487,14 @@ func newBufferListCommand() *cobra.Command {
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			listOptions := url.Values{}
-			if limit > 0 {
-				listOptions.Add("limit", strconv.Itoa(limit))
-			} else {
-				limit = math.MaxInt
+
+			limitSpecified := cmd.Flags().Lookup("limit").Changed
+			pageLimit := totalLimit
+			if !limitSpecified {
+				pageLimit = totalLimit + 1 // If the limit is not specified, we will fetch one extra item to know check if there are more items.
 			}
+
+			listOptions.Add("limit", strconv.Itoa(pageLimit))
 
 			if softDeleted {
 				listOptions.Add("softDeleted", strconv.FormatBool(softDeleted))
@@ -506,14 +508,14 @@ func newBufferListCommand() *cobra.Command {
 				listOptions.Add(fmt.Sprintf("excludeTag[%s]", name), value)
 			}
 
-			return controlplane.InvokePageRequests[model.Buffer](cmd.Context(), "/buffers", listOptions, limit, !cmd.Flags().Lookup("limit").Changed)
+			return controlplane.InvokePageRequests[model.Buffer](cmd.Context(), "/buffers", listOptions, totalLimit, !limitSpecified)
 		},
 	}
 
 	cmd.Flags().StringToStringVar(&tagEntries, "tag", nil, "Only include buffers with the given tag. Can be specified multiple times.")
 	cmd.Flags().StringToStringVar(&excludeTagEntries, "exclude-tag", nil, "Exclude buffers with the given tag. Can be specified multiple times.")
 	cmd.Flags().BoolVar(&softDeleted, "soft-deleted", softDeleted, "Only include soft-deleted buffers.")
-	cmd.Flags().IntVarP(&limit, "limit", "l", 1000, "The maximum number of buffers to list. Default 1000")
+	cmd.Flags().IntVarP(&totalLimit, "limit", "l", totalLimit, "The maximum number of buffers to list. Default 1000")
 
 	return cmd
 }

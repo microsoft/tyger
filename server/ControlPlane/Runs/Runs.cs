@@ -58,7 +58,7 @@ public static class Runs
 
         runs.MapGet("/", async (IRunReader runReader, int? limit, DateTimeOffset? since, [FromQuery(Name = "status")] string[]? statuses, [FromQuery(Name = "_ct")] string? continuationToken, HttpContext context) =>
         {
-            limit = limit is null ? 20 : Math.Min(limit.Value, 2000);
+            var validatedLimit = QueryParameters.GetValidatedPageLimit(limit);
 
             if (statuses != null)
             {
@@ -75,7 +75,7 @@ public static class Runs
                 }
             }
 
-            var options = new GetRunsOptions(limit.Value)
+            var options = new GetRunsOptions(validatedLimit)
             {
                 ContinuationToken = continuationToken,
                 Since = since,

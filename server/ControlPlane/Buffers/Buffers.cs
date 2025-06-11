@@ -79,7 +79,8 @@ public static class Buffers
 
         buffers.MapGet("/", async (BufferManager manager, HttpContext context, int? limit, [FromQuery(Name = "_ct")] string? continuationToken, CancellationToken cancellationToken) =>
             {
-                limit = limit is null ? 20 : Math.Min(limit.Value, 2000);
+                var validatedLimit = QueryParameters.GetValidatedPageLimit(limit);
+
                 var tagQuery = context.GetTagQueryParameters();
                 var excludeTagQuery = context.GetTagQueryParameters("excludeTag");
 
@@ -92,7 +93,7 @@ public static class Buffers
                     }
                 }
 
-                (var buffers, var nextContinuationToken) = await manager.GetBuffers(tagQuery, excludeTagQuery, softDeleted, limit.Value, continuationToken, cancellationToken);
+                (var buffers, var nextContinuationToken) = await manager.GetBuffers(tagQuery, excludeTagQuery, softDeleted, validatedLimit, continuationToken, cancellationToken);
 
                 string? nextLink;
                 if (nextContinuationToken is null)

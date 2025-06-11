@@ -71,7 +71,7 @@ public sealed partial class BufferManager
     }
 
     public async Task<(IList<Buffer>, string? nextContinuationToken)> GetBuffers(IDictionary<string, string>? tags, IDictionary<string, string>? excludeTags,
-            bool softDeleted, int limit, string? continuationToken, CancellationToken cancellationToken)
+            bool softDeleted, uint limit, string? continuationToken, CancellationToken cancellationToken)
     {
         return await _repository.GetBuffers(tags, excludeTags, softDeleted, limit, continuationToken, cancellationToken);
     }

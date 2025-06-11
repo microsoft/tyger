@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -340,10 +339,10 @@ func getCodespecVersionFromResponse(resp *http.Response) (int, error) {
 }
 
 func codespecListCommand() *cobra.Command {
-	var flags struct {
-		limit  int
-		prefix string
-	}
+	var (
+		totalLimit int = 1000
+		prefix     string
+	)
 
 	cmd := &cobra.Command{
 		Use:                   "list [--prefix STRING] [--limit COUNT]",
@@ -353,21 +352,25 @@ func codespecListCommand() *cobra.Command {
 		Args:                  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			queryOptions := url.Values{}
-			if flags.limit > 0 {
-				queryOptions.Add("limit", strconv.Itoa(flags.limit))
-			} else {
-				flags.limit = math.MaxInt
-			}
-			if flags.prefix != "" {
-				queryOptions.Add("prefix", flags.prefix)
+
+			limitSpecified := cmd.Flags().Lookup("limit").Changed
+			pageLimit := totalLimit
+			if !limitSpecified {
+				pageLimit = totalLimit + 1 // If the limit is not specified, we will fetch one extra item to check if there are more items.
 			}
 
-			return controlplane.InvokePageRequests[model.Codespec](cmd.Context(), "/codespecs", queryOptions, flags.limit, !cmd.Flags().Lookup("limit").Changed)
+			queryOptions.Add("limit", strconv.Itoa(pageLimit))
+
+			if prefix != "" {
+				queryOptions.Add("prefix", prefix)
+			}
+
+			return controlplane.InvokePageRequests[model.Codespec](cmd.Context(), "/codespecs", queryOptions, totalLimit, !limitSpecified)
 		},
 	}
 
-	cmd.Flags().StringVarP(&flags.prefix, "prefix", "p", "", "Show only codespecs that start with this prefix")
-	cmd.Flags().IntVarP(&flags.limit, "limit", "l", 1000, "The maximum number of codespecs to list. Default 1000")
+	cmd.Flags().StringVarP(&prefix, "prefix", "p", "", "Show only codespecs that start with this prefix")
+	cmd.Flags().IntVarP(&totalLimit, "limit", "l", totalLimit, "The maximum number of codespecs to list")
 
 	return cmd
 }

@@ -633,12 +633,13 @@ func newRunWatchCommand() *cobra.Command {
 }
 
 func newRunListCommand() *cobra.Command {
-	var flags struct {
-		limit    int
-		since    string
-		tags     map[string]string
-		statuses []model.RunStatus
-	}
+
+	var (
+		totalLimit int = 1000
+		since      string
+		tags       map[string]string
+		statuses   []model.RunStatus
+	)
 
 	cmd := &cobra.Command{
 		Use:                   "list [--since DATE/TIME] [--tag key=value ...] [--status STATUS] [--limit COUNT]",
@@ -647,29 +648,33 @@ func newRunListCommand() *cobra.Command {
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			queryOptions := url.Values{}
-			if flags.limit > 0 {
-				queryOptions.Add("limit", strconv.Itoa(flags.limit))
-			} else {
-				flags.limit = math.MaxInt
+
+			limitSpecified := cmd.Flags().Lookup("limit").Changed
+			pageLimit := totalLimit
+			if !limitSpecified {
+				pageLimit = totalLimit + 1 // If the limit is not specified, we will fetch one extra item to check if there are more items.
 			}
-			if flags.since != "" {
+
+			queryOptions.Add("limit", strconv.Itoa(pageLimit))
+
+			if since != "" {
 				now := time.Now()
-				tm, err := timeparser.ParseTimeStr(flags.since, &now)
+				tm, err := timeparser.ParseTimeStr(since, &now)
 				if err != nil {
-					return fmt.Errorf("failed to parse time %s", flags.since)
+					return fmt.Errorf("failed to parse time %s", since)
 				}
 				queryOptions.Add("since", tm.UTC().Format(time.RFC3339Nano))
 			}
 
-			for k, v := range flags.tags {
+			for k, v := range tags {
 				queryOptions.Add(fmt.Sprintf("tag[%s]", k), v)
 			}
 
-			for _, status := range flags.statuses {
+			for _, status := range statuses {
 				queryOptions.Add("status", status.String())
 			}
 
-			return controlplane.InvokePageRequests[model.Run](cmd.Context(), "/runs", queryOptions, flags.limit, !cmd.Flags().Lookup("limit").Changed)
+			return controlplane.InvokePageRequests[model.Run](cmd.Context(), "/runs", queryOptions, totalLimit, !limitSpecified)
 		},
 	}
 
@@ -678,13 +683,13 @@ func newRunListCommand() *cobra.Command {
 		runStatuses[status] = []string{status.String()}
 	}
 
-	cmd.Flags().StringVarP(&flags.since, "since", "s", "", "Results before this datetime (specified in local time) are not included")
-	cmd.Flags().StringToStringVar(&flags.tags, "tag", nil, "Only include runs with the given tag. Can be specified multiple times.")
+	cmd.Flags().StringVarP(&since, "since", "s", "", "Results before this datetime (specified in local time) are not included")
+	cmd.Flags().StringToStringVar(&tags, "tag", nil, "Only include runs with the given tag. Can be specified multiple times.")
 	cmd.Flags().Var(
-		enumflag.NewSlice(&flags.statuses, "status", runStatuses, enumflag.EnumCaseInsensitive),
+		enumflag.NewSlice(&statuses, "status", runStatuses, enumflag.EnumCaseInsensitive),
 		"status",
 		"Only include runs with the given status. When specified multiple times, any of the given statuses are matched.")
-	cmd.Flags().IntVarP(&flags.limit, "limit", "l", 1000, "The maximum number of runs to list. Default 1000")
+	cmd.Flags().IntVarP(&totalLimit, "limit", "l", totalLimit, "The maximum number of runs to list")
 
 	return cmd
 }

@@ -66,8 +66,9 @@ public static class Codespecs
 
         codespecs.MapGet("/", async (Repository repository, int? limit, string? prefix, [FromQuery(Name = "_ct")] string? continuationToken, HttpContext context) =>
         {
-            limit = limit is null ? 20 : Math.Min(limit.Value, 2000);
-            (var codespecs, var nextContinuationToken) = await repository.GetCodespecs(limit.Value, prefix, continuationToken, context.RequestAborted);
+            var validatedLimit = QueryParameters.GetValidatedPageLimit(limit);
+
+            (var codespecs, var nextContinuationToken) = await repository.GetCodespecs(validatedLimit, prefix, continuationToken, context.RequestAborted);
 
             string? nextLink;
             if (nextContinuationToken is null)
