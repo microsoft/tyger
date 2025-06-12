@@ -76,7 +76,7 @@ public class KubernetesRunLogReader : ILogSource
 
         void TrackPipelineIfNeedsTermination(V1Pod pod, string containerName, Pipeline podPipeline)
         {
-            if (pod.GetLabel(WorkerLabel) != null || (pod.GetLabel(JobLabel) != null && containerName == "main" && pod.GetAnnotation(HasSocketAnnotation) == "true"))
+            if (pod.GetLabel(WorkerLabel) != null || (pod.GetLabel(JobLabel) != null && containerName == MainContainerName && pod.GetAnnotation(HasSocketAnnotation) == "true"))
             {
                 var terminableElement = new TerminablePipelineElement();
                 terminablePipelineElements.Add(terminableElement);

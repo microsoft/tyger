@@ -29,7 +29,19 @@ public sealed partial class RunObjects
     // ErrInvalidImageName - Unable to parse the image name.
     private const string ErrInvalidImageName = "InvalidImageName";
 
-    private static readonly HashSet<string> s_imagePullErrorCodes = [ErrImagePullBackOff, ErrImageInspect, ErrImagePull, ErrImageNeverPull, ErrInvalidImageName,];
+    // ErrRegistryUnavailable - Get http error on the PullImage RPC call.
+    private const string ErrRegistryUnavailable = "RegistryUnavailable";
+
+    // ErrSignatureValidationFailed - Unable to validate the image signature on the PullImage RPC call.
+    private const string ErrSignatureValidationFailed = "SignatureValidationFailed";
+
+    private const string KubernetesImagePullThrottlingMessage = "pull QPS exceeded";
+
+    private static readonly HashSet<string> s_imagePullErrorCodes = [ErrImagePullBackOff, ErrImageInspect, ErrImagePull, ErrImageNeverPull, ErrInvalidImageName, ErrRegistryUnavailable, ErrSignatureValidationFailed];
+    private static readonly HashSet<string> s_fatalImagePullErrorCodes = [ErrImageNeverPull, ErrInvalidImageName, ErrSignatureValidationFailed];
+
+    private static readonly TimeSpan s_userImagePullBackoffTimeout = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan s_systemImagePullBackoffTimeout = TimeSpan.FromMinutes(30);
 
     public RunObjects(long id, int jobReplicas, int workerReplicas)
     {
@@ -116,7 +128,7 @@ public sealed partial class RunObjects
 
         if (failedContainerStatus != null)
         {
-            var reason = $"{(failedContainerStatus.Name == "main" ? "Main" : "Sidecar")} exited with code {failedContainerStatus.State.Terminated.ExitCode}";
+            var reason = $"{(failedContainerStatus.Name == MainContainerName ? "Main" : "Sidecar")} exited with code {failedContainerStatus.State.Terminated.ExitCode}";
             return (failedContainerStatus.State.Terminated.FinishedAt ?? fallbackTime, reason);
         }
 
@@ -133,20 +145,83 @@ public sealed partial class RunObjects
             };
         }
 
-        // Image pull errors
-        var pullFailedContainerStatus = JobPods.Concat(WorkerPods)
-            .Where(p => p?.Status?.ContainerStatuses != null)
-            .SelectMany(p => p!.Status.ContainerStatuses)
-            .FirstOrDefault(p => p.State.Waiting?.Reason is not null && s_imagePullErrorCodes.Contains(p.State.Waiting.Reason));
-
-        if (pullFailedContainerStatus != null)
+        static (DateTimeOffset?, string)? PullFailure(V1ContainerStatus status)
         {
-            if (pullFailedContainerStatus.State.Waiting?.Reason == ErrImagePullBackOff)
+            var waiting = status.State.Waiting!;
+            if (string.IsNullOrEmpty(waiting.Message))
             {
-                return (null, $"Failed to pull image '{pullFailedContainerStatus.Image}'");
+                return (null, $"Failed to pull image '{status.Image}': {waiting.Reason}");
             }
 
-            return (null, $"Failed to pull image '{pullFailedContainerStatus.Image}': {pullFailedContainerStatus.State.Waiting?.Message}");
+            return (null, $"Failed to pull image '{status.Image}': {waiting.Reason}: {waiting.Message}");
+        }
+
+        foreach (var pod in JobPods.Concat(WorkerPods))
+        {
+            if (pod?.Status is null)
+            {
+                continue;
+            }
+
+            if (pod.Status.InitContainerStatuses != null)
+            {
+                foreach (var initContainerStatus in pod.Status.InitContainerStatuses)
+                {
+                    if (initContainerStatus.State.Waiting is not null && s_imagePullErrorCodes.Contains(initContainerStatus.State.Waiting.Reason))
+                    {
+                        if (s_fatalImagePullErrorCodes.Contains(initContainerStatus.State.Waiting.Reason))
+                        {
+                            return PullFailure(initContainerStatus);
+                        }
+
+                        if (initContainerStatus.State.Waiting.Message?.Contains(KubernetesImagePullThrottlingMessage) == true)
+                        {
+                            continue; // continue retrying
+                        }
+
+                        var timeout = initContainerStatus.Name is ImagePullInitContainerName
+                            ? s_userImagePullBackoffTimeout
+                            : s_systemImagePullBackoffTimeout;
+
+                        var podScheduledTime = pod.Status.Conditions.FirstOrDefault(c => c.Type == "PodScheduled" && c.Status == "True")?.LastTransitionTime;
+                        if (podScheduledTime == null ||
+                            podScheduledTime + timeout < DateTimeOffset.UtcNow)
+                        {
+                            return PullFailure(initContainerStatus);
+                        }
+                    }
+                }
+            }
+
+            if (pod.Status.ContainerStatuses != null)
+            {
+                foreach (var containerStatus in pod.Status.ContainerStatuses)
+                {
+                    if (containerStatus.State.Waiting is not null && s_imagePullErrorCodes.Contains(containerStatus.State.Waiting.Reason))
+                    {
+                        if (s_fatalImagePullErrorCodes.Contains(containerStatus.State.Waiting.Reason))
+                        {
+                            return PullFailure(containerStatus);
+                        }
+
+                        if (containerStatus.State.Waiting.Message?.Contains(KubernetesImagePullThrottlingMessage) == true)
+                        {
+                            continue; // continue retrying
+                        }
+
+                        var timeout = containerStatus.Name is MainContainerName
+                            ? s_userImagePullBackoffTimeout
+                            : s_systemImagePullBackoffTimeout;
+
+                        var podScheduledTime = pod.Status.Conditions.FirstOrDefault(c => c.Type == "Initialized" && c.Status == "True")?.LastTransitionTime;
+                        if (podScheduledTime == null ||
+                            podScheduledTime + timeout < DateTimeOffset.UtcNow)
+                        {
+                            return PullFailure(containerStatus);
+                        }
+                    }
+                }
+            }
         }
 
         return null;
@@ -164,7 +239,7 @@ public sealed partial class RunObjects
 
             foreach (var containerStatus in pod.Status.ContainerStatuses)
             {
-                if (containerStatus.Name != "main")
+                if (containerStatus.Name != MainContainerName)
                 {
                     continue;
                 }
@@ -189,7 +264,7 @@ public sealed partial class RunObjects
                         pod.Status?.ContainerStatuses?.Any(cs =>
                             cs.Name == c.Name &&
                             (cs.State.Terminated?.ExitCode == 0 ||
-                            (cs.Name == "main" && pod.GetAnnotation(HasSocketAnnotation) == "true" && cs.State.Running != null))) == true)))
+                            (cs.Name == MainContainerName && pod.GetAnnotation(HasSocketAnnotation) == "true" && cs.State.Running != null))) == true)))
         {
             var finishedTime = JobPods.SelectMany(p => p!.Status.ContainerStatuses).Select(cs => cs.State.Terminated?.FinishedAt).Where(t => t != null).Max();
             return finishedTime ?? GetStartedTime();
