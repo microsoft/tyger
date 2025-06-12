@@ -15,6 +15,9 @@ public static partial class KubernetesMetadata
     public const string JobReplicaCountAnnotation = "tyger-job-replica-count";
     public const string WorkerReplicaCountAnnotation = "tyger-worker-replica-count";
 
+    public const string MainContainerName = "main";
+    public const string ImagePullInitContainerName = "imagepull";
+
     public static string JobPodName(long id, int index) => $"run-{id}-job-{index}";
     public static string WorkerPodName(long id, int index) => $"run-{id}-worker-{index}";
     public static string JobNameFromRunId(long id) => $"run-{id}-job";

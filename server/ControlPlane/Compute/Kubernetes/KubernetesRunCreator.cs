@@ -317,7 +317,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         initContainers.Add(
             new()
             {
-                Name = "imagepull",
+                Name = ImagePullInitContainerName,
                 Image = GetMainContainer(jobPod.Spec).Image,
                 Command = s_waitForWorkerCommand,
                 VolumeMounts = [new("/no-op/", "no-op")]
@@ -451,7 +451,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
                     "--pod",
                     "$(POD_NAME)",
                     "--container",
-                    "main",
+                    MainContainerName,
                     "--log-format",
                     "json",
                 ],
@@ -494,7 +494,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
                         "--pod",
                         "$(POD_NAME)",
                         "--container",
-                        "main",
+                        MainContainerName,
                         "--log-format",
                         "json",
                     ],
@@ -568,7 +568,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         return true;
     }
 
-    private static V1Container GetMainContainer(V1PodSpec podSpec) => podSpec.Containers.Single(c => c.Name == "main");
+    private static V1Container GetMainContainer(V1PodSpec podSpec) => podSpec.Containers.Single(c => c.Name == MainContainerName);
 
     private ClusterOptions GetTargetCluster(Run newRun)
     {
@@ -640,7 +640,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
                 [
                     new()
                     {
-                        Name = "main",
+                        Name = MainContainerName,
                         Image = codespec.Image,
                         Command = codespec.Command?.ToArray(),
                         Args = codespec.Args?.ToArray(),
