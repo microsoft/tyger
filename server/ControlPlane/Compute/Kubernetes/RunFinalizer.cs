@@ -71,7 +71,7 @@ public class RunFinalizer : BackgroundService
         {
             await foreach (var run in rawFeedChannel.Reader.ReadAllAsync(stoppingToken))
             {
-                if (run.Status.IsTerminal())
+                if (run.Status.IsTerminal() || run.Status == RunStatus.Canceling)
                 {
                     await terminalFeedChannel.Writer.WriteAsync(run, stoppingToken);
                 }
@@ -109,7 +109,7 @@ public class RunFinalizer : BackgroundService
             {
                 await foreach (var state in terminalFeedChannel.Reader.ReadAllAsync(stoppingToken))
                 {
-                    if (!hasLease || !state.Status.IsTerminal())
+                    if (!hasLease || (!state.Status.IsTerminal() && state.Status != RunStatus.Canceling))
                     {
                         continue;
                     }
@@ -177,7 +177,7 @@ public class RunFinalizer : BackgroundService
 
         await DeleteRunResources(runState, cancellationToken);
 
-        if (runState.Status == RunStatus.Canceled)
+        if (runState.Status is RunStatus.Canceled or RunStatus.Canceling)
         {
             var run = await _repository.GetRun(runState.Id, cancellationToken, GetRunOptions.SkipTags);
             if (run != null)
@@ -190,6 +190,11 @@ public class RunFinalizer : BackgroundService
                         await _bufferProvider.TryMarkBufferAsFailed(bufferId, cancellationToken);
                     }
                 }
+            }
+
+            if (runState.Status == RunStatus.Canceling && run != null)
+            {
+                await _repository.ForceUpdateRun(run.Value.run with { Status = RunStatus.Canceled }, cancellationToken);
             }
         }
 

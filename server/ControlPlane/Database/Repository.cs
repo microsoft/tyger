@@ -430,95 +430,26 @@ public class Repository
         await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
             await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
-            await using var tx = await conn.BeginTransactionAsync(cancellationToken);
 
-            await using (var readRun = new NpgsqlCommand($"""
+            await using var readRun = new NpgsqlCommand($"""
                 UPDATE runs
                 SET resources_created = true {(run != null ? ", run = $2" : "")}
-                WHERE id = $1 AND status != 'Canceling'
-                """, conn, tx)
+                WHERE id = $1 AND status NOT IN ('Canceling', 'Canceled')
+                """, conn)
             {
                 Parameters =
                {
                     new() { Value = id, NpgsqlDbType = NpgsqlDbType.Bigint },
                }
-            })
-            {
-
-                if (run != null)
-                {
-                    readRun.Parameters.Add(CreateJsonbParameter(run));
-                }
-
-                await readRun.PrepareAsync(cancellationToken);
-                if (await readRun.ExecuteNonQueryAsync(cancellationToken) == 1)
-                {
-                    await tx.CommitAsync(cancellationToken);
-                    return;
-                }
-            }
-
-            int tagsVersion;
-            // read run and update state to Canceled
-            await using (var readRun = new NpgsqlCommand($"""
-                SELECT run, tags_version
-                FROM runs
-                WHERE id = $1
-                FOR UPDATE
-                """, conn, tx)
-            {
-                Parameters =
-               {
-                    new() { Value = id, NpgsqlDbType = NpgsqlDbType.Bigint },
-               }
-            })
-            {
-                await readRun.PrepareAsync(cancellationToken);
-                await using var reader = await readRun.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
-                if (!await reader.ReadAsync(cancellationToken))
-                {
-                    return;
-                }
-
-                run = reader.GetFieldValue<Run>(0);
-                if (run.Status != RunStatus.Canceling)
-                {
-                    throw new InvalidOperationException($"Expected run {id} to be in Canceling state, but it is in {run.Status} state.");
-                }
-
-                tagsVersion = reader.GetInt32(1);
-            }
-
-            var updatedRun = run with
-            {
-                Status = RunStatus.Canceled,
             };
 
-            DateTime modifiedAt;
-            await using (var updateRun = new NpgsqlCommand($"""
-                UPDATE runs
-                SET run = $2, resources_created = true, modified_at = now() AT TIME ZONE 'utc'
-                WHERE id = $1
-                RETURNING modified_at
-                """, conn, tx)
+            if (run != null)
             {
-                Parameters =
-                   {
-                        new() { Value = id, NpgsqlDbType = NpgsqlDbType.Bigint },
-                        CreateJsonbParameter(updatedRun),
-                   }
-            })
-            {
-                await updateRun.PrepareAsync(cancellationToken);
-                modifiedAt = (DateTime)(await updateRun.ExecuteScalarAsync(cancellationToken))!;
+                readRun.Parameters.Add(CreateJsonbParameter(run));
             }
 
-            await using var notifyCommand = new NpgsqlCommand($"SELECT pg_notify('{RunChangedChannelName}', $1);", conn, tx);
-            notifyCommand.Parameters.Add(new() { Value = JsonSerializer.Serialize(new ObservedRunState(updatedRun, modifiedAt) { TagsVersion = tagsVersion }, _serializerOptions), NpgsqlDbType = NpgsqlDbType.Text });
-            await notifyCommand.PrepareAsync(cancellationToken);
-            await notifyCommand.ExecuteNonQueryAsync(cancellationToken);
-
-            await tx.CommitAsync(cancellationToken);
+            await readRun.PrepareAsync(cancellationToken);
+            await readRun.ExecuteNonQueryAsync(cancellationToken);
         }, cancellationToken);
     }
 
@@ -612,7 +543,7 @@ public class Repository
             var now = DateTimeOffset.UtcNow;
             var updatedRun = run with
             {
-                Status = resourcesCreated ? RunStatus.Canceled : RunStatus.Canceling,
+                Status = RunStatus.Canceled,
                 StatusReason = "Canceled by user",
                 FinishedAt = new DateTimeOffset(now.Year, now.Month, now.Day, now.Hour, now.Minute, now.Second, now.Offset),
             };
@@ -2385,7 +2316,7 @@ public class Repository
 
                     if (activeRuns < MaxActiveRuns)
                     {
-                        var limit = Math.Max(MaxPageSize, MaxActiveRuns - activeRuns);
+                        var limit = Math.Min(MaxPageSize, MaxActiveRuns - activeRuns);
                         var runs = new List<Run>();
                         using (var getPageCommand = new NpgsqlCommand
                         {
@@ -2394,7 +2325,7 @@ public class Repository
                             CommandText = """
                             SELECT run
                             FROM runs
-                            WHERE resources_created = false and final = false
+                            WHERE resources_created = false and final = false and status NOT IN ('Canceling', 'Canceled')
                             ORDER BY created_at ASC
                             LIMIT $1
                             """,
@@ -2464,7 +2395,7 @@ public class Repository
             Connection = connection,
             CommandText = $"""
                 SELECT run, modified_at, tags_version from runs
-                WHERE {(since == null ? "final = false AND (resources_created = true OR status IN ('Failed', 'Succeeded', 'Canceled'))" : "modified_at > $1")}
+                WHERE {(since == null ? "final = false AND (resources_created = true OR status IN ('Failed', 'Succeeded', 'Canceled', 'Canceling'))" : "modified_at > $1")}
                 """,
         })
         {
