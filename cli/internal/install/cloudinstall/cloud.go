@@ -161,8 +161,15 @@ func (inst *Installer) UninstallOrganization(ctx context.Context, org *Organizat
 		return fmt.Errorf("failed to get admin REST config: %w", err)
 	}
 
-	if err := deleteKubernetesNamespace(ctx, adminRestConfig, org.Cloud.KubernetesNamespace); err != nil {
-		return fmt.Errorf("failed to delete kubernetes namespace: %w", err)
+	if org.Cloud.KubernetesNamespace == "default" {
+		// we cannot delete the default namespace, so we need to uninstall Tyger instead
+		if err := inst.uninstallTygerSingleOrg(ctx, nil, org); err != nil {
+			return fmt.Errorf("failed to uninstall Tyger: %w", err)
+		}
+	} else {
+		if err := deleteKubernetesNamespace(ctx, adminRestConfig, org.Cloud.KubernetesNamespace); err != nil {
+			return fmt.Errorf("failed to delete kubernetes namespace: %w", err)
+		}
 	}
 
 	if _, err := inst.deleteDatabase(ctx, org); err != nil {

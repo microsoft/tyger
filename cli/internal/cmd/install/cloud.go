@@ -6,6 +6,7 @@ package install
 import (
 	"errors"
 	"os"
+	"strings"
 
 	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/microsoft/tyger/cli/internal/install/cloudinstall"
@@ -65,7 +66,7 @@ func newCloudUninstallCommand() *cobra.Command {
 	flags := newMultiOrgFlags()
 	all := false
 	cmd := cobra.Command{
-		Use:                   "uninstall -f CONFIG.yml",
+		Use:                   "uninstall -f CONFIG.yml [--all]",
 		Short:                 "Uninstall cloud infrastructure",
 		Long:                  "Uninstall cloud infrastructure",
 		DisableFlagsInUseLine: true,
@@ -78,6 +79,15 @@ func newCloudUninstallCommand() *cobra.Command {
 					if org.SingleOrganizationCompatibilityMode {
 						log.Fatal().Msgf("The '%s' organization is in single-organization compatibility mode and cannot be uninstalled individually. The entire environment must be removed using the --all flag.", org.Name)
 					}
+				}
+
+				if len(*flags.multiOrg) == 0 {
+					allOrgs := []string{}
+					for _, org := range cloudInstaller.Config.Organizations {
+						allOrgs = append(allOrgs, "--org", org.Name)
+					}
+
+					log.Fatal().Msgf("Specify `--all` to remove the entire cloud infrastructure, or `%s` to remove organizations but preserve shared infrastructure", strings.Join(allOrgs, " "))
 				}
 			}
 

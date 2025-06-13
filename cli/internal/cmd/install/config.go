@@ -700,7 +700,8 @@ func generateCloudConfig(ctx context.Context, configFile *os.File) error {
 	}
 
 	if sameTenant {
-		templateValues.ApiTenantId = templateValues.TenantId
+		templateValues.OrganizationTenantId = templateValues.TenantId
+		fmt.Println()
 	} else {
 		for {
 			res, err := chooseTenant(cred, "Choose a tenant for the Tyger service:", true)
@@ -713,7 +714,7 @@ func generateCloudConfig(ctx context.Context, configFile *os.File) error {
 				getSingleKey()
 				continue
 			} else {
-				templateValues.ApiTenantId = res
+				templateValues.OrganizationTenantId = res
 				break
 			}
 		}
@@ -725,6 +726,21 @@ func generateCloudConfig(ctx context.Context, configFile *os.File) error {
 	}
 
 	templateValues.TygerPrincipal = principal.Principal
+
+	orgName := domainLabel
+	if tenantInfo, err := getTenantInfo(cred, templateValues.OrganizationTenantId); err == nil {
+		domainSuggestion := strings.ToLower(strings.Split(*tenantInfo.DefaultDomain, ".")[0])
+		if domainSuggestion != "" {
+			orgName = domainSuggestion
+		}
+
+		orgName, err = prompt("Choose an organization name:", orgName, "", cloudinstall.OrganizationNameRegex)
+		if err != nil {
+			return err
+		}
+	}
+
+	templateValues.OrganizationName = orgName
 
 	err = cloudinstall.RenderConfig(templateValues, configFile)
 	if err != nil {
@@ -849,6 +865,29 @@ func getCurrentPrincipal(ctx context.Context, cred azcore.TokenCredential) (prin
 	}
 
 	return principal, nil
+}
+
+func getTenantInfo(cred azcore.TokenCredential, tenantId string) (*armsubscriptions.TenantIDDescription, error) {
+	tenantsClient, err := armsubscriptions.NewTenantsClient(cred, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	pager := tenantsClient.NewListPager(nil)
+	for pager.More() {
+		page, err := pager.NextPage(context.Background())
+		if err != nil {
+			return nil, fmt.Errorf("failed to enumerate tenants: %w", err)
+		}
+
+		for _, ten := range page.TenantListResult.Value {
+			if *ten.TenantID == tenantId {
+				return ten, nil
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("tenant with ID %s not found", tenantId)
 }
 
 func chooseTenant(cred azcore.TokenCredential, prompt string, presentOtherOption bool) (string, error) {

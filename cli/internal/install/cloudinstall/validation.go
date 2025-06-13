@@ -29,6 +29,7 @@ var (
 	ResourceNameRegex         = regexp.MustCompile(`^[a-z][a-z\-0-9]{2,23}$`)
 	StorageAccountNameRegex   = regexp.MustCompile(`^[a-z0-9]{3,24}$`)
 	SubdomainRegex            = regexp.MustCompile(`^[a-zA-Z]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?$`)
+	OrganizationNameRegex     = regexp.MustCompile(`^[a-z]([a-z0-9\-]{0,61}[a-z0-9])?$`)
 	DatabaseServerNameRegex   = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9\-]{1,61}[a-z0-9])?$`)
 	reservedOrganizationNames = []string{"postgres"}
 )
@@ -385,8 +386,8 @@ func quickValidateOrganizationConfig(ctx context.Context, success *bool, config 
 
 	if org.Name == "" {
 		validationError(ctx, success, "The `organization.name` field is required")
-	} else if !SubdomainRegex.MatchString(org.Name) {
-		validationError(ctx, success, "The `organization.name` field must match the pattern %s", SubdomainRegex)
+	} else if !OrganizationNameRegex.MatchString(org.Name) {
+		validationError(ctx, success, "The `organization.name` field must match the pattern %s", OrganizationNameRegex)
 	} else if slices.ContainsFunc(reservedOrganizationNames, func(name string) bool { return strings.EqualFold(name, org.Name) }) {
 		validationError(ctx, success, "The `organization.name` field cannot be %s", org.Name)
 	}

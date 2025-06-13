@@ -305,7 +305,8 @@ type ConfigTemplateValues struct {
 	BufferStorageAccountName string
 	LogsStorageAccountName   string
 	DomainName               string
-	ApiTenantId              string
+	OrganizationTenantId     string
+	OrganizationName         string
 	CpuNodePoolMinCount      int32
 	GpuNodePoolMinCount      int32
 }
@@ -357,7 +358,7 @@ func RenderConfig(templateValues ConfigTemplateValues, writer io.Writer) error {
 		},
 		Organizations: []*OrganizationConfig{
 			{
-				Name: "default",
+				Name: templateValues.OrganizationName,
 				Cloud: &OrganizationCloudConfig{
 					Storage: &OrganizationStorageConfig{
 						Buffers: []*StorageAccountConfig{
@@ -374,7 +375,7 @@ func RenderConfig(templateValues ConfigTemplateValues, writer io.Writer) error {
 					DomainName:             templateValues.DomainName,
 					TlsCertificateProvider: TlsCertificateProviderLetsEncrypt,
 					AccessControl: &AccessControlConfig{
-						TenantID:  templateValues.ApiTenantId,
+						TenantID:  templateValues.OrganizationTenantId,
 						ApiAppUri: "api://tyger-server",
 						CliAppUri: "api://tyger-cli",
 						RoleAssignments: &TygerRbacRoleAssignments{
