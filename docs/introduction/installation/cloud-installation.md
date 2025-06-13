@@ -400,7 +400,7 @@ Note: This does **not** delete any database data or buffers.
 To uninstall all cloud resources, run:
 
 ```bash
-tyger cloud uninstall -f config.yml
+tyger cloud uninstall -f config.yml --all
 ```
 
 ::: danger Warning

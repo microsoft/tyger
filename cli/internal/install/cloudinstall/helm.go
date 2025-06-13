@@ -799,121 +799,133 @@ func (inst *Installer) UninstallTyger(ctx context.Context, _, _ bool) error {
 	}
 
 	return inst.Config.ForEachOrgInParallel(ctx, func(ctx context.Context, org *OrganizationConfig) error {
-		// 1. Remove the Helm chart
-
-		helmOptions := helmclient.RestConfClientOptions{
-			RestConfig: restConfig,
-			Options: &helmclient.Options{
-				DebugLog: func(format string, v ...interface{}) {
-					log.Debug().Msgf(format, v...)
-				},
-				Namespace: org.Cloud.KubernetesNamespace,
-			},
-		}
-
-		helmClient, err := helmclient.NewClientFromRestConf(&helmOptions)
-		if err != nil {
-			return fmt.Errorf("failed to create helm client: %w", err)
-		}
-
-		if err := helmClient.UninstallReleaseByName(DefaultTygerReleaseName); err != nil {
-			if !errors.Is(err, driver.ErrReleaseNotFound) {
-				return fmt.Errorf("failed to uninstall Tyger Helm chart: %w", err)
-			}
-		}
-
-		clientset, err := kubernetes.NewForConfig(restConfig)
-		if err != nil {
-			return fmt.Errorf("failed to create Kubernetes client: %w", err)
-		}
-
-		// 2. Remove the finalizer we put on run pods so that they can be deleted
-
-		tygerRunLabelSelector := "tyger-run"
-
-		pods, err := clientset.CoreV1().Pods(org.Cloud.KubernetesNamespace).List(ctx, metav1.ListOptions{
-			LabelSelector: tygerRunLabelSelector,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to list pods: %w", err)
-		}
-		patchData := []byte(`[ { "op": "remove", "path": "/metadata/finalizers" } ]`)
-		for _, pod := range pods.Items {
-			_, err := clientset.CoreV1().Pods(org.Cloud.KubernetesNamespace).Patch(ctx, pod.Name, types.JSONPatchType, patchData, metav1.PatchOptions{})
-			if err != nil {
-				fmt.Printf("Failed to patch pod %s: %v\n", pod.Name, err)
-			}
-		}
-
-		// 3. Delete all the resources created by Tyger
-
-		deleteOpts := metav1.DeleteOptions{
-			PropagationPolicy: func() *metav1.DeletionPropagation {
-				v := metav1.DeletePropagationForeground
-				return &v
-			}(),
-		}
-
-		// Run pods
-		err = clientset.CoreV1().Pods(org.Cloud.KubernetesNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
-			LabelSelector: tygerRunLabelSelector,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to delete pods: %w", err)
-		}
-
-		// Run jobs
-		err = clientset.BatchV1().Jobs(org.Cloud.KubernetesNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
-			LabelSelector: tygerRunLabelSelector,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to delete jobs: %w", err)
-		}
-		// Run statefulsets
-		err = clientset.AppsV1().StatefulSets(org.Cloud.KubernetesNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
-			LabelSelector: tygerRunLabelSelector,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to delete statefulsets: %w", err)
-		}
-		// Run secrets
-		err = clientset.CoreV1().Secrets(org.Cloud.KubernetesNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
-			LabelSelector: tygerRunLabelSelector,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to delete secrets: %w", err)
-		}
-
-		// Run services. For some reason, there is no DeleteCollection method for services.
-		services, err := clientset.CoreV1().Services(org.Cloud.KubernetesNamespace).List(ctx, metav1.ListOptions{
-			LabelSelector: tygerRunLabelSelector,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to list services: %w", err)
-		}
-		for _, s := range services.Items {
-			err = clientset.CoreV1().Services(org.Cloud.KubernetesNamespace).Delete(ctx, s.Name, deleteOpts)
-			if err != nil {
-				return fmt.Errorf("failed to delete service '%s': %w", s.Name, err)
-			}
-		}
-
-		// Migration jobs
-		err = clientset.BatchV1().Jobs(org.Cloud.KubernetesNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
-			LabelSelector: migrationRunnerLabelKey,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to delete jobs: %w", err)
-		}
-
-		// Command host pods
-		err = clientset.CoreV1().Pods(org.Cloud.KubernetesNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
-			LabelSelector: commandHostLabelKey,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to delete pods: %w", err)
-		}
-
-		return nil
+		return inst.uninstallTygerSingleOrg(ctx, restConfig, org)
 	})
+}
+
+func (inst *Installer) uninstallTygerSingleOrg(ctx context.Context, restConfig *rest.Config, org *OrganizationConfig) error {
+	if restConfig == nil {
+		var err error
+		restConfig, err = inst.GetUserRESTConfig(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to get user REST config: %w", err)
+		}
+	}
+
+	// 1. Remove the Helm chart
+
+	helmOptions := helmclient.RestConfClientOptions{
+		RestConfig: restConfig,
+		Options: &helmclient.Options{
+			DebugLog: func(format string, v ...interface{}) {
+				log.Debug().Msgf(format, v...)
+			},
+			Namespace: org.Cloud.KubernetesNamespace,
+		},
+	}
+
+	helmClient, err := helmclient.NewClientFromRestConf(&helmOptions)
+	if err != nil {
+		return fmt.Errorf("failed to create helm client: %w", err)
+	}
+
+	if err := helmClient.UninstallReleaseByName(DefaultTygerReleaseName); err != nil {
+		if !errors.Is(err, driver.ErrReleaseNotFound) {
+			return fmt.Errorf("failed to uninstall Tyger Helm chart: %w", err)
+		}
+	}
+
+	clientset, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create Kubernetes client: %w", err)
+	}
+
+	// 2. Remove the finalizer we put on run pods so that they can be deleted
+
+	tygerRunLabelSelector := "tyger-run"
+
+	pods, err := clientset.CoreV1().Pods(org.Cloud.KubernetesNamespace).List(ctx, metav1.ListOptions{
+		LabelSelector: tygerRunLabelSelector,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list pods: %w", err)
+	}
+	patchData := []byte(`[ { "op": "remove", "path": "/metadata/finalizers" } ]`)
+	for _, pod := range pods.Items {
+		_, err := clientset.CoreV1().Pods(org.Cloud.KubernetesNamespace).Patch(ctx, pod.Name, types.JSONPatchType, patchData, metav1.PatchOptions{})
+		if err != nil {
+			fmt.Printf("Failed to patch pod %s: %v\n", pod.Name, err)
+		}
+	}
+
+	// 3. Delete all the resources created by Tyger
+
+	deleteOpts := metav1.DeleteOptions{
+		PropagationPolicy: func() *metav1.DeletionPropagation {
+			v := metav1.DeletePropagationForeground
+			return &v
+		}(),
+	}
+
+	// Run pods
+	err = clientset.CoreV1().Pods(org.Cloud.KubernetesNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
+		LabelSelector: tygerRunLabelSelector,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete pods: %w", err)
+	}
+
+	// Run jobs
+	err = clientset.BatchV1().Jobs(org.Cloud.KubernetesNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
+		LabelSelector: tygerRunLabelSelector,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete jobs: %w", err)
+	}
+	// Run statefulsets
+	err = clientset.AppsV1().StatefulSets(org.Cloud.KubernetesNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
+		LabelSelector: tygerRunLabelSelector,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete statefulsets: %w", err)
+	}
+	// Run secrets
+	err = clientset.CoreV1().Secrets(org.Cloud.KubernetesNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
+		LabelSelector: tygerRunLabelSelector,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete secrets: %w", err)
+	}
+
+	// Run services. For some reason, there is no DeleteCollection method for services.
+	services, err := clientset.CoreV1().Services(org.Cloud.KubernetesNamespace).List(ctx, metav1.ListOptions{
+		LabelSelector: tygerRunLabelSelector,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list services: %w", err)
+	}
+	for _, s := range services.Items {
+		err = clientset.CoreV1().Services(org.Cloud.KubernetesNamespace).Delete(ctx, s.Name, deleteOpts)
+		if err != nil {
+			return fmt.Errorf("failed to delete service '%s': %w", s.Name, err)
+		}
+	}
+
+	// Migration jobs
+	err = clientset.BatchV1().Jobs(org.Cloud.KubernetesNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
+		LabelSelector: migrationRunnerLabelKey,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete jobs: %w", err)
+	}
+
+	// Command host pods
+	err = clientset.CoreV1().Pods(org.Cloud.KubernetesNamespace).DeleteCollection(ctx, deleteOpts, metav1.ListOptions{
+		LabelSelector: commandHostLabelKey,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete pods: %w", err)
+	}
+
+	return nil
 }
