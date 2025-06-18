@@ -960,7 +960,7 @@ func (si *serviceInfo) performServicePrincipalLogin(ctx context.Context) (Access
 			return AccessToken{}, fmt.Errorf("error creating credential: %w", err)
 		}
 
-		client, err := confidential.New(si.Authority, si.Principal, cred, confidential.WithHTTPClient(client.DefaultClient.StandardClient()))
+		client, err := confidential.New(si.Authority, si.Principal, cred, confidential.WithHTTPClient(client.DefaultClient.StandardClient()), confidential.WithX5C())
 		if err != nil {
 			return AccessToken{}, err
 		}
