@@ -83,6 +83,9 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 				"annotations": map[string]any{
 					"service.beta.kubernetes.io/azure-dns-label-name": inst.Config.Cloud.Compute.DnsLabel,
 				},
+				"spec": map[string]any{
+					"externalTrafficPolicy": "Local", // in order to preserve client IP addresses
+				},
 			},
 			"additionalArguments": []string{
 				"--entryPoints.websecure.http.tls=true",
