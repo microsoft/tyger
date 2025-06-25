@@ -594,6 +594,7 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, org *Organizat
 				},
 				"custom": customIdentitiesValues,
 			},
+			"containerRegistryProxy": inst.Config.Cloud.Compute.ContainerRegistryProxy,
 			"accessControl": map[string]any{
 				"enabled":   true,
 				"authority": cloud.AzurePublic.ActiveDirectoryAuthorityHost + org.Api.AccessControl.TenantID,
@@ -899,6 +900,9 @@ func (inst *Installer) uninstallTygerSingleOrg(ctx context.Context, restConfig *
 	if err != nil {
 		return fmt.Errorf("failed to delete secrets: %w", err)
 	}
+
+	// Container registry proxy secret
+	clientset.CoreV1().Secrets(org.Cloud.KubernetesNamespace).Delete(ctx, "container-registry-proxy", deleteOpts)
 
 	// Run services. For some reason, there is no DeleteCollection method for services.
 	services, err := clientset.CoreV1().Services(org.Cloud.KubernetesNamespace).List(ctx, metav1.ListOptions{

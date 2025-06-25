@@ -37,4 +37,13 @@ public static partial class LoggerExtensions
 
     [LoggerMessage(LogLevel.Error, "Error finalizing run {runId}.")]
     public static partial void ErrorFinalizingRun(this ILogger logger, long runId, Exception exception);
+
+    [LoggerMessage(LogLevel.Error, "Error in ContainerRegistryProxySecretUpdater")]
+    public static partial void ErrorInContainerRegistryProxySecretUpdater(this ILogger logger, Exception exception);
+
+    [LoggerMessage(LogLevel.Information, "Updated ContainerRegistryProxySecretUpdater secret")]
+    public static partial void UpdatedContainerRegistryProxySecretUpdaterSecret(this ILogger logger);
+
+    [LoggerMessage(LogLevel.Information, "ContainerRegistryProxySecretUpdater secret unchanged")]
+    public static partial void ContainerRegistryProxySecretUnchanged(this ILogger logger);
 }

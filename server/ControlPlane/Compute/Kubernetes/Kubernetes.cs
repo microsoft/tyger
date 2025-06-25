@@ -69,6 +69,7 @@ public static class Kubernetes
             builder.Services.AddSingleton<RunChangeFeed>();
             builder.Services.AddHostedService(sp => sp.GetRequiredService<RunChangeFeed>());
             builder.Services.AddHostedService<RunFinalizer>();
+            builder.Services.AddHostedService<ContainerRegistryProxySecretUpdater>();
         }
     }
 }
@@ -99,6 +100,8 @@ public class KubernetesApiOptions : KubernetesCoreOptions
 
     [Required]
     public required string CurrentPodUid { get; init; }
+
+    public string? ContainerRegistryProxy { get; init; }
 }
 
 public class ClusterOptions
