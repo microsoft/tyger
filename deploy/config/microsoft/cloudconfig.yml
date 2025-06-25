@@ -71,8 +71,6 @@ cloud:
 
     localDevelopmentIdentityId: 36043a62-1383-4012-95aa-44da0a4d8012
 
-    containerRegistryProxy: acr-proxy.eminence.ms
-
     # The names of private container registries that the clusters must
     # be able to pull from.
     privateContainerRegistries:
