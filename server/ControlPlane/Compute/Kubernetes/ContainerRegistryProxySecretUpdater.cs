@@ -36,15 +36,11 @@ public class ContainerRegistryProxySecretUpdater : BackgroundService
         }
 
         await RefreshSecret(cancellationToken);
+        await base.StartAsync(cancellationToken);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (string.IsNullOrEmpty(_kubernetesOptions.ContainerRegistryProxy))
-        {
-            return;
-        }
-
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -103,11 +99,24 @@ public class ContainerRegistryProxySecretUpdater : BackgroundService
                 namespaceParameter: _kubernetesOptions.Namespace,
                 cancellationToken: cancellationToken);
 
+            bool secretsMatch = existingSecret.Data != null &&
+                secret.Data != null &&
+                existingSecret.Data.Count == secret.Data.Count &&
+                existingSecret.Data.All(kvp =>
+                    secret.Data.TryGetValue(kvp.Key, out var newValue) &&
+                    kvp.Value.SequenceEqual(newValue));
+
+            if (secretsMatch)
+            {
+                _logger.ContainerRegistryProxySecretUnchanged();
+                return;
+            }
+
             await _kubernetes.CoreV1.ReplaceNamespacedSecretAsync(
-                body: secret,
-                name: secret.Metadata.Name,
-                namespaceParameter: _kubernetesOptions.Namespace,
-                cancellationToken: cancellationToken);
+                    body: secret,
+                    name: secret.Metadata.Name,
+                    namespaceParameter: _kubernetesOptions.Namespace,
+                    cancellationToken: cancellationToken);
 
         }
         catch (k8s.Autorest.HttpOperationException e) when (e.Response.StatusCode == System.Net.HttpStatusCode.NotFound)

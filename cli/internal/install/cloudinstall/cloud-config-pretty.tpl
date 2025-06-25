@@ -112,6 +112,10 @@ cloud:
     # privateContainerRegistries:
     #   - myprivateregistry
     {{- end }}
+    {{- if .ContainerRegistryProxy }}
+
+    containerRegistryProxy: {{ .ContainerRegistryProxy }}
+    {{- end }}
 
     # This must be set if using a custom DNS zone and needs to be globally unique for the Azure region.
     # Each organization's domain name will have a CNAME record pointing to the domain name formed

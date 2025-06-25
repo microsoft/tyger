@@ -43,4 +43,7 @@ public static partial class LoggerExtensions
 
     [LoggerMessage(LogLevel.Information, "Updated ContainerRegistryProxySecretUpdater secret")]
     public static partial void UpdatedContainerRegistryProxySecretUpdaterSecret(this ILogger logger);
+
+    [LoggerMessage(LogLevel.Information, "ContainerRegistryProxySecretUpdater secret unchanged")]
+    public static partial void ContainerRegistryProxySecretUnchanged(this ILogger logger);
 }
