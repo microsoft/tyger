@@ -165,6 +165,8 @@ spec:
             - name: Compute__Kubernetes__CustomIdentities__{{ $element.name }}
               value: {{ $tygerName}}-custom-{{ $element.name }}-job
             {{- end }}
+            - name: Compute__Kubernetes__ContainerRegistryProxy
+              value: {{ .Values.containerRegistryProxy }}
             - name: Database__Host
               value: {{ .Values.database.host }}
             - name: Database__DatabaseName

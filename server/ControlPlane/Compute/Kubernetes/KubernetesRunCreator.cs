@@ -652,6 +652,12 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
             }
         };
 
+        if (!string.IsNullOrEmpty(_k8sOptions.ContainerRegistryProxy) && codespec.Image.Split("/")[0] == _k8sOptions.ContainerRegistryProxy)
+        {
+            podTemplateSpec.Spec.ImagePullSecrets ??= [];
+            podTemplateSpec.Spec.ImagePullSecrets.Add(new V1LocalObjectReference(ContainerRegistryProxySecretUpdater.ContainerRegistryProxySecretName));
+        }
+
         if (codespec.Env != null)
         {
             foreach (var (key, value) in codespec.Env)

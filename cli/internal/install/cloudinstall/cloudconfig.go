@@ -83,6 +83,7 @@ type ComputeConfig struct {
 	ManagementPrincipals       []Principal       `yaml:"managementPrincipals"`
 	LocalDevelopmentIdentityId string            `yaml:"localDevelopmentIdentityId"` // undocumented - for local development only
 	PrivateContainerRegistries []string          `yaml:"privateContainerRegistries"`
+	ContainerRegistryProxy     string            `yaml:"containerRegistryProxy"` // undocumented and for internal use only
 	DnsLabel                   string            `yaml:"dnsLabel"`
 	Helm                       *SharedHelmConfig `yaml:"helm"`
 }
