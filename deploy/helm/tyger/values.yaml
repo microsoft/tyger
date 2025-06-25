@@ -57,7 +57,7 @@ bufferSidecarImage:
 bufferCopierImage:
 workerWaiterImage:
 
-containerRegistryProxy: ""
+containerRegistryProxy:
 
 clusterConfiguration: "{}"
 
