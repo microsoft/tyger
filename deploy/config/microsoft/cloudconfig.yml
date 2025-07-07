@@ -135,6 +135,8 @@ organizations:
             # dnsEndpointType can be set to `AzureDNSZone` when creating large number of accounts in a single subscription.
             dnsEndpointType: AzureDnsZone
 
+        defaultBufferLocation: ${TYGER_LOCATION}
+
         # The storage account where run logs will be stored.
         logs:
           name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}lamnalog
@@ -228,6 +230,8 @@ organizations:
             # sku: defaults to Standard_LRS
             # dnsEndpointType can be set to `AzureDNSZone` when creating large number of accounts in a single subscription.
             # dnsEndpointType: defaults to Standard.
+
+        # defaultBufferLocation: Can be set if there are buffer storage accounts in multiple locations
 
         # The storage account where run logs will be stored.
         logs:

@@ -361,8 +361,7 @@ public class BufferOptions
 
 public class CloudBufferStorageOptions
 {
-    [Required]
-    public string DefaultLocation { get; init; } = null!;
+    public string? DefaultLocation { get; init; } = null!;
 
     [Required, MinLength(1)]
     public IList<BufferStorageAccountOptions> StorageAccounts { get; } = [];

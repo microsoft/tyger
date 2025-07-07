@@ -45,6 +45,7 @@ database:
 
 buffers:
   storageAccounts: [] # {name: myaccount, location: westus2, endpoint: https://... }, ...
+  defaultLocation:
   activeLifetime:
   softDeletedLifetime:
 

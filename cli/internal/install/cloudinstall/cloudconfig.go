@@ -233,8 +233,9 @@ type OrganizationCloudConfig struct {
 }
 
 type OrganizationStorageConfig struct {
-	Buffers []*StorageAccountConfig `yaml:"buffers"`
-	Logs    *StorageAccountConfig   `yaml:"logs"`
+	Buffers               []*StorageAccountConfig `yaml:"buffers"`
+	DefaultBufferLocation string                  `yaml:"defaultBufferLocation"`
+	Logs                  *StorageAccountConfig   `yaml:"logs"`
 }
 
 type TlsCertificateProvider string

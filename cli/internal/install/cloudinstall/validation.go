@@ -266,6 +266,14 @@ func quickValidateStorageConfig(ctx context.Context, success *bool, cloudConfig 
 	for i, buf := range storageConfig.Buffers {
 		quickValidateStorageAccountConfig(ctx, success, cloudConfig, organizationConfig, fmt.Sprintf("cloud.storage.buffers[%d]", i), buf)
 	}
+
+	if storageConfig.DefaultBufferLocation == "" {
+		if slices.IndexFunc(storageConfig.Buffers, func(buf *StorageAccountConfig) bool { return buf.Location == cloudConfig.DefaultLocation }) != -1 {
+			storageConfig.DefaultBufferLocation = cloudConfig.DefaultLocation
+		}
+	} else if slices.IndexFunc(storageConfig.Buffers, func(buf *StorageAccountConfig) bool { return buf.Location == storageConfig.DefaultBufferLocation }) == -1 {
+		validationError(ctx, success, "The `cloud.storage.defaultBufferLocation` must match one of the buffer locations for organization '%s'", organizationConfig.Name)
+	}
 }
 
 func quickValidateTlsConfig(ctx context.Context, success *bool, cloudConfig *TlsCertificate) {
