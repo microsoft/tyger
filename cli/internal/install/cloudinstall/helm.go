@@ -617,6 +617,7 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, org *Organizat
 			},
 			"buffers": map[string]any{
 				"storageAccounts":     buffersStorageAccountValues,
+				"defaultLocation":     org.Cloud.Storage.DefaultBufferLocation,
 				"activeLifetime":      org.Api.Buffers.ActiveLifetime,
 				"softDeletedLifetime": org.Api.Buffers.SoftDeletedLifetime,
 			},

@@ -401,7 +401,7 @@ public sealed class AzureBlobBufferProvider : IHostedService, IBufferProvider, I
             g => new RoundRobinCounter(g.Select(sa => idToNameMap.Single(kvp => kvp.Value.Equals(sa.Name, StringComparison.OrdinalIgnoreCase)).Key).ToArray()),
             StringComparer.OrdinalIgnoreCase);
 
-        if (_roundRobinCounters.ContainsKey(_storageOptions.DefaultLocation))
+        if (!string.IsNullOrEmpty(_storageOptions.DefaultLocation) && _roundRobinCounters.ContainsKey(_storageOptions.DefaultLocation))
         {
             _defaultLocation = _storageOptions.DefaultLocation;
         }

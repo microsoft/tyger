@@ -212,6 +212,8 @@ organizations:
             {{ optionalField "dnsEndpointType" .DnsEndpointType "defaults to Standard." }}
           {{- end }}
 
+        {{ optionalField "defaultBufferLocation" .Storage.DefaultBufferLocation "Can be set if there are buffer storage accounts in multiple locations" }}
+
         # The storage account where run logs will be stored.
         logs:
           name: {{ .Storage.Logs.Name }}
