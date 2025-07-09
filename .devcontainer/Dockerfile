@@ -9,7 +9,7 @@ ARG DEVCONTAINER_BASE=mcr.microsoft.com/devcontainers/base:1.0.9-ubuntu-22.04
 # subsequent stage and normalize the permissions.
 #########################################################
 
-FROM ${DEVCONTAINER_BASE} as file-normalizer
+FROM ${DEVCONTAINER_BASE} AS file-normalizer
 
 COPY .devcontainer/devcontainer.bashrc  \
      .devcontainer/install-tools.sh \
@@ -66,7 +66,7 @@ RUN umask 0002 \
     && VERSION=9.0.102 bash install.sh \
     # GO
     && cd /opt/features/src/go \
-    && VERSION=1.23.1 bash install.sh \
+    && VERSION=1.24.1 bash install.sh \
     && chown -R "${USERNAME}" "${GOROOT}" "${GOPATH}" \
     # GitHub CLI
     && cd /opt/features/src/github-cli/ \
