@@ -156,7 +156,7 @@ install-cli:
 		-X github.com/microsoft/tyger/cli/internal/install.ContainerRegistry=$${container_registry} \
       	-X github.com/microsoft/tyger/cli/internal/install.ContainerRegistryDirectory=$${container_registry_directory} \
       	-X github.com/microsoft/tyger/cli/internal/install.ContainerImageTag=$${tag}" \
-		./cmd/tyger ./cmd/buffer-sidecar ./cmd/tyger-proxy
+		./cmd/tyger ./cmd/buffer-sidecar ./cmd/tyger-proxy ./cmd/buffer-benchmark
 
 cli-ready: install-cli
 	if ! tyger login status &> /dev/null; then
