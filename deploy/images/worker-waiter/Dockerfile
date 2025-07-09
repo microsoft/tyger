@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/azurelinux/base/core:3.0 as build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/azurelinux/base/core:3.0 AS build
 ARG TARGETARCH BUILDOS
 
 RUN tdnf install -y ca-certificates
