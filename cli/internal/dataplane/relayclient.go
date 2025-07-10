@@ -227,7 +227,8 @@ type ReaderWithMetrics struct {
 func (c *ReaderWithMetrics) Read(p []byte) (n int, err error) {
 	n, err = c.reader.Read(p)
 	if n > 0 {
-		c.transferMetrics.Update(uint64(n), 0)
+		c.transferMetrics.EnsureStarted(nil)
+		c.transferMetrics.UpdateCompleted(uint64(n), 0)
 	}
 	return n, err
 }

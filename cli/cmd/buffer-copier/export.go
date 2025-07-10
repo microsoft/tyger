@@ -104,7 +104,7 @@ func newExportCommand(dbFlags *databaseFlags) *cobra.Command {
 						if err := copyBuffer(ctx, bufferIdAndTags, sourceBlobServiceClient, destBlobServiceClient, transferMetrics, sema, bufferIdTransform); err != nil {
 							cancel(err)
 						} else {
-							transferMetrics.Update(0, 1)
+							transferMetrics.UpdateCompleted(0, 1)
 						}
 						overallWg.Done()
 					}
@@ -119,6 +119,7 @@ func newExportCommand(dbFlags *databaseFlags) *cobra.Command {
 
 				for _, bufferIdAndTags := range page {
 					overallWg.Add(1)
+					transferMetrics.EnsureStarted(nil)
 					bufferChannel <- bufferIdAndTags
 				}
 			}
@@ -234,7 +235,7 @@ func copyBuffer(ctx context.Context,
 					break
 				}
 
-				transferMetrics.Update(uint64(*blob.Properties.ContentLength), 0)
+				transferMetrics.UpdateCompleted(uint64(*blob.Properties.ContentLength), 0)
 			}()
 		}
 	}
