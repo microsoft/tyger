@@ -500,7 +500,11 @@ func uploadBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, 
 		}
 		err = handleWriteResponse(resp)
 		if err == nil {
-			break
+			if log.Ctx(ctx).GetLevel() >= zerolog.TraceLevel {
+				blobUrl := container.CurrentAccessUrl().JoinPath(blobPath)
+				log.Ctx(ctx).Trace().Str("blobPath", blobUrl.Path).Dur("duration", time.Since(start)).Int64("contentLength", req.ContentLength).Msg("Uploaded blob")
+			}
+			return nil
 		}
 
 		switch err {
@@ -563,19 +567,6 @@ func uploadBlobWithRetry(ctx context.Context, httpClient *retryablehttp.Client, 
 			return fmt.Errorf("failed to upload blob: %w", client.RedactHttpError(err))
 		}
 	}
-
-	if log.Ctx(ctx).GetLevel() >= zerolog.TraceLevel {
-		blobUrl := container.CurrentAccessUrl().JoinPath(blobPath)
-		e := log.Ctx(ctx).Trace().Str("blobPath", blobUrl.Path).Dur("duration", time.Since(start))
-		if bytesBody, ok := body.([]byte); ok {
-			e = e.Int("contentLength", len(bytesBody))
-		} else if body == nil {
-			e = e.Int("contentLength", 0)
-		}
-		e.Msg("Uploaded blob")
-	}
-
-	return nil
 }
 
 func handleWriteResponse(resp *http.Response) error {
