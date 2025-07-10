@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -117,10 +118,72 @@ func main() {
 	rootCommand.Flags().IntSliceVar(&dops, "dop", dops, "Degree of parallelism to use for the benchmark")
 	rootCommand.Flags().StringSliceVar(&locationOverrides, "location", locationOverrides, "Override the locations to benchmark. If not specified, all available locations will be used.")
 
+	rootCommand.AddCommand(newSortCommand())
+
 	err := rootCommand.Execute()
 	if err != nil {
 		os.Exit(1)
 	}
+}
+
+func newSortCommand() *cobra.Command {
+	fileName := ""
+	cmd := &cobra.Command{
+		Use:   "sort",
+		Short: "Sorts the benchmark results from a log file",
+		Run: func(cmd *cobra.Command, args []string) {
+			if fileName == "" {
+				log.Fatal().Msg("Please specify a log file using --file")
+			}
+
+			results, err := parseConsoleFormattedLogFile(fileName)
+			if err != nil {
+				log.Fatal().Err(err).Msg("Failed to parse log file")
+			}
+
+			filteredResults := make([]map[string]string, 0, len(results))
+			for _, res := range results {
+				if res[fieldAvgThroughput] == "" {
+					continue
+				}
+				filteredResults = append(filteredResults, res)
+			}
+
+			slices.SortFunc(filteredResults, func(a, b map[string]string) int {
+				aThoughputString := strings.TrimSuffix(a[fieldAvgThroughput], "ps")
+				bThoughputString := strings.TrimSuffix(b[fieldAvgThroughput], "ps")
+				aThroughput, err := humanize.ParseBytes(aThoughputString)
+				if err != nil {
+					log.Fatal().Err(err).Msgf("Failed to parse throughput string: %s", aThoughputString)
+				}
+				bThroughput, err := humanize.ParseBytes(bThoughputString)
+				if err != nil {
+					log.Fatal().Err(err).Msgf("Failed to parse throughput string: %s", bThoughputString)
+				}
+
+				switch {
+				case aThroughput < bThroughput:
+					return 1
+				case aThroughput > bThroughput:
+					return -1
+				default:
+					return 0
+				}
+			})
+
+			for _, res := range filteredResults {
+				for _, field := range fieldsOrder {
+					if value, ok := res[field]; ok {
+						fmt.Printf("%s=%s ", field, value)
+					}
+				}
+				fmt.Println()
+			}
+		},
+	}
+	cmd.Flags().StringVarP(&fileName, "file", "f", "", "Path to the log file containing benchmark results")
+	cmd.MarkFlagRequired("file")
+	return cmd
 }
 
 func getUniqueLocations(ctx context.Context) []string {
@@ -359,4 +422,61 @@ func (s *SyncBuffer) Read(p []byte) (n int, err error) {
 func isStdErrTerminal() bool {
 	o, _ := os.Stderr.Stat()
 	return (o.Mode() & os.ModeCharDevice) == os.ModeCharDevice
+}
+
+func parseConsoleFormattedLogLine(line string) map[string]string {
+	result := make(map[string]string)
+
+	// Find the start of key-value pairs (after timestamp and INF)
+	parts := strings.Fields(line)
+	if len(parts) < 3 {
+		return result
+	}
+
+	// Skip timestamp and "INF" parts
+	kvParts := parts[2:]
+
+	for _, part := range kvParts {
+		// Find the first '=' to split key from value
+		eqIndex := strings.Index(part, "=")
+		if eqIndex == -1 {
+			continue
+		}
+
+		key := part[:eqIndex]
+		value := part[eqIndex+1:]
+
+		// Remove surrounding quotes if present
+		if len(value) >= 2 && value[0] == '"' && value[len(value)-1] == '"' {
+			value = value[1 : len(value)-1]
+		}
+
+		result[key] = value
+	}
+
+	return result
+}
+
+func parseConsoleFormattedLogFile(filename string) ([]map[string]string, error) {
+	bytes, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	lines := strings.Split(string(bytes), "\n")
+	var results []map[string]string
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		parsed := parseConsoleFormattedLogLine(line)
+		if len(parsed) > 0 {
+			results = append(results, parsed)
+		}
+	}
+
+	return results, nil
 }
