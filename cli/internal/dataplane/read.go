@@ -139,6 +139,7 @@ func Read(ctx context.Context, container *Container, outputWriter io.Writer, opt
 		go func() {
 			defer wg.Done()
 			c := make(chan BufferBlob, 5)
+			firstBlobForThisGoroutine := true
 			for {
 				lock.Lock()
 				blobNumber := nextBlobNumber
@@ -154,7 +155,7 @@ func Read(ctx context.Context, container *Container, outputWriter io.Writer, opt
 				lock.Unlock()
 
 				ctx := log.Ctx(ctx).With().Int64("blobNumber", blobNumber).Logger().WithContext(ctx)
-				respData, err := DownloadBlob(ctx, httpClient, container, MakeBlobPath(blobNumber), &waitForBlobs, &blobNumber, &finalBlobNumber)
+				respData, requestStartTime, err := DownloadBlob(ctx, metrics, httpClient, container, MakeBlobPath(blobNumber), &waitForBlobs, &blobNumber, &finalBlobNumber)
 				if err != nil {
 					if err == errPastEndOfBlob {
 						break
@@ -168,7 +169,13 @@ func Read(ctx context.Context, container *Container, outputWriter io.Writer, opt
 					errorChannel <- fmt.Errorf("error downloading blob: %w", err)
 					return
 				}
-				metrics.Update(uint64(len(respData.Data)), 0)
+
+				if firstBlobForThisGoroutine {
+					metrics.EnsureStarted(requestStartTime)
+					firstBlobForThisGoroutine = false
+				}
+
+				metrics.UpdateCompleted(uint64(len(respData.Data)), 0)
 
 				md5Header := respData.Header.Get(ContentMD5Header)
 				if md5Header == "" {
@@ -249,7 +256,7 @@ func readBufferStart(ctx context.Context, httpClient *retryablehttp.Client, cont
 	wait := atomic.Bool{}
 	wait.Store(true)
 
-	data, err := DownloadBlob(ctx, httpClient, container, StartMetadataBlobName, &wait, nil, nil)
+	data, _, err := DownloadBlob(ctx, nil, httpClient, container, StartMetadataBlobName, &wait, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -269,7 +276,7 @@ func pollForBufferEnd(ctx context.Context, httpClient *retryablehttp.Client, con
 	wait.Store(false)
 
 	for ctx.Err() == nil {
-		data, err := DownloadBlob(ctx, httpClient, container, EndMetadataBlobName, &wait, nil, nil)
+		data, _, err := DownloadBlob(ctx, nil, httpClient, container, EndMetadataBlobName, &wait, nil, nil)
 		if err != nil {
 			if err == ErrNotFound {
 				time.Sleep(5 * time.Second)
@@ -296,7 +303,7 @@ func pollForBufferEnd(ctx context.Context, httpClient *retryablehttp.Client, con
 	return nil
 }
 
-func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, container *Container, blobPath string, waitForBlob *atomic.Bool, blobNumber *int64, finalBlobNumber *atomic.Int64) (*readData, error) {
+func DownloadBlob(ctx context.Context, metrics *TransferMetrics, httpClient *retryablehttp.Client, container *Container, blobPath string, waitForBlob *atomic.Bool, blobNumber *int64, finalBlobNumber *atomic.Int64) (*readData, *time.Time, error) {
 	// The last error that occurred relating to reading the body. retryablehttp does not retry when these happen
 	// because reading the body happens after the call to HttpClient.Do()
 	var lastBodyReadError *responseBodyReadError
@@ -313,27 +320,27 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, contain
 		if blobNumber != nil {
 			if num := finalBlobNumber.Load(); num >= 0 && num < *blobNumber {
 				log.Ctx(ctx).Trace().Msg("Abandoning download after final blob")
-				return nil, errPastEndOfBlob
+				return nil, nil, errPastEndOfBlob
 			}
 		}
 
 		containerUrl, err := container.GetValidAccessUrl(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get access URL: %w", err)
+			return nil, nil, fmt.Errorf("failed to get access URL: %w", err)
 		}
 		req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, containerUrl.JoinPath(blobPath).String(), nil)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		AddCommonBlobRequestHeaders(req.Header)
 
 		resp, err := httpClient.Do(req)
 		if err != nil {
-			return nil, client.RedactHttpError(err)
+			return nil, nil, client.RedactHttpError(err)
 		}
 
-		respData, err := handleReadResponse(ctx, resp)
+		respData, err := handleReadResponse(ctx, metrics, resp)
 		if err == nil {
 			log.Ctx(ctx).Trace().
 				Int("contentLength", int(resp.ContentLength)).
@@ -344,14 +351,14 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, contain
 				finalBlobNumber.Store(*blobNumber)
 			}
 
-			return respData, nil
+			return respData, &start, nil
 		}
 		if err == errMd5Mismatch {
 			if retryCount < 5 {
 				log.Ctx(ctx).Debug().Msg("MD5 mismatch, retrying")
 				continue
 			} else {
-				return nil, fmt.Errorf("failed to read blob: %w", client.RedactHttpError(err))
+				return nil, nil, fmt.Errorf("failed to read blob: %w", client.RedactHttpError(err))
 			}
 		}
 		if err == ErrNotFound {
@@ -381,15 +388,15 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, contain
 					if finalNum < *blobNumber {
 						// The blob we were attempting to download is after the final blob
 						log.Ctx(ctx).Trace().Msg("Abandoning download after final blob")
-						return nil, errPastEndOfBlob
+						return nil, nil, errPastEndOfBlob
 					}
-					return nil, fmt.Errorf("blob number %d was expected to exist but does not", *blobNumber)
+					return nil, nil, fmt.Errorf("blob number %d was expected to exist but does not", *blobNumber)
 				}
 
 				// We don't yet know what the final blob number is, we we will just report back that the blob does not exist.
 				// This will only become an error if this blob is before the final blob.
 			}
-			return nil, err
+			return nil, nil, err
 		}
 		if err == ErrInvalidSas {
 			if retriesDueToInvalidSas < 5 {
@@ -397,7 +404,7 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, contain
 				log.Ctx(ctx).Debug().Msg("SAS token expired, retrying")
 				continue
 			} else {
-				return nil, fmt.Errorf("failed to read blob: %w", client.RedactHttpError(err))
+				return nil, nil, fmt.Errorf("failed to read blob: %w", client.RedactHttpError(err))
 			}
 		}
 		if err == errServerBusy || err == errOperationTimeout {
@@ -410,7 +417,7 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, contain
 
 		if errors.Is(err, ctx.Err()) {
 			// the context has been canceled
-			return nil, err
+			return nil, nil, err
 		}
 		if err, ok := err.(*responseBodyReadError); ok {
 			if lastBodyReadError == nil {
@@ -428,7 +435,7 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, contain
 				case <-req.Context().Done():
 					timer.Stop()
 					httpClient.HTTPClient.CloseIdleConnections()
-					return nil, req.Context().Err()
+					return nil, nil, req.Context().Err()
 				case <-timer.C:
 				}
 
@@ -436,7 +443,7 @@ func DownloadBlob(ctx context.Context, httpClient *retryablehttp.Client, contain
 			}
 		}
 
-		return nil, client.RedactHttpError(err)
+		return nil, nil, client.RedactHttpError(err)
 	}
 }
 
@@ -445,7 +452,7 @@ type readData struct {
 	Header http.Header
 }
 
-func handleReadResponse(ctx context.Context, resp *http.Response) (*readData, error) {
+func handleReadResponse(ctx context.Context, metrics *TransferMetrics, resp *http.Response) (*readData, error) {
 	defer resp.Body.Close()
 
 	switch resp.StatusCode {
@@ -456,7 +463,15 @@ func handleReadResponse(ctx context.Context, resp *http.Response) (*readData, er
 		}
 
 		buf := pool.Get(int(resp.ContentLength))
-		_, err := io.ReadFull(resp.Body, buf)
+		bodyReader := resp.Body
+		if metrics != nil {
+			metrics.EnsureStarted(nil)
+			bodyReader = &DownloadProgressReader{
+				Reader:          resp.Body,
+				TransferMetrics: metrics,
+			}
+		}
+		_, err := io.ReadFull(bodyReader, buf)
 		if err != nil {
 			// return the buffer to the pool
 			pool.Put(buf)
