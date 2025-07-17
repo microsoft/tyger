@@ -199,26 +199,14 @@ public class RunFinalizer : BackgroundService
         }
 
         await _repository.UpdateRunAsFinal(runState.Id, cancellationToken);
-        
-        // Get run data for logging
         var runResult = await _repository.GetRun(runState.Id, cancellationToken, GetRunOptions.SkipTags);
         if (runResult != null)
         {
-            _logger.FinalizedRun(
-                runState.Id, 
-                runState.Status.ToString(), 
-                runResult.Value.run.CreatedAt, 
-                runResult.Value.run.StartedAt, 
-                runResult.Value.run.FinishedAt);
+            _logger.FinalizedRun(runState.Id, runState.Status.ToString(), runResult.Value.run.CreatedAt, runResult.Value.run.StartedAt, runResult.Value.run.FinishedAt);
         }
         else
         {
-            _logger.FinalizedRun(
-                runState.Id, 
-                runState.Status.ToString(), 
-                null, 
-                null, 
-                null);
+            _logger.FinalizedRun(runState.Id, runState.Status.ToString(), null, null, null);
         }
     }
 
