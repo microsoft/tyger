@@ -191,7 +191,25 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         {
             // Create a database record for this run
             run = await Repository.CreateRun(run, idempotencyKey, cancellationToken);
-            _logger.CreatedRun(run.Id!.Value);
+
+            // Calculate the resources requests for the run and log it.
+            var jobCpu = jobCodespec.Resources?.Requests?.Cpu ?? 0;
+            var jobGpu = jobCodespec.Resources?.Gpu ?? 0;
+            var jobMemory = jobCodespec.Resources?.Requests?.Memory ?? 0;
+            var workerCpu = workerCodespec?.Resources?.Requests?.Cpu ?? 0;
+            var workerGpu = workerCodespec?.Resources?.Gpu ?? 0;
+            var workerMemory = workerCodespec?.Resources?.Requests?.Memory ?? 0;
+
+            var totalCpu = (run.Job.Replicas * jobCpu) + ((run.Worker?.Replicas ?? 0) * workerCpu);
+            var totalGpu = (run.Job.Replicas * jobGpu) + ((run.Worker?.Replicas ?? 0) * workerGpu);
+            var totalMemory = (run.Job.Replicas * jobMemory) + ((run.Worker?.Replicas ?? 0) * workerMemory);
+
+            _logger.CreatedRun(run.Id!.Value,
+                jobCodespec.Image,
+                totalCpu > 0 ? $"{totalCpu}" : null,
+                totalGpu > 0 ? $"{totalGpu}" : null,
+                totalMemory > 0 ? $"{totalMemory}" : null);
+
             return run;
         }
 
