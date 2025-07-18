@@ -453,22 +453,41 @@ public class Repository
         }, cancellationToken);
     }
 
-    public async Task UpdateRunAsFinal(long id, CancellationToken cancellationToken)
+    public async Task<(DateTimeOffset createdAt, DateTimeOffset? startedAt, DateTimeOffset? finishedAt)> UpdateRunAsFinal(long id, CancellationToken cancellationToken)
     {
-        await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
+        return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
             await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
             await using var command = new NpgsqlCommand("""
                 UPDATE runs
                 SET final = true
                 WHERE id = $1
+                RETURNING created_at, (run->>'startedAt')::timestamptz, (run->>'finishedAt')::timestamptz
                 """, conn)
             {
                 Parameters = { new() { Value = id, NpgsqlDbType = NpgsqlDbType.Bigint } }
             };
 
             await command.PrepareAsync(cancellationToken);
-            await command.ExecuteNonQueryAsync(cancellationToken);
+
+            DateTimeOffset createdAt;
+            DateTimeOffset? startedAt = null;
+            DateTimeOffset? finishedAt = null;
+
+            await using (var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken))
+            {
+                await reader.ReadAsync(cancellationToken);
+                createdAt = reader.GetDateTime(0);
+                if (!reader.IsDBNull(1))
+                {
+                    startedAt = reader.GetDateTime(1);
+                }
+
+                if (!reader.IsDBNull(2))
+                {
+                    finishedAt = reader.GetDateTime(2);
+                }
+            }
 
             await using var notifyCommand = new NpgsqlCommand($"SELECT pg_notify('{RunFinalizedChannelName}', $1);", conn)
             {
@@ -477,6 +496,8 @@ public class Repository
 
             await notifyCommand.PrepareAsync(cancellationToken);
             await notifyCommand.ExecuteNonQueryAsync(cancellationToken);
+
+            return (createdAt, startedAt, finishedAt);
         }, cancellationToken);
     }
 
