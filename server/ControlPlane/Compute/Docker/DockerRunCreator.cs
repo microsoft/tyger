@@ -516,7 +516,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
 
         await Repository.UpdateRunAsResourcesCreated(run.Id!.Value, run, cancellationToken: cancellationToken);
 
-        _logger.CreatedRun(run.Id!.Value);
+        _logger.CreatedRun(run.Id!.Value, jobCodespec.Image, jobCodespec.Resources?.Requests?.Cpu?.ToString(), jobCodespec.Resources?.Gpu?.ToString(), jobCodespec.Resources?.Requests?.Memory?.ToString());
         return run with { Status = RunStatus.Running };
     }
 
