@@ -25,7 +25,7 @@ runs:
         Components: main
         Architectures: $(dpkg --print-architecture)
         Signed-by: /etc/apt/keyrings/microsoft.gpg" | sudo tee /etc/apt/sources.list.d/azure-cli.sources
-        AZ_VER=2.73.0
+        AZ_VER=2.75.0
         sudo apt-get update && sudo apt-get install azure-cli=${AZ_VER}-1~${AZ_DIST}
 
     - name: downgrade Azure CLI (Linux)

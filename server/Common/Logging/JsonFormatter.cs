@@ -67,6 +67,11 @@ internal sealed class JsonFormatter : ConsoleFormatter
             }
         }, null);
 
+        if (Environment.GetEnvironmentVariable("ServiceMetadata__ExternalBaseUrl") is { } externalBaseUrl)
+        {
+            writer.WriteString("host", externalBaseUrl);
+        }
+
         writer.WriteString("message", message);
         if (logEntry.Exception != null)
         {
