@@ -198,8 +198,8 @@ public class RunFinalizer : BackgroundService
             }
         }
 
-        var (createdAt, startedAt, finishedAt) = await _repository.UpdateRunAsFinal(runState.Id, cancellationToken);
-        _logger.FinalizedRun(runState.Id, runState.Status.ToString(), createdAt, startedAt, finishedAt);
+        var createdAt = await _repository.UpdateRunAsFinal(runState.Id, cancellationToken);
+        _logger.FinalizedRun(runState.Id, runState.Status.ToString(), createdAt, runState.StartedAt, runState.FinishedAt);
     }
 
     private async Task ArchiveLogs(long runId, CancellationToken cancellationToken)

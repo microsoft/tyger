@@ -453,7 +453,7 @@ public class Repository
         }, cancellationToken);
     }
 
-    public async Task<(DateTimeOffset createdAt, DateTimeOffset? startedAt, DateTimeOffset? finishedAt)> UpdateRunAsFinal(long id, CancellationToken cancellationToken)
+    public async Task<DateTimeOffset> UpdateRunAsFinal(long id, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
@@ -462,7 +462,7 @@ public class Repository
                 UPDATE runs
                 SET final = true
                 WHERE id = $1
-                RETURNING created_at, (run->>'startedAt')::timestamptz, (run->>'finishedAt')::timestamptz
+                RETURNING created_at
                 """, conn)
             {
                 Parameters = { new() { Value = id, NpgsqlDbType = NpgsqlDbType.Bigint } }
@@ -471,22 +471,11 @@ public class Repository
             await command.PrepareAsync(cancellationToken);
 
             DateTimeOffset createdAt;
-            DateTimeOffset? startedAt = null;
-            DateTimeOffset? finishedAt = null;
 
             await using (var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken))
             {
                 await reader.ReadAsync(cancellationToken);
                 createdAt = reader.GetDateTime(0);
-                if (!reader.IsDBNull(1))
-                {
-                    startedAt = reader.GetDateTime(1);
-                }
-
-                if (!reader.IsDBNull(2))
-                {
-                    finishedAt = reader.GetDateTime(2);
-                }
             }
 
             await using var notifyCommand = new NpgsqlCommand($"SELECT pg_notify('{RunFinalizedChannelName}', $1);", conn)
@@ -497,7 +486,7 @@ public class Repository
             await notifyCommand.PrepareAsync(cancellationToken);
             await notifyCommand.ExecuteNonQueryAsync(cancellationToken);
 
-            return (createdAt, startedAt, finishedAt);
+            return createdAt;
         }, cancellationToken);
     }
 
