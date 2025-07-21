@@ -32,8 +32,8 @@ public static partial class LoggerExtensions
     [LoggerMessage(LogLevel.Information, "Finalizing run {runId}.")]
     public static partial void FinalizingRun(this ILogger logger, long runId);
 
-    [LoggerMessage(LogLevel.Information, "Finalized run {runId}. Status: {status}, CreateTime: {createTime}, StartTime: {startTime}, FinishTime: {finishTime}")]
-    public static partial void FinalizedRun(this ILogger logger, long runId, string status, DateTimeOffset? createTime, DateTimeOffset? startTime, DateTimeOffset? finishTime);
+    [LoggerMessage(LogLevel.Information, "Finalized run {runId}. status: {status}, createdAt: {createdAt}, startedAt: {startedAt}, finishedAt: {finishedAt}")]
+    public static partial void FinalizedRun(this ILogger logger, long runId, string status, DateTimeOffset? createdAt, DateTimeOffset? startedAt, DateTimeOffset? finishedAt);
 
     [LoggerMessage(LogLevel.Error, "Error finalizing run {runId}.")]
     public static partial void ErrorFinalizingRun(this ILogger logger, long runId, Exception exception);
