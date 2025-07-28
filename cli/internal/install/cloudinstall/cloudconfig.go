@@ -73,6 +73,7 @@ type CloudConfig struct {
 	LogAnalyticsWorkspace *NamedAzureResource   `yaml:"logAnalyticsWorkspace"`
 	DnsZone               *NamedAzureResource   `yaml:"dnsZone"`
 	TlsCertificate        *TlsCertificate       `yaml:"tlsCertificate"`
+	PrivateNetworking     bool                  `yaml:"privateNetworking"`
 
 	// Internal support for associating resources with a network security perimeter profile
 	NetworkSecurityPerimeter *NetworkSecurityPerimeterConfig `yaml:"networkSecurityPerimeter"`
@@ -164,8 +165,16 @@ type ClusterConfig struct {
 	Location          string                                    `yaml:"location"`
 	Sku               armcontainerservice.ManagedClusterSKUTier `yaml:"sku"`
 	KubernetesVersion string                                    `yaml:"kubernetesVersion,omitempty"`
+	ExistingSubnet    *SubnetReference                          `yaml:"existingSubnet,omitempty"`
 	SystemNodePool    *NodePoolConfig                           `yaml:"systemNodePool"`
 	UserNodePools     []*NodePoolConfig                         `yaml:"userNodePools"`
+}
+
+type SubnetReference struct {
+	ResourceGroup            string `yaml:"resourceGroup"`
+	VNetName                 string `yaml:"vnetName"`
+	SubnetName               string `yaml:"subnetName"`
+	PrivateLinkResourceGroup string `yaml:"-"`
 }
 
 type NodePoolConfig struct {

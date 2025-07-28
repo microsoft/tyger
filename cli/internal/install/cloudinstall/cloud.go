@@ -104,6 +104,17 @@ func (inst *Installer) InstallCloud(ctx context.Context, skipShared bool) (err e
 			return install.ErrAlreadyLoggedError
 		}
 
+		if inst.Config.Cloud.PrivateNetworking {
+			for _, cluster := range inst.Config.Cloud.Compute.Clusters {
+				if cluster.ExistingSubnet != nil {
+					if err := inst.ensureResourceGroupCreated(ctx, cluster.ExistingSubnet.PrivateLinkResourceGroup); err != nil {
+						logError(ctx, err, "")
+						return install.ErrAlreadyLoggedError
+					}
+				}
+			}
+		}
+
 		if err := inst.preflightCheck(ctx); err != nil {
 			if !errors.Is(err, install.ErrAlreadyLoggedError) {
 				logError(ctx, err, "")
@@ -469,7 +480,21 @@ func (inst *Installer) createSharedPromises(ctx context.Context) install.Promise
 			}
 		}
 
-		return inst.installTraefik(ctx, getAdminCredsPromise, traefikKeyVaultClientManagedIdentityPromise)
+		if _, err := inst.installTraefik(ctx, getAdminCredsPromise, traefikKeyVaultClientManagedIdentityPromise); err != nil {
+			return nil, fmt.Errorf("failed to install Traefik: %w", err)
+		}
+
+		if inst.Config.Cloud.PrivateNetworking {
+			cluster, err := createApiHostClusterPromise.Await()
+			if err != nil {
+				return nil, install.ErrDependencyFailed
+			}
+			if err := inst.createPrivateEndpointsForTraefik(ctx, cluster); err != nil {
+				return nil, fmt.Errorf("failed to create private endpoints for Traefik: %w", err)
+			}
+		}
+
+		return nil, nil
 	})
 
 	install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {

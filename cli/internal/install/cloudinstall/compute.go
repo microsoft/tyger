@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v4"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v7"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/operationalinsights/armoperationalinsights"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
 	"github.com/rs/zerolog/log"
@@ -124,6 +126,14 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 		},
 	}
 
+	if inst.Config.Cloud.PrivateNetworking {
+		cluster.Properties.APIServerAccessProfile = &armcontainerservice.ManagedClusterAPIServerAccessProfile{
+			EnablePrivateCluster:           Ptr(true),
+			PrivateDNSZone:                 Ptr("system"),
+			EnablePrivateClusterPublicFQDN: Ptr(false),
+		}
+	}
+
 	if workspace := inst.Config.Cloud.LogAnalyticsWorkspace; workspace != nil {
 		oic, err := armoperationalinsights.NewWorkspacesClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
 		if err != nil {
@@ -159,6 +169,42 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 		}
 	}
 
+	var vnetId *string
+	var vnetSubnetId *string
+	var vnetSubnetNsgId *string
+	if clusterConfig.ExistingSubnet != nil {
+		vnetClient, err := armnetwork.NewVirtualNetworksClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create virtual networks client: %w", err)
+		}
+
+		vnetResult, err := vnetClient.Get(ctx, clusterConfig.ExistingSubnet.ResourceGroup, clusterConfig.ExistingSubnet.VNetName, nil)
+		if err != nil {
+			var respErr *azcore.ResponseError
+			if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
+				return nil, fmt.Errorf("VNet '%s' not found in resource group '%s'", clusterConfig.ExistingSubnet.VNetName, clusterConfig.ExistingSubnet.ResourceGroup)
+			}
+
+			return nil, fmt.Errorf("failed to get VNet: %w", err)
+		}
+
+		subnetIndex := slices.IndexFunc(vnetResult.Properties.Subnets, func(subnet *armnetwork.Subnet) bool {
+			return subnet.Name != nil && *subnet.Name == clusterConfig.ExistingSubnet.SubnetName
+		})
+
+		if subnetIndex == -1 {
+			return nil, fmt.Errorf("subnet '%s' not found in VNet '%s'", clusterConfig.ExistingSubnet.SubnetName, clusterConfig.ExistingSubnet.VNetName)
+		}
+
+		vnetId = vnetResult.ID
+		subnet := vnetResult.Properties.Subnets[subnetIndex]
+		vnetSubnetId = subnet.ID
+
+		if subnet.Properties.NetworkSecurityGroup != nil && subnet.Properties.NetworkSecurityGroup.ID != nil {
+			vnetSubnetNsgId = subnet.Properties.NetworkSecurityGroup.ID
+		}
+	}
+
 	cluster.Properties.AgentPoolProfiles = []*armcontainerservice.ManagedClusterAgentPoolProfile{
 		{
 			Name:                &clusterConfig.SystemNodePool.Name,
@@ -171,6 +217,7 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 			MaxCount:            &clusterConfig.SystemNodePool.MaxCount,
 			OSType:              Ptr(armcontainerservice.OSTypeLinux),
 			OSSKU:               Ptr(armcontainerservice.OSSKU(clusterConfig.SystemNodePool.OsSku)),
+			VnetSubnetID:        vnetSubnetId,
 			Tags:                tags,
 		},
 	}
@@ -193,7 +240,8 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 			NodeTaints: []*string{
 				Ptr("tyger=run:NoSchedule"),
 			},
-			Tags: tags,
+			VnetSubnetID: vnetSubnetId,
+			Tags:         tags,
 		}
 
 		if existingCluster != nil {
@@ -385,6 +433,16 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 
 	if err := assignRbacRole(ctx, inst.Config.Cloud.Compute.GetManagementPrincipalIds(), true, *createdCluster.ID, "Azure Kubernetes Service Cluster User Role", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
 		return nil, fmt.Errorf("failed to assign RBAC role on cluster: %w", err)
+	}
+
+	if inst.Config.Cloud.PrivateNetworking {
+		if err := assignRbacRole(ctx, []string{*createdCluster.Identity.PrincipalID}, false, *vnetId, "Network Contributor", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
+			return nil, fmt.Errorf("failed to assign RBAC role on VNet: %w", err)
+		}
+
+		if err := assignRbacRole(ctx, []string{*createdCluster.Identity.PrincipalID}, false, *vnetSubnetNsgId, "Network Contributor", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
+			return nil, fmt.Errorf("failed to assign RBAC role on VNet: %w", err)
+		}
 	}
 
 	return &createdCluster, nil

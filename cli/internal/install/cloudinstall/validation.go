@@ -134,6 +134,10 @@ func quickValidateComputeConfig(ctx context.Context, success *bool, cloudConfig 
 		validationError(ctx, success, "At least one cluster must be specified")
 	}
 
+	if len(computeConfig.Clusters) > 1 {
+		validationError(ctx, success, "Multiple clusters are not supported yet.")
+	}
+
 	hasApiHost := false
 	clusterNames := make(map[string]any)
 	for _, cluster := range computeConfig.Clusters {
@@ -163,6 +167,24 @@ func quickValidateComputeConfig(ctx context.Context, success *bool, cloudConfig 
 			armcontainerservice.ManagedClusterSKUTierStandard,
 			armcontainerservice.PossibleManagedClusterSKUTierValues(),
 			fmt.Sprintf("The `sku` field must be one of %%v for cluster '%s'", cluster.Name))
+
+		if cluster.ExistingSubnet != nil {
+			if cluster.ExistingSubnet.ResourceGroup == "" {
+				validationError(ctx, success, "Since `existingSubnet` is specified, `existingSubnet.resourceGroup` is required on cluster `%s`", cluster.Name)
+			}
+
+			if cluster.ExistingSubnet.VNetName == "" {
+				validationError(ctx, success, "Since `existingSubnet` is specified, `existingSubnet.vnetName` is required on cluster `%s`", cluster.Name)
+			}
+
+			if cluster.ExistingSubnet.SubnetName == "" {
+				validationError(ctx, success, "Since `existingSubnet` is specified, `existingSubnet.subnetName` is required on cluster `%s`", cluster.Name)
+			}
+
+			if cloudConfig.PrivateNetworking {
+				cluster.ExistingSubnet.PrivateLinkResourceGroup = fmt.Sprintf("%s-privatelink-%s-%s", cloudConfig.ResourceGroup, cluster.ExistingSubnet.ResourceGroup, cluster.ExistingSubnet.VNetName)
+			}
+		}
 
 		if cluster.SystemNodePool == nil {
 			validationError(ctx, success, "The `systemNodePool` field is required on a cluster `%s`", cluster.Name)

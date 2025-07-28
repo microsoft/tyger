@@ -18,7 +18,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armsubscriptions v1.3.0
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage v1.6.0
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.5.0
-	github.com/AzureAD/microsoft-authentication-library-for-go v1.4.1
+	github.com/AzureAD/microsoft-authentication-library-for-go v1.4.2
 	github.com/IGLOU-EU/go-wildcard/v2 v2.0.2
 	github.com/Masterminds/sprig/v3 v3.3.0
 	github.com/a8m/envsubst v1.4.2
@@ -63,7 +63,9 @@ require (
 
 require (
 	github.com/AdaLogics/go-fuzz-headers v0.0.0-20240806141605-e8a1dd7889d6 // indirect
-	github.com/Azure/azure-sdk-for-go/sdk/internal v1.10.0 // indirect
+	github.com/Azure/azure-sdk-for-go/sdk/internal v1.11.1 // indirect
+	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v7 v7.0.0 // indirect
+	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/privatedns/armprivatedns v1.3.0 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c // indirect
 	github.com/BurntSushi/toml v1.5.0 // indirect
 	github.com/MakeNowJust/heredoc v1.0.0 // indirect

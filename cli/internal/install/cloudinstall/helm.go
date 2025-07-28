@@ -41,7 +41,8 @@ import (
 )
 
 const (
-	TraefikNamespace = "traefik"
+	TraefikNamespace              = "traefik"
+	TraefikPrivateLinkServiceName = "traefik"
 )
 
 func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *install.Promise[*rest.Config], keyVaultClientManagedIdentityPromise *install.Promise[*armmsi.Identity]) (any, error) {
@@ -55,6 +56,19 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 	clientset := kubernetes.NewForConfigOrDie(restConfig)
 	if err := inst.ensureTraefikDynamicConfigMap(ctx, clientset); err != nil {
 		return nil, fmt.Errorf("failed to ensure Traefik dynamic ConfigMap: %w", err)
+	}
+
+	var annotations map[string]any
+	if inst.Config.Cloud.PrivateNetworking {
+		annotations = map[string]any{
+			"service.beta.kubernetes.io/azure-load-balancer-internal": "true",
+			"service.beta.kubernetes.io/azure-pls-create":             "true",
+			"service.beta.kubernetes.io/azure-pls-name":               TraefikPrivateLinkServiceName,
+		}
+	} else {
+		annotations = map[string]any{
+			"service.beta.kubernetes.io/azure-dns-label-name": inst.Config.Cloud.Compute.DnsLabel,
+		}
 	}
 
 	traefikConfig := HelmChartConfig{
@@ -80,9 +94,7 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 				},
 			},
 			"service": map[string]any{
-				"annotations": map[string]any{
-					"service.beta.kubernetes.io/azure-dns-label-name": inst.Config.Cloud.Compute.DnsLabel,
-				},
+				"annotations": annotations,
 				"spec": map[string]any{
 					"externalTrafficPolicy": "Local", // in order to preserve client IP addresses
 				},
