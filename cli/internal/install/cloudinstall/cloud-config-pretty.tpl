@@ -8,6 +8,11 @@ cloud:
   resourceGroup: {{ .ResourceGroup }}
   defaultLocation: {{ .DefaultLocation}}
 
+  # Whether to use private networking. The default is false.
+  # If true, Tyger service, storage storage accounts, and all other created resources
+  # will not be accessible from the public internet.
+  privateNetworking: {{ .PrivateNetworking }}
+
   # Optionally point an existing Log Analytics workspace to send logs to.
   {{ if .LogAnalyticsWorkspace -}}
   logAnalyticsWorkspace:
@@ -54,6 +59,20 @@ cloud:
         kubernetesVersion: "{{ .KubernetesVersion }}"
         {{ optionalField "sku" .Sku "defaults to defaultLocation" }}
         {{ optionalField "location" .Location "defaults to Standard" }}
+
+        # An existing virtual network subnet to deploy the cluster into.
+        {{ if .ExistingSubnet -}}
+        existingSubnet:
+          resourceGroup: {{ .ExistingSubnet.ResourceGroup }}
+          vnetName: {{ .ExistingSubnet.VNetName }}
+          subnetName: {{ .ExistingSubnet.SubnetName }}
+        {{- else -}}
+        # existingSubnet:
+          # resourceGroup:
+          # vnetName:
+          # subnetName:
+        {{- end }}
+
         systemNodePool:
           name: {{ .SystemNodePool.Name }}
           vmSize: {{ .SystemNodePool.VMSize }}

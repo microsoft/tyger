@@ -68,12 +68,12 @@ type CloudConfig struct {
 	SubscriptionID        string                `yaml:"subscriptionId"`
 	DefaultLocation       string                `yaml:"defaultLocation"`
 	ResourceGroup         string                `yaml:"resourceGroup"`
+	PrivateNetworking     bool                  `yaml:"privateNetworking"`
 	Compute               *ComputeConfig        `yaml:"compute"`
 	Database              *DatabaseServerConfig `yaml:"database"`
 	LogAnalyticsWorkspace *NamedAzureResource   `yaml:"logAnalyticsWorkspace"`
 	DnsZone               *NamedAzureResource   `yaml:"dnsZone"`
 	TlsCertificate        *TlsCertificate       `yaml:"tlsCertificate"`
-	PrivateNetworking     bool                  `yaml:"privateNetworking"`
 
 	// Internal support for associating resources with a network security perimeter profile
 	NetworkSecurityPerimeter *NetworkSecurityPerimeterConfig `yaml:"networkSecurityPerimeter"`
@@ -175,6 +175,8 @@ type SubnetReference struct {
 	VNetName                 string `yaml:"vnetName"`
 	SubnetName               string `yaml:"subnetName"`
 	PrivateLinkResourceGroup string `yaml:"-"`
+	VNetResourceId           string `yaml:"-"`
+	SubnetResourceId         string `yaml:"-"`
 }
 
 type NodePoolConfig struct {

@@ -200,6 +200,10 @@ func (inst *Installer) createDatabaseServer(ctx context.Context) (any, error) {
 		}
 	}
 
+	if err := createDatabaseServerAdmin(ctx, inst.Config, serverName, inst.Credential); err != nil {
+		return nil, fmt.Errorf("failed to create PostgreSQL server admin: %w", err)
+	}
+
 	if inst.Config.Cloud.PrivateNetworking {
 		if err := inst.createPrivateEndpointsForPostgresFlexibleServer(ctx, existingServer); err != nil {
 			return nil, fmt.Errorf("failed to create private endpoints for PostgreSQL server '%s': %w", serverName, err)
@@ -239,10 +243,6 @@ func (inst *Installer) createDatabaseServer(ctx context.Context) (any, error) {
 			for _, fr := range page.Value {
 				existingFirewallRules[*fr.Name] = *fr
 			}
-		}
-
-		if err := createDatabaseServerAdmin(ctx, inst.Config, serverName, inst.Credential); err != nil {
-			return nil, fmt.Errorf("failed to create PostgreSQL server admin: %w", err)
 		}
 
 		promiseGroup := &install.PromiseGroup{}
@@ -775,6 +775,13 @@ func databaseServerNeedsUpdate(newServer, existingServer armpostgresqlflexiblese
 
 	if *newServer.Properties.Backup.GeoRedundantBackup != *existingServer.Properties.Backup.GeoRedundantBackup {
 		merged.Properties.Backup.GeoRedundantBackup = newServer.Properties.Backup.GeoRedundantBackup
+		needsUpdate = true
+	}
+
+	if (newServer.Properties.Network.PublicNetworkAccess == nil) != (existingServer.Properties.Network.PublicNetworkAccess == nil) ||
+		(newServer.Properties.Network.PublicNetworkAccess != nil && *newServer.Properties.Network.PublicNetworkAccess != *existingServer.Properties.Network.PublicNetworkAccess) {
+
+		merged.Properties.Network.PublicNetworkAccess = newServer.Properties.Network.PublicNetworkAccess
 		needsUpdate = true
 	}
 

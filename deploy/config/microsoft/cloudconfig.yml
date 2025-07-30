@@ -7,6 +7,11 @@ cloud:
   resourceGroup: ${TYGER_ENVIRONMENT_NAME}
   defaultLocation: ${TYGER_LOCATION}
 
+  # Whether to use private networking. The default is false.
+  # If true, Tyger service, storage storage accounts, and all other created resources
+  # will not be accessible from the public internet.
+  privateNetworking: true
+
   # Optionally point an existing Log Analytics workspace to send logs to.
   logAnalyticsWorkspace:
     resourceGroup: eminence
@@ -24,8 +29,6 @@ cloud:
       name: eminence
     certificateName: eminence-tls-cert
 
-  privateNetworking: true
-
   compute:
     clusters:
       - name: ${TYGER_ENVIRONMENT_NAME}
@@ -34,6 +37,7 @@ cloud:
         sku: Standard
         # location: defaults to Standard
 
+        # An existing virtual network subnet to deploy the cluster into.
         existingSubnet:
           resourceGroup: jostairsdemo
           vnetName: jostairsdemo-vnet

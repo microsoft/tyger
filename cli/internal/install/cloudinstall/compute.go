@@ -488,6 +488,27 @@ func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCl
 		return true, false
 	}
 
+	if (cluster.Properties.APIServerAccessProfile == nil) != (existingCluster.Properties.APIServerAccessProfile == nil) {
+		return true, false
+	}
+
+	if cluster.Properties.APIServerAccessProfile != nil {
+		if (cluster.Properties.APIServerAccessProfile.EnablePrivateCluster == nil) != (existingCluster.Properties.APIServerAccessProfile.EnablePrivateCluster == nil) ||
+			(cluster.Properties.APIServerAccessProfile.EnablePrivateCluster != nil && *cluster.Properties.APIServerAccessProfile.EnablePrivateCluster != *existingCluster.Properties.APIServerAccessProfile.EnablePrivateCluster) {
+			return true, false
+		}
+
+		if (cluster.Properties.APIServerAccessProfile.PrivateDNSZone == nil) != (existingCluster.Properties.APIServerAccessProfile.PrivateDNSZone == nil) ||
+			(cluster.Properties.APIServerAccessProfile.PrivateDNSZone != nil && *cluster.Properties.APIServerAccessProfile.PrivateDNSZone != *existingCluster.Properties.APIServerAccessProfile.PrivateDNSZone) {
+			return true, false
+		}
+
+		if (cluster.Properties.APIServerAccessProfile.EnablePrivateClusterPublicFQDN == nil) != (existingCluster.Properties.APIServerAccessProfile.EnablePrivateClusterPublicFQDN == nil) ||
+			(cluster.Properties.APIServerAccessProfile.EnablePrivateClusterPublicFQDN != nil && *cluster.Properties.APIServerAccessProfile.EnablePrivateClusterPublicFQDN != *existingCluster.Properties.APIServerAccessProfile.EnablePrivateClusterPublicFQDN) {
+			return true, false
+		}
+	}
+
 	for _, np := range cluster.Properties.AgentPoolProfiles {
 		found := false
 		for _, existingNp := range existingCluster.Properties.AgentPoolProfiles {
@@ -528,6 +549,11 @@ func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCl
 					if *v != *existingV {
 						return true, false
 					}
+				}
+
+				if (np.VnetSubnetID == nil) != (existingNp.VnetSubnetID == nil) ||
+					(np.VnetSubnetID != nil && *np.VnetSubnetID != *existingNp.VnetSubnetID) {
+					return true, false
 				}
 
 				break
@@ -648,6 +674,43 @@ func (inst *Installer) onDeleteCluster(ctx context.Context, clusterConfig *Clust
 
 		if err := detachAcr(ctx, kubeletObjectId, containerRegistryId, inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
 			return fmt.Errorf("failed to detatch ACR: %w", err)
+		}
+	}
+
+	if inst.Config.Cloud.PrivateNetworking {
+
+		vnetClient, err := armnetwork.NewVirtualNetworksClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
+		if err != nil {
+			return fmt.Errorf("failed to create virtual networks client: %w", err)
+		}
+
+		var vnet *armnetwork.VirtualNetwork
+		if vnetResult, err := vnetClient.Get(ctx, clusterConfig.ExistingSubnet.ResourceGroup, clusterConfig.ExistingSubnet.VNetName, nil); err != nil {
+			var respErr *azcore.ResponseError
+			if !errors.As(err, &respErr) || respErr.StatusCode != http.StatusNotFound {
+				return fmt.Errorf("failed to get VNet: %w", err)
+			}
+		} else {
+			vnet = &vnetResult.VirtualNetwork
+		}
+
+		if vnet != nil {
+
+			if err := removeRbacRoleAssignments(ctx, *clusterResponse.Identity.PrincipalID, *vnet.ID, inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
+				return fmt.Errorf("failed to remove RBAC role assignments on VNet: %w", err)
+			}
+			subnetIndex := slices.IndexFunc(vnet.Properties.Subnets, func(s *armnetwork.Subnet) bool {
+				return s.Name != nil && *s.Name == clusterConfig.ExistingSubnet.SubnetName
+			})
+
+			if subnetIndex != -1 {
+				subnet := vnet.Properties.Subnets[subnetIndex]
+				if subnet.Properties.NetworkSecurityGroup != nil && subnet.Properties.NetworkSecurityGroup.ID != nil {
+					if err := removeRbacRoleAssignments(ctx, *clusterResponse.Identity.PrincipalID, *subnet.Properties.NetworkSecurityGroup.ID, inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
+						return fmt.Errorf("failed to remove RBAC role assignments on subnet NSG: %w", err)
+					}
+				}
+			}
 		}
 	}
 

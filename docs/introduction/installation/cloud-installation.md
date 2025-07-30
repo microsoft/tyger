@@ -62,6 +62,11 @@ cloud:
   resourceGroup: demo
   defaultLocation: westus2
 
+  # Whether to use private networking. The default is false.
+  # If true, Tyger service, storage storage accounts, and all other created resources
+  # will not be accessible from the public internet.
+  privateNetworking: false
+
   # Optionally point an existing Log Analytics workspace to send logs to.
   # logAnalyticsWorkspace:
     # resourceGroup:
@@ -86,6 +91,13 @@ cloud:
         kubernetesVersion: "1.32"
         sku:
         # location: defaults to Standard
+
+        # An existing virtual network subnet to deploy the cluster into.
+        # existingSubnet:
+          # resourceGroup:
+          # vnetName:
+          # subnetName:
+
         systemNodePool:
           name: system
           vmSize: Standard_DS2_v2
@@ -173,6 +185,8 @@ organizations:
             # dnsEndpointType can be set to `AzureDNSZone` when creating large number of accounts in a single subscription.
             # dnsEndpointType: defaults to Standard.
 
+        # defaultBufferLocation: Can be set if there are buffer storage accounts in multiple locations
+
         # The storage account where run logs will be stored.
         logs:
           name: demotygerlogs
@@ -218,23 +232,6 @@ organizations:
         #   - kind: ServicePrincipal
         #     objectId: <objectId>
         #     displayName: <displayName>
-
-        # Example:
-        #
-        # roleAssignments:
-        #   owner:
-        #     - kind: User
-        #       objectId: c5e5d858-b954-4bef-b704-71b63e761f69
-        #       userPrincipalName: me@example.com
-        #
-        #     - kind: ServicePrincipal
-        #       objectId: 32b73951-e5eb-4a75-8479-23374021f46a
-        #       displayName: my-service-principal
-        #
-        #   contributor:
-        #     - kind: Group
-        #       objectId: f939c89c-94ed-46b9-8fbd-726cf747f231
-        #       displayName: my-group
 
         roleAssignments:
           owner:
@@ -406,6 +403,25 @@ tyger cloud uninstall -f config.yml --all
 ::: danger Warning
 `tyger cloud uninstall` will permanently delete all database and buffer data.
 :::
+
+## Private netorking
+
+Currently a preview feature, the entire Tyger environment can use private
+networking, meaning that none of the endpoints can be accessed from the public
+internet.
+
+To enable this mode, you will need to create an Azure virtual network (VNet) for
+the Kubernetes cluster to be deployed into. You will reference a subnet in this
+this VNet in the `cloud.compute.clusters.existingSubnet` field. To enable
+private networking, set the `cloud.privateNetworking` field to `true`.
+
+This mode cannot use Let's Encrypt for TLS certificate creation, and you will
+need to provide your own TLS certificate in a referenced Key Vault. If you want
+to use private networking for this Key Vault, you will need to create private
+endpoints for the Key Vault in the subnet before running `tyger cloud install`.
+
+You will need to run tyger commands, including the installation commands from a
+virtual machine in this VNet, or set up peering and DNS forwarning to this VNet.
 
 
 ## Multi-tenancy

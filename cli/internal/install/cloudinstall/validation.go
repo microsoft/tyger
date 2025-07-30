@@ -168,6 +168,10 @@ func quickValidateComputeConfig(ctx context.Context, success *bool, cloudConfig 
 			armcontainerservice.PossibleManagedClusterSKUTierValues(),
 			fmt.Sprintf("The `sku` field must be one of %%v for cluster '%s'", cluster.Name))
 
+		if cloudConfig.PrivateNetworking && cluster.ExistingSubnet == nil {
+			validationError(ctx, success, "Since `cloud.privateNetworking` is enabled, `existingSubnet` must be specified on cluster '%s'", cluster.Name)
+		}
+
 		if cluster.ExistingSubnet != nil {
 			if cluster.ExistingSubnet.ResourceGroup == "" {
 				validationError(ctx, success, "Since `existingSubnet` is specified, `existingSubnet.resourceGroup` is required on cluster `%s`", cluster.Name)
@@ -184,6 +188,9 @@ func quickValidateComputeConfig(ctx context.Context, success *bool, cloudConfig 
 			if cloudConfig.PrivateNetworking {
 				cluster.ExistingSubnet.PrivateLinkResourceGroup = fmt.Sprintf("%s-privatelink-%s-%s", cloudConfig.ResourceGroup, cluster.ExistingSubnet.ResourceGroup, cluster.ExistingSubnet.VNetName)
 			}
+
+			cluster.ExistingSubnet.VNetResourceId = fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s", cloudConfig.SubscriptionID, cluster.ExistingSubnet.ResourceGroup, cluster.ExistingSubnet.VNetName)
+			cluster.ExistingSubnet.SubnetResourceId = fmt.Sprintf("%s/subnets/%s", cluster.ExistingSubnet.VNetResourceId, cluster.ExistingSubnet.SubnetName)
 		}
 
 		if cluster.SystemNodePool == nil {
