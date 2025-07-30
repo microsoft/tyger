@@ -130,8 +130,6 @@ else
       export TYGER_SECONDARY_LOCATION="${TYGER_SECONDARY_LOCATION:-eastus}"
     fi
 
-
-
   fi
 
   repo_fqdn=$(envsubst <"${devconfig_path}" | yq ".wipContainerRegistry.fqdn")
