@@ -74,6 +74,8 @@ done
 this_dir=$(dirname "${0}")
 config_dir=$(realpath "${TYGER_ENVIRONMENT_CONFIG_DIR:-${this_dir}/../deploy/config/microsoft}")
 
+use_private_link="${TYGER_USE_PRIVATE_LINK:-false}"
+
 devconfig_path="${config_dir}/devconfig.yml"
 
 if [[ "$dev" == true ]]; then
@@ -85,7 +87,11 @@ else
     TYGER_INSTALLATION_PATH="$(realpath "${this_dir}/../install/local")"
     export TYGER_INSTALLATION_PATH
   else
-    config_path="${config_dir}/cloudconfig.yml"
+    if [[ "$use_private_link" == true ]]; then
+      config_path="${config_dir}/cloudconfig-private-link.yml"
+    else
+      config_path="${config_dir}/cloudconfig.yml"
+    fi
 
     environment_name="${TYGER_ENVIRONMENT_NAME:-}"
     if [[ -z "${environment_name:-}" ]]; then
@@ -94,6 +100,10 @@ else
         exit 1
       fi
       environment_name="${BASH_REMATCH[0]//[.\-_]/}"
+
+      if [[ "$use_private_link" == true ]]; then
+        environment_name="${environment_name}private"
+      fi
     fi
     export TYGER_ENVIRONMENT_NAME="${environment_name}"
     export TYGER_ENVIRONMENT_NAME_NO_DASHES="${environment_name//-/}"
@@ -119,6 +129,8 @@ else
 
       export TYGER_SECONDARY_LOCATION="${TYGER_SECONDARY_LOCATION:-eastus}"
     fi
+
+
 
   fi
 

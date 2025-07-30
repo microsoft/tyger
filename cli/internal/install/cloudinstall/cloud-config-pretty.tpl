@@ -68,9 +68,9 @@ cloud:
           subnetName: {{ .ExistingSubnet.SubnetName }}
         {{- else -}}
         # existingSubnet:
-          # resourceGroup:
-          # vnetName:
-          # subnetName:
+        #   resourceGroup:
+        #   vnetName:
+        #   subnetName:
         {{- end }}
 
         systemNodePool:
