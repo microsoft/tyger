@@ -375,6 +375,45 @@ jobs:
           set -euo pipefail
           make -s ensure-environment
 
+  test-private-link-deployment:
+    needs:
+      - get-config
+    runs-on: ["self-hosted", "1ES.Pool=tyger-gh-1es-westus2"]
+    defaults:
+      run:
+        shell: bash
+    env:
+      TYGER_MIN_NODE_COUNT: "1"
+      DO_NOT_BUILD_IMAGES: "true"
+      EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}-amd64
+      TYGER_USE_PRIVATE_LINK: true
+      TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}private
+
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Log in to Azure
+        uses: ./.github/actions/login-azure
+
+      - name: Log in to ACR
+        run: |
+          make login-acr
+
+      - uses: actions/setup-go@v4
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+
+      - name: up
+        run: |
+          set -euo pipefail
+          make -s up INSTALL_CLOUD=true
+          make -s migrate
+
   integration-tests:
     name: integration-tests (${{ matrix.label }})
     needs:
