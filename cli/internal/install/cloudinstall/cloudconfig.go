@@ -168,6 +168,9 @@ type ClusterConfig struct {
 	ExistingSubnet    *SubnetReference                          `yaml:"existingSubnet,omitempty"`
 	SystemNodePool    *NodePoolConfig                           `yaml:"systemNodePool"`
 	UserNodePools     []*NodePoolConfig                         `yaml:"userNodePools"`
+	PodCidr           string                                    `yaml:"podCidr,omitempty"`
+	ServiceCidr       string                                    `yaml:"serviceCidr,omitempty"`
+	DnsServiceIp      string                                    `yaml:"dnsServiceIp,omitempty"`
 }
 
 type SubnetReference struct {
@@ -425,6 +428,9 @@ func funcMap() template.FuncMap {
 
 		return buf.String()
 	}
+	f["DefaultPodCidr"] = func() string { return DefaultPodCidr }
+	f["DefaultServiceCidr"] = func() string { return DefaultServiceCidr }
+	f["DefaultDnsServiceIp"] = func() string { return DefaultDnsServiceIp }
 
 	return f
 }

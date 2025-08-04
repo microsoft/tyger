@@ -28,7 +28,8 @@ get-config:
 	./scripts/get-config.sh
 
 pretty-print-config-templates: install-cli
-	scripts/get-config.sh --pretty-print-template
+	TYGER_USE_PRIVATE_LINK=true scripts/get-config.sh --pretty-print-template
+	TYGER_USE_PRIVATE_LINK=false scripts/get-config.sh --pretty-print-template
 	scripts/get-config.sh --docker --pretty-print-template
 
 open-docker-window:

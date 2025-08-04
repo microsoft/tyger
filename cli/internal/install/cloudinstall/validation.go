@@ -206,6 +206,16 @@ func quickValidateComputeConfig(ctx context.Context, success *bool, cloudConfig 
 			quickValidateNodePoolConfig(ctx, success, np, 0)
 		}
 
+		if cluster.PodCidr == "" {
+			cluster.PodCidr = DefaultPodCidr
+		}
+		if cluster.ServiceCidr == "" {
+			cluster.ServiceCidr = DefaultServiceCidr
+		}
+		if cluster.DnsServiceIp == "" {
+			cluster.DnsServiceIp = DefaultDnsServiceIp
+		}
+
 		if cluster.ApiHost {
 			if hasApiHost {
 				validationError(ctx, success, "Only one cluster can be the API host")

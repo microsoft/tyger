@@ -94,9 +94,23 @@ cloud:
 
         # An existing virtual network subnet to deploy the cluster into.
         # existingSubnet:
-          # resourceGroup:
-          # vnetName:
-          # subnetName:
+        #   resourceGroup:
+        #   vnetName:
+        #   subnetName:
+
+        # A CIDR notation IP range from which to assign pod IPs.
+        # This range must not overlap with the service CIDR range, the cluster subnet range,
+        # and IP ranges used in peered VNets and on-premises networks.
+        # podCidr: defaults to 10.244.0.0/16
+
+        # A CIDR notation IP range from which to assign service cluster IPs.
+        # This range must not overlap with the pod CIDR range, the cluster subnet range,
+        # and IP ranges used in peered VNets and on-premises networks.
+        # serviceCidr: defaults to 10.0.0.0/16
+
+        # The IP address assigned to the Kubernetes DNS service.
+        # It must be within the service address range specified in serviceCidr.
+        # dnsServiceIp: defaults to 10.0.0.10
 
         systemNodePool:
           name: system

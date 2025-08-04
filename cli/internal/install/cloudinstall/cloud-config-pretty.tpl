@@ -73,6 +73,20 @@ cloud:
         #   subnetName:
         {{- end }}
 
+        # A CIDR notation IP range from which to assign pod IPs.
+        # This range must not overlap with the service CIDR range, the cluster subnet range,
+        # and IP ranges used in peered VNets and on-premises networks.
+        {{ optionalField "podCidr" .PodCidr (printf "defaults to %s" (DefaultPodCidr)) }}
+
+        # A CIDR notation IP range from which to assign service cluster IPs.
+        # This range must not overlap with the pod CIDR range, the cluster subnet range,
+        # and IP ranges used in peered VNets and on-premises networks.
+        {{ optionalField "serviceCidr" .ServiceCidr (printf "defaults to %s" (DefaultServiceCidr)) }}
+
+        # The IP address assigned to the Kubernetes DNS service.
+        # It must be within the service address range specified in serviceCidr.
+        {{ optionalField "dnsServiceIp" .DnsServiceIp (printf "defaults to %s" (DefaultDnsServiceIp)) }}
+
         systemNodePool:
           name: {{ .SystemNodePool.Name }}
           vmSize: {{ .SystemNodePool.VMSize }}

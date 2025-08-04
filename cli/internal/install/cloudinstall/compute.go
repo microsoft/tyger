@@ -27,6 +27,9 @@ import (
 )
 
 const DefaultKubernetesVersion = "1.32"
+const DefaultPodCidr = "10.244.0.0/16"
+const DefaultServiceCidr = "10.0.0.0/16"
+const DefaultDnsServiceIp = "10.0.0.10"
 
 func (inst *Installer) getCluster(ctx context.Context, clusterConfig *ClusterConfig) (*armcontainerservice.ManagedCluster, error) {
 	clustersClient, err := armcontainerservice.NewManagedClustersClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
@@ -119,11 +122,22 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 					Enabled: Ptr(true),
 				},
 			},
+			NetworkProfile: &armcontainerservice.NetworkProfile{},
 		},
 		SKU: &armcontainerservice.ManagedClusterSKU{
 			Name: Ptr(armcontainerservice.ManagedClusterSKUNameBase),
 			Tier: Ptr(armcontainerservice.ManagedClusterSKUTier(clusterConfig.Sku)),
 		},
+	}
+
+	if clusterConfig.PodCidr != "" {
+		cluster.Properties.NetworkProfile.PodCidr = &clusterConfig.PodCidr
+	}
+	if clusterConfig.ServiceCidr != "" {
+		cluster.Properties.NetworkProfile.ServiceCidr = &clusterConfig.ServiceCidr
+	}
+	if clusterConfig.DnsServiceIp != "" {
+		cluster.Properties.NetworkProfile.DNSServiceIP = &clusterConfig.DnsServiceIp
 	}
 
 	if inst.Config.Cloud.PrivateNetworking {
@@ -595,6 +609,18 @@ func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCl
 	}
 
 	if existingCluster.Properties.SecurityProfile == nil || existingCluster.Properties.SecurityProfile.WorkloadIdentity == nil || !*existingCluster.Properties.SecurityProfile.WorkloadIdentity.Enabled {
+		return true, false
+	}
+
+	if cluster.Properties.NetworkProfile.PodCidr != nil && (existingCluster.Properties.NetworkProfile.PodCidr == nil || *cluster.Properties.NetworkProfile.PodCidr != *existingCluster.Properties.NetworkProfile.PodCidr) {
+		return true, false
+	}
+
+	if cluster.Properties.NetworkProfile.ServiceCidr != nil && (existingCluster.Properties.NetworkProfile.ServiceCidr == nil || *cluster.Properties.NetworkProfile.ServiceCidr != *existingCluster.Properties.NetworkProfile.ServiceCidr) {
+		return true, false
+	}
+
+	if cluster.Properties.NetworkProfile.DNSServiceIP != nil && (existingCluster.Properties.NetworkProfile.DNSServiceIP == nil || *cluster.Properties.NetworkProfile.DNSServiceIP != *existingCluster.Properties.NetworkProfile.DNSServiceIP) {
 		return true, false
 	}
 
