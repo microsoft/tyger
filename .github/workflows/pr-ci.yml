@@ -19,7 +19,7 @@ env:
 
   CAN_ACCESS_SECRETS: ${{ secrets.CAN_ACCESS_SECRETS }}
 
-  TYGER_TYGER_AUTH_METHOD: "github"
+  TYGER_AUTH_METHOD: "github"
 
 jobs:
   # If this is running a Dependabot PR or PR from a fork, it we won't have access to secrets
