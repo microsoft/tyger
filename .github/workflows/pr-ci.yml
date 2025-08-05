@@ -497,7 +497,12 @@ jobs:
           go-version-file: cli/go.mod
           cache-dependency-path: cli/go.sum
 
-      - name: Test endpoints from outside the private network
+      - name: Build cli
+        run: |
+          set -euo pipefail
+          make -s install-cli
+
+      - name: Test endpoints fail from outside the private network
         run: |
           set -euo pipefail
 
