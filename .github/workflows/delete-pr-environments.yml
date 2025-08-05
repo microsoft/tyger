@@ -57,14 +57,23 @@ jobs:
           done
 
           prefix='tyger-gpr'
-          resource_groups=$(az group list --query "[?starts_with(name, '${prefix}')]" | jq ".[] | select(.name | test(\"^${prefix}[0-9]+$\")) | .name" -r)
+          private_link_suffix='priv'
+          resource_groups=$(az group list --query "[?starts_with(name, '${prefix}')]" | jq ".[] | select(.name | test(\"^${prefix}[0-9]+(${private_link_suffix})?$\")) | .name" -r)
 
-          for rg_name in $resource_groups; do
-              deployed_id="${rg_name#"$prefix"}"
+                for rg_name in $resource_groups; do
+                  if [[ "$rg_name" =~ ${private_link_suffix}$ ]]; then
+                      is_private_link_environment=true
+                  else
+                      is_private_link_environment=false
+                  fi
+
+                  # Extract numerical ID (removing prefix and optional 'priv' suffix)
+                  deployed_id="${rg_name#"$prefix"}"
+                  deployed_id="${deployed_id%${private_link_suffix}}"
 
               if [[ ! " ${active_pr_environment_ids[*]} " =~ ${deployed_id} ]]; then
                   echo "deleting $rg_name"
-                  TYGER_ENVIRONMENT_NAME="$rg_name" make remove-environment
+                  TYGER_ENVIRONMENT_NAME="$rg_name" TYGER_USE_PRIVATE_LINK=$is_private_link_environment make remove-environment
               else
                   echo "Not deleting $rg_name because there is an active PR for it"
               fi
