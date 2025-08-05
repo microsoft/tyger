@@ -68,6 +68,7 @@ type CloudConfig struct {
 	SubscriptionID        string                `yaml:"subscriptionId"`
 	DefaultLocation       string                `yaml:"defaultLocation"`
 	ResourceGroup         string                `yaml:"resourceGroup"`
+	PrivateNetworking     bool                  `yaml:"privateNetworking"`
 	Compute               *ComputeConfig        `yaml:"compute"`
 	Database              *DatabaseServerConfig `yaml:"database"`
 	LogAnalyticsWorkspace *NamedAzureResource   `yaml:"logAnalyticsWorkspace"`
@@ -164,8 +165,21 @@ type ClusterConfig struct {
 	Location          string                                    `yaml:"location"`
 	Sku               armcontainerservice.ManagedClusterSKUTier `yaml:"sku"`
 	KubernetesVersion string                                    `yaml:"kubernetesVersion,omitempty"`
+	ExistingSubnet    *SubnetReference                          `yaml:"existingSubnet,omitempty"`
 	SystemNodePool    *NodePoolConfig                           `yaml:"systemNodePool"`
 	UserNodePools     []*NodePoolConfig                         `yaml:"userNodePools"`
+	PodCidr           string                                    `yaml:"podCidr,omitempty"`
+	ServiceCidr       string                                    `yaml:"serviceCidr,omitempty"`
+	DnsServiceIp      string                                    `yaml:"dnsServiceIp,omitempty"`
+}
+
+type SubnetReference struct {
+	ResourceGroup            string `yaml:"resourceGroup"`
+	VNetName                 string `yaml:"vnetName"`
+	SubnetName               string `yaml:"subnetName"`
+	PrivateLinkResourceGroup string `yaml:"-"`
+	VNetResourceId           string `yaml:"-"`
+	SubnetResourceId         string `yaml:"-"`
 }
 
 type NodePoolConfig struct {
@@ -414,6 +428,9 @@ func funcMap() template.FuncMap {
 
 		return buf.String()
 	}
+	f["DefaultPodCidr"] = func() string { return DefaultPodCidr }
+	f["DefaultServiceCidr"] = func() string { return DefaultServiceCidr }
+	f["DefaultDnsServiceIp"] = func() string { return DefaultDnsServiceIp }
 
 	return f
 }

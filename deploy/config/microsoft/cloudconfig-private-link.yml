@@ -10,7 +10,7 @@ cloud:
   # Whether to use private networking. The default is false.
   # If true, Tyger service, storage storage accounts, and all other created resources
   # will not be accessible from the public internet.
-  privateNetworking: false
+  privateNetworking: true
 
   # Optionally point an existing Log Analytics workspace to send logs to.
   logAnalyticsWorkspace:
@@ -38,10 +38,10 @@ cloud:
         # location: defaults to Standard
 
         # An existing virtual network subnet to deploy the cluster into.
-        # existingSubnet:
-        #   resourceGroup:
-        #   vnetName:
-        #   subnetName:
+        existingSubnet:
+          resourceGroup: eminence
+          vnetName: eminence-pl-${TYGER_LOCATION}-vnet
+          subnetName: default
 
         # A CIDR notation IP range from which to assign pod IPs.
         # This range must not overlap with the service CIDR range, the cluster subnet range,
@@ -51,11 +51,11 @@ cloud:
         # A CIDR notation IP range from which to assign service cluster IPs.
         # This range must not overlap with the pod CIDR range, the cluster subnet range,
         # and IP ranges used in peered VNets and on-premises networks.
-        # serviceCidr: defaults to 10.0.0.0/16
+        serviceCidr: 10.2.0.0/16
 
         # The IP address assigned to the Kubernetes DNS service.
         # It must be within the service address range specified in serviceCidr.
-        # dnsServiceIp: defaults to 10.0.0.10
+        dnsServiceIp: 10.2.0.10
 
         systemNodePool:
           name: system
@@ -68,11 +68,6 @@ cloud:
           - name: cpunp
             vmSize: ${TYGER_CPU_NODE_SKU}
             minCount: ${TYGER_MIN_CPU_NODE_COUNT}
-            maxCount: 10
-            # osSku: defaults to AzureLinux
-          - name: gpunp
-            vmSize: ${TYGER_GPU_NODE_SKU}
-            minCount: ${TYGER_MIN_GPU_NODE_COUNT}
             maxCount: 10
             # osSku: defaults to AzureLinux
 
@@ -131,13 +126,6 @@ cloud:
     # Firewall rules to control where the database can be accessed from,
     # in addition to the control-plane cluster.
     firewallRules: ${TYGER_ENVIRONMENT_FIREWALL_RULES}
-
-  networkSecurityPerimeter:
-    nspResourceGroup: NSP-ALL
-    nspName: defaultNSP
-    storageProfile:
-      name: storageaccounts
-      mode: Learning
 
 organizations:
   - name: lamna
@@ -225,106 +213,6 @@ organizations:
             - kind: ServicePrincipal
               objectId: 15bf92f7-9210-480f-a6ad-8d576d0baac7
               displayName: tyger-client-contributor
-
-      buffers:
-        # TTL for active buffers before they are automatically soft-deleted (D.HH:MM:SS) (0 = never expire)
-        activeLifetime: 0.00:00
-        # TTL for soft-deleted buffers before they are automatically purged forever (D.HH:MM:SS) (0 = purge immediately)
-        softDeletedLifetime: 1.00:00
-
-      # Optional Helm chart overrides
-      helm:
-        tyger:
-          # repoName:
-          # repoUrl: not set if using `chartRef`
-          chartRef: ${TYGER_HELM_CHART_DIR}
-          # version:
-          values:
-            bufferCopierImage: ${BUFFER_COPIER_IMAGE}
-            bufferSidecarImage: ${BUFFER_SIDECAR_IMAGE}
-            image: ${TYGER_SERVER_IMAGE}
-            workerWaiterImage: ${WORKER_WAITER_IMAGE}
-
-  - name: legacy
-    singleOrganizationCompatibilityMode: true
-    cloud:
-      storage:
-        # Storage accounts for buffers.
-        buffers:
-          - name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}legacybuf
-            # location: defaults to defaultLocation
-            # sku: defaults to Standard_LRS
-            # dnsEndpointType can be set to `AzureDNSZone` when creating large number of accounts in a single subscription.
-            # dnsEndpointType: defaults to Standard.
-
-        # defaultBufferLocation: Can be set if there are buffer storage accounts in multiple locations
-
-        # The storage account where run logs will be stored.
-        logs:
-          name: ${TYGER_ENVIRONMENT_NAME_NO_DASHES}legacylog
-          # location: defaults to defaultLocation
-          # sku: defaults to Standard_LRS
-          # dnsEndpointType can be set to `AzureDNSZone` when creating large number of accounts in a single subscription.
-          # dnsEndpointType: defaults to Standard.
-
-      # An optional array of managed identities that will be created in the resource group.
-      # These identities are available to runs as workload identities. When updating this list
-      # both `tyger cloud install` and `tyger api installed` must be run.
-      identities:
-        - test-identity
-
-    api:
-      # The fully qualified domain name for the Tyger API.
-      domainName: ${TYGER_ENVIRONMENT_NAME}-tyger.${TYGER_LOCATION}.cloudapp.azure.com
-
-      # Set to KeyVault if using a custom TLS certificate, otherwise set to LetsEncrypt
-      tlsCertificateProvider: LetsEncrypt
-
-      accessControl:
-        tenantId: 76d3279b-830e-4bea-baf8-12863cdeba4c
-        apiAppUri: api://tyger-server
-        cliAppUri: api://tyger-cli
-
-        apiAppId: e8229c82-a93e-4a2a-a983-d3ed35f2f62c
-        cliAppId: f13d0630-3b5f-4a9f-aafa-34bd3bb6062b
-
-        # Principals in role assignments are specified in the following ways:
-        #
-        # For users, specify the object ID and/or the user principal name.
-        #   - kind: User
-        #     objectId: <objectId>
-        #     userPrincipalName: <userPrincipalName>
-        #
-        # For groups, specify the object ID and/or the group display name.
-        #   - kind: Group
-        #     objectId: <objectId>
-        #     displayName: <displayName>
-        #
-        # For service principals, specify the object ID and/or the service principal display name.
-        #   - kind: ServicePrincipal
-        #     objectId: <objectId>
-        #     displayName: <displayName>
-
-        # Example:
-        #
-        # roleAssignments:
-        #   owner:
-        #     - kind: User
-        #       objectId: c5e5d858-b954-4bef-b704-71b63e761f69
-        #       userPrincipalName: me@example.com
-        #
-        #     - kind: ServicePrincipal
-        #       objectId: 32b73951-e5eb-4a75-8479-23374021f46a
-        #       displayName: my-service-principal
-        #
-        #   contributor:
-        #     - kind: Group
-        #       objectId: f939c89c-94ed-46b9-8fbd-726cf747f231
-        #       displayName: my-group
-
-        roleAssignments:
-          owner: []
-          contributor: []
 
       buffers:
         # TTL for active buffers before they are automatically soft-deleted (D.HH:MM:SS) (0 = never expire)

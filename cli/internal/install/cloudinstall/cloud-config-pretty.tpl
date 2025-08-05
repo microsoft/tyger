@@ -8,6 +8,11 @@ cloud:
   resourceGroup: {{ .ResourceGroup }}
   defaultLocation: {{ .DefaultLocation}}
 
+  # Whether to use private networking. The default is false.
+  # If true, Tyger service, storage storage accounts, and all other created resources
+  # will not be accessible from the public internet.
+  privateNetworking: {{ .PrivateNetworking }}
+
   # Optionally point an existing Log Analytics workspace to send logs to.
   {{ if .LogAnalyticsWorkspace -}}
   logAnalyticsWorkspace:
@@ -54,6 +59,34 @@ cloud:
         kubernetesVersion: "{{ .KubernetesVersion }}"
         {{ optionalField "sku" .Sku "defaults to defaultLocation" }}
         {{ optionalField "location" .Location "defaults to Standard" }}
+
+        # An existing virtual network subnet to deploy the cluster into.
+        {{ if .ExistingSubnet -}}
+        existingSubnet:
+          resourceGroup: {{ .ExistingSubnet.ResourceGroup }}
+          vnetName: {{ .ExistingSubnet.VNetName }}
+          subnetName: {{ .ExistingSubnet.SubnetName }}
+        {{- else -}}
+        # existingSubnet:
+        #   resourceGroup:
+        #   vnetName:
+        #   subnetName:
+        {{- end }}
+
+        # A CIDR notation IP range from which to assign pod IPs.
+        # This range must not overlap with the service CIDR range, the cluster subnet range,
+        # and IP ranges used in peered VNets and on-premises networks.
+        {{ optionalField "podCidr" .PodCidr (printf "defaults to %s" (DefaultPodCidr)) }}
+
+        # A CIDR notation IP range from which to assign service cluster IPs.
+        # This range must not overlap with the pod CIDR range, the cluster subnet range,
+        # and IP ranges used in peered VNets and on-premises networks.
+        {{ optionalField "serviceCidr" .ServiceCidr (printf "defaults to %s" (DefaultServiceCidr)) }}
+
+        # The IP address assigned to the Kubernetes DNS service.
+        # It must be within the service address range specified in serviceCidr.
+        {{ optionalField "dnsServiceIp" .DnsServiceIp (printf "defaults to %s" (DefaultDnsServiceIp)) }}
+
         systemNodePool:
           name: {{ .SystemNodePool.Name }}
           vmSize: {{ .SystemNodePool.VMSize }}

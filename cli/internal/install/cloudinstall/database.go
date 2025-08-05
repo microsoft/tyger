@@ -90,6 +90,13 @@ func (inst *Installer) createDatabaseServer(ctx context.Context) (any, error) {
 		geoRedundantBackup = armpostgresqlflexibleservers.GeoRedundantBackupEnumEnabled
 	}
 
+	var publicNetworkAccess *armpostgresqlflexibleservers.ServerPublicNetworkAccessState
+	if inst.Config.Cloud.PrivateNetworking {
+		publicNetworkAccess = Ptr(armpostgresqlflexibleservers.ServerPublicNetworkAccessStateDisabled)
+	} else {
+		publicNetworkAccess = Ptr(armpostgresqlflexibleservers.ServerPublicNetworkAccessStateEnabled)
+	}
+
 	serverParameters := armpostgresqlflexibleservers.Server{
 		Tags:     tags,
 		Location: &databaseConfig.Location,
@@ -108,7 +115,7 @@ func (inst *Installer) createDatabaseServer(ctx context.Context) (any, error) {
 				StorageSizeGB: Ptr(int32(*databaseConfig.StorageSizeGB)),
 			},
 			Network: &armpostgresqlflexibleservers.Network{
-				PublicNetworkAccess: Ptr(armpostgresqlflexibleservers.ServerPublicNetworkAccessStateEnabled),
+				PublicNetworkAccess: publicNetworkAccess,
 			},
 			Backup: &armpostgresqlflexibleservers.Backup{
 				BackupRetentionDays: Ptr(int32(*databaseConfig.BackupRetentionDays)),
@@ -193,89 +200,95 @@ func (inst *Installer) createDatabaseServer(ctx context.Context) (any, error) {
 		}
 	}
 
-	desiredFirewallRules := map[string]armpostgresqlflexibleservers.FirewallRule{
-		"AllowAllAzureServicesAndResources": {
-			Properties: &armpostgresqlflexibleservers.FirewallRuleProperties{
-				StartIPAddress: Ptr("0.0.0.0"),
-				EndIPAddress:   Ptr("0.0.0.0"),
-			},
-		},
-	}
-
-	for _, rule := range databaseConfig.FirewallRules {
-		desiredFirewallRules[rule.Name] = armpostgresqlflexibleservers.FirewallRule{
-			Properties: &armpostgresqlflexibleservers.FirewallRuleProperties{
-				StartIPAddress: Ptr(rule.StartIpAddress),
-				EndIPAddress:   Ptr(rule.EndIpAddress),
-			},
-		}
-	}
-
-	firewallClient, err := armpostgresqlflexibleservers.NewFirewallRulesClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create PostgreSQL server firewall client: %w", err)
-	}
-
-	existingFirewallRules := make(map[string]armpostgresqlflexibleservers.FirewallRule)
-
-	pager := firewallClient.NewListByServerPager(inst.Config.Cloud.ResourceGroup, serverName, nil)
-	for pager.More() {
-		page, err := pager.NextPage(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to list PostgreSQL server firewall rules: %w", err)
-		}
-		for _, fr := range page.Value {
-			existingFirewallRules[*fr.Name] = *fr
-		}
-	}
-
 	if err := createDatabaseServerAdmin(ctx, inst.Config, serverName, inst.Credential); err != nil {
 		return nil, fmt.Errorf("failed to create PostgreSQL server admin: %w", err)
 	}
 
-	promiseGroup := &install.PromiseGroup{}
-
-	for name := range desiredFirewallRules {
-		nameSnapshot := name
-		desiredRule := desiredFirewallRules[nameSnapshot]
-		if existingRule, ok := existingFirewallRules[nameSnapshot]; ok &&
-			*existingRule.Properties.StartIPAddress == *desiredRule.Properties.StartIPAddress &&
-			*existingRule.Properties.EndIPAddress == *desiredRule.Properties.EndIPAddress {
-			continue
+	if inst.Config.Cloud.PrivateNetworking {
+		if err := inst.createPrivateEndpointsForPostgresFlexibleServer(ctx, existingServer); err != nil {
+			return nil, fmt.Errorf("failed to create private endpoints for PostgreSQL server '%s': %w", serverName, err)
+		}
+	} else {
+		desiredFirewallRules := map[string]armpostgresqlflexibleservers.FirewallRule{
+			"AllowAllAzureServicesAndResources": {
+				Properties: &armpostgresqlflexibleservers.FirewallRuleProperties{
+					StartIPAddress: Ptr("0.0.0.0"),
+					EndIPAddress:   Ptr("0.0.0.0"),
+				},
+			},
 		}
 
-		install.NewPromise(ctx, promiseGroup, func(ctx context.Context) (any, error) {
-			log.Ctx(ctx).Info().Msgf("Creating or updating PostgreSQL server firewall rule '%s'", nameSnapshot)
-			_, err = retryableAsyncOperation(ctx, func(ctx context.Context) (*runtime.Poller[armpostgresqlflexibleservers.FirewallRulesClientCreateOrUpdateResponse], error) {
-				return firewallClient.BeginCreateOrUpdate(ctx, inst.Config.Cloud.ResourceGroup, serverName, nameSnapshot, desiredRule, nil)
-			})
-			if err != nil {
-				return nil, fmt.Errorf("failed to create PostgreSQL server firewall rule: %w", err)
+		for _, rule := range databaseConfig.FirewallRules {
+			desiredFirewallRules[rule.Name] = armpostgresqlflexibleservers.FirewallRule{
+				Properties: &armpostgresqlflexibleservers.FirewallRuleProperties{
+					StartIPAddress: Ptr(rule.StartIpAddress),
+					EndIPAddress:   Ptr(rule.EndIpAddress),
+				},
 			}
-			return nil, nil
-		})
-	}
+		}
 
-	for name := range existingFirewallRules {
-		nameSnapshot := name
-		if _, ok := desiredFirewallRules[nameSnapshot]; !ok {
+		firewallClient, err := armpostgresqlflexibleservers.NewFirewallRulesClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create PostgreSQL server firewall client: %w", err)
+		}
+
+		existingFirewallRules := make(map[string]armpostgresqlflexibleservers.FirewallRule)
+
+		pager := firewallClient.NewListByServerPager(inst.Config.Cloud.ResourceGroup, serverName, nil)
+		for pager.More() {
+			page, err := pager.NextPage(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("failed to list PostgreSQL server firewall rules: %w", err)
+			}
+			for _, fr := range page.Value {
+				existingFirewallRules[*fr.Name] = *fr
+			}
+		}
+
+		promiseGroup := &install.PromiseGroup{}
+
+		for name := range desiredFirewallRules {
+			nameSnapshot := name
+			desiredRule := desiredFirewallRules[nameSnapshot]
+			if existingRule, ok := existingFirewallRules[nameSnapshot]; ok &&
+				*existingRule.Properties.StartIPAddress == *desiredRule.Properties.StartIPAddress &&
+				*existingRule.Properties.EndIPAddress == *desiredRule.Properties.EndIPAddress {
+				continue
+			}
+
 			install.NewPromise(ctx, promiseGroup, func(ctx context.Context) (any, error) {
-				log.Ctx(ctx).Info().Msgf("Deleting PostgreSQL server firewall rule '%s'", nameSnapshot)
-				_, err = retryableAsyncOperation(ctx, func(ctx context.Context) (*runtime.Poller[armpostgresqlflexibleservers.FirewallRulesClientDeleteResponse], error) {
-					return firewallClient.BeginDelete(ctx, inst.Config.Cloud.ResourceGroup, serverName, nameSnapshot, nil)
+				log.Ctx(ctx).Info().Msgf("Creating or updating PostgreSQL server firewall rule '%s'", nameSnapshot)
+				_, err = retryableAsyncOperation(ctx, func(ctx context.Context) (*runtime.Poller[armpostgresqlflexibleservers.FirewallRulesClientCreateOrUpdateResponse], error) {
+					return firewallClient.BeginCreateOrUpdate(ctx, inst.Config.Cloud.ResourceGroup, serverName, nameSnapshot, desiredRule, nil)
 				})
 				if err != nil {
-					return nil, fmt.Errorf("failed to delete PostgreSQL server firewall rule: %w", err)
+					return nil, fmt.Errorf("failed to create PostgreSQL server firewall rule: %w", err)
 				}
 				return nil, nil
 			})
 		}
-	}
 
-	// wait for the tasks to complete
-	for _, p := range *promiseGroup {
-		if err := p.AwaitErr(); err != nil && err != install.ErrDependencyFailed {
-			return nil, err
+		for name := range existingFirewallRules {
+			nameSnapshot := name
+			if _, ok := desiredFirewallRules[nameSnapshot]; !ok {
+				install.NewPromise(ctx, promiseGroup, func(ctx context.Context) (any, error) {
+					log.Ctx(ctx).Info().Msgf("Deleting PostgreSQL server firewall rule '%s'", nameSnapshot)
+					_, err = retryableAsyncOperation(ctx, func(ctx context.Context) (*runtime.Poller[armpostgresqlflexibleservers.FirewallRulesClientDeleteResponse], error) {
+						return firewallClient.BeginDelete(ctx, inst.Config.Cloud.ResourceGroup, serverName, nameSnapshot, nil)
+					})
+					if err != nil {
+						return nil, fmt.Errorf("failed to delete PostgreSQL server firewall rule: %w", err)
+					}
+					return nil, nil
+				})
+			}
+		}
+
+		// wait for the tasks to complete
+		for _, p := range *promiseGroup {
+			if err := p.AwaitErr(); err != nil && err != install.ErrDependencyFailed {
+				return nil, err
+			}
 		}
 	}
 
@@ -307,7 +320,7 @@ func (inst *Installer) deleteDatabase(ctx context.Context, org *OrganizationConf
 		return nil, fmt.Errorf("failed to delete PostgreSQL database: %w", err)
 	}
 
-	err = inst.runWithTemporaryFilewallRule(ctx, org, func() error {
+	err = inst.runWithTemporaryFilewallRuleIfNeeded(ctx, org, func() error {
 		currentPrincipalDisplayName, _, _, err := getCurrentPrincipalForDatabase(ctx, inst.Credential)
 		if err != nil {
 			return fmt.Errorf("failed to get current principal information: %w", err)
@@ -383,7 +396,7 @@ func (inst *Installer) createDatabase(ctx context.Context, org *OrganizationConf
 		}
 	}
 
-	err = inst.runWithTemporaryFilewallRule(ctx, org, func() error {
+	err = inst.runWithTemporaryFilewallRuleIfNeeded(ctx, org, func() error {
 		currentPrincipalDisplayName, _, _, err := getCurrentPrincipalForDatabase(ctx, inst.Credential)
 		if err != nil {
 			return fmt.Errorf("failed to get current principal information: %w", err)
@@ -417,7 +430,11 @@ func (inst *Installer) createDatabase(ctx context.Context, org *OrganizationConf
 	return nil, nil
 }
 
-func (inst *Installer) runWithTemporaryFilewallRule(ctx context.Context, org *OrganizationConfig, action func() error) error {
+func (inst *Installer) runWithTemporaryFilewallRuleIfNeeded(ctx context.Context, org *OrganizationConfig, action func() error) error {
+	if !inst.Config.Cloud.PrivateNetworking {
+		return action()
+	}
+
 	temporaryFirewallRuleName := fmt.Sprintf("temp_allow_installer_%s", org.Name)
 	var temporaryFirewallRule *armpostgresqlflexibleservers.FirewallRule
 	// Get the current IP address. Create a new "clean" HTTP client that does not use any proxy, as database connections will not use one.
@@ -758,6 +775,13 @@ func databaseServerNeedsUpdate(newServer, existingServer armpostgresqlflexiblese
 
 	if *newServer.Properties.Backup.GeoRedundantBackup != *existingServer.Properties.Backup.GeoRedundantBackup {
 		merged.Properties.Backup.GeoRedundantBackup = newServer.Properties.Backup.GeoRedundantBackup
+		needsUpdate = true
+	}
+
+	if (newServer.Properties.Network.PublicNetworkAccess == nil) != (existingServer.Properties.Network.PublicNetworkAccess == nil) ||
+		(newServer.Properties.Network.PublicNetworkAccess != nil && *newServer.Properties.Network.PublicNetworkAccess != *existingServer.Properties.Network.PublicNetworkAccess) {
+
+		merged.Properties.Network.PublicNetworkAccess = newServer.Properties.Network.PublicNetworkAccess
 		needsUpdate = true
 	}
 

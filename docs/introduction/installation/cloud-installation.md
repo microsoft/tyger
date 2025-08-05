@@ -62,6 +62,11 @@ cloud:
   resourceGroup: demo
   defaultLocation: westus2
 
+  # Whether to use private networking. The default is false.
+  # If true, Tyger service, storage storage accounts, and all other created resources
+  # will not be accessible from the public internet.
+  privateNetworking: false
+
   # Optionally point an existing Log Analytics workspace to send logs to.
   # logAnalyticsWorkspace:
     # resourceGroup:
@@ -86,6 +91,27 @@ cloud:
         kubernetesVersion: "1.32"
         sku:
         # location: defaults to Standard
+
+        # An existing virtual network subnet to deploy the cluster into.
+        # existingSubnet:
+        #   resourceGroup:
+        #   vnetName:
+        #   subnetName:
+
+        # A CIDR notation IP range from which to assign pod IPs.
+        # This range must not overlap with the service CIDR range, the cluster subnet range,
+        # and IP ranges used in peered VNets and on-premises networks.
+        # podCidr: defaults to 10.244.0.0/16
+
+        # A CIDR notation IP range from which to assign service cluster IPs.
+        # This range must not overlap with the pod CIDR range, the cluster subnet range,
+        # and IP ranges used in peered VNets and on-premises networks.
+        # serviceCidr: defaults to 10.0.0.0/16
+
+        # The IP address assigned to the Kubernetes DNS service.
+        # It must be within the service address range specified in serviceCidr.
+        # dnsServiceIp: defaults to 10.0.0.10
+
         systemNodePool:
           name: system
           vmSize: Standard_DS2_v2
@@ -173,6 +199,8 @@ organizations:
             # dnsEndpointType can be set to `AzureDNSZone` when creating large number of accounts in a single subscription.
             # dnsEndpointType: defaults to Standard.
 
+        # defaultBufferLocation: Can be set if there are buffer storage accounts in multiple locations
+
         # The storage account where run logs will be stored.
         logs:
           name: demotygerlogs
@@ -218,23 +246,6 @@ organizations:
         #   - kind: ServicePrincipal
         #     objectId: <objectId>
         #     displayName: <displayName>
-
-        # Example:
-        #
-        # roleAssignments:
-        #   owner:
-        #     - kind: User
-        #       objectId: c5e5d858-b954-4bef-b704-71b63e761f69
-        #       userPrincipalName: me@example.com
-        #
-        #     - kind: ServicePrincipal
-        #       objectId: 32b73951-e5eb-4a75-8479-23374021f46a
-        #       displayName: my-service-principal
-        #
-        #   contributor:
-        #     - kind: Group
-        #       objectId: f939c89c-94ed-46b9-8fbd-726cf747f231
-        #       displayName: my-group
 
         roleAssignments:
           owner:
@@ -407,6 +418,39 @@ tyger cloud uninstall -f config.yml --all
 `tyger cloud uninstall` will permanently delete all database and buffer data.
 :::
 
+## Private networking
+
+Currently a preview feature, the entire Tyger environment can use private
+networking, meaning that none of the endpoints can be accessed from the public
+internet.
+
+To enable this mode, you will need to create an Azure virtual network (VNet) for
+the Kubernetes cluster to be deployed into. You will reference a subnet in this
+VNet in the `cloud.compute.clusters.existingSubnet` field. To enable
+private networking, set the `cloud.privateNetworking` field to `true`.
+
+This mode cannot use Let's Encrypt for TLS certificate creation, and you will
+need to provide your own TLS certificate in a referenced Key Vault.
+
+If you want to use private networking for this Key Vault, you will need to
+[create private
+endpoints](https://learn.microsoft.com/en-us/azure/key-vault/general/private-link-service?tabs=portal)
+for the Key Vault in the subnet before running `tyger cloud install`.
+
+Similarly, if you want to use an Azure Container Registry that cannot be
+publicly accessed, you will need to follow the
+[instructions](https://learn.microsoft.com/en-us/azure/container-registry/container-registry-private-link)
+to set up a private registry with private endpoints in the subnet.
+
+You will need to run `tyger` commands, including the installation commands from
+a virtual machine in this VNet, or set up peering and DNS forwarding to this
+VNet.
+
+To use Tyger from another Azure VNet, you can set up VNet peering or a
+VNet-to-VNet VPN connection and configure DNS forwarding. Or you can create
+private link endpoints for all the Tyger services in the other VNet. To use a
+private Tyger environment from outside of Azure, you will need to configure DNS
+forwarding and use a VPN or ExpressRoute.
 
 ## Multi-tenancy
 

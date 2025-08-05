@@ -374,9 +374,10 @@ type roleIds struct {
 func getRoleIds(serverSp *aadServicePrincipal) (roleIds, error) {
 	roleIds := roleIds{}
 	for _, role := range serverSp.AppRoles {
-		if role.Value == tygerOwnerRoleValue {
+		switch role.Value {
+		case tygerOwnerRoleValue:
 			roleIds.ownerRoleId = role.Id
-		} else if role.Value == tygerContributorRoleValue {
+		case tygerContributorRoleValue:
 			roleIds.contributorRoleId = role.Id
 		}
 	}

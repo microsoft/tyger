@@ -56,6 +56,10 @@ func (inst *Installer) CreateStorageAccount(ctx context.Context,
 		},
 	}
 
+	if inst.Config.Cloud.PrivateNetworking {
+		parameters.Properties.PublicNetworkAccess = Ptr(armstorage.PublicNetworkAccessDisabled)
+	}
+
 	log.Ctx(ctx).Info().Msgf("Creating or updating storage account '%s'", storageAccountConfig.Name)
 	poller, err := storageClient.BeginCreate(ctx, resourceGroupName, storageAccountConfig.Name, parameters, nil)
 	if err != nil {
@@ -65,6 +69,13 @@ func (inst *Installer) CreateStorageAccount(ctx context.Context,
 	res, err := poller.PollUntilDone(ctx, nil)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create storage account")
+	}
+
+	// Create private endpoint if private networking is enabled
+	if inst.Config.Cloud.PrivateNetworking {
+		if err := inst.createPrivateEndpointsForStorageAccount(ctx, &res.Account); err != nil {
+			return nil, fmt.Errorf("failed to create private endpoints for storage account '%s': %w", storageAccountConfig.Name, err)
+		}
 	}
 
 	managedIdentity, err := managedIdentityPromise.Await()

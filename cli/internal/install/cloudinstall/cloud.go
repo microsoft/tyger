@@ -15,6 +15,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v4"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v7"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armsubscriptions"
 	"github.com/fatih/color"
@@ -102,6 +103,17 @@ func (inst *Installer) InstallCloud(ctx context.Context, skipShared bool) (err e
 		if err := inst.ensureResourceGroupCreated(ctx, inst.Config.Cloud.ResourceGroup); err != nil {
 			logError(ctx, err, "")
 			return install.ErrAlreadyLoggedError
+		}
+
+		if inst.Config.Cloud.PrivateNetworking {
+			for _, cluster := range inst.Config.Cloud.Compute.Clusters {
+				if cluster.ExistingSubnet != nil {
+					if err := inst.ensureResourceGroupCreated(ctx, cluster.ExistingSubnet.PrivateLinkResourceGroup); err != nil {
+						logError(ctx, err, "")
+						return install.ErrAlreadyLoggedError
+					}
+				}
+			}
 		}
 
 		if err := inst.preflightCheck(ctx); err != nil {
@@ -200,6 +212,12 @@ func (inst *Installer) UninstallCloud(ctx context.Context, all bool) error {
 		if err := inst.onDeleteCluster(ctx, c); err != nil {
 			return err
 		}
+	}
+
+	if inst.Config.Cloud.PrivateNetworking {
+		inst.forEachVnet(ctx, func(ctx context.Context, vnet *armnetwork.VirtualNetwork, subnet *armnetwork.Subnet, configSubnet *SubnetReference) error {
+			return inst.safeDeleteResourceGroup(ctx, configSubnet.PrivateLinkResourceGroup)
+		})
 	}
 
 	if inst.Config.Cloud.TlsCertificate != nil && inst.Config.Cloud.TlsCertificate.KeyVault != nil {
@@ -469,7 +487,21 @@ func (inst *Installer) createSharedPromises(ctx context.Context) install.Promise
 			}
 		}
 
-		return inst.installTraefik(ctx, getAdminCredsPromise, traefikKeyVaultClientManagedIdentityPromise)
+		if _, err := inst.installTraefik(ctx, getAdminCredsPromise, traefikKeyVaultClientManagedIdentityPromise); err != nil {
+			return nil, fmt.Errorf("failed to install Traefik: %w", err)
+		}
+
+		if inst.Config.Cloud.PrivateNetworking {
+			cluster, err := createApiHostClusterPromise.Await()
+			if err != nil {
+				return nil, install.ErrDependencyFailed
+			}
+			if err := inst.createPrivateEndpointsForTraefik(ctx, cluster); err != nil {
+				return nil, fmt.Errorf("failed to create private endpoints for Traefik: %w", err)
+			}
+		}
+
+		return nil, nil
 	})
 
 	install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
