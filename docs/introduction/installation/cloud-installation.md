@@ -418,7 +418,7 @@ tyger cloud uninstall -f config.yml --all
 `tyger cloud uninstall` will permanently delete all database and buffer data.
 :::
 
-## Private netorking
+## Private networking
 
 Currently a preview feature, the entire Tyger environment can use private
 networking, meaning that none of the endpoints can be accessed from the public
@@ -426,17 +426,31 @@ internet.
 
 To enable this mode, you will need to create an Azure virtual network (VNet) for
 the Kubernetes cluster to be deployed into. You will reference a subnet in this
-this VNet in the `cloud.compute.clusters.existingSubnet` field. To enable
+VNet in the `cloud.compute.clusters.existingSubnet` field. To enable
 private networking, set the `cloud.privateNetworking` field to `true`.
 
 This mode cannot use Let's Encrypt for TLS certificate creation, and you will
-need to provide your own TLS certificate in a referenced Key Vault. If you want
-to use private networking for this Key Vault, you will need to create private
-endpoints for the Key Vault in the subnet before running `tyger cloud install`.
+need to provide your own TLS certificate in a referenced Key Vault.
 
-You will need to run tyger commands, including the installation commands from a
-virtual machine in this VNet, or set up peering and DNS forwarning to this VNet.
+If you want to use private networking for this Key Vault, you will need to
+[create private
+endpoints](https://learn.microsoft.com/en-us/azure/key-vault/general/private-link-service?tabs=portal)
+for the Key Vault in the subnet before running `tyger cloud install`.
 
+Similarly, if you want to use an Azure Container Registry that cannot be
+publicly accessed, you will need to follow the
+[instructions](https://learn.microsoft.com/en-us/azure/container-registry/container-registry-private-link)
+to set up a private registry with private endpoints in the subnet.
+
+You will need to run `tyger` commands, including the installation commands from
+a virtual machine in this VNet, or set up peering and DNS forwarding to this
+VNet.
+
+To use Tyger from another Azure VNet, you can set up VNet peering or a
+VNet-to-VNet VPN connection and configure DNS forwarding. Or you can create
+private link endpoints for all the Tyger services in the other VNet. To use a
+private Tyger environment from outside of Azure, you will need to configure DNS
+forwarding and use a VPN or ExpressRoute.
 
 ## Multi-tenancy
 
