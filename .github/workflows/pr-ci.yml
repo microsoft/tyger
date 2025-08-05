@@ -426,8 +426,8 @@ jobs:
       run:
         shell: bash
     outputs:
-      TYGER_PRIVATE_LINK_URL: ${{ steps.capture-variables.outputs.TYGER_PRIVATE_LINK_URL }}
-      TYGER_PRIVATE_LINK_BUFFER_URL: ${{ steps.capture-variables.outputs.TYGER_PRIVATE_LINK_BUFFER_URL }}
+      TYGER_PRIVATE_LINK_URL: ${{ steps.capture-urls.outputs.TYGER_PRIVATE_LINK_URL }}
+      TYGER_PRIVATE_LINK_BUFFER_URL: ${{ steps.capture-urls.outputs.TYGER_PRIVATE_LINK_BUFFER_URL }}
     env:
       DO_NOT_BUILD_IMAGES: "true"
       EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}-amd64
