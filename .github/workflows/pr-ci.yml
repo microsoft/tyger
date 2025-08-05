@@ -413,6 +413,12 @@ jobs:
           set -euo pipefail
           make -s up INSTALL_CLOUD=true
           make -s migrate
+          make login
+
+      - name: Run basic test
+        run: |
+          set -euo pipefail
+          make -s basic-test-no-up
 
   integration-tests:
     name: integration-tests (${{ matrix.label }})

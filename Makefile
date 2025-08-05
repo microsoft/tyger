@@ -140,6 +140,17 @@ test: up unit-test integration-test
 test-no-up: unit-test integration-test-no-up
 	$(MAKE) variant-test
 
+basic-test-no-up:
+	codespec_name=basic_test
+	codespec_version=$$(tyger codespec create $$codespec_name --image "mcr.microsoft.com/azurelinux/base/core:3.0" \
+		-i input -o output --command -- \
+		bash -c 'echo "hello $$(cat $${INPUT_PIPE})" > $${OUTPUT_PIPE}')
+	output=$$(echo "world" | tyger run exec -c "$$codespec_name/versions/$$codespec_version")
+	if [[ "$${output}" != "hello world" ]]; then
+		echo "Expected 'hello world', got '$${output}'"
+		exit 1
+	fi
+
 full:
 	$(MAKE) test INSTALL_CLOUD=true
 

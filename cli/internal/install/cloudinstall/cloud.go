@@ -208,16 +208,16 @@ func (inst *Installer) UninstallCloud(ctx context.Context, all bool) error {
 		return err
 	}
 
-	if inst.Config.Cloud.PrivateNetworking {
-		inst.forEachVnet(ctx, func(ctx context.Context, vnet *armnetwork.VirtualNetwork, subnet *armnetwork.Subnet, configSubnet *SubnetReference) error {
-			return inst.safeDeleteResourceGroup(ctx, configSubnet.PrivateLinkResourceGroup)
-		})
-	}
-
 	for _, c := range inst.Config.Cloud.Compute.Clusters {
 		if err := inst.onDeleteCluster(ctx, c); err != nil {
 			return err
 		}
+	}
+
+	if inst.Config.Cloud.PrivateNetworking {
+		inst.forEachVnet(ctx, func(ctx context.Context, vnet *armnetwork.VirtualNetwork, subnet *armnetwork.Subnet, configSubnet *SubnetReference) error {
+			return inst.safeDeleteResourceGroup(ctx, configSubnet.PrivateLinkResourceGroup)
+		})
 	}
 
 	if inst.Config.Cloud.TlsCertificate != nil && inst.Config.Cloud.TlsCertificate.KeyVault != nil {
