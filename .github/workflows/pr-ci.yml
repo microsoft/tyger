@@ -197,7 +197,7 @@ jobs:
             # Reuse environment names so that we are not creating new Let's Encrypt certificate requests for each PR
             environment_name="tyger-gpr$(( (${{ github.event.pull_request.number }} % 15) + 38 ))"
           else
-            environment_name="tygerwestus2"
+            environment_name="tygerci"
           fi
 
           export TYGER_ENVIRONMENT_NAME="${environment_name}"
