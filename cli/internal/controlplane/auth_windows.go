@@ -20,6 +20,7 @@ import (
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/confidential"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/sys/windows"
 )
 
@@ -72,6 +73,13 @@ func createCredentialFromSystemCertificateStore(thumbprint string) (confidential
 
 	x5tHeaderValue := base64.URLEncoding.EncodeToString(getThumbprintBytes(certContext))
 
+	// Build x5c: an array of base64-encoded (not base64url) DER certs, leaf first followed by chain.
+	// This is only required (and supported) for Microsoft tenants.
+	x5cHeaderValues, err := buildX5CChain(certContext)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to build x5c chain")
+	}
+
 	return confidential.NewCredFromAssertionCallback(func(ctx context.Context, aro confidential.AssertionRequestOptions) (string, error) {
 		signingMethod := &rsaCngSiningMethod{}
 		token := jwt.NewWithClaims(signingMethod, jwt.MapClaims{
@@ -82,10 +90,11 @@ func createCredentialFromSystemCertificateStore(thumbprint string) (confidential
 			"nbf": json.Number(strconv.FormatInt(time.Now().Unix(), 10)),
 			"sub": aro.ClientID,
 		})
-		token.Header = map[string]interface{}{
+		token.Header = map[string]any{
 			"alg": "RS256",
 			"typ": "JWT",
 			"x5t": x5tHeaderValue,
+			"x5c": x5cHeaderValues,
 		}
 
 		assertion, err := token.SignedString(privateKey)
@@ -94,6 +103,55 @@ func createCredentialFromSystemCertificateStore(thumbprint string) (confidential
 		}
 		return assertion, nil
 	}), nil
+}
+
+func buildX5CChain(leaf *windows.CertContext) ([]string, error) {
+	// Prepare minimal chain parameters
+	var para windows.CertChainPara
+	para.Size = uint32(unsafe.Sizeof(para))
+
+	var pChainCtx *windows.CertChainContext
+	var verifyTime *windows.Filetime
+	err := windows.CertGetCertificateChain(
+		windows.Handle(0), // default engine
+		leaf,
+		verifyTime,
+		windows.Handle(0), // hAdditionalStore
+		&para,
+		0, // dwFlags
+		0, // reserved
+		&pChainCtx,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("CertGetCertificateChain failed: %w", err)
+	}
+
+	defer windows.CertFreeCertificateChain(pChainCtx)
+
+	// Fallback to leaf-only if chain has no entries
+	if pChainCtx == nil || pChainCtx.ChainCount == 0 {
+		return []string{base64.StdEncoding.EncodeToString(getEncodedCert(leaf))}, nil
+	}
+
+	// Use the best-quality first chain
+	chains := unsafe.Slice(pChainCtx.Chains, int(pChainCtx.ChainCount))
+	sc := chains[0]
+	if sc == nil || sc.NumElements == 0 {
+		return []string{base64.StdEncoding.EncodeToString(getEncodedCert(leaf))}, nil
+	}
+	elements := unsafe.Slice(sc.Elements, int(sc.NumElements))
+
+	// Collect base64 DER certificates in order
+	x5c := make([]string, 0, len(elements))
+	for _, el := range elements {
+		if el == nil || el.CertContext == nil {
+			continue
+		}
+		der := getEncodedCert(el.CertContext)
+		x5c = append(x5c, base64.StdEncoding.EncodeToString(der))
+	}
+
+	return x5c, nil
 }
 
 func findCertificateByThumbprint(thumbprint string, storeLocation uint32) (*windows.CertContext, error) {
