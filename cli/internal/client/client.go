@@ -26,7 +26,9 @@ import (
 const (
 	DefaultControlPlaneSocketPathEnvVar = "TYGER_SOCKET_PATH"
 	defaultControlPlaneUnixSocketPath   = "/opt/tyger/api.sock"
-	clockSkewWarningThreshold           = 15 * time.Minute
+
+	clockSkewWarningThreshold = 15 * time.Minute
+	clockSkewWarning          = "Detected significant clock skew. The system time may be wrong."
 )
 
 var (
@@ -297,7 +299,7 @@ func (t *clockSkewCheckingRoundTripper) RoundTrip(req *http.Request) (*http.Resp
 			if date, err := http.ParseTime(dateHeader); err == nil {
 				now := time.Now().UTC()
 				if now.Sub(date) > clockSkewWarningThreshold || date.Sub(now) > clockSkewWarningThreshold {
-					log.Ctx(req.Context()).Warn().Msg("Detected significant clock skew. The system time may be wrong.")
+					log.Ctx(req.Context()).Warn().Msg(clockSkewWarning)
 				}
 			}
 		}

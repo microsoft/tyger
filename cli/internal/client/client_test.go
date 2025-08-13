@@ -4,10 +4,15 @@
 package client
 
 import (
+	"bytes"
+	"context"
 	"net/http"
 	"net/url"
 	"testing"
+	"time"
 
+	"github.com/hashicorp/go-retryablehttp"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 )
 
@@ -123,4 +128,67 @@ func TestGetProxyFuncWithDataPlaneProxy(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, proxyURL)
 	require.Equal(t, dpProxy, proxyURL.String())
+}
+
+func TestClockSkewWarning(t *testing.T) {
+	testCases := []struct {
+		desc            string
+		date            time.Time
+		expectedWarning bool
+	}{
+		{
+			desc:            "Clock skew warning expected",
+			date:            time.Now().UTC().Add(time.Hour),
+			expectedWarning: true,
+		},
+		{
+			desc:            "No clock skew warning expected",
+			date:            time.Now().UTC(),
+			expectedWarning: false,
+		},
+	}
+
+	for _, tC := range testCases {
+		t.Run(tC.desc, func(t *testing.T) {
+			c, err := NewClient(&ClientOptions{
+				CreateTransport: func(next http.RoundTripper) http.RoundTripper {
+					return &fixedTimeTransport{date: tC.date}
+				},
+			})
+
+			require.NoError(t, err)
+
+			errorBuf := bytes.Buffer{}
+			ctx := zerolog.New(&errorBuf).WithContext(context.Background())
+			req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, "https://example.com", nil)
+			require.NoError(t, err)
+			resp, err := c.Do(req)
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			if tC.expectedWarning {
+				require.Contains(t, errorBuf.String(), clockSkewWarning)
+			} else {
+				require.NotContains(t, errorBuf.String(), clockSkewWarning)
+			}
+		})
+	}
+}
+
+type fixedTimeTransport struct {
+	date time.Time
+}
+
+func (t *fixedTimeTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp := http.Response{
+		Request:    req,
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Date": []string{t.date.Format(http.TimeFormat)},
+		},
+	}
+	return &resp, nil
+}
+
+func (t *fixedTimeTransport) GetUnderlyingTransport() *http.Transport {
+	return http.DefaultTransport.(*http.Transport)
 }
