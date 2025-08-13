@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math/bits"
 	"net/http"
 	"net/url"
@@ -15,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hashicorp/go-retryablehttp"
 	"github.com/rs/zerolog/log"
 )
 
@@ -28,6 +30,7 @@ const (
 
 	HashChainHeader  = "x-ms-meta-cumulative_hash_chain"
 	ContentMD5Header = "Content-MD5"
+	ErrorCodeHeader  = "x-ms-error-code"
 
 	StartMetadataBlobName = ".bufferstart"
 	EndMetadataBlobName   = ".bufferend"
@@ -62,18 +65,27 @@ type BufferEndMetadata struct {
 	Status BufferStatus `json:"status"`
 }
 
+type InvalidAccessUrlError struct {
+	Reason string
+}
+
+func (e *InvalidAccessUrlError) Error() string {
+	if e.Reason == "" {
+		return "invalid access URL"
+	}
+
+	return fmt.Sprintf("invalid access URL: %s", e.Reason)
+}
+
 type Container struct {
-	lock        *sync.Mutex
-	accessUrl   *url.URL
-	refreshTime time.Time
-	getNewUrl   func(context.Context) (*url.URL, error)
+	initialAccessUrl *url.URL
+	getNewUrl        func(context.Context) (*url.URL, error)
 }
 
 func NewContainer(accessUrl *url.URL) *Container {
 	return &Container{
-		lock:      &sync.Mutex{},
-		accessUrl: accessUrl,
-		getNewUrl: nil,
+		initialAccessUrl: accessUrl,
+		getNewUrl:        nil,
 	}
 }
 
@@ -89,12 +101,31 @@ func NewContainerFromAccessString(ctx context.Context, accessString string) (*Co
 }
 
 func NewContainerFromAccessFile(ctx context.Context, filename string) (*Container, error) {
+	const RetryCount = 10
+	var lastUrl *url.URL
 	getNewUrl := func(ctx context.Context) (*url.URL, error) {
-		url, err := GetBufferAccessUrlFromFile(filename)
-		if err != nil {
-			return nil, err
+		for retryCount := range 10 {
+			newUrl, err := GetBufferAccessUrlFromFile(filename)
+			if err != nil {
+				return nil, err
+			}
+
+			if lastUrl == nil || lastUrl.String() != newUrl.String() {
+				lastUrl = newUrl
+
+				return newUrl, nil
+			}
+
+			log.Ctx(ctx).Warn().Msgf("Access URL from file %s has not changed, attempt %d/%d", filename, retryCount+1, RetryCount)
+			select {
+			case <-time.After(30 * time.Second):
+				// Continue to next iteration
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
 		}
-		return url, nil
+
+		return nil, fmt.Errorf("access URL from file %s has not changed after %d attempts", filename, RetryCount)
 	}
 
 	return newContainer(ctx, nil, getNewUrl)
@@ -102,11 +133,19 @@ func NewContainerFromAccessFile(ctx context.Context, filename string) (*Containe
 
 func NewContainerFromBufferId(ctx context.Context, bufferId string, writeable bool, accessTtl string) (*Container, error) {
 	getNewUrl := func(ctx context.Context) (*url.URL, error) {
-		url, err := RequestNewBufferAccessUrl(ctx, bufferId, writeable, accessTtl)
-		if err != nil {
-			return nil, err
+		const MaxRetries = 20
+		for attempt := range MaxRetries {
+			u, err := RequestNewBufferAccessUrl(ctx, bufferId, writeable, accessTtl)
+			if err != nil {
+				log.Ctx(ctx).Warn().Msgf("Failed to get new buffer access URL (attempt %d/%d): %v", attempt+1, MaxRetries, err)
+				time.Sleep(5 * time.Second)
+				continue
+			}
+
+			return u, nil
 		}
-		return url, nil
+
+		return nil, fmt.Errorf("failed to get new buffer access URL after %d attempts", MaxRetries)
 	}
 
 	return newContainer(ctx, nil, getNewUrl)
@@ -123,127 +162,25 @@ func newContainer(ctx context.Context, accessUrl *url.URL, getUrl func(context.C
 		}
 		accessUrl = url
 	}
-	refreshTime, err := calculateProactiveSasRefreshTime(accessUrl)
-	if err != nil {
-		return nil, err
-	}
 	c := &Container{
-		lock:        &sync.Mutex{},
-		accessUrl:   accessUrl,
-		refreshTime: refreshTime,
-		getNewUrl:   getUrl,
+		initialAccessUrl: accessUrl,
+		getNewUrl:        getUrl,
 	}
 	return c, nil
 }
 
-// CurrentAccessUrl returns the current access URL without attempting to refresh.
-func (c *Container) CurrentAccessUrl() *url.URL {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-	return c.accessUrl
-}
+func (c *Container) NewContainerClient(httpClient *retryablehttp.Client) *ContainerClient {
+	baseUrl := *c.initialAccessUrl
+	baseUrl.RawQuery = ""
 
-// GetValidAccessUrl returns a valid access URL, refreshing it if necessary.
-func (c *Container) GetValidAccessUrl(ctx context.Context) (*url.URL, error) {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-
-	// Does the URL need to be refreshed?
-	if time.Until(c.refreshTime) > 0 {
-		return c.accessUrl, nil
+	return &ContainerClient{
+		innerClient:           httpClient,
+		baseUrl:               &baseUrl,
+		currentAccessUrl:      c.initialAccessUrl,
+		currentAccessUrlQuery: c.initialAccessUrl.Query(),
+		getNewAccessUrl:       c.getNewUrl,
+		mutex:                 sync.RWMutex{},
 	}
-
-	// If it can't be refreshed, check if it's expired and return it
-	if c.getNewUrl == nil {
-		expired, err := isUrlExpired(c.accessUrl)
-		if err != nil {
-			return nil, err
-		}
-		if expired {
-			return nil, fmt.Errorf("access URL expired and cannot be refreshed")
-		}
-		return c.accessUrl, nil
-	}
-
-	// Attempt to refresh
-	const MaxRetries = 5
-	for retryCount := 0; retryCount < MaxRetries; retryCount++ {
-
-		select {
-		case <-ctx.Done():
-			return c.accessUrl, ctx.Err()
-		default:
-		}
-
-		// Refresh and update Container
-		url, err := c.getNewUrl(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to refresh access URL: %w", err)
-		}
-		c.accessUrl = url
-
-		refreshTime, err := calculateProactiveSasRefreshTime(c.accessUrl)
-		if err != nil {
-			return nil, err
-		}
-		c.refreshTime = refreshTime
-
-		// Is the URL about to expire?
-		expired, err := isUrlExpired(c.accessUrl)
-		if err != nil {
-			return nil, fmt.Errorf("failed to refresh access URL: %w", err)
-		}
-		if expired {
-			log.Ctx(ctx).Trace().Msgf("access URL expired, retrying refresh in %d seconds", retryCount+1)
-			time.Sleep(time.Duration(retryCount+1) * time.Second)
-			continue
-		}
-
-		// Good to go
-		log.Ctx(ctx).Trace().Msgf("got new access URL for %s", path.Base(c.accessUrl.Path))
-		return c.accessUrl, nil
-	}
-
-	return nil, fmt.Errorf("failed to refresh access URL after %d retries", MaxRetries)
-}
-
-func isUrlExpired(accessUrl *url.URL) (bool, error) {
-	expiresAt, err := parseSasQueryTimestamp(accessUrl, "se")
-	if err != nil {
-		return true, err
-	}
-	return time.Now().Add(2 * time.Second).After(expiresAt), nil
-}
-
-func parseSasQueryTimestamp(accessUrl *url.URL, key string) (time.Time, error) {
-	queryString := accessUrl.Query()
-
-	value := queryString.Get(key)
-	if value == "" {
-		return time.Time{}, fmt.Errorf("SAS timestamp '%s' not found", key)
-	}
-
-	parsed, err := time.Parse(time.RFC3339, value)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("error parsing SAS timestamp '%s': %w", value, err)
-	}
-
-	return parsed, nil
-}
-
-func calculateProactiveSasRefreshTime(u *url.URL) (time.Time, error) {
-	issuedAt, err := parseSasQueryTimestamp(u, "st")
-	if err != nil {
-		return time.Time{}, err
-	}
-	expiresAt, err := parseSasQueryTimestamp(u, "se")
-	if err != nil {
-		return time.Time{}, err
-	}
-
-	lifetime := expiresAt.Sub(issuedAt)
-	threshold := time.Duration(0.85*lifetime.Seconds()) * time.Second
-	return issuedAt.Add(threshold), nil
 }
 
 func MakeBlobPath(blobNumber int64) string {
@@ -305,16 +242,16 @@ func MakeBlobPath(blobNumber int64) string {
 }
 
 func (c *Container) GetContainerName() string {
-	return path.Base(c.CurrentAccessUrl().Path)
+	return path.Base(c.initialAccessUrl.Path)
 }
 
 func (c *Container) SupportsRelay() bool {
-	relayParam, ok := c.CurrentAccessUrl().Query()["relay"]
+	relayParam, ok := c.initialAccessUrl.Query()["relay"]
 	return ok && len(relayParam) == 1 && relayParam[0] == "true"
 }
 
 func (c *Container) Scheme() string {
-	return c.CurrentAccessUrl().Scheme
+	return c.initialAccessUrl.Scheme
 }
 
 func AddCommonBlobRequestHeaders(header http.Header) {
@@ -325,4 +262,107 @@ func AddCommonBlobRequestHeaders(header http.Header) {
 func clearBit(value int64, pos int) int64 {
 	mask := int64(^(1 << pos))
 	return value & mask
+}
+
+type ContainerClient struct {
+	innerClient     *retryablehttp.Client
+	baseUrl         *url.URL
+	getNewAccessUrl func(context.Context) (*url.URL, error)
+	mutex           sync.RWMutex
+
+	// all remaining fields require the mutex to access
+	currentAccessUrl      *url.URL
+	currentAccessUrlQuery url.Values
+	accessUrlGen          int64
+	refreshError          error
+}
+
+func (c *ContainerClient) NewRequestWithRelativeUrl(ctx context.Context, method string, relativeUrl string, body any) *retryablehttp.Request {
+	req, err := retryablehttp.NewRequestWithContext(ctx, method, c.baseUrl.JoinPath(relativeUrl).String(), body)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create request: %v", err))
+	}
+
+	return req
+}
+
+func (c *ContainerClient) NewNonRetryableRequestWithRelativeUrl(ctx context.Context, method string, relativeUrl string, body io.Reader) *http.Request {
+	req, err := http.NewRequestWithContext(ctx, method, c.baseUrl.JoinPath(relativeUrl).String(), body)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create request: %v", err))
+	}
+
+	return req
+}
+
+func (c *ContainerClient) Do(req *retryablehttp.Request) (*http.Response, error) {
+	initialGen := c.updateRequestUrl(req.Request)
+
+	resp, err := c.innerClient.Do(req)
+
+	if c.getNewAccessUrl == nil ||
+		err != nil ||
+		resp.StatusCode != http.StatusForbidden ||
+		(resp.Header.Get(ErrorCodeHeader) != "AuthenticationFailed") {
+		return resp, err
+	}
+
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+
+	err = func() error {
+		c.mutex.Lock()
+		defer c.mutex.Unlock()
+		if c.refreshError != nil {
+			return c.refreshError
+		}
+
+		if c.accessUrlGen != initialGen {
+			return nil // The URL has already been refreshed, no need to do it again
+		}
+
+		log.Ctx(req.Context()).Info().Msg("Refreshing acccess URL")
+
+		newUrl, err := c.getNewAccessUrl(req.Context())
+		if err != nil {
+			c.refreshError = fmt.Errorf("failed to refresh access URL")
+			return c.refreshError
+		}
+
+		log.Ctx(req.Context()).Info().Msg("Updated access URL")
+
+		c.currentAccessUrl = newUrl
+		c.currentAccessUrlQuery = newUrl.Query()
+		c.accessUrlGen++
+		return nil
+	}()
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to refresh access URL: %w", err)
+	}
+
+	c.updateRequestUrl(req.Request)
+	return c.innerClient.Do(req)
+}
+
+func (c *ContainerClient) updateRequestUrl(req *http.Request) int64 {
+	if c.getNewAccessUrl != nil {
+		c.mutex.RLock()
+		defer c.mutex.RUnlock()
+	}
+
+	if c.currentAccessUrl == nil {
+		panic("currentAccessUrl is nil, cannot update request URL")
+	}
+
+	if req.URL.RawQuery == "" {
+		req.URL.RawQuery = c.currentAccessUrl.RawQuery
+		return c.accessUrlGen
+	}
+	reqQuery := req.URL.Query()
+	for k, v := range c.currentAccessUrlQuery {
+		reqQuery[k] = v
+	}
+	req.URL.RawQuery = reqQuery.Encode()
+	return c.accessUrlGen
 }

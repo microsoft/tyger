@@ -261,7 +261,7 @@ func TestMissingContainer(t *testing.T) {
 		}
 
 		resp.StatusCode = http.StatusNotFound
-		resp.Header.Set("x-ms-error-code", "ContainerNotFound")
+		resp.Header.Set(dataplane.ErrorCodeHeader, "ContainerNotFound")
 		return resp, nil
 	})
 

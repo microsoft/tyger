@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -25,6 +26,9 @@ import (
 const (
 	DefaultControlPlaneSocketPathEnvVar = "TYGER_SOCKET_PATH"
 	defaultControlPlaneUnixSocketPath   = "/opt/tyger/api.sock"
+
+	clockSkewWarningThreshold = 15 * time.Minute
+	clockSkewWarning          = "Detected significant clock skew. The system time may be wrong."
 )
 
 var (
@@ -70,6 +74,14 @@ func NewClient(opts *ClientOptions) (*Client, error) {
 		opts = &ClientOptions{}
 	}
 
+	if opts.CreateDialer == nil {
+		opts.CreateDialer = makeUnixDialer
+	}
+
+	if opts.CreateTransport == nil {
+		opts.CreateTransport = makeUnixAwareTransport
+	}
+
 	proxyFunc, err := ParseProxy(opts.ProxyString)
 	if err != nil {
 		return nil, err
@@ -79,7 +91,7 @@ func NewClient(opts *ClientOptions) (*Client, error) {
 		MaxIdleConnsPerHost:   1000,
 		ResponseHeaderTimeout: 60 * time.Second,
 		Proxy:                 proxyFunc,
-		DialContext:           (&net.Dialer{}).DialContext,
+		DialContext:           opts.CreateDialer((&net.Dialer{}).DialContext),
 	}
 
 	if opts.DisableTlsCertificateValidation {
@@ -88,17 +100,11 @@ func NewClient(opts *ClientOptions) (*Client, error) {
 
 	var roundTripper http.RoundTripper = transport
 
-	if opts.CreateTransport == nil {
-		opts.CreateTransport = makeUnixAwareTransport
-	}
-
 	roundTripper = opts.CreateTransport(roundTripper)
 
-	if opts.CreateDialer == nil {
-		opts.CreateDialer = makeUnixDialer
+	roundTripper = &clockSkewCheckingRoundTripper{
+		RoundTripper: roundTripper,
 	}
-
-	transport.DialContext = opts.CreateDialer(transport.DialContext)
 
 	if log.Logger.GetLevel() <= zerolog.DebugLevel {
 		roundTripper = &loggingTransport{RoundTripper: roundTripper}
@@ -273,6 +279,40 @@ func (t *loggingTransport) GetUnderlyingTransport() *http.Transport {
 }
 
 var _ HttpTransportExposer = &loggingTransport{}
+
+// A global variable to ensure we only incur the cost of checking clock skew once and only log one warning.
+var clockSkewChecked atomic.Bool
+
+type clockSkewCheckingRoundTripper struct {
+	http.RoundTripper
+}
+
+func (t *clockSkewCheckingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.RoundTripper.RoundTrip(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if !clockSkewChecked.Swap(true) {
+		// Check for clock skew by looking for a "Date" header
+		if dateHeader := resp.Header.Get("Date"); dateHeader != "" {
+			if date, err := http.ParseTime(dateHeader); err == nil {
+				now := time.Now().UTC()
+				if now.Sub(date) > clockSkewWarningThreshold || date.Sub(now) > clockSkewWarningThreshold {
+					log.Ctx(req.Context()).Warn().Msg(clockSkewWarning)
+				}
+			}
+		}
+	}
+
+	return resp, nil
+}
+
+func (t *clockSkewCheckingRoundTripper) GetUnderlyingTransport() *http.Transport {
+	return getHttpTransport(t.RoundTripper)
+}
+
+var _ HttpTransportExposer = &clockSkewCheckingRoundTripper{}
 
 func ParseProxy(proxyString string) (func(r *http.Request) (*url.URL, error), error) {
 	switch proxyString {

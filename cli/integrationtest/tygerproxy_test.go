@@ -262,7 +262,7 @@ func TestRunningProxyOnSamePortDifferentTarget(t *testing.T) {
 	require.NoError(err)
 	defer closeProxy()
 
-	secondProxyOptions := *&proxyOptions
+	secondProxyOptions := proxyOptions
 	secondProxyOptions.LoginConfig.ServerUrl = "http://someotherserver"
 
 	_, err = tygerproxy.RunProxy(context.Background(), tygerClient, &secondProxyOptions, logger)
