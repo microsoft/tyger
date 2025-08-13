@@ -483,7 +483,7 @@ func handleReadResponse(ctx context.Context, metrics *TransferMetrics, resp *htt
 
 		return &response, nil
 	case http.StatusNotFound:
-		switch resp.Header.Get("x-ms-error-code") {
+		switch resp.Header.Get(ErrorCodeHeader) {
 		case "BlobNotFound":
 			io.Copy(io.Discard, resp.Body)
 			return nil, ErrNotFound
@@ -492,7 +492,7 @@ func handleReadResponse(ctx context.Context, metrics *TransferMetrics, resp *htt
 			return nil, errBufferDoesNotExist
 		}
 	case http.StatusForbidden:
-		switch resp.Header.Get("x-ms-error-code") {
+		switch resp.Header.Get(ErrorCodeHeader) {
 		case "AuthenticationFailed":
 			bodyBytes, _ := io.ReadAll(resp.Body)
 			return nil, &InvalidAccessUrlError{

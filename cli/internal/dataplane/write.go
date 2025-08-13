@@ -546,16 +546,16 @@ func handleWriteResponse(resp *http.Response) error {
 		io.Copy(io.Discard, resp.Body)
 		return nil
 	case http.StatusNotFound:
-		if resp.Header.Get("x-ms-error-code") == "ContainerNotFound" {
+		if resp.Header.Get(ErrorCodeHeader) == "ContainerNotFound" {
 			return errBufferDoesNotExist
 		}
 	case http.StatusBadRequest:
-		if resp.Header.Get("x-ms-error-code") == "Md5Mismatch" {
+		if resp.Header.Get(ErrorCodeHeader) == "Md5Mismatch" {
 			io.Copy(io.Discard, resp.Body)
 			return errMd5Mismatch
 		}
 	case http.StatusForbidden:
-		switch resp.Header.Get("x-ms-error-code") {
+		switch resp.Header.Get(ErrorCodeHeader) {
 		case "UnauthorizedBlobOverwrite":
 			io.Copy(io.Discard, resp.Body)
 			return errBlobOverwrite

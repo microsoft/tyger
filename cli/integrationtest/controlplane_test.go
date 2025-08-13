@@ -27,6 +27,8 @@ import (
 	"github.com/andreyvit/diff"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/google/uuid"
+	"github.com/microsoft/tyger/cli/internal/client"
+	"github.com/microsoft/tyger/cli/internal/common"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/dataplane"
@@ -2691,69 +2693,90 @@ func TestServerApiV1BackwardCompatibility(t *testing.T) {
 	}
 }
 
-// func TestBufferAccessUrlUpdates(t *testing.T) {
-// 	t.Parallel()
+func TestBufferAccessUrlUpdates(t *testing.T) {
+	t.Parallel()
 
-// 	bufferId := runTygerSucceeds(t, "buffer", "create")
+	bufferId := runTygerSucceeds(t, "buffer", "create")
 
-// 	ttl, err := common.ParseTimeToLive("0.00:00:30")
-// 	require.NoError(t, err)
+	ttl, err := common.ParseTimeToLive("0.00:00:30")
+	require.NoError(t, err)
 
-// 	t.Run("from buffer id", func(t *testing.T) {
-// 		t.Parallel()
-// 		require := require.New(t)
-// 		container, err := dataplane.NewContainerFromBufferId(context.Background(), bufferId, true, ttl.String())
-// 		require.NoError(err)
-// 		firstAccessUrl, err := container.GetValidAccessUrl(context.Background())
-// 		require.NoError(err)
-// 		time.Sleep(31 * time.Second)
-// 		nextAccessUrl, err := container.GetValidAccessUrl(context.Background())
-// 		require.NoError(err)
-// 		require.NotEqual(firstAccessUrl.String(), nextAccessUrl.String())
-// 	})
+	const relativePath = "foo"
 
-// 	t.Run("from filename", func(t *testing.T) {
-// 		t.Parallel()
-// 		require := require.New(t)
+	t.Run("from buffer id", func(t *testing.T) {
+		t.Parallel()
+		require := require.New(t)
+		container, err := dataplane.NewContainerFromBufferId(context.Background(), bufferId, true, ttl.String())
+		require.NoError(err)
 
-// 		accessUrl := runTygerSucceeds(t, "buffer", "access", bufferId, "--access-ttl", ttl.String())
+		containerClient := container.NewContainerClient(client.DefaultRetryableClient)
 
-// 		tempDir := t.TempDir()
-// 		accessFilePath := filepath.Join(tempDir, fmt.Sprintf("%s.access", bufferId))
-// 		require.NoError(os.WriteFile(accessFilePath, []byte(accessUrl), 0644))
-// 		container, err := dataplane.NewContainerFromAccessFile(context.Background(), accessFilePath)
-// 		require.NoError(err)
-// 		accessUrlRead, err := container.GetValidAccessUrl(context.Background())
-// 		require.NoError(err)
-// 		require.Equal(accessUrl, accessUrlRead.String())
+		req1 := containerClient.NewRequestWithRelativeUrl(context.Background(), http.MethodGet, relativePath, nil)
+		resp1, err := containerClient.Do(req1)
+		require.NoError(err)
 
-// 		time.Sleep(10 * time.Second)
-// 		newAccessUrl := runTygerSucceeds(t, "buffer", "access", bufferId, "--access-ttl", ttl.String())
-// 		require.NotEqual(accessUrl, newAccessUrl)
-// 		require.NoError(os.WriteFile(accessFilePath, []byte(newAccessUrl), 0644))
-// 		time.Sleep(21 * time.Second)
-// 		accessUrlRead, err = container.GetValidAccessUrl(context.Background())
-// 		require.NoError(err)
-// 		require.Equal(newAccessUrl, accessUrlRead.String())
-// 	})
+		time.Sleep(31 * time.Second)
+		req2 := containerClient.NewRequestWithRelativeUrl(context.Background(), http.MethodGet, relativePath, nil)
+		resp2, err := containerClient.Do(req2)
+		require.NotEqual(resp1.Request.URL.String(), resp2.Request.URL.String())
+	})
 
-// 	t.Run("from buffer access url", func(t *testing.T) {
-// 		t.Parallel()
-// 		require := require.New(t)
-// 		accessUrl := runTygerSucceeds(t, "buffer", "access", bufferId, "--access-ttl", ttl.String())
-// 		container, err := dataplane.NewContainerFromAccessString(context.Background(), accessUrl)
-// 		require.NoError(err)
-// 		firstAccessUrl, err := container.GetValidAccessUrl(context.Background())
-// 		require.NoError(err)
-// 		require.Equal(accessUrl, firstAccessUrl.String())
-// 		time.Sleep(31 * time.Second)
-// 		// URL will not be refreshed because the input is a SAS URL (the user may not be logged into Tyger)
-// 		nextAccessUrl, err := container.GetValidAccessUrl(context.Background())
-// 		require.Nil(nextAccessUrl)
-// 		require.Error(err)
-// 		require.ErrorContains(err, "access URL expired and cannot be refreshed")
-// 	})
-// }
+	t.Run("from filename", func(t *testing.T) {
+		t.Parallel()
+		require := require.New(t)
+
+		accessUrl := runTygerSucceeds(t, "buffer", "access", bufferId, "--access-ttl", ttl.String())
+		expectedUrl, err := url.Parse(accessUrl)
+		require.NoError(err)
+		expectedUrl = expectedUrl.JoinPath(relativePath)
+
+		tempDir := t.TempDir()
+		accessFilePath := filepath.Join(tempDir, fmt.Sprintf("%s.access", bufferId))
+		require.NoError(os.WriteFile(accessFilePath, []byte(accessUrl), 0644))
+		container, err := dataplane.NewContainerFromAccessFile(context.Background(), accessFilePath)
+		require.NoError(err)
+
+		containerClient := container.NewContainerClient(client.DefaultRetryableClient)
+
+		req1 := containerClient.NewRequestWithRelativeUrl(context.Background(), http.MethodGet, relativePath, nil)
+		resp1, err := containerClient.Do(req1)
+		require.Equal(expectedUrl.Query(), resp1.Request.URL.Query())
+
+		time.Sleep(10 * time.Second)
+		newAccessUrl := runTygerSucceeds(t, "buffer", "access", bufferId, "--access-ttl", ttl.String())
+		newExpectedUrl, err := url.Parse(newAccessUrl)
+		require.NoError(err)
+		newExpectedUrl = newExpectedUrl.JoinPath(relativePath)
+		require.NotEqual(accessUrl, newAccessUrl)
+		require.NoError(os.WriteFile(accessFilePath, []byte(newAccessUrl), 0644))
+		time.Sleep(21 * time.Second)
+		req2 := containerClient.NewRequestWithRelativeUrl(context.Background(), http.MethodGet, relativePath, nil)
+		resp2, err := containerClient.Do(req2)
+		require.Equal(newExpectedUrl.Query(), resp2.Request.URL.Query())
+	})
+
+	t.Run("from buffer access url", func(t *testing.T) {
+		t.Parallel()
+		require := require.New(t)
+		accessUrl := runTygerSucceeds(t, "buffer", "access", bufferId, "--access-ttl", ttl.String())
+		parsedAccessUrl, err := url.Parse(accessUrl)
+		container, err := dataplane.NewContainerFromAccessString(context.Background(), accessUrl)
+		require.NoError(err)
+		containerClient := container.NewContainerClient(client.DefaultRetryableClient)
+
+		req1 := containerClient.NewRequestWithRelativeUrl(context.Background(), http.MethodGet, relativePath, nil)
+		resp1, err := containerClient.Do(req1)
+		require.NoError(err)
+		require.Equal(parsedAccessUrl.Query(), resp1.Request.URL.Query())
+		time.Sleep(31 * time.Second)
+		// URL will not be refreshed because the input is a SAS URL (the user may not be logged into Tyger)
+		req2 := containerClient.NewRequestWithRelativeUrl(context.Background(), http.MethodGet, relativePath, nil)
+		resp2, err := containerClient.Do(req2)
+		require.NoError(err)
+
+		require.Equal(http.StatusForbidden, resp2.StatusCode)
+	})
+}
 
 func TestServiceMetadataContainsApiVersions(t *testing.T) {
 	t.Parallel()

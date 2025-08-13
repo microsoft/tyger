@@ -30,6 +30,7 @@ const (
 
 	HashChainHeader  = "x-ms-meta-cumulative_hash_chain"
 	ContentMD5Header = "Content-MD5"
+	ErrorCodeHeader  = "x-ms-error-code"
 
 	StartMetadataBlobName = ".bufferstart"
 	EndMetadataBlobName   = ".bufferend"
@@ -100,8 +101,31 @@ func NewContainerFromAccessString(ctx context.Context, accessString string) (*Co
 }
 
 func NewContainerFromAccessFile(ctx context.Context, filename string) (*Container, error) {
+	const RetryCount = 10
+	var lastUrl *url.URL
 	getNewUrl := func(ctx context.Context) (*url.URL, error) {
-		return GetBufferAccessUrlFromFile(filename)
+		for retryCount := range 10 {
+			newUrl, err := GetBufferAccessUrlFromFile(filename)
+			if err != nil {
+				return nil, err
+			}
+
+			if lastUrl == nil || lastUrl.String() != newUrl.String() {
+				lastUrl = newUrl
+
+				return newUrl, nil
+			}
+
+			log.Ctx(ctx).Warn().Msgf("Access URL from file %s has not changed, attempt %d/%d", filename, retryCount+1, RetryCount)
+			select {
+			case <-time.After(30 * time.Second):
+				// Continue to next iteration
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+
+		return nil, fmt.Errorf("access URL from file %s has not changed after %d attempts", filename, RetryCount)
 	}
 
 	return newContainer(ctx, nil, getNewUrl)
@@ -109,7 +133,19 @@ func NewContainerFromAccessFile(ctx context.Context, filename string) (*Containe
 
 func NewContainerFromBufferId(ctx context.Context, bufferId string, writeable bool, accessTtl string) (*Container, error) {
 	getNewUrl := func(ctx context.Context) (*url.URL, error) {
-		return RequestNewBufferAccessUrl(ctx, bufferId, writeable, accessTtl)
+		const MaxRetries = 20
+		for attempt := range MaxRetries {
+			u, err := RequestNewBufferAccessUrl(ctx, bufferId, writeable, accessTtl)
+			if err != nil {
+				log.Ctx(ctx).Warn().Msgf("Failed to get new buffer access URL (attempt %d/%d): %v", attempt+1, MaxRetries, err)
+				time.Sleep(5 * time.Second)
+				continue
+			}
+
+			return u, nil
+		}
+
+		return nil, fmt.Errorf("failed to get new buffer access URL after %d attempts", MaxRetries)
 	}
 
 	return newContainer(ctx, nil, getNewUrl)
@@ -250,15 +286,24 @@ func (c *ContainerClient) NewRequestWithRelativeUrl(ctx context.Context, method 
 	return req
 }
 
+func (c *ContainerClient) NewNonRetryableRequestWithRelativeUrl(ctx context.Context, method string, relativeUrl string, body io.Reader) *http.Request {
+	req, err := http.NewRequestWithContext(ctx, method, c.baseUrl.JoinPath(relativeUrl).String(), body)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create request: %v", err))
+	}
+
+	return req
+}
+
 func (c *ContainerClient) Do(req *retryablehttp.Request) (*http.Response, error) {
-	initialGen := c.updateRequestUrl(req)
+	initialGen := c.updateRequestUrl(req.Request)
 
 	resp, err := c.innerClient.Do(req)
 
 	if c.getNewAccessUrl == nil ||
 		err != nil ||
 		resp.StatusCode != http.StatusForbidden ||
-		(resp.Header.Get("x-ms-error-code") != "AuthenticationFailed") {
+		(resp.Header.Get(ErrorCodeHeader) != "AuthenticationFailed") {
 		return resp, err
 	}
 
@@ -296,11 +341,11 @@ func (c *ContainerClient) Do(req *retryablehttp.Request) (*http.Response, error)
 		return nil, fmt.Errorf("failed to refresh access URL: %w", err)
 	}
 
-	c.updateRequestUrl(req)
+	c.updateRequestUrl(req.Request)
 	return c.innerClient.Do(req)
 }
 
-func (c *ContainerClient) updateRequestUrl(req *retryablehttp.Request) int64 {
+func (c *ContainerClient) updateRequestUrl(req *http.Request) int64 {
 	if c.getNewAccessUrl != nil {
 		c.mutex.RLock()
 		defer c.mutex.RUnlock()

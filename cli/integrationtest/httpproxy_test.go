@@ -143,7 +143,7 @@ func TestHttpProxy(t *testing.T) {
 	s.ShellExecSucceeds("tyger-proxy", fmt.Sprintf("curl --retry 5 --proxy %s --insecure --fail %s/metadata", squidProxy, tygerUrl))
 
 	// disable TLS certificate validation in the config file
-	s.ShellExecSucceeds("tyger-proxy", fmt.Sprintf("echo 'disableTlsCertificateValidation: true' >> /creds.yml"))
+	s.ShellExecSucceeds("tyger-proxy", "echo 'disableTlsCertificateValidation: true' >> /creds.yml")
 	s.ShellExecSucceeds("tyger-proxy", fmt.Sprintf("tyger login -f /creds.yml && tyger buffer read %s > /dev/null", bufferId))
 
 	// Now restart tyger-proxy with TLS certificate validation disabled

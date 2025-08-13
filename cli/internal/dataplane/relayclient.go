@@ -40,11 +40,11 @@ func relayWrite(ctx context.Context, containerClient *ContainerClient, connectio
 
 	partiallyBufferedReader := NewPartiallyBufferedReader(inputReader, 64*1024)
 
-	req := containerClient.NewRequestWithRelativeUrl(ctx, http.MethodPut, "", partiallyBufferedReader)
+	req := containerClient.NewNonRetryableRequestWithRelativeUrl(ctx, http.MethodPut, "", partiallyBufferedReader)
 
 	for retryCount := 0; ; retryCount++ {
 		containerClient.updateRequestUrl(req)
-		resp, err := httpClient.HTTPClient.Do(req.Request)
+		resp, err := httpClient.HTTPClient.Do(req)
 		if err != nil {
 			if rewindErr := partiallyBufferedReader.Rewind(); rewindErr != nil || retryCount > 10 {
 				return fmt.Errorf("error writing to relay: %w", client.RedactHttpError(err))
@@ -61,7 +61,7 @@ func relayWrite(ctx context.Context, containerClient *ContainerClient, connectio
 				return fmt.Errorf("the buffer is an output buffer and cannot be read from")
 			}
 
-			err := relayErrorCodeToErr(resp.Header.Get(errorCodeHeaderName))
+			err := relayErrorCodeToErr(resp.Header.Get(ErrorCodeHeader))
 			if err != nil {
 				return fmt.Errorf("error writing to relay: %w", err)
 			}
@@ -83,6 +83,7 @@ func readRelay(ctx context.Context, containerClient *ContainerClient, connection
 	httpClient.HTTPClient.Timeout = 0
 
 	req := containerClient.NewRequestWithRelativeUrl(ctx, http.MethodGet, "", nil)
+	containerClient.updateRequestUrl(req.Request)
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -96,7 +97,7 @@ func readRelay(ctx context.Context, containerClient *ContainerClient, connection
 			return fmt.Errorf("the buffer is an input buffer and cannot be written to")
 		}
 
-		err := relayErrorCodeToErr(resp.Header.Get(errorCodeHeaderName))
+		err := relayErrorCodeToErr(resp.Header.Get(ErrorCodeHeader))
 		if err != nil {
 			return fmt.Errorf("error reading from relay: %w", err)
 		}
@@ -108,7 +109,7 @@ func readRelay(ctx context.Context, containerClient *ContainerClient, connection
 
 	_, err = io.Copy(outputWriter, &ReaderWithMetrics{transferMetrics: metrics, reader: resp.Body})
 
-	trailerErrorCode := resp.Trailer.Get(errorCodeHeaderName)
+	trailerErrorCode := resp.Trailer.Get(ErrorCodeHeader)
 
 	if err == nil && trailerErrorCode != "" {
 		err = relayErrorCodeToErr(trailerErrorCode)
@@ -209,6 +210,7 @@ func (c *ReaderWithMetrics) Read(p []byte) (n int, err error) {
 	if n > 0 {
 		c.transferMetrics.EnsureStarted(nil)
 		c.transferMetrics.UpdateCompleted(uint64(n), 0)
+		c.transferMetrics.UpdateInFlight(uint64(n))
 	}
 	return n, err
 }

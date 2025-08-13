@@ -23,10 +23,6 @@ import (
 )
 
 const (
-	errorCodeHeaderName = "x-ms-error-code"
-)
-
-const (
 	authenticationFailedErrorCode            = "AuthenticationFailed"
 	AuthorizationPermissionMismatchErrorCode = "AuthorizationPermissionMismatch"
 	alreadyCalledErrorCode                   = "AlreadyCalled"
@@ -48,11 +44,11 @@ func RelayInputServer(
 			if err := ValidateSas(bufferId, SasActionCreate, r.URL.Query(), validateSignatureFunc); err != nil {
 				switch err {
 				case ErrInvalidSas:
-					w.Header().Set(errorCodeHeaderName, authenticationFailedErrorCode)
+					w.Header().Set(ErrorCodeHeader, authenticationFailedErrorCode)
 					w.WriteHeader(http.StatusForbidden)
 					return
 				case ErrSasActionNotAllowed:
-					w.Header().Set(errorCodeHeaderName, AuthorizationPermissionMismatchErrorCode)
+					w.Header().Set(ErrorCodeHeader, AuthorizationPermissionMismatchErrorCode)
 					w.WriteHeader(http.StatusForbidden)
 					return
 				default:
@@ -107,11 +103,11 @@ func RelayOutputServer(
 			if err := ValidateSas(containerId, SasActionRead, r.URL.Query(), validateSignatureFunc); err != nil {
 				switch err {
 				case ErrInvalidSas:
-					w.Header().Set(errorCodeHeaderName, authenticationFailedErrorCode)
+					w.Header().Set(ErrorCodeHeader, authenticationFailedErrorCode)
 					w.WriteHeader(http.StatusForbidden)
 					return
 				case ErrSasActionNotAllowed:
-					w.Header().Set(errorCodeHeaderName, AuthorizationPermissionMismatchErrorCode)
+					w.Header().Set(ErrorCodeHeader, AuthorizationPermissionMismatchErrorCode)
 					w.WriteHeader(http.StatusForbidden)
 					return
 				default:
@@ -124,13 +120,13 @@ func RelayOutputServer(
 			select {
 			case valOrErr, ok := <-inputReaderChan:
 				if !ok {
-					w.Header().Set(errorCodeHeaderName, alreadyCalledErrorCode)
+					w.Header().Set(ErrorCodeHeader, alreadyCalledErrorCode)
 					w.WriteHeader(http.StatusBadRequest)
 					return
 				}
 				if valOrErr.Err != nil {
 					log.Error().Err(valOrErr.Err).Msg("failed to open reader")
-					w.Header().Set(errorCodeHeaderName, failedToOpenReaderErrorCode)
+					w.Header().Set(ErrorCodeHeader, failedToOpenReaderErrorCode)
 					w.WriteHeader(http.StatusInternalServerError)
 					return
 				}
@@ -139,7 +135,7 @@ func RelayOutputServer(
 			default:
 			}
 
-			w.Header().Set("Trailer", errorCodeHeaderName)
+			w.Header().Set("Trailer", ErrorCodeHeader)
 			w.WriteHeader(http.StatusOK)
 			if flusher != nil {
 				flusher.Flush()
@@ -149,18 +145,18 @@ func RelayOutputServer(
 				select {
 				case valOrErr, ok := <-inputReaderChan:
 					if !ok {
-						w.Header().Set(errorCodeHeaderName, alreadyCalledErrorCode)
+						w.Header().Set(ErrorCodeHeader, alreadyCalledErrorCode)
 						return
 					}
 					if valOrErr.Err != nil {
 						log.Error().Err(valOrErr.Err).Msg("failed to open reader")
-						w.Header().Set(errorCodeHeaderName, failedToOpenReaderErrorCode)
+						w.Header().Set(ErrorCodeHeader, failedToOpenReaderErrorCode)
 						return
 					}
 
 					inputReader = valOrErr.Value
 				case <-ctx.Done():
-					w.Header().Set(errorCodeHeaderName, contextCancelledErrorCode)
+					w.Header().Set(ErrorCodeHeader, contextCancelledErrorCode)
 					return
 				}
 			}
@@ -181,7 +177,7 @@ func RelayOutputServer(
 			_, err := io.Copy(w, inputReader)
 			if err != nil {
 				log.Error().Err(err).Msg("transfer failed")
-				w.Header().Set(errorCodeHeaderName, transferFailedErrorCode)
+				w.Header().Set(ErrorCodeHeader, transferFailedErrorCode)
 				return
 			}
 		})
