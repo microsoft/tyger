@@ -44,7 +44,7 @@ func WithLeaveResponseOpen() InvokeRequestOptionFunc {
 	}
 }
 
-func InvokeRequest(ctx context.Context, method string, relativeUrl string, queryParams url.Values, input interface{}, output interface{}, options ...InvokeRequestOptionFunc) (*http.Response, error) {
+func InvokeRequest(ctx context.Context, method string, relativeUrl string, queryParams url.Values, input any, output any, options ...InvokeRequestOptionFunc) (*http.Response, error) {
 	var opts *InvokeRequestOptions
 	if len(options) > 0 {
 		opts = &InvokeRequestOptions{}

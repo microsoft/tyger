@@ -16,7 +16,7 @@ func TestBlobURLGeneration(t *testing.T) {
 	url, _ := url.Parse("https://microsoft.github.io/tyger")
 	container := NewContainer(url)
 
-	assert.Equal(t, url.String(), container.CurrentAccessUrl().String())
+	assert.Equal(t, url.String(), container.initialAccessUrl.String())
 
 	assert.Equal(t, "00/000", MakeBlobPath(0x000))
 	assert.Equal(t, "00/FFF", MakeBlobPath(0xFFF))

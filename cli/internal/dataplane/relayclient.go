@@ -13,17 +13,16 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/hashicorp/go-retryablehttp"
 	"github.com/microsoft/tyger/cli/internal/client"
 	"github.com/rs/zerolog/log"
 )
 
-func relayWrite(ctx context.Context, httpClient *retryablehttp.Client, connectionType client.TygerConnectionType, container *Container, inputReader io.Reader) error {
-	if err := pingRelay(ctx, container, httpClient, connectionType); err != nil {
+func relayWrite(ctx context.Context, containerClient *ContainerClient, connectionType client.TygerConnectionType, inputReader io.Reader) error {
+	if err := pingRelay(ctx, containerClient, connectionType); err != nil {
 		return err
 	}
 
-	httpClient = client.CloneRetryableClient(httpClient)
+	httpClient := client.CloneRetryableClient(containerClient.innerClient)
 	httpClient.HTTPClient.Timeout = 0
 
 	metrics := NewTransferMetrics(ctx)
@@ -41,17 +40,11 @@ func relayWrite(ctx context.Context, httpClient *retryablehttp.Client, connectio
 
 	partiallyBufferedReader := NewPartiallyBufferedReader(inputReader, 64*1024)
 
-	containerUrl, err := container.GetValidAccessUrl(ctx)
-	if err != nil {
-		return fmt.Errorf("error getting access URL: %w", err)
-	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPut, containerUrl.String(), partiallyBufferedReader)
-	if err != nil {
-		return fmt.Errorf("error creating request: %w", err)
-	}
+	req := containerClient.NewRequestWithRelativeUrl(ctx, http.MethodPut, "", partiallyBufferedReader)
 
 	for retryCount := 0; ; retryCount++ {
-		resp, err := httpClient.HTTPClient.Do(request)
+		containerClient.updateRequestUrl(req)
+		resp, err := httpClient.HTTPClient.Do(req.Request)
 		if err != nil {
 			if rewindErr := partiallyBufferedReader.Rewind(); rewindErr != nil || retryCount > 10 {
 				return fmt.Errorf("error writing to relay: %w", client.RedactHttpError(err))
@@ -81,24 +74,17 @@ func relayWrite(ctx context.Context, httpClient *retryablehttp.Client, connectio
 	}
 }
 
-func readRelay(ctx context.Context, httpClient *retryablehttp.Client, connectionType client.TygerConnectionType, container *Container, outputWriter io.Writer) error {
-	if err := pingRelay(ctx, container, httpClient, connectionType); err != nil {
+func readRelay(ctx context.Context, containerClient *ContainerClient, connectionType client.TygerConnectionType, outputWriter io.Writer) error {
+	if err := pingRelay(ctx, containerClient, connectionType); err != nil {
 		return err
 	}
 
-	httpClient = client.CloneRetryableClient(httpClient)
+	httpClient := client.CloneRetryableClient(containerClient.innerClient)
 	httpClient.HTTPClient.Timeout = 0
 
-	containerUrl, err := container.GetValidAccessUrl(ctx)
-	if err != nil {
-		return fmt.Errorf("error getting access URL: %w", err)
-	}
-	request, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, containerUrl.String(), nil)
-	if err != nil {
-		return fmt.Errorf("error creating request: %w", err)
-	}
+	req := containerClient.NewRequestWithRelativeUrl(ctx, http.MethodGet, "", nil)
 
-	resp, err := httpClient.Do(request)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("error reading from relay: %w", client.RedactHttpError(err))
 	}
@@ -152,20 +138,14 @@ func relayErrorCodeToErr(errorCode string) error {
 	}
 }
 
-func pingRelay(ctx context.Context, container *Container, httpClient *retryablehttp.Client, connectionType client.TygerConnectionType) error {
+func pingRelay(ctx context.Context, containerClient *ContainerClient, connectionType client.TygerConnectionType) error {
 	log.Ctx(ctx).Info().Msg("Attempting to connect to relay server...")
-	containerUrl, err := container.GetValidAccessUrl(ctx)
-	if err != nil {
-		return fmt.Errorf("error getting access URL: %w", err)
-	}
-	headRequest, err := http.NewRequestWithContext(ctx, http.MethodHead, containerUrl.String(), nil)
-	if err != nil {
-		return fmt.Errorf("error creating request: %w", err)
-	}
+
+	headRequest := containerClient.NewRequestWithRelativeUrl(ctx, http.MethodHead, "", nil)
 
 	unknownErrCount := 0
 	for retryCount := 0; ; retryCount++ {
-		resp, err := httpClient.HTTPClient.Do(headRequest)
+		resp, err := containerClient.Do(headRequest)
 		if err == nil {
 			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()

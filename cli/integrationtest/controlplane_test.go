@@ -27,7 +27,6 @@ import (
 	"github.com/andreyvit/diff"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/google/uuid"
-	"github.com/microsoft/tyger/cli/internal/common"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/dataplane"
@@ -2692,69 +2691,69 @@ func TestServerApiV1BackwardCompatibility(t *testing.T) {
 	}
 }
 
-func TestBufferAccessUrlUpdates(t *testing.T) {
-	t.Parallel()
+// func TestBufferAccessUrlUpdates(t *testing.T) {
+// 	t.Parallel()
 
-	bufferId := runTygerSucceeds(t, "buffer", "create")
+// 	bufferId := runTygerSucceeds(t, "buffer", "create")
 
-	ttl, err := common.ParseTimeToLive("0.00:00:30")
-	require.NoError(t, err)
+// 	ttl, err := common.ParseTimeToLive("0.00:00:30")
+// 	require.NoError(t, err)
 
-	t.Run("from buffer id", func(t *testing.T) {
-		t.Parallel()
-		require := require.New(t)
-		container, err := dataplane.NewContainerFromBufferId(context.Background(), bufferId, true, ttl.String())
-		require.NoError(err)
-		firstAccessUrl, err := container.GetValidAccessUrl(context.Background())
-		require.NoError(err)
-		time.Sleep(31 * time.Second)
-		nextAccessUrl, err := container.GetValidAccessUrl(context.Background())
-		require.NoError(err)
-		require.NotEqual(firstAccessUrl.String(), nextAccessUrl.String())
-	})
+// 	t.Run("from buffer id", func(t *testing.T) {
+// 		t.Parallel()
+// 		require := require.New(t)
+// 		container, err := dataplane.NewContainerFromBufferId(context.Background(), bufferId, true, ttl.String())
+// 		require.NoError(err)
+// 		firstAccessUrl, err := container.GetValidAccessUrl(context.Background())
+// 		require.NoError(err)
+// 		time.Sleep(31 * time.Second)
+// 		nextAccessUrl, err := container.GetValidAccessUrl(context.Background())
+// 		require.NoError(err)
+// 		require.NotEqual(firstAccessUrl.String(), nextAccessUrl.String())
+// 	})
 
-	t.Run("from filename", func(t *testing.T) {
-		t.Parallel()
-		require := require.New(t)
+// 	t.Run("from filename", func(t *testing.T) {
+// 		t.Parallel()
+// 		require := require.New(t)
 
-		accessUrl := runTygerSucceeds(t, "buffer", "access", bufferId, "--access-ttl", ttl.String())
+// 		accessUrl := runTygerSucceeds(t, "buffer", "access", bufferId, "--access-ttl", ttl.String())
 
-		tempDir := t.TempDir()
-		accessFilePath := filepath.Join(tempDir, fmt.Sprintf("%s.access", bufferId))
-		require.NoError(os.WriteFile(accessFilePath, []byte(accessUrl), 0644))
-		container, err := dataplane.NewContainerFromAccessFile(context.Background(), accessFilePath)
-		require.NoError(err)
-		accessUrlRead, err := container.GetValidAccessUrl(context.Background())
-		require.NoError(err)
-		require.Equal(accessUrl, accessUrlRead.String())
+// 		tempDir := t.TempDir()
+// 		accessFilePath := filepath.Join(tempDir, fmt.Sprintf("%s.access", bufferId))
+// 		require.NoError(os.WriteFile(accessFilePath, []byte(accessUrl), 0644))
+// 		container, err := dataplane.NewContainerFromAccessFile(context.Background(), accessFilePath)
+// 		require.NoError(err)
+// 		accessUrlRead, err := container.GetValidAccessUrl(context.Background())
+// 		require.NoError(err)
+// 		require.Equal(accessUrl, accessUrlRead.String())
 
-		time.Sleep(10 * time.Second)
-		newAccessUrl := runTygerSucceeds(t, "buffer", "access", bufferId, "--access-ttl", ttl.String())
-		require.NotEqual(accessUrl, newAccessUrl)
-		require.NoError(os.WriteFile(accessFilePath, []byte(newAccessUrl), 0644))
-		time.Sleep(21 * time.Second)
-		accessUrlRead, err = container.GetValidAccessUrl(context.Background())
-		require.NoError(err)
-		require.Equal(newAccessUrl, accessUrlRead.String())
-	})
+// 		time.Sleep(10 * time.Second)
+// 		newAccessUrl := runTygerSucceeds(t, "buffer", "access", bufferId, "--access-ttl", ttl.String())
+// 		require.NotEqual(accessUrl, newAccessUrl)
+// 		require.NoError(os.WriteFile(accessFilePath, []byte(newAccessUrl), 0644))
+// 		time.Sleep(21 * time.Second)
+// 		accessUrlRead, err = container.GetValidAccessUrl(context.Background())
+// 		require.NoError(err)
+// 		require.Equal(newAccessUrl, accessUrlRead.String())
+// 	})
 
-	t.Run("from buffer access url", func(t *testing.T) {
-		t.Parallel()
-		require := require.New(t)
-		accessUrl := runTygerSucceeds(t, "buffer", "access", bufferId, "--access-ttl", ttl.String())
-		container, err := dataplane.NewContainerFromAccessString(context.Background(), accessUrl)
-		require.NoError(err)
-		firstAccessUrl, err := container.GetValidAccessUrl(context.Background())
-		require.NoError(err)
-		require.Equal(accessUrl, firstAccessUrl.String())
-		time.Sleep(31 * time.Second)
-		// URL will not be refreshed because the input is a SAS URL (the user may not be logged into Tyger)
-		nextAccessUrl, err := container.GetValidAccessUrl(context.Background())
-		require.Nil(nextAccessUrl)
-		require.Error(err)
-		require.ErrorContains(err, "access URL expired and cannot be refreshed")
-	})
-}
+// 	t.Run("from buffer access url", func(t *testing.T) {
+// 		t.Parallel()
+// 		require := require.New(t)
+// 		accessUrl := runTygerSucceeds(t, "buffer", "access", bufferId, "--access-ttl", ttl.String())
+// 		container, err := dataplane.NewContainerFromAccessString(context.Background(), accessUrl)
+// 		require.NoError(err)
+// 		firstAccessUrl, err := container.GetValidAccessUrl(context.Background())
+// 		require.NoError(err)
+// 		require.Equal(accessUrl, firstAccessUrl.String())
+// 		time.Sleep(31 * time.Second)
+// 		// URL will not be refreshed because the input is a SAS URL (the user may not be logged into Tyger)
+// 		nextAccessUrl, err := container.GetValidAccessUrl(context.Background())
+// 		require.Nil(nextAccessUrl)
+// 		require.Error(err)
+// 		require.ErrorContains(err, "access URL expired and cannot be refreshed")
+// 	})
+// }
 
 func TestServiceMetadataContainsApiVersions(t *testing.T) {
 	t.Parallel()

@@ -10,10 +10,12 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -89,13 +91,13 @@ func Read(ctx context.Context, container *Container, outputWriter io.Writer, opt
 		}
 	}
 
-	httpClient := readOptions.httpClient
+	containerClient := container.NewContainerClient(readOptions.httpClient)
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	if container.SupportsRelay() {
-		return readRelay(ctx, httpClient, readOptions.connectionType, container, outputWriter)
+		return readRelay(ctx, containerClient, readOptions.connectionType, outputWriter)
 	}
 
 	errorChannel := make(chan error, readOptions.dop*2)
@@ -103,7 +105,7 @@ func Read(ctx context.Context, container *Container, outputWriter io.Writer, opt
 	waitForBlobs.Store(true)
 
 	go func() {
-		err := pollForBufferEnd(ctx, httpClient, container)
+		err := pollForBufferEnd(ctx, containerClient)
 		if err != nil {
 			errorChannel <- err
 			cancel()
@@ -113,7 +115,7 @@ func Read(ctx context.Context, container *Container, outputWriter io.Writer, opt
 		waitForBlobs.Store(false)
 	}()
 
-	if err := readBufferStart(ctx, httpClient, container); err != nil {
+	if err := readBufferStart(ctx, containerClient); err != nil {
 		if errors.Is(err, ctx.Err()) {
 			select {
 			case errorChannelResult := <-errorChannel:
@@ -155,7 +157,7 @@ func Read(ctx context.Context, container *Container, outputWriter io.Writer, opt
 				lock.Unlock()
 
 				ctx := log.Ctx(ctx).With().Int64("blobNumber", blobNumber).Logger().WithContext(ctx)
-				respData, requestStartTime, err := DownloadBlob(ctx, metrics, httpClient, container, MakeBlobPath(blobNumber), &waitForBlobs, &blobNumber, &finalBlobNumber)
+				respData, requestStartTime, err := DownloadBlob(ctx, metrics, containerClient, MakeBlobPath(blobNumber), &waitForBlobs, &blobNumber, &finalBlobNumber)
 				if err != nil {
 					if err == errPastEndOfBlob {
 						break
@@ -252,11 +254,11 @@ func Read(ctx context.Context, container *Container, outputWriter io.Writer, opt
 	}
 }
 
-func readBufferStart(ctx context.Context, httpClient *retryablehttp.Client, container *Container) error {
+func readBufferStart(ctx context.Context, containerClient *ContainerClient) error {
 	wait := atomic.Bool{}
 	wait.Store(true)
 
-	data, _, err := DownloadBlob(ctx, nil, httpClient, container, StartMetadataBlobName, &wait, nil, nil)
+	data, _, err := DownloadBlob(ctx, nil, containerClient, StartMetadataBlobName, &wait, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -271,12 +273,12 @@ func readBufferStart(ctx context.Context, httpClient *retryablehttp.Client, cont
 	return nil
 }
 
-func pollForBufferEnd(ctx context.Context, httpClient *retryablehttp.Client, container *Container) error {
+func pollForBufferEnd(ctx context.Context, containerClient *ContainerClient) error {
 	wait := atomic.Bool{}
 	wait.Store(false)
 
 	for ctx.Err() == nil {
-		data, _, err := DownloadBlob(ctx, nil, httpClient, container, EndMetadataBlobName, &wait, nil, nil)
+		data, _, err := DownloadBlob(ctx, nil, containerClient, EndMetadataBlobName, &wait, nil, nil)
 		if err != nil {
 			if err == ErrNotFound {
 				time.Sleep(5 * time.Second)
@@ -303,12 +305,11 @@ func pollForBufferEnd(ctx context.Context, httpClient *retryablehttp.Client, con
 	return nil
 }
 
-func DownloadBlob(ctx context.Context, metrics *TransferMetrics, httpClient *retryablehttp.Client, container *Container, blobPath string, waitForBlob *atomic.Bool, blobNumber *int64, finalBlobNumber *atomic.Int64) (*readData, *time.Time, error) {
+func DownloadBlob(ctx context.Context, metrics *TransferMetrics, containerClient *ContainerClient, blobPath string, waitForBlob *atomic.Bool, blobNumber *int64, finalBlobNumber *atomic.Int64) (*readData, *time.Time, error) {
 	// The last error that occurred relating to reading the body. retryablehttp does not retry when these happen
 	// because reading the body happens after the call to HttpClient.Do()
 	var lastBodyReadError *responseBodyReadError
 
-	retriesDueToInvalidSas := 0
 	for retryCount := 0; ; retryCount++ {
 		start := time.Now()
 
@@ -324,18 +325,10 @@ func DownloadBlob(ctx context.Context, metrics *TransferMetrics, httpClient *ret
 			}
 		}
 
-		containerUrl, err := container.GetValidAccessUrl(ctx)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to get access URL: %w", err)
-		}
-		req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, containerUrl.JoinPath(blobPath).String(), nil)
-		if err != nil {
-			return nil, nil, err
-		}
-
+		req := containerClient.NewRequestWithRelativeUrl(ctx, http.MethodGet, blobPath, nil)
 		AddCommonBlobRequestHeaders(req.Header)
 
-		resp, err := httpClient.Do(req)
+		resp, err := containerClient.Do(req)
 		if err != nil {
 			return nil, nil, client.RedactHttpError(err)
 		}
@@ -398,15 +391,7 @@ func DownloadBlob(ctx context.Context, metrics *TransferMetrics, httpClient *ret
 			}
 			return nil, nil, err
 		}
-		if err == ErrInvalidSas {
-			if retriesDueToInvalidSas < 5 {
-				retriesDueToInvalidSas++
-				log.Ctx(ctx).Debug().Msg("SAS token expired, retrying")
-				continue
-			} else {
-				return nil, nil, fmt.Errorf("failed to read blob: %w", client.RedactHttpError(err))
-			}
-		}
+
 		if err == errServerBusy || err == errOperationTimeout {
 			// These errors indicate that we have hit the limit of what the Azure Storage service can handle.
 			// Note that the retryablehttp client will already have retried the request a number of times.
@@ -429,12 +414,12 @@ func DownloadBlob(ctx context.Context, metrics *TransferMetrics, httpClient *ret
 				log.Ctx(ctx).Debug().Err(err).Msg("Error reading response body, retrying")
 
 				// wait in the same way as retryablehttp
-				wait := httpClient.Backoff(httpClient.RetryWaitMin, httpClient.RetryWaitMax, retryCount, resp)
+				wait := containerClient.innerClient.Backoff(containerClient.innerClient.RetryWaitMin, containerClient.innerClient.RetryWaitMax, retryCount, resp)
 				timer := time.NewTimer(wait)
 				select {
 				case <-req.Context().Done():
 					timer.Stop()
-					httpClient.HTTPClient.CloseIdleConnections()
+					containerClient.innerClient.HTTPClient.CloseIdleConnections()
 					return nil, nil, req.Context().Err()
 				case <-timer.C:
 				}
@@ -509,8 +494,10 @@ func handleReadResponse(ctx context.Context, metrics *TransferMetrics, resp *htt
 	case http.StatusForbidden:
 		switch resp.Header.Get("x-ms-error-code") {
 		case "AuthenticationFailed":
-			io.Copy(io.Discard, resp.Body)
-			return nil, ErrInvalidSas
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			return nil, &InvalidAccessUrlError{
+				Reason: extractAuthenticationErrorDetail(bodyBytes),
+			}
 		}
 	case http.StatusInternalServerError:
 		io.Copy(io.Discard, resp.Body)
@@ -534,4 +521,22 @@ func (e *responseBodyReadError) Error() string {
 
 func (e *responseBodyReadError) Unwrap() error {
 	return e.reason
+}
+
+// extractAuthenticationErrorDetail extracts the AuthenticationErrorDetail from Azure Storage XML error response
+func extractAuthenticationErrorDetail(xmlResponse []byte) string {
+	var storageErrorBody struct {
+		XMLName                   xml.Name `xml:"Error"`
+		Code                      string   `xml:"Code"`
+		Message                   string   `xml:"Message"`
+		AuthenticationErrorDetail string   `xml:"AuthenticationErrorDetail"`
+	}
+
+	err := xml.Unmarshal(xmlResponse, &storageErrorBody)
+	if err != nil {
+		// If XML parsing fails, return empty string
+		return ""
+	}
+
+	return strings.TrimSpace(storageErrorBody.AuthenticationErrorDetail)
 }
