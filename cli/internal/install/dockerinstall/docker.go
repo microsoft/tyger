@@ -22,7 +22,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
@@ -721,7 +720,7 @@ func (inst *Installer) createDataPlaneContainer(ctx context.Context) error {
 		tw.AddFS(tarFs)
 		tw.Close()
 
-		return inst.client.CopyToContainer(ctx, containerName, "/app", buf, types.CopyToContainerOptions{})
+		return inst.client.CopyToContainer(ctx, containerName, "/app", buf, container.CopyToContainerOptions{})
 	}
 
 	if err := inst.createContainer(
@@ -1051,14 +1050,14 @@ func (inst *Installer) statDockerSocket(ctx context.Context) (userId int, groupI
 
 func (inst *Installer) createNetwork(ctx context.Context) error {
 	networkName := inst.resourceName("network")
-	existingNetwork, err := inst.client.NetworkInspect(ctx, networkName, types.NetworkInspectOptions{})
+	existingNetwork, err := inst.client.NetworkInspect(ctx, networkName, network.InspectOptions{})
 	if err != nil && !client.IsErrNotFound(err) {
 		return fmt.Errorf("error checking for network: %w", err)
 	}
 
 	existingNetworkExists := !client.IsErrNotFound(err)
 
-	networkCreateOptions := types.NetworkCreate{
+	networkCreateOptions := network.CreateOptions{
 		Driver: "bridge",
 	}
 
