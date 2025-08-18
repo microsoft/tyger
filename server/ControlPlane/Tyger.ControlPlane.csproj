@@ -12,28 +12,28 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Azure.Identity" Version="1.13.1" />
-    <PackageReference Include="Azure.Storage.Blobs" Version="12.23.0" />
-    <PackageReference Include="BitFaster.Caching" Version="2.5.3" />
+    <PackageReference Include="Azure.Identity" Version="1.15.0" />
+    <PackageReference Include="Azure.Storage.Blobs" Version="12.25.0" />
+    <PackageReference Include="BitFaster.Caching" Version="2.5.4" />
     <PackageReference Include="Docker.DotNet" Version="3.125.15" />
-    <PackageReference Include="dunet" Version="1.11.2" />
-    <PackageReference Include="Generator.Equals" Version="3.2.0" />
-    <PackageReference Include="KubernetesClient" Version="15.0.1" />
-    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.0" />
-    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="9.0.0" />
-    <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="9.0.1" />
-    <PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.2.1" />
-    <PackageReference Include="Microsoft.OpenApi" Version="1.6.22" />
-    <PackageReference Include="Npgsql" Version="9.0.1" />
-    <PackageReference Include="Polly.Core" Version="8.5.0" />
-    <PackageReference Include="SimpleBase" Version="4.0.2" />
-    <PackageReference Include="Swashbuckle.AspNetCore" Version="7.1.0" />
+    <PackageReference Include="dunet" Version="1.11.3" />
+    <PackageReference Include="Generator.Equals" Version="3.2.1" />
+    <PackageReference Include="KubernetesClient" Version="17.0.4" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.8" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.8" />
+    <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="9.8.0" />
+    <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="9.0.8" />
+    <PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.14.0" />
+    <PackageReference Include="Microsoft.OpenApi" Version="1.6.23" />
+    <PackageReference Include="Npgsql" Version="9.0.3" />
+    <PackageReference Include="Polly.Core" Version="8.6.2" />
+    <PackageReference Include="SimpleBase" Version="5.4.1" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="9.0.3" />
     <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
-    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.2.1" />
-    <PackageReference Include="System.Interactive.Async" Version="6.0.1" />
-    <PackageReference Include="System.IO.Hashing" Version="9.0.0" />
-    <PackageReference Include="System.Linq.Async" Version="6.0.1" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.14.0" />
+    <PackageReference Include="System.Interactive.Async" Version="6.0.3" />
+    <PackageReference Include="System.IO.Hashing" Version="9.0.8" />
+    <PackageReference Include="System.Linq.Async" Version="6.0.3" />
   </ItemGroup>
 
   <ItemGroup>
