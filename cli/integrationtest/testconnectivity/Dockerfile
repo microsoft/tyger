@@ -1,8 +1,8 @@
 FROM --platform=$BUILDPLATFORM mcr.microsoft.com/azurelinux/base/core:3.0 AS go-build
-ARG TARGETARCH BUILDOS
+ARG TARGETARCH BUILDOS BUILDARCH
 
 RUN tdnf install -y wget tar ca-certificates
-RUN wget -O - https://go.dev/dl/go1.25.0.${BUILDOS}-${TARGETARCH}.tar.gz | tar -C /usr/local -xzf -
+RUN wget -O - https://go.dev/dl/go1.25.0.${BUILDOS}-${BUILDARCH}.tar.gz | tar -C /usr/local -xzf -
 ENV PATH=${PATH}:/usr/local/go/bin
 
 WORKDIR /go/src/app
