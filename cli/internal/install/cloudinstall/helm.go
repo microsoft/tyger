@@ -282,8 +282,11 @@ func (inst *Installer) installNvidiaDevicePlugin(ctx context.Context, restConfig
 		RepoName:    "nvdp",
 		RepoUrl:     "https://nvidia.github.io/k8s-device-plugin",
 		ChartRef:    "nvdp/nvidia-device-plugin",
-		Version:     "0.14.1",
+		Version:     "0.17.0",
 		Values: map[string]any{
+			"image": map[string]any{
+				"repository": "mcr.microsoft.com/oss/v2/nvidia/k8s-device-plugin",
+			},
 			"nodeSelector": map[string]any{
 				"kubernetes.azure.com/accelerator": "nvidia",
 			},
