@@ -17,7 +17,7 @@ public class Pipeline : IPipelineSource
     public Pipeline(IPipelineSource source, params IPipelineElement[] elements)
     {
         _source = source;
-        _elements = new(elements);
+        _elements = [.. elements];
     }
 
     public Pipeline(PipeReader reader, params IPipelineElement[] elements)
@@ -111,7 +111,7 @@ public interface IPipelineSource
     /// When this is a simple source, an implementation can provide an implementation that does not perform any copying.
     /// We provide this default implementation for other cases.
     /// </summary>
-    public PipeReader GetReader(CancellationToken cancellationToken)
+    PipeReader GetReader(CancellationToken cancellationToken)
     {
         var pipe = new Pipe();
         _ = ProcessAndComplete(this, pipe.Writer, cancellationToken);
