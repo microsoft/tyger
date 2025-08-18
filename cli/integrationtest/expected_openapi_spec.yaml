@@ -1,4 +1,4 @@
-openapi: 3.0.1
+openapi: 3.0.4
 info:
   title: Tyger Server
   version: '1.0'
@@ -777,7 +777,7 @@ components:
           description: Indicates the codespec kind. Can be either 'job' or 'worker'.
         name:
           type: string
-          description: "The name of the codespec. Populated by the system.\r\nNot required during create operations, but if it is, it must match the name in the path."
+          description: 'The name of the codespec. Populated by the system. Not required during create operations, but if it is, it must match the name in the path.'
           nullable: true
         version:
           type: integer
@@ -1040,7 +1040,7 @@ components:
           oneOf:
             - type: string
             - $ref: '#/components/schemas/Codespec'
-          description: "The codespec to execute. Can be an inline Codespec or a reference to a committed Codespec\r\nin the form 'name' or 'name/versions/version'."
+          description: The codespec to execute. Can be an inline Codespec or a reference to a committed Codespec in the form 'name' or 'name/versions/version'.
         nodePool:
           type: string
           description: The targeted node pool
