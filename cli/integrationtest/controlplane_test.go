@@ -2340,7 +2340,7 @@ func TestImagePull(t *testing.T) {
 	runSpec := `
 job:
   codespec:
-    image: mcr.microsoft.com/cbl-mariner/busybox:1.35
+    image: mcr.microsoft.com/azurelinux/busybox:1.36
     command:
       - "sh"
       - "-c"
