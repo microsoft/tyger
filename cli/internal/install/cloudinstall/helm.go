@@ -248,7 +248,7 @@ func (inst *Installer) installCertManager(ctx context.Context, restConfigPromise
 		Namespace:   "cert-manager",
 		ReleaseName: "cert-manager",
 		ChartRef:    "oci://mcr.microsoft.com/azurelinux/helm/cert-manager",
-		Version:     "1.12.12-4",
+		Version:     "1.12.12-10",
 		Values: map[string]any{
 			"cert-manager": map[string]any{
 				"installCRDs": true,
