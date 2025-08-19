@@ -290,6 +290,7 @@ func (inst *Installer) installNvidiaDevicePlugin(ctx context.Context, restConfig
 			"nodeSelector": map[string]any{
 				"kubernetes.azure.com/accelerator": "nvidia",
 			},
+			"affinity": nil, // the default affinity settings are incompatible with AKS
 			"tolerations": []any{
 				map[string]any{
 					// Allow this pod to be rescheduled while the node is in "critical add-ons only" mode.
