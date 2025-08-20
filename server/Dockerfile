@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:9.0.102-azurelinux3.0 AS build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:9.0.304-azurelinux3.0 AS build
 ARG TARGETARCH
 
 WORKDIR /cp
@@ -17,7 +17,7 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
         ARCH="$TARGETARCH"; \
     fi && \
     echo "ARCH is $ARCH"; \
-    curl --fail -o /static/curl -L https://github.com/moparisthebest/static-curl/releases/download/v8.5.0/curl-${ARCH} && chmod +x /static/curl
+    curl --fail -o /static/curl -L https://github.com/moparisthebest/static-curl/releases/download/v8.11.0/curl-${ARCH} && chmod +x /static/curl
 
 WORKDIR /src
 
@@ -42,9 +42,9 @@ RUN dotnet publish --no-restore --arch ${TARGETARCH} -c release -o /control-plan
 WORKDIR /src/server/DataPlane
 RUN dotnet publish --no-restore --arch ${TARGETARCH} -c release -o /data-plane
 
-FROM mcr.microsoft.com/dotnet/aspnet:9.0.1-azurelinux3.0 AS runtime-prep
+FROM mcr.microsoft.com/dotnet/aspnet:9.0.8-azurelinux3.0 AS runtime-prep
 
-FROM mcr.microsoft.com/dotnet/aspnet:9.0.1-azurelinux3.0-distroless AS control-plane
+FROM mcr.microsoft.com/dotnet/aspnet:9.0.8-azurelinux3.0-distroless AS control-plane
 COPY --from=build /cp /app
 WORKDIR /app/bin
 COPY --from=runtime-prep /usr/bin/sleep .
@@ -53,7 +53,7 @@ COPY --from=build /control-plane .
 USER app:app
 ENTRYPOINT ["/app/bin/tyger-server"]
 
-FROM mcr.microsoft.com/dotnet/aspnet:9.0.1-azurelinux3.0-distroless AS data-plane
+FROM mcr.microsoft.com/dotnet/aspnet:9.0.8-azurelinux3.0-distroless AS data-plane
 COPY --from=build /dp /app
 WORKDIR /app/bin
 COPY --from=build /static/curl .

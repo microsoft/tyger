@@ -151,8 +151,7 @@ public abstract partial record Codespec : ModelBase, ICodespecRef
     public CodespecKind Kind { get; init; } = CodespecKind.Job;
 
     /// <summary>
-    /// The name of the codespec. Populated by the system.
-    /// Not required during create operations, but if it is, it must match the name in the path.
+    /// The name of the codespec. Populated by the system. Not required during create operations, but if it is, it must match the name in the path.
     /// </summary>
     public string? Name { get; init; }
 
@@ -393,8 +392,7 @@ public partial record WorkerCodespec : Codespec
 public record RunCodeTarget : ModelBase
 {
     /// <summary>
-    /// The codespec to execute. Can be an inline Codespec or a reference to a committed Codespec
-    /// in the form 'name' or 'name/versions/version'.
+    /// The codespec to execute. Can be an inline Codespec or a reference to a committed Codespec in the form 'name' or 'name/versions/version'.
     /// </summary>
     [Required, Display(Name = "codespec")]
     public required ICodespecRef Codespec { get; init; }

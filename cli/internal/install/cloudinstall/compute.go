@@ -26,7 +26,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-const DefaultKubernetesVersion = "1.32"
+const DefaultKubernetesVersion = "1.33"
 const DefaultPodCidr = "10.244.0.0/16"
 const DefaultServiceCidr = "10.0.0.0/16"
 const DefaultDnsServiceIp = "10.0.0.10"

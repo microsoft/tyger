@@ -248,7 +248,7 @@ func (inst *Installer) installCertManager(ctx context.Context, restConfigPromise
 		Namespace:   "cert-manager",
 		ReleaseName: "cert-manager",
 		ChartRef:    "oci://mcr.microsoft.com/azurelinux/helm/cert-manager",
-		Version:     "1.12.12-4",
+		Version:     "1.12.12-10",
 		Values: map[string]any{
 			"cert-manager": map[string]any{
 				"installCRDs": true,
@@ -282,11 +282,15 @@ func (inst *Installer) installNvidiaDevicePlugin(ctx context.Context, restConfig
 		RepoName:    "nvdp",
 		RepoUrl:     "https://nvidia.github.io/k8s-device-plugin",
 		ChartRef:    "nvdp/nvidia-device-plugin",
-		Version:     "0.14.1",
+		Version:     "0.17.0",
 		Values: map[string]any{
+			"image": map[string]any{
+				"repository": "mcr.microsoft.com/oss/v2/nvidia/k8s-device-plugin",
+			},
 			"nodeSelector": map[string]any{
 				"kubernetes.azure.com/accelerator": "nvidia",
 			},
+			"affinity": nil, // the default affinity settings are incompatible with AKS
 			"tolerations": []any{
 				map[string]any{
 					// Allow this pod to be rescheduled while the node is in "critical add-ons only" mode.

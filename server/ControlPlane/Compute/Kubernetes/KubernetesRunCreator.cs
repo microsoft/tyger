@@ -52,7 +52,11 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         leaseManager.RegisterListener(_leaseStateChangeChannel.Writer);
     }
 
-    public Capabilities GetCapabilities() => Capabilities.Kubernetes | Capabilities.DistributedRuns | Capabilities.NodePools;
+    public Capabilities GetCapabilities()
+    {
+        var hasGpuNodePool = _k8sOptions.Clusters.SelectMany(c => c.UserNodePools).Any(np => DoesVmHaveSupportedGpu(np.VmSize));
+        return Capabilities.Kubernetes | Capabilities.DistributedRuns | Capabilities.NodePools | (hasGpuNodePool ? Capabilities.Gpu : 0);
+    }
 
     public async Task<Run> CreateRun(Run run, string? idempotencyKey, CancellationToken cancellationToken)
     {

@@ -88,7 +88,7 @@ cloud:
     clusters:
       - name: demo
         apiHost: true
-        kubernetesVersion: "1.32"
+        kubernetesVersion: "1.33"
         sku:
         # location: defaults to Standard
 

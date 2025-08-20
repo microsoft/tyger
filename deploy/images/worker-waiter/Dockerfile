@@ -3,7 +3,7 @@ ARG TARGETARCH BUILDOS
 
 RUN tdnf install -y ca-certificates
 
-ARG KUBECTL_VERSION=v1.32.2
+ARG KUBECTL_VERSION=v1.33.4
 WORKDIR /opt/download
 RUN curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl" && chmod +x kubectl
 
