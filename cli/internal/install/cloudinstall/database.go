@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"maps"
 
@@ -605,33 +607,54 @@ func (inst *Installer) createRoles(
 
 	databaseScopedOwnersRole := getDatabaseRoleName(org, unqualifiedOwnersRole)
 
-	err := inst.executeOnDatabase(ctx, *server.Properties.FullyQualifiedDomainName, defaultDatabaseName, currentPrincipalDisplayName, func(db *sql.DB) error {
-		_, err := db.Exec(fmt.Sprintf(`
-		DO $$
-		BEGIN
-			IF NOT EXISTS (SELECT FROM pgaadauth_list_principals(false) WHERE objectId = '%s') THEN
-				PERFORM pgaadauth_create_principal_with_oid('%s', '%s', 'service', false, false);
-			END IF;
-		END
-		$$`, *tygerServerIdentity.Properties.PrincipalID, getDatabaseRoleName(org, *migrationRunnerIdentity.Name), *migrationRunnerIdentity.Properties.PrincipalID))
-		if err != nil {
-			return fmt.Errorf("failed to create tyger server database principal: %w", err)
+	const RoleCreateMaxRetries = 20
+	var err error
+	for roleCreateRetryCount := range RoleCreateMaxRetries {
+		if roleCreateRetryCount > 0 {
+			time.Sleep(30 * time.Second)
 		}
 
-		_, err = db.Exec(fmt.Sprintf(`
-		DO $$
-		BEGIN
-			IF NOT EXISTS (SELECT FROM pgaadauth_list_principals(false) WHERE objectId = '%s') THEN
-				PERFORM pgaadauth_create_principal_with_oid('%s', '%s', 'service', false, false);
-			END IF;
-		END
-		$$`, *tygerServerIdentity.Properties.PrincipalID, getDatabaseRoleName(org, *tygerServerIdentity.Name), *tygerServerIdentity.Properties.PrincipalID))
-		if err != nil {
-			return fmt.Errorf("failed to create tyger server database principal: %w", err)
+		err = inst.executeOnDatabase(ctx, *server.Properties.FullyQualifiedDomainName, defaultDatabaseName, currentPrincipalDisplayName, func(db *sql.DB) error {
+			_, err := db.Exec(fmt.Sprintf(`
+			DO $$
+			BEGIN
+				IF NOT EXISTS (SELECT FROM pgaadauth_list_principals(false) WHERE objectId = '%s') THEN
+					PERFORM pgaadauth_create_principal_with_oid('%s', '%s', 'service', false, false);
+				END IF;
+			END
+			$$`, *tygerServerIdentity.Properties.PrincipalID, getDatabaseRoleName(org, *migrationRunnerIdentity.Name), *migrationRunnerIdentity.Properties.PrincipalID))
+			if err != nil {
+				return fmt.Errorf("failed to create tyger server database principal: %w", err)
+			}
+
+			_, err = db.Exec(fmt.Sprintf(`
+			DO $$
+			BEGIN
+				IF NOT EXISTS (SELECT FROM pgaadauth_list_principals(false) WHERE objectId = '%s') THEN
+					PERFORM pgaadauth_create_principal_with_oid('%s', '%s', 'service', false, false);
+				END IF;
+			END
+			$$`, *tygerServerIdentity.Properties.PrincipalID, getDatabaseRoleName(org, *tygerServerIdentity.Name), *tygerServerIdentity.Properties.PrincipalID))
+			if err != nil {
+				return fmt.Errorf("failed to create tyger server database principal: %w", err)
+			}
+
+			return nil
+		})
+
+		if err == nil {
+			break
 		}
 
-		return nil
-	})
+		if strings.Contains(err.Error(), "OID is not found in the tenant") {
+			// It can take some time before the database is able to retrieve principals that have been recently created
+			log.Warn().Msgf("Database role creation failed. Attempt %d/%d", roleCreateRetryCount+1, RoleCreateMaxRetries)
+			continue
+		}
+
+		return err
+	}
+
 	if err != nil {
 		return err
 	}
