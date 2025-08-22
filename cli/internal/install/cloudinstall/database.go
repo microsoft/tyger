@@ -622,9 +622,9 @@ func (inst *Installer) createRoles(
 					PERFORM pgaadauth_create_principal_with_oid('%s', '%s', 'service', false, false);
 				END IF;
 			END
-			$$`, *tygerServerIdentity.Properties.PrincipalID, getDatabaseRoleName(org, *migrationRunnerIdentity.Name), *migrationRunnerIdentity.Properties.PrincipalID))
+			$$`, *migrationRunnerIdentity.Properties.PrincipalID, getDatabaseRoleName(org, *migrationRunnerIdentity.Name), *migrationRunnerIdentity.Properties.PrincipalID))
 			if err != nil {
-				return fmt.Errorf("failed to create tyger server database principal: %w", err)
+				return fmt.Errorf("failed to create migration runner database principal: %w", err)
 			}
 
 			_, err = db.Exec(fmt.Sprintf(`
@@ -648,7 +648,7 @@ func (inst *Installer) createRoles(
 
 		if strings.Contains(err.Error(), "OID is not found in the tenant") {
 			// It can take some time before the database is able to retrieve principals that have been recently created
-			log.Warn().Msgf("Database role creation failed. Attempt %d/%d", roleCreateRetryCount+1, RoleCreateMaxRetries)
+			log.Ctx(ctx).Warn().Msgf("Database role creation failed. Attempt %d/%d", roleCreateRetryCount+1, RoleCreateMaxRetries)
 			continue
 		}
 
