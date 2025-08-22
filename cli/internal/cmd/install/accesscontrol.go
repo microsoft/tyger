@@ -161,8 +161,10 @@ func newAccessControlApplyCommand() *cobra.Command {
 				if orgConfig.Api == nil {
 					log.Fatal().Msg("The `api` field is required in the organization configuration")
 				}
-				desiredAccessControlConfig = orgConfig.Api.AccessControl
-				if desiredAccessControlConfig == nil {
+
+				if ac := orgConfig.Api.AccessControl; ac != nil {
+					desiredAccessControlConfig = &ac.AccessControlConfig
+				} else {
 					log.Fatal().Msg("The `api.accessControl` field is required in the organization configuration")
 				}
 

@@ -22,6 +22,7 @@ identity:
 
 accessControl:
   enabled: true
+  tenantId:
   authority:
   audience:
   apiAppUri:
