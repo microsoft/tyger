@@ -20,9 +20,9 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/monitor/armmonitor"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
-	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/operationalinsights/armoperationalinsights"
-	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/postgresql/armpostgresqlflexibleservers/v4"
-	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/operationalinsights/armoperationalinsights/v2"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/postgresql/armpostgresqlflexibleservers/v5"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources/v3"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-cleanhttp"
@@ -421,8 +421,11 @@ func (inst *Installer) createDatabase(ctx context.Context, org *OrganizationConf
 			return nil, fmt.Errorf("failed to create tags client: %w", err)
 		}
 
-		_, err = tagsClient.CreateOrUpdateAtScope(ctx, *migrationRunnerManagedIdentity.ID, armresources.TagsResource{Properties: &armresources.Tags{Tags: migrationRunnerManagedIdentity.Tags}}, nil)
+		poller, err := tagsClient.BeginCreateOrUpdateAtScope(ctx, *migrationRunnerManagedIdentity.ID, armresources.TagsResource{Properties: &armresources.Tags{Tags: migrationRunnerManagedIdentity.Tags}}, nil)
 		if err != nil {
+			return nil, fmt.Errorf("failed to tag managed identity: %w", err)
+		}
+		if _, err := poller.PollUntilDone(ctx, nil); err != nil {
 			return nil, fmt.Errorf("failed to tag managed identity: %w", err)
 		}
 	}

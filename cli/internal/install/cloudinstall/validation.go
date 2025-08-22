@@ -12,8 +12,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v4"
-	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/postgresql/armpostgresqlflexibleservers/v4"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v7"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/postgresql/armpostgresqlflexibleservers/v5"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage"
 	"github.com/google/uuid"
 	"github.com/microsoft/tyger/cli/internal/common"
@@ -281,7 +281,7 @@ func quickValidateNodePoolConfig(ctx context.Context, success *bool, np *NodePoo
 		success,
 		np.OsSku,
 		armcontainerservice.OSSKUAzureLinux,
-		[]armcontainerservice.OSSKU{armcontainerservice.OSSKUAzureLinux, armcontainerservice.OSSKUUbuntu},
+		[]armcontainerservice.OSSKU{armcontainerservice.OSSKUAzureLinux, "AzureLinux3", armcontainerservice.OSSKUUbuntu},
 		fmt.Sprintf("The `osSku` field must be one of %%v for node pool '%s'", np.Name))
 
 }
