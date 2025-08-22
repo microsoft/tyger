@@ -95,11 +95,7 @@ public static class AccessControl
                 jwtOptions.Authority = accessControlOptions.Value.Authority + "/v2.0";
                 jwtOptions.Audience = accessControlOptions.Value.ApiAppId;
                 jwtOptions.Challenge = $"Bearer authority={accessControlOptions.Value.Authority}, audience={accessControlOptions.Value.Audience}";
-                jwtOptions.Events = new JwtBearerEvents
-                {
-                    OnForbidden = OnForbidden,
-                    OnTokenValidated = accessControlOptions.Value.UseMiseSidecar ? (context) => context.HttpContext.RequestServices.GetRequiredService<MiseSidecarClient>().ValidateWithMiseSidecar(context) : Task.CompletedTask
-                };
+                jwtOptions.Events = new JwtBearerEvents { OnForbidden = OnForbidden, };
                 if (accessControlOptions.Value.UseMiseSidecar)
                 {
                     MiseSidecarClient? miseSidecarClient = null;
