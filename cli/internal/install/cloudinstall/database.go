@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"maps"
 
@@ -20,9 +22,9 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/monitor/armmonitor"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
-	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/operationalinsights/armoperationalinsights"
-	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/postgresql/armpostgresqlflexibleservers/v4"
-	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/operationalinsights/armoperationalinsights/v2"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/postgresql/armpostgresqlflexibleservers/v5"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources/v3"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-cleanhttp"
@@ -421,8 +423,11 @@ func (inst *Installer) createDatabase(ctx context.Context, org *OrganizationConf
 			return nil, fmt.Errorf("failed to create tags client: %w", err)
 		}
 
-		_, err = tagsClient.CreateOrUpdateAtScope(ctx, *migrationRunnerManagedIdentity.ID, armresources.TagsResource{Properties: &armresources.Tags{Tags: migrationRunnerManagedIdentity.Tags}}, nil)
+		poller, err := tagsClient.BeginCreateOrUpdateAtScope(ctx, *migrationRunnerManagedIdentity.ID, armresources.TagsResource{Properties: &armresources.Tags{Tags: migrationRunnerManagedIdentity.Tags}}, nil)
 		if err != nil {
+			return nil, fmt.Errorf("failed to tag managed identity: %w", err)
+		}
+		if _, err := poller.PollUntilDone(ctx, nil); err != nil {
 			return nil, fmt.Errorf("failed to tag managed identity: %w", err)
 		}
 	}
@@ -602,33 +607,54 @@ func (inst *Installer) createRoles(
 
 	databaseScopedOwnersRole := getDatabaseRoleName(org, unqualifiedOwnersRole)
 
-	err := inst.executeOnDatabase(ctx, *server.Properties.FullyQualifiedDomainName, defaultDatabaseName, currentPrincipalDisplayName, func(db *sql.DB) error {
-		_, err := db.Exec(fmt.Sprintf(`
-		DO $$
-		BEGIN
-			IF NOT EXISTS (SELECT FROM pgaadauth_list_principals(false) WHERE objectId = '%s') THEN
-				PERFORM pgaadauth_create_principal_with_oid('%s', '%s', 'service', false, false);
-			END IF;
-		END
-		$$`, *tygerServerIdentity.Properties.PrincipalID, getDatabaseRoleName(org, *migrationRunnerIdentity.Name), *migrationRunnerIdentity.Properties.PrincipalID))
-		if err != nil {
-			return fmt.Errorf("failed to create tyger server database principal: %w", err)
+	const RoleCreateMaxRetries = 20
+	var err error
+	for roleCreateRetryCount := range RoleCreateMaxRetries {
+		if roleCreateRetryCount > 0 {
+			time.Sleep(30 * time.Second)
 		}
 
-		_, err = db.Exec(fmt.Sprintf(`
-		DO $$
-		BEGIN
-			IF NOT EXISTS (SELECT FROM pgaadauth_list_principals(false) WHERE objectId = '%s') THEN
-				PERFORM pgaadauth_create_principal_with_oid('%s', '%s', 'service', false, false);
-			END IF;
-		END
-		$$`, *tygerServerIdentity.Properties.PrincipalID, getDatabaseRoleName(org, *tygerServerIdentity.Name), *tygerServerIdentity.Properties.PrincipalID))
-		if err != nil {
-			return fmt.Errorf("failed to create tyger server database principal: %w", err)
+		err = inst.executeOnDatabase(ctx, *server.Properties.FullyQualifiedDomainName, defaultDatabaseName, currentPrincipalDisplayName, func(db *sql.DB) error {
+			_, err := db.Exec(fmt.Sprintf(`
+			DO $$
+			BEGIN
+				IF NOT EXISTS (SELECT FROM pgaadauth_list_principals(false) WHERE objectId = '%s') THEN
+					PERFORM pgaadauth_create_principal_with_oid('%s', '%s', 'service', false, false);
+				END IF;
+			END
+			$$`, *migrationRunnerIdentity.Properties.PrincipalID, getDatabaseRoleName(org, *migrationRunnerIdentity.Name), *migrationRunnerIdentity.Properties.PrincipalID))
+			if err != nil {
+				return fmt.Errorf("failed to create migration runner database principal: %w", err)
+			}
+
+			_, err = db.Exec(fmt.Sprintf(`
+			DO $$
+			BEGIN
+				IF NOT EXISTS (SELECT FROM pgaadauth_list_principals(false) WHERE objectId = '%s') THEN
+					PERFORM pgaadauth_create_principal_with_oid('%s', '%s', 'service', false, false);
+				END IF;
+			END
+			$$`, *tygerServerIdentity.Properties.PrincipalID, getDatabaseRoleName(org, *tygerServerIdentity.Name), *tygerServerIdentity.Properties.PrincipalID))
+			if err != nil {
+				return fmt.Errorf("failed to create tyger server database principal: %w", err)
+			}
+
+			return nil
+		})
+
+		if err == nil {
+			break
 		}
 
-		return nil
-	})
+		if strings.Contains(err.Error(), "OID is not found in the tenant") {
+			// It can take some time before the database is able to retrieve principals that have been recently created
+			log.Ctx(ctx).Warn().Msgf("Database role creation failed. Attempt %d/%d", roleCreateRetryCount+1, RoleCreateMaxRetries)
+			continue
+		}
+
+		return err
+	}
+
 	if err != nil {
 		return err
 	}

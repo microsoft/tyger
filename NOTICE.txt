@@ -141,7 +141,7 @@ SOFTWARE.
 
 ================================================================================
 
-github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v4
+github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v7
 
 MIT License
 
@@ -297,7 +297,7 @@ SOFTWARE.
 
 ================================================================================
 
-github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/operationalinsights/armoperationalinsights
+github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/operationalinsights/armoperationalinsights/v2
 
 MIT License
 
@@ -323,7 +323,7 @@ SOFTWARE.
 
 ================================================================================
 
-github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/postgresql/armpostgresqlflexibleservers/v4
+github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/postgresql/armpostgresqlflexibleservers/v5
 
 MIT License
 
@@ -375,7 +375,7 @@ SOFTWARE.
 
 ================================================================================
 
-github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources
+github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources/v3
 
 MIT License
 
