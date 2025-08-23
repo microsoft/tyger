@@ -260,16 +260,21 @@ const (
 )
 
 type OrganizationApiConfig struct {
-	DomainName             string                  `yaml:"domainName"`
-	TlsCertificateProvider TlsCertificateProvider  `yaml:"tlsCertificateProvider"`
-	AccessControl          *AccessControlConfig    `yaml:"accessControl"`
-	Buffers                *BuffersConfig          `yaml:"buffers"`
-	Helm                   *OrganizationHelmConfig `yaml:"helm"`
+	DomainName             string                           `yaml:"domainName"`
+	TlsCertificateProvider TlsCertificateProvider           `yaml:"tlsCertificateProvider"`
+	AccessControl          *OrganizationAccessControlConfig `yaml:"accessControl"`
+	Buffers                *BuffersConfig                   `yaml:"buffers"`
+	Helm                   *OrganizationHelmConfig          `yaml:"helm"`
 }
 
 type StandaloneAccessControlConfig struct {
 	install.ConfigFileCommon `yaml:",inline"`
 	*AccessControlConfig     `yaml:",inline"`
+}
+
+type OrganizationAccessControlConfig struct {
+	AccessControlConfig `yaml:",inline"`
+	MiseImage           string `yaml:"miseImage"` // Microsoft-internal access control validation sidecar. Only on internal deployments.
 }
 
 type AccessControlConfig struct {
@@ -390,14 +395,16 @@ func RenderConfig(templateValues ConfigTemplateValues, writer io.Writer) error {
 				Api: &OrganizationApiConfig{
 					DomainName:             templateValues.DomainName,
 					TlsCertificateProvider: TlsCertificateProviderLetsEncrypt,
-					AccessControl: &AccessControlConfig{
-						TenantID:  templateValues.OrganizationTenantId,
-						ApiAppUri: "api://tyger-server",
-						CliAppUri: "api://tyger-cli",
-						RoleAssignments: &TygerRbacRoleAssignments{
-							Owner: []TygerRbacRoleAssignment{
-								{
-									Principal: templateValues.TygerPrincipal,
+					AccessControl: &OrganizationAccessControlConfig{
+						AccessControlConfig: AccessControlConfig{
+							TenantID:  templateValues.OrganizationTenantId,
+							ApiAppUri: "api://tyger-server",
+							CliAppUri: "api://tyger-cli",
+							RoleAssignments: &TygerRbacRoleAssignments{
+								Owner: []TygerRbacRoleAssignment{
+									{
+										Principal: templateValues.TygerPrincipal,
+									},
 								},
 							},
 						},

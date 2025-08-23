@@ -613,6 +613,7 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, org *Organizat
 			"containerRegistryProxy": inst.Config.Cloud.Compute.ContainerRegistryProxy,
 			"accessControl": map[string]any{
 				"enabled":   true,
+				"tenantId":  org.Api.AccessControl.TenantID,
 				"authority": cloud.AzurePublic.ActiveDirectoryAuthorityHost + org.Api.AccessControl.TenantID,
 				"audience":  org.Api.AccessControl.ApiAppUri,
 				"apiAppId":  org.Api.AccessControl.ApiAppId,
@@ -642,6 +643,13 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, org *Organizat
 			},
 			"clusterConfiguration": clustersConfig,
 		},
+	}
+
+	if org.Api.AccessControl.MiseImage != "" {
+		helmConfig.Values["accessControl"].(map[string]any)["mise"] = map[string]any{
+			"enabled": true,
+			"image":   org.Api.AccessControl.MiseImage,
+		}
 	}
 
 	var overrides *HelmChartConfig

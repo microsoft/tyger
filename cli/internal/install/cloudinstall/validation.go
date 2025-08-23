@@ -519,7 +519,7 @@ func quickValidateApiConfig(ctx context.Context, success *bool, config *CloudEnv
 	if apiConfig.AccessControl == nil {
 		validationError(ctx, success, "The `api.accessControl` field is required for organization '%s'", org.Name)
 	} else {
-		quickValidateAccessControlConfig(ctx, success, apiConfig.AccessControl, org)
+		quickValidateAccessControlConfig(ctx, success, &apiConfig.AccessControl.AccessControlConfig, org)
 	}
 
 	if apiConfig.Buffers == nil {

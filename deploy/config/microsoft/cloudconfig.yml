@@ -226,6 +226,8 @@ organizations:
               objectId: 15bf92f7-9210-480f-a6ad-8d576d0baac7
               displayName: tyger-client-contributor
 
+        miseImage: eminence.azurecr.io/mise-sidecar:dev-1-37-0
+
       buffers:
         # TTL for active buffers before they are automatically soft-deleted (D.HH:MM:SS) (0 = never expire)
         activeLifetime: 0.00:00

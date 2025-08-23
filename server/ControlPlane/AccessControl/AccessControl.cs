@@ -68,27 +68,39 @@ public static class AccessControl
             .AddJwtBearer(EntraV1Scheme)
             .AddJwtBearer(EntraV2Scheme);
 
-        builder.Services.AddOptions<JwtBearerOptions>(EntraV1Scheme).Configure<IOptions<AccessControlOptions>>((jwtOptions, securityConfiguration) =>
+        builder.Services.AddSingleton<MiseSidecarClient>();
+
+        builder.Services.AddOptions<JwtBearerOptions>(EntraV1Scheme).Configure<IOptions<AccessControlOptions>>((jwtOptions, accessControlOptions) =>
         {
-            if (securityConfiguration.Value.Enabled)
+            if (accessControlOptions.Value.Enabled)
             {
                 // Tokens using the v1 format use the v1.0 endpoint
-                jwtOptions.Authority = securityConfiguration.Value.Authority;
-                jwtOptions.Audience = securityConfiguration.Value.Audience;
-                jwtOptions.Challenge = $"Bearer authority={securityConfiguration.Value.Authority}, audience={securityConfiguration.Value.Audience}";
-                jwtOptions.Events = new() { OnForbidden = OnForbidden };
+                jwtOptions.Authority = accessControlOptions.Value.Authority;
+                jwtOptions.Audience = accessControlOptions.Value.Audience;
+                jwtOptions.Challenge = $"Bearer authority={accessControlOptions.Value.Authority}, audience={accessControlOptions.Value.Audience}";
+                jwtOptions.Events = new JwtBearerEvents { OnForbidden = OnForbidden };
+                if (accessControlOptions.Value.UseMiseSidecar)
+                {
+                    MiseSidecarClient? miseSidecarClient = null;
+                    jwtOptions.Events.OnTokenValidated = context => (miseSidecarClient ??= context.HttpContext.RequestServices.GetRequiredService<MiseSidecarClient>()).ValidateWithMiseSidecar(context);
+                }
             }
         });
 
-        builder.Services.AddOptions<JwtBearerOptions>(EntraV2Scheme).Configure<IOptions<AccessControlOptions>>((jwtOptions, securityConfiguration) =>
+        builder.Services.AddOptions<JwtBearerOptions>(EntraV2Scheme).Configure<IOptions<AccessControlOptions>>((jwtOptions, accessControlOptions) =>
         {
-            if (securityConfiguration.Value.Enabled)
+            if (accessControlOptions.Value.Enabled)
             {
                 // Tokens using the v2 format use the v2.0 endpoint
-                jwtOptions.Authority = securityConfiguration.Value.Authority + "/v2.0";
-                jwtOptions.Audience = securityConfiguration.Value.ApiAppId;
-                jwtOptions.Challenge = $"Bearer authority={securityConfiguration.Value.Authority}, audience={securityConfiguration.Value.Audience}";
-                jwtOptions.Events = new() { OnForbidden = OnForbidden };
+                jwtOptions.Authority = accessControlOptions.Value.Authority + "/v2.0";
+                jwtOptions.Audience = accessControlOptions.Value.ApiAppId;
+                jwtOptions.Challenge = $"Bearer authority={accessControlOptions.Value.Authority}, audience={accessControlOptions.Value.Audience}";
+                jwtOptions.Events = new JwtBearerEvents { OnForbidden = OnForbidden, };
+                if (accessControlOptions.Value.UseMiseSidecar)
+                {
+                    MiseSidecarClient? miseSidecarClient = null;
+                    jwtOptions.Events.OnTokenValidated = context => (miseSidecarClient ??= context.HttpContext.RequestServices.GetRequiredService<MiseSidecarClient>()).ValidateWithMiseSidecar(context);
+                }
             }
         });
 
@@ -177,6 +189,7 @@ public class AccessControlOptions : IValidatableObject
     public string? ApiAppId { get; init; }
     public string? CliAppUri { get; init; }
     public string? CliAppId { get; init; }
+    public bool UseMiseSidecar { get; init; }
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {

@@ -132,6 +132,10 @@ spec:
               value: {{ required "When accessControl.enabled is true, a value for accessControl.cliAppUri is required" .Values.accessControl.cliAppUri }}
             - name: AccessControl__CliAppId
               value: {{ required "When accessControl.enabled is true, a value for accessControl.cliAppId is required" .Values.accessControl.cliAppId }}
+            {{- if (and .Values.accessControl.mise .Values.accessControl.mise.enabled) }}
+            - name: AccessControl__UseMiseSidecar
+              value: "true"
+            {{- end}}
           {{- end }}
             - name: Compute__Kubernetes__Namespace
               value: {{ .Release.Namespace }}
@@ -211,6 +215,43 @@ spec:
             httpGet:
               path: /healthcheck
               port: 5000
+
+        {{- if (and .Values.accessControl.mise .Values.accessControl.mise.enabled) }}
+        # The mise-sidecar container is only used for Microsoft internal environments.
+        # It performs additional OAuth token validation.
+        - name: mise-sidecar
+          image: {{ .Values.accessControl.mise.image }}
+          imagePullPolicy: {{ .Values.pullPolicy }}
+          ports:
+            - containerPort: 4000
+          env:
+            - name: MISE_CONTAINER_Kestrel__Endpoints__Http__url
+              value: http://+:4000
+            - name: Logging__Console__FormatterName
+              value: json
+            - name: MISE_CONTAINER_AzureAd__TenantId
+              value: {{ .Values.accessControl.tenantId }}
+            - name: MISE_CONTAINER_AzureAd__ClientId
+              value: {{ .Values.accessControl.apiAppId }}
+            - name: MISE_CONTAINER_AzureAd__Audience
+              value: {{ .Values.accessControl.apiAppId }}
+            - name: MISE_CONTAINER_AzureAd__InboundPolicies__0__Label
+              value: "inbound-policy"
+            - name: MISE_CONTAINER_AzureAd__InboundPolicies__0__AuthenticationSchemes__0
+              value: "Bearer"
+            - name: MISE_CONTAINER_AzureAd__InboundPolicies__0__ValidAudiences__0
+              value: {{ .Values.accessControl.apiAppId }}
+            - name: MISE_CONTAINER_AzureAd__InboundPolicies__0__ValidAudiences__1
+              value: {{ .Values.accessControl.apiAppUri }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 4000
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 4000
+        {{- end }}
 
       serviceAccount: {{ .Values.identity.tygerServer.name }}
       {{- with .Values.nodeSelector }}
