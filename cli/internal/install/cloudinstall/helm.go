@@ -252,6 +252,12 @@ func (inst *Installer) installCertManager(ctx context.Context, restConfigPromise
 		Values: map[string]any{
 			"cert-manager": map[string]any{
 				"installCRDs": true,
+				"acmesolver": map[string]any{
+					"image": map[string]any{
+						"repository": "mcr.microsoft.com/azurelinux/base/cert-manager-acmesolver",
+						"tag":        "1.12.15-4.3.0.20250729",
+					},
+				},
 			},
 		},
 	}
