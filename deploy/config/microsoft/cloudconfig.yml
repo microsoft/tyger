@@ -76,6 +76,14 @@ cloud:
             maxCount: 10
             # osSku: defaults to AzureLinux
 
+        inboundIpServiceTags:
+            - type: FirstPartyUsage
+              tag: /NonProd
+
+        outboundIpServiceTags:
+          - type: FirstPartyUsage
+            tag: /NonProd
+
     # These are the principals that will have the ability to run `tyger api install`.
     # They will have access to the "tyger" namespace in each cluster and will have
     # the necessary Azure RBAC role assignments.

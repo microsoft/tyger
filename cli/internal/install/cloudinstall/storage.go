@@ -32,7 +32,7 @@ func (inst *Installer) CreateStorageAccount(ctx context.Context,
 	if resp, err := storageClient.GetProperties(ctx, resourceGroupName, storageAccountConfig.Name, nil); err == nil {
 		if existingTag, ok := resp.Tags[TagKey]; ok {
 			if *existingTag != inst.Config.EnvironmentName {
-				return nil, fmt.Errorf("storage account '%s' is already in use by enrironment '%s'", storageAccountConfig.Name, *existingTag)
+				return nil, fmt.Errorf("storage account '%s' is already in use by environment '%s'", storageAccountConfig.Name, *existingTag)
 			}
 			tags = resp.Tags
 		}

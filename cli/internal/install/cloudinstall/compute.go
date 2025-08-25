@@ -46,6 +46,11 @@ func (inst *Installer) getCluster(ctx context.Context, clusterConfig *ClusterCon
 }
 
 func (inst *Installer) createCluster(ctx context.Context, clusterConfig *ClusterConfig) (*armcontainerservice.ManagedCluster, error) {
+	outboundIpAddress, err := inst.createOutboundIpAddress(ctx, clusterConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create outbound IP address: %w", err)
+	}
+
 	var tags map[string]*string
 
 	existingCluster, err := inst.getCluster(ctx, clusterConfig)
@@ -122,7 +127,9 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 					Enabled: Ptr(true),
 				},
 			},
-			NetworkProfile: &armcontainerservice.NetworkProfile{},
+			NetworkProfile: &armcontainerservice.NetworkProfile{
+				LoadBalancerProfile: &armcontainerservice.ManagedClusterLoadBalancerProfile{},
+			},
 		},
 		SKU: &armcontainerservice.ManagedClusterSKU{
 			Name: Ptr(armcontainerservice.ManagedClusterSKUNameBase),
@@ -145,6 +152,12 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 			EnablePrivateCluster:           Ptr(true),
 			PrivateDNSZone:                 Ptr("system"),
 			EnablePrivateClusterPublicFQDN: Ptr(false),
+		}
+	}
+
+	if outboundIpAddress != nil {
+		cluster.Properties.NetworkProfile.LoadBalancerProfile.OutboundIPs = &armcontainerservice.ManagedClusterLoadBalancerProfileOutboundIPs{
+			PublicIPs: []*armcontainerservice.ResourceReference{{ID: outboundIpAddress.ID}},
 		}
 	}
 
@@ -459,7 +472,75 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 		}
 	}
 
+	if outboundIpAddress != nil {
+		if err := assignRbacRole(ctx, []string{*createdCluster.Identity.PrincipalID}, false, *outboundIpAddress.ID, "Network Contributor", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
+			return nil, fmt.Errorf("failed to assign RBAC role on outbound IP address: %w", err)
+		}
+	}
+
 	return &createdCluster, nil
+}
+
+func (inst *Installer) createOutboundIpAddress(ctx context.Context, cluster *ClusterConfig) (*armnetwork.PublicIPAddress, error) {
+	if len(cluster.OutboundIpServiceTags) == 0 {
+		// We let AKS manage the IP for us
+		return nil, nil
+	}
+
+	log.Ctx(ctx).Info().Msg("Creating outbound IP address")
+	publicIPAddressesClient, err := armnetwork.NewPublicIPAddressesClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to create public IP addresses client")
+	}
+
+	ipAddressName := fmt.Sprintf("%s-outbound-ip", cluster.Name)
+
+	var tags map[string]*string
+	if resp, err := publicIPAddressesClient.Get(ctx, inst.Config.Cloud.ResourceGroup, ipAddressName, nil); err == nil {
+		if existingTag, ok := resp.Tags[TagKey]; ok {
+			if *existingTag != inst.Config.EnvironmentName {
+				return nil, fmt.Errorf("public IP address '%s' is already in use by environment '%s'", ipAddressName, *existingTag)
+			}
+			tags = resp.Tags
+		}
+	}
+
+	if tags == nil {
+		tags = make(map[string]*string)
+	}
+	tags[TagKey] = &inst.Config.EnvironmentName
+
+	ipTags := []*armnetwork.IPTag{}
+	for _, t := range cluster.OutboundIpServiceTags {
+		ipTags = append(ipTags, &armnetwork.IPTag{
+			IPTagType: &t.Type,
+			Tag:       &t.Tag,
+		})
+	}
+
+	ipAddress := armnetwork.PublicIPAddress{
+		Location: &cluster.Location,
+		SKU: &armnetwork.PublicIPAddressSKU{
+			Name: Ptr(armnetwork.PublicIPAddressSKUNameStandard),
+			Tier: Ptr(armnetwork.PublicIPAddressSKUTierRegional),
+		},
+		Properties: &armnetwork.PublicIPAddressPropertiesFormat{
+			PublicIPAllocationMethod: Ptr(armnetwork.IPAllocationMethodStatic),
+			IPTags:                   ipTags,
+		},
+	}
+
+	poller, err := publicIPAddressesClient.BeginCreateOrUpdate(ctx, inst.Config.Cloud.ResourceGroup, ipAddressName, ipAddress, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create output IP address: %w", err)
+	}
+
+	res, err := poller.PollUntilDone(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create output IP address: %w", err)
+	}
+
+	return &res.PublicIPAddress, nil
 }
 
 func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCluster) (hasChanges bool, onlyScaleDown bool) {
@@ -625,6 +706,25 @@ func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCl
 	}
 
 	if cluster.Properties.NetworkProfile.DNSServiceIP != nil && (existingCluster.Properties.NetworkProfile.DNSServiceIP == nil || *cluster.Properties.NetworkProfile.DNSServiceIP != *existingCluster.Properties.NetworkProfile.DNSServiceIP) {
+		return true, false
+	}
+
+	desiredOutputIpCount := 0
+	if cluster.Properties.NetworkProfile.LoadBalancerProfile.OutboundIPs != nil {
+		desiredOutputIpCount = len(cluster.Properties.NetworkProfile.LoadBalancerProfile.OutboundIPs.PublicIPs)
+	}
+
+	existingOutputIpCount := 0
+	if existingCluster.Properties.NetworkProfile.LoadBalancerProfile.OutboundIPs != nil {
+		existingOutputIpCount = len(existingCluster.Properties.NetworkProfile.LoadBalancerProfile.OutboundIPs.PublicIPs)
+	}
+
+	if desiredOutputIpCount != existingOutputIpCount ||
+		(desiredOutputIpCount > 0 &&
+			!slices.EqualFunc(
+				cluster.Properties.NetworkProfile.LoadBalancerProfile.OutboundIPs.PublicIPs,
+				existingCluster.Properties.NetworkProfile.LoadBalancerProfile.OutboundIPs.PublicIPs,
+				func(a, b *armcontainerservice.ResourceReference) bool { return *a.ID == *b.ID })) {
 		return true, false
 	}
 

@@ -159,18 +159,25 @@ func (c *ComputeConfig) GetApiHostCluster() *ClusterConfig {
 	panic("API host cluster not found - this should have been caught during validation")
 }
 
+type IpServiceTag struct {
+	Type string `yaml:"type"`
+	Tag  string `yaml:"tag"`
+}
+
 type ClusterConfig struct {
-	Name              string                                    `yaml:"name"`
-	ApiHost           bool                                      `yaml:"apiHost"`
-	Location          string                                    `yaml:"location"`
-	Sku               armcontainerservice.ManagedClusterSKUTier `yaml:"sku"`
-	KubernetesVersion string                                    `yaml:"kubernetesVersion,omitempty"`
-	ExistingSubnet    *SubnetReference                          `yaml:"existingSubnet,omitempty"`
-	SystemNodePool    *NodePoolConfig                           `yaml:"systemNodePool"`
-	UserNodePools     []*NodePoolConfig                         `yaml:"userNodePools"`
-	PodCidr           string                                    `yaml:"podCidr,omitempty"`
-	ServiceCidr       string                                    `yaml:"serviceCidr,omitempty"`
-	DnsServiceIp      string                                    `yaml:"dnsServiceIp,omitempty"`
+	Name                  string                                    `yaml:"name"`
+	ApiHost               bool                                      `yaml:"apiHost"`
+	Location              string                                    `yaml:"location"`
+	Sku                   armcontainerservice.ManagedClusterSKUTier `yaml:"sku"`
+	KubernetesVersion     string                                    `yaml:"kubernetesVersion,omitempty"`
+	ExistingSubnet        *SubnetReference                          `yaml:"existingSubnet,omitempty"`
+	SystemNodePool        *NodePoolConfig                           `yaml:"systemNodePool"`
+	UserNodePools         []*NodePoolConfig                         `yaml:"userNodePools"`
+	PodCidr               string                                    `yaml:"podCidr,omitempty"`
+	ServiceCidr           string                                    `yaml:"serviceCidr,omitempty"`
+	DnsServiceIp          string                                    `yaml:"dnsServiceIp,omitempty"`
+	InboundIpServiceTags  []IpServiceTag                            `yaml:"inboundIpServiceTags,omitempty"`
+	OutboundIpServiceTags []IpServiceTag                            `yaml:"outboundIpServiceTags,omitempty"`
 }
 
 type SubnetReference struct {
