@@ -24,7 +24,6 @@ env:
 jobs:
 
   test-long-running:
-    needs:
     runs-on: ubuntu-latest
     defaults:
       run:
