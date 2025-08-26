@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
 	"reflect"
@@ -58,17 +59,26 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 		return nil, fmt.Errorf("failed to ensure Traefik dynamic ConfigMap: %w", err)
 	}
 
-	var annotations map[string]any
+	var serviceAnnotations map[string]any
 	if inst.Config.Cloud.PrivateNetworking {
-		annotations = map[string]any{
+		serviceAnnotations = map[string]any{
 			"service.beta.kubernetes.io/azure-load-balancer-internal": "true",
 			"service.beta.kubernetes.io/azure-pls-create":             "true",
 			"service.beta.kubernetes.io/azure-pls-name":               TraefikPrivateLinkServiceName,
 		}
 	} else {
-		annotations = map[string]any{
+		serviceAnnotations = map[string]any{
 			"service.beta.kubernetes.io/azure-dns-label-name": inst.Config.Cloud.Compute.DnsLabel,
 		}
+	}
+
+	if ipServiceTags := inst.Config.Cloud.Compute.GetApiHostCluster().InboundIpServiceTags; len(ipServiceTags) > 0 {
+		pairs := []string{}
+		for _, t := range ipServiceTags {
+			pairs = append(pairs, fmt.Sprintf("%s=%s", t.Type, t.Tag))
+		}
+
+		serviceAnnotations["service.beta.kubernetes.io/azure-pip-ip-tags"] = strings.Join(pairs, ",")
 	}
 
 	traefikConfig := HelmChartConfig{
@@ -94,7 +104,7 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 				},
 			},
 			"service": map[string]any{
-				"annotations": annotations,
+				"annotations": serviceAnnotations,
 				"spec": map[string]any{
 					"externalTrafficPolicy": "Local", // in order to preserve client IP addresses
 				},
@@ -154,6 +164,41 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 	var overrides *HelmChartConfig
 	if inst.Config.Cloud.Compute.Helm != nil && inst.Config.Cloud.Compute.Helm.Traefik != nil {
 		overrides = inst.Config.Cloud.Compute.Helm.Traefik
+	}
+
+	// Check if there is an existing release to see if should be removed first.
+	helmOptions := helmclient.RestConfClientOptions{
+		RestConfig: restConfig,
+		Options: &helmclient.Options{
+			DebugLog: func(format string, v ...any) {
+				log.Debug().Msgf(format, v...)
+			},
+			Namespace: traefikConfig.Namespace,
+		},
+	}
+
+	helmClient, err := helmclient.NewClientFromRestConf(&helmOptions)
+	if err != nil {
+		return false, fmt.Errorf("failed to create helm client: %w", err)
+	}
+	if existingRelease, err := helmClient.GetRelease(traefikConfig.ReleaseName); err != nil {
+		if !errors.Is(err, driver.ErrReleaseNotFound) {
+			return nil, fmt.Errorf("failed to get existing Traefik release: %w", err)
+		}
+	} else {
+		var existingServiceAnnotations map[string]any
+		if svc, _ := existingRelease.Config["service"].(map[string]any); svc != nil {
+			existingServiceAnnotations, _ = svc["annotations"].(map[string]any)
+		}
+
+		if !maps.Equal(existingServiceAnnotations, serviceAnnotations) {
+			log.Ctx(ctx).Warn().Msg("Existing Traefik installation has different service annotations, uninstalling it first")
+			if err = helmClient.UninstallReleaseByName(traefikConfig.ReleaseName); err != nil {
+				log.Warn().Msgf("Failed to uninstall existing Traefik release: %v", err)
+			} else {
+				time.Sleep(2 * time.Minute) // Give some time for Azure resources to be removed
+			}
+		}
 	}
 
 	startTime := time.Now().Add(-10 * time.Second)

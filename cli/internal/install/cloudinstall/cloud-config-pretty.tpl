@@ -106,6 +106,23 @@ cloud:
             # osSku: defaults to AzureLinux
             {{- end }}
           {{- end }}
+
+        {{- if .InboundIpServiceTags }}
+
+        inboundIpServiceTags:
+            {{- range .InboundIpServiceTags }}
+            - type: {{ .Type }}
+              tag: {{ .Tag }}
+            {{- end }}
+        {{- end }}
+        {{- if .OutboundIpServiceTags }}
+
+        outboundIpServiceTags:
+          {{- range .OutboundIpServiceTags }}
+          - type: {{ .Type }}
+            tag: {{ .Tag }}
+          {{- end }}
+        {{- end }}
     {{- end }}
 
     # These are the principals that will have the ability to run `tyger api install`.
