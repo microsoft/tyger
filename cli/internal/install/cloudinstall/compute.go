@@ -495,20 +495,20 @@ func (inst *Installer) createOutboundIpAddress(ctx context.Context, cluster *Clu
 
 	ipAddressName := fmt.Sprintf("%s-outbound-ip", cluster.Name)
 
-	var tags map[string]*string
+	var azureTags map[string]*string
 	if resp, err := publicIPAddressesClient.Get(ctx, inst.Config.Cloud.ResourceGroup, ipAddressName, nil); err == nil {
 		if existingTag, ok := resp.Tags[TagKey]; ok {
 			if *existingTag != inst.Config.EnvironmentName {
 				return nil, fmt.Errorf("public IP address '%s' is already in use by environment '%s'", ipAddressName, *existingTag)
 			}
-			tags = resp.Tags
+			azureTags = resp.Tags
 		}
 	}
 
-	if tags == nil {
-		tags = make(map[string]*string)
+	if azureTags == nil {
+		azureTags = make(map[string]*string)
 	}
-	tags[TagKey] = &inst.Config.EnvironmentName
+	azureTags[TagKey] = &inst.Config.EnvironmentName
 
 	ipTags := []*armnetwork.IPTag{}
 	for _, t := range cluster.OutboundIpServiceTags {
@@ -520,6 +520,7 @@ func (inst *Installer) createOutboundIpAddress(ctx context.Context, cluster *Clu
 
 	ipAddress := armnetwork.PublicIPAddress{
 		Location: &cluster.Location,
+		Tags:     azureTags,
 		SKU: &armnetwork.PublicIPAddressSKU{
 			Name: Ptr(armnetwork.PublicIPAddressSKUNameStandard),
 			Tier: Ptr(armnetwork.PublicIPAddressSKUTierRegional),
