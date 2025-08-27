@@ -43,18 +43,60 @@ runs:
         tenant-id: ${{ env.AZURE_TENANT_ID }}
         subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
+    # Until the CLI handles refreshing the OIDC token, we do it here.
+    # We only do this on Linux, because long-running deployment jobs are run on Linux.
+    # On Windows, we assume that we can complete the job within 5 minutes.
+    - name: Begin Azure Login Refresh Loop
+      if: ${{ env.CAN_ACCESS_SECRETS && runner.os == 'Linux' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Background refresh of Azure federated token every 4 minutes.
+        # Requires workflow permissions: permissions: id-token: write
+        cat > /tmp/azure-login-refresh.sh <<'EOF'
+        #!/usr/bin/env bash
+        set -euo pipefail
+        CLIENT_ID="${AZURE_CLIENT_ID}"
+        TENANT_ID="${AZURE_TENANT_ID}"
+        SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID:-}"
+        AUDIENCE="api://AzureADTokenExchange"
+
+        refresh() {
+          if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]]; then
+            echo "[azure-refresh] ID token request env vars missing; cannot refresh." >&2
+            return 1
+          fi
+          # Fetch federated token JSON: { "value": "<jwt>" }
+          RESPONSE="$(curl -sS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${AUDIENCE}")" || return 1
+          # Parse with jq (requested: no Python). jq is preinstalled on GitHub-hosted Linux runners.
+          if ! command -v jq >/dev/null 2>&1; then
+            echo "[azure-refresh] jq not found; cannot parse token." >&2
+            return 1
+          fi
+          TOKEN="$(echo "$RESPONSE" | jq -r '.value // empty' 2>/dev/null || true)"
+          if [[ -z "${TOKEN}" ]]; then
+            echo "[azure-refresh] Failed to extract federated token from response: ${RESPONSE}" >&2
+            return 1
+          fi
+          az login --federated-token "${TOKEN}" --service-principal -u "${CLIENT_ID}" --tenant "${TENANT_ID}" >/dev/null 2>&1 || return 1
+          if [[ -n "${SUBSCRIPTION_ID}" ]]; then
+            az account set -s "${SUBSCRIPTION_ID}" >/dev/null 2>&1 || true
+          fi
+          echo "[azure-refresh] Refreshed at $(date -u +%FT%TZ)" >&2
+        }
+
+        echo "[azure-refresh] Starting background Azure token refresh loop (interval 4m)." >&2
+        while true; do
+          sleep 240
+          refresh || echo "[azure-refresh] Refresh attempt failed." >&2
+        done
+        EOF
+
+        (nohup bash /tmp/azure-login-refresh.sh >/dev/null 2>&1 & disown) || true
+        echo "Background Azure login refresh started."
+
     - name: Log in to Azure with managed identity
       if: ${{ ! env.CAN_ACCESS_SECRETS }}
       shell: bash
       run: |
         az login --identity --username $AZURE_CLIENT_ID
-
-    # Populate the token cache as a workaround. See https://github.com/Azure/login/issues/372#issuecomment-2056289617
-    - name: prefetch tokens
-      shell: bash
-      run: |
-          az account get-access-token --output none
-          az account get-access-token --scope https://storage.azure.com/.default --output none
-          az account get-access-token --scope https://vault.azure.net/.default --output none
-          az account get-access-token --resource https://ossrdbms-aad.database.windows.net --output none
-          az account get-access-token --resource 6dae42f8-4368-4678-94ff-3960e28e3630 --output none # AKS https://azure.github.io/kubelogin/concepts/aks.html
