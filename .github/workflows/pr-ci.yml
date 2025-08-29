@@ -578,6 +578,8 @@ jobs:
             -CertificateVersion $certificateVersion
 
   verify-binaries:
+    # Do not install from the unapproved GHCR registry for the long-running CI environment
+    if: github.event_name == 'pull_request'
     needs:
       - test-azure-needs-hosted-runner
       - get-config
@@ -588,6 +590,7 @@ jobs:
       run:
         shell: bash
     env:
+      EXPLICIT_IMAGE_TAG: ${{ needs.get-config.outputs.IMAGE_TAG }}-amd64
       TYGER_ENVIRONMENT_NAME: ${{ needs.get-config.outputs.TYGER_ENVIRONMENT_NAME }}
 
     steps:
@@ -616,6 +619,14 @@ jobs:
           ./scripts/get-config.sh -o json | jq 'del(..|.helm?)' > tyger-config.json
 
           tyger api install -f tyger-config.json
+
+      # Remove the GHCR installation
+      - name: Restore normal API installation
+        run: |
+          set -euo pipefail
+
+          export PATH="${GITHUB_WORKSPACE}/binaries_linux_x86_64:$PATH"
+          tyger api install -f <(./scripts/get-config.sh)
 
   verify-docker:
     runs-on: ubuntu-latest
