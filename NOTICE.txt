@@ -541,13 +541,13 @@ go-wildcard is free software under OpenBSD's ISC-style license.
 > Copyright (c) 2023 Iglou.eu <contact@iglou.eu>
 > Copyright (c) 2023 Adrien Kara <adrien@iglou.eu>
 >
-> Redistribution and use in source and binary forms, with or without
+> Redistribution and use in source and binary forms, with or without 
 > modification, are permitted provided that the following conditions are met:
 >
-> 1. Redistributions of source code must retain the above copyright notice,
+> 1. Redistributions of source code must retain the above copyright notice, 
 > this list of conditions and the following disclaimer.
 > 2. Redistributions in binary form must reproduce the above copyright notice,
-> this list of conditions and the following disclaimer in the documentation
+> this list of conditions and the following disclaimer in the documentation 
 > and/or other materials provided with the distribution.
 > 3. Neither the name of the copyright holder nor the names of its contributors
 > may be used to endorse or promote products derived from this software without
@@ -556,16 +556,16 @@ go-wildcard is free software under OpenBSD's ISC-style license.
 > THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS “AS IS”
 > AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
 > THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
-> PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+> PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR 
 > CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
 > EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
 > PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
 > OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
-> WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
-> OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+> WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR 
+> OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF 
 > ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-One exception is
+One exception is   
 [`old_wildcard_test.go`](https://github.com/IGLOU-EU/go-wildcard/old_wildcard_test.go)
 
 > MinIO Cloud Storage, (C) 2015, 2016 MinIO, Inc.
@@ -3668,7 +3668,7 @@ github.com/evanphx/json-patch
 Copyright (c) 2014, Evan Phoenix
 All rights reserved.
 
-Redistribution and use in source and binary forms, with or without
+Redistribution and use in source and binary forms, with or without 
 modification, are permitted provided that the following conditions are met:
 
 * Redistributions of source code must retain the above copyright notice, this
@@ -3676,19 +3676,19 @@ modification, are permitted provided that the following conditions are met:
 * Redistributions in binary form must reproduce the above copyright notice,
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
-* Neither the name of the Evan Phoenix nor the names of its contributors
-  may be used to endorse or promote products derived from this software
+* Neither the name of the Evan Phoenix nor the names of its contributors 
+  may be used to endorse or promote products derived from this software 
   without specific prior written permission.
 
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE
-FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" 
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE 
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE 
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL 
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR 
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER 
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, 
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ================================================================================
@@ -7208,7 +7208,7 @@ commands:
             echo "Running $(echo $PACKAGE_NAMES | wc -w) packages"
             echo $PACKAGE_NAMES
             << parameters.cmd >> --format=short-verbose --junitfile $TEST_RESULTS_PATH/go-multierror/gotestsum-report.xml -- -p 2 -cover -coverprofile=<< parameters.platform >>_cov_$CIRCLE_NODE_INDEX.part $PACKAGE_NAMES
-
+        
 jobs:
   linux-tests:
     docker:
@@ -7216,7 +7216,7 @@ jobs:
     parameters:
       go-version:
         type: string
-    environment:
+    environment: 
       <<: *ENVIRONMENT
     parallelism: 4
     steps:
@@ -7266,7 +7266,7 @@ jobs:
           path: *TEST_RESULTS_PATH
 
   windows-tests:
-    executor:
+    executor: 
       name: win/default
       shell: bash --login -eo pipefail
     environment:
@@ -7277,12 +7277,12 @@ jobs:
         type: string
       gotestsum-version:
         type: string
-    steps:
+    steps: 
       - run: git config --global core.autocrlf false
       - checkout
       - attach_workspace:
           at: .
-      - run:
+      - run: 
           name: Setup (remove pre-installed go)
           command: |
             rm -rf "c:\Go"
@@ -7292,15 +7292,15 @@ jobs:
             - win-golang-<< parameters.go-version >>-cache-v1
             - win-gomod-cache-{{ checksum "go.mod" }}-v1
 
-      - run:
+      - run: 
           name: Install go version << parameters.go-version >>
-          command: |
+          command: | 
             if [ ! -d "c:\go" ]; then
               echo "Cache not found, installing new version of go"
               curl --fail --location https://dl.google.com/go/go<< parameters.go-version >>.windows-amd64.zip --output go.zip
               unzip go.zip -d "/c"
             fi
-      - run:
+      - run: 
           command: go mod download
 
       - save_cache:
@@ -8734,7 +8734,7 @@ commands:
             echo "Running $(echo $PACKAGE_NAMES | wc -w) packages"
             echo $PACKAGE_NAMES
             << parameters.cmd >> --format=short-verbose --junitfile $TEST_RESULTS_PATH/go-multierror/gotestsum-report.xml -- -p 2 -cover -coverprofile=<< parameters.platform >>_cov_$CIRCLE_NODE_INDEX.part $PACKAGE_NAMES
-
+        
 jobs:
   linux-tests:
     docker:
@@ -8742,7 +8742,7 @@ jobs:
     parameters:
       go-version:
         type: string
-    environment:
+    environment: 
       <<: *ENVIRONMENT
     parallelism: 4
     steps:
@@ -8792,7 +8792,7 @@ jobs:
           path: *TEST_RESULTS_PATH
 
   windows-tests:
-    executor:
+    executor: 
       name: win/default
       shell: bash --login -eo pipefail
     environment:
@@ -8803,12 +8803,12 @@ jobs:
         type: string
       gotestsum-version:
         type: string
-    steps:
+    steps: 
       - run: git config --global core.autocrlf false
       - checkout
       - attach_workspace:
           at: .
-      - run:
+      - run: 
           name: Setup (remove pre-installed go)
           command: |
             rm -rf "c:\Go"
@@ -8818,15 +8818,15 @@ jobs:
             - win-golang-<< parameters.go-version >>-cache-v1
             - win-gomod-cache-{{ checksum "go.mod" }}-v1
 
-      - run:
+      - run: 
           name: Install go version << parameters.go-version >>
-          command: |
+          command: | 
             if [ ! -d "c:\go" ]; then
               echo "Cache not found, installing new version of go"
               curl --fail --location https://dl.google.com/go/go<< parameters.go-version >>.windows-amd64.zip --output go.zip
               unzip go.zip -d "/c"
             fi
-      - run:
+      - run: 
           command: go mod download
 
       - save_cache:
@@ -8953,7 +8953,7 @@ jobs:
             echo >&2 "$files"
             exit 1
           fi
-name: Unit tests
+name: Unit tests 
 on:
   pull_request:
     types: ['opened', 'synchronize']
@@ -12192,7 +12192,7 @@ jobs:
             echo >&2 "$files"
             exit 1
           fi
-name: Unit tests
+name: Unit tests 
 on:
   pull_request:
     types: ['opened', 'synchronize']
@@ -12275,7 +12275,7 @@ jobs:
             echo >&2 "$files"
             exit 1
           fi
-name: Unit tests
+name: Unit tests 
 on:
   pull_request:
     types: ['opened', 'synchronize']
@@ -18852,7 +18852,7 @@ gopkg.in/evanphx/json-patch.v4
 Copyright (c) 2014, Evan Phoenix
 All rights reserved.
 
-Redistribution and use in source and binary forms, with or without
+Redistribution and use in source and binary forms, with or without 
 modification, are permitted provided that the following conditions are met:
 
 * Redistributions of source code must retain the above copyright notice, this
@@ -18860,19 +18860,19 @@ modification, are permitted provided that the following conditions are met:
 * Redistributions in binary form must reproduce the above copyright notice,
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
-* Neither the name of the Evan Phoenix nor the names of its contributors
-  may be used to endorse or promote products derived from this software
+* Neither the name of the Evan Phoenix nor the names of its contributors 
+  may be used to endorse or promote products derived from this software 
   without specific prior written permission.
 
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE
-FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" 
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE 
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE 
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL 
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR 
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER 
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, 
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ================================================================================
@@ -23886,7 +23886,7 @@ Apache license:
 
 ================================================================================
 
-** Asp.Versioning.Abstractions; version 8.1.0 --
+** Asp.Versioning.Abstractions; version 8.1.0 -- 
 (c) .NET Foundation
 Copyright (c) .NET Foundation and contributors
 
@@ -23914,7 +23914,7 @@ SOFTWARE
 
 ================================================================================
 
-** Asp.Versioning.Http; version 8.1.0 --
+** Asp.Versioning.Http; version 8.1.0 -- 
 (c) .NET Foundation
 Copyright (c) .NET Foundation and contributors
 
@@ -23942,7 +23942,7 @@ SOFTWARE
 
 ================================================================================
 
-** Asp.Versioning.Mvc.ApiExplorer; version 8.1.0 --
+** Asp.Versioning.Mvc.ApiExplorer; version 8.1.0 -- 
 (c) .NET Foundation
 Copyright (c) .NET Foundation and contributors
 
@@ -23970,7 +23970,7 @@ SOFTWARE
 
 ================================================================================
 
-** Asp.Versioning.Mvc; version 8.1.0 --
+** Asp.Versioning.Mvc; version 8.1.0 -- 
 (c) .NET Foundation
 Copyright (c) .NET Foundation and contributors
 
@@ -23998,18 +23998,21 @@ SOFTWARE
 
 ================================================================================
 
-** Azure.Core; version 1.47.1 --
+** Azure.Core; version 1.47.1 -- 
 (c) Microsoft Corporation
 
 LicenseRef-scancode-generic-cla AND MIT
 
 ================================================================================
 
+** Azure.Identity; version 1.15.0 -- 
+(c) Microsoft Corporation
 
+LicenseRef-scancode-generic-cla AND MIT
 
 ================================================================================
 
-** Azure.Storage.Blobs; version 12.25.0 --
+** Azure.Storage.Blobs; version 12.25.0 -- 
 (c) Microsoft Corporation
 
 MIT License
@@ -24024,7 +24027,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ================================================================================
 
-** Azure.Storage.Common; version 12.24.0 --
+** Azure.Storage.Common; version 12.24.0 -- 
 (c) Microsoft Corporation
 
 MIT License
@@ -24039,7 +24042,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ================================================================================
 
-** BitFaster.Caching; version 2.5.4 --
+** BitFaster.Caching; version 2.5.4 -- 
 (c) Microsoft 2025
 Copyright Alex Peck 2025
 Copyright (c) 2020 Alex Peck
@@ -24070,7 +24073,7 @@ SOFTWARE.
 
 ================================================================================
 
-** Docker.DotNet; version 3.125.15 --
+** Docker.DotNet; version 3.125.15 -- 
 (c) Microsoft 2023
 Copyright (c) .NET Foundation and Contributors
 Copyright (c) .NET Foundation and Contributors Docker Container C
@@ -24101,7 +24104,7 @@ SOFTWARE.
 
 ================================================================================
 
-** Dunet; version 1.11.3 --
+** Dunet; version 1.11.3 -- 
 
 MIT License
 
@@ -24115,32 +24118,32 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ================================================================================
 
-** Fractions; version 7.3.0 --
+** Fractions; version 7.3.0 -- 
 (c) Microsoft 2023
 Copyright 2013-2023 Daniel Mueller
 Copyright (c) 2013-2022, Daniel Mueller <daniel@danm.de>
 
 ﻿Copyright (c) 2013-2022, Daniel Mueller <daniel@danm.de>
 All rights reserved.
-
+ 
 Redistribution and use in source and binary forms, with or without modification,
 are permitted provided that the following conditions are met:
 
 1. Redistributions of source code must retain the above copyright notice, this
    list of conditions and the following disclaimer.
-2. Redistributions in binary form must reproduce the above copyright notice,
-   this list of conditions and the following disclaimer in the documentation
+2. Redistributions in binary form must reproduce the above copyright notice, 
+   this list of conditions and the following disclaimer in the documentation 
    and/or other materials provided with the distribution.
 
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED 
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
 DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
-ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
-ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES 
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; 
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON 
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT 
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS 
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ================================================================================
@@ -24153,7 +24156,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ================================================================================
 
-** KubernetesClient; version 17.0.14 --
+** KubernetesClient; version 17.0.14 -- 
 
 Apache License
 
@@ -24163,43 +24166,43 @@ http://www.apache.org/licenses/ TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND 
 
    1. Definitions.
 
-
+      
 
       "License" shall mean the terms and conditions for use, reproduction, and distribution as defined by Sections 1 through 9 of this document.
 
-
+      
 
       "Licensor" shall mean the copyright owner or entity authorized by the copyright owner that is granting the License.
 
-
+      
 
       "Legal Entity" shall mean the union of the acting entity and all other entities that control, are controlled by, or are under common control with that entity. For the purposes of this definition, "control" means (i) the power, direct or indirect, to cause the direction or management of such entity, whether by contract or otherwise, or (ii) ownership of fifty percent (50%) or more of the outstanding shares, or (iii) beneficial ownership of such entity.
 
-
+      
 
       "You" (or "Your") shall mean an individual or Legal Entity exercising permissions granted by this License.
 
-
+      
 
       "Source" form shall mean the preferred form for making modifications, including but not limited to software source code, documentation source, and configuration files.
 
-
+      
 
       "Object" form shall mean any form resulting from mechanical transformation or translation of a Source form, including but not limited to compiled object code, generated documentation, and conversions to other media types.
 
-
+      
 
       "Work" shall mean the work of authorship, whether in Source or Object form, made available under the License, as indicated by a copyright notice that is included in or attached to the work (an example is provided in the Appendix below).
 
-
+      
 
       "Derivative Works" shall mean any work, whether in Source or Object form, that is based on (or derived from) the Work and for which the editorial revisions, annotations, elaborations, or other modifications represent, as a whole, an original work of authorship. For the purposes of this License, Derivative Works shall not include works that remain separable from, or merely link (or bind by name) to the interfaces of, the Work and Derivative Works thereof.
 
-
+      
 
       "Contribution" shall mean any work of authorship, including the original version of the Work and any modifications or additions to that Work or Derivative Works thereof, that is intentionally submitted to Licensor for inclusion in the Work by the copyright owner or by an individual or Legal Entity authorized to submit on behalf of the copyright owner. For the purposes of this definition, "submitted" means any form of electronic, verbal, or written communication sent to the Licensor or its representatives, including but not limited to communication on electronic mailing lists, source code control systems, and issue tracking systems that are managed by, or on behalf of, the Licensor for the purpose of discussing and improving the Work, but excluding communication that is conspicuously marked or otherwise designated in writing by the copyright owner as "Not a Contribution."
 
-
+      
 
       "Contributor" shall mean Licensor and any individual or Legal Entity on behalf of whom a Contribution has been received by Licensor and subsequently incorporated within the Work.
 
@@ -24255,7 +24258,7 @@ limitations under the License.
 
 ================================================================================
 
-** Microsoft.AspNetCore.Authentication.JwtBearer; version 9.0.8 --
+** Microsoft.AspNetCore.Authentication.JwtBearer; version 9.0.8 -- 
 Copyright Jorn Zaefferer
 (c) Microsoft Corporation
 Copyright (c) Andrew Arnott
@@ -24301,7 +24304,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ================================================================================
 
-** Microsoft.AspNetCore.OpenApi; version 9.0.8 --
+** Microsoft.AspNetCore.OpenApi; version 9.0.8 -- 
 Copyright Jorn Zaefferer
 (c) Microsoft Corporation
 Copyright (c) Andrew Arnott
@@ -24347,7 +24350,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ================================================================================
 
-** Microsoft.Bcl.AsyncInterfaces; version 8.0.0 --
+** Microsoft.Bcl.AsyncInterfaces; version 8.0.0 -- 
 Copyright (c) Six Labors
 (c) Microsoft Corporation
 Copyright (c) Andrew Arnott
@@ -24429,7 +24432,7 @@ SOFTWARE.
 
 ================================================================================
 
-** Microsoft.Bcl.HashCode; version 1.1.1 --
+** Microsoft.Bcl.HashCode; version 1.1.1 -- 
 (c) 2008 VeriSign, Inc.
 (c) Microsoft Corporation.
 Copyright (c) .NET Foundation.
@@ -24483,7 +24486,7 @@ SOFTWARE.
 
 ================================================================================
 
-** Microsoft.Extensions.ApiDescription.Server; version 9.0.0 --
+** Microsoft.Extensions.ApiDescription.Server; version 9.0.0 -- 
 (c) Microsoft Corporation
 Copyright James Newton-King 2008
 Copyright James Newton-King 2008 Json.NET
@@ -24504,7 +24507,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ================================================================================
 
-** Microsoft.Extensions.Configuration.Abstractions; version 9.0.8 --
+** Microsoft.Extensions.Configuration.Abstractions; version 9.0.8 -- 
 Copyright (c) 2021
 Copyright (c) Six Labors
 (c) Microsoft Corporation
@@ -24590,7 +24593,7 @@ SOFTWARE.
 
 ================================================================================
 
-** Microsoft.Extensions.Configuration.Binder; version 9.0.8 --
+** Microsoft.Extensions.Configuration.Binder; version 9.0.8 -- 
 Copyright (c) 2021
 Copyright (c) Six Labors
 (c) Microsoft Corporation
@@ -24676,7 +24679,7 @@ SOFTWARE.
 
 ================================================================================
 
-** Microsoft.Extensions.Configuration; version 9.0.8 --
+** Microsoft.Extensions.Configuration; version 9.0.8 -- 
 Copyright (c) 2021
 Copyright (c) Six Labors
 (c) Microsoft Corporation
@@ -24762,183 +24765,7 @@ SOFTWARE.
 
 ================================================================================
 
-** Microsoft.Extensions.DependencyInjection.Abstractions; version 9.0.8 --
-Copyright (c) 2021
-Copyright (c) Six Labors
-(c) Microsoft Corporation
-Copyright (c) 2022 FormatJS
-Copyright (c) Andrew Arnott
-Copyright 2019 LLVM Project
-Copyright (c) 1998 Microsoft
-Copyright 2018 Daniel Lemire
-Copyright (c) .NET Foundation
-Copyright (c) 2011, Google Inc.
-Copyright (c) 2020 Dan Shechter
-(c) 1997-2005 Sean Eron Anderson
-Copyright (c) 2015 Andrew Gallant
-Copyright (c) 2022, Wojciech Mula
-Copyright (c) 2017 Yoshifumi Kawai
-Copyright (c) 2022, Geoff Langdale
-Copyright (c) 2005-2020 Rich Felker
-Copyright (c) 2012-2021 Yann Collet
-Copyright (c) Microsoft Corporation
-Copyright (c) 2007 James Newton-King
-Copyright (c) 1991-2022 Unicode, Inc.
-Copyright (c) 2013-2017, Alfred Klomp
-Copyright (c) 2018 Nemanja Mijailovic
-Copyright 2012 the V8 project authors
-Copyright (c) 1999 Lucent Technologies
-Copyright (c) 2008-2016, Wojciech Mula
-Copyright (c) 2011-2020 Microsoft Corp
-Copyright (c) 2015-2017, Wojciech Mula
-Copyright (c) 2015-2018, Wojciech Mula
-Copyright (c) 2005-2007, Nick Galbreath
-Copyright (c) 2015 The Chromium Authors
-Copyright (c) 2018 Alexander Chermyanin
-Copyright (c) The Internet Society 1997
-Copyright (c) 2004-2006 Intel Corporation
-Copyright (c) 2011-2015 Intel Corporation
-Copyright (c) 2013-2017, Milosz Krajewski
-Copyright (c) 2016-2017, Matthieu Darbois
-Copyright (c) The Internet Society (2003)
-Copyright (c) .NET Foundation Contributors
-(c) 1995-2024 Jean-loup Gailly and Mark Adler
-Copyright (c) 2020 Mara Bos <m-ou.se@m-ou.se>
-Copyright (c) .NET Foundation and Contributors
-Copyright (c) 2012 - present, Victor Zverovich
-Copyright (c) 2006 Jb Evain (jbevain@gmail.com)
-Copyright (c) 2008-2020 Advanced Micro Devices, Inc.
-Copyright (c) 2019 Microsoft Corporation, Daan Leijen
-Copyright (c) 2011 Novell, Inc (http://www.novell.com)
-Copyright (c) 2015 Xamarin, Inc (http://www.xamarin.com)
-Copyright (c) 2009, 2010, 2013-2016 by the Brotli Authors
-Copyright (c) 2014 Ryan Juckett http://www.ryanjuckett.com
-Copyright (c) 1990- 1993, 1996 Open Software Foundation, Inc.
-Portions (c) International Organization for Standardization 1986
-Copyright (c) YEAR W3C(r) (MIT, ERCIM, Keio, Beihang) Disclaimers
-Copyright (c) 2015 THL A29 Limited, a Tencent company, and Milo Yip
-Copyright (c) 1980, 1986, 1993 The Regents of the University of California
-Copyright 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018 The Regents of the University of California
-Copyright (c) 1989 by Hewlett-Packard Company, Palo Alto, Ca. & Digital Equipment Corporation, Maynard, Mass
-
-The MIT License (MIT)
-
-Copyright (c) .NET Foundation and Contributors
-
-All rights reserved.
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-
-================================================================================
-
-
-
-================================================================================
-
-** Microsoft.Extensions.DependencyInjection; version 9.0.8 --
-Copyright (c) 2021
-Copyright (c) Six Labors
-(c) Microsoft Corporation
-Copyright (c) 2022 FormatJS
-Copyright (c) Andrew Arnott
-Copyright 2019 LLVM Project
-Copyright (c) 1998 Microsoft
-Copyright 2018 Daniel Lemire
-Copyright (c) .NET Foundation
-Copyright (c) 2011, Google Inc.
-Copyright (c) 2020 Dan Shechter
-(c) 1997-2005 Sean Eron Anderson
-Copyright (c) 2015 Andrew Gallant
-Copyright (c) 2022, Wojciech Mula
-Copyright (c) 2017 Yoshifumi Kawai
-Copyright (c) 2022, Geoff Langdale
-Copyright (c) 2005-2020 Rich Felker
-Copyright (c) 2012-2021 Yann Collet
-Copyright (c) Microsoft Corporation
-Copyright (c) 2007 James Newton-King
-Copyright (c) 1991-2022 Unicode, Inc.
-Copyright (c) 2013-2017, Alfred Klomp
-Copyright (c) 2018 Nemanja Mijailovic
-Copyright 2012 the V8 project authors
-Copyright (c) 1999 Lucent Technologies
-Copyright (c) 2008-2016, Wojciech Mula
-Copyright (c) 2011-2020 Microsoft Corp
-Copyright (c) 2015-2017, Wojciech Mula
-Copyright (c) 2015-2018, Wojciech Mula
-Copyright (c) 2005-2007, Nick Galbreath
-Copyright (c) 2015 The Chromium Authors
-Copyright (c) 2018 Alexander Chermyanin
-Copyright (c) The Internet Society 1997
-Copyright (c) 2004-2006 Intel Corporation
-Copyright (c) 2011-2015 Intel Corporation
-Copyright (c) 2013-2017, Milosz Krajewski
-Copyright (c) 2016-2017, Matthieu Darbois
-Copyright (c) The Internet Society (2003)
-Copyright (c) .NET Foundation Contributors
-(c) 1995-2024 Jean-loup Gailly and Mark Adler
-Copyright (c) 2020 Mara Bos <m-ou.se@m-ou.se>
-Copyright (c) .NET Foundation and Contributors
-Copyright (c) 2012 - present, Victor Zverovich
-Copyright (c) 2006 Jb Evain (jbevain@gmail.com)
-Copyright (c) 2008-2020 Advanced Micro Devices, Inc.
-Copyright (c) 2019 Microsoft Corporation, Daan Leijen
-Copyright (c) 2011 Novell, Inc (http://www.novell.com)
-Copyright (c) 2015 Xamarin, Inc (http://www.xamarin.com)
-Copyright (c) 2009, 2010, 2013-2016 by the Brotli Authors
-Copyright (c) 2014 Ryan Juckett http://www.ryanjuckett.com
-Copyright (c) 1990- 1993, 1996 Open Software Foundation, Inc.
-Portions (c) International Organization for Standardization 1986
-Copyright (c) YEAR W3C(r) (MIT, ERCIM, Keio, Beihang) Disclaimers
-Copyright (c) 2015 THL A29 Limited, a Tencent company, and Milo Yip
-Copyright (c) 1980, 1986, 1993 The Regents of the University of California
-Copyright 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018 The Regents of the University of California
-Copyright (c) 1989 by Hewlett-Packard Company, Palo Alto, Ca. & Digital Equipment Corporation, Maynard, Mass
-
-The MIT License (MIT)
-
-Copyright (c) .NET Foundation and Contributors
-
-All rights reserved.
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-
-================================================================================
-
-** Microsoft.Extensions.Diagnostics.Abstractions; version 9.0.8 --
+** Microsoft.Extensions.DependencyInjection.Abstractions; version 9.0.8 -- 
 Copyright (c) 2021
 Copyright (c) Six Labors
 (c) Microsoft Corporation
@@ -25028,7 +24855,7 @@ SOFTWARE.
 
 ================================================================================
 
-** Microsoft.Extensions.Diagnostics; version 9.0.8 --
+** Microsoft.Extensions.DependencyInjection; version 9.0.8 -- 
 Copyright (c) 2021
 Copyright (c) Six Labors
 (c) Microsoft Corporation
@@ -25114,93 +24941,7 @@ SOFTWARE.
 
 ================================================================================
 
-** Microsoft.Extensions.FileProviders.Abstractions; version 9.0.8 --
-Copyright (c) 2021
-Copyright (c) Six Labors
-(c) Microsoft Corporation
-Copyright (c) 2022 FormatJS
-Copyright (c) Andrew Arnott
-Copyright 2019 LLVM Project
-Copyright (c) 1998 Microsoft
-Copyright 2018 Daniel Lemire
-Copyright (c) .NET Foundation
-Copyright (c) 2011, Google Inc.
-Copyright (c) 2020 Dan Shechter
-(c) 1997-2005 Sean Eron Anderson
-Copyright (c) 2015 Andrew Gallant
-Copyright (c) 2022, Wojciech Mula
-Copyright (c) 2017 Yoshifumi Kawai
-Copyright (c) 2022, Geoff Langdale
-Copyright (c) 2005-2020 Rich Felker
-Copyright (c) 2012-2021 Yann Collet
-Copyright (c) Microsoft Corporation
-Copyright (c) 2007 James Newton-King
-Copyright (c) 1991-2022 Unicode, Inc.
-Copyright (c) 2013-2017, Alfred Klomp
-Copyright (c) 2018 Nemanja Mijailovic
-Copyright 2012 the V8 project authors
-Copyright (c) 1999 Lucent Technologies
-Copyright (c) 2008-2016, Wojciech Mula
-Copyright (c) 2011-2020 Microsoft Corp
-Copyright (c) 2015-2017, Wojciech Mula
-Copyright (c) 2015-2018, Wojciech Mula
-Copyright (c) 2005-2007, Nick Galbreath
-Copyright (c) 2015 The Chromium Authors
-Copyright (c) 2018 Alexander Chermyanin
-Copyright (c) The Internet Society 1997
-Copyright (c) 2004-2006 Intel Corporation
-Copyright (c) 2011-2015 Intel Corporation
-Copyright (c) 2013-2017, Milosz Krajewski
-Copyright (c) 2016-2017, Matthieu Darbois
-Copyright (c) The Internet Society (2003)
-Copyright (c) .NET Foundation Contributors
-(c) 1995-2024 Jean-loup Gailly and Mark Adler
-Copyright (c) 2020 Mara Bos <m-ou.se@m-ou.se>
-Copyright (c) .NET Foundation and Contributors
-Copyright (c) 2012 - present, Victor Zverovich
-Copyright (c) 2006 Jb Evain (jbevain@gmail.com)
-Copyright (c) 2008-2020 Advanced Micro Devices, Inc.
-Copyright (c) 2019 Microsoft Corporation, Daan Leijen
-Copyright (c) 2011 Novell, Inc (http://www.novell.com)
-Copyright (c) 2015 Xamarin, Inc (http://www.xamarin.com)
-Copyright (c) 2009, 2010, 2013-2016 by the Brotli Authors
-Copyright (c) 2014 Ryan Juckett http://www.ryanjuckett.com
-Copyright (c) 1990- 1993, 1996 Open Software Foundation, Inc.
-Portions (c) International Organization for Standardization 1986
-Copyright (c) YEAR W3C(r) (MIT, ERCIM, Keio, Beihang) Disclaimers
-Copyright (c) 2015 THL A29 Limited, a Tencent company, and Milo Yip
-Copyright (c) 1980, 1986, 1993 The Regents of the University of California
-Copyright 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018 The Regents of the University of California
-Copyright (c) 1989 by Hewlett-Packard Company, Palo Alto, Ca. & Digital Equipment Corporation, Maynard, Mass
-
-The MIT License (MIT)
-
-Copyright (c) .NET Foundation and Contributors
-
-All rights reserved.
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-
-================================================================================
-
-** Microsoft.Extensions.Hosting.Abstractions; version 9.0.8 --
+** Microsoft.Extensions.Diagnostics.Abstractions; version 9.0.8 -- 
 Copyright (c) 2021
 Copyright (c) Six Labors
 (c) Microsoft Corporation
@@ -25290,11 +25031,7 @@ SOFTWARE.
 
 ================================================================================
 
-
-
-================================================================================
-
-** Microsoft.Extensions.Http; version 9.0.8 --
+** Microsoft.Extensions.Diagnostics; version 9.0.8 -- 
 Copyright (c) 2021
 Copyright (c) Six Labors
 (c) Microsoft Corporation
@@ -25380,7 +25117,7 @@ SOFTWARE.
 
 ================================================================================
 
-** Microsoft.Extensions.Logging.Abstractions; version 9.0.8 --
+** Microsoft.Extensions.FileProviders.Abstractions; version 9.0.8 -- 
 Copyright (c) 2021
 Copyright (c) Six Labors
 (c) Microsoft Corporation
@@ -25466,7 +25203,7 @@ SOFTWARE.
 
 ================================================================================
 
-** Microsoft.Extensions.Logging.Configuration; version 9.0.8 --
+** Microsoft.Extensions.Hosting.Abstractions; version 9.0.8 -- 
 Copyright (c) 2021
 Copyright (c) Six Labors
 (c) Microsoft Corporation
@@ -25552,7 +25289,15 @@ SOFTWARE.
 
 ================================================================================
 
-** Microsoft.Extensions.Logging; version 9.0.8 --
+
+
+================================================================================
+
+
+
+================================================================================
+
+** Microsoft.Extensions.Http; version 9.0.8 -- 
 Copyright (c) 2021
 Copyright (c) Six Labors
 (c) Microsoft Corporation
@@ -25638,7 +25383,265 @@ SOFTWARE.
 
 ================================================================================
 
-** Microsoft.Extensions.ObjectPool; version 9.0.8 --
+** Microsoft.Extensions.Logging.Abstractions; version 9.0.8 -- 
+Copyright (c) 2021
+Copyright (c) Six Labors
+(c) Microsoft Corporation
+Copyright (c) 2022 FormatJS
+Copyright (c) Andrew Arnott
+Copyright 2019 LLVM Project
+Copyright (c) 1998 Microsoft
+Copyright 2018 Daniel Lemire
+Copyright (c) .NET Foundation
+Copyright (c) 2011, Google Inc.
+Copyright (c) 2020 Dan Shechter
+(c) 1997-2005 Sean Eron Anderson
+Copyright (c) 2015 Andrew Gallant
+Copyright (c) 2022, Wojciech Mula
+Copyright (c) 2017 Yoshifumi Kawai
+Copyright (c) 2022, Geoff Langdale
+Copyright (c) 2005-2020 Rich Felker
+Copyright (c) 2012-2021 Yann Collet
+Copyright (c) Microsoft Corporation
+Copyright (c) 2007 James Newton-King
+Copyright (c) 1991-2022 Unicode, Inc.
+Copyright (c) 2013-2017, Alfred Klomp
+Copyright (c) 2018 Nemanja Mijailovic
+Copyright 2012 the V8 project authors
+Copyright (c) 1999 Lucent Technologies
+Copyright (c) 2008-2016, Wojciech Mula
+Copyright (c) 2011-2020 Microsoft Corp
+Copyright (c) 2015-2017, Wojciech Mula
+Copyright (c) 2015-2018, Wojciech Mula
+Copyright (c) 2005-2007, Nick Galbreath
+Copyright (c) 2015 The Chromium Authors
+Copyright (c) 2018 Alexander Chermyanin
+Copyright (c) The Internet Society 1997
+Copyright (c) 2004-2006 Intel Corporation
+Copyright (c) 2011-2015 Intel Corporation
+Copyright (c) 2013-2017, Milosz Krajewski
+Copyright (c) 2016-2017, Matthieu Darbois
+Copyright (c) The Internet Society (2003)
+Copyright (c) .NET Foundation Contributors
+(c) 1995-2024 Jean-loup Gailly and Mark Adler
+Copyright (c) 2020 Mara Bos <m-ou.se@m-ou.se>
+Copyright (c) .NET Foundation and Contributors
+Copyright (c) 2012 - present, Victor Zverovich
+Copyright (c) 2006 Jb Evain (jbevain@gmail.com)
+Copyright (c) 2008-2020 Advanced Micro Devices, Inc.
+Copyright (c) 2019 Microsoft Corporation, Daan Leijen
+Copyright (c) 2011 Novell, Inc (http://www.novell.com)
+Copyright (c) 2015 Xamarin, Inc (http://www.xamarin.com)
+Copyright (c) 2009, 2010, 2013-2016 by the Brotli Authors
+Copyright (c) 2014 Ryan Juckett http://www.ryanjuckett.com
+Copyright (c) 1990- 1993, 1996 Open Software Foundation, Inc.
+Portions (c) International Organization for Standardization 1986
+Copyright (c) YEAR W3C(r) (MIT, ERCIM, Keio, Beihang) Disclaimers
+Copyright (c) 2015 THL A29 Limited, a Tencent company, and Milo Yip
+Copyright (c) 1980, 1986, 1993 The Regents of the University of California
+Copyright 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018 The Regents of the University of California
+Copyright (c) 1989 by Hewlett-Packard Company, Palo Alto, Ca. & Digital Equipment Corporation, Maynard, Mass
+
+The MIT License (MIT)
+
+Copyright (c) .NET Foundation and Contributors
+
+All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+================================================================================
+
+** Microsoft.Extensions.Logging.Configuration; version 9.0.8 -- 
+Copyright (c) 2021
+Copyright (c) Six Labors
+(c) Microsoft Corporation
+Copyright (c) 2022 FormatJS
+Copyright (c) Andrew Arnott
+Copyright 2019 LLVM Project
+Copyright (c) 1998 Microsoft
+Copyright 2018 Daniel Lemire
+Copyright (c) .NET Foundation
+Copyright (c) 2011, Google Inc.
+Copyright (c) 2020 Dan Shechter
+(c) 1997-2005 Sean Eron Anderson
+Copyright (c) 2015 Andrew Gallant
+Copyright (c) 2022, Wojciech Mula
+Copyright (c) 2017 Yoshifumi Kawai
+Copyright (c) 2022, Geoff Langdale
+Copyright (c) 2005-2020 Rich Felker
+Copyright (c) 2012-2021 Yann Collet
+Copyright (c) Microsoft Corporation
+Copyright (c) 2007 James Newton-King
+Copyright (c) 1991-2022 Unicode, Inc.
+Copyright (c) 2013-2017, Alfred Klomp
+Copyright (c) 2018 Nemanja Mijailovic
+Copyright 2012 the V8 project authors
+Copyright (c) 1999 Lucent Technologies
+Copyright (c) 2008-2016, Wojciech Mula
+Copyright (c) 2011-2020 Microsoft Corp
+Copyright (c) 2015-2017, Wojciech Mula
+Copyright (c) 2015-2018, Wojciech Mula
+Copyright (c) 2005-2007, Nick Galbreath
+Copyright (c) 2015 The Chromium Authors
+Copyright (c) 2018 Alexander Chermyanin
+Copyright (c) The Internet Society 1997
+Copyright (c) 2004-2006 Intel Corporation
+Copyright (c) 2011-2015 Intel Corporation
+Copyright (c) 2013-2017, Milosz Krajewski
+Copyright (c) 2016-2017, Matthieu Darbois
+Copyright (c) The Internet Society (2003)
+Copyright (c) .NET Foundation Contributors
+(c) 1995-2024 Jean-loup Gailly and Mark Adler
+Copyright (c) 2020 Mara Bos <m-ou.se@m-ou.se>
+Copyright (c) .NET Foundation and Contributors
+Copyright (c) 2012 - present, Victor Zverovich
+Copyright (c) 2006 Jb Evain (jbevain@gmail.com)
+Copyright (c) 2008-2020 Advanced Micro Devices, Inc.
+Copyright (c) 2019 Microsoft Corporation, Daan Leijen
+Copyright (c) 2011 Novell, Inc (http://www.novell.com)
+Copyright (c) 2015 Xamarin, Inc (http://www.xamarin.com)
+Copyright (c) 2009, 2010, 2013-2016 by the Brotli Authors
+Copyright (c) 2014 Ryan Juckett http://www.ryanjuckett.com
+Copyright (c) 1990- 1993, 1996 Open Software Foundation, Inc.
+Portions (c) International Organization for Standardization 1986
+Copyright (c) YEAR W3C(r) (MIT, ERCIM, Keio, Beihang) Disclaimers
+Copyright (c) 2015 THL A29 Limited, a Tencent company, and Milo Yip
+Copyright (c) 1980, 1986, 1993 The Regents of the University of California
+Copyright 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018 The Regents of the University of California
+Copyright (c) 1989 by Hewlett-Packard Company, Palo Alto, Ca. & Digital Equipment Corporation, Maynard, Mass
+
+The MIT License (MIT)
+
+Copyright (c) .NET Foundation and Contributors
+
+All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+================================================================================
+
+** Microsoft.Extensions.Logging; version 9.0.8 -- 
+Copyright (c) 2021
+Copyright (c) Six Labors
+(c) Microsoft Corporation
+Copyright (c) 2022 FormatJS
+Copyright (c) Andrew Arnott
+Copyright 2019 LLVM Project
+Copyright (c) 1998 Microsoft
+Copyright 2018 Daniel Lemire
+Copyright (c) .NET Foundation
+Copyright (c) 2011, Google Inc.
+Copyright (c) 2020 Dan Shechter
+(c) 1997-2005 Sean Eron Anderson
+Copyright (c) 2015 Andrew Gallant
+Copyright (c) 2022, Wojciech Mula
+Copyright (c) 2017 Yoshifumi Kawai
+Copyright (c) 2022, Geoff Langdale
+Copyright (c) 2005-2020 Rich Felker
+Copyright (c) 2012-2021 Yann Collet
+Copyright (c) Microsoft Corporation
+Copyright (c) 2007 James Newton-King
+Copyright (c) 1991-2022 Unicode, Inc.
+Copyright (c) 2013-2017, Alfred Klomp
+Copyright (c) 2018 Nemanja Mijailovic
+Copyright 2012 the V8 project authors
+Copyright (c) 1999 Lucent Technologies
+Copyright (c) 2008-2016, Wojciech Mula
+Copyright (c) 2011-2020 Microsoft Corp
+Copyright (c) 2015-2017, Wojciech Mula
+Copyright (c) 2015-2018, Wojciech Mula
+Copyright (c) 2005-2007, Nick Galbreath
+Copyright (c) 2015 The Chromium Authors
+Copyright (c) 2018 Alexander Chermyanin
+Copyright (c) The Internet Society 1997
+Copyright (c) 2004-2006 Intel Corporation
+Copyright (c) 2011-2015 Intel Corporation
+Copyright (c) 2013-2017, Milosz Krajewski
+Copyright (c) 2016-2017, Matthieu Darbois
+Copyright (c) The Internet Society (2003)
+Copyright (c) .NET Foundation Contributors
+(c) 1995-2024 Jean-loup Gailly and Mark Adler
+Copyright (c) 2020 Mara Bos <m-ou.se@m-ou.se>
+Copyright (c) .NET Foundation and Contributors
+Copyright (c) 2012 - present, Victor Zverovich
+Copyright (c) 2006 Jb Evain (jbevain@gmail.com)
+Copyright (c) 2008-2020 Advanced Micro Devices, Inc.
+Copyright (c) 2019 Microsoft Corporation, Daan Leijen
+Copyright (c) 2011 Novell, Inc (http://www.novell.com)
+Copyright (c) 2015 Xamarin, Inc (http://www.xamarin.com)
+Copyright (c) 2009, 2010, 2013-2016 by the Brotli Authors
+Copyright (c) 2014 Ryan Juckett http://www.ryanjuckett.com
+Copyright (c) 1990- 1993, 1996 Open Software Foundation, Inc.
+Portions (c) International Organization for Standardization 1986
+Copyright (c) YEAR W3C(r) (MIT, ERCIM, Keio, Beihang) Disclaimers
+Copyright (c) 2015 THL A29 Limited, a Tencent company, and Milo Yip
+Copyright (c) 1980, 1986, 1993 The Regents of the University of California
+Copyright 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018 The Regents of the University of California
+Copyright (c) 1989 by Hewlett-Packard Company, Palo Alto, Ca. & Digital Equipment Corporation, Maynard, Mass
+
+The MIT License (MIT)
+
+Copyright (c) .NET Foundation and Contributors
+
+All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+================================================================================
+
+** Microsoft.Extensions.ObjectPool; version 9.0.8 -- 
 Copyright Jorn Zaefferer
 (c) Microsoft Corporation
 Copyright (c) Andrew Arnott
@@ -25684,7 +25687,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ================================================================================
 
-** Microsoft.Extensions.Options.ConfigurationExtensions; version 9.0.8 --
+** Microsoft.Extensions.Options.ConfigurationExtensions; version 9.0.8 -- 
 Copyright (c) 2021
 Copyright (c) Six Labors
 (c) Microsoft Corporation
@@ -25770,7 +25773,7 @@ SOFTWARE.
 
 ================================================================================
 
-** Microsoft.Extensions.Options; version 9.0.8 --
+** Microsoft.Extensions.Options; version 9.0.8 -- 
 Copyright (c) 2021
 Copyright (c) Six Labors
 (c) Microsoft Corporation
@@ -25856,7 +25859,7 @@ SOFTWARE.
 
 ================================================================================
 
-** Microsoft.Extensions.Primitives; version 8.0.0 --
+** Microsoft.Extensions.Primitives; version 8.0.0 -- 
 Copyright (c) Six Labors
 (c) Microsoft Corporation
 Copyright (c) Andrew Arnott
@@ -25938,7 +25941,7 @@ SOFTWARE.
 
 ================================================================================
 
-** Microsoft.Extensions.Primitives; version 9.0.8 --
+** Microsoft.Extensions.Primitives; version 9.0.8 -- 
 Copyright (c) 2021
 Copyright (c) Six Labors
 (c) Microsoft Corporation
@@ -26036,7 +26039,7 @@ SOFTWARE.
 
 ================================================================================
 
-** Microsoft.Identity.Client.Extensions.Msal; version 4.73.1 --
+** Microsoft.Identity.Client.Extensions.Msal; version 4.73.1 -- 
 (c) Microsoft Corporation
 Copyright (c) Microsoft Corporation
 
@@ -26052,7 +26055,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ================================================================================
 
-** Microsoft.Identity.Client; version 4.73.1 --
+** Microsoft.Identity.Client; version 4.73.1 -- 
 (c) Microsoft Corporation
 Copyright (c) Microsoft Corporation
 
@@ -26068,38 +26071,110 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ================================================================================
 
+** Microsoft.IdentityModel.Abstractions; version 8.14.0 -- 
+(c) Microsoft Corporation
+Copyright (c) Microsoft Corporation
 
+MIT License
 
-================================================================================
+Copyright (c) <year> <copyright holders>
 
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
-================================================================================
-
-
-
-================================================================================
-
-
-
-================================================================================
-
-
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ================================================================================
 
+** Microsoft.IdentityModel.JsonWebTokens; version 8.14.0 -- 
+(c) Microsoft Corporation
+Copyright (c) Microsoft Corporation
 
+MIT License
+
+Copyright (c) <year> <copyright holders>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ================================================================================
 
-** Microsoft.OpenApi; version 1.6.23 --
+** Microsoft.IdentityModel.Logging; version 8.14.0 -- 
+(c) Microsoft Corporation
+Copyright (c) Microsoft Corporation
+
+MIT License
+
+Copyright (c) <year> <copyright holders>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+================================================================================
+
+** Microsoft.IdentityModel.Protocols.OpenIdConnect; version 8.14.0 -- 
+(c) Microsoft Corporation
+Copyright (c) Microsoft Corporation
+
+MIT License
+
+Copyright (c) <year> <copyright holders>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+================================================================================
+
+** Microsoft.IdentityModel.Protocols; version 8.14.0 -- 
+(c) Microsoft Corporation
+Copyright (c) Microsoft Corporation
+
+MIT License
+
+Copyright (c) <year> <copyright holders>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+================================================================================
+
+** Microsoft.IdentityModel.Tokens; version 8.14.0 -- 
+(c) Microsoft Corporation
+Copyright (c) Microsoft Corporation
+
+MIT License
+
+Copyright (c) <year> <copyright holders>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+================================================================================
+
+** Microsoft.OpenApi; version 1.6.23 -- 
 (c) Microsoft Corporation
 
 LicenseRef-scancode-generic-cla AND MIT
 
 ================================================================================
 
-** Newtonsoft.Json; version 13.0.1 --
+** Newtonsoft.Json; version 13.0.1 -- 
 (c) 2008 VeriSign, Inc.
 Copyright James Newton-King 2008
 Copyright (c) 2007 James Newton-King
@@ -26130,7 +26205,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ================================================================================
 
-** Npgsql; version 9.0.3 --
+** Npgsql; version 9.0.3 -- 
 Copyright 2024 The Npgsql Development Team
 Portions Copyright (c) 1994, The Regents of the University of California
 Portions Copyright (c) 1996-2010, The PostgreSQL Global Development Group
@@ -26152,7 +26227,7 @@ THE UNIVERSITY OF CALIFORNIA SPECIFICALLY DISCLAIMS ANY WARRANTIES, INCLUDING, B
 
 ================================================================================
 
-** Polly.Core; version 8.6.2 --
+** Polly.Core; version 8.6.2 -- 
 Copyright (c) 2015-2025, App
 Copyright (c) 2015-2025, App vNext Polly Simmy
 
@@ -26188,7 +26263,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ================================================================================
 
-** Polly.Extensions; version 8.4.2 --
+** Polly.Extensions; version 8.4.2 -- 
 Copyright (c) 2024, App
 Copyright (c) 2024, App vNext Polly Exception Handling Resilience Transient Fault
 
@@ -26206,7 +26281,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 
 ================================================================================
 
-** Polly.RateLimiting; version 8.4.2 --
+** Polly.RateLimiting; version 8.4.2 -- 
 Copyright (c) 2024, App
 Copyright (c) 2024, App vNext Polly Exception Handling Resilience Transient Fault
 
@@ -26224,7 +26299,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 
 ================================================================================
 
-** SimpleBase; version 5.4.1 --
+** SimpleBase; version 5.4.1 -- 
 Copyright 2014-2025 Sedat Kapanoglu
 Copyright 2014-2025 Sedat Kapanoglu HBase16, Base32, Base45, Base58, Base62, Base85
 
@@ -26236,43 +26311,43 @@ http://www.apache.org/licenses/ TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND 
 
    1. Definitions.
 
-
+      
 
       "License" shall mean the terms and conditions for use, reproduction, and distribution as defined by Sections 1 through 9 of this document.
 
-
+      
 
       "Licensor" shall mean the copyright owner or entity authorized by the copyright owner that is granting the License.
 
-
+      
 
       "Legal Entity" shall mean the union of the acting entity and all other entities that control, are controlled by, or are under common control with that entity. For the purposes of this definition, "control" means (i) the power, direct or indirect, to cause the direction or management of such entity, whether by contract or otherwise, or (ii) ownership of fifty percent (50%) or more of the outstanding shares, or (iii) beneficial ownership of such entity.
 
-
+      
 
       "You" (or "Your") shall mean an individual or Legal Entity exercising permissions granted by this License.
 
-
+      
 
       "Source" form shall mean the preferred form for making modifications, including but not limited to software source code, documentation source, and configuration files.
 
-
+      
 
       "Object" form shall mean any form resulting from mechanical transformation or translation of a Source form, including but not limited to compiled object code, generated documentation, and conversions to other media types.
 
-
+      
 
       "Work" shall mean the work of authorship, whether in Source or Object form, made available under the License, as indicated by a copyright notice that is included in or attached to the work (an example is provided in the Appendix below).
 
-
+      
 
       "Derivative Works" shall mean any work, whether in Source or Object form, that is based on (or derived from) the Work and for which the editorial revisions, annotations, elaborations, or other modifications represent, as a whole, an original work of authorship. For the purposes of this License, Derivative Works shall not include works that remain separable from, or merely link (or bind by name) to the interfaces of, the Work and Derivative Works thereof.
 
-
+      
 
       "Contribution" shall mean any work of authorship, including the original version of the Work and any modifications or additions to that Work or Derivative Works thereof, that is intentionally submitted to Licensor for inclusion in the Work by the copyright owner or by an individual or Legal Entity authorized to submit on behalf of the copyright owner. For the purposes of this definition, "submitted" means any form of electronic, verbal, or written communication sent to the Licensor or its representatives, including but not limited to communication on electronic mailing lists, source code control systems, and issue tracking systems that are managed by, or on behalf of, the Licensor for the purpose of discussing and improving the Work, but excluding communication that is conspicuously marked or otherwise designated in writing by the copyright owner as "Not a Contribution."
 
-
+      
 
       "Contributor" shall mean Licensor and any individual or Legal Entity on behalf of whom a Contribution has been received by Licensor and subsequently incorporated within the Work.
 
@@ -26328,7 +26403,7 @@ limitations under the License.
 
 ================================================================================
 
-** Swashbuckle.AspNetCore.Swagger; version 9.0.3 --
+** Swashbuckle.AspNetCore.Swagger; version 9.0.3 -- 
 (c) 2016-2025 Richard Morris
 Copyright (c) 2016-2025 Richard Morris
 
@@ -26344,7 +26419,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ================================================================================
 
-** Swashbuckle.AspNetCore.SwaggerGen; version 9.0.3 --
+** Swashbuckle.AspNetCore.SwaggerGen; version 9.0.3 -- 
 (c) 2016-2025 Richard Morris
 Copyright (c) 2016-2025 Richard Morris
 
@@ -26360,7 +26435,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ================================================================================
 
-** Swashbuckle.AspNetCore.SwaggerUI; version 9.0.3 --
+** Swashbuckle.AspNetCore.SwaggerUI; version 9.0.3 -- 
 Copyright (c) 2016-2025 Richard Morris
 (c) 2016-2025 Richard Morris Middleware
 
@@ -26376,7 +26451,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ================================================================================
 
-** Swashbuckle.AspNetCore; version 9.0.3 --
+** Swashbuckle.AspNetCore; version 9.0.3 -- 
 
 MIT License
 
@@ -26390,7 +26465,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ================================================================================
 
-** System.Buffers; version 4.5.1 --
+** System.Buffers; version 4.5.1 -- 
 (c) 2008 VeriSign, Inc.
 (c) Microsoft Corporation
 Copyright (c) 2011, Google Inc.
@@ -26434,14 +26509,14 @@ SOFTWARE.
 
 ================================================================================
 
-** System.ClientModel; version 1.5.1 --
+** System.ClientModel; version 1.5.1 -- 
 (c) Microsoft Corporation
 
 LicenseRef-scancode-generic-cla AND MIT
 
 ================================================================================
 
-** System.CommandLine; version 2.0.0-beta4.22272.1 --
+** System.CommandLine; version 2.0.0-beta4.22272.1 -- 
 (c) 2008 VeriSign, Inc.
 (c) Microsoft Corporation
 
@@ -26457,7 +26532,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ================================================================================
 
-** System.Diagnostics.DiagnosticSource; version 6.0.1 --
+** System.Diagnostics.DiagnosticSource; version 6.0.1 -- 
 (c) Microsoft Corporation
 Copyright (c) Andrew Arnott
 Copyright 2019 LLVM Project
@@ -26528,7 +26603,7 @@ SOFTWARE.
 
 ================================================================================
 
-** System.IO.Hashing; version 9.0.8 --
+** System.IO.Hashing; version 9.0.8 -- 
 Copyright (c) 2021
 Copyright (c) Six Labors
 (c) Microsoft Corporation
@@ -26614,11 +26689,23 @@ SOFTWARE.
 
 ================================================================================
 
+** System.IdentityModel.Tokens.Jwt; version 8.14.0 -- 
+(c) Microsoft Corporation
+Copyright (c) Microsoft Corporation
 
+MIT License
+
+Copyright (c) <year> <copyright holders>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ================================================================================
 
-** System.Interactive.Async; version 6.0.3 --
+** System.Interactive.Async; version 6.0.3 -- 
 Copyright (c) .NET Foundation and Contributors
 Copyright (c) .NET Foundation and Contributors. Ix Interactive Extensions Enumerable Asynchronous
 
@@ -26634,7 +26721,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ================================================================================
 
-** System.Linq.Async; version 6.0.3 --
+** System.Linq.Async; version 6.0.3 -- 
 Copyright (c) .NET Foundation and Contributors
 
 MIT License
@@ -26649,7 +26736,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ================================================================================
 
-** System.Memory.Data; version 8.0.1 --
+** System.Memory.Data; version 8.0.1 -- 
 Copyright (c) 2021
 Copyright (c) Six Labors
 (c) Microsoft Corporation
@@ -26731,7 +26818,7 @@ SOFTWARE.
 
 ================================================================================
 
-** System.Memory; version 4.6.3 --
+** System.Memory; version 4.6.3 -- 
 (c) Microsoft Corporation
 
 MIT License
@@ -26746,7 +26833,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ================================================================================
 
-** System.Runtime.CompilerServices.Unsafe; version 6.0.0 --
+** System.Runtime.CompilerServices.Unsafe; version 6.0.0 -- 
 (c) 2008 VeriSign, Inc.
 (c) Microsoft Corporation
 Copyright (c) Andrew Arnott
@@ -26817,7 +26904,7 @@ SOFTWARE.
 
 ================================================================================
 
-** System.Security.Cryptography.ProtectedData; version 4.5.0 --
+** System.Security.Cryptography.ProtectedData; version 4.5.0 -- 
 (c) 2008 VeriSign, Inc.
 (c) Microsoft Corporation.
 Copyright (c) 2011, Google Inc.
@@ -26861,7 +26948,7 @@ SOFTWARE.
 
 ================================================================================
 
-** System.Threading.RateLimiting; version 8.0.0 --
+** System.Threading.RateLimiting; version 8.0.0 -- 
 Copyright (c) 2021
 Copyright (c) Six Labors
 (c) Microsoft Corporation
@@ -26943,7 +27030,7 @@ SOFTWARE.
 
 ================================================================================
 
-** System.Threading.Tasks.Extensions; version 4.5.4 --
+** System.Threading.Tasks.Extensions; version 4.5.4 -- 
 (c) 2023 GitHub, Inc.
 (c) 2008 VeriSign, Inc.
 (c) Microsoft Corporation
@@ -26988,7 +27075,7 @@ SOFTWARE.
 
 ================================================================================
 
-** YamlDotNet; version 16.3.0 --
+** YamlDotNet; version 16.3.0 -- 
 Copyright (c) Antoine Aubry and contributors
 (c) Antoine Aubry and contributors 2008 - 2019
 Copyright (c) Antoine Aubry and contributors 2008 - 2019
@@ -27002,3 +27089,4 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
