@@ -730,7 +730,19 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
                 requests["nvidia.com/gpu"] = limits["nvidia.com/gpu"] = codespec.Resources.Gpu;
             }
 
-            GetMainContainer(podTemplateSpec.Spec).Resources = new() { Requests = requests, Limits = limits };
+            var mainContainer = GetMainContainer(podTemplateSpec.Spec);
+            mainContainer.Resources = new() { Requests = requests, Limits = limits };
+
+            if (codespec.Resources.Shm != null)
+            {
+                (podTemplateSpec.Spec.Volumes ??= []).Add(new()
+                {
+                    Name = "dshm",
+                    EmptyDir = new() { Medium = "Memory", SizeLimit = codespec.Resources.Shm }
+                });
+
+                (mainContainer.VolumeMounts ??= []).Add(new() { Name = "dshm", MountPath = "/dev/shm" });
+            }
         }
 
         podTemplateSpec.Spec.Tolerations =

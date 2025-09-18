@@ -1072,6 +1072,36 @@ func TestTargetCpuNodePoolWithGpuResourcesReturnsError(t *testing.T) {
 	require.Contains(t, stderr, "does not have GPUs and cannot satisfy GPU request")
 }
 
+func TestShmSize(t *testing.T) {
+	t.Parallel()
+
+	// Fail to allocate 1Gi in /dev/shm when shm size not specified
+	codespecNameWithoutShmSpecified := strings.ToLower(t.Name())
+	runTygerSucceeds(t,
+		"codespec",
+		"create", codespecNameWithoutShmSpecified,
+		"--image", BasicImage,
+		"--command",
+		"--",
+		"dd", "if=/dev/zero", "of=/dev/shm/testfile", "bs=1M", "count=1024")
+
+	_, stderr, _ := runTyger("run", "exec", "--logs", "--codespec", codespecNameWithoutShmSpecified, "--timeout", "10m")
+	require.Contains(t, stderr, "No space left on device")
+
+	// Now verify that when specifying shm size, it works
+	codespecNameWithShmSpecified := strings.ToLower(t.Name() + "_1g")
+	runTygerSucceeds(t,
+		"codespec",
+		"create", codespecNameWithShmSpecified,
+		"--image", BasicImage,
+		"--shm", "1Gi",
+		"--command",
+		"--",
+		"dd", "if=/dev/zero", "of=/dev/shm/testfile", "bs=1M", "count=1024")
+
+	runTygerSucceeds(t, "run", "exec", "--logs", "--codespec", codespecNameWithShmSpecified, "--timeout", "10m")
+}
+
 func TestUnrecognizedFieldsRejected(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)

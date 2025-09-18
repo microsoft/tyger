@@ -162,6 +162,9 @@ resources:
   # The number of GPUs required.
   gpu: 1
 
+  # The size of /dev/shm
+  shm: 1Gi
+
 # The maximum number of replicas this codespec can have. The default is 1.
 maxReplicas: 1
 

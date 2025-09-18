@@ -461,6 +461,7 @@ public partial class DockerRunCreator : RunCreatorBase, IRunCreator, IHostedServ
                     }
                 ],
                 NetworkMode = jobCodespec.Sockets?.Count > 0 ? _dockerOptions.NetworkName : null,
+                ShmSize = jobCodespec.Resources?.Shm != null ? jobCodespec.Resources.Shm.ToInt64() : 0, // 0 => default of 64MiB
             }
         };
 

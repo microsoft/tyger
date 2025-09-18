@@ -852,6 +852,9 @@ components:
         gpu:
           type: string
           nullable: true
+        shm:
+          type: string
+          nullable: true
       additionalProperties: false
     DatabaseVersionInUse:
       type: object

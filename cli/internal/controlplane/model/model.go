@@ -59,6 +59,7 @@ type CodespecResources struct {
 	Requests *OvercommittableResources `json:"requests,omitempty"`
 	Limits   *OvercommittableResources `json:"limits,omitempty"`
 	Gpu      *resource.Quantity        `json:"gpu,omitempty"`
+	Shm      *resource.Quantity        `json:"shm,omitempty"`
 }
 
 type Socket struct {
