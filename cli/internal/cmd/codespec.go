@@ -58,12 +58,13 @@ func newCodespecCreateCommand() *cobra.Command {
 		requests      overcommittableResourceStrings
 		limits        overcommittableResourceStrings
 		gpu           string
+		shm           string
 		maxReplicas   string
 		endpoints     map[string]int
 	}
 
 	var cmd = &cobra.Command{
-		Use:                   `create NAME [--file YAML_SPEC] [--image IMAGE] [--kind job|worker] [--max-replicas REPLICAS] [[--input BUFFER_NAME] ...] [[--output BUFFER_NAME] ...] [[--env \"KEY=VALUE\"] ...] [--identity IDENTITY] [[ --endpoint SERVICE=PORT ]] [--gpu QUANTITY] [--cpu-request QUANTITY] [--memory-request QUANTITY] [--cpu-limit QUANTITY] [--memory-limit QUANTITY] [--command] -- [COMMAND] [args...]`,
+		Use:                   `create NAME [--file YAML_SPEC] [--image IMAGE] [--kind job|worker] [--max-replicas REPLICAS] [[--input BUFFER_NAME] ...] [[--output BUFFER_NAME] ...] [[--env \"KEY=VALUE\"] ...] [--identity IDENTITY] [[ --endpoint SERVICE=PORT ]] [--gpu QUANTITY] [--cpu-request QUANTITY] [--memory-request QUANTITY] [--cpu-limit QUANTITY] [--memory-limit QUANTITY] [--shm QUANTITY] [--command] -- [COMMAND] [args...]`,
 		Short:                 "Create or update a codespec",
 		Long:                  `Create or update a codespec. Outputs the version of the codespec that was created.`,
 		DisableFlagsInUseLine: true,
@@ -256,6 +257,17 @@ func newCodespecCreateCommand() *cobra.Command {
 				newCodespec.Resources.Gpu = &q
 			}
 
+			if (hasFlagChanged(cmd, "shm")) {
+				q, err := resource.ParseQuantity(flags.shm)
+				if err != nil {
+					return fmt.Errorf("shm value is invalid: %v", err)
+				}
+				if newCodespec.Resources == nil {
+					newCodespec.Resources = &model.CodespecResources{}
+				}
+				newCodespec.Resources.Shm = &q
+			}
+
 			resp, err := controlplane.InvokeRequest(cmd.Context(), http.MethodPut, fmt.Sprintf("/codespecs/%s", *newCodespec.Name), nil, newCodespec, &newCodespec)
 			if err != nil {
 				return err
@@ -286,6 +298,7 @@ func newCodespecCreateCommand() *cobra.Command {
 	cmd.Flags().StringVar(&flags.limits.cpu, "cpu-limit", "", "CPU cores limit")
 	cmd.Flags().StringVar(&flags.limits.memory, "memory-limit", "", "memory bytes limit")
 	cmd.Flags().StringVar(&flags.gpu, "gpu", "", "GPUs needed")
+	cmd.Flags().StringVar(&flags.shm, "shm", "", "Size of /dev/shm")
 
 	return cmd
 }

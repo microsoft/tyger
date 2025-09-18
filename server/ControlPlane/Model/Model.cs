@@ -130,6 +130,9 @@ public partial record CodespecResources : ModelBase
 
     [JsonConverter(typeof(QuantityConverter))]
     public ResourceQuantity? Gpu { get; init; }
+
+    [JsonConverter(typeof(QuantityConverter))]
+    public ResourceQuantity? Shm { get; init; }
 }
 
 public enum CodespecKind
