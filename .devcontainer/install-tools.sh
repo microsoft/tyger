@@ -6,7 +6,7 @@
 set -euo pipefail
 
 # yq
-YQ_VERSION=v4.35.1
+YQ_VERSION=v4.47.2
 YQ_BINARY="yq_linux_$(dpkg --print-architecture)"
 
 wget "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/${YQ_BINARY}.tar.gz" -O - |\
@@ -20,7 +20,7 @@ wget "https://github.com/uzimaru0000/tv/releases/download/${TV_VERSION}/${TV_ARC
 && mv "${TV_ARCHIVE}/tv" /usr/bin
 
 # install kubelogin
-KUBELOGIN_VERSION=0.0.33
+KUBELOGIN_VERSION=0.2.10
 sudo az aks install-cli --kubelogin-version "${KUBELOGIN_VERSION}" --install-location "/dev/null"
 
 # install psql
