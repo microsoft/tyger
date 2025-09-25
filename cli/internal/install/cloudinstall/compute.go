@@ -74,6 +74,9 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 	}
 
 	tags[TagKey] = &inst.Config.EnvironmentName
+	for k, v := range inst.Config.Cloud.ResourceTags {
+		tags[k] = &v
+	}
 
 	clustersClient, err := armcontainerservice.NewManagedClustersClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
 	if err != nil {
@@ -509,6 +512,9 @@ func (inst *Installer) createOutboundIpAddress(ctx context.Context, cluster *Clu
 		azureTags = make(map[string]*string)
 	}
 	azureTags[TagKey] = &inst.Config.EnvironmentName
+	for k, v := range inst.Config.Cloud.ResourceTags {
+		azureTags[k] = &v
+	}
 
 	ipTags := []*armnetwork.IPTag{}
 	for _, t := range cluster.OutboundIpServiceTags {
@@ -633,7 +639,7 @@ func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCl
 					return true, false
 				}
 
-				if np.OSSKU != existingNp.OSSKU {
+				if *np.OSSKU != *existingNp.OSSKU {
 					return true, false
 				}
 

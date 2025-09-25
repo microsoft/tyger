@@ -77,6 +77,9 @@ func (inst *Installer) createManagedIdentity(ctx context.Context, name string, r
 	}
 
 	tags[TagKey] = &inst.Config.EnvironmentName
+	for k, v := range inst.Config.Cloud.ResourceTags {
+		tags[k] = &v
+	}
 
 	resp, err := identitiesClient.CreateOrUpdate(ctx, resourceGroup, name, armmsi.Identity{
 		Location: &inst.Config.Cloud.DefaultLocation,

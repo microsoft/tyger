@@ -68,6 +68,7 @@ type CloudConfig struct {
 	SubscriptionID        string                `yaml:"subscriptionId"`
 	DefaultLocation       string                `yaml:"defaultLocation"`
 	ResourceGroup         string                `yaml:"resourceGroup"`
+	ResourceTags          map[string]string     `yaml:"resourceTags"`
 	PrivateNetworking     bool                  `yaml:"privateNetworking"`
 	Compute               *ComputeConfig        `yaml:"compute"`
 	Database              *DatabaseServerConfig `yaml:"database"`

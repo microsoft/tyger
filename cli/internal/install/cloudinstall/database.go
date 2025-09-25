@@ -83,6 +83,9 @@ func (inst *Installer) createDatabaseServer(ctx context.Context) (any, error) {
 		tags = make(map[string]*string)
 	}
 	tags[TagKey] = &inst.Config.EnvironmentName
+	for k, v := range inst.Config.Cloud.ResourceTags {
+		tags[k] = &v
+	}
 	if instanceKey := tags[dbServerInstanceTagKey]; instanceKey == nil || *instanceKey == "" {
 		tags[dbServerInstanceTagKey] = Ptr(uuid.NewString())
 	}
