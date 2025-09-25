@@ -10,7 +10,6 @@ import (
 	"maps"
 	"net/http"
 	"os"
-	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -31,7 +30,6 @@ import (
 	"helm.sh/helm/v3/pkg/storage/driver"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
@@ -44,6 +42,8 @@ import (
 const (
 	TraefikNamespace              = "traefik"
 	TraefikPrivateLinkServiceName = "traefik"
+
+	AzureLinuxImage = "mcr.microsoft.com/azurelinux/base/core:3.0"
 )
 
 func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *install.Promise[*rest.Config], keyVaultClientManagedIdentityPromise *install.Promise[*armmsi.Identity]) (any, error) {
@@ -53,11 +53,6 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 	}
 
 	log.Ctx(ctx).Info().Msg("Installing Traefik")
-
-	clientset := kubernetes.NewForConfigOrDie(restConfig)
-	if err := inst.ensureTraefikDynamicConfigMap(ctx, clientset); err != nil {
-		return nil, fmt.Errorf("failed to ensure Traefik dynamic ConfigMap: %w", err)
-	}
 
 	var serviceAnnotations map[string]any
 	if inst.Config.Cloud.PrivateNetworking {
@@ -112,6 +107,11 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 			"additionalArguments": []string{
 				"--entryPoints.websecure.http.tls=true",
 			},
+			"deployment": map[string]any{
+				"additionalContainers": []corev1.Container{
+					getConfigReloaderSidecar(),
+				},
+			},
 		}}
 
 	usingCertificate := keyVaultClientManagedIdentityPromise != nil
@@ -125,30 +125,29 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 			"azure.workload.identity/client-id": *kvClientIdentity.Properties.ClientID,
 		}
 
-		traefikConfig.Values["volumes"] = []any{
+		traefikConfig.Values["deployment"].(map[string]any)["additionalVolumes"] = []any{
 			map[string]any{
-				"name":      "traefik-dynamic",
-				"mountPath": "/config",
-				"type":      "configMap",
+				"name":     "traefik-dynamic",
+				"emptyDir": map[string]any{},
 			},
-		}
-
-		traefikConfig.Values["deployment"] = map[string]any{
-			"additionalVolumes": []any{
-				map[string]any{
-					"name": "kv-certs",
-					"csi": map[string]any{
-						"driver":   "secrets-store.csi.k8s.io",
-						"readOnly": true,
-						"volumeAttributes": map[string]any{
-							"secretProviderClass": inst.Config.Cloud.TlsCertificate.CertificateName,
-						},
+			map[string]any{
+				"name": "kv-certs",
+				"csi": map[string]any{
+					"driver":   "secrets-store.csi.k8s.io",
+					"readOnly": true,
+					"volumeAttributes": map[string]any{
+						"secretProviderClass": inst.Config.Cloud.TlsCertificate.CertificateName,
 					},
 				},
 			},
 		}
 
 		traefikConfig.Values["additionalVolumeMounts"] = []any{
+			map[string]any{
+				"name":      "traefik-dynamic",
+				"mountPath": "/config",
+				"readOnly":  true,
+			},
 			map[string]any{
 				"name":      "kv-certs",
 				"mountPath": "/certs",
@@ -158,7 +157,7 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 
 		traefikConfig.Values["additionalArguments"] = append(
 			traefikConfig.Values["additionalArguments"].([]string),
-			"--providers.file.filename=/config/dynamic.toml")
+			"--providers.file.directory=/config")
 	}
 
 	var overrides *HelmChartConfig
@@ -228,57 +227,42 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 	return nil, nil
 }
 
-func (inst *Installer) ensureTraefikDynamicConfigMap(ctx context.Context, clientset *kubernetes.Clientset) error {
-	configMapName := "traefik-dynamic"
-	namespace := TraefikNamespace
+// This is a sidecar for the Traefik pod that writes a "dynamic" configuration file containing TLS certificate paths.
+// Whenever it detects that the cert has changed, it touches the configuration file to trigger Traefik to reload it.
+func getConfigReloaderSidecar() corev1.Container {
+	script := `
+crt_hash=$(sha256sum /certs/tls.crt 2> /dev/null)
+echo '{"tls": {"certificates": [{"certFile":"/certs/tls.crt","keyFile":"/certs/tls.key"}]}}' > /config/dynamic-config.yml;
 
-	desiredData := map[string]string{
-		"dynamic.toml": `
-# Dynamic configuration
-[[tls.certificates]]
-certFile = "/certs/tls.crt"
-keyFile = "/certs/tls.key"
-`,
-	}
+while true; do
+	sleep 5m
+	new_hash=$(sha256sum /certs/tls.crt 2> /dev/null)
+	if [ "$crt_hash" != "$new_hash" ]; then
+		echo "Certificate changed, updating Traefik configuration"
+		touch /config/dynamic-config.yml
+		crt_hash=$new_hash
+	fi
+done
+`
 
-	// Check if the ConfigMap already exists
-	existingConfigMap, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, configMapName, metav1.GetOptions{})
-	if err == nil {
-		// ConfigMap exists, check if the data matches
-		if reflect.DeepEqual(existingConfigMap.Data, desiredData) {
-			// No update needed
-			return nil
-		}
-
-		// Update the ConfigMap if the data is different
-		existingConfigMap.Data = desiredData
-		_, err = clientset.CoreV1().ConfigMaps(namespace).Update(ctx, existingConfigMap, metav1.UpdateOptions{})
-		if err != nil {
-			return fmt.Errorf("failed to update ConfigMap: %w", err)
-		}
-		return nil
-	}
-
-	if !apierrors.IsNotFound(err) {
-		// Return any error other than "not found"
-		return fmt.Errorf("failed to get ConfigMap: %w", err)
-	}
-
-	// ConfigMap does not exist, create it
-	newConfigMap := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      configMapName,
-			Namespace: namespace,
+	configReloaderSidecar := corev1.Container{
+		Name:    "config-reloader",
+		Image:   AzureLinuxImage,
+		Command: []string{"bash", "-c", script},
+		VolumeMounts: []corev1.VolumeMount{
+			{
+				Name:      "traefik-dynamic",
+				MountPath: "/config",
+				ReadOnly:  false,
+			},
+			{
+				Name:      "kv-certs",
+				MountPath: "/certs",
+				ReadOnly:  true,
+			},
 		},
-		Data: desiredData,
 	}
-
-	_, err = clientset.CoreV1().ConfigMaps(namespace).Create(ctx, newConfigMap, metav1.CreateOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to create ConfigMap: %w", err)
-	}
-
-	return nil
+	return configReloaderSidecar
 }
 
 func (inst *Installer) installCertManager(ctx context.Context, restConfigPromise *install.Promise[*rest.Config]) (any, error) {

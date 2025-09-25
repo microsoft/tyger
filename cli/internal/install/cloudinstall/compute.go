@@ -633,7 +633,7 @@ func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCl
 					return true, false
 				}
 
-				if np.OSSKU != existingNp.OSSKU {
+				if *np.OSSKU != *existingNp.OSSKU {
 					return true, false
 				}
 
