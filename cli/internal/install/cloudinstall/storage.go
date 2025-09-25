@@ -42,6 +42,9 @@ func (inst *Installer) CreateStorageAccount(ctx context.Context,
 		tags = make(map[string]*string)
 	}
 	tags[TagKey] = &inst.Config.EnvironmentName
+	for k, v := range inst.Config.Cloud.ResourceTags {
+		tags[k] = &v
+	}
 
 	parameters := armstorage.AccountCreateParameters{
 		Tags:     tags,

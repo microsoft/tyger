@@ -62,6 +62,10 @@ cloud:
   resourceGroup: demo
   defaultLocation: westus2
 
+  # Tags to apply to all resources and resource groups
+  # resourceTags:
+  #   mytag: myvalue
+
   # Whether to use private networking. The default is false.
   # If true, Tyger service, storage storage accounts, and all other created resources
   # will not be accessible from the public internet.

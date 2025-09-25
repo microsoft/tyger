@@ -10,8 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
-	"strings"
 	"time"
 
 	"maps"
@@ -83,6 +83,9 @@ func (inst *Installer) createDatabaseServer(ctx context.Context) (any, error) {
 		tags = make(map[string]*string)
 	}
 	tags[TagKey] = &inst.Config.EnvironmentName
+	for k, v := range inst.Config.Cloud.ResourceTags {
+		tags[k] = &v
+	}
 	if instanceKey := tags[dbServerInstanceTagKey]; instanceKey == nil || *instanceKey == "" {
 		tags[dbServerInstanceTagKey] = Ptr(uuid.NewString())
 	}
@@ -646,7 +649,7 @@ func (inst *Installer) createRoles(
 			break
 		}
 
-		if strings.Contains(err.Error(), "OID is not found in the tenant") {
+		if regexp.MustCompile("OID (is not|isn't) found in the tenant").MatchString(err.Error()) {
 			// It can take some time before the database is able to retrieve principals that have been recently created
 			log.Ctx(ctx).Warn().Msgf("Database role creation failed. Attempt %d/%d", roleCreateRetryCount+1, RoleCreateMaxRetries)
 			continue

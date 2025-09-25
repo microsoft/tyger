@@ -8,6 +8,17 @@ cloud:
   resourceGroup: {{ .ResourceGroup }}
   defaultLocation: {{ .DefaultLocation}}
 
+  # Tags to apply to all resources and resource groups
+  {{- if not .ResourceTags }}
+  # resourceTags:
+  #   mytag: myvalue
+  {{- else  }}
+  resourceTags:
+  {{- range $k, $v := .ResourceTags }}
+    {{ $k }}: {{ $v }}
+  {{- end }}
+  {{- end }}
+
   # Whether to use private networking. The default is false.
   # If true, Tyger service, storage storage accounts, and all other created resources
   # will not be accessible from the public internet.

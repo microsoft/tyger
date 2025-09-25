@@ -78,6 +78,10 @@ func (inst *Installer) createPrivateEndpoints(ctx context.Context, privateEndpoi
 		},
 	}
 
+	for k, v := range inst.Config.Cloud.ResourceTags {
+		privateEndpoint.Tags[k] = &v
+	}
+
 	log.Ctx(ctx).Info().Msgf("Creating or updating private endpoint '%s' for storage account '%s' for subnet '%s' in vnet '%s'", privateEndpointName, path.Base(targetResourceId), configSubnet.SubnetName, configSubnet.VNetName)
 
 	privateEndpointClient, err := armnetwork.NewPrivateEndpointsClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
@@ -122,11 +126,17 @@ func (inst *Installer) createPrivateDnsZone(ctx context.Context, domainName stri
 
 	log.Ctx(ctx).Info().Msgf("Creating or updating private DNS zone '%s'", domainName)
 
+	tags := map[string]*string{
+		TagKey: &inst.Config.EnvironmentName,
+	}
+
+	for k, v := range inst.Config.Cloud.ResourceTags {
+		tags[k] = &v
+	}
+
 	dnsZonePoller, err := privateDNSZoneClient.BeginCreateOrUpdate(ctx, subnet.PrivateLinkResourceGroup, domainName, armprivatedns.PrivateZone{
 		Location: Ptr("global"),
-		Tags: map[string]*string{
-			TagKey: &inst.Config.EnvironmentName,
-		},
+		Tags:     tags,
 	}, nil)
 
 	if err != nil {
@@ -162,9 +172,7 @@ func (inst *Installer) createPrivateDnsZone(ctx context.Context, domainName stri
 					ID: vnetResult.ID,
 				},
 			},
-			Tags: map[string]*string{
-				TagKey: &inst.Config.EnvironmentName,
-			},
+			Tags: tags,
 		}, nil)
 
 	if err != nil {

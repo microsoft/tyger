@@ -393,19 +393,45 @@ func (inst *Installer) ensureResourceGroupCreated(ctx context.Context, name stri
 		return fmt.Errorf("failed to create resource groups client: %w", err)
 	}
 
-	resp, err := c.CheckExistence(ctx, name, nil)
-	if err != nil {
-		return fmt.Errorf("failed to check resource group existence: %w", err)
+	var existingResouceGroup *armresources.ResourceGroup
+	if resp, err := c.Get(ctx, name, nil); err != nil {
+		var respErr *azcore.ResponseError
+		if !errors.As(err, &respErr) || respErr.StatusCode != http.StatusNotFound {
+			return fmt.Errorf("failed to get resource group: %w", err)
+		}
+	} else {
+		existingResouceGroup = &resp.ResourceGroup
 	}
 
-	if resp.Success {
+	var tags map[string]*string
+	if len(inst.Config.Cloud.ResourceTags) > 0 {
+		if existingResouceGroup != nil && existingResouceGroup.Tags != nil {
+			tags = existingResouceGroup.Tags
+		} else {
+			tags = make(map[string]*string)
+		}
+
+		tagsChanged := false
+		for k, v := range inst.Config.Cloud.ResourceTags {
+			if existingVal, ok := tags[k]; ok && existingVal != nil && *existingVal == v {
+				continue
+			}
+			tagsChanged = true
+			tags[k] = &v
+		}
+
+		if !tagsChanged && existingResouceGroup != nil {
+			return nil
+		}
+	} else if existingResouceGroup != nil {
 		return nil
 	}
 
-	log.Debug().Msgf("Creating resource group '%s'", name)
+	log.Debug().Msgf("Creating or updating resource group '%s'", name)
 	_, err = c.CreateOrUpdate(ctx, name,
 		armresources.ResourceGroup{
 			Location: Ptr(inst.Config.Cloud.DefaultLocation),
+			Tags:     tags,
 		}, nil)
 
 	if err != nil {
