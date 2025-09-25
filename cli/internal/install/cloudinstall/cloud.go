@@ -396,7 +396,7 @@ func (inst *Installer) ensureResourceGroupCreated(ctx context.Context, name stri
 	var existingResouceGroup *armresources.ResourceGroup
 	if resp, err := c.Get(ctx, name, nil); err != nil {
 		var respErr *azcore.ResponseError
-		if errors.As(err, &respErr) || respErr.StatusCode != http.StatusNotFound {
+		if !errors.As(err, &respErr) || respErr.StatusCode != http.StatusNotFound {
 			return fmt.Errorf("failed to get resource group: %w", err)
 		}
 	} else {
