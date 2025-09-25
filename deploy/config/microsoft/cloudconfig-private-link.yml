@@ -135,9 +135,6 @@ cloud:
     # in addition to the control-plane cluster.
     firewallRules: ${TYGER_ENVIRONMENT_FIREWALL_RULES}
 
-  # Tags to apply to all resources and resource groups
-  resourceTags:
-
 organizations:
   - name: lamna
     cloud:
