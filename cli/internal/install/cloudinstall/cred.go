@@ -23,7 +23,7 @@ var (
 // az account get-access-token fails if --tenant is provided and the user is logged in with a managed identity
 // This creates a TokenProvider that works around this case
 func NewMiAwareAzureCLICredential(options *azidentity.AzureCLICredentialOptions) (azcore.TokenCredential, error) {
-	cmd := exec.Command("az", "account", "show")
+	cmd := exec.Command("az", "account", "show", "-o", "json")
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	if err := cmd.Run(); err != nil {
