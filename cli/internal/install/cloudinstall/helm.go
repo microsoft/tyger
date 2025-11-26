@@ -107,11 +107,6 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 			"additionalArguments": []string{
 				"--entryPoints.websecure.http.tls=true",
 			},
-			"deployment": map[string]any{
-				"additionalContainers": []corev1.Container{
-					getConfigReloaderSidecar(),
-				},
-			},
 		}}
 
 	usingCertificate := keyVaultClientManagedIdentityPromise != nil
@@ -125,7 +120,9 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 			"azure.workload.identity/client-id": *kvClientIdentity.Properties.ClientID,
 		}
 
-		traefikConfig.Values["deployment"].(map[string]any)["additionalVolumes"] = []any{
+		deploymentMap := traefikConfig.Values["deployment"].(map[string]any)
+
+		deploymentMap["additionalVolumes"] = []any{
 			map[string]any{
 				"name":     "traefik-dynamic",
 				"emptyDir": map[string]any{},
@@ -140,6 +137,10 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 					},
 				},
 			},
+		}
+
+		deploymentMap["additionalContainers"] = []any{
+			getConfigReloaderSidecar(),
 		}
 
 		traefikConfig.Values["additionalVolumeMounts"] = []any{
