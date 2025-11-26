@@ -120,27 +120,26 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 			"azure.workload.identity/client-id": *kvClientIdentity.Properties.ClientID,
 		}
 
-		deploymentMap := traefikConfig.Values["deployment"].(map[string]any)
-
-		deploymentMap["additionalVolumes"] = []any{
-			map[string]any{
-				"name":     "traefik-dynamic",
-				"emptyDir": map[string]any{},
-			},
-			map[string]any{
-				"name": "kv-certs",
-				"csi": map[string]any{
-					"driver":   "secrets-store.csi.k8s.io",
-					"readOnly": true,
-					"volumeAttributes": map[string]any{
-						"secretProviderClass": inst.Config.Cloud.TlsCertificate.CertificateName,
+		traefikConfig.Values["deployment"] = map[string]any{
+			"additionalVolumes": []any{
+				map[string]any{
+					"name":     "traefik-dynamic",
+					"emptyDir": map[string]any{},
+				},
+				map[string]any{
+					"name": "kv-certs",
+					"csi": map[string]any{
+						"driver":   "secrets-store.csi.k8s.io",
+						"readOnly": true,
+						"volumeAttributes": map[string]any{
+							"secretProviderClass": inst.Config.Cloud.TlsCertificate.CertificateName,
+						},
 					},
 				},
 			},
-		}
-
-		deploymentMap["additionalContainers"] = []any{
-			getConfigReloaderSidecar(),
+			"additionalContainers": []any{
+				getConfigReloaderSidecar(),
+			},
 		}
 
 		traefikConfig.Values["additionalVolumeMounts"] = []any{
