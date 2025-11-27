@@ -107,11 +107,6 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 			"additionalArguments": []string{
 				"--entryPoints.websecure.http.tls=true",
 			},
-			"deployment": map[string]any{
-				"additionalContainers": []corev1.Container{
-					getConfigReloaderSidecar(),
-				},
-			},
 		}}
 
 	usingCertificate := keyVaultClientManagedIdentityPromise != nil
@@ -125,20 +120,25 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 			"azure.workload.identity/client-id": *kvClientIdentity.Properties.ClientID,
 		}
 
-		traefikConfig.Values["deployment"].(map[string]any)["additionalVolumes"] = []any{
-			map[string]any{
-				"name":     "traefik-dynamic",
-				"emptyDir": map[string]any{},
-			},
-			map[string]any{
-				"name": "kv-certs",
-				"csi": map[string]any{
-					"driver":   "secrets-store.csi.k8s.io",
-					"readOnly": true,
-					"volumeAttributes": map[string]any{
-						"secretProviderClass": inst.Config.Cloud.TlsCertificate.CertificateName,
+		traefikConfig.Values["deployment"] = map[string]any{
+			"additionalVolumes": []any{
+				map[string]any{
+					"name":     "traefik-dynamic",
+					"emptyDir": map[string]any{},
+				},
+				map[string]any{
+					"name": "kv-certs",
+					"csi": map[string]any{
+						"driver":   "secrets-store.csi.k8s.io",
+						"readOnly": true,
+						"volumeAttributes": map[string]any{
+							"secretProviderClass": inst.Config.Cloud.TlsCertificate.CertificateName,
+						},
 					},
 				},
+			},
+			"additionalContainers": []any{
+				getConfigReloaderSidecar(),
 			},
 		}
 

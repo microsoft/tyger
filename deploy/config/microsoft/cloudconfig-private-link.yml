@@ -22,9 +22,9 @@ cloud:
     name: eminence
 
   # Optionaly use a custom DNS zone
-  dnsZone:
-    resourceGroup: eminence
-    name: eminence.ms
+  # dnsZone:
+  # resourceGroup:
+  # name:
 
   # Optionally provide a TLS certificate, if not using Let's Encrypt
   tlsCertificate:
