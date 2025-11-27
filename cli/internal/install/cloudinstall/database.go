@@ -439,7 +439,7 @@ func (inst *Installer) createDatabase(ctx context.Context, org *OrganizationConf
 }
 
 func (inst *Installer) runWithTemporaryFilewallRuleIfNeeded(ctx context.Context, org *OrganizationConfig, action func() error) error {
-	if !inst.Config.Cloud.PrivateNetworking {
+	if inst.Config.Cloud.PrivateNetworking {
 		return action()
 	}
 
