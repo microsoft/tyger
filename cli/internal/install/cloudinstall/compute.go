@@ -232,6 +232,8 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 
 		if subnet.Properties.NetworkSecurityGroup != nil && subnet.Properties.NetworkSecurityGroup.ID != nil {
 			vnetSubnetNsgId = subnet.Properties.NetworkSecurityGroup.ID
+		} else {
+			return nil, fmt.Errorf("subnet '%s' must have a network security group associated with it", clusterConfig.ExistingSubnet.SubnetName)
 		}
 	}
 

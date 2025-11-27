@@ -14,10 +14,6 @@ import (
 )
 
 func (inst *Installer) assignDnsRecord(ctx context.Context, org *OrganizationConfig) (any, error) {
-	if inst.Config.Cloud.DnsZone == nil {
-		return nil, nil
-	}
-
 	if inst.Config.Cloud.PrivateNetworking {
 		apiHostSubnetReference := inst.Config.Cloud.Compute.GetApiHostCluster().ExistingSubnet
 		return nil, inst.forEachVnet(ctx, func(ctx context.Context, vnet *armnetwork.VirtualNetwork, subnet *armnetwork.Subnet, configSubnet *SubnetReference) error {
@@ -80,6 +76,10 @@ func (inst *Installer) assignDnsRecord(ctx context.Context, org *OrganizationCon
 
 			return inst.createPrivateDnsZone(ctx, org.Api.DomainName, ipAddress, configSubnet)
 		})
+	}
+
+	if inst.Config.Cloud.DnsZone == nil {
+		return nil, nil
 	}
 
 	recordSetsClient, err := armdns.NewRecordSetsClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
