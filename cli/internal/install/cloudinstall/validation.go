@@ -501,7 +501,7 @@ func quickValidateApiConfig(ctx context.Context, success *bool, config *CloudEnv
 				validationError(ctx, success, "The `api.domainName` field must match the pattern %s or use a custom domain for organization '%s'", domainNameRegex, org.Name)
 			}
 		}
-	} else {
+	} else if !config.Cloud.PrivateNetworking {
 		if config.Cloud.DnsZone == nil || config.Cloud.DnsZone.Name == "" {
 			validationError(ctx, success, "The `cloud.dnsZone.name` field is required for the custom domain name for organization '%s'", org.Name)
 		} else {
