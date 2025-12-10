@@ -50,6 +50,12 @@ func (envConfig *CloudEnvironmentConfig) QuickValidateConfig(ctx context.Context
 		hasCompatibilityMode := false
 		hasBuiltInDomain := false
 		for _, org := range envConfig.Organizations {
+			if _, ok := orgNames[org.Name]; ok {
+				validationError(ctx, &success, "Organization names must be unique")
+				continue
+			}
+
+			orgNames[org.Name] = nil
 			if org.SingleOrganizationCompatibilityMode {
 				if hasCompatibilityMode {
 					validationError(ctx, &success, "Only one organization can have `singleOrganizationCompatibilityMode` set to true")
@@ -76,13 +82,7 @@ func (envConfig *CloudEnvironmentConfig) QuickValidateConfig(ctx context.Context
 				hasBuiltInDomain = true
 			}
 
-			if _, ok := orgNames[org.Name]; ok {
-				validationError(ctx, &success, "Organization names must be unique")
-			}
-
-			orgNames[org.Name] = nil
-
-			if !hasBuiltInDomain && envConfig.Cloud.Compute.DnsLabel == "" {
+			if !envConfig.Cloud.PrivateNetworking && !hasBuiltInDomain && envConfig.Cloud.Compute.DnsLabel == "" {
 				validationError(ctx, &success, "`cloud.compute.dnsLabel` must be set")
 			}
 
@@ -249,6 +249,15 @@ func quickValidateComputeConfig(ctx context.Context, success *bool, cloudConfig 
 			validationError(ctx, success, "The `objectId` field is required on a management principal")
 		} else if _, err := uuid.Parse(p.ObjectId); err != nil {
 			validationError(ctx, success, "The `objectId` field must be a GUID")
+		}
+	}
+
+	if cloudConfig.PrivateNetworking {
+		if cloudConfig.Compute.DnsLabel != "" {
+			validationError(ctx, success, "`cloud.compute.dnsLabel` must not be set when `cloud.privateNetworking` is enabled")
+		}
+		if cloudConfig.DnsZone != nil && cloudConfig.DnsZone.Name != "" {
+			validationError(ctx, success, "`cloud.dnsZone` must not be set when `cloud.privateNetworking` is enabled")
 		}
 	}
 }
