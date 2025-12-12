@@ -194,3 +194,6 @@ start-docs-website:
 	cd docs
 	npm install
 	npm run docs:dev
+
+generate-ca-certificates:
+	scripts/generate-ca-certificates.sh cli/internal/client/ca-certificates.pem
