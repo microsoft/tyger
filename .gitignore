@@ -33,3 +33,4 @@ x64/
 dist/
 
 *.pem
+!cli/internal/client/ca-certificates.pem
