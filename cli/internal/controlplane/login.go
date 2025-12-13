@@ -47,16 +47,17 @@ const (
 type AccessToken azcore.AccessToken
 
 type LoginConfig struct {
-	ServerUrl                       string `json:"serverUrl"`
-	ServicePrincipal                string `json:"servicePrincipal,omitempty"`
-	CertificatePath                 string `json:"certificatePath,omitempty"`
-	CertificateThumbprint           string `json:"certificateThumbprint,omitempty"`
-	ManagedIdentity                 bool   `json:"managedIdentity,omitempty"`
-	ManagedIdentityClientId         string `json:"managedIdentityClientId,omitempty"`
-	GitHub                          bool   `json:"github,omitempty"`
-	TargetFederatedIdentity         string `json:"targetFederatedIdentity,omitempty"`
-	Proxy                           string `json:"proxy,omitempty"`
-	DisableTlsCertificateValidation bool   `json:"disableTlsCertificateValidation,omitempty"`
+	ServerUrl                       string                        `json:"serverUrl"`
+	ServicePrincipal                string                        `json:"servicePrincipal,omitempty"`
+	CertificatePath                 string                        `json:"certificatePath,omitempty"`
+	CertificateThumbprint           string                        `json:"certificateThumbprint,omitempty"`
+	ManagedIdentity                 bool                          `json:"managedIdentity,omitempty"`
+	ManagedIdentityClientId         string                        `json:"managedIdentityClientId,omitempty"`
+	GitHub                          bool                          `json:"github,omitempty"`
+	TargetFederatedIdentity         string                        `json:"targetFederatedIdentity,omitempty"`
+	Proxy                           string                        `json:"proxy,omitempty"`
+	TlsCaCertificateSource          client.TlsCaCertificateSource `json:"tlsCaCertificates,omitempty"`
+	DisableTlsCertificateValidation bool                          `json:"disableTlsCertificateValidation,omitempty"`
 
 	// These are options for tyger-proxy that are ignored here but we don't want unmarshal to fail if present
 	Port               int      `json:"port,omitempty"`
@@ -115,7 +116,8 @@ type serviceInfo struct {
 	parsedDataPlaneProxy            *url.URL
 	Proxy                           string `json:"proxy,omitempty"`
 	parsedProxy                     *url.URL
-	DisableTlsCertificateValidation bool `json:"disableTlsCertificateValidation,omitempty"`
+	TlsCaCertificates               client.TlsCaCertificateSource `json:"tlsCaCertificates,omitempty"`
+	DisableTlsCertificateValidation bool                          `json:"disableTlsCertificateValidation,omitempty"`
 	confidentialClient              *confidential.Client
 }
 
@@ -193,7 +195,8 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 	}
 
 	var tygerClient *client.TygerClient
-	if normalizedServerUrl.Scheme == "docker" {
+	switch normalizedServerUrl.Scheme {
+	case "docker":
 		dockerParams, err := client.ParseDockerUrl(normalizedServerUrl)
 		if err != nil {
 			return nil, fmt.Errorf("invalid Docker URL: %w", err)
@@ -244,7 +247,7 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 			RawControlPlaneUrl: si.parsedServerUrl,
 			RawProxy:           si.parsedProxy,
 		}
-	} else if normalizedServerUrl.Scheme == "ssh" {
+	case "ssh":
 		sshParams, err := client.ParseSshUrl(normalizedServerUrl)
 		if err != nil {
 			return nil, fmt.Errorf("invalid ssh URL: %w", err)
@@ -305,7 +308,7 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 			RawControlPlaneUrl: si.parsedServerUrl,
 			RawProxy:           si.parsedProxy,
 		}
-	} else {
+	default:
 		if err := validateServiceInfo(si); err != nil {
 			return nil, err
 		}
@@ -641,7 +644,8 @@ func GetClientFromCache() (*client.TygerClient, error) {
 		return nil, err
 	}
 
-	if si.parsedServerUrl.Scheme == "docker" {
+	switch si.parsedServerUrl.Scheme {
+	case "docker":
 		dockerParams, err := client.ParseDockerUrl(si.parsedServerUrl)
 		if err != nil {
 			return nil, fmt.Errorf("invalid ssh URL: %w", err)
@@ -674,7 +678,7 @@ func GetClientFromCache() (*client.TygerClient, error) {
 			RawControlPlaneUrl: si.parsedServerUrl,
 			RawProxy:           si.parsedProxy,
 		}, nil
-	} else if si.parsedServerUrl.Scheme == "ssh" {
+	case "ssh":
 		sshParams, err := client.ParseSshUrl(si.parsedServerUrl)
 		if err != nil {
 			return nil, fmt.Errorf("invalid ssh URL: %w", err)
@@ -708,7 +712,7 @@ func GetClientFromCache() (*client.TygerClient, error) {
 			RawControlPlaneUrl: si.parsedServerUrl,
 			RawProxy:           si.parsedProxy,
 		}, nil
-	} else {
+	default:
 
 		controlPlaneOptions := defaultClientOptions
 

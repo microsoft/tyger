@@ -642,6 +642,7 @@ cat $(INPUT_PIPE) | python3 slow-copy.py > $(OUTPUT_PIPE)
 func TestInvalidImage(t *testing.T) {
 	t.Parallel()
 	skipIfUsingUnixSocket(t)
+	skipIfOnlyFastTests(t)
 
 	require := require.New(t)
 
@@ -2725,6 +2726,7 @@ func TestServerApiV1BackwardCompatibility(t *testing.T) {
 
 func TestBufferAccessUrlUpdates(t *testing.T) {
 	t.Parallel()
+	skipIfOnlyFastTests(t)
 
 	bufferId := runTygerSucceeds(t, "buffer", "create")
 
