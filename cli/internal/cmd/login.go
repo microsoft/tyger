@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/microsoft/tyger/cli/internal/client"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/spf13/cobra"
@@ -23,7 +24,8 @@ import (
 func NewLoginCommand() *cobra.Command {
 	optionsFilePath := ""
 	options := controlplane.LoginConfig{
-		Persisted: true,
+		Persisted:              true,
+		TlsCaCertificateSource: client.TlsCaCertificateSourceOperatingSystem,
 	}
 
 	local := false
@@ -276,6 +278,13 @@ targetFederatedIdentity: # Optionally specify a federated identity to authentica
 
 # The HTTP proxy to use. Can be 'auto[matic]', 'none', or a URL. The default is 'auto'.
 proxy: auto
+
+# The source of root CA certificates to use for TLS connections.
+# Can be one of:
+#  - 'os' to use the operating system's root CA certificates
+#  - 'embedded' to use the CA certificates embedded in this binary.
+#  - a file path to a PEM file containing CA certificates.
+tlsCertificateSource: os
 	`)
 
 	loginCmd.Flags().StringVarP(&options.ServicePrincipal, "service-principal", "s", "", "The service principal app ID or identifier URL")
@@ -296,6 +305,13 @@ proxy: auto
 	loginCmd.Flags().StringVar(&options.TargetFederatedIdentity, "federated-identity", "", "Use federation to authenticate as this identity. Can only be used with --managed-identity or --github.")
 
 	loginCmd.Flags().StringVar(&options.Proxy, "proxy", "auto", "The HTTP proxy to use. Can be 'auto[matic]', 'none', or a URL.")
+
+	loginCmd.Flags().StringVar(
+		(*string)(&options.TlsCaCertificateSource),
+		"tls-certificate-source",
+		string(options.TlsCaCertificateSource),
+		`The source of CA certificates to use for TLS connections. Specify 'os' to use the operating system's root CA certificates, 'embedded' to use the CA certificates embedded in this binary, or a file path to a PEM file containing CA certificates.`,
+	)
 
 	loginCmd.Flags().BoolVar(&options.DisableTlsCertificateValidation, "disable-tls-certificate-validation", false, "Disable TLS certificate validation.")
 	loginCmd.Flags().MarkHidden("disable-tls-certificate-validation")
