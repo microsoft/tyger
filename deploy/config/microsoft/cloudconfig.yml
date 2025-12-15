@@ -62,7 +62,7 @@ cloud:
         # dnsServiceIp: defaults to 10.0.0.10
 
         systemNodePool:
-          name: system
+          name: systemnp
           vmSize: ${TYGER_SYSTEM_NODE_SKU}
           minCount: 1
           maxCount: 3

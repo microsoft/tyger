@@ -70,4 +70,19 @@ tolerations: []
 affinity: {}
 podSecurityContext: {}
 securityContext: {}
-resources: {}
+
+resources:
+  tyger:
+    requests:
+      memory: "512Mi"
+      cpu: "1"
+    limits:
+      memory: "2Gi"
+      # cpu:
+  miseSidecar:
+    requests:
+      memory: "128Mi"
+      cpu: "250m"
+    limits:
+      memory: "768Mi"
+      # cpu:

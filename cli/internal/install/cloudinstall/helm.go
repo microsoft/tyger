@@ -844,7 +844,7 @@ func GetChartSpec(
 		Atomic:          atomic,
 		Force:           false,
 		UpgradeCRDs:     true,
-		Timeout:         2 * time.Minute,
+		Timeout:         5 * time.Minute,
 		ValuesYaml:      string(values),
 	}
 

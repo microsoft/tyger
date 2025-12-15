@@ -207,6 +207,10 @@ spec:
               value: {{ .Values.buffers.softDeletedLifetime }}
             - name: LogArchive__CloudStorage__StorageAccountEndpoint
               value: {{ required "A value for logArchive.storageAccountEndpoint is required" .Values.logArchive.storageAccountEndpoint }}
+          {{- with .Values.resources.tyger }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           readinessProbe:
             httpGet:
               path: /healthcheck
@@ -243,6 +247,10 @@ spec:
               value: {{ .Values.accessControl.apiAppId }}
             - name: MISE_CONTAINER_AzureAd__InboundPolicies__0__ValidAudiences__1
               value: {{ .Values.accessControl.apiAppUri }}
+          {{- with .Values.resources.miseSidecar }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           readinessProbe:
             httpGet:
               path: /readyz
