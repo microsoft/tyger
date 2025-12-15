@@ -57,7 +57,7 @@ public class MigrationRunner : IHostedService
         if (current != null && initOnly)
         {
             _logger.DatabaseAlreadyInitialized();
-            await LogCurrentOrAvailableDatabaseVersions(knownVersions, cancellationToken);
+            await _databaseVersions.LogCurrentOrAvailableDatabaseVersions(knownVersions, cancellationToken);
             return;
         }
 
@@ -161,37 +161,7 @@ public class MigrationRunner : IHostedService
             }
         }
 
-        await LogCurrentOrAvailableDatabaseVersions(knownVersions, cancellationToken);
-    }
-
-    private async Task LogCurrentOrAvailableDatabaseVersions(List<(DatabaseVersion version, Type migrator, bool isMinimumVersion)> knownVersions, CancellationToken cancellationToken)
-    {
-        if (!await _databaseVersions.DoesMigrationsTableExist(cancellationToken))
-        {
-            return;
-        }
-
-        var currentVersion = await _databaseVersions.ReadCurrentDatabaseVersion(cancellationToken);
-        if (currentVersion == null)
-        {
-            return;
-        }
-
-        if (knownVersions.Any(kv => (int)kv.version > (int)currentVersion))
-        {
-            if (knownVersions.FirstOrDefault(v => v.isMinimumVersion) is (var minimumVersion, var _, var _) && currentVersion < minimumVersion)
-            {
-                _logger.DatabaseMigrationRequired((int)minimumVersion, (int)currentVersion);
-            }
-            else
-            {
-                _logger.NewerDatabaseVersionsExist();
-            }
-        }
-        else
-        {
-            _logger.UsingMostRecentDatabaseVersion();
-        }
+        await _databaseVersions.LogCurrentOrAvailableDatabaseVersions(knownVersions, cancellationToken);
     }
 
     private async Task GrantAccess(CancellationToken cancellationToken)

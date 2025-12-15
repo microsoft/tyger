@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -245,8 +244,12 @@ func (inst *Installer) initializeDatabase(ctx context.Context) error {
 	found := false
 	for _, parsedLine := range parsedLines {
 		if category, ok := parsedLine["category"].(string); ok {
+			// We are accepting Tyger.ControlPlane.Database.Migrations.MigrationRunner
+			// as well for backwards compatibility.
+			switch category {
+			case "Tyger.ControlPlane.Database.Migrations.DatabaseVersions[DatabaseMigrationRequired]",
+				"Tyger.ControlPlane.Database.Migrations.MigrationRunner[DatabaseMigrationRequired]":
 
-			if category == "Tyger.ControlPlane.Database.Migrations.MigrationRunner[DatabaseMigrationRequired]" {
 				if message, ok := parsedLine["message"].(string); ok {
 					log.Ctx(ctx).Error().Msg(message)
 				}
@@ -256,17 +259,19 @@ func (inst *Installer) initializeDatabase(ctx context.Context) error {
 						return install.ErrAlreadyLoggedError
 					}
 				}
-			}
 
-			if category == "Tyger.ControlPlane.Database.Migrations.MigrationRunner[NewerDatabaseVersionsExist]" {
+			case "Tyger.ControlPlane.Database.Migrations.DatabaseVersions[NewerDatabaseVersionsExist]",
+				"Tyger.ControlPlane.Database.Migrations.MigrationRunner[NewerDatabaseVersionsExist]":
 				log.Ctx(ctx).Warn().Msgf("The database schema should be upgraded. Run `tyger api migrations list` to see the available migrations and `tyger api migrations apply` to apply them.")
 				found = true
-				break
-			}
 
-			if category == "Tyger.ControlPlane.Database.Migrations.MigrationRunner[UsingMostRecentDatabaseVersion]" {
+			case "Tyger.ControlPlane.Database.Migrations.DatabaseVersions[UsingMostRecentDatabaseVersion]",
+				"Tyger.ControlPlane.Database.Migrations.MigrationRunner[UsingMostRecentDatabaseVersion]":
 				log.Debug().Msg("Database schema is up to date")
 				found = true
+			}
+
+			if found {
 				break
 			}
 		}
@@ -274,7 +279,7 @@ func (inst *Installer) initializeDatabase(ctx context.Context) error {
 
 	if exitCode == 0 {
 		if !found {
-			return errors.New("failed to find expected migration log message")
+			log.Warn().Msg("Unable to determine if database migrations are required")
 		}
 		return nil
 	}
