@@ -481,15 +481,19 @@ func (inst *Installer) InstallTyger(ctx context.Context) error {
 
 			for _, parsedLine := range parsedLines {
 				if category, ok := parsedLine["category"].(string); ok {
-					if category == "Tyger.ControlPlane.Database.Migrations.MigrationRunner[NewerDatabaseVersionsExist]" {
+					switch category {
+					case "Tyger.ControlPlane.Database.Migrations.DatabaseVersions[NewerDatabaseVersionsExist]",
+						"Tyger.ControlPlane.Database.Migrations.MigrationRunner[NewerDatabaseVersionsExist]":
 						log.Ctx(ctx).Warn().Msgf("The database schema should be upgraded. Run `tyger api migrations list` to see the available migrations and `tyger api migrations apply` to apply them.")
 						found = true
-						break
-					}
 
-					if category == "Tyger.ControlPlane.Database.Migrations.MigrationRunner[UsingMostRecentDatabaseVersion]" {
+					case "Tyger.ControlPlane.Database.Migrations.DatabaseVersions[UsingMostRecentDatabaseVersion]",
+						"Tyger.ControlPlane.Database.Migrations.MigrationRunner[UsingMostRecentDatabaseVersion]":
 						log.Debug().Msg("Database schema is up to date")
 						found = true
+					}
+
+					if found {
 						break
 					}
 				}
@@ -497,7 +501,7 @@ func (inst *Installer) InstallTyger(ctx context.Context) error {
 		}
 
 		if !found {
-			return errors.New("failed to find expected migration log message")
+			log.Warn().Msg("Unable to determine if database migrations are required")
 		}
 
 		return nil

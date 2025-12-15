@@ -175,17 +175,21 @@ public sealed class DatabaseVersions : BackgroundService, IHealthCheck
 
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
+        var knownVersions = GetKnownVersions();
         while (true)
         {
             if (await DoesMigrationsTableExist(cancellationToken))
             {
                 if (await ReadAndUpdateCachedDatabaseVersion(cancellationToken))
                 {
-                    if (GetKnownVersions().FirstOrDefault(v => v.minimumSupported) is (var minimumVersion, var _, var _) && CachedCurrentVersion < minimumVersion)
+
+                    if (knownVersions.FirstOrDefault(v => v.minimumSupported) is (var minimumVersion, var _, var _) && CachedCurrentVersion < minimumVersion)
                     {
                         _logger.DatabaseMigrationRequired((int)minimumVersion, (int)CachedCurrentVersion);
                         throw new DatabaseMigrationRequiredException($"This version of Tyger requires the database to be migrated to at least version {(int)minimumVersion}. The current version is {(int)CachedCurrentVersion}.");
                     }
+
+                    await LogCurrentOrAvailableDatabaseVersions(knownVersions, cancellationToken);
 
                     break;
                 }
@@ -218,6 +222,36 @@ public sealed class DatabaseVersions : BackgroundService, IHealthCheck
             {
                 _logger.FailedToReadDatabaseVersion(e);
             }
+        }
+    }
+
+    public async Task LogCurrentOrAvailableDatabaseVersions(List<(DatabaseVersion version, Type migrator, bool isMinimumVersion)> knownVersions, CancellationToken cancellationToken)
+    {
+        if (!await DoesMigrationsTableExist(cancellationToken))
+        {
+            return;
+        }
+
+        var currentVersion = await ReadCurrentDatabaseVersion(cancellationToken);
+        if (currentVersion == null)
+        {
+            return;
+        }
+
+        if (knownVersions.Any(kv => (int)kv.version > (int)currentVersion))
+        {
+            if (knownVersions.FirstOrDefault(v => v.isMinimumVersion) is (var minimumVersion, var _, var _) && currentVersion < minimumVersion)
+            {
+                _logger.DatabaseMigrationRequired((int)minimumVersion, (int)currentVersion);
+            }
+            else
+            {
+                _logger.NewerDatabaseVersionsExist();
+            }
+        }
+        else
+        {
+            _logger.UsingMostRecentDatabaseVersion();
         }
     }
 
