@@ -82,7 +82,7 @@ resources:
   miseSidecar:
     requests:
       memory: "128Mi"
-      cpu: "200m"
+      cpu: "250m"
     limits:
       memory: "512Mi"
       # cpu:
