@@ -244,7 +244,8 @@ func (inst *Installer) initializeDatabase(ctx context.Context) error {
 	found := false
 	for _, parsedLine := range parsedLines {
 		if category, ok := parsedLine["category"].(string); ok {
-
+			// We are accepting Tyger.ControlPlane.Database.Migrations.MigrationRunner
+			// as well for backwards compatibility.
 			switch category {
 			case "Tyger.ControlPlane.Database.Migrations.DatabaseVersions[DatabaseMigrationRequired]",
 				"Tyger.ControlPlane.Database.Migrations.MigrationRunner[DatabaseMigrationRequired]":
