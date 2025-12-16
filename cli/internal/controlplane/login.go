@@ -47,17 +47,16 @@ const (
 type AccessToken azcore.AccessToken
 
 type LoginConfig struct {
-	ServerUrl                       string                        `json:"serverUrl"`
-	ServicePrincipal                string                        `json:"servicePrincipal,omitempty"`
-	CertificatePath                 string                        `json:"certificatePath,omitempty"`
-	CertificateThumbprint           string                        `json:"certificateThumbprint,omitempty"`
-	ManagedIdentity                 bool                          `json:"managedIdentity,omitempty"`
-	ManagedIdentityClientId         string                        `json:"managedIdentityClientId,omitempty"`
-	GitHub                          bool                          `json:"github,omitempty"`
-	TargetFederatedIdentity         string                        `json:"targetFederatedIdentity,omitempty"`
-	Proxy                           string                        `json:"proxy,omitempty"`
-	TlsCaCertificateSource          client.TlsCaCertificateSource `json:"tlsCaCertificates,omitempty"`
-	DisableTlsCertificateValidation bool                          `json:"disableTlsCertificateValidation,omitempty"`
+	ServerUrl               string                        `json:"serverUrl"`
+	ServicePrincipal        string                        `json:"servicePrincipal,omitempty"`
+	CertificatePath         string                        `json:"certificatePath,omitempty"`
+	CertificateThumbprint   string                        `json:"certificateThumbprint,omitempty"`
+	ManagedIdentity         bool                          `json:"managedIdentity,omitempty"`
+	ManagedIdentityClientId string                        `json:"managedIdentityClientId,omitempty"`
+	GitHub                  bool                          `json:"github,omitempty"`
+	TargetFederatedIdentity string                        `json:"targetFederatedIdentity,omitempty"`
+	Proxy                   string                        `json:"proxy,omitempty"`
+	TlsCaCertificates       client.TlsCaCertificateSource `json:"tlsCaCertificates,omitempty"`
 
 	// These are options for tyger-proxy that are ignored here but we don't want unmarshal to fail if present
 	Port               int      `json:"port,omitempty"`
@@ -96,29 +95,28 @@ func (lc *LoginConfig) UnmarshalJSON(data []byte) error {
 }
 
 type serviceInfo struct {
-	ServerUrl                       string `json:"serverUrl"`
-	parsedServerUrl                 *url.URL
-	ClientAppUri                    string `json:"clientAppUri,omitempty"`
-	ClientId                        string `json:"clientId,omitempty"`
-	LastToken                       string `json:"lastToken,omitempty"`
-	LastTokenExpiry                 int64  `json:"lastTokenExpiration,omitempty"`
-	Principal                       string `json:"principal,omitempty"`
-	ManagedIdentity                 bool   `json:"managedIdentity,omitempty"`
-	ManagedIdentityClientId         string `json:"managedIdentityClientId,omitempty"`
-	GitHub                          bool   `json:"github,omitempty"`
-	TargetFederatedIdentity         string `json:"targetFederatedIdentity,omitempty"`
-	CertPath                        string `json:"certPath,omitempty"`
-	CertThumbprint                  string `json:"certThumbprint,omitempty"`
-	Authority                       string `json:"authority,omitempty"`
-	Audience                        string `json:"audience,omitempty"`
-	FullCache                       string `json:"fullCache,omitempty"`
-	DataPlaneProxy                  string `json:"dataPlaneProxy,omitempty"`
-	parsedDataPlaneProxy            *url.URL
-	Proxy                           string `json:"proxy,omitempty"`
-	parsedProxy                     *url.URL
-	TlsCaCertificates               client.TlsCaCertificateSource `json:"tlsCaCertificates,omitempty"`
-	DisableTlsCertificateValidation bool                          `json:"disableTlsCertificateValidation,omitempty"`
-	confidentialClient              *confidential.Client
+	ServerUrl               string `json:"serverUrl"`
+	parsedServerUrl         *url.URL
+	ClientAppUri            string `json:"clientAppUri,omitempty"`
+	ClientId                string `json:"clientId,omitempty"`
+	LastToken               string `json:"lastToken,omitempty"`
+	LastTokenExpiry         int64  `json:"lastTokenExpiration,omitempty"`
+	Principal               string `json:"principal,omitempty"`
+	ManagedIdentity         bool   `json:"managedIdentity,omitempty"`
+	ManagedIdentityClientId string `json:"managedIdentityClientId,omitempty"`
+	GitHub                  bool   `json:"github,omitempty"`
+	TargetFederatedIdentity string `json:"targetFederatedIdentity,omitempty"`
+	CertPath                string `json:"certPath,omitempty"`
+	CertThumbprint          string `json:"certThumbprint,omitempty"`
+	Authority               string `json:"authority,omitempty"`
+	Audience                string `json:"audience,omitempty"`
+	FullCache               string `json:"fullCache,omitempty"`
+	DataPlaneProxy          string `json:"dataPlaneProxy,omitempty"`
+	parsedDataPlaneProxy    *url.URL
+	Proxy                   string `json:"proxy,omitempty"`
+	parsedProxy             *url.URL
+	TlsCaCertificates       client.TlsCaCertificateSource `json:"tlsCaCertificates,omitempty"`
+	confidentialClient      *confidential.Client
 }
 
 // Handle backwards compatibility with `serverUri` instead of `serverUrl`.
@@ -173,21 +171,21 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 	options.ServerUrl = normalizedServerUrl.String()
 
 	si := &serviceInfo{
-		ServerUrl:                       options.ServerUrl,
-		parsedServerUrl:                 normalizedServerUrl,
-		Principal:                       options.ServicePrincipal,
-		CertPath:                        options.CertificatePath,
-		CertThumbprint:                  options.CertificateThumbprint,
-		ManagedIdentity:                 options.ManagedIdentity,
-		ManagedIdentityClientId:         options.ManagedIdentityClientId,
-		TargetFederatedIdentity:         options.TargetFederatedIdentity,
-		Proxy:                           options.Proxy,
-		DisableTlsCertificateValidation: options.DisableTlsCertificateValidation,
+		ServerUrl:               options.ServerUrl,
+		parsedServerUrl:         normalizedServerUrl,
+		Principal:               options.ServicePrincipal,
+		CertPath:                options.CertificatePath,
+		CertThumbprint:          options.CertificateThumbprint,
+		ManagedIdentity:         options.ManagedIdentity,
+		ManagedIdentityClientId: options.ManagedIdentityClientId,
+		TargetFederatedIdentity: options.TargetFederatedIdentity,
+		Proxy:                   options.Proxy,
+		TlsCaCertificates:       options.TlsCaCertificates,
 	}
 
 	defaultClientOptions := client.ClientOptions{
-		ProxyString:                     options.Proxy,
-		DisableTlsCertificateValidation: options.DisableTlsCertificateValidation,
+		ProxyString:         options.Proxy,
+		CaCertificateSource: options.TlsCaCertificates,
 	}
 
 	if err := client.SetDefaultNetworkClientSettings(&defaultClientOptions); err != nil {
@@ -325,6 +323,9 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 		si.ClientId = serviceMetadata.CliAppId
 		si.ClientAppUri = serviceMetadata.CliAppUri
 		si.DataPlaneProxy = serviceMetadata.DataPlaneProxy
+		if options.TlsCaCertificates == "" {
+			si.TlsCaCertificates = client.TlsCaCertificateSource(serviceMetadata.TlsCaCertificates)
+		}
 
 		if err := validateServiceInfo(si); err != nil {
 			return nil, err
@@ -636,8 +637,8 @@ func GetClientFromCache() (*client.TygerClient, error) {
 	}
 
 	defaultClientOptions := client.ClientOptions{
-		ProxyString:                     si.Proxy,
-		DisableTlsCertificateValidation: si.DisableTlsCertificateValidation,
+		ProxyString:         si.Proxy,
+		CaCertificateSource: si.TlsCaCertificates,
 	}
 
 	if err := client.SetDefaultNetworkClientSettings(&defaultClientOptions); err != nil {

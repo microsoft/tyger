@@ -13,16 +13,17 @@ import (
 )
 
 type ServiceMetadata struct {
-	RbacEnabled    bool     `json:"rbacEnabled,omitempty"`
-	Authority      string   `json:"authority,omitempty"`
-	Audience       string   `json:"audience,omitempty"`
-	ApiAppUri      string   `json:"serverAppUri,omitempty"`
-	ApiAppId       string   `json:"serverAppId,omitempty"`
-	CliAppUri      string   `json:"cliAppUri,omitempty"`
-	CliAppId       string   `json:"cliAppId,omitempty"`
-	DataPlaneProxy string   `json:"dataPlaneProxy,omitempty"`
-	Capabilities   []string `json:"capabilities,omitempty"`
-	ApiVersions    []string `json:"apiVersions,omitempty"`
+	RbacEnabled       bool     `json:"rbacEnabled,omitempty"`
+	Authority         string   `json:"authority,omitempty"`
+	Audience          string   `json:"audience,omitempty"`
+	ApiAppUri         string   `json:"serverAppUri,omitempty"`
+	ApiAppId          string   `json:"serverAppId,omitempty"`
+	CliAppUri         string   `json:"cliAppUri,omitempty"`
+	CliAppId          string   `json:"cliAppId,omitempty"`
+	Capabilities      []string `json:"capabilities,omitempty"`
+	ApiVersions       []string `json:"apiVersions,omitempty"`
+	DataPlaneProxy    string   `json:"dataPlaneProxy,omitempty"`    // Only used by tyger-proxy
+	TlsCaCertificates string   `json:"tlsCaCertificates,omitempty"` // Only used by tyger-proxy
 }
 
 type Buffer struct {

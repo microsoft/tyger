@@ -142,15 +142,15 @@ func TestHttpProxy(t *testing.T) {
 	require.Error(t, err, "curl should fail because the root CA certificates have been removed")
 	s.ShellExecSucceeds("tyger-proxy", fmt.Sprintf("curl --retry 5 --proxy %s --insecure --fail %s/metadata", squidProxy, tygerUrl))
 
-	// disable TLS certificate validation in the config file
-	s.ShellExecSucceeds("tyger-proxy", "echo 'disableTlsCertificateValidation: true' >> /creds.yml")
+	// Use CA certificates that are embedded in the tyger binary
+	s.ShellExecSucceeds("tyger-proxy", "echo 'tlsCaCertificates: embedded' >> /creds.yml")
 	s.ShellExecSucceeds("tyger-proxy", fmt.Sprintf("tyger login -f /creds.yml && tyger buffer read %s > /dev/null", bufferId))
 
-	// Now restart tyger-proxy with TLS certificate validation disabled
+	// Now start up the tyger proxy using embedded CA certificates
 	s.ShellExecSucceeds("tyger-proxy", "pgrep tyger-proxy | xargs kill && tyger-proxy start -f /creds.yml")
 
-	// And connect to it from the client with TLS certificate validation also disabled
-	s.ShellExecSucceeds("client", fmt.Sprintf("tyger login http://tyger-proxy:6888 --disable-tls-certificate-validation && tyger buffer read %s > /dev/null", bufferId))
+	// Then connect to it from the client, which should use the CA certificates that the proxy publishes in its metadata
+	s.ShellExecSucceeds("client", fmt.Sprintf("curl --retry 5 http://tyger-proxy:6888/metadata && tyger login http://tyger-proxy:6888 && tyger buffer read %s > /dev/null", bufferId))
 }
 
 type ComposeSession struct {

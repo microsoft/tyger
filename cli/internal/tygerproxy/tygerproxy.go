@@ -161,27 +161,39 @@ type proxyHandler struct {
 	tygerClient           *client.TygerClient
 	targetControlPlaneUrl *url.URL
 	options               *ProxyOptions
+	cachedMetadata        *ProxyServiceMetadata
+	cachedMetadataOnce    sync.Once
 	nextProxyFunc         func(*http.Request) (*url.URL, error)
 }
 
 func (h *proxyHandler) handleMetadataRequest(w http.ResponseWriter, r *http.Request) {
+	h.cachedMetadataOnce.Do(func() {
+		dataPlaneProxyUrl := url.URL{Host: r.Host}
+
+		if r.TLS == nil {
+			dataPlaneProxyUrl.Scheme = "http"
+		} else {
+			dataPlaneProxyUrl.Scheme = "https"
+		}
+
+		pemBytes, _ := client.GetCaCertPemBytes(h.options.TlsCaCertificates)
+		pemString := ""
+		if len(pemBytes) > 0 {
+			pemString = string(pemBytes)
+		}
+
+		h.cachedMetadata = &ProxyServiceMetadata{
+			ServiceMetadata: model.ServiceMetadata{
+				DataPlaneProxy:    dataPlaneProxyUrl.String(),
+				TlsCaCertificates: pemString,
+			},
+			ServerUrl: h.targetControlPlaneUrl.String(),
+			LogPath:   h.options.LogPath,
+		}
+	})
+
 	w.WriteHeader(http.StatusOK)
-	dataPlaneProxyUrl := url.URL{Host: r.Host}
-
-	if r.TLS == nil {
-		dataPlaneProxyUrl.Scheme = "http"
-	} else {
-		dataPlaneProxyUrl.Scheme = "https"
-	}
-
-	metadata := ProxyServiceMetadata{
-		ServiceMetadata: model.ServiceMetadata{
-			DataPlaneProxy: dataPlaneProxyUrl.String(),
-		},
-		ServerUrl: h.targetControlPlaneUrl.String(),
-		LogPath:   h.options.LogPath,
-	}
-	if err := json.NewEncoder(w).Encode(metadata); err != nil {
+	if err := json.NewEncoder(w).Encode(h.cachedMetadata); err != nil {
 		log.Ctx(r.Context()).Error().Err(err).Msg("unable to write metadata response")
 	}
 }
