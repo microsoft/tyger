@@ -54,7 +54,11 @@ func RunProxy(ctx context.Context, tygerClient *client.TygerClient, options *Pro
 		tygerClient:           tygerClient,
 		targetControlPlaneUrl: controlPlaneTargetUrl,
 		options:               options,
-		nextProxyFunc:         tygerClient.DataPlaneClient.Proxy,
+		getCaCertsPemString: sync.OnceValue(func() string {
+			pemBytes, _ := client.GetCaCertPemBytes(options.TlsCaCertificates)
+			return string(pemBytes)
+		}),
+		nextProxyFunc: tygerClient.DataPlaneClient.Proxy,
 	}
 
 	r := chi.NewRouter()
@@ -161,39 +165,30 @@ type proxyHandler struct {
 	tygerClient           *client.TygerClient
 	targetControlPlaneUrl *url.URL
 	options               *ProxyOptions
-	cachedMetadata        *ProxyServiceMetadata
-	cachedMetadataOnce    sync.Once
+	getCaCertsPemString   func() string
 	nextProxyFunc         func(*http.Request) (*url.URL, error)
 }
 
 func (h *proxyHandler) handleMetadataRequest(w http.ResponseWriter, r *http.Request) {
-	h.cachedMetadataOnce.Do(func() {
-		dataPlaneProxyUrl := url.URL{Host: r.Host}
+	dataPlaneProxyUrl := url.URL{Host: r.Host}
 
-		if r.TLS == nil {
-			dataPlaneProxyUrl.Scheme = "http"
-		} else {
-			dataPlaneProxyUrl.Scheme = "https"
-		}
+	if r.TLS == nil {
+		dataPlaneProxyUrl.Scheme = "http"
+	} else {
+		dataPlaneProxyUrl.Scheme = "https"
+	}
 
-		pemBytes, _ := client.GetCaCertPemBytes(h.options.TlsCaCertificates)
-		pemString := ""
-		if len(pemBytes) > 0 {
-			pemString = string(pemBytes)
-		}
-
-		h.cachedMetadata = &ProxyServiceMetadata{
-			ServiceMetadata: model.ServiceMetadata{
-				DataPlaneProxy:    dataPlaneProxyUrl.String(),
-				TlsCaCertificates: pemString,
-			},
-			ServerUrl: h.targetControlPlaneUrl.String(),
-			LogPath:   h.options.LogPath,
-		}
-	})
+	metadata := &ProxyServiceMetadata{
+		ServiceMetadata: model.ServiceMetadata{
+			DataPlaneProxy:    dataPlaneProxyUrl.String(),
+			TlsCaCertificates: h.getCaCertsPemString(),
+		},
+		ServerUrl: h.targetControlPlaneUrl.String(),
+		LogPath:   h.options.LogPath,
+	}
 
 	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(h.cachedMetadata); err != nil {
+	if err := json.NewEncoder(w).Encode(metadata); err != nil {
 		log.Ctx(r.Context()).Error().Err(err).Msg("unable to write metadata response")
 	}
 }
