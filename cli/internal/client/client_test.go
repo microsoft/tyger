@@ -170,8 +170,6 @@ func TestGetCaCertPoolCaching(t *testing.T) {
 	require.Equal(t, pool1, pool2)
 }
 
-func TestClientCert
-
 func TestGetProxyFuncAutomatic(t *testing.T) {
 	testCases := []string{
 		"", "auto", "automatic",
