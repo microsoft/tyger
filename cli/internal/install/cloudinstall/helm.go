@@ -277,14 +277,30 @@ func (inst *Installer) installCertManager(ctx context.Context, restConfigPromise
 		Namespace:   "cert-manager",
 		ReleaseName: "cert-manager",
 		ChartRef:    "oci://mcr.microsoft.com/azurelinux/helm/cert-manager",
-		Version:     "1.12.12-10",
+		Version:     "1.12.12-12",
 		Values: map[string]any{
 			"cert-manager": map[string]any{
 				"installCRDs": true,
+				"image": map[string]any{
+					"repository": "mcr.microsoft.com/azurelinux/base/cert-manager-controller",
+					"tag":        "1.12.15-4.3.0.20251206",
+				},
 				"acmesolver": map[string]any{
 					"image": map[string]any{
 						"repository": "mcr.microsoft.com/azurelinux/base/cert-manager-acmesolver",
-						"tag":        "1.12.15-4.3.0.20250729",
+						"tag":        "1.12.15-4.3.0.20251206",
+					},
+				},
+				"cainjector": map[string]any{
+					"image": map[string]any{
+						"repository": "mcr.microsoft.com/azurelinux/base/cert-manager-cainjector",
+						"tag":        "1.12.15-4.3.0.20251206",
+					},
+				},
+				"webhook": map[string]any{
+					"image": map[string]any{
+						"repository": "mcr.microsoft.com/azurelinux/base/cert-manager-webhook",
+						"tag":        "1.12.15-4.3.0.20251206",
 					},
 				},
 			},
