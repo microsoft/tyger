@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:9.0.305-azurelinux3.0 AS build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:9.0.308-azurelinux3.0 AS build
 ARG TARGETARCH
 
 WORKDIR /cp
@@ -42,9 +42,9 @@ RUN dotnet publish --no-restore --arch ${TARGETARCH} -c release -o /control-plan
 WORKDIR /src/server/DataPlane
 RUN dotnet publish --no-restore --arch ${TARGETARCH} -c release -o /data-plane
 
-FROM mcr.microsoft.com/dotnet/aspnet:9.0.9-azurelinux3.0 AS runtime-prep
+FROM mcr.microsoft.com/dotnet/aspnet:9.0.11-azurelinux3.0 AS runtime-prep
 
-FROM mcr.microsoft.com/dotnet/aspnet:9.0.9-azurelinux3.0-distroless AS control-plane
+FROM mcr.microsoft.com/dotnet/aspnet:9.0.11-azurelinux3.0-distroless AS control-plane
 COPY --from=build /cp /app
 WORKDIR /app/bin
 COPY --from=runtime-prep /usr/bin/sleep .
@@ -53,7 +53,7 @@ COPY --from=build /control-plane .
 USER app:app
 ENTRYPOINT ["/app/bin/tyger-server"]
 
-FROM mcr.microsoft.com/dotnet/aspnet:9.0.9-azurelinux3.0-distroless AS data-plane
+FROM mcr.microsoft.com/dotnet/aspnet:9.0.11-azurelinux3.0-distroless AS data-plane
 COPY --from=build /dp /app
 WORKDIR /app/bin
 COPY --from=build /static/curl .
