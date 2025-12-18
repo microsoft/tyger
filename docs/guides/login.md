@@ -70,6 +70,18 @@ You will need to follow GitHub
 [documentation](https://docs.github.com/en/actions/security-for-github-actions/security-hardening-your-deployments/configuring-openid-connect-in-azure)
 in order to ensure you can use this feature from your pipeline.
 
+## Specifying trusted certificate authority certificates
+
+By default, `tyger` uses the operating system's trusted root CA certificates for
+TLS certificate validation. You can override this with the
+`--tls-ca-certificates` flag. The following values are supported:
+
+- `os` to use the operating system's root CA certificates (the default)
+- `embedded` to use the CA certificates embedded in the `tyger` binary. These
+  are the Microsoft trusted root authorities on the day the binary was built. See
+  https://aka.ms/trustcertpartners.
+- A path to a .pem file containing CA certificates.
+
 ## Specifying login options from a configuration file
 
 Instead of command-line flags, you can specify login parameters in a
@@ -108,4 +120,13 @@ targetFederatedIdentity: # Optionally specify a federated identity to authentica
 
 # The HTTP proxy to use. Can be 'auto[matic]', 'none', or a URL. The default is 'auto'.
 proxy: auto
+
+# The source of trusted root CA certificates to use for TLS certificate validation.
+# Can be one of:
+#  - `os` to use the operating system's root CA certificates (the default)
+#  - `embedded` to use the CA certificates embedded in the `tyger` binary. These
+#               are the Microsoft trusted root authorities on the day the binary was built. See
+#               https://aka.ms/trustcertpartners.
+#  - a path to a .pem file containing CA certificates.
+tlsCaCertificates:
 ```

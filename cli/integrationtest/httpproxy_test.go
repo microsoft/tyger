@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"testing"
+	"time"
 
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/install"
@@ -95,8 +96,10 @@ func TestHttpProxy(t *testing.T) {
 
 	// Test tyger using the Squid proxy
 	stdOut, stdErr, err := s.ShellExec("tyger-proxy", fmt.Sprintf("curl --fail %s/metadata -v", tygerUrl))
-	t.Log("stdout", stdOut)
-	t.Log("stdErr", stdErr)
+	if err == nil {
+		t.Log("stdout", stdOut)
+		t.Log("stdErr", stdErr)
+	}
 	require.Error(t, err, "curl should fail because the proxy is not used")
 	s.ShellExecSucceeds("tyger-proxy", fmt.Sprintf("curl --retry 5 --proxy %s --fail %s/metadata", squidProxy, tygerUrl))
 
@@ -126,9 +129,15 @@ func TestHttpProxy(t *testing.T) {
 	// Now start up the tyger proxy
 	s.ShellExecSucceeds("tyger-proxy", "tyger-proxy start -f /creds.yml")
 
+	defer func() {
+		time.Sleep(time.Second)
+		out, _, _ := s.ShellExec("tyger-proxy", `for f in $(ls -1 /logs | sort); do echo "===== $f ====="; cat "/logs/$f"; echo; done`)
+		t.Log(out)
+	}()
+
 	// Connect to it from the client container
 	s.CommandSucceeds("start", "client")
-	s.ShellExecSucceeds("client", fmt.Sprintf("tyger login http://tyger-proxy:6888 && tyger buffer read %s > /dev/null", bufferId))
+	s.ShellExecSucceeds("client", fmt.Sprintf("curl --fail --retry 5 http://tyger-proxy:6888/metadata > /dev/stderr && tyger login http://tyger-proxy:6888 && tyger buffer read --log-level trace %s > /dev/null", bufferId))
 
 	// Now repeat without TLS certificate validation
 
@@ -142,15 +151,15 @@ func TestHttpProxy(t *testing.T) {
 	require.Error(t, err, "curl should fail because the root CA certificates have been removed")
 	s.ShellExecSucceeds("tyger-proxy", fmt.Sprintf("curl --retry 5 --proxy %s --insecure --fail %s/metadata", squidProxy, tygerUrl))
 
-	// disable TLS certificate validation in the config file
-	s.ShellExecSucceeds("tyger-proxy", "echo 'disableTlsCertificateValidation: true' >> /creds.yml")
+	// Use CA certificates that are embedded in the tyger binary
+	s.ShellExecSucceeds("tyger-proxy", "echo 'tlsCaCertificates: embedded' >> /creds.yml")
 	s.ShellExecSucceeds("tyger-proxy", fmt.Sprintf("tyger login -f /creds.yml && tyger buffer read %s > /dev/null", bufferId))
 
-	// Now restart tyger-proxy with TLS certificate validation disabled
+	// Now start up the tyger proxy using embedded CA certificates
 	s.ShellExecSucceeds("tyger-proxy", "pgrep tyger-proxy | xargs kill && tyger-proxy start -f /creds.yml")
 
-	// And connect to it from the client with TLS certificate validation also disabled
-	s.ShellExecSucceeds("client", fmt.Sprintf("tyger login http://tyger-proxy:6888 --disable-tls-certificate-validation && tyger buffer read %s > /dev/null", bufferId))
+	// Then connect to it from the client, which should use the CA certificates that the proxy publishes in its metadata
+	s.ShellExecSucceeds("client", fmt.Sprintf("curl --fail --retry 5 http://tyger-proxy:6888/metadata && tyger login http://tyger-proxy:6888 && tyger buffer read %s > /dev/null", bufferId))
 }
 
 type ComposeSession struct {

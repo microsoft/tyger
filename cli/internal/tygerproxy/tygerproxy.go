@@ -54,7 +54,11 @@ func RunProxy(ctx context.Context, tygerClient *client.TygerClient, options *Pro
 		tygerClient:           tygerClient,
 		targetControlPlaneUrl: controlPlaneTargetUrl,
 		options:               options,
-		nextProxyFunc:         tygerClient.DataPlaneClient.Proxy,
+		getCaCertsPemString: sync.OnceValue(func() string {
+			pemBytes, _ := client.GetCaCertPemBytes(options.TlsCaCertificates)
+			return string(pemBytes)
+		}),
+		nextProxyFunc: tygerClient.DataPlaneClient.Proxy,
 	}
 
 	r := chi.NewRouter()
@@ -161,11 +165,11 @@ type proxyHandler struct {
 	tygerClient           *client.TygerClient
 	targetControlPlaneUrl *url.URL
 	options               *ProxyOptions
+	getCaCertsPemString   func() string
 	nextProxyFunc         func(*http.Request) (*url.URL, error)
 }
 
 func (h *proxyHandler) handleMetadataRequest(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
 	dataPlaneProxyUrl := url.URL{Host: r.Host}
 
 	if r.TLS == nil {
@@ -174,13 +178,16 @@ func (h *proxyHandler) handleMetadataRequest(w http.ResponseWriter, r *http.Requ
 		dataPlaneProxyUrl.Scheme = "https"
 	}
 
-	metadata := ProxyServiceMetadata{
+	metadata := &ProxyServiceMetadata{
 		ServiceMetadata: model.ServiceMetadata{
-			DataPlaneProxy: dataPlaneProxyUrl.String(),
+			DataPlaneProxy:    dataPlaneProxyUrl.String(),
+			TlsCaCertificates: h.getCaCertsPemString(),
 		},
 		ServerUrl: h.targetControlPlaneUrl.String(),
 		LogPath:   h.options.LogPath,
 	}
+
+	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(metadata); err != nil {
 		log.Ctx(r.Context()).Error().Err(err).Msg("unable to write metadata response")
 	}

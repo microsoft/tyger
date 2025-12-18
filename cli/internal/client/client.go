@@ -6,12 +6,15 @@ package client
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
+	_ "embed"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -34,6 +37,9 @@ const (
 var (
 	DefaultClient          *Client
 	DefaultRetryableClient *retryablehttp.Client
+
+	//go:embed ca-certificates.pem
+	CaCertificates []byte
 )
 
 func GetDefaultSocketUrl() string {
@@ -51,10 +57,73 @@ type MakeDialer func(next dialContextFunc) dialContextFunc
 
 type dialContextFunc func(ctx context.Context, network, address string) (net.Conn, error)
 
+type TlsCaCertificateSource string
+
+const (
+	TlsCaCertificateSourceOperatingSystem TlsCaCertificateSource = "os"
+	TlsCaCertificateSourceEmbedded        TlsCaCertificateSource = "embedded"
+)
+
+var certPoolCache sync.Map // map[TlsCaCertificateSource]*x509.CertPool
+
+func GetCaCertPemBytes(source TlsCaCertificateSource) ([]byte, error) {
+	if source == "" || source == TlsCaCertificateSourceOperatingSystem {
+		return nil, nil
+	}
+
+	certPool := x509.NewCertPool()
+
+	switch source {
+	case TlsCaCertificateSourceEmbedded:
+		return CaCertificates, nil
+	default:
+		// check if this is an inline PEM
+		byteSource := []byte(source)
+		if certPool.AppendCertsFromPEM(byteSource) {
+			return byteSource, nil
+		}
+
+		var certData []byte
+		certData, err := os.ReadFile(string(source))
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to read CA certificate file")
+		}
+		return certData, nil
+	}
+}
+
+func getCaCertPool(source TlsCaCertificateSource) (*x509.CertPool, error) {
+	if source == "" || source == TlsCaCertificateSourceOperatingSystem {
+		return nil, nil
+	}
+
+	if cached, ok := certPoolCache.Load(source); ok {
+		return cached.(*x509.CertPool), nil
+	}
+
+	certPool := x509.NewCertPool()
+
+	certData, err := GetCaCertPemBytes(source)
+	if err != nil {
+		return nil, err
+	}
+
+	if ok := certPool.AppendCertsFromPEM(certData); !ok {
+		return nil, errors.New("invalid CA certificate data")
+	}
+
+	certPoolCache.Store(source, certPool)
+	return certPool, nil
+}
+
 type Client struct {
 	*retryablehttp.Client
 	transport               http.RoundTripper
 	underlyingHttpTransport *http.Transport
+}
+
+func (c *Client) GetUnderlyingTransport() *http.Transport {
+	return c.underlyingHttpTransport
 }
 
 func (c *Client) Proxy(req *http.Request) (*url.URL, error) {
@@ -62,11 +131,11 @@ func (c *Client) Proxy(req *http.Request) (*url.URL, error) {
 }
 
 type ClientOptions struct {
-	ProxyString                     string
-	CreateTransport                 MakeRoundTripper
-	CreateDialer                    MakeDialer
-	DisableRetries                  bool
-	DisableTlsCertificateValidation bool
+	ProxyString         string
+	CreateTransport     MakeRoundTripper
+	CreateDialer        MakeDialer
+	DisableRetries      bool
+	CaCertificateSource TlsCaCertificateSource
 }
 
 func NewClient(opts *ClientOptions) (*Client, error) {
@@ -87,15 +156,19 @@ func NewClient(opts *ClientOptions) (*Client, error) {
 		return nil, err
 	}
 
+	caCertPool, err := getCaCertPool(opts.CaCertificateSource)
+	if err != nil {
+		return nil, err
+	}
+
 	transport := &http.Transport{
 		MaxIdleConnsPerHost:   1000,
 		ResponseHeaderTimeout: 60 * time.Second,
 		Proxy:                 proxyFunc,
 		DialContext:           opts.CreateDialer((&net.Dialer{}).DialContext),
-	}
-
-	if opts.DisableTlsCertificateValidation {
-		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		TLSClientConfig: &tls.Config{
+			RootCAs: caCertPool,
+		},
 	}
 
 	var roundTripper http.RoundTripper = transport
