@@ -214,8 +214,8 @@ if [[ -n "${tyger_server:-}" ]]; then
 fi
 
 if [[ -n "${worker_waiter:-}" ]]; then
-  build_context="${repo_root_dir}/deploy/images/worker-waiter"
-  dockerfile_path="${repo_root_dir}/deploy/images/worker-waiter/Dockerfile"
+  build_context="${repo_root_dir}/cli"
+  dockerfile_path="${repo_root_dir}/cli/Dockerfile"
   target="worker-waiter"
   repo="worker-waiter"
 
