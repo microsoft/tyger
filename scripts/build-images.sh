@@ -16,7 +16,6 @@ Options:
   -r, --registry                   The FQDN of container registry to push to.
   --test-connectivity              Build (and optionally push) the testconnectivity image
   --tyger-server                   Build (and optionally push) the tyger-server image
-  --worker-waiter                  Build (and optionally push) the worker-waiter image
   --buffer-sidecar                 Build (and optionally push) the buffer-sidecar image
   --helm                           Package and push the Tyger Helm chart
   --registry-directory             The parent directory of the repositories. e.g. <registry>/<registry-dir>/<repo-name>
@@ -45,10 +44,6 @@ while [[ $# -gt 0 ]]; do
     ;;
   --tyger-server)
     tyger_server=1
-    shift
-    ;;
-  --worker-waiter)
-    worker_waiter=1
     shift
     ;;
   --buffer-sidecar)
@@ -213,15 +208,6 @@ if [[ -n "${tyger_server:-}" ]]; then
   build_and_push
 fi
 
-if [[ -n "${worker_waiter:-}" ]]; then
-  build_context="${repo_root_dir}/cli"
-  dockerfile_path="${repo_root_dir}/cli/Dockerfile"
-  target="worker-waiter"
-  repo="worker-waiter"
-
-  build_and_push
-fi
-
 if [[ -n "${buffer_sidecar:-}" ]]; then
   build_context="${repo_root_dir}/cli"
   dockerfile_path="${repo_root_dir}/cli/Dockerfile"
@@ -237,6 +223,11 @@ if [[ -n "${buffer_sidecar:-}" ]]; then
 
   target="buffer-copier"
   repo="buffer-copier"
+
+  build_and_push
+
+  target="worker-waiter"
+  repo="worker-waiter"
 
   build_and_push
 fi
