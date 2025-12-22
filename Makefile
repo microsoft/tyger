@@ -91,13 +91,10 @@ docker-build-tyger-server: login-acr
 docker-build-buffer-sidecar: login-acr
 	$(MAKE) _docker-build DOCKER_BUILD_TARGET=buffer-sidecar
 
-docker-build-worker-waiter: login-acr
-	$(MAKE) _docker-build DOCKER_BUILD_TARGET=worker-waiter
-
 docker-build-helm: login-acr
 	$(MAKE) _docker-build DOCKER_BUILD_TARGET=helm
 
-docker-build: docker-build-test docker-build-tyger-server docker-build-buffer-sidecar docker-build-worker-waiter
+docker-build: docker-build-test docker-build-tyger-server docker-build-buffer-sidecar
 
 publish-official-images:
 	container_registry_spec=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -c '.officialPushContainerRegistry')

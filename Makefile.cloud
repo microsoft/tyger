@@ -137,7 +137,7 @@ set-localsettings: set-context
 		}
 	EOF
 
-up: install-cli ensure-environment-conditionally docker-build-tyger-server docker-build-buffer-sidecar docker-build-worker-waiter docker-build-test
+up: install-cli ensure-environment-conditionally docker-build-tyger-server docker-build-buffer-sidecar docker-build-test
 	tyger api install -f <(scripts/get-config.sh)
 	$(MAKE) cli-ready
 

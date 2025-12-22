@@ -345,11 +345,16 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
                 VolumeMounts = [new("/no-op/", "no-op")]
             });
 
-        var waitScript = new StringBuilder("set -euo pipefail").AppendLine();
-        waitScript.AppendLine($"until kubectl wait --for=condition=ready pod -l {WorkerLabel}={run.Id}; do echo waiting for workers to be ready; sleep 1; done;");
+        var workerWaiterArgs = new List<string>
+        {
+            "--label-selector", $"{WorkerLabel}={run.Id}",
+            "--namespace", _k8sOptions.Namespace,
+        };
+
         foreach (var host in GetWorkerDnsNames(run))
         {
-            waitScript.AppendLine($"until getent hosts {host}; do echo waiting for hostname {host} to resolve; sleep 1; done;");
+            workerWaiterArgs.Add("--hostname");
+            workerWaiterArgs.Add(host);
         }
 
         initContainers.Add(
@@ -357,7 +362,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
             {
                 Name = "waitforworker",
                 Image = _k8sOptions.WorkerWaiterImage,
-                Command = ["bash", "-c", waitScript.ToString()],
+                Args = workerWaiterArgs,
             });
 
         (jobPod.Spec.Volumes ??= []).Add(new()
