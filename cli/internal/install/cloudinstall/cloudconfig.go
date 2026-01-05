@@ -13,7 +13,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v7"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v8"
 	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/microsoft/tyger/cli/internal/templatefunctions"
 	"github.com/rs/zerolog/log"
