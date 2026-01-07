@@ -85,30 +85,30 @@ _docker-build:
 docker-build-test: login-acr
 	$(MAKE) _docker-build DOCKER_BUILD_TARGET=test-connectivity
 
-docker-build-tyger-server: login-acr
-	$(MAKE) _docker-build DOCKER_BUILD_TARGET=tyger-server
+docker-build-server: login-acr
+	$(MAKE) _docker-build DOCKER_BUILD_TARGET=server
 
-docker-build-buffer-sidecar: login-acr
-	$(MAKE) _docker-build DOCKER_BUILD_TARGET=buffer-sidecar
+docker-build-client: login-acr
+	$(MAKE) _docker-build DOCKER_BUILD_TARGET=client
 
 docker-build-helm: login-acr
 	$(MAKE) _docker-build DOCKER_BUILD_TARGET=helm
 
-docker-build: docker-build-test docker-build-tyger-server docker-build-buffer-sidecar
+docker-build: docker-build-test docker-build-server docker-build-client
 
 publish-official-images:
 	container_registry_spec=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -c '.officialPushContainerRegistry')
 	export EXPLICIT_IMAGE_TAG="$$(git describe --tags)"
-	$(MAKE) DOCKER_BUILD_ARCH_FLAGS="--arch amd64 --arch arm64" CONTAINER_REGISTRY_SPEC="$${container_registry_spec}" docker-build docker-build-helm
+	$(MAKE) DOCKER_BUILD_ARCH_FLAGS="--arch amd64 --arch arm64" CONTAINER_REGISTRY_SPEC="$${container_registry_spec}" docker-build-server docker-build-client docker-build-helm
 
 publish-ghcr:
 	container_registry_spec="{\"fqdn\": \"ghcr.io\", \"directory\": \"/$${GITHUB_REPOSITORY}\"}"
-	$(MAKE) DOCKER_BUILD_ARCH_FLAGS="--arch amd64 --arch arm64" CONTAINER_REGISTRY_SPEC="$${container_registry_spec}" docker-build docker-build-helm
+	$(MAKE) DOCKER_BUILD_ARCH_FLAGS="--arch amd64 --arch arm64" CONTAINER_REGISTRY_SPEC="$${container_registry_spec}" docker-build-server docker-build-client docker-build-helm
 
 prepare-wip-binaries:
 	tag="$$(git describe --tags)-$$(date +'%Y%m%d%H%M%S')"
 	export EXPLICIT_IMAGE_TAG=$${tag}
-	$(MAKE) DOCKER_BUILD_ARCH_FLAGS="--arch amd64 --arch arm64" docker-build docker-build-helm
+	$(MAKE) DOCKER_BUILD_ARCH_FLAGS="--arch amd64 --arch arm64" docker-build-server docker-build-client docker-build-helm
 	$(MAKE) install-cli
 	
 integration-test-no-up-prereqs:

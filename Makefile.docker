@@ -74,7 +74,7 @@ set-data-plane-localsettings:
 		}
 	EOF
 
-up: ensure-data-plane-cert install-cli docker-build-tyger-server docker-build-buffer-sidecar docker-build-test
+up: ensure-data-plane-cert install-cli docker-build-server docker-build-client docker-build-test
 	tyger api install -f <(scripts/get-config.sh --docker)
 
 down: install-cli

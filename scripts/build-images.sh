@@ -14,9 +14,9 @@ Usage: $0 [options]
 
 Options:
   -r, --registry                   The FQDN of container registry to push to.
-  --test-connectivity              Build (and optionally push) the testconnectivity image
-  --tyger-server                   Build (and optionally push) the tyger-server image
-  --buffer-sidecar                 Build (and optionally push) the buffer-sidecar image
+  --test                           Build (and optionally push) the test images
+  --server                         Build (and optionally push) the server images (i.e. the C# code)
+  --client                         Build (and optionally push) the client images (i.e. the Go code)
   --helm                           Package and push the Tyger Helm chart
   --registry-directory             The parent directory of the repositories. e.g. <registry>/<registry-dir>/<repo-name>
   --arch amd64|arm64               The architecture to build for. Can be specified multiple times.
@@ -39,15 +39,15 @@ while [[ $# -gt 0 ]]; do
     shift 2
     ;;
   --test-connectivity)
-    test_connectivity=1
+    test=1
     shift
     ;;
-  --tyger-server)
-    tyger_server=1
+  --server)
+    server=1
     shift
     ;;
-  --buffer-sidecar)
-    buffer_sidecar=1
+  --client)
+    client=1
     shift
     ;;
   --helm)
@@ -119,11 +119,17 @@ export DOCKER_BUILDKIT=1
 repo_root_dir="$(dirname "$0")/.."
 
 function build_and_push_platform() {
+  local build_context="$1"
+  local dockerfile_path="$2"
+  local repo="$3"
+  local platform="$4"
+  local image_tag_with_platform="${image_tag}-${platform}"
+
   full_image="${container_registry_fqdn}${registry_dir}${repo}:${image_tag_with_platform}"
   echo "Building image ${full_image}..."
 
   set +e
-  output=$(docker buildx build --platform "${platform}" -f "${dockerfile_path}" -t "${full_image}" --target "${target}" --build-arg TYGER_VERSION="${image_tag}" "${build_context}" --provenance false --progress plain 2>&1)
+  output=$(docker buildx build --platform "${platform}" -f "${dockerfile_path}" -t "${full_image}" --target "${repo}" --build-arg TYGER_VERSION="${image_tag}" "${build_context}" --provenance false --progress plain 2>&1)
   ret=$?
   set -e
   if [[ $ret -ne 0 ]]; then
@@ -151,16 +157,16 @@ function build_and_push_platform() {
 }
 
 function build_and_push() {
+  local build_context="$1"
+  local dockerfile_path="$2"
+  local repo="$3"
+
   if [[ -n "${amd64:-}" ]]; then
-    platform=amd64
-    image_tag_with_platform=$"${image_tag}-${platform}"
-    build_and_push_platform
+    build_and_push_platform "${build_context}" "${dockerfile_path}" "${repo}" "amd64"
   fi
 
   if [[ -n "${arm64:-}" ]]; then
-    platform=arm64
-    image_tag_with_platform=$"${image_tag}-${platform}"
-    build_and_push_platform
+    build_and_push_platform "${build_context}" "${dockerfile_path}" "${repo}" "arm64"
   fi
 
   # if not pushing or not building for both platforms, skip  creating a manifest
@@ -185,51 +191,29 @@ function build_and_push() {
   docker manifest push "${manifest_name}" --purge >/dev/null
 }
 
-if [[ -n "${test_connectivity:-}" ]]; then
+if [[ -n "${test:-}" ]]; then
   build_context="${repo_root_dir}/cli"
-  dockerfile_path="${repo_root_dir}/cli/integrationtest/testconnectivity/Dockerfile"
-  target="testconnectivity"
-  repo="testconnectivity"
+  dockerfile="${repo_root_dir}/cli/integrationtest/testconnectivity/Dockerfile"
 
-  build_and_push
+  build_and_push "${build_context}" "${dockerfile}" "testconnectivity"
 fi
 
-if [[ -n "${tyger_server:-}" ]]; then
+if [[ -n "${server:-}" ]]; then
   build_context="${repo_root_dir}/"
-  dockerfile_path="${repo_root_dir}/server/Dockerfile"
-  target="control-plane"
-  repo="tyger-server"
+  dockerfile="${repo_root_dir}/server/Dockerfile"
 
-  build_and_push
-
-  target="data-plane"
-  repo="tyger-data-plane-server"
-
-  build_and_push
+  build_and_push "${build_context}" "${dockerfile}" "tyger-server"
+  build_and_push "${build_context}" "${dockerfile}" "tyger-data-plane-server"
 fi
 
-if [[ -n "${buffer_sidecar:-}" ]]; then
+if [[ -n "${client:-}" ]]; then
   build_context="${repo_root_dir}/cli"
-  dockerfile_path="${repo_root_dir}/cli/Dockerfile"
-  target="buffer-sidecar"
-  repo="buffer-sidecar"
+  dockerfile="${repo_root_dir}/cli/Dockerfile"
 
-  build_and_push
-
-  target="tyger-cli"
-  repo="tyger-cli"
-
-  build_and_push
-
-  target="buffer-copier"
-  repo="buffer-copier"
-
-  build_and_push
-
-  target="worker-waiter"
-  repo="worker-waiter"
-
-  build_and_push
+  build_and_push "${build_context}" "${dockerfile}" "buffer-sidecar"
+  build_and_push "${build_context}" "${dockerfile}" "tyger-cli"
+  build_and_push "${build_context}" "${dockerfile}" "buffer-copier"
+  build_and_push "${build_context}" "${dockerfile}" "worker-waiter"
 fi
 
 if [[ -n "${helm:-}" ]]; then

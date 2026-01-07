@@ -44,7 +44,7 @@ RUN dotnet publish --no-restore --arch ${TARGETARCH} -c release -o /data-plane
 
 FROM mcr.microsoft.com/dotnet/aspnet:9.0.11-azurelinux3.0 AS runtime-prep
 
-FROM mcr.microsoft.com/dotnet/aspnet:9.0.11-azurelinux3.0-distroless AS control-plane
+FROM mcr.microsoft.com/dotnet/aspnet:9.0.11-azurelinux3.0-distroless AS tyger-server
 COPY --from=build /cp /app
 WORKDIR /app/bin
 COPY --from=runtime-prep /usr/bin/sleep .
@@ -53,7 +53,7 @@ COPY --from=build /control-plane .
 USER app:app
 ENTRYPOINT ["/app/bin/tyger-server"]
 
-FROM mcr.microsoft.com/dotnet/aspnet:9.0.11-azurelinux3.0-distroless AS data-plane
+FROM mcr.microsoft.com/dotnet/aspnet:9.0.11-azurelinux3.0-distroless AS tyger-data-plane-server
 COPY --from=build /dp /app
 WORKDIR /app/bin
 COPY --from=build /static/curl .
