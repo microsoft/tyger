@@ -137,14 +137,14 @@ set-localsettings: set-context
 		}
 	EOF
 
-up: install-cli ensure-environment-conditionally docker-build-tyger-server docker-build-buffer-sidecar docker-build-test
+up: install-cli ensure-environment-conditionally docker-build-server docker-build-client docker-build-test
 	tyger api install -f <(scripts/get-config.sh)
 	$(MAKE) cli-ready
 
 down: install-cli
 	tyger api uninstall -f <(scripts/get-config.sh)
 
-migrate: ensure-environment-conditionally docker-build-tyger-server
+migrate: ensure-environment-conditionally docker-build-server
 	tyger api migrations apply --latest --wait -f <(scripts/get-config.sh)
 
 download-test-client-cert:
