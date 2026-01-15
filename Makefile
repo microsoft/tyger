@@ -83,7 +83,7 @@ _docker-build:
 	scripts/build-images.sh $$target_arg ${DOCKER_BUILD_ARCH_FLAGS} ${DOCKER_BUILD_PUSH_FLAGS} --tag "$$tag" --registry "$${registry}" --registry-directory "$${directory}"
 
 docker-build-test: login-acr
-	$(MAKE) _docker-build DOCKER_BUILD_TARGET=test-connectivity
+	$(MAKE) _docker-build DOCKER_BUILD_TARGET=test
 
 docker-build-server: login-acr
 	$(MAKE) _docker-build DOCKER_BUILD_TARGET=server

@@ -38,7 +38,7 @@ while [[ $# -gt 0 ]]; do
     container_registry_fqdn="$2"
     shift 2
     ;;
-  --test-connectivity)
+  --test)
     test=1
     shift
     ;;
