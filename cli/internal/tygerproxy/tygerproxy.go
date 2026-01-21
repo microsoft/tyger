@@ -48,12 +48,13 @@ var (
 
 type CloseProxyFunc func() error
 
-func RunProxy(ctx context.Context, tygerClient *client.TygerClient, options *ProxyOptions, logger zerolog.Logger) (CloseProxyFunc, error) {
+func RunProxy(ctx context.Context, tygerClient *client.TygerClient, options *ProxyOptions, serviceMetadata *model.ServiceMetadata, logger zerolog.Logger) (CloseProxyFunc, error) {
 	controlPlaneTargetUrl := tygerClient.ControlPlaneUrl
 	handler := proxyHandler{
 		tygerClient:           tygerClient,
 		targetControlPlaneUrl: controlPlaneTargetUrl,
 		options:               options,
+		serviceMetadata:       serviceMetadata,
 		getCaCertsPemString: sync.OnceValue(func() string {
 			pemBytes, _ := client.GetCaCertPemBytes(options.TlsCaCertificates)
 			return string(pemBytes)
@@ -165,6 +166,7 @@ type proxyHandler struct {
 	tygerClient           *client.TygerClient
 	targetControlPlaneUrl *url.URL
 	options               *ProxyOptions
+	serviceMetadata       *model.ServiceMetadata
 	getCaCertsPemString   func() string
 	nextProxyFunc         func(*http.Request) (*url.URL, error)
 }
@@ -178,13 +180,14 @@ func (h *proxyHandler) handleMetadataRequest(w http.ResponseWriter, r *http.Requ
 		dataPlaneProxyUrl.Scheme = "https"
 	}
 
+	serviceMetadata := *h.serviceMetadata
+	serviceMetadata.DataPlaneProxy = dataPlaneProxyUrl.String()
+	serviceMetadata.TlsCaCertificates = h.getCaCertsPemString()
+
 	metadata := &ProxyServiceMetadata{
-		ServiceMetadata: model.ServiceMetadata{
-			DataPlaneProxy:    dataPlaneProxyUrl.String(),
-			TlsCaCertificates: h.getCaCertsPemString(),
-		},
-		ServerUrl: h.targetControlPlaneUrl.String(),
-		LogPath:   h.options.LogPath,
+		ServiceMetadata: serviceMetadata,
+		ServerUrl:       h.targetControlPlaneUrl.String(),
+		LogPath:         h.options.LogPath,
 	}
 
 	w.WriteHeader(http.StatusOK)

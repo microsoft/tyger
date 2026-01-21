@@ -66,12 +66,12 @@ func newProxyRunCommand(optionsFilePath *string, options *tygerproxy.ProxyOption
 				log.Info().Str("path", logFile.Name()).Msg("Logging to file")
 			}
 
-			client, err := controlplane.Login(cmd.Context(), options.LoginConfig)
+			client, serviceMetadata, err := controlplane.Login(cmd.Context(), options.LoginConfig)
 			if err != nil {
 				log.Fatal().Err(err).Msg("login failed")
 			}
 
-			_, err = tygerproxy.RunProxy(cmd.Context(), client, options, log.Logger)
+			_, err = tygerproxy.RunProxy(cmd.Context(), client, options, serviceMetadata, log.Logger)
 			if err != nil {
 				if err == tygerproxy.ErrProxyAlreadyRunning {
 					log.Info().Int("port", options.Port).Msg("A proxy is already running at this address.")
