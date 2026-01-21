@@ -3,6 +3,23 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+# This script sets up an SSH-based test environment for testing tyger's SSH functionality.
+# It is invoked by the 'variant-test' target in Makefile.docker.
+#
+# What it does:
+# 1. Creates a Docker container running an SSH server (using panubo/sshd image)
+# 2. Configures SSH authentication using either existing ssh-agent keys or generates a new key pair
+# 3. Copies the tyger CLI and docker CLI into the container for testing
+# 4. Adds a temporary SSH host configuration to ~/.ssh/config
+# 5. Logs into tyger using the SSH protocol (ssh://<host><socket-path>)
+# 6. Runs the integration tests against this SSH-based connection
+#
+# Options:
+#   --start-only  Start the SSH container and configure SSH, but don't run tests
+#                 (useful for manual testing or debugging)
+#
+# The script cleans up after itself by removing the container and SSH config on exit.
+
 set -euo pipefail
 
 container_name=tyger-test-ssh
@@ -13,10 +30,24 @@ ssh_host=tygersshhost
 start_marker="# START OF TYGER TESTING SECTION"
 end_marker="# END OF TYGER TESTING SECTION"
 
+usage() {
+    echo "Usage: $(basename "$0") [OPTIONS]"
+    echo ""
+    echo "Sets up an SSH-based test environment for testing tyger's SSH login functionality."
+    echo ""
+    echo "Options:"
+    echo "  --start-only  Start the SSH container and configure SSH, but don't run tests"
+    echo "  -h, --help    Show this help message and exit"
+}
+
 while [[ $# -gt 0 ]]; do
     key="$1"
 
     case $key in
+    -h | --help)
+        usage
+        exit 0
+        ;;
     --start-only)
         start_only=1
         shift
@@ -97,7 +128,8 @@ else
     ssh_connection_port=$ssh_port
 fi
 
-host_config="$start_marker
+host_config="
+$start_marker
 Host $ssh_host
   HostName $ssh_connection_host
   Port $ssh_connection_port
