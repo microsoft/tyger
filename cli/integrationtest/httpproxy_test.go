@@ -101,7 +101,7 @@ func TestHttpProxy(t *testing.T) {
 		t.Log("stdErr", stdErr)
 	}
 	require.Error(t, err, "curl should fail because the proxy is not used")
-	s.ShellExecSucceeds("tyger-proxy", fmt.Sprintf("curl --retry 5 --proxy %s --fail %s/metadata", squidProxy, tygerUrl))
+	s.ShellExecSucceeds("tyger-proxy", fmt.Sprintf("curl --retry 5 --retry-connrefused --retry-delay 1 --proxy %s --fail %s/metadata", squidProxy, tygerUrl))
 
 	// Specify the proxy via environment variable
 	s.ShellExecSucceeds("tyger-proxy", fmt.Sprintf("export HTTPS_PROXY=%s && tyger login -f /creds.yml --log-level trace && tyger buffer read %s > /dev/null", squidProxy, bufferId))
@@ -149,7 +149,7 @@ func TestHttpProxy(t *testing.T) {
 
 	_, _, err = s.ShellExec("tyger-proxy", fmt.Sprintf("curl --proxy %s --fail %s/metadata", squidProxy, tygerUrl))
 	require.Error(t, err, "curl should fail because the root CA certificates have been removed")
-	s.ShellExecSucceeds("tyger-proxy", fmt.Sprintf("curl --retry 5 --proxy %s --insecure --fail %s/metadata", squidProxy, tygerUrl))
+	s.ShellExecSucceeds("tyger-proxy", fmt.Sprintf("curl --retry 5 --retry-connrefused --retry-delay 1 --proxy %s --insecure --fail %s/metadata", squidProxy, tygerUrl))
 
 	// Use CA certificates that are embedded in the tyger binary
 	s.ShellExecSucceeds("tyger-proxy", "echo 'tlsCaCertificates: embedded' >> /creds.yml")
