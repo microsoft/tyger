@@ -26,15 +26,18 @@ import (
 
 // A pool of SSH tunnels for the dataplane.
 
-func createSshTunnelPoolClient(ctx context.Context, tygerClient *client.TygerClient, container *Container, count int) (*retryablehttp.Client, *sshTunnelPool, error) {
+func createSshTunnelPoolClientFromContainer(ctx context.Context, tygerClient *client.TygerClient, container *Container, count int) (*retryablehttp.Client, *SshTunnelPool, error) {
+	return CreateSshTunnelPoolClient(ctx, tygerClient, strings.Split(container.initialAccessUrl.Path, ":")[0], count)
+}
+
+func CreateSshTunnelPoolClient(ctx context.Context, tygerClient *client.TygerClient, socketPath string, count int) (*retryablehttp.Client, *SshTunnelPool, error) {
 	controlPlaneSshParams, err := client.ParseSshUrl(tygerClient.RawControlPlaneUrl)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	dpSshParams := *controlPlaneSshParams
-
-	dpSshParams.SocketPath = strings.Split(container.initialAccessUrl.Path, ":")[0]
+	dpSshParams.SocketPath = socketPath
 
 	tunnelPool := NewSshTunnelPool(ctx, dpSshParams, count)
 
@@ -46,7 +49,7 @@ func createSshTunnelPoolClient(ctx context.Context, tygerClient *client.TygerCli
 	return httpClient, tunnelPool, nil
 }
 
-type sshTunnelPool struct {
+type SshTunnelPool struct {
 	socketPath     string
 	ctx            context.Context
 	cancelCtx      context.CancelFunc
@@ -56,7 +59,7 @@ type sshTunnelPool struct {
 	index          int
 }
 
-func (tp *sshTunnelPool) Close() {
+func (tp *SshTunnelPool) Close() {
 	log.Debug().Msg("Closing SSH tunnel pool")
 	tp.cancelCtx()
 	tp.mutex.Lock()
@@ -66,7 +69,7 @@ func (tp *sshTunnelPool) Close() {
 	}
 }
 
-func (tp *sshTunnelPool) GetUrl(input *url.URL) *url.URL {
+func (tp *SshTunnelPool) GetUrl(input *url.URL) *url.URL {
 	tp.mutex.Lock()
 	if len(tp.healthyTunnels) == 0 || tp.ctx.Err() != nil {
 		tp.mutex.Unlock()
@@ -98,7 +101,7 @@ func (tp *sshTunnelPool) GetUrl(input *url.URL) *url.URL {
 	return &outputUrl
 }
 
-func (tp *sshTunnelPool) watch(ctx context.Context, tunnel *sshTunnel) {
+func (tp *SshTunnelPool) watch(ctx context.Context, tunnel *sshTunnel) {
 	active := true
 	healthCheckEndpoint := fmt.Sprintf("http://%s/healthcheck", tunnel.Host)
 
@@ -154,10 +157,10 @@ func (tp *sshTunnelPool) watch(ctx context.Context, tunnel *sshTunnel) {
 	}
 }
 
-func NewSshTunnelPool(ctx context.Context, sshParams client.SshParams, count int) *sshTunnelPool {
+func NewSshTunnelPool(ctx context.Context, sshParams client.SshParams, count int) *SshTunnelPool {
 	ctx, cancelCtx := context.WithCancel(ctx)
 
-	pool := &sshTunnelPool{
+	pool := &SshTunnelPool{
 		socketPath: sshParams.SocketPath,
 		ctx:        ctx,
 		cancelCtx:  cancelCtx,
@@ -230,7 +233,7 @@ func (t *sshTunnel) healthCheck() error {
 	return err
 }
 
-func newSshTunnel(ctx context.Context, pool *sshTunnelPool, sshParams client.SshParams) (*sshTunnel, error) {
+func newSshTunnel(ctx context.Context, pool *SshTunnelPool, sshParams client.SshParams) (*sshTunnel, error) {
 	port, err := GetFreePort()
 	if err != nil {
 		return nil, err

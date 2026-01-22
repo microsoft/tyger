@@ -14,7 +14,9 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,10 +24,12 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/hashicorp/go-cleanhttp"
+	"github.com/hashicorp/go-retryablehttp"
 	pool "github.com/libp2p/go-buffer-pool"
 	"github.com/microsoft/tyger/cli/internal/client"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
+	"github.com/microsoft/tyger/cli/internal/dataplane"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -39,6 +43,10 @@ type ProxyServiceMetadata struct {
 	ServerUrl string `json:"serverUrl"`
 	LogPath   string `json:"logPath,omitempty"`
 }
+
+const (
+	LocalBuffersCapability = "LocalBuffers"
+)
 
 var (
 	ErrProxyAlreadyRunning            = errors.New("the proxy is already running")
@@ -59,7 +67,40 @@ func RunProxy(ctx context.Context, tygerClient *client.TygerClient, options *Pro
 			pemBytes, _ := client.GetCaCertPemBytes(options.TlsCaCertificates)
 			return string(pemBytes)
 		}),
-		nextProxyFunc: tygerClient.DataPlaneClient.Proxy,
+		requiresDataPlaneConnectTunnel: !slices.Contains(serviceMetadata.Capabilities, LocalBuffersCapability),
+		nextProxyFunc:                  tygerClient.DataPlaneClient.Proxy,
+	}
+
+	var sshTunnelPool *dataplane.SshTunnelPool
+	if !handler.requiresDataPlaneConnectTunnel {
+		if len(serviceMetadata.StorageEndpoints) != 1 {
+			return nil, fmt.Errorf("expected exactly one storage endpoint for local buffer proxying, found %d", len(serviceMetadata.StorageEndpoints))
+		}
+
+		storageEndpoint := serviceMetadata.StorageEndpoints[0]
+		parsedStorageEndpoint, err := url.Parse(storageEndpoint)
+		if err != nil {
+			return nil, fmt.Errorf("invalid storage endpoint URL '%s': %w", storageEndpoint, err)
+		}
+		if parsedStorageEndpoint.Scheme != "http+unix" {
+			return nil, fmt.Errorf("unsupported storage endpoint scheme '%s' for local buffer proxying", parsedStorageEndpoint.Scheme)
+		}
+
+		storageSocketPath := strings.Split(parsedStorageEndpoint.Path, ":")[0]
+
+		var tunnelPoolAwareRetryableHttpClient *retryablehttp.Client
+
+		tunnelPoolAwareRetryableHttpClient, sshTunnelPool, err = dataplane.CreateSshTunnelPoolClient(ctx, tygerClient, storageSocketPath, 8)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create SSH tunnel pool for local buffer proxying: %w", err)
+		}
+
+		tygerClient.DataPlaneClient.Client = tunnelPoolAwareRetryableHttpClient
+
+		go func() {
+			<-ctx.Done()
+			sshTunnelPool.Close()
+		}()
 	}
 
 	r := chi.NewRouter()
@@ -74,11 +115,13 @@ func RunProxy(ctx context.Context, tygerClient *client.TygerClient, options *Pro
 	r.Group(func(r chi.Router) {
 		r.Route("/", func(r chi.Router) {
 			r.Route("/runs/{runId}", func(r chi.Router) {
-				r.Get("/", handler.forwardControlPlaneRequest)
-				r.Get("/logs", handler.forwardControlPlaneRequest)
+				r.Get("/", handler.makeForwardControlPlaneRequestFunc(copyResponse))
+				r.Get("/logs", handler.makeForwardControlPlaneRequestFunc(copyResponse))
 			})
-			r.Post("/buffers/{id}/access", handler.forwardControlPlaneRequest)
+			r.Post("/buffers/{id}/access", handler.makeForwardControlPlaneRequestFunc(handler.processBufferAccessResponse))
 			r.Get("/metadata", handler.handleMetadataRequest)
+			r.HandleFunc("/dataplane/*", handler.handleDataPlaneRequest)
+			r.HandleFunc("/dataplane", handler.handleDataPlaneRequest)
 		})
 	})
 
@@ -127,7 +170,13 @@ func RunProxy(ctx context.Context, tygerClient *client.TygerClient, options *Pro
 		}
 	}()
 
-	return func() error { return server.Close() }, nil
+	closeProxy := func() error {
+		if sshTunnelPool != nil {
+			sshTunnelPool.Close()
+		}
+		return server.Close()
+	}
+	return closeProxy, nil
 }
 
 func CheckProxyAlreadyRunning(options *ProxyOptions) (*ProxyServiceMetadata, error) {
@@ -163,12 +212,13 @@ func GetExistingProxyMetadata(options *ProxyOptions) *ProxyServiceMetadata {
 }
 
 type proxyHandler struct {
-	tygerClient           *client.TygerClient
-	targetControlPlaneUrl *url.URL
-	options               *ProxyOptions
-	serviceMetadata       *model.ServiceMetadata
-	getCaCertsPemString   func() string
-	nextProxyFunc         func(*http.Request) (*url.URL, error)
+	tygerClient                    *client.TygerClient
+	targetControlPlaneUrl          *url.URL
+	options                        *ProxyOptions
+	serviceMetadata                *model.ServiceMetadata
+	getCaCertsPemString            func() string
+	requiresDataPlaneConnectTunnel bool
+	nextProxyFunc                  func(*http.Request) (*url.URL, error)
 }
 
 func (h *proxyHandler) handleMetadataRequest(w http.ResponseWriter, r *http.Request) {
@@ -181,7 +231,9 @@ func (h *proxyHandler) handleMetadataRequest(w http.ResponseWriter, r *http.Requ
 	}
 
 	serviceMetadata := *h.serviceMetadata
-	serviceMetadata.DataPlaneProxy = dataPlaneProxyUrl.String()
+	if h.requiresDataPlaneConnectTunnel {
+		serviceMetadata.DataPlaneProxy = dataPlaneProxyUrl.String()
+	}
 	serviceMetadata.TlsCaCertificates = h.getCaCertsPemString()
 
 	metadata := &ProxyServiceMetadata{
@@ -196,28 +248,83 @@ func (h *proxyHandler) handleMetadataRequest(w http.ResponseWriter, r *http.Requ
 	}
 }
 
-func (h *proxyHandler) forwardControlPlaneRequest(w http.ResponseWriter, r *http.Request) {
-	proxyReq := r.Clone(r.Context())
-	proxyReq.RequestURI = "" // need to clear this since the instance will be used for a new request
-	proxyReq.URL.Scheme = h.targetControlPlaneUrl.Scheme
-	proxyReq.URL.Host = h.targetControlPlaneUrl.Host
-	proxyReq.Host = h.targetControlPlaneUrl.Host
-	if h.targetControlPlaneUrl.Path != "" {
-		p := proxyReq.URL.Path
-		proxyReq.URL.Path = "/"
-		proxyReq.URL = proxyReq.URL.JoinPath(h.targetControlPlaneUrl.Path, p)
+func (h *proxyHandler) makeForwardControlPlaneRequestFunc(responseHandler func(originalRequest *http.Request, w http.ResponseWriter, resp *http.Response)) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		proxyReq := r.Clone(r.Context())
+		proxyReq.RequestURI = "" // need to clear this since the instance will be used for a new request
+		proxyReq.URL.Scheme = h.targetControlPlaneUrl.Scheme
+		proxyReq.URL.Host = h.targetControlPlaneUrl.Host
+		proxyReq.Host = h.targetControlPlaneUrl.Host
+		if h.targetControlPlaneUrl.Path != "" {
+			p := proxyReq.URL.Path
+			proxyReq.URL.Path = "/"
+			proxyReq.URL = proxyReq.URL.JoinPath(h.targetControlPlaneUrl.Path, p)
+		}
+
+		token, err := h.tygerClient.GetAccessToken(r.Context())
+
+		if err != nil {
+			log.Ctx(r.Context()).Error().Err(err).Send()
+			http.Error(w, "failed to get access token", http.StatusInternalServerError)
+			return
+		}
+
+		proxyReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+		resp, err := h.tygerClient.ControlPlaneClient.HTTPClient.Transport.RoundTrip(proxyReq)
+		if err != nil {
+			log.Ctx(r.Context()).Error().Err(err).Msg("Failed to forward request")
+			http.Error(w, "Bad Gateway", http.StatusBadGateway)
+			return
+		}
+
+		copyHeaders(w.Header(), resp.Header)
+		w.WriteHeader(resp.StatusCode)
+		responseHandler(r, w, resp)
 	}
+}
 
-	token, err := h.tygerClient.GetAccessToken(r.Context())
-
-	if err != nil {
-		log.Ctx(r.Context()).Error().Err(err).Send()
-		http.Error(w, "failed to get access token", http.StatusInternalServerError)
+func (h *proxyHandler) handleDataPlaneRequest(w http.ResponseWriter, r *http.Request) {
+	originalParam := r.URL.Query().Get("original")
+	if originalParam == "" {
+		http.Error(w, "Missing 'original' query parameter", http.StatusBadRequest)
 		return
 	}
 
-	proxyReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	resp, err := h.tygerClient.ControlPlaneClient.HTTPClient.Transport.RoundTrip(proxyReq)
+	originalUrl, err := url.Parse(originalParam)
+	if err != nil {
+		http.Error(w, "Invalid 'original' query parameter", http.StatusBadRequest)
+		return
+	}
+
+	// Get the subpath after /dataplane
+	subpath := strings.TrimPrefix(r.URL.Path, "/dataplane")
+	if subpath != "" {
+		originalUrl.Path = originalUrl.Path + subpath
+	}
+
+	// Copy query parameters from the incoming request (except 'original')
+	query := originalUrl.Query()
+	for key, values := range r.URL.Query() {
+		if key != "original" {
+			for _, v := range values {
+				query.Add(key, v)
+			}
+		}
+	}
+	originalUrl.RawQuery = query.Encode()
+
+	proxyReq := r.Clone(r.Context())
+	proxyReq.RequestURI = "" // need to clear this since the instance will be used for a new request
+	proxyReq.URL = originalUrl
+
+	retryableProxyRequest, err := retryablehttp.FromRequest(proxyReq)
+	if err != nil {
+		log.Ctx(r.Context()).Error().Err(err).Msg("Failed to create proxy request")
+		http.Error(w, "Bad Gateway", http.StatusBadGateway)
+		return
+	}
+
+	resp, err := h.tygerClient.DataPlaneClient.Do(retryableProxyRequest)
 	if err != nil {
 		log.Ctx(r.Context()).Error().Err(err).Msg("Failed to forward request")
 		http.Error(w, "Bad Gateway", http.StatusBadGateway)
@@ -226,10 +333,7 @@ func (h *proxyHandler) forwardControlPlaneRequest(w http.ResponseWriter, r *http
 
 	copyHeaders(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
-
-	if err := copyResponse(w, resp); err != nil {
-		log.Ctx(r.Context()).Error().Err(err).Msg("error copying response")
-	}
+	copyResponse(r, w, resp)
 }
 
 func (h *proxyHandler) handleUnsupportedRequest(w http.ResponseWriter, r *http.Request) {
@@ -378,6 +482,43 @@ func (h *proxyHandler) handleTunnelRequest(w http.ResponseWriter, r *http.Reques
 	}()
 }
 
+func (h *proxyHandler) processBufferAccessResponse(originalRequest *http.Request, w http.ResponseWriter, resp *http.Response) {
+	if h.requiresDataPlaneConnectTunnel || resp.StatusCode != http.StatusCreated {
+		copyResponse(originalRequest, w, resp)
+		return
+	}
+
+	// Local buffer proxying
+	defer resp.Body.Close()
+	var accessInfo model.BufferAccess
+	if err := json.NewDecoder(resp.Body).Decode(&accessInfo); err != nil {
+		log.Error().Err(err).Msg("Failed to decode buffer access info")
+		http.Error(w, "Bad Gateway", http.StatusBadGateway)
+		return
+	}
+
+	dataPlaneUrl := url.URL{
+		Host: originalRequest.Host,
+		Path: "/dataplane",
+	}
+	if originalRequest.TLS == nil {
+		dataPlaneUrl.Scheme = "http"
+	} else {
+		dataPlaneUrl.Scheme = "https"
+	}
+	query := dataPlaneUrl.Query()
+	query.Set("original", accessInfo.Uri)
+	dataPlaneUrl.RawQuery = query.Encode()
+
+	accessInfo.Uri = dataPlaneUrl.String()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(accessInfo); err != nil {
+		log.Ctx(originalRequest.Context()).Error().Err(err).Msg("Failed to write buffer access response")
+	}
+}
+
 // Returns a connection that is created after successfully calling CONNECT
 // on another proxy server
 func openTunnel(proxyAddress string, destination *url.URL) (net.Conn, error) {
@@ -417,12 +558,15 @@ func transfer(destination io.WriteCloser, source io.ReadCloser, wg *sync.WaitGro
 	io.Copy(destination, source)
 }
 
-func copyResponse(w http.ResponseWriter, resp *http.Response) error {
+func copyResponse(originalRequest *http.Request, w http.ResponseWriter, resp *http.Response) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		// The ResponseWriter doesn't support flushing, fallback to simple copy
 		_, err := io.Copy(w, resp.Body)
-		return err
+		if err != nil {
+			log.Ctx(resp.Request.Context()).Error().Err(err).Msg("Failed to copy response body")
+		}
+		return
 	}
 
 	// Copy with flushing whenever there is data so that a trickle of data does not get buffered
@@ -441,9 +585,9 @@ func copyResponse(w http.ResponseWriter, resp *http.Response) error {
 		}
 		if err != nil {
 			if err != io.EOF {
-				return err
+				log.Ctx(resp.Request.Context()).Error().Err(err).Msg("Failed to copy response body")
 			}
-			return nil
+			return
 		}
 	}
 }
