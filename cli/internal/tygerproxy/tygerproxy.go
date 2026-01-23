@@ -234,6 +234,17 @@ func (h *proxyHandler) handleMetadataRequest(w http.ResponseWriter, r *http.Requ
 	if h.requiresDataPlaneConnectTunnel {
 		serviceMetadata.DataPlaneProxy = dataPlaneProxyUrl.String()
 	}
+
+	// Remove auth-related fields, so that tyger login
+	// against the proxy does not require any authentication.
+	serviceMetadata.ApiAppId = ""
+	serviceMetadata.ApiAppUri = ""
+	serviceMetadata.CliAppId = ""
+	serviceMetadata.CliAppUri = ""
+	serviceMetadata.Authority = ""
+	serviceMetadata.Audience = ""
+	serviceMetadata.RbacEnabled = false
+
 	serviceMetadata.TlsCaCertificates = h.getCaCertsPemString()
 
 	metadata := &ProxyServiceMetadata{
