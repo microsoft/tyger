@@ -57,6 +57,10 @@ var (
 type CloseProxyFunc func() error
 
 func RunProxy(ctx context.Context, tygerClient *client.TygerClient, options *ProxyOptions, serviceMetadata *model.ServiceMetadata, logger zerolog.Logger) (CloseProxyFunc, error) {
+	// Disable retries from the proxy (the client will handle its retries)
+	tygerClient.ControlPlaneClient.RetryMax = 0
+	tygerClient.DataPlaneClient.RetryMax = 0
+
 	controlPlaneTargetUrl := tygerClient.ControlPlaneUrl
 	handler := proxyHandler{
 		tygerClient:           tygerClient,
