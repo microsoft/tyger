@@ -300,6 +300,7 @@ func (h *proxyHandler) makeForwardControlPlaneRequestFunc(responseHandler func(o
 	}
 }
 
+// This is only used when we are connected to the downstream service over SSH.
 func (h *proxyHandler) handleDataPlaneRequest(w http.ResponseWriter, r *http.Request) {
 	originalParam := r.URL.Query().Get("original")
 	if originalParam == "" {

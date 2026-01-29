@@ -261,9 +261,10 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, *mode
 		preFlightCommand := exec.CommandContext(ctx, "ssh", sshParams.FormatLoginArgs("--preflight")...)
 		preFlightCommand.Stdin = os.Stdin
 		preFlightCommand.Stdout = os.Stdout
-		preFlightCommand.Stderr = os.Stderr
+		var preFlightStderr bytes.Buffer
+		preFlightCommand.Stderr = io.MultiWriter(os.Stderr, &preFlightStderr)
 		if err := preFlightCommand.Run(); err != nil {
-			return nil, nil, fmt.Errorf("failed to establish a remote tyger connection: %w", err)
+			return nil, nil, fmt.Errorf("failed to establish a remote tyger connection: %w. stderr: %s", err, preFlightStderr.String())
 		}
 
 		loginCommand := exec.CommandContext(ctx, "ssh", sshParams.FormatLoginArgs()...)

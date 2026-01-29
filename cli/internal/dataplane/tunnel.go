@@ -293,6 +293,7 @@ func newSshTunnel(ctx context.Context, pool *SshTunnelPool, sshParams client.Ssh
 		"-o", "ExitOnForwardFailure=yes",
 		"-o", "ServerAliveInterval=15",
 		"-o", "ServerAliveCountMax=3",
+		"-o", "StrictHostKeyChecking=yes",
 		"-L", fmt.Sprintf("%d:%s", port, sshParams.SocketPath),
 	}
 
@@ -337,7 +338,7 @@ func newSshTunnel(ctx context.Context, pool *SshTunnelPool, sshParams client.Ssh
 			// ignore the error since we are cleaning up
 			err = nil
 		}
-		log.Debug().Int("port", port).AnErr("error", err).Bytes("stderr", stdErr.Bytes()).Msg("SSH tunnel closed")
+		err = fmt.Errorf("ssh tunnel closed: %w: %s", err, stdErr.String())
 		tunnel.exited <- err
 		close(tunnel.exited)
 	}()
