@@ -51,9 +51,11 @@ func CreateSshTunnelPoolClient(ctx context.Context, tygerClient *client.TygerCli
 
 type SshTunnelPool struct {
 	socketPath     string
+	sshParams      client.SshParams
 	ctx            context.Context
 	cancelCtx      context.CancelFunc
 	mutex          sync.Mutex
+	wg             sync.WaitGroup
 	allTunnels     *list.List
 	healthyTunnels []*sshTunnel
 	index          int
@@ -63,10 +65,12 @@ func (tp *SshTunnelPool) Close() {
 	log.Debug().Msg("Closing SSH tunnel pool")
 	tp.cancelCtx()
 	tp.mutex.Lock()
-	defer tp.mutex.Unlock()
 	for e := tp.allTunnels.Front(); e != nil; e = e.Next() {
 		e.Value.(*sshTunnel).Close()
 	}
+	tp.mutex.Unlock()
+	tp.wg.Wait()
+	log.Debug().Msg("SSH tunnel pool closed")
 }
 
 func (tp *SshTunnelPool) GetUrl(input *url.URL) *url.URL {
@@ -110,50 +114,92 @@ func (tp *SshTunnelPool) watch(ctx context.Context, tunnel *sshTunnel) {
 		panic(err)
 	}
 
+	healthCheckTicker := time.NewTicker(1 * time.Second)
+	defer healthCheckTicker.Stop()
+
 	for {
+		select {
+		case <-ctx.Done():
+			return
+		case exitErr := <-tunnel.exited:
+			log.Warn().Str("host", tunnel.Host).Err(exitErr).Msg("SSH tunnel process exited")
+			tp.removeTunnelFromHealthy(tunnel)
+			tp.wg.Go(func() { tp.recreateTunnel(ctx) })
+			return
+		case <-healthCheckTicker.C:
+			_, err := http.DefaultClient.Do(req)
+			if err == nil {
+				if !active {
+					log.Ctx(ctx).Info().Str("host", tunnel.Host).Msg("SSH tunnel is active")
+					tp.mutex.Lock()
+					tp.healthyTunnels = append(tp.healthyTunnels, tunnel)
+					tp.mutex.Unlock()
+					active = true
+				}
+			} else {
+				if errors.Is(err, ctx.Err()) {
+					return
+				}
+
+				if active {
+					active = false
+					log.Warn().Str("host", tunnel.Host).Err(err).Msg("SSH tunnel is inactive")
+					tp.removeTunnelFromHealthy(tunnel)
+
+					// Close the dead tunnel and attempt to create a new one
+					tunnel.Close()
+					tp.wg.Go(func() { tp.recreateTunnel(ctx) })
+					return
+				}
+			}
+		}
+	}
+}
+
+func (tp *SshTunnelPool) removeTunnelFromHealthy(tunnel *sshTunnel) {
+	tp.mutex.Lock()
+	defer tp.mutex.Unlock()
+	for i, t := range tp.healthyTunnels {
+		if t == tunnel {
+			tp.healthyTunnels = append(tp.healthyTunnels[:i], tp.healthyTunnels[i+1:]...)
+			break
+		}
+	}
+}
+
+func (tp *SshTunnelPool) recreateTunnel(ctx context.Context) {
+	for retryCount := 0; ; retryCount++ {
 		if ctx.Err() != nil {
 			return
 		}
 
-		_, err := http.DefaultClient.Do(req)
-		if err == nil {
-			if !active {
-				log.Ctx(ctx).Info().Str("host", tunnel.Host).Msg("SSH tunnel is active")
-				tp.mutex.Lock()
-				tp.healthyTunnels = append(tp.healthyTunnels, tunnel)
-				tp.mutex.Unlock()
-			}
-		} else {
-			if errors.Is(err, ctx.Err()) {
-				return
+		// Exponential backoff with jitter
+		backoff := time.Duration(rand.IntnRange(200, 1500)*(1<<min(retryCount, 5))) * time.Millisecond
+		if backoff > 30*time.Second {
+			backoff = 30 * time.Second
+		}
+		time.Sleep(backoff)
+
+		tunnel, err := newSshTunnel(ctx, tp, tp.sshParams)
+		if err != nil {
+			var evt *zerolog.Event
+			if retryCount > 5 {
+				evt = log.Warn()
+			} else {
+				evt = log.Debug()
 			}
 
-			if active {
-				active = false
-				log.Warn().Str("host", tunnel.Host).Err(err).Msg("SSH tunnel is inactive")
-				tp.mutex.Lock()
-				for i, t := range tp.healthyTunnels {
-					if t == tunnel {
-						if len(tp.healthyTunnels) == 1 {
-							tp.healthyTunnels = tp.healthyTunnels[:0]
-						} else if i == len(tp.healthyTunnels)-1 {
-							tp.healthyTunnels = tp.healthyTunnels[:i]
-						} else if i == 0 {
-							tp.healthyTunnels = tp.healthyTunnels[1:]
-						} else {
-							tp.healthyTunnels[i] = tp.healthyTunnels[len(tp.healthyTunnels)-1]
-							tp.healthyTunnels = tp.healthyTunnels[:len(tp.healthyTunnels)-1]
-						}
-						break
-					}
-				}
-				tp.mutex.Unlock()
-			}
+			evt.Err(err).Int("retryCount", retryCount).Msg("Failed to recreate tunnel")
+			continue
 		}
 
-		if active {
-			time.Sleep(1 * time.Second)
-		}
+		log.Info().Str("host", tunnel.Host).Msg("Successfully recreated SSH tunnel")
+		tp.mutex.Lock()
+		tp.healthyTunnels = append(tp.healthyTunnels, tunnel)
+		tp.mutex.Unlock()
+
+		tp.wg.Go(func() { tp.watch(ctx, tunnel) })
+		return
 	}
 }
 
@@ -162,6 +208,7 @@ func NewSshTunnelPool(ctx context.Context, sshParams client.SshParams, count int
 
 	pool := &SshTunnelPool{
 		socketPath: sshParams.SocketPath,
+		sshParams:  sshParams,
 		ctx:        ctx,
 		cancelCtx:  cancelCtx,
 		mutex:      sync.Mutex{},
@@ -169,7 +216,7 @@ func NewSshTunnelPool(ctx context.Context, sshParams client.SshParams, count int
 	}
 
 	for range count {
-		go func() {
+		pool.wg.Go(func() {
 			for retryCount := 0; ; retryCount++ {
 				if ctx.Err() != nil {
 					return
@@ -198,10 +245,10 @@ func NewSshTunnelPool(ctx context.Context, sshParams client.SshParams, count int
 				pool.healthyTunnels = append(pool.healthyTunnels, tunnel)
 				pool.mutex.Unlock()
 
-				go pool.watch(ctx, tunnel)
+				pool.wg.Go(func() { pool.watch(ctx, tunnel) })
 				return
 			}
-		}()
+		})
 	}
 
 	return pool
@@ -244,6 +291,8 @@ func newSshTunnel(ctx context.Context, pool *SshTunnelPool, sshParams client.Ssh
 		"-o", "ControlMaster=no",
 		"-o", "ControlPath=none",
 		"-o", "ExitOnForwardFailure=yes",
+		"-o", "ServerAliveInterval=15",
+		"-o", "ServerAliveCountMax=3",
 		"-L", fmt.Sprintf("%d:%s", port, sshParams.SocketPath),
 	}
 

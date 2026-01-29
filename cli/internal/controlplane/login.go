@@ -848,6 +848,8 @@ func GetServiceMetadata(ctx context.Context, serverUrl string, httpClient *http.
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
+
 	serviceMetadata := &model.ServiceMetadata{}
 	if err := json.NewDecoder(resp.Body).Decode(serviceMetadata); err != nil {
 		// Check if the server is older than the client (uses the old `/v1/` path)
@@ -860,6 +862,8 @@ func GetServiceMetadata(ctx context.Context, serverUrl string, httpClient *http.
 		if err != nil {
 			return nil, err
 		}
+		defer resp.Body.Close()
+
 		respBody, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read response body: %w", err)

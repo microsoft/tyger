@@ -292,6 +292,8 @@ func (h *proxyHandler) makeForwardControlPlaneRequestFunc(responseHandler func(o
 			return
 		}
 
+		defer resp.Body.Close()
+
 		copyHeaders(w.Header(), resp.Header)
 		w.WriteHeader(resp.StatusCode)
 		responseHandler(r, w, resp)

@@ -4,10 +4,13 @@
 package main
 
 import (
+	"context"
 	"io"
 	"os"
+	"os/signal"
 	"path"
 	"path/filepath"
+	"syscall"
 
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/logging"
@@ -66,12 +69,19 @@ func newProxyRunCommand(optionsFilePath *string, options *tygerproxy.ProxyOption
 				log.Info().Str("path", logFile.Name()).Msg("Logging to file")
 			}
 
-			client, serviceMetadata, err := controlplane.Login(cmd.Context(), options.LoginConfig)
+			// Set up signal handling for graceful shutdown
+			ctx, cancel := context.WithCancel(cmd.Context())
+			defer cancel()
+
+			sigChan := make(chan os.Signal, 1)
+			signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+			client, serviceMetadata, err := controlplane.Login(ctx, options.LoginConfig)
 			if err != nil {
 				log.Fatal().Err(err).Msg("login failed")
 			}
 
-			_, err = tygerproxy.RunProxy(cmd.Context(), client, options, serviceMetadata, log.Logger)
+			closeProxy, err := tygerproxy.RunProxy(ctx, client, options, serviceMetadata, log.Logger)
 			if err != nil {
 				if err == tygerproxy.ErrProxyAlreadyRunning {
 					log.Info().Int("port", options.Port).Msg("A proxy is already running at this address.")
@@ -83,8 +93,21 @@ func newProxyRunCommand(optionsFilePath *string, options *tygerproxy.ProxyOption
 
 			log.Info().Int("port", options.Port).Msg(proxyIsListeningMessage)
 
-			// wait indefinitely
-			<-(make(chan any))
+			// Wait for shutdown signal
+			sig := <-sigChan
+			log.Info().Str("signal", sig.String()).Msg("Received shutdown signal, cleaning up...")
+
+			// Cancel context to trigger cleanup of SSH tunnels and other resources
+			cancel()
+
+			// Close the proxy
+			if closeProxy != nil {
+				if err := closeProxy(); err != nil {
+					log.Warn().Err(err).Msg("Error closing proxy")
+				}
+			}
+
+			log.Info().Msg("Proxy shutdown complete")
 		},
 	}
 
