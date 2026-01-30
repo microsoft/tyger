@@ -263,7 +263,7 @@ run-proxy: install-cli
 	tyger-proxy run -f <($(MAKE) get-proxy-config) 
 
 kill-proxy:
-	killall tyger-proxy
+	killall -s SIGINT tyger-proxy
 
 connect-db: set-context
 	helm_values=$$(helm get values -n ${HELM_NAMESPACE} ${HELM_RELEASE} -o json || true)

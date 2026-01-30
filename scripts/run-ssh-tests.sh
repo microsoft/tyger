@@ -72,14 +72,16 @@ cleanup() {
     docker rm -f $container_name >/dev/null
 }
 
-if [[ -z ${start_only:-} ]]; then
-    trap cleanup SIGINT SIGTERM EXIT
-fi
-
 # Copy  bind mounts from tyger-local-gateway
 gateway_bind_mounts=$(docker inspect -f '{{range .Mounts}}{{if eq .Type "bind"}}-v {{.Source}}:{{.Destination}} {{end}}{{end}}' tyger-local-gateway)
 
-docker rm -f $container_name &>/dev/null
+# Check if container already exists before removing
+container_existed=$(docker inspect -f '{{.State.Running}}' $container_name 2>/dev/null || echo "")
+docker rm -f $container_name &>/dev/null || true
+
+if [[ -z ${start_only:-} ]] || [[ -z $container_existed ]]; then
+    trap cleanup SIGINT SIGTERM EXIT
+fi
 
 # shellcheck disable=SC2086
 docker create \
@@ -174,5 +176,5 @@ tyger login "ssh://${ssh_host}${tyger_socket_path}?option[StrictHostKeyChecking]
 tyger login status
 
 if [[ -z ${start_only:-} ]]; then
-    make -f "$(dirname "$0")/../Makefile" integration-test-no-up
+    make -s -f "$(dirname "$0")/../Makefile" integration-test-no-up
 fi

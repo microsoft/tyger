@@ -46,6 +46,7 @@ type ProxyServiceMetadata struct {
 
 const (
 	LocalBuffersCapability = "LocalBuffers"
+	sshTunnelPoolSize      = 8
 )
 
 var (
@@ -94,7 +95,7 @@ func RunProxy(ctx context.Context, tygerClient *client.TygerClient, options *Pro
 
 		var tunnelPoolAwareRetryableHttpClient *retryablehttp.Client
 
-		tunnelPoolAwareRetryableHttpClient, sshTunnelPool, err = dataplane.CreateSshTunnelPoolClient(ctx, tygerClient, storageSocketPath, 8)
+		tunnelPoolAwareRetryableHttpClient, sshTunnelPool, err = dataplane.CreateSshTunnelPoolClient(ctx, tygerClient, storageSocketPath, sshTunnelPoolSize)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create SSH tunnel pool for local buffer proxying: %w", err)
 		}
@@ -302,6 +303,10 @@ func (h *proxyHandler) makeForwardControlPlaneRequestFunc(responseHandler func(o
 
 // This is only used when we are connected to the downstream service over SSH.
 func (h *proxyHandler) handleDataPlaneRequest(w http.ResponseWriter, r *http.Request) {
+	if h.requiresDataPlaneConnectTunnel {
+		h.handleUnsupportedRequest(w, r)
+		return
+	}
 	originalParam := r.URL.Query().Get("original")
 	if originalParam == "" {
 		http.Error(w, "Missing 'original' query parameter", http.StatusBadRequest)
