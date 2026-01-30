@@ -43,6 +43,11 @@ func CreateSshTunnelPoolClient(ctx context.Context, tygerClient *client.TygerCli
 
 	httpClient := client.CloneRetryableClient(tygerClient.DataPlaneClient.Client)
 	httpClient.RequestLogHook = func(_ retryablehttp.Logger, r *http.Request, _ int) {
+		if relayParam, ok := r.URL.Query()["relay"]; ok && len(relayParam) == 1 && relayParam[0] == "true" {
+			// don't use the tunnel pool for ephemeral buffers
+			return
+		}
+
 		r.URL = tunnelPool.GetUrl(r.URL)
 	}
 
@@ -114,7 +119,7 @@ func (tp *SshTunnelPool) watch(ctx context.Context, tunnel *sshTunnel) {
 		panic(err)
 	}
 
-	healthCheckTicker := time.NewTicker(1 * time.Second)
+	healthCheckTicker := time.NewTicker(5 * time.Second)
 	defer healthCheckTicker.Stop()
 
 	for {

@@ -144,9 +144,10 @@ func pingRelay(ctx context.Context, containerClient *ContainerClient, connection
 
 	headRequest := containerClient.NewRequestWithRelativeUrl(ctx, http.MethodHead, "", nil)
 
+	// don't use retryable client here so that we can do special error handling
 	unknownErrCount := 0
 	for retryCount := 0; ; retryCount++ {
-		resp, err := containerClient.Do(headRequest)
+		resp, err := containerClient.innerClient.HTTPClient.Do(headRequest.Request)
 		if err == nil {
 			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()

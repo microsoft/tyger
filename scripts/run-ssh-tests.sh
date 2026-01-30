@@ -79,7 +79,7 @@ gateway_bind_mounts=$(docker inspect -f '{{range .Mounts}}{{if eq .Type "bind"}}
 container_existed=$(docker inspect -f '{{.State.Running}}' $container_name 2>/dev/null || echo "")
 docker rm -f $container_name &>/dev/null || true
 
-if [[ -z ${start_only:-} ]] || [[ -z $container_existed ]]; then
+if [[ -z ${start_only:-} ]] && [[ -z $container_existed ]]; then
     trap cleanup SIGINT SIGTERM EXIT
 fi
 

@@ -329,9 +329,7 @@ func (h *proxyHandler) handleDataPlaneRequest(w http.ResponseWriter, r *http.Req
 	query := originalUrl.Query()
 	for key, values := range r.URL.Query() {
 		if key != "original" {
-			for _, v := range values {
-				query.Add(key, v)
-			}
+			query[key] = values
 		}
 	}
 	originalUrl.RawQuery = query.Encode()
@@ -531,6 +529,14 @@ func (h *proxyHandler) processBufferAccessResponse(originalRequest *http.Request
 	}
 	query := dataPlaneUrl.Query()
 	query.Set("original", accessInfo.Uri)
+
+	if parsedOriginalUrl, err := url.Parse(accessInfo.Uri); err == nil {
+		// copy the relay parameter so the client knows this is an ephemeral buffer
+		if relay, ok := parsedOriginalUrl.Query()["relay"]; ok {
+			query["relay"] = relay
+		}
+	}
+
 	dataPlaneUrl.RawQuery = query.Encode()
 
 	accessInfo.Uri = dataPlaneUrl.String()
