@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -291,25 +292,7 @@ func newSshTunnel(ctx context.Context, pool *SshTunnelPool, sshParams client.Ssh
 		return nil, err
 	}
 
-	args := []string{
-		"-nNT",
-		"-o", "ControlMaster=no",
-		"-o", "ControlPath=none",
-		"-o", "ExitOnForwardFailure=yes",
-		"-o", "ServerAliveInterval=15",
-		"-o", "ServerAliveCountMax=3",
-		"-o", "StrictHostKeyChecking=yes",
-		"-L", fmt.Sprintf("%d:%s", port, sshParams.SocketPath),
-	}
-
-	if sshParams.User != "" {
-		args = append(args, "-l", sshParams.User)
-	}
-	if sshParams.Port != "" {
-		args = append(args, "-p", sshParams.Port)
-	}
-
-	args = append(args, sshParams.Host)
+	args := sshParams.FormatTunnelArgs(strconv.Itoa(port))
 
 	cmd := exec.Command("ssh", args...)
 	log.Debug().Int("port", port).Msg("Creating SSH tunnel...")

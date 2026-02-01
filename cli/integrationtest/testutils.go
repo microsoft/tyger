@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/microsoft/tyger/cli/internal/client"
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/install/cloudinstall"
@@ -300,6 +301,12 @@ func skipUnlessUsingUnixSocket(t *testing.T) {
 func skipIfNotUsingUnixSocketDirectly(t *testing.T) {
 	if !isUsingUnixSocketDirectly() {
 		t.Skip("Skipping test because the control plane is not using a local Unix socket directly")
+	}
+}
+
+func skipIfNotUsingSSH(t *testing.T) {
+	if c, _ := controlplane.GetClientFromCache(); c.ConnectionType() != client.TygerConnectionTypeSsh {
+		t.Skip("Skipping test because the control plane is not using SSH")
 	}
 }
 

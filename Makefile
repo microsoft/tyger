@@ -194,3 +194,13 @@ start-docs-website:
 
 generate-ca-certificates:
 	scripts/generate-ca-certificates.sh cli/internal/client/ca-certificates.pem
+
+
+start-proxy: install-cli
+	tyger-proxy start -f <($(MAKE) get-proxy-config) 
+
+run-proxy: install-cli
+	tyger-proxy run -f <($(MAKE) get-proxy-config) 
+
+kill-proxy:
+	killall -s SIGINT tyger-proxy

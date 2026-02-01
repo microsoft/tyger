@@ -5,6 +5,7 @@ package client
 
 import (
 	"fmt"
+	"maps"
 	"net/url"
 	"os"
 	"runtime"
@@ -23,6 +24,7 @@ type SshParams struct {
 	User       string
 	SocketPath string
 	CliPath    string
+	ConfigPath string
 	Options    map[string]string
 }
 
@@ -47,6 +49,11 @@ func ParseSshUrl(u *url.URL) (*SshParams, error) {
 	sp.SocketPath = u.Path
 
 	if queryParams := u.Query(); len(queryParams) > 0 {
+		if configPath, ok := queryParams["configPath"]; ok {
+			sp.ConfigPath = configPath[0]
+			queryParams.Del("configPath")
+		}
+
 		if cliPath, ok := queryParams["cliPath"]; ok {
 			sp.CliPath = cliPath[0]
 			queryParams.Del("cliPath")
@@ -60,7 +67,7 @@ func ParseSshUrl(u *url.URL) (*SshParams, error) {
 				}
 				sp.Options[name] = v[0]
 			} else {
-				return nil, errors.Errorf("unexpected query parameter: %q. Only 'cliPath' and 'option[<SSH_OPTION>]' are suported", k)
+				return nil, errors.Errorf("unexpected query parameter: %q. Only 'configPath', 'cliPath' and 'option[<SSH_OPTION>]' are suported", k)
 			}
 		}
 	}
@@ -108,25 +115,34 @@ func (sp *SshParams) FormatCmdLine(add ...string) []string {
 	sshOptions := map[string]string{
 		"StrictHostKeyChecking": "yes",
 	}
-	return sp.formatCmdLine(sshOptions, nil, add...)
+	return sp.formatCmdLine(sshOptions, nil, nil, true, add...)
 }
 
-func (sp *SshParams) formatCmdLine(sshOptions map[string]string, otherSshArgs []string, cmdArgs ...string) []string {
+func (sp *SshParams) formatCmdLine(defaultSshOptions map[string]string, overridingSshOptions map[string]string, otherSshArgs []string, callTyger bool, cmdArgs ...string) []string {
 	args := []string{sp.Host}
 
 	var combinedSshOptions map[string]string
 	if sp.Options == nil {
-		combinedSshOptions = sshOptions
-	} else if sshOptions == nil {
-		combinedSshOptions = sp.Options
+		combinedSshOptions = defaultSshOptions
+	} else if defaultSshOptions == nil {
+		combinedSshOptions = make(map[string]string)
+		maps.Copy(combinedSshOptions, sp.Options)
+
 	} else {
 		combinedSshOptions = make(map[string]string)
-		for k, v := range sshOptions {
-			combinedSshOptions[k] = v
+		maps.Copy(combinedSshOptions, defaultSshOptions)
+		maps.Copy(combinedSshOptions, sp.Options)
+	}
+
+	if combinedSshOptions == nil && overridingSshOptions != nil {
+		combinedSshOptions = make(map[string]string)
+	}
+
+	if overridingSshOptions != nil {
+		if combinedSshOptions == nil {
+			combinedSshOptions = make(map[string]string)
 		}
-		for k, v := range sp.Options {
-			combinedSshOptions[k] = v
-		}
+		maps.Copy(combinedSshOptions, overridingSshOptions)
 	}
 
 	for k, v := range combinedSshOptions {
@@ -139,20 +155,26 @@ func (sp *SshParams) formatCmdLine(sshOptions map[string]string, otherSshArgs []
 	if sp.Port != "" {
 		args = append(args, "-p", sp.Port)
 	}
+	if sp.ConfigPath != "" {
+		args = append(args, "-F", sp.ConfigPath)
+	}
 
 	args = append(args, otherSshArgs...)
 
-	args = append(args, "--")
+	if callTyger {
+		args = append(args, "--")
 
-	if sp.CliPath != "" {
-		args = append(args, sp.CliPath)
-	} else {
-		args = append(args, "tyger")
+		if sp.CliPath != "" {
+			args = append(args, sp.CliPath)
+		} else {
+			args = append(args, "tyger")
+		}
+
+		args = append(args, "stdio-proxy")
+
+		args = append(args, cmdArgs...)
 	}
 
-	args = append(args, "stdio-proxy")
-
-	args = append(args, cmdArgs...)
 	return args
 }
 
@@ -177,7 +199,25 @@ func (sp *SshParams) FormatLoginArgs(add ...string) []string {
 	}
 
 	args = append(args, add...)
-	return sp.formatCmdLine(sshOptions, otherSshArgs, args...)
+	return sp.formatCmdLine(sshOptions, nil, otherSshArgs, true, args...)
+}
+
+func (sp *SshParams) FormatTunnelArgs(local string) []string {
+	overridingSshOptions := map[string]string{
+		"ControlMaster":         "no",
+		"ControlPath":           "none",
+		"ExitOnForwardFailure":  "yes",
+		"ServerAliveInterval":   "15",
+		"ServerAliveCountMax":   "3",
+		"StrictHostKeyChecking": "yes",
+	}
+
+	otherSshArgs := []string{
+		"-nNT",
+		"-L", fmt.Sprintf("%s:%s", local, sp.SocketPath),
+	}
+
+	return sp.formatCmdLine(nil, overridingSshOptions, otherSshArgs, false)
 }
 
 func (sp *SshParams) FormatDataPlaneCmdLine(add ...string) []string {
@@ -185,12 +225,13 @@ func (sp *SshParams) FormatDataPlaneCmdLine(add ...string) []string {
 		"StrictHostKeyChecking": "yes",
 	}
 
+	sshOverrideOptions := map[string]string{}
 	if runtime.GOOS != "windows" {
 		// create a dedicated control socket for this process
-		sshOptions["ControlMaster"] = "auto"
-		sshOptions["ControlPath"] = fmt.Sprintf("/tmp/%s", uuid.New().String())
-		sshOptions["ControlPersist"] = "2m"
+		sshOverrideOptions["ControlMaster"] = "auto"
+		sshOverrideOptions["ControlPath"] = fmt.Sprintf("/tmp/%s", uuid.New().String())
+		sshOverrideOptions["ControlPersist"] = "2m"
 	}
 
-	return sp.formatCmdLine(sshOptions, nil, add...)
+	return sp.formatCmdLine(sshOptions, sshOverrideOptions, nil, true, add...)
 }
