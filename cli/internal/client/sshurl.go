@@ -159,8 +159,6 @@ func (sp *SshParams) formatCmdLine(defaultSshOptions map[string]string, overridi
 		args = append(args, "-F", sp.ConfigPath)
 	}
 
-	args = append(args, "-v") // TODO: remove
-
 	args = append(args, otherSshArgs...)
 
 	if callTyger {
