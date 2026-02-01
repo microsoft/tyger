@@ -34,6 +34,7 @@ services:
 
   tyger-proxy:
     image:  mcr.microsoft.com/devcontainers/base:ubuntu
+    dns: 127.0.0.1 # DNS will not resolve anything outside of the docker network
     command: ["sleep", "infinity"]
     environment:
       - ACTIONS_ID_TOKEN_REQUEST_URL=${ACTIONS_ID_TOKEN_REQUEST_URL}
