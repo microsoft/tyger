@@ -165,7 +165,9 @@ networks:
 }
 
 func TestTygerProxyOverSsh(t *testing.T) {
-	t.Parallel()
+	// Deliberately not parallel because the interactive portion of Login() does not perform retries and
+	// when running in GitHub actions, sshd may refuse connections if too many are opened simultaneously.
+
 	skipIfOnlyFastTests(t)
 	skipIfNotUsingSSH(t)
 
