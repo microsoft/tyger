@@ -171,7 +171,7 @@ func RunProxy(ctx context.Context, tygerClient *client.TygerClient, options *Pro
 	go func() {
 		err := server.Serve(l)
 		if err != nil && err != http.ErrServerClosed {
-			logger.Fatal().Err(err).Msg("proxy failed")
+			logger.Fatal().Err(client.RedactHttpError(err)).Msg("proxy failed")
 		}
 	}()
 
@@ -280,7 +280,7 @@ func (h *proxyHandler) makeForwardControlPlaneRequestFunc(responseHandler func(o
 		token, err := h.tygerClient.GetAccessToken(r.Context())
 
 		if err != nil {
-			log.Ctx(r.Context()).Error().Err(err).Send()
+			log.Ctx(r.Context()).Error().Err(client.RedactHttpError(err)).Send()
 			http.Error(w, "failed to get access token", http.StatusInternalServerError)
 			return
 		}
@@ -288,7 +288,7 @@ func (h *proxyHandler) makeForwardControlPlaneRequestFunc(responseHandler func(o
 		proxyReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 		resp, err := h.tygerClient.ControlPlaneClient.HTTPClient.Transport.RoundTrip(proxyReq)
 		if err != nil {
-			log.Ctx(r.Context()).Error().Err(err).Msg("Failed to forward request")
+			log.Ctx(r.Context()).Error().Err(client.RedactHttpError(err)).Msg("Failed to forward request")
 			http.Error(w, "Bad Gateway", http.StatusBadGateway)
 			return
 		}
@@ -347,7 +347,7 @@ func (h *proxyHandler) handleDataPlaneRequest(w http.ResponseWriter, r *http.Req
 
 	resp, err := h.tygerClient.DataPlaneClient.Do(retryableProxyRequest)
 	if err != nil {
-		log.Ctx(r.Context()).Error().Err(err).Msg("Failed to forward request")
+		log.Ctx(r.Context()).Error().Err(client.RedactHttpError(err)).Msg("Failed to forward request")
 		http.Error(w, "Bad Gateway", http.StatusBadGateway)
 		return
 	}
@@ -415,7 +415,7 @@ func createIpFilteringMidleware(options *ProxyOptions) func(http.Handler) http.H
 			}
 
 			if !allowed {
-				log.Ctx(r.Context()).Error().Err(err).IPAddr("ip", ip).Msg("remote IP address not allowed")
+				log.Ctx(r.Context()).Error().Err(client.RedactHttpError(err)).IPAddr("ip", ip).Msg("remote IP address not allowed")
 				http.Error(w, "Forbidden", http.StatusForbidden)
 				return
 			}
@@ -440,7 +440,7 @@ func createRequestLoggerMiddleware() func(http.Handler) http.Handler {
 				log.Ctx(r.Context()).Info().
 					Int("status", ww.Status()).
 					Str("method", r.Method).
-					Str("url", r.URL.String()).
+					Str("url", client.RedactUrl(r.URL).String()).
 					Float32("latencyMs", float32(time.Since(start).Microseconds())/1000.0).
 					Msg("Request handled")
 			}()
@@ -459,7 +459,7 @@ func (h *proxyHandler) handleTunnelRequest(w http.ResponseWriter, r *http.Reques
 	var err error
 	nextProxyUrl, err := h.nextProxyFunc(r)
 	if err != nil {
-		log.Error().Err(err).Msg("Unable to resolve next proxy URL for request")
+		log.Error().Err(client.RedactHttpError(err)).Msg("Unable to resolve next proxy URL for request")
 		http.Error(w, "Unable to resolve proxy", http.StatusServiceUnavailable)
 		return
 	}
@@ -467,14 +467,14 @@ func (h *proxyHandler) handleTunnelRequest(w http.ResponseWriter, r *http.Reques
 	if nextProxyUrl != nil {
 		destConn, err = openTunnel(nextProxyUrl.Host, r.URL)
 		if err != nil {
-			log.Ctx(r.Context()).Warn().Err(err).Msg("Failed to dial proxy")
+			log.Ctx(r.Context()).Warn().Err(client.RedactHttpError(err)).Msg("Failed to dial proxy")
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 			return
 		}
 	} else {
 		destConn, err = net.DialTimeout("tcp", r.Host, 10*time.Second)
 		if err != nil {
-			log.Ctx(r.Context()).Warn().Err(err).Msg("Failed to dial host")
+			log.Ctx(r.Context()).Warn().Err(client.RedactHttpError(err)).Msg("Failed to dial host")
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 			return
 		}
@@ -490,7 +490,7 @@ func (h *proxyHandler) handleTunnelRequest(w http.ResponseWriter, r *http.Reques
 	clientConn, _, err := hijacker.Hijack()
 	if err != nil {
 		_ = destConn.Close()
-		log.Ctx(r.Context()).Error().Err(err).Msg("Failed to hijack connection")
+		log.Ctx(r.Context()).Error().Err(client.RedactHttpError(err)).Msg("Failed to hijack connection")
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 	}
 	wg := sync.WaitGroup{}
@@ -513,7 +513,7 @@ func (h *proxyHandler) processBufferAccessResponse(originalRequest *http.Request
 	defer resp.Body.Close()
 	var accessInfo model.BufferAccess
 	if err := json.NewDecoder(resp.Body).Decode(&accessInfo); err != nil {
-		log.Error().Err(err).Msg("Failed to decode buffer access info")
+		log.Error().Err(client.RedactHttpError(err)).Msg("Failed to decode buffer access info")
 		http.Error(w, "Bad Gateway", http.StatusBadGateway)
 		return
 	}
@@ -544,7 +544,7 @@ func (h *proxyHandler) processBufferAccessResponse(originalRequest *http.Request
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(accessInfo); err != nil {
-		log.Ctx(originalRequest.Context()).Error().Err(err).Msg("Failed to write buffer access response")
+		log.Ctx(originalRequest.Context()).Error().Err(client.RedactHttpError(err)).Msg("Failed to write buffer access response")
 	}
 }
 
@@ -593,7 +593,7 @@ func copyResponse(originalRequest *http.Request, w http.ResponseWriter, resp *ht
 		// The ResponseWriter doesn't support flushing, fallback to simple copy
 		_, err := io.Copy(w, resp.Body)
 		if err != nil {
-			log.Ctx(resp.Request.Context()).Error().Err(err).Msg("Failed to copy response body")
+			log.Ctx(resp.Request.Context()).Error().Err(client.RedactHttpError(err)).Msg("Failed to copy response body")
 		}
 		return
 	}
@@ -614,7 +614,7 @@ func copyResponse(originalRequest *http.Request, w http.ResponseWriter, resp *ht
 		}
 		if err != nil {
 			if err != io.EOF {
-				log.Ctx(resp.Request.Context()).Error().Err(err).Msg("Failed to copy response body")
+				log.Ctx(resp.Request.Context()).Error().Err(client.RedactHttpError(err)).Msg("Failed to copy response body")
 			}
 			return
 		}
