@@ -297,7 +297,7 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, *mode
 		}
 
 		dataPlaneOptions := controlPlaneOptions // clone
-		dataPlaneOptions.CreateTransport = client.MakeCommandTransport(sshConcurrencyLimit, "ssh", sshParams.FormatDataPlaneCmdLine()...)
+		dataPlaneOptions.CreateTransport = client.MakeCommandTransport(sshConcurrencyLimit, "ssh", sshParams.FormatDataPlaneCmdLine(!options.Persisted)...)
 
 		dataPlaneClient, err := client.NewDataPlaneClient(&dataPlaneOptions)
 		if err != nil {
@@ -703,7 +703,7 @@ func GetClientFromCache() (*client.TygerClient, error) {
 		controlPlaneOptions.CreateTransport = client.MakeCommandTransport(sshConcurrencyLimit, "ssh", sshParams.FormatCmdLine()...)
 
 		dataPlaneClientOptions := controlPlaneOptions // clone
-		dataPlaneClientOptions.CreateTransport = client.MakeCommandTransport(sshConcurrencyLimit, "ssh", sshParams.FormatDataPlaneCmdLine()...)
+		dataPlaneClientOptions.CreateTransport = client.MakeCommandTransport(sshConcurrencyLimit, "ssh", sshParams.FormatDataPlaneCmdLine(false)...)
 
 		cpClient, err := client.NewClient(&controlPlaneOptions)
 		if err != nil {

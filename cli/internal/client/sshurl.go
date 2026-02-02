@@ -220,7 +220,7 @@ func (sp *SshParams) FormatTunnelArgs(local string) []string {
 	return sp.formatCmdLine(nil, overridingSshOptions, otherSshArgs, false)
 }
 
-func (sp *SshParams) FormatDataPlaneCmdLine(add ...string) []string {
+func (sp *SshParams) FormatDataPlaneCmdLine(longLived bool, add ...string) []string {
 	sshOptions := map[string]string{
 		"StrictHostKeyChecking": "yes",
 	}
@@ -229,8 +229,13 @@ func (sp *SshParams) FormatDataPlaneCmdLine(add ...string) []string {
 	if runtime.GOOS != "windows" {
 		// create a dedicated control socket for this process
 		sshOverrideOptions["ControlMaster"] = "auto"
-		sshOverrideOptions["ControlPath"] = fmt.Sprintf("/tmp/%s", uuid.New().String())
-		sshOverrideOptions["ControlPersist"] = "2m"
+		if longLived {
+			sshOverrideOptions["ControlPath"] = "/tmp/ssh-%C"
+			sshOverrideOptions["ControlPersist"] = "30m"
+		} else {
+			sshOverrideOptions["ControlPath"] = fmt.Sprintf("/tmp/ssh-%s", uuid.New().String())
+			sshOverrideOptions["ControlPersist"] = "2m"
+		}
 	}
 
 	return sp.formatCmdLine(sshOptions, sshOverrideOptions, nil, true, add...)

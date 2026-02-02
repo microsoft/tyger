@@ -25,6 +25,10 @@ import (
 	"k8s.io/apimachinery/pkg/util/rand"
 )
 
+// The duration of inactivity after which we close all tunnels.
+// Tunnels are recreated on demand.
+const IdleSpindownTimeout = 5 * time.Minute
+
 // A pool of SSH tunnels for the dataplane.
 
 func createSshTunnelPoolClientFromContainer(ctx context.Context, tygerClient *client.TygerClient, container *Container, count int) (*retryablehttp.Client, *SshTunnelPool, error) {
@@ -65,12 +69,19 @@ type SshTunnelPool struct {
 	allTunnels     *list.List
 	healthyTunnels []*sshTunnel
 	index          int
+	desiredCount   int
+	lastActivity   time.Time
+	spunDown       bool
+	idleTimer      *time.Timer
 }
 
 func (tp *SshTunnelPool) Close() {
 	log.Debug().Msg("Closing SSH tunnel pool")
 	tp.cancelCtx()
 	tp.mutex.Lock()
+	if tp.idleTimer != nil {
+		tp.idleTimer.Stop()
+	}
 	for e := tp.allTunnels.Front(); e != nil; e = e.Next() {
 		e.Value.(*sshTunnel).Close()
 	}
@@ -81,6 +92,20 @@ func (tp *SshTunnelPool) Close() {
 
 func (tp *SshTunnelPool) GetUrl(input *url.URL) *url.URL {
 	tp.mutex.Lock()
+
+	// Update last activity and reset idle timer
+	tp.lastActivity = time.Now()
+	if tp.idleTimer != nil {
+		tp.idleTimer.Reset(IdleSpindownTimeout)
+	}
+
+	// If tunnels were spun down due to inactivity, recreate them
+	if tp.spunDown && tp.ctx.Err() == nil {
+		tp.spunDown = false
+		log.Info().Msg("Spinning up SSH tunnels after idle period")
+		tp.spinUpTunnels()
+	}
+
 	if len(tp.healthyTunnels) == 0 || tp.ctx.Err() != nil {
 		tp.mutex.Unlock()
 
@@ -128,6 +153,15 @@ func (tp *SshTunnelPool) watch(ctx context.Context, tunnel *sshTunnel) {
 		case <-ctx.Done():
 			return
 		case exitErr := <-tunnel.exited:
+			tp.mutex.Lock()
+			spunDown := tp.spunDown
+			tp.mutex.Unlock()
+
+			// Don't recreate if the pool was intentionally spun down due to inactivity
+			if spunDown {
+				return
+			}
+
 			log.Warn().Str("host", tunnel.Host).Err(exitErr).Msg("SSH tunnel process exited")
 			tp.removeTunnelFromHealthy(tunnel)
 			tp.wg.Go(func() { tp.recreateTunnel(ctx) })
@@ -213,22 +247,36 @@ func NewSshTunnelPool(ctx context.Context, sshParams client.SshParams, count int
 	ctx, cancelCtx := context.WithCancel(ctx)
 
 	pool := &SshTunnelPool{
-		socketPath: sshParams.SocketPath,
-		sshParams:  sshParams,
-		ctx:        ctx,
-		cancelCtx:  cancelCtx,
-		mutex:      sync.Mutex{},
-		allTunnels: list.New(),
+		socketPath:   sshParams.SocketPath,
+		sshParams:    sshParams,
+		ctx:          ctx,
+		cancelCtx:    cancelCtx,
+		mutex:        sync.Mutex{},
+		allTunnels:   list.New(),
+		desiredCount: count,
+		lastActivity: time.Now(),
 	}
 
-	for range count {
-		pool.wg.Go(func() {
+	pool.spinUpTunnels()
+
+	// Start idle timer to spin down tunnels after inactivity
+	pool.idleTimer = time.AfterFunc(IdleSpindownTimeout, func() {
+		pool.spinDownIfIdle()
+	})
+
+	return pool
+}
+
+// spinUpTunnels creates the desired number of tunnels. Must be called with mutex held.
+func (tp *SshTunnelPool) spinUpTunnels() {
+	for range tp.desiredCount {
+		tp.wg.Go(func() {
 			for retryCount := 0; ; retryCount++ {
-				if ctx.Err() != nil {
+				if tp.ctx.Err() != nil {
 					return
 				}
 
-				tunnel, err := newSshTunnel(ctx, pool, sshParams)
+				tunnel, err := newSshTunnel(tp.ctx, tp, tp.sshParams)
 				if err != nil {
 					if retryCount > 10 {
 						log.Error().Err(err).Msg("Giving up trying to create tunnel")
@@ -247,17 +295,55 @@ func NewSshTunnelPool(ctx context.Context, sshParams client.SshParams, count int
 					continue
 				}
 
-				pool.mutex.Lock()
-				pool.healthyTunnels = append(pool.healthyTunnels, tunnel)
-				pool.mutex.Unlock()
+				tp.mutex.Lock()
+				tp.healthyTunnels = append(tp.healthyTunnels, tunnel)
+				tp.mutex.Unlock()
 
-				pool.wg.Go(func() { pool.watch(ctx, tunnel) })
+				tp.wg.Go(func() { tp.watch(tp.ctx, tunnel) })
 				return
 			}
 		})
 	}
+}
 
-	return pool
+// spinDownIfIdle checks if the pool has been idle and closes all tunnels if so.
+func (tp *SshTunnelPool) spinDownIfIdle() {
+	var tunnelsToClose *list.List
+
+	func() {
+		tp.mutex.Lock()
+		defer tp.mutex.Unlock()
+
+		if tp.ctx.Err() != nil {
+			return
+		}
+
+		// Check if we've been idle long enough
+		if time.Since(tp.lastActivity) < IdleSpindownTimeout {
+			// Activity happened recently, reset the timer
+			tp.idleTimer.Reset(IdleSpindownTimeout - time.Since(tp.lastActivity))
+			return
+		}
+
+		if len(tp.healthyTunnels) == 0 && tp.allTunnels.Len() == 0 {
+			// Already spun down
+			return
+		}
+
+		log.Info().Msg("Spinning down SSH tunnels due to inactivity")
+		tp.spunDown = true
+
+		tunnelsToClose = tp.allTunnels
+		tp.allTunnels = list.New()
+		tp.healthyTunnels = nil
+	}()
+
+	// Close all tunnels outside of the lock
+	if tunnelsToClose != nil {
+		for e := tunnelsToClose.Front(); e != nil; e = e.Next() {
+			e.Value.(*sshTunnel).Close()
+		}
+	}
 }
 
 type sshTunnel struct {
