@@ -27,7 +27,7 @@ import (
 
 // The duration of inactivity after which we close all tunnels.
 // Tunnels are recreated on demand.
-const IdleSpindownTimeout = 5 * time.Minute
+const IdleSpindownTimeout = 20 * time.Minute
 
 // A pool of SSH tunnels for the dataplane.
 
@@ -73,21 +73,35 @@ type SshTunnelPool struct {
 	lastActivity   time.Time
 	spunDown       bool
 	idleTimer      *time.Timer
+	closed         bool
 }
 
 func (tp *SshTunnelPool) Close() {
-	log.Debug().Msg("Closing SSH tunnel pool")
 	tp.cancelCtx()
-	tp.mutex.Lock()
-	if tp.idleTimer != nil {
-		tp.idleTimer.Stop()
-	}
-	for e := tp.allTunnels.Front(); e != nil; e = e.Next() {
-		e.Value.(*sshTunnel).Close()
-	}
-	tp.mutex.Unlock()
+	closedInThisCall := false
+
+	func() {
+		tp.mutex.Lock()
+		defer tp.mutex.Unlock()
+		if tp.closed {
+			return
+		}
+
+		tp.closed = true
+		closedInThisCall = true
+		log.Debug().Msg("Closing SSH tunnel pool")
+		if tp.idleTimer != nil {
+			tp.idleTimer.Stop()
+		}
+		for e := tp.allTunnels.Front(); e != nil; e = e.Next() {
+			e.Value.(*sshTunnel).Close()
+		}
+	}()
+
 	tp.wg.Wait()
-	log.Debug().Msg("SSH tunnel pool closed")
+	if closedInThisCall {
+		log.Debug().Msg("SSH tunnel pool closed")
+	}
 }
 
 func (tp *SshTunnelPool) GetUrl(input *url.URL) *url.URL {
