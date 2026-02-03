@@ -57,7 +57,7 @@ Subsequent commands will be performed against this server.`,
 				}
 
 				options.ServerUrl = controlplane.LocalUrlSentinel
-				_, err = controlplane.Login(cmd.Context(), options)
+				_, _, err = controlplane.Login(cmd.Context(), options)
 				return err
 			}
 
@@ -168,7 +168,7 @@ Subsequent commands will be performed against this server.`,
 					options.CertificatePath = filepath.Clean(filepath.Join(filepath.Dir(optionsFilePath), options.CertificatePath))
 				}
 
-				_, err = controlplane.Login(cmd.Context(), options)
+				_, _, err = controlplane.Login(cmd.Context(), options)
 				return err
 			case 1:
 				if options.ServicePrincipal != "" {
@@ -240,7 +240,7 @@ Subsequent commands will be performed against this server.`,
 				}
 
 				options.ServerUrl = args[0]
-				_, err := controlplane.Login(cmd.Context(), options)
+				_, _, err := controlplane.Login(cmd.Context(), options)
 				return err
 			default:
 				return errors.New("too many arguments")

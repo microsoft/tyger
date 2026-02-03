@@ -77,6 +77,15 @@ public class DockerEphemeralBufferProvider : IEphemeralBufferProvider
             {
                 var innerPort = innerSpec.Split("/")[0];
                 var ip = container.NetworkSettings.IPAddress;
+                if (string.IsNullOrEmpty(ip))
+                {
+                    ip = container.NetworkSettings.Networks.SingleOrDefault().Value?.IPAddress;
+
+                    if (string.IsNullOrEmpty(ip))
+                    {
+                        throw new InvalidOperationException($"Unable to determine container IP address for container {container.Name}");
+                    }
+                }
 
                 return new Uri($"http://{ip}:{innerPort}{queryString}");
             }

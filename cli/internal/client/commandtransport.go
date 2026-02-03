@@ -74,9 +74,14 @@ func (c *CommandTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		c.sem.Release(1)
 		inPipe.Close()
 		io.Copy(io.Discard, outPipe)
-		cmd.Process.Wait()
 		go cmd.Wait()
 	}
+
+	// Trigger cleanup on context cancellation
+	go func() {
+		<-req.Context().Done()
+		cleanup()
+	}()
 
 	go req.WriteProxy(inPipe)
 

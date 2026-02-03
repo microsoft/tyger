@@ -3,6 +3,23 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+# This script sets up an SSH-based test environment for testing tyger's SSH functionality.
+# It is invoked by the 'variant-test' target in Makefile.docker.
+#
+# What it does:
+# 1. Creates a Docker container running an SSH server (using panubo/sshd image)
+# 2. Configures SSH authentication using either existing ssh-agent keys or generates a new key pair
+# 3. Copies the tyger CLI and docker CLI into the container for testing
+# 4. Adds a temporary SSH host configuration to ~/.ssh/config
+# 5. Logs into tyger using the SSH protocol (ssh://<host><socket-path>)
+# 6. Runs the integration tests against this SSH-based connection
+#
+# Options:
+#   --start-only  Start the SSH container and configure SSH, but don't run tests
+#                 (useful for manual testing or debugging)
+#
+# The script cleans up after itself by removing the container and SSH config on exit.
+
 set -euo pipefail
 
 container_name=tyger-test-ssh
@@ -13,10 +30,24 @@ ssh_host=tygersshhost
 start_marker="# START OF TYGER TESTING SECTION"
 end_marker="# END OF TYGER TESTING SECTION"
 
+usage() {
+    echo "Usage: $(basename "$0") [OPTIONS]"
+    echo ""
+    echo "Sets up an SSH-based test environment for testing tyger's SSH login functionality."
+    echo ""
+    echo "Options:"
+    echo "  --start-only  Start the SSH container and configure SSH, but don't run tests"
+    echo "  -h, --help    Show this help message and exit"
+}
+
 while [[ $# -gt 0 ]]; do
     key="$1"
 
     case $key in
+    -h | --help)
+        usage
+        exit 0
+        ;;
     --start-only)
         start_only=1
         shift
@@ -41,14 +72,16 @@ cleanup() {
     docker rm -f $container_name >/dev/null
 }
 
-if [[ -z ${start_only:-} ]]; then
-    trap cleanup SIGINT SIGTERM EXIT
-fi
-
 # Copy  bind mounts from tyger-local-gateway
 gateway_bind_mounts=$(docker inspect -f '{{range .Mounts}}{{if eq .Type "bind"}}-v {{.Source}}:{{.Destination}} {{end}}{{end}}' tyger-local-gateway)
 
-docker rm -f $container_name &>/dev/null
+# Check if container already exists before removing
+container_existed=$(docker inspect -f '{{.State.Running}}' $container_name 2>/dev/null || echo "")
+docker rm -f $container_name &>/dev/null || true
+
+if [[ -z ${start_only:-} ]] && [[ -z $container_existed ]]; then
+    trap cleanup SIGINT SIGTERM EXIT
+fi
 
 # shellcheck disable=SC2086
 docker create \
@@ -142,5 +175,5 @@ tyger login "ssh://${ssh_host}${tyger_socket_path}?option[StrictHostKeyChecking]
 tyger login status
 
 if [[ -z ${start_only:-} ]]; then
-    make -f "$(dirname "$0")/../Makefile" integration-test-no-up
+    make -s -f "$(dirname "$0")/../Makefile" integration-test-no-up
 fi

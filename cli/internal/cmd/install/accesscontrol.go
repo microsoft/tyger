@@ -290,7 +290,7 @@ func newAccessControlPrettyPrintCommand() *cobra.Command {
 }
 
 func getAccessControlConfigFromServerUrl(ctx context.Context, serverUrl string) *cloudinstall.AccessControlConfig {
-	serviceMetadata, err := controlplane.GetServiceMetadata(ctx, serverUrl)
+	serviceMetadata, err := controlplane.GetServiceMetadata(ctx, serverUrl, nil)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Unable to get service metadata")
 	}

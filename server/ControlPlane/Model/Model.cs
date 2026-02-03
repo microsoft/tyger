@@ -103,6 +103,7 @@ public record ServiceMetadata : ModelBase
     public string? CliAppId { get; init; }
     public IEnumerable<string>? Capabilities { get; init; }
     public IEnumerable<string>? ApiVersions { get; init; }
+    public IEnumerable<Uri>? StorageEndpoints { get; init; }
 }
 
 public record StorageAccount(string Name, string Location, string Endpoint) : ModelBase;

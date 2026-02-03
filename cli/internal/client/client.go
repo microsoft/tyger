@@ -469,9 +469,13 @@ func RedactUrl(u *url.URL) *url.URL {
 		return u
 	}
 
-	for _, v := range q {
-		for i := range v {
-			v[i] = "REDACTED"
+	for k, v := range q {
+		switch k {
+		case "api-version", "writeable":
+		default:
+			for i := range v {
+				v[i] = "REDACTED"
+			}
 		}
 	}
 

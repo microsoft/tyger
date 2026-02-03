@@ -8,11 +8,12 @@ using Microsoft.Extensions.Options;
 using Tyger.Common.Buffers;
 using Tyger.ControlPlane.Database;
 using Tyger.ControlPlane.Model;
+using Tyger.ControlPlane.ServiceMetadata;
 using Buffer = Tyger.ControlPlane.Model.Buffer;
 
 namespace Tyger.ControlPlane.Buffers;
 
-public sealed class LocalStorageBufferProvider : IBufferProvider, IHostedService, IHealthCheck, IDisposable
+public sealed class LocalStorageBufferProvider : IBufferProvider, IHostedService, IHealthCheck, ICapabilitiesContributor, IDisposable
 {
     public const string AccountName = "local";
     public const string AccountLocation = "local";
@@ -238,4 +239,6 @@ public sealed class LocalStorageBufferProvider : IBufferProvider, IHostedService
             _logger.FailedToMarkBufferAsFailed(e);
         }
     }
+
+    public Capabilities GetCapabilities() => Capabilities.LocalBuffers;
 }

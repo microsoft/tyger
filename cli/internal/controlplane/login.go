@@ -146,27 +146,27 @@ func (si *serviceInfo) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error) {
+func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, *model.ServiceMetadata, error) {
 	if options.ServerUrl == LocalUrlSentinel {
 		optionsClone := options
 		optionsClone.ServerUrl = client.GetDefaultSocketUrl()
-		c, errUnix := Login(ctx, optionsClone)
+		c, sm, errUnix := Login(ctx, optionsClone)
 		if errUnix == nil {
-			return c, nil
+			return c, sm, nil
 		}
 
 		optionsClone.ServerUrl = "docker://"
-		c, errDocker := Login(ctx, optionsClone)
+		c, sm, errDocker := Login(ctx, optionsClone)
 		if errDocker == nil {
-			return c, nil
+			return c, sm, nil
 		}
 
-		return nil, errUnix
+		return nil, sm, errUnix
 	}
 
 	normalizedServerUrl, err := NormalizeServerUrl(options.ServerUrl)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	options.ServerUrl = normalizedServerUrl.String()
 
@@ -189,15 +189,16 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 	}
 
 	if err := client.SetDefaultNetworkClientSettings(&defaultClientOptions); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var tygerClient *client.TygerClient
+	var serviceMetadata *model.ServiceMetadata
 	switch normalizedServerUrl.Scheme {
 	case "docker":
 		dockerParams, err := client.ParseDockerUrl(normalizedServerUrl)
 		if err != nil {
-			return nil, fmt.Errorf("invalid Docker URL: %w", err)
+			return nil, nil, fmt.Errorf("invalid Docker URL: %w", err)
 		}
 
 		loginCommand := exec.CommandContext(ctx, "docker", dockerParams.FormatLoginArgs()...)
@@ -205,12 +206,12 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 		loginCommand.Stdout = &outb
 		loginCommand.Stderr = &errb
 		if err := loginCommand.Run(); err != nil {
-			return nil, fmt.Errorf("failed to establish a tyger connection: %w. stderr: %s", err, errb.String())
+			return nil, nil, fmt.Errorf("failed to establish a tyger connection: %w. stderr: %s", err, errb.String())
 		}
 
 		socketUrl, err := NormalizeServerUrl(outb.String())
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse socket URL: %w", err)
+			return nil, nil, fmt.Errorf("failed to parse socket URL: %w", err)
 		}
 
 		if socketUrl.Scheme != "http+unix" {
@@ -226,14 +227,19 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 		controlPlaneClientOptions.CreateTransport = client.MakeCommandTransport(dockerConcurrencyLimit, "docker", dockerParams.FormatCmdLine()...)
 		controlPlaneClient, err := client.NewControlPlaneClient(&controlPlaneClientOptions)
 		if err != nil {
-			return nil, fmt.Errorf("unable to create control plane client: %w", err)
+			return nil, nil, fmt.Errorf("unable to create control plane client: %w", err)
 		}
 
 		dataPlaneClientOptions := controlPlaneClientOptions
 		dataPlaneClientOptions.DisableRetries = true
 		dataPlaneClient, err := client.NewDataPlaneClient(&dataPlaneClientOptions)
 		if err != nil {
-			return nil, fmt.Errorf("unable to create data plane client: %w", err)
+			return nil, nil, fmt.Errorf("unable to create data plane client: %w", err)
+		}
+
+		serviceMetadata, err = GetServiceMetadata(ctx, socketUrl.String(), controlPlaneClient.HTTPClient)
+		if err != nil {
+			return nil, nil, fmt.Errorf("unable to fetch service metadata: %w", err)
 		}
 
 		tygerClient = &client.TygerClient{
@@ -248,16 +254,17 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 	case "ssh":
 		sshParams, err := client.ParseSshUrl(normalizedServerUrl)
 		if err != nil {
-			return nil, fmt.Errorf("invalid ssh URL: %w", err)
+			return nil, nil, fmt.Errorf("invalid ssh URL: %w", err)
 		}
 
 		// Give the user a chance accept remote host key if necessary
 		preFlightCommand := exec.CommandContext(ctx, "ssh", sshParams.FormatLoginArgs("--preflight")...)
 		preFlightCommand.Stdin = os.Stdin
 		preFlightCommand.Stdout = os.Stdout
-		preFlightCommand.Stderr = os.Stderr
+		var preFlightStderr bytes.Buffer
+		preFlightCommand.Stderr = io.MultiWriter(os.Stderr, &preFlightStderr)
 		if err := preFlightCommand.Run(); err != nil {
-			return nil, fmt.Errorf("failed to establish a remote tyger connection: %w", err)
+			return nil, nil, fmt.Errorf("failed to establish a remote tyger connection: %w. stderr: %s", err, preFlightStderr.String())
 		}
 
 		loginCommand := exec.CommandContext(ctx, "ssh", sshParams.FormatLoginArgs()...)
@@ -265,12 +272,12 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 		loginCommand.Stdout = &outb
 		loginCommand.Stderr = &errb
 		if err := loginCommand.Run(); err != nil {
-			return nil, fmt.Errorf("failed to establish a remote tyger connection: %w. stderr: %s", err, errb.String())
+			return nil, nil, fmt.Errorf("failed to establish a remote tyger connection: %w. stderr: %s", err, errb.String())
 		}
 
 		socketUrl, err := NormalizeServerUrl(outb.String())
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse socket URL: %w", err)
+			return nil, nil, fmt.Errorf("failed to parse socket URL: %w", err)
 		}
 
 		if socketUrl.Scheme != "http+unix" {
@@ -286,15 +293,20 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 		controlPlaneOptions.CreateTransport = client.MakeCommandTransport(sshConcurrencyLimit, "ssh", sshParams.FormatCmdLine()...)
 		controlPlaneClient, err := client.NewControlPlaneClient(&controlPlaneOptions)
 		if err != nil {
-			return nil, fmt.Errorf("unable to create control plane client: %w", err)
+			return nil, nil, fmt.Errorf("unable to create control plane client: %w", err)
 		}
 
 		dataPlaneOptions := controlPlaneOptions // clone
-		dataPlaneOptions.CreateTransport = client.MakeCommandTransport(sshConcurrencyLimit, "ssh", sshParams.FormatDataPlaneCmdLine()...)
+		dataPlaneOptions.CreateTransport = client.MakeCommandTransport(sshConcurrencyLimit, "ssh", sshParams.FormatDataPlaneCmdLine(!options.Persisted)...)
 
 		dataPlaneClient, err := client.NewDataPlaneClient(&dataPlaneOptions)
 		if err != nil {
-			return nil, fmt.Errorf("unable to create data plane client: %w", err)
+			return nil, nil, fmt.Errorf("unable to create data plane client: %w", err)
+		}
+
+		serviceMetadata, err = GetServiceMetadata(ctx, socketUrl.String(), controlPlaneClient.HTTPClient)
+		if err != nil {
+			return nil, nil, fmt.Errorf("unable to fetch service metadata: %w", err)
 		}
 
 		tygerClient = &client.TygerClient{
@@ -306,14 +318,15 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 			RawControlPlaneUrl: si.parsedServerUrl,
 			RawProxy:           si.parsedProxy,
 		}
+
 	default:
 		if err := validateServiceInfo(si); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
-		serviceMetadata, err := GetServiceMetadata(ctx, options.ServerUrl)
+		serviceMetadata, err = GetServiceMetadata(ctx, options.ServerUrl, nil)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		// augment with data received from the metadata endpoint
@@ -328,7 +341,7 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 		}
 
 		if err := validateServiceInfo(si); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		if serviceMetadata.Authority != "" {
@@ -349,19 +362,19 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 					// So we need to extract the client ID from the access token and use that next time.
 					claims := jwt.MapClaims{}
 					if _, _, err := jwt.NewParser().ParseUnverified(authResult.Token, claims); err != nil {
-						return nil, fmt.Errorf("unable to parse access token: %w", err)
+						return nil, nil, fmt.Errorf("unable to parse access token: %w", err)
 					} else {
 						var ok bool
 						si.ClientId, ok = claims["appid"].(string)
 						if !ok {
-							return nil, errors.New("unable to extract client ID from access token; the client is not compatible with this version of the CLI")
+							return nil, nil, errors.New("unable to extract client ID from access token; the client is not compatible with this version of the CLI")
 						}
 					}
 				}
 			}
 
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 
 			si.LastToken = authResult.Token
@@ -386,12 +399,12 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 
 		cpClient, err := client.NewControlPlaneClient(&controlPlaneOptions)
 		if err != nil {
-			return nil, fmt.Errorf("unable to create control plane client: %w", err)
+			return nil, nil, fmt.Errorf("unable to create control plane client: %w", err)
 		}
 
 		dpClient, err := client.NewDataPlaneClient(&dataPlaneOptions)
 		if err != nil {
-			return nil, fmt.Errorf("unable to create data plane client: %w", err)
+			return nil, nil, fmt.Errorf("unable to create data plane client: %w", err)
 		}
 
 		tygerClient = &client.TygerClient{
@@ -406,7 +419,7 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 
 		if serviceMetadata.RbacEnabled {
 			if roles, err := tygerClient.GetRoleAssignments(ctx); err == nil && len(roles) == 0 {
-				return nil, errors.New("the principal does not have any assigned roles")
+				return nil, nil, errors.New("the principal does not have any assigned roles")
 			}
 		}
 	}
@@ -414,11 +427,11 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, error
 	if options.Persisted {
 		err = si.persist()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
-	return tygerClient, nil
+	return tygerClient, serviceMetadata, nil
 }
 
 func NormalizeServerUrl(serverUrl string) (*url.URL, error) {
@@ -690,7 +703,7 @@ func GetClientFromCache() (*client.TygerClient, error) {
 		controlPlaneOptions.CreateTransport = client.MakeCommandTransport(sshConcurrencyLimit, "ssh", sshParams.FormatCmdLine()...)
 
 		dataPlaneClientOptions := controlPlaneOptions // clone
-		dataPlaneClientOptions.CreateTransport = client.MakeCommandTransport(sshConcurrencyLimit, "ssh", sshParams.FormatDataPlaneCmdLine()...)
+		dataPlaneClientOptions.CreateTransport = client.MakeCommandTransport(sshConcurrencyLimit, "ssh", sshParams.FormatDataPlaneCmdLine(false)...)
 
 		cpClient, err := client.NewClient(&controlPlaneOptions)
 		if err != nil {
@@ -820,18 +833,24 @@ func readCachedServiceInfo() (*serviceInfo, error) {
 	return &si, nil
 }
 
-func GetServiceMetadata(ctx context.Context, serverUrl string) (*model.ServiceMetadata, error) {
-	// Not using a retryable client because when doing `tyger login --local` we first try to use the unix socket
-	// before trying the docker gateway and we don't want to wait for retries.
+func GetServiceMetadata(ctx context.Context, serverUrl string, httpClient *http.Client) (*model.ServiceMetadata, error) {
+	if httpClient == nil {
+		// Not using a retryable client because when doing `tyger login --local` we first try to use the unix socket
+		// before trying the docker gateway and we don't want to wait for retries.
+		httpClient = client.DefaultClient.HTTPClient
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/metadata", serverUrl), nil)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create request: %w", err)
 	}
 
-	resp, err := client.DefaultClient.HTTPClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
+
 	serviceMetadata := &model.ServiceMetadata{}
 	if err := json.NewDecoder(resp.Body).Decode(serviceMetadata); err != nil {
 		// Check if the server is older than the client (uses the old `/v1/` path)
@@ -840,10 +859,12 @@ func GetServiceMetadata(ctx context.Context, serverUrl string) (*model.ServiceMe
 			return nil, fmt.Errorf("unable to create request: %w", err)
 		}
 
-		resp, err := client.DefaultClient.HTTPClient.Do(req)
+		resp, err := httpClient.Do(req)
 		if err != nil {
 			return nil, err
 		}
+		defer resp.Body.Close()
+
 		respBody, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read response body: %w", err)

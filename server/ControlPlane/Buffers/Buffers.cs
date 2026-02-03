@@ -11,6 +11,7 @@ using Tyger.ControlPlane.AccessControl;
 using Tyger.ControlPlane.Json;
 using Tyger.ControlPlane.Model;
 using Tyger.ControlPlane.OpenApi;
+using Tyger.ControlPlane.ServiceMetadata;
 using Buffer = Tyger.ControlPlane.Model.Buffer;
 
 namespace Tyger.ControlPlane.Buffers;
@@ -49,6 +50,7 @@ public static class Buffers
                 {
                     builder.Services.AddSingleton<LocalStorageBufferProvider>();
                     builder.Services.AddSingleton<IBufferProvider>(sp => sp.GetRequiredService<LocalStorageBufferProvider>());
+                    builder.Services.AddSingleton<ICapabilitiesContributor>(sp => sp.GetRequiredService<LocalStorageBufferProvider>());
                     builder.Services.AddHostedService(sp => sp.GetRequiredService<LocalStorageBufferProvider>());
                     builder.Services.AddHealthChecks().AddCheck<LocalStorageBufferProvider>("data plane");
                 }
