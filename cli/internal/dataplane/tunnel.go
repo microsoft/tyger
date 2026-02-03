@@ -281,7 +281,6 @@ func NewSshTunnelPool(ctx context.Context, sshParams client.SshParams, count int
 	return pool
 }
 
-// spinUpTunnels creates the desired number of tunnels. Must be called with mutex held.
 func (tp *SshTunnelPool) spinUpTunnels() {
 	for range tp.desiredCount {
 		tp.wg.Go(func() {
@@ -320,7 +319,6 @@ func (tp *SshTunnelPool) spinUpTunnels() {
 	}
 }
 
-// spinDownIfIdle checks if the pool has been idle and closes all tunnels if so.
 func (tp *SshTunnelPool) spinDownIfIdle() {
 	var tunnelsToClose *list.List
 
@@ -424,9 +422,10 @@ func newSshTunnel(ctx context.Context, pool *SshTunnelPool, sshParams client.Ssh
 		err := cmd.Wait()
 		if ctx.Err() != nil {
 			// ignore the error since we are cleaning up
-			err = nil
+			err = errors.New("ssh tunnel closed")
+		} else {
+			err = fmt.Errorf("ssh tunnel closed: %w: %s", err, stdErr.String())
 		}
-		err = fmt.Errorf("ssh tunnel closed: %w: %s", err, stdErr.String())
 		tunnel.exited <- err
 		close(tunnel.exited)
 	}()

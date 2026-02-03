@@ -130,8 +130,7 @@ else
     ssh_connection_port=$ssh_port
 fi
 
-host_config="
-$start_marker
+host_config="$start_marker
 Host $ssh_host
   HostName $ssh_connection_host
   Port $ssh_connection_port

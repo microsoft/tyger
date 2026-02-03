@@ -197,7 +197,7 @@ generate-ca-certificates:
 
 
 start-proxy: install-cli
-	tyger-proxy start -f <($(MAKE) get-proxy-config) 
+	tyger-proxy start -f <($(MAKE) get-proxy-config)
 
 run-proxy: install-cli
 	tyger-proxy run -f <($(MAKE) get-proxy-config) 

@@ -101,11 +101,6 @@ func RunProxy(ctx context.Context, tygerClient *client.TygerClient, options *Pro
 		}
 
 		tygerClient.DataPlaneClient.Client = tunnelPoolAwareRetryableHttpClient
-
-		go func() {
-			<-ctx.Done()
-			sshTunnelPool.Close()
-		}()
 	}
 
 	r := chi.NewRouter()

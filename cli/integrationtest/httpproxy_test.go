@@ -230,7 +230,7 @@ services:
 	runCommandSucceeds(t, "ssh-keygen", "-t", "ed25519", "-f", localKeyFile, "-N", "")
 	s.CommandSucceeds("cp", localKeyFile, "tyger-proxy:/root/id")
 
-	runCommandSucceeds(t, "ssh-copy-id", "-f", "-i", localKeyFile+".pub", "tygersshhost")
+	runCommandSucceeds(t, "ssh-copy-id", "-f", "-i", localKeyFile+".pub", "-o", "StrictHostKeyChecking=no", "tygersshhost")
 
 	s.CommandSucceeds("start", "tyger-proxy")
 	defer func() {

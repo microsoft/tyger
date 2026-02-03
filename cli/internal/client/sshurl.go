@@ -67,7 +67,7 @@ func ParseSshUrl(u *url.URL) (*SshParams, error) {
 				}
 				sp.Options[name] = v[0]
 			} else {
-				return nil, errors.Errorf("unexpected query parameter: %q. Only 'configPath', 'cliPath' and 'option[<SSH_OPTION>]' are suported", k)
+				return nil, errors.Errorf("unexpected query parameter: %q. Only 'configPath', 'cliPath' and 'option[<SSH_OPTION>]' are supported", k)
 			}
 		}
 	}
