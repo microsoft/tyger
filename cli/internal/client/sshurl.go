@@ -134,10 +134,6 @@ func (sp *SshParams) formatCmdLine(defaultSshOptions map[string]string, overridi
 		maps.Copy(combinedSshOptions, sp.Options)
 	}
 
-	if combinedSshOptions == nil && overridingSshOptions != nil {
-		combinedSshOptions = make(map[string]string)
-	}
-
 	if overridingSshOptions != nil {
 		if combinedSshOptions == nil {
 			combinedSshOptions = make(map[string]string)
