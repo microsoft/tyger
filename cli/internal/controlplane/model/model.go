@@ -24,6 +24,7 @@ type ServiceMetadata struct {
 	ApiVersions       []string `json:"apiVersions,omitempty"`
 	DataPlaneProxy    string   `json:"dataPlaneProxy,omitempty"`    // Only used by tyger-proxy
 	TlsCaCertificates string   `json:"tlsCaCertificates,omitempty"` // Only used by tyger-proxy
+	StorageEndpoints  []string `json:"storageEndpoints,omitempty"`
 }
 
 type Buffer struct {

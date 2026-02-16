@@ -3,6 +3,7 @@
 
 using Microsoft.Extensions.Options;
 using Tyger.ControlPlane.AccessControl;
+using Tyger.ControlPlane.Buffers;
 using Tyger.ControlPlane.Versioning;
 
 namespace Tyger.ControlPlane.ServiceMetadata;
@@ -14,7 +15,7 @@ public static class ServiceMetadata
         Model.ServiceMetadata? serviceMetadata = null;
         app.MapGet(
             "/metadata",
-            (IEnumerable<ICapabilitiesContributor> contributor, IOptions<AccessControlOptions> accessControl) =>
+            (IEnumerable<ICapabilitiesContributor> contributor, IOptions<AccessControlOptions> accessControl, IBufferProvider bufferProvider) =>
             {
                 if (serviceMetadata is null)
                 {
@@ -25,7 +26,8 @@ public static class ServiceMetadata
                     serviceMetadata = new Model.ServiceMetadata
                     {
                         Capabilities = capabilityStrings,
-                        ApiVersions = apiVersionsSupported
+                        ApiVersions = apiVersionsSupported,
+                        StorageEndpoints = bufferProvider.GetStorageAccounts().Select(sa => new Uri(sa.Endpoint)),
                     };
 
                     if (accessControl.Value.Enabled)
@@ -58,6 +60,7 @@ public enum Capabilities
     EphemeralBuffers = 1 << 3,
     Docker = 1 << 4,
     Kubernetes = 1 << 5,
+    LocalBuffers = 1 << 6,
 }
 
 public interface ICapabilitiesContributor

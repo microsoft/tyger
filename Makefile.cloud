@@ -256,12 +256,6 @@ get-proxy-config:
 	$${auth_parameters}
 	"
 
-start-proxy: install-cli
-	tyger-proxy start -f <($(MAKE) get-proxy-config) 
-
-kill-proxy:
-	killall tyger-proxy
-
 connect-db: set-context
 	helm_values=$$(helm get values -n ${HELM_NAMESPACE} ${HELM_RELEASE} -o json || true)
 

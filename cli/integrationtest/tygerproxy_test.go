@@ -56,13 +56,15 @@ timeoutSeconds: 600`, BasicImage)
 	runId := runTygerSucceeds(t, "run", "create", "--file", runSpecPath)
 
 	tygerClient, err := controlplane.GetClientFromCache()
+	serviceMetadata, err := controlplane.GetServiceMetadata(t.Context(), tygerClient.ControlPlaneUrl.String(), tygerClient.ControlPlaneClient.HTTPClient)
+	require.NoError(err)
 
 	proxyOptions := tygerproxy.ProxyOptions{}
 
 	proxyLogBuffer := SyncBuffer{}
 	logger := zerolog.New(&proxyLogBuffer)
 
-	closeProxy, err := tygerproxy.RunProxy(context.Background(), tygerClient, &proxyOptions, logger)
+	closeProxy, err := tygerproxy.RunProxy(context.Background(), tygerClient, &proxyOptions, serviceMetadata, logger)
 	require.NoError(err)
 	defer closeProxy()
 
@@ -182,7 +184,9 @@ func TestProxiedRequestsFromAllowedCIDR(t *testing.T) {
 
 	tygerClient, err := controlplane.GetClientFromCache()
 	require.NoError(err)
-	closeProxy, err := tygerproxy.RunProxy(context.Background(), tygerClient, &proxyOptions, logger)
+	serviceMetadata, err := controlplane.GetServiceMetadata(t.Context(), tygerClient.ControlPlaneUrl.String(), tygerClient.ControlPlaneClient.HTTPClient)
+	require.NoError(err)
+	closeProxy, err := tygerproxy.RunProxy(context.Background(), tygerClient, &proxyOptions, serviceMetadata, logger)
 	defer closeProxy()
 	resp, err := tygerClient.ControlPlaneClient.Get(fmt.Sprintf("http://localhost:%d/metadata", proxyOptions.Port))
 	require.NoError(err)
@@ -203,10 +207,12 @@ func TestProxiedRequestsFromDisallowedAllowedCIDR(t *testing.T) {
 
 	tygerClient, err := controlplane.GetClientFromCache()
 	require.NoError(err)
+	serviceMetadata, err := controlplane.GetServiceMetadata(t.Context(), tygerClient.ControlPlaneUrl.String(), tygerClient.ControlPlaneClient.HTTPClient)
+	require.NoError(err)
+
 	proxyLogBuffer := SyncBuffer{}
 	logger := zerolog.New(&proxyLogBuffer)
-
-	closeProxy, err := tygerproxy.RunProxy(context.Background(), tygerClient, &proxyOptions, logger)
+	closeProxy, err := tygerproxy.RunProxy(context.Background(), tygerClient, &proxyOptions, serviceMetadata, logger)
 	defer closeProxy()
 	resp, err := tygerClient.ControlPlaneClient.Get(fmt.Sprintf("http://localhost:%d/runs/1", proxyOptions.Port))
 	require.NoError(err)
@@ -226,6 +232,9 @@ func TestRunningProxyOnSamePort(t *testing.T) {
 	tygerClient, err := controlplane.GetClientFromCache()
 	require.NoError(err)
 
+	serviceMetadata, err := controlplane.GetServiceMetadata(t.Context(), tygerClient.ControlPlaneUrl.String(), tygerClient.ControlPlaneClient.HTTPClient)
+	require.NoError(err)
+
 	proxyOptions := tygerproxy.ProxyOptions{
 		LoginConfig: controlplane.LoginConfig{
 			ServerUrl: tygerClient.ControlPlaneUrl.String(),
@@ -234,11 +243,11 @@ func TestRunningProxyOnSamePort(t *testing.T) {
 	proxyLogBuffer := SyncBuffer{}
 	logger := zerolog.New(&proxyLogBuffer)
 
-	closeProxy, err := tygerproxy.RunProxy(context.Background(), tygerClient, &proxyOptions, logger)
+	closeProxy, err := tygerproxy.RunProxy(context.Background(), tygerClient, &proxyOptions, serviceMetadata, logger)
 	require.NoError(err)
 	defer closeProxy()
 
-	_, err = tygerproxy.RunProxy(context.Background(), tygerClient, &proxyOptions, logger)
+	_, err = tygerproxy.RunProxy(context.Background(), tygerClient, &proxyOptions, serviceMetadata, logger)
 	require.ErrorIs(err, tygerproxy.ErrProxyAlreadyRunning)
 }
 
@@ -250,6 +259,9 @@ func TestRunningProxyOnSamePortDifferentTarget(t *testing.T) {
 	tygerClient, err := controlplane.GetClientFromCache()
 	require.NoError(err)
 
+	serviceMetadata, err := controlplane.GetServiceMetadata(t.Context(), tygerClient.ControlPlaneUrl.String(), tygerClient.ControlPlaneClient.HTTPClient)
+	require.NoError(err)
+
 	proxyOptions := tygerproxy.ProxyOptions{
 		LoginConfig: controlplane.LoginConfig{
 			ServerUrl: tygerClient.ControlPlaneUrl.String(),
@@ -258,14 +270,14 @@ func TestRunningProxyOnSamePortDifferentTarget(t *testing.T) {
 	proxyLogBuffer := SyncBuffer{}
 	logger := zerolog.New(&proxyLogBuffer)
 
-	closeProxy, err := tygerproxy.RunProxy(context.Background(), tygerClient, &proxyOptions, logger)
+	closeProxy, err := tygerproxy.RunProxy(context.Background(), tygerClient, &proxyOptions, serviceMetadata, logger)
 	require.NoError(err)
 	defer closeProxy()
 
 	secondProxyOptions := proxyOptions
 	secondProxyOptions.LoginConfig.ServerUrl = "http://someotherserver"
 
-	_, err = tygerproxy.RunProxy(context.Background(), tygerClient, &secondProxyOptions, logger)
+	_, err = tygerproxy.RunProxy(context.Background(), tygerClient, &secondProxyOptions, serviceMetadata, logger)
 	require.ErrorIs(err, tygerproxy.ErrProxyAlreadyRunningWrongTarget)
 }
 

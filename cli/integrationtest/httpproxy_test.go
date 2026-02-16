@@ -9,16 +9,23 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/microsoft/tyger/cli/internal/controlplane"
+	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/install"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
 )
 
-const composeFile = `
+func TestHttpProxy(t *testing.T) {
+	t.Parallel()
+	skipIfOnlyFastTests(t)
+	skipIfUsingUnixSocket(t)
+
+	const composeFile = `
 name: http-proxy-test
 
 services:
@@ -47,12 +54,7 @@ networks:
         - subnet: 192.168.250.0/24
 `
 
-func TestHttpProxy(t *testing.T) {
-	t.Parallel()
-	skipIfOnlyFastTests(t)
-	skipIfUsingUnixSocket(t)
-
-	s := NewComposeSession(t)
+	s := NewComposeSession(t, composeFile)
 	defer s.Cleanup()
 
 	s.CommandSucceeds("create")
@@ -162,14 +164,156 @@ func TestHttpProxy(t *testing.T) {
 	s.ShellExecSucceeds("client", fmt.Sprintf("curl --fail --retry 5 http://tyger-proxy:6888/metadata && tyger login http://tyger-proxy:6888 && tyger buffer read %s > /dev/null", bufferId))
 }
 
+func TestTygerProxyOverSsh(t *testing.T) {
+	// Deliberately not parallel because the interactive portion of Login() does not perform retries and
+	// when running in GitHub actions, sshd may refuse connections if too many are opened simultaneously.
+
+	skipIfOnlyFastTests(t)
+	skipIfNotUsingSSH(t)
+
+	const composeFile = `
+name: tyger-proxy-ssh-test
+
+services:
+  tyger-proxy:
+    image:  mcr.microsoft.com/devcontainers/base:ubuntu
+    command: ["tyger-proxy", "run", "-f", "/proxy-config.yml"]
+    network_mode: bridge
+
+  client:
+    image:  mcr.microsoft.com/devcontainers/base:ubuntu
+    command: ["sleep", "infinity"]
+    network_mode: bridge
+
+`
+
+	s := NewComposeSession(t, composeFile)
+	defer s.Cleanup()
+
+	s.CommandSucceeds("create")
+
+	ssh_host := runCommandSucceeds(t, "docker", "inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", "tyger-test-ssh")
+
+	c, _ := controlplane.GetClientFromCache()
+
+	tempDir := t.TempDir()
+
+	const containerKeyFile = "/root/id"
+
+	sshUrl := *c.RawControlPlaneUrl
+	sshUrl.Host = ssh_host
+	sshUrlQuery := sshUrl.Query()
+	sshUrlQuery.Set("option[StrictHostKeyChecking]", "no")
+	sshUrlQuery.Set("option[IdentityFile]", containerKeyFile)
+
+	sshUrl.RawQuery = sshUrlQuery.Encode()
+
+	proxyConfig := controlplane.LoginConfig{
+		ServerUrl: sshUrl.String(),
+		LogPath:   "/logs",
+	}
+
+	b, err := yaml.Marshal(proxyConfig)
+	require.NoError(t, err)
+	proxyConfigString := string(b)
+	proxyConfigFilePath := path.Join(tempDir, "proxy-config.yml")
+	require.NoError(t, os.WriteFile(proxyConfigFilePath, []byte(proxyConfigString), 0644))
+
+	tygerPath := runCommandSucceeds(t, "which", "tyger")
+	tygerProxyPath := runCommandSucceeds(t, "which", "tyger-proxy")
+	s.CommandSucceeds("cp", tygerPath, "tyger-proxy:/usr/local/bin/tyger")
+	s.CommandSucceeds("cp", tygerPath, "client:/usr/local/bin/tyger")
+	s.CommandSucceeds("cp", tygerProxyPath, "tyger-proxy:/usr/local/bin/tyger-proxy")
+	s.CommandSucceeds("cp", proxyConfigFilePath, "tyger-proxy:/proxy-config.yml")
+
+	localKeyFile := path.Join(tempDir, "id")
+	runCommandSucceeds(t, "ssh-keygen", "-t", "ed25519", "-f", localKeyFile, "-N", "")
+	s.CommandSucceeds("cp", localKeyFile, "tyger-proxy:/root/id")
+
+	runCommandSucceeds(t, "ssh-copy-id", "-f", "-i", localKeyFile+".pub", "-o", "StrictHostKeyChecking=no", "tygersshhost")
+
+	s.CommandSucceeds("start", "tyger-proxy")
+	defer func() {
+		logs := s.CommandSucceeds("logs", "tyger-proxy")
+		t.Log(logs)
+	}()
+
+	s.CommandSucceeds("start", "client")
+
+	runSpec := fmt.Sprintf(`
+job:
+  codespec:
+    image: %s
+    buffers:
+      inputs: ["input"]
+      outputs: ["output"]
+    command:
+      - "sh"
+      - "-c"
+      - |
+        set -euo pipefail
+        inp=$(cat "$INPUT_PIPE")
+        echo "${inp}: Bonjour" > "$OUTPUT_PIPE"
+timeoutSeconds: 600`, BasicImage)
+
+	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
+	require.NoError(t, os.WriteFile(runSpecPath, []byte(runSpec), 0644))
+
+	runId := runTygerSucceeds(t, "run", "create", "-f", runSpecPath)
+
+	tygerProxyContainerId := s.CommandSucceeds("ps", "-q", "tyger-proxy")
+
+	proxyIp := runCommandSucceeds(t, "docker", "inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", tygerProxyContainerId)
+
+	// it could take some time for the proxy to be ready, so retry a few times
+	for attempt := 1; ; attempt++ {
+		_, stdErr, err := s.ShellExec("client", fmt.Sprintf("tyger login http://%s:6888", proxyIp))
+		if err == nil {
+			break
+		}
+		if attempt >= 5 {
+			t.Fatalf("tyger login failed after %d attempts: %v\n%s", attempt, err, stdErr)
+		}
+		time.Sleep(time.Duration(attempt*2) * time.Second)
+	}
+
+	run := model.Run{}
+	runYaml := s.ShellExecSucceeds("client", "tyger run show "+runId)
+	require.NoError(t, yaml.Unmarshal([]byte(runYaml), &run))
+
+	inputBufferId := run.Job.Buffers["input"]
+	outputBufferId := run.Job.Buffers["output"]
+
+	s.ShellExecSucceeds("client", "echo Carl | tyger buffer write "+inputBufferId)
+	output := s.ShellExecSucceeds("client", "tyger buffer read "+outputBufferId)
+	require.Equal(t, "Carl: Bonjour", output)
+
+	// repeat with ephemeral buffers
+
+	runId = runTygerSucceeds(t, "run", "create", "-f", runSpecPath, "-b", "input=_", "-b", "output=_")
+	runYaml = s.ShellExecSucceeds("client", "tyger run show "+runId)
+	require.NoError(t, yaml.Unmarshal([]byte(runYaml), &run))
+
+	inputBufferId = run.Job.Buffers["input"]
+	outputBufferId = run.Job.Buffers["output"]
+
+	_, stderr, err := s.ShellExec("client", fmt.Sprintf("echo Isabelle | tyger buffer write %s --log-level trace", inputBufferId))
+	require.NoError(t, err, stderr)
+	t.Log(stderr)
+	output, stderr, err = s.ShellExec("client", fmt.Sprintf("tyger buffer read %s --log-level trace", outputBufferId))
+	require.NoError(t, err, stderr)
+	t.Log(stderr)
+	require.Equal(t, "Isabelle: Bonjour", output)
+}
+
 type ComposeSession struct {
 	t   *testing.T
 	dir string
 }
 
-func NewComposeSession(t *testing.T) *ComposeSession {
+func NewComposeSession(t *testing.T, composeFileContent string) *ComposeSession {
 	s := &ComposeSession{t: t, dir: t.TempDir()}
-	require.NoError(t, os.WriteFile(path.Join(s.dir, "/docker-compose.yml"), []byte(composeFile), 0644))
+	require.NoError(t, os.WriteFile(path.Join(s.dir, "/docker-compose.yml"), []byte(composeFileContent), 0644))
 	s.Cleanup()
 	return s
 }
