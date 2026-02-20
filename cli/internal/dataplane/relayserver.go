@@ -174,7 +174,27 @@ func RelayOutputServer(
 				}
 			}()
 
-			_, err := io.Copy(w, inputReader)
+			var err error
+			if flusher == nil {
+				_, err = io.Copy(w, inputReader)
+			} else {
+				// If the ResponseWriter supports flushing, we want to flush regularly in the case of a trickle of data.
+				buf := make([]byte, 32*1024)
+				for {
+					n, err := inputReader.Read(buf)
+					if n > 0 {
+						w.Write(buf[:n])
+						flusher.Flush()
+					}
+					if err != nil {
+						if err == io.EOF {
+							err = nil
+						}
+						break
+					}
+				}
+			}
+
 			if err != nil {
 				log.Error().Err(err).Msg("transfer failed")
 				w.Header().Set(ErrorCodeHeader, transferFailedErrorCode)

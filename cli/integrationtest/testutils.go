@@ -12,6 +12,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"os/exec"
 	"slices"
@@ -62,6 +63,11 @@ func (b *CmdBuilder) Arg(arg string) *CmdBuilder {
 
 func (b *CmdBuilder) Stdin(stdin string) *CmdBuilder {
 	b.cmd.Stdin = bytes.NewBufferString(stdin)
+	return b
+}
+
+func (b *CmdBuilder) StdinStream(stdin io.Reader) *CmdBuilder {
+	b.cmd.Stdin = stdin
 	return b
 }
 

@@ -483,6 +483,98 @@ timeoutSeconds: 600`, getTestConnectivityImage(t))
 	require.Equal("1234", execStdOut)
 }
 
+func TestEndToEndExecWithSocketsAndEphemeralBuffersTrickle(t *testing.T) {
+	t.Parallel()
+	skipIfEphemeralBuffersNotSupported(t)
+	require := require.New(t)
+
+	runSpec := fmt.Sprintf(`
+job:
+  codespec:
+    image: %s
+    buffers:
+      inputs: ["input"]
+      outputs: ["output"]
+    sockets:
+      - port: 9002
+        inputBuffer: input
+        outputBuffer: output
+    args:
+      - socket
+      - --port
+      - "9002"
+  buffers:
+    input: _
+    output: _
+timeoutSeconds: 600`, getTestConnectivityImage(t))
+
+	tempDir := t.TempDir()
+	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
+	require.NoError(os.WriteFile(runSpecPath, []byte(runSpec), 0644))
+
+	// Create a pipe that trickles data: writes the current date every second for 10 seconds
+	pr, pw := io.Pipe()
+	inByteCount := 0
+	go func() {
+		defer pw.Close()
+		for i := range 10 {
+			n, err := fmt.Fprintf(pw, "%s\n", time.Now().Format(time.RFC3339Nano))
+			require.NoError(err)
+			inByteCount += n
+			if i < 9 {
+				time.Sleep(1 * time.Second)
+			}
+		}
+	}()
+
+	execCmd := exec.Command("tyger", "run", "exec", "--file", runSpecPath, "--log-level", "trace")
+	execCmd.Stdin = pr
+
+	stdErr := &bytes.Buffer{}
+	execCmd.Stderr = stdErr
+
+	execOutPipe, err := execCmd.StdoutPipe()
+	require.NoError(err)
+
+	require.NoError(execCmd.Start())
+
+	// Read output and record the start and stop times
+	var firstReadTime, lastReadTime time.Time
+	outByteCount := 0
+	for {
+		buf := make([]byte, 64*1024)
+		n, err := execOutPipe.Read(buf)
+		if n > 0 {
+			now := time.Now()
+			if outByteCount == 0 {
+				firstReadTime = now
+			}
+			lastReadTime = now
+			outByteCount += n
+		}
+		if err == io.EOF {
+			break
+		}
+		require.NoError(err)
+	}
+
+	execErr := execCmd.Wait()
+	t.Log(stdErr.String())
+	require.NoError(execErr)
+
+	require.Equal(inByteCount, outByteCount)
+
+	// Validate that output was received as a trickle, not all at once.
+	// The total duration between first and last received data should be at least 7 seconds.
+	totalDuration := lastReadTime.Sub(firstReadTime)
+
+	t.Logf("First output received at: %s", firstReadTime.Format(time.RFC3339Nano))
+	t.Logf("Last output received at:  %s", lastReadTime.Format(time.RFC3339Nano))
+
+	require.Greater(totalDuration.Seconds(), 5.0,
+		"Expected output to trickle over at least 5 seconds, but total duration was %s", totalDuration)
+}
+
 func TestEndToEndCreateWithShortBufferAccessTtl(t *testing.T) {
 	t.Parallel()
 	skipIfOnlyFastTests(t)
