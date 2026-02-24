@@ -1,4 +1,4 @@
-ARG DEVCONTAINER_BASE=mcr.microsoft.com/devcontainers/base:1.0.9-ubuntu-22.04
+ARG DEVCONTAINER_BASE=mcr.microsoft.com/devcontainers/base:2.1.5-ubuntu24.04
 
 FROM ${DEVCONTAINER_BASE} AS devcontainer
 

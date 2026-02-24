@@ -1,0 +1,21 @@
+job:
+  codespec:
+    image: ghcr.io/gadgetron/gadgetron/gadgetron_ubuntu_rt_nocuda:latest
+    buffers:
+      inputs:
+        - input
+        - noisecovariance
+      outputs:
+        - output
+    args:
+      - "-c"
+      - "Generic_Cartesian_FFT.xml"
+      - "--from_stream"
+      - "-i"
+      - "$(INPUT_PIPE)"
+      - "-o"
+      - "$(OUTPUT_PIPE)"
+      - --disable_storage
+      - 'true'
+      - --parameter
+      - noisecovariancein=$(NOISECOVARIANCE_PIPE)

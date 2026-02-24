@@ -1,0 +1,20 @@
+job:
+  codespec:
+    image: ghcr.io/gadgetron/gadgetron/gadgetron_ubuntu_rt_nocuda:latest
+    buffers:
+      inputs:
+        - input
+      outputs:
+        - noisecovariance
+    args:
+      - "-c"
+      - "default_measurement_dependencies.xml"
+      - "--from_stream"
+      - "-i"
+      - "$(INPUT_PIPE)"
+      - "-o"
+      - /dev/null
+      - --disable_storage
+      - 'true'
+      - --parameter
+      - noisecovarianceout=$(NOISECOVARIANCE_PIPE)
