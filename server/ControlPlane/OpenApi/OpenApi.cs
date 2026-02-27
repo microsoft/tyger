@@ -215,9 +215,9 @@ internal sealed class TagsQueryParameterOperationFilter : IOperationFilter
 
         // For some reason the text is changed to "OK" when we implement this,
         // so we need to set it back to "Success".
-        // if (operation.Responses?.TryGetValue("200", out var okResponse) == true && okResponse != null)
-        // {
-        //     okResponse.Description = "Success";
-        // }
+        if (operation.Responses?.TryGetValue("200", out var okResponse) == true && okResponse != null)
+        {
+            okResponse.Description = "Success";
+        }
     }
 }
