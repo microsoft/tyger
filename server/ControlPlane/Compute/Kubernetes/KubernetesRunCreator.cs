@@ -161,12 +161,8 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         WorkerCodespec? workerCodespec = null;
         if (run.Worker != null)
         {
-            workerCodespec = await _codespecReader.GetCodespec(run.Worker.Codespec, cancellationToken) as WorkerCodespec;
-            if (workerCodespec == null)
-            {
-                throw new ArgumentException($"The codespec for the worker is required to be a worker codespec");
-            }
-
+            workerCodespec = await _codespecReader.GetCodespec(run.Worker.Codespec, cancellationToken) as WorkerCodespec
+                ?? throw new ArgumentException($"The codespec for the worker is required to be a worker codespec");
             Validator.ValidateObject(workerCodespec, new(workerCodespec));
 
             run = run with

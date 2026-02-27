@@ -5,7 +5,6 @@ using System.Net.Sockets;
 using System.Threading.Channels;
 using System.Threading.RateLimiting;
 using k8s;
-using k8s.Autorest;
 using k8s.Models;
 
 namespace Tyger.ControlPlane.Compute.Kubernetes;

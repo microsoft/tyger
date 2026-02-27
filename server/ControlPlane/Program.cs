@@ -2,7 +2,6 @@
 // Licensed under the MIT License.
 
 using System.CommandLine;
-using System.CommandLine.Parsing;
 using Tyger.Common.Api;
 using Tyger.Common.Configuration;
 using Tyger.Common.Logging;
@@ -61,13 +60,6 @@ void RunServer()
     builder.ConfigureUnixDomainSockets();
 
     var app = builder.Build();
-
-    foreach (var writer in app.Services.GetRequiredService<IEnumerable<IProblemDetailsWriter>>())
-    {
-        System.Console.WriteLine($"Registered IProblemDetailsWriter: {writer.GetType().FullName}");
-    }
-
-
 
     // Middleware and routes
     app.UseRequestLogging();
