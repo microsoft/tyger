@@ -119,7 +119,7 @@ public static class Database
     public static void AddDatabaseCliCommand(this Command parentCommand, Func<IHost> createHost)
     {
         var databaseCommand = new Command("database", "Manage the database");
-        parentCommand.AddCommand(databaseCommand);
+        parentCommand.Add(databaseCommand);
 
         databaseCommand.AddListVersionsCommand(createHost);
         databaseCommand.AddInitCommand(createHost);
@@ -129,11 +129,11 @@ public static class Database
     private static void AddListVersionsCommand(this Command parentCommand, Func<IHost> createHost)
     {
         var listVersionsCommand = new Command("list-versions", "List the current and available database versions");
-        parentCommand.AddCommand(listVersionsCommand);
+        parentCommand.Add(listVersionsCommand);
 
-        listVersionsCommand.SetHandler(context => ListDatabaseVersions(
+        listVersionsCommand.SetAction((parseResult, cancellationToken) => ListDatabaseVersions(
             createHost().Services,
-            context.GetCancellationToken()));
+            cancellationToken));
 
         static async Task ListDatabaseVersions(IServiceProvider serviceProvider, CancellationToken cancellationToken)
         {
@@ -150,35 +150,35 @@ public static class Database
     private static void AddInitCommand(this Command parentCommand, Func<IHost> createHost)
     {
         var initCommand = new Command("init", "Initialize the database");
-        parentCommand.AddCommand(initCommand);
+        parentCommand.Add(initCommand);
 
-        var initTargetVersionOption = new Option<int?>("--target-version", "The target database version");
-        initCommand.AddOption(initTargetVersionOption);
+        var initTargetVersionOption = new Option<int?>("--target-version") { Description = "The target database version." };
+        initCommand.Options.Add(initTargetVersionOption);
 
-        initCommand.SetHandler(context => RunMigrationsCommandImpl(
+        initCommand.SetAction((parseResult, cancellationToken) => RunMigrationsCommandImpl(
             serviceProvider: createHost().Services,
             initOnly: true,
-            targetVersion: context.ParseResult.GetValueForOption(initTargetVersionOption),
+            targetVersion: parseResult.GetValue(initTargetVersionOption),
             offline: true,
-            context.GetCancellationToken()));
+            cancellationToken));
     }
 
     private static void AddMigrateCommand(this Command parentCommand, Func<IHost> createHost)
     {
         var migrateCommand = new Command("migrate", "Run database migrations");
-        parentCommand.AddCommand(migrateCommand);
+        parentCommand.Add(migrateCommand);
 
-        var migrateTargetVersionOption = new Option<int>("--target-version", "The target database version") { IsRequired = true };
-        migrateCommand.AddOption(migrateTargetVersionOption);
-        var offlineOption = new Option<bool>("--offline", "Run migrations assuming there are no server instances connected to the database");
-        migrateCommand.AddOption(offlineOption);
+        var migrateTargetVersionOption = new Option<int>("--target-version") { Description = "The target database version", Required = true };
+        migrateCommand.Options.Add(migrateTargetVersionOption);
+        var offlineOption = new Option<bool>("--offline") { Description = "Run migrations assuming there are no server instances connected to the database" };
+        migrateCommand.Options.Add(offlineOption);
 
-        migrateCommand.SetHandler(context => RunMigrationsCommandImpl(
+        migrateCommand.SetAction((parseResult, cancellationToken) => RunMigrationsCommandImpl(
             serviceProvider: createHost().Services,
             initOnly: false,
-            context.ParseResult.GetValueForOption(migrateTargetVersionOption),
-            context.ParseResult.GetValueForOption(offlineOption),
-            context.GetCancellationToken()));
+            targetVersion: parseResult.GetValue(migrateTargetVersionOption),
+            offline: parseResult.GetValue(offlineOption),
+            cancellationToken));
     }
 
     private static async Task<int> RunMigrationsCommandImpl(IServiceProvider serviceProvider, bool initOnly, int? targetVersion, bool offline, CancellationToken cancellationToken)
