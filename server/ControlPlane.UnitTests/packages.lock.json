@@ -189,8 +189,8 @@
       },
       "KubernetesClient": {
         "type": "Transitive",
-        "resolved": "17.0.14",
-        "contentHash": "FMGWjGtN8WEUKAAQxs96PK2tYvPrvwhoJzay/6HiByVTvHoJ0i9u7ykvYb7E3vLTSlfv26Q2Ktxr41zYCppu8A==",
+        "resolved": "19.0.2",
+        "contentHash": "0m8FuzCDBygaXMbsb7qVapNZzTm4ftM7ECp/waTRh/XOUQziRF2rKJCRmsvYbBXgJkQvU+FBbkoa40hexzDC+g==",
         "dependencies": {
           "Fractions": "7.3.0",
           "YamlDotNet": "16.3.0"
@@ -750,7 +750,7 @@
           "BitFaster.Caching": "[2.5.4, )",
           "Docker.DotNet": "[3.125.15, )",
           "Generator.Equals": "[3.3.0, )",
-          "KubernetesClient": "[17.0.14, )",
+          "KubernetesClient": "[19.0.2, )",
           "Microsoft.AspNetCore.Authentication.JwtBearer": "[10.0.3, )",
           "Microsoft.AspNetCore.OpenApi": "[9.0.9, )",
           "Microsoft.Extensions.Http.Resilience": "[10.3.0, )",

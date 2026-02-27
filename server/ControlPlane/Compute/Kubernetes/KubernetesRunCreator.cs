@@ -342,7 +342,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
                 Name = ImagePullInitContainerName,
                 Image = GetMainContainer(jobPod.Spec).Image,
                 Command = s_waitForWorkerCommand,
-                VolumeMounts = [new("/no-op/", "no-op")]
+                VolumeMounts = [new V1VolumeMount() { MountPath = "/no-op/", Name = "no-op" }],
             });
 
         var workerWaiterArgs = new List<string>
@@ -381,12 +381,12 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         var dnsNames = GetWorkerDnsNames(run);
 
         var envVars = GetMainContainer(jobPod.Spec).Env ??= [];
-        envVars.Add(new("TYGER_WORKER_NODES", JsonSerializer.Serialize(dnsNames)));
+        envVars.Add(new() { Name = "TYGER_WORKER_NODES", Value = JsonSerializer.Serialize(dnsNames) });
         if (workerCodespec?.Endpoints != null)
         {
             foreach ((var name, var port) in workerCodespec.Endpoints)
             {
-                envVars.Add(new($"TYGER_{name.ToUpperInvariant()}_WORKER_ENDPOINT_ADDRESSES", JsonSerializer.Serialize(dnsNames.Select(n => $"{n}:{port}"))));
+                envVars.Add(new() { Name = $"TYGER_{name.ToUpperInvariant()}_WORKER_ENDPOINT_ADDRESSES", Value = JsonSerializer.Serialize(dnsNames.Select(n => $"{n}:{port}")) });
             }
         }
     }
@@ -417,7 +417,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
             buffersNotUsedBySockets = bufferMap.Keys.Except(codespec.Sockets.SelectMany(s => new[] { s.InputBuffer!, s.OutputBuffer! }));
         }
 
-        foreach (var envVar in buffersNotUsedBySockets.Select(p => new V1EnvVar($"{p.ToUpperInvariant()}_PIPE", $"{FifoMountPath}/{p}")))
+        foreach (var envVar in buffersNotUsedBySockets.Select(p => new V1EnvVar() { Name = $"{p.ToUpperInvariant()}_PIPE", Value = $"{FifoMountPath}/{p}" }))
         {
             mainContainer.Env.Add(envVar);
         }
@@ -441,7 +441,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
 
         jobPod.Spec.Volumes.Add(new() { Name = PipeVolumeName, EmptyDir = new() });
 
-        var fifoVolumeMount = new V1VolumeMount(FifoMountPath, PipeVolumeName);
+        var fifoVolumeMount = new V1VolumeMount() { MountPath = FifoMountPath, Name = PipeVolumeName };
         (mainContainer.VolumeMounts ??= []).Add(fifoVolumeMount);
 
         var mkfifoBuilder = new StringBuilder("set -euo pipefail").AppendLine();
@@ -494,7 +494,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
                 ],
                 Env =
                 [
-                    new V1EnvVar("POD_NAME", valueFrom: new V1EnvVarSource(fieldRef: new V1ObjectFieldSelector("metadata.name"))),
+                    new V1EnvVar() { Name = "POD_NAME", ValueFrom = new V1EnvVarSource() { FieldRef = new V1ObjectFieldSelector() { FieldPath = "metadata.name" } } },
                 ],
             });
         }
@@ -531,7 +531,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
                     ],
                     Env =
                     [
-                        new V1EnvVar("POD_NAME", valueFrom: new V1EnvVarSource(fieldRef: new V1ObjectFieldSelector("metadata.name"))),
+                        new V1EnvVar() { Name = "POD_NAME", ValueFrom = new V1EnvVarSource() { FieldRef = new V1ObjectFieldSelector() { FieldPath = "metadata.name" } } },
                     ],
                 });
             }
@@ -671,7 +671,7 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
                         Image = codespec.Image,
                         Command = codespec.Command?.ToArray(),
                         Args = codespec.Args?.ToArray(),
-                        Env = [new V1EnvVar("TYGER_RUN_ID", valueFrom: new V1EnvVarSource(fieldRef: new V1ObjectFieldSelector($"metadata.labels['{RunLabel}']")))],
+                        Env = [new V1EnvVar() { Name = "TYGER_RUN_ID", ValueFrom = new V1EnvVarSource() { FieldRef = new V1ObjectFieldSelector() { FieldPath = $"metadata.labels['{RunLabel}']" } } }],
                     }
                 ],
                 RestartPolicy = restartPolicy,
@@ -682,14 +682,14 @@ public class KubernetesRunCreator : RunCreatorBase, IRunCreator, ICapabilitiesCo
         if (!string.IsNullOrEmpty(_k8sOptions.ContainerRegistryProxy) && codespec.Image.Split("/")[0] == _k8sOptions.ContainerRegistryProxy)
         {
             podTemplateSpec.Spec.ImagePullSecrets ??= [];
-            podTemplateSpec.Spec.ImagePullSecrets.Add(new V1LocalObjectReference(ContainerRegistryProxySecretUpdater.ContainerRegistryProxySecretName));
+            podTemplateSpec.Spec.ImagePullSecrets.Add(new V1LocalObjectReference() { Name = ContainerRegistryProxySecretUpdater.ContainerRegistryProxySecretName });
         }
 
         if (codespec.Env != null)
         {
             foreach (var (key, value) in codespec.Env)
             {
-                podTemplateSpec.Spec.Containers[0].Env.Add(new(key, value));
+                podTemplateSpec.Spec.Containers[0].Env.Add(new V1EnvVar() { Name = key, Value = value });
             }
         }
 
