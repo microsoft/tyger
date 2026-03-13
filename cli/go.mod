@@ -25,7 +25,7 @@ require (
 	github.com/Masterminds/sprig/v3 v3.3.0
 	github.com/a8m/envsubst v1.4.3
 	github.com/andreyvit/diff v0.0.0-20170406064948-c7f18ee00883
-	github.com/docker/cli v28.3.3+incompatible
+	github.com/docker/cli v29.2.0+incompatible
 	github.com/docker/docker v28.3.3+incompatible
 	github.com/docker/go-connections v0.6.0
 	github.com/dustin/go-humanize v1.0.1
