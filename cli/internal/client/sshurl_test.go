@@ -527,7 +527,7 @@ func TestFormatCmdLine_OptionsMerge(t *testing.T) {
 	sp := SshParams{
 		Host: "myhost",
 		Options: map[string]string{
-			"UserKnownHostsFile": "/dev/null",
+			"UserKnownHostsFile":    "/dev/null",
 			"StrictHostKeyChecking": "no", // override default
 		},
 	}
