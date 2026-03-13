@@ -284,7 +284,7 @@ Finished:
 
         var pipelines = await podAndContainers
             .ToAsyncEnumerable()
-            .SelectAwait(async pc => (await GetLogsFromPod(pc.pod, pc.container, GetPrefix(run, pc.pod, pc.container, podAndContainers), podLogOptions, cancellationToken))!)
+            .Select(async (pc, ct) => (await GetLogsFromPod(pc.pod, pc.container, GetPrefix(run, pc.pod, pc.container, podAndContainers), podLogOptions, ct))!)
             .Where(p => p != null)
             .ToArrayAsync(cancellationToken);
 

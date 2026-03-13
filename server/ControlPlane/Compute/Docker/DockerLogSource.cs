@@ -82,27 +82,23 @@ public class DockerLogSource : ILogSource
                     }
                 }
 
-                var pipelineSources = containers.ToAsyncEnumerable()
-                    .SelectAwait(async c =>
-                        (
-                            container: c,
-                            pipeline: await GetContainerLogs(
-                            c.ID,
-                            c.Labels.TryGetValue(DockerRunCreator.ContainerNameLabelKey, out var prefix) ? $"[{prefix}]" : null,
-                            options with { IncludeTimestamps = true },
-                            cancellationToken))
-                        )
-                    .ToEnumerable()
-                    .Select(x =>
-                        {
-                            if (x.container.ID == mainSocketContainerId)
-                            {
-                                x.pipeline.AddElement(mainSocketContainerTerminablePipelineElement);
-                            }
+                var pipelineSources = new Pipeline[containers.Count];
+                for (var i = 0; i < containers.Count; i++)
+                {
+                    var c = containers[i];
+                    var containerPipeline = await GetContainerLogs(
+                        c.ID,
+                        c.Labels.TryGetValue(DockerRunCreator.ContainerNameLabelKey, out var prefix) ? $"[{prefix}]" : null,
+                        options with { IncludeTimestamps = true },
+                        cancellationToken);
 
-                            return x.pipeline;
-                        })
-                    .ToArray();
+                    if (c.ID == mainSocketContainerId)
+                    {
+                        containerPipeline.AddElement(mainSocketContainerTerminablePipelineElement);
+                    }
+
+                    pipelineSources[i] = containerPipeline;
+                }
 
                 LogMerger logMerger;
                 if (options.Follow)

@@ -43,8 +43,6 @@ public interface IResourceWithTags<TId>
 
 public record Buffer : ModelBase
 {
-    private string? _etag;
-
     public string Id { get; init; } = "";
 
     public string? Location { get; init; }
@@ -60,12 +58,12 @@ public record Buffer : ModelBase
     [SkipEmptyToNullNormalization]
     public string? ETag
     {
-        get => _etag ??= ComputeEtagCore(new()); set => _etag = value;
+        get => field ??= ComputeEtagCore(new()); set;
     }
 
     public string ComputeEtag(XxHash3 hash)
     {
-        return _etag = ComputeEtagCore(hash);
+        return ETag = ComputeEtagCore(hash);
     }
 
     private string ComputeEtagCore(XxHash3 hash)
@@ -492,8 +490,6 @@ public enum RunKind
 
 public partial record Run : ModelBase
 {
-    private string? _etag;
-
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public RunKind Kind { get; init; } = RunKind.User;
 
@@ -508,7 +504,7 @@ public partial record Run : ModelBase
     [SkipEmptyToNullNormalization]
     public string? ETag
     {
-        get => _etag ??= ComputeEtagCore(new()); set => _etag = value;
+        get => field ??= ComputeEtagCore(new()); set;
     }
 
     /// <summary>
@@ -575,7 +571,7 @@ public partial record Run : ModelBase
 
     public string ComputeEtag(XxHash3 hash)
     {
-        return _etag = ComputeEtagCore(hash);
+        return ETag = ComputeEtagCore(hash);
     }
 
     private string ComputeEtagCore(XxHash3 hash)

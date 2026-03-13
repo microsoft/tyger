@@ -47,7 +47,7 @@ public class DockerRunReader : IRunReader, IRunAugmenter
                     }
                 }, cancellationToken))
             .ToAsyncEnumerable()
-            .SelectAwait(async c => await _client.Containers.InspectContainerAsync(c.ID, cancellationToken))
+            .Select(async (c, ct) => await _client.Containers.InspectContainerAsync(c.ID, ct))
             .ToListAsync(cancellationToken);
 
         return UpdateRunFromContainers(run, containers);

@@ -5,7 +5,6 @@ using System.Net.Sockets;
 using System.Threading.Channels;
 using System.Threading.RateLimiting;
 using k8s;
-using k8s.Autorest;
 using k8s.Models;
 
 namespace Tyger.ControlPlane.Compute.Kubernetes;
@@ -103,10 +102,16 @@ public abstract class ResourceInformer<TResource, TListResource>
         }
     }
 
-    protected abstract Task<HttpOperationResponse<TListResource>> RetrieveResourceListAsync(
+    protected abstract Task<TListResource> RetrieveResourceListAsync(
         string namespaceParameter,
         string? labelSelector,
-        bool watch,
+        string? resourceVersion,
+        string? continuationToken,
+        CancellationToken cancellationToken);
+
+    protected abstract IAsyncEnumerable<(WatchEventType, TResource)> WatchResourceListAsync(
+        string namespaceParameter,
+        string? labelSelector,
         string? resourceVersion,
         string? continuationToken,
         CancellationToken cancellationToken);
@@ -122,9 +127,8 @@ public abstract class ResourceInformer<TResource, TListResource>
             cancellationToken.ThrowIfCancellationRequested();
 
             // request next page of items
-            using var listWithHttpMessage = await RetrieveResourceListAsync(_namespace, _labelSelector, false, _lastResourceVersion, continueParameter, cancellationToken);
+            var list = await RetrieveResourceListAsync(_namespace, _labelSelector, _lastResourceVersion, continueParameter, cancellationToken);
 
-            var list = listWithHttpMessage.Body;
             foreach (var item in list.Items)
             {
                 var key = item.Name();
@@ -169,40 +173,12 @@ public abstract class ResourceInformer<TResource, TListResource>
         // completion source helps turn OnClose callback into something awaitable
         var watcherCompletionSource = new TaskCompletionSource<int>();
 
-        // begin watching where list left off
-        var watchWithHttpMessage = RetrieveResourceListAsync(_namespace, watch: true, resourceVersion: _lastResourceVersion, labelSelector: _labelSelector, continuationToken: null, cancellationToken: cancellationToken);
-
         var lastEventUtc = DateTime.UtcNow;
-        using var watcher = watchWithHttpMessage.Watch<TResource, TListResource>(
-            async (watchEventType, item) =>
-            {
-                if (!watcherCompletionSource.Task.IsCompleted)
-                {
-                    lastEventUtc = DateTime.UtcNow;
-                    await OnEvent(watchEventType, item);
-                }
-            },
-            error =>
-            {
-                if (error is KubernetesException kubernetesError)
-                {
-                    // deal with this non-recoverable condition "too old resource version"
-                    if (string.Equals(kubernetesError.Status.Reason, "Expired", StringComparison.Ordinal))
-                    {
-                        // cause this error to surface
-                        watcherCompletionSource.TrySetException(error);
-                        throw error;
-                    }
-                }
 
-                _logger.ErrorWatchingResources(error);
-            },
-            () =>
-            {
-                watcherCompletionSource.TrySetResult(0);
-            });
+        var cts = new CancellationTokenSource();
+        var combinedTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, cts.Token);
 
-        // reconnect if no events have arrived after a certain time
+        // force Reconnect if no events have arrived after a certain time
         using var checkLastEventUtcTimer = new Timer(
             _ =>
             {
@@ -210,21 +186,23 @@ public abstract class ResourceInformer<TResource, TListResource>
                 if (lastEvent > TimeSpan.FromMinutes(9.5))
                 {
                     lastEventUtc = DateTime.MaxValue;
-                    watcherCompletionSource.TrySetCanceled();
-                    watcher.Dispose();
+                    cts.Cancel();
                 }
             },
             state: null,
             dueTime: TimeSpan.FromSeconds(45),
             period: TimeSpan.FromSeconds(45));
 
-        using var registration = cancellationToken.Register(watcher.Dispose);
-        try
+        // begin watching where list left off
+        var watchStream = WatchResourceListAsync(_namespace, _labelSelector, _lastResourceVersion, null, combinedTokenSource.Token);
+
+        await foreach (var (watchEventType, item) in watchStream)
         {
-            await watcherCompletionSource.Task;
-        }
-        catch (TaskCanceledException)
-        {
+            if (!watcherCompletionSource.Task.IsCompleted)
+            {
+                lastEventUtc = DateTime.UtcNow;
+                await OnEvent(watchEventType, item);
+            }
         }
     }
 
@@ -266,15 +244,25 @@ public class PodInformer : ResourceInformer<V1Pod, V1PodList>
     {
     }
 
-    protected override Task<HttpOperationResponse<V1PodList>> RetrieveResourceListAsync(string namespaceParameter, string? labelSelector, bool watch, string? resourceVersion, string? continuationToken, CancellationToken cancellationToken)
+    protected override Task<V1PodList> RetrieveResourceListAsync(string namespaceParameter, string? labelSelector, string? resourceVersion, string? continuationToken, CancellationToken cancellationToken)
     {
-        return Client.CoreV1.ListNamespacedPodWithHttpMessagesAsync(
+        return Client.CoreV1.ListNamespacedPodAsync(
             namespaceParameter,
             labelSelector: labelSelector,
-            watch: watch,
             resourceVersion: resourceVersion,
             continueParameter: continuationToken,
-            allowWatchBookmarks: watch,
+            allowWatchBookmarks: false,
+            cancellationToken: cancellationToken);
+    }
+
+    protected override IAsyncEnumerable<(WatchEventType, V1Pod)> WatchResourceListAsync(string namespaceParameter, string? labelSelector, string? resourceVersion, string? continuationToken, CancellationToken cancellationToken)
+    {
+        return Client.CoreV1.WatchListNamespacedPodAsync(
+            namespaceParameter,
+            labelSelector: labelSelector,
+            resourceVersion: resourceVersion,
+            continueParameter: continuationToken,
+            allowWatchBookmarks: true,
             cancellationToken: cancellationToken);
     }
 }

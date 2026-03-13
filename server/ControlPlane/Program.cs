@@ -2,7 +2,6 @@
 // Licensed under the MIT License.
 
 using System.CommandLine;
-using System.CommandLine.Parsing;
 using Tyger.Common.Api;
 using Tyger.Common.Configuration;
 using Tyger.Common.Logging;
@@ -24,7 +23,7 @@ using Tyger.ControlPlane.ServiceMetadata;
 using Tyger.ControlPlane.Versioning;
 
 var rootCommand = new RootCommand("Tyger Server");
-rootCommand.SetHandler(RunServer);
+rootCommand.SetAction(_ => RunServer());
 
 rootCommand.AddDatabaseCliCommand(() =>
     {
@@ -33,7 +32,7 @@ rootCommand.AddDatabaseCliCommand(() =>
         return builder.Build();
     });
 
-return await rootCommand.InvokeAsync(args);
+return await rootCommand.Parse(args).InvokeAsync();
 
 void AddCommonServices(IHostApplicationBuilder builder)
 {

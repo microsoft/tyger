@@ -515,8 +515,22 @@ timeoutSeconds: 600`, getTestConnectivityImage(t))
 	// Create a pipe that trickles data: writes the current date every second for 10 seconds
 	pr, pw := io.Pipe()
 	inByteCount := 0
+	uniqueTag := fmt.Sprintf("testId=%s", uuid.NewString())
 	go func() {
 		defer pw.Close()
+
+		// Wait for the run to be in Running status before writing
+		var runId string
+		for {
+			runs := listRuns(t, "--tag", uniqueTag)
+			if len(runs) > 0 {
+				runId = fmt.Sprintf("%d", runs[0].Id)
+				break
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+		waitForRunStarted(t, runId)
+
 		for i := range 10 {
 			n, err := fmt.Fprintf(pw, "%s\n", time.Now().Format(time.RFC3339Nano))
 			require.NoError(err)
@@ -527,7 +541,7 @@ timeoutSeconds: 600`, getTestConnectivityImage(t))
 		}
 	}()
 
-	execCmd := exec.Command("tyger", "run", "exec", "--file", runSpecPath, "--log-level", "trace")
+	execCmd := exec.Command("tyger", "run", "exec", "--file", runSpecPath, "--log-level", "trace", "--tag", uniqueTag)
 	execCmd.Stdin = pr
 
 	stdErr := &bytes.Buffer{}

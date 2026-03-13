@@ -3,6 +3,7 @@
 
 using Asp.Versioning;
 using Microsoft.AspNetCore.Rewrite;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Tyger.Common.Api;
 
 namespace Tyger.Common.Versioning;
@@ -15,8 +16,8 @@ public static class ApiVersioning
     {
         ArgumentNullException.ThrowIfNull(supportedApiVersions);
 
-        builder.Services.AddProblemDetails();
         builder.Services.AddSingleton<IProblemDetailsWriter>(sp => new ProblemDetailsErrorBodyWriter(supportedApiVersions));
+        builder.Services.AddProblemDetails();
         builder.Services.AddApiVersioning(options =>
             {
                 options.ApiVersionReader = new QueryStringApiVersionReader(QueryParameterKey);
