@@ -199,13 +199,16 @@ func (sp *SshParams) FormatLoginArgs(add ...string) []string {
 }
 
 func (sp *SshParams) FormatTunnelArgs(local string) []string {
-	overridingSshOptions := map[string]string{
-		"ControlMaster":         "no",
-		"ControlPath":           "none",
-		"ExitOnForwardFailure":  "yes",
-		"ServerAliveInterval":   "15",
-		"ServerAliveCountMax":   "3",
+	defaultSshOptions := map[string]string{
 		"StrictHostKeyChecking": "yes",
+	}
+
+	overridingSshOptions := map[string]string{
+		"ControlMaster":        "no",
+		"ControlPath":          "none",
+		"ExitOnForwardFailure": "yes",
+		"ServerAliveInterval":  "15",
+		"ServerAliveCountMax":  "3",
 	}
 
 	otherSshArgs := []string{
@@ -213,7 +216,7 @@ func (sp *SshParams) FormatTunnelArgs(local string) []string {
 		"-L", fmt.Sprintf("%s:%s", local, sp.SocketPath),
 	}
 
-	return sp.formatCmdLine(nil, overridingSshOptions, otherSshArgs, false)
+	return sp.formatCmdLine(defaultSshOptions, overridingSshOptions, otherSshArgs, false)
 }
 
 func (sp *SshParams) FormatDataPlaneCmdLine(longLived bool, add ...string) []string {

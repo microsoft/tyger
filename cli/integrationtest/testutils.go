@@ -292,6 +292,19 @@ func isUsingUnixSocketDirectly() bool {
 	return false
 }
 
+func isUsingDockerUrl() bool {
+	if c, _ := controlplane.GetClientFromCache(); c.RawControlPlaneUrl.Scheme == "docker" {
+		return true
+	}
+	return false
+}
+
+func skipIfUsingDockerUrl(t *testing.T) {
+	if isUsingDockerUrl() {
+		t.Skip("Skipping test because the control plane is using a docker URL")
+	}
+}
+
 func skipIfUsingUnixSocket(t *testing.T) {
 	if isUsingUnixSocketDirectlyOrIndirectly() {
 		t.Skip("Skipping test because the control plane is using a local Unix socket")
@@ -307,6 +320,12 @@ func skipUnlessUsingUnixSocket(t *testing.T) {
 func skipIfNotUsingUnixSocketDirectly(t *testing.T) {
 	if !isUsingUnixSocketDirectly() {
 		t.Skip("Skipping test because the control plane is not using a local Unix socket directly")
+	}
+}
+
+func skipIfUsingUnixSocketDirectly(t *testing.T) {
+	if isUsingUnixSocketDirectly() {
+		t.Skip("Skipping test because the control plane is using a local Unix socket directly")
 	}
 }
 
