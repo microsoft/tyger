@@ -224,6 +224,43 @@ func TestProxiedRequestsFromDisallowedAllowedCIDR(t *testing.T) {
 	require.Equal(http.StatusOK, resp.StatusCode)
 }
 
+func TestCheckProxyAlreadyRunning(t *testing.T) {
+	t.Parallel()
+	skipIfUsingUnixSocketDirectly(t)
+	skipIfUsingDockerUrl(t)
+
+	require := require.New(t)
+	tygerClient, err := controlplane.GetClientFromCache()
+	require.NoError(err)
+
+	serviceMetadata, err := controlplane.GetServiceMetadata(t.Context(), tygerClient.ControlPlaneUrl.String(), tygerClient.ControlPlaneClient.HTTPClient)
+	require.NoError(err)
+
+	proxyOptions := tygerproxy.ProxyOptions{
+		LoginConfig: controlplane.LoginConfig{
+			ServerUrl: tygerClient.RawControlPlaneUrl.String(),
+		},
+	}
+	proxyLogBuffer := SyncBuffer{}
+	logger := zerolog.New(&proxyLogBuffer)
+
+	closeProxy, err := tygerproxy.RunProxy(context.Background(), tygerClient, &proxyOptions, serviceMetadata, logger)
+	require.NoError(err)
+	defer closeProxy()
+
+	// CheckProxyAlreadyRunning should detect the running proxy
+	// regardless of whether DataPlaneProxy is set (it won't be when
+	// the server has the LocalBuffers capability).
+	_, err = tygerproxy.CheckProxyAlreadyRunning(&proxyOptions)
+	require.NoError(err)
+
+	// A different ServerUrl should be detected as a conflict.
+	differentOptions := proxyOptions
+	differentOptions.LoginConfig.ServerUrl = "http://someotherserver"
+	_, err = tygerproxy.CheckProxyAlreadyRunning(&differentOptions)
+	require.ErrorIs(err, tygerproxy.ErrProxyAlreadyRunningWrongTarget)
+}
+
 func TestRunningProxyOnSamePort(t *testing.T) {
 	t.Parallel()
 	skipIfUsingUnixSocket(t)

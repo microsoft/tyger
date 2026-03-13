@@ -203,7 +203,8 @@ func GetExistingProxyMetadata(options *ProxyOptions) *ProxyServiceMetadata {
 	if err == nil && resp.StatusCode == http.StatusOK {
 		metadata := ProxyServiceMetadata{}
 		err = json.NewDecoder(resp.Body).Decode(&metadata)
-		if err == nil && metadata.DataPlaneProxy != "" && metadata.Audience == "" && metadata.Authority == "" {
+		// ServerUrl only exists on ProxyServiceMetadata
+		if err == nil && metadata.ServerUrl != "" {
 			return &metadata
 		}
 	}
@@ -249,7 +250,7 @@ func (h *proxyHandler) handleMetadataRequest(w http.ResponseWriter, r *http.Requ
 
 	metadata := &ProxyServiceMetadata{
 		ServiceMetadata: serviceMetadata,
-		ServerUrl:       h.targetControlPlaneUrl.String(),
+		ServerUrl:       h.tygerClient.RawControlPlaneUrl.String(),
 		LogPath:         h.options.LogPath,
 	}
 
