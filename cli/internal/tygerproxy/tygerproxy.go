@@ -189,11 +189,27 @@ func CheckProxyAlreadyRunning(options *ProxyOptions) (*ProxyServiceMetadata, err
 		return existingProxy, ErrProxyNotRunning
 	}
 
-	if existingProxy.ServerUrl != options.ServerUrl {
+	if !urlsEquivalent(existingProxy.ServerUrl, options.ServerUrl) {
 		return existingProxy, ErrProxyAlreadyRunningWrongTarget
 	}
 
 	return existingProxy, nil
+}
+
+func urlsEquivalent(a, b string) bool {
+	return normalizeUrl(a) == normalizeUrl(b)
+}
+
+func normalizeUrl(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	u.Scheme = strings.ToLower(u.Scheme)
+	u.Host = strings.ToLower(u.Host)
+	u.Path = strings.TrimRight(u.Path, "/")
+	u.RawQuery = u.Query().Encode()
+	return u.String()
 }
 
 func GetExistingProxyMetadata(options *ProxyOptions) *ProxyServiceMetadata {
