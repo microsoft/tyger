@@ -192,6 +192,13 @@ func TestSshParams_URL_WithCliPath(t *testing.T) {
 	assert.Contains(t, u.RawQuery, "cliPath")
 }
 
+func TestSshParams_URL_WithConfigPath(t *testing.T) {
+	sp := SshParams{Host: "myhost", ConfigPath: "/home/user/.ssh/config"}
+	u := sp.URL()
+	assert.Contains(t, u.RawQuery, "configPath")
+	assert.Equal(t, "/home/user/.ssh/config", u.Query().Get("configPath"))
+}
+
 func TestSshParams_URL_WithOptions(t *testing.T) {
 	sp := SshParams{
 		Host:    "myhost",
@@ -202,7 +209,7 @@ func TestSshParams_URL_WithOptions(t *testing.T) {
 }
 
 func TestSshParams_String_RoundTrip(t *testing.T) {
-	original := "ssh://alice@myhost:2222/path/to/socket?cliPath=%2Fusr%2Fbin%2Ftyger&option%5BFoo%5D=bar"
+	original := "ssh://alice@myhost:2222/path/to/socket?cliPath=%2Fusr%2Fbin%2Ftyger&configPath=%2Fhome%2Fuser%2F.ssh%2Fconfig&option%5BFoo%5D=bar"
 	u, err := url.Parse(original)
 	require.NoError(t, err)
 
@@ -220,6 +227,7 @@ func TestSshParams_String_RoundTrip(t *testing.T) {
 	assert.Equal(t, u.Path, u2.Path)
 	assert.Equal(t, u.User.Username(), u2.User.Username())
 	assert.Equal(t, u.Query().Get("cliPath"), u2.Query().Get("cliPath"))
+	assert.Equal(t, u.Query().Get("configPath"), u2.Query().Get("configPath"))
 	assert.Equal(t, u.Query().Get("option[Foo]"), u2.Query().Get("option[Foo]"))
 }
 
@@ -463,16 +471,6 @@ func TestFormatCmdLine_StructureOrder(t *testing.T) {
 	assert.Equal(t, "stdio-proxy", remoteCmd[1])
 	assert.Equal(t, "arg1", remoteCmd[2])
 	assert.Equal(t, "arg2", remoteCmd[3])
-}
-
-func TestParseSshUrl_ConfigPathNotInURL(t *testing.T) {
-	// configPath is consumed during parsing and should not appear in URL output
-	sp := SshParams{
-		Host:       "myhost",
-		ConfigPath: "/home/user/.ssh/config",
-	}
-	u := sp.URL()
-	assert.NotContains(t, u.RawQuery, "configPath")
 }
 
 func TestSshParams_URL_NoQueryWhenEmpty(t *testing.T) {

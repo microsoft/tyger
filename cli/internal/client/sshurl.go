@@ -100,6 +100,9 @@ func (sp *SshParams) URL() *url.URL {
 	if sp.CliPath != "" {
 		q.Set("cliPath", sp.CliPath)
 	}
+	if sp.ConfigPath != "" {
+		q.Set("configPath", sp.ConfigPath)
+	}
 	for k, v := range sp.Options {
 		q.Set(fmt.Sprintf("option[%s]", k), v)
 	}
