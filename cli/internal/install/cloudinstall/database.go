@@ -72,9 +72,7 @@ func (inst *Installer) createDatabaseServer(ctx context.Context) (any, error) {
 			maps.Copy(tags, existingServerResponse.Tags)
 		}
 	} else {
-		var respErr *azcore.ResponseError
-		if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
-		} else {
+		if !isNotFoundError(err) {
 			return nil, fmt.Errorf("failed to get database server: %w", err)
 		}
 	}
@@ -362,8 +360,7 @@ func (inst *Installer) createDatabase(ctx context.Context, org *OrganizationConf
 	}
 
 	if _, err := databasesClient.Get(ctx, inst.Config.Cloud.ResourceGroup, serverName, org.Cloud.DatabaseName, nil); err != nil {
-		var repErr *azcore.ResponseError
-		if errors.As(err, &repErr) && repErr.StatusCode == http.StatusNotFound {
+		if isNotFoundError(err) {
 			log.Ctx(ctx).Info().Msgf("Creating PostgreSQL server database '%s'", org.Cloud.DatabaseName)
 			if poller, err := databasesClient.BeginCreate(ctx, inst.Config.Cloud.ResourceGroup, serverName, org.Cloud.DatabaseName, armpostgresqlflexibleservers.Database{}, nil); err != nil {
 				return nil, fmt.Errorf("failed to create PostgreSQL server database: %w", err)

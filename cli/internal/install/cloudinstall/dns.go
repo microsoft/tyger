@@ -74,7 +74,7 @@ func (inst *Installer) assignDnsRecord(ctx context.Context, org *OrganizationCon
 				ipAddress = *nic.Properties.IPConfigurations[0].Properties.PrivateIPAddress
 			}
 
-			return inst.createPrivateDnsZone(ctx, org.Api.DomainName, ipAddress, configSubnet)
+			return inst.createPrivateDnsZoneWithRecord(ctx, org.Api.DomainName, ipAddress, configSubnet)
 		})
 	}
 

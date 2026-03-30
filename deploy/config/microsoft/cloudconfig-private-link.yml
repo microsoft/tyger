@@ -16,6 +16,15 @@ cloud:
   # will not be accessible from the public internet.
   privateNetworking: true
 
+  # Optional: additional VNets to link private DNS zones to.
+  # Use this to link DNS zones to a hub VNet in a hub-and-spoke topology,
+  # so that a DNS resolver in the hub can resolve Tyger's private endpoints.
+  # Only applies when privateNetworking is true.
+  additionalDnsVnetLinks:
+    - subscriptionId: 87d8acb3-5176-4651-b457-6ab9cefd8e3d
+      resourceGroup: eminence
+      vnetName: eminence-pl-eastus-vnet
+
   # Optionally point an existing Log Analytics workspace to send logs to.
   logAnalyticsWorkspace:
     resourceGroup: eminence

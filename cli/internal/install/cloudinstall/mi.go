@@ -21,10 +21,15 @@ const (
 	tygerServerManagedIdentityName           = "tyger-server"
 	migrationRunnerManagedIdentityName       = "tyger-migration-runner"
 	traefikKeyVaultClientManagedIdentityName = "traefik"
+	aksClusterManagedIdentityName            = "tyger-aks"
 )
 
 func isSystemManagedIdentityName(name string) bool {
 	return strings.EqualFold(name, tygerServerManagedIdentityName) || strings.EqualFold(name, migrationRunnerManagedIdentityName) || strings.EqualFold(name, traefikKeyVaultClientManagedIdentityName)
+}
+
+func (inst *Installer) createAksClusterManagedIdentity(ctx context.Context) (*armmsi.Identity, error) {
+	return inst.createManagedIdentity(ctx, aksClusterManagedIdentityName, inst.Config.Cloud.ResourceGroup)
 }
 
 func (inst *Installer) createTygerServerManagedIdentity(ctx context.Context, org *OrganizationConfig) (*armmsi.Identity, error) {
