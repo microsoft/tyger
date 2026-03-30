@@ -20,10 +20,10 @@ cloud:
   # Use this to link DNS zones to a hub VNet in a hub-and-spoke topology,
   # so that a DNS resolver in the hub can resolve Tyger's private endpoints.
   # Only applies when privateNetworking is true.
-  additionalDnsVnetLinks:
-    - subscriptionId: 87d8acb3-5176-4651-b457-6ab9cefd8e3d
-      resourceGroup: eminence
-      vnetName: eminence-pl-eastus-vnet
+  # additionalDnsVnetLinks:
+  #   - subscriptionId: 00000000-0000-0000-0000-000000000000  # optional, defaults to cloud.subscriptionId
+  #     resourceGroup: hub-networking-rg
+  #     vnetName: hub-vnet
 
   # Optionally point an existing Log Analytics workspace to send logs to.
   logAnalyticsWorkspace:
