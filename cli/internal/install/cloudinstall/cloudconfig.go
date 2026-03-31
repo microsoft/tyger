@@ -64,20 +64,27 @@ func (c *CloudEnvironmentConfig) ForEachOrgInParallel(ctx context.Context, actio
 }
 
 type CloudConfig struct {
-	TenantID              string                `yaml:"tenantId"`
-	SubscriptionID        string                `yaml:"subscriptionId"`
-	DefaultLocation       string                `yaml:"defaultLocation"`
-	ResourceGroup         string                `yaml:"resourceGroup"`
-	ResourceTags          map[string]string     `yaml:"resourceTags"`
-	PrivateNetworking     bool                  `yaml:"privateNetworking"`
-	Compute               *ComputeConfig        `yaml:"compute"`
-	Database              *DatabaseServerConfig `yaml:"database"`
-	LogAnalyticsWorkspace *NamedAzureResource   `yaml:"logAnalyticsWorkspace"`
-	DnsZone               *NamedAzureResource   `yaml:"dnsZone"`
-	TlsCertificate        *TlsCertificate       `yaml:"tlsCertificate"`
+	TenantID               string                `yaml:"tenantId"`
+	SubscriptionID         string                `yaml:"subscriptionId"`
+	DefaultLocation        string                `yaml:"defaultLocation"`
+	ResourceGroup          string                `yaml:"resourceGroup"`
+	ResourceTags           map[string]string     `yaml:"resourceTags"`
+	PrivateNetworking      bool                  `yaml:"privateNetworking"`
+	AdditionalDnsVnetLinks []VnetReference       `yaml:"additionalDnsVnetLinks"`
+	Compute                *ComputeConfig        `yaml:"compute"`
+	Database               *DatabaseServerConfig `yaml:"database"`
+	LogAnalyticsWorkspace  *NamedAzureResource   `yaml:"logAnalyticsWorkspace"`
+	DnsZone                *NamedAzureResource   `yaml:"dnsZone"`
+	TlsCertificate         *TlsCertificate       `yaml:"tlsCertificate"`
 
 	// Internal support for associating resources with a network security perimeter profile
 	NetworkSecurityPerimeter *NetworkSecurityPerimeterConfig `yaml:"networkSecurityPerimeter"`
+}
+
+type VnetReference struct {
+	SubscriptionID string `yaml:"subscriptionId,omitempty"`
+	ResourceGroup  string `yaml:"resourceGroup"`
+	VNetName       string `yaml:"vnetName"`
 }
 
 type ComputeConfig struct {

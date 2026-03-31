@@ -18,6 +18,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v7"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v7"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/operationalinsights/armoperationalinsights/v2"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources/v3"
@@ -55,9 +56,7 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 
 	existingCluster, err := inst.getCluster(ctx, clusterConfig)
 	if err != nil {
-		var respErr *azcore.ResponseError
-		if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
-		} else {
+		if !isNotFoundError(err) {
 			return nil, fmt.Errorf("failed to get cluster: %w", err)
 		}
 	} else {
@@ -153,7 +152,6 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 	if inst.Config.Cloud.PrivateNetworking {
 		cluster.Properties.APIServerAccessProfile = &armcontainerservice.ManagedClusterAPIServerAccessProfile{
 			EnablePrivateCluster:           Ptr(true),
-			PrivateDNSZone:                 Ptr("system"),
 			EnablePrivateClusterPublicFQDN: Ptr(false),
 		}
 	}
@@ -210,8 +208,7 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 
 		vnetResult, err := vnetClient.Get(ctx, clusterConfig.ExistingSubnet.ResourceGroup, clusterConfig.ExistingSubnet.VNetName, nil)
 		if err != nil {
-			var respErr *azcore.ResponseError
-			if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
+			if isNotFoundError(err) {
 				return nil, fmt.Errorf("VNet '%s' not found in resource group '%s'", clusterConfig.ExistingSubnet.VNetName, clusterConfig.ExistingSubnet.ResourceGroup)
 			}
 
@@ -234,6 +231,57 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 			vnetSubnetNsgId = subnet.Properties.NetworkSecurityGroup.ID
 		} else {
 			return nil, fmt.Errorf("subnet '%s' must have a network security group associated with it", clusterConfig.ExistingSubnet.SubnetName)
+		}
+	}
+
+	var aksIdentity *armmsi.Identity
+	if inst.Config.Cloud.PrivateNetworking {
+		// An existing cluster with PrivateDNSZone "system" cannot be migrated to a custom DNS zone;
+		// the cluster must be deleted and recreated.
+		if existingCluster != nil && existingCluster.Properties.APIServerAccessProfile != nil &&
+			existingCluster.Properties.APIServerAccessProfile.PrivateDNSZone != nil &&
+			strings.EqualFold(*existingCluster.Properties.APIServerAccessProfile.PrivateDNSZone, "system") {
+			return nil, fmt.Errorf("cluster '%s' was created with 'system' private DNS zone and cannot be migrated to a custom DNS zone; delete and recreate the cluster", clusterConfig.Name)
+		}
+
+		aksIdentity, err = inst.createAksClusterManagedIdentity(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create AKS cluster managed identity: %w", err)
+		}
+
+		aksPrivateDnsZoneId, err := inst.createAksPrivateDnsZone(ctx, clusterConfig.Location, clusterConfig.Name, clusterConfig.ExistingSubnet)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create AKS private DNS zone: %w", err)
+		}
+
+		cluster.Identity = &armcontainerservice.ManagedClusterIdentity{
+			Type: Ptr(armcontainerservice.ResourceIdentityTypeUserAssigned),
+			UserAssignedIdentities: map[string]*armcontainerservice.ManagedServiceIdentityUserAssignedIdentitiesValue{
+				*aksIdentity.ID: {},
+			},
+		}
+		cluster.Properties.APIServerAccessProfile.PrivateDNSZone = &aksPrivateDnsZoneId
+
+		if err := assignRbacRole(ctx, []string{*aksIdentity.Properties.PrincipalID}, false, aksPrivateDnsZoneId, "Private DNS Zone Contributor", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
+			return nil, fmt.Errorf("failed to assign Private DNS Zone Contributor role: %w", err)
+		}
+
+		if vnetId != nil {
+			if err := assignRbacRole(ctx, []string{*aksIdentity.Properties.PrincipalID}, false, *vnetId, "Network Contributor", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
+				return nil, fmt.Errorf("failed to assign Network Contributor role on VNet: %w", err)
+			}
+		}
+
+		if vnetSubnetNsgId != nil {
+			if err := assignRbacRole(ctx, []string{*aksIdentity.Properties.PrincipalID}, false, *vnetSubnetNsgId, "Network Contributor", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
+				return nil, fmt.Errorf("failed to assign Network Contributor role on NSG: %w", err)
+			}
+		}
+
+		if outboundIpAddress != nil {
+			if err := assignRbacRole(ctx, []string{*aksIdentity.Properties.PrincipalID}, false, *outboundIpAddress.ID, "Network Contributor", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
+				return nil, fmt.Errorf("failed to assign Network Contributor role on outbound IP: %w", err)
+			}
 		}
 	}
 
@@ -467,17 +515,9 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 		return nil, fmt.Errorf("failed to assign RBAC role on cluster: %w", err)
 	}
 
-	if inst.Config.Cloud.PrivateNetworking {
-		if err := assignRbacRole(ctx, []string{*createdCluster.Identity.PrincipalID}, false, *vnetId, "Network Contributor", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
-			return nil, fmt.Errorf("failed to assign RBAC role on VNet: %w", err)
-		}
-
-		if err := assignRbacRole(ctx, []string{*createdCluster.Identity.PrincipalID}, false, *vnetSubnetNsgId, "Network Contributor", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
-			return nil, fmt.Errorf("failed to assign RBAC role on VNet: %w", err)
-		}
-	}
-
-	if outboundIpAddress != nil {
+	// When using private networking, RBAC roles were pre-assigned to the user-assigned identity.
+	// When not using private networking, assign roles to the system-assigned identity post-creation.
+	if !inst.Config.Cloud.PrivateNetworking && outboundIpAddress != nil {
 		if err := assignRbacRole(ctx, []string{*createdCluster.Identity.PrincipalID}, false, *outboundIpAddress.ID, "Network Contributor", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
 			return nil, fmt.Errorf("failed to assign RBAC role on outbound IP address: %w", err)
 		}
@@ -782,8 +822,7 @@ func (inst *Installer) onDeleteCluster(ctx context.Context, clusterConfig *Clust
 
 	clusterResponse, err := clustersClient.Get(ctx, inst.Config.Cloud.ResourceGroup, clusterConfig.Name, nil)
 	if err != nil {
-		var respErr *azcore.ResponseError
-		if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
+		if isNotFoundError(err) {
 			return nil
 		}
 		return err
@@ -804,8 +843,7 @@ func (inst *Installer) onDeleteCluster(ctx context.Context, clusterConfig *Clust
 		log.Ctx(ctx).Info().Msgf("Detaching ACR '%s' from cluster '%s'", containerRegistry, clusterConfig.Name)
 		containerRegistryId, err := getContainerRegistryId(ctx, containerRegistry, inst.Config.Cloud.SubscriptionID, inst.Credential)
 		if err != nil {
-			var respErr *azcore.ResponseError
-			if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
+			if isNotFoundError(err) {
 				continue
 			}
 			return err

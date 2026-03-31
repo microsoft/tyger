@@ -57,7 +57,7 @@ public class DockerRunUpdater : IRunUpdater
 
         foreach (var container in containers)
         {
-            if (container.State is not "exited" or "dead")
+            if (container.State is not "exited" and not "dead")
             {
                 try
                 {

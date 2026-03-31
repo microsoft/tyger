@@ -24,6 +24,24 @@ cloud:
   # will not be accessible from the public internet.
   privateNetworking: {{ .PrivateNetworking }}
 
+  # Optional: additional VNets to link private DNS zones to.
+  # Use this to link DNS zones to a hub VNet in a hub-and-spoke topology,
+  # so that a DNS resolver in the hub can resolve Tyger's private endpoints.
+  # Only applies when privateNetworking is true.
+  {{ if .AdditionalDnsVnetLinks -}}
+  additionalDnsVnetLinks:
+  {{- range .AdditionalDnsVnetLinks }}
+    - {{ if .SubscriptionID }}subscriptionId: {{ .SubscriptionID }}
+      {{ end }}resourceGroup: {{ .ResourceGroup }}
+      vnetName: {{ .VNetName }}
+  {{- end }}
+  {{- else -}}
+  # additionalDnsVnetLinks:
+  #   - subscriptionId: 00000000-0000-0000-0000-000000000000  # optional, defaults to cloud.subscriptionId
+  #     resourceGroup: hub-networking-rg
+  #     vnetName: hub-vnet
+  {{- end }}
+
   # Optionally point an existing Log Analytics workspace to send logs to.
   {{ if .LogAnalyticsWorkspace -}}
   logAnalyticsWorkspace:

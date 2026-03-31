@@ -192,6 +192,12 @@ func (inst *Installer) UninstallOrganization(ctx context.Context, org *Organizat
 		return fmt.Errorf("failed to delete DNS record: %w", err)
 	}
 
+	if inst.Config.Cloud.PrivateNetworking {
+		if err := inst.deleteOrgPrivateLinkResources(ctx, org); err != nil {
+			return fmt.Errorf("failed to delete org private link resources: %w", err)
+		}
+	}
+
 	return inst.safeDeleteResourceGroup(ctx, org.Cloud.ResourceGroup)
 }
 
@@ -223,9 +229,7 @@ func (inst *Installer) UninstallCloud(ctx context.Context, all bool) error {
 	if inst.Config.Cloud.TlsCertificate != nil && inst.Config.Cloud.TlsCertificate.KeyVault != nil {
 		kvIdentityResp, err := inst.getTraefikKeyVaultClientManagedIdentity(ctx)
 		if err != nil {
-			var respErr *azcore.ResponseError
-			if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
-			} else {
+			if !isNotFoundError(err) {
 				return fmt.Errorf("failed to get key vault managed identity: %w", err)
 			}
 		}
@@ -439,6 +443,11 @@ func (inst *Installer) ensureResourceGroupCreated(ctx context.Context, name stri
 	}
 
 	return nil
+}
+
+func isNotFoundError(err error) bool {
+	var respErr *azcore.ResponseError
+	return errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound
 }
 
 func logError(ctx context.Context, err error, msg string) {

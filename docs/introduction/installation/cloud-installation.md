@@ -71,6 +71,15 @@ cloud:
   # will not be accessible from the public internet.
   privateNetworking: false
 
+  # Optional: additional VNets to link private DNS zones to.
+  # Use this to link DNS zones to a hub VNet in a hub-and-spoke topology,
+  # so that a DNS resolver in the hub can resolve Tyger's private endpoints.
+  # Only applies when privateNetworking is true.
+  # additionalDnsVnetLinks:
+  #   - subscriptionId: 00000000-0000-0000-0000-000000000000  # optional, defaults to cloud.subscriptionId
+  #     resourceGroup: hub-networking-rg
+  #     vnetName: hub-vnet
+
   # Optionally point an existing Log Analytics workspace to send logs to.
   # logAnalyticsWorkspace:
     # resourceGroup:
@@ -424,37 +433,101 @@ tyger cloud uninstall -f config.yml --all
 
 ## Private networking
 
-Currently a preview feature, the entire Tyger environment can use private
-networking, meaning that none of the endpoints can be accessed from the public
-internet.
+The entire Tyger environment can use private networking, meaning that none of
+the endpoints can be accessed from the public internet. When enabled, Tyger
+creates private endpoints and private DNS zones for all managed resources,
+including storage accounts, the database server, and the AKS cluster API server.
 
-To enable this mode, you will need to create an Azure virtual network (VNet) for
-the Kubernetes cluster to be deployed into. You will reference a subnet in this
-VNet in the `cloud.compute.clusters.existingSubnet` field. To enable
-private networking, set the `cloud.privateNetworking` field to `true`.
+### Required settings
 
-This mode cannot use Let's Encrypt for TLS certificate creation, and you will
-need to provide your own TLS certificate in a referenced Key Vault.
+To enable private networking, the following configuration is required:
 
-If you want to use private networking for this Key Vault, you will need to
-[create private
-endpoints](https://learn.microsoft.com/en-us/azure/key-vault/general/private-link-service?tabs=portal)
-for the Key Vault in the subnet before running `tyger cloud install`.
+1. **`cloud.privateNetworking: true`** — enables private networking mode.
 
-Similarly, if you want to use an Azure Container Registry that cannot be
-publicly accessed, you will need to follow the
-[instructions](https://learn.microsoft.com/en-us/azure/container-registry/container-registry-private-link)
-to set up a private registry with private endpoints in the subnet.
+2. **`cloud.compute.clusters[*].existingSubnet`** — each cluster must reference
+   an existing subnet in a VNet you manage. Tyger deploys all private endpoints
+   into this subnet.
 
-You will need to run `tyger` commands, including the installation commands from
-a virtual machine in this VNet, or set up peering and DNS forwarding to this
-VNet.
+   ```yaml
+   cloud:
+     compute:
+       clusters:
+         - name: mycluster
+           existingSubnet:
+             resourceGroup: my-networking-rg
+             vnetName: my-vnet
+             subnetName: my-subnet
+   ```
 
-To use Tyger from another Azure VNet, you can set up VNet peering or a
-VNet-to-VNet VPN connection and configure DNS forwarding. Or you can create
-private link endpoints for all the Tyger services in the other VNet. To use a
-private Tyger environment from outside of Azure, you will need to configure DNS
-forwarding and use a VPN or ExpressRoute.
+3. **`cloud.tlsCertificate`** — a TLS certificate stored in an Azure Key Vault.
+   Let's Encrypt cannot be used with private networking since the ACME challenge
+   endpoints are not publicly accessible. The corresponding
+   `organizations[*].api.tlsCertificateProvider` must be set to `KeyVault`.
+
+   ```yaml
+   cloud:
+     tlsCertificate:
+       keyVault:
+         resourceGroup: my-keyvault-rg
+         name: my-keyvault
+       certificateName: my-cert
+   ```
+
+### Hub-and-spoke VNet topology
+
+In a hub-and-spoke network architecture, Tyger is deployed into a spoke VNet,
+but DNS resolution needs to work from a hub VNet (which typically hosts a
+[private DNS
+resolver](https://learn.microsoft.com/en-us/azure/dns/dns-private-resolver-overview)
+used by other spokes and on-premises networks).
+
+To support this, use the `cloud.additionalDnsVnetLinks` field. This tells Tyger
+to link all of its private DNS zones to the specified VNets in addition to the
+cluster VNet. This allows a DNS resolver in the hub VNet to resolve the private
+endpoint addresses for Tyger's resources.
+
+```yaml
+cloud:
+  privateNetworking: true
+  additionalDnsVnetLinks:
+    - subscriptionId: 00000000-0000-0000-0000-000000000000  # optional, defaults to cloud.subscriptionId
+      resourceGroup: hub-networking-rg
+      vnetName: hub-vnet
+```
+
+Each entry requires `resourceGroup` and `vnetName`. The `subscriptionId` field
+is optional and defaults to `cloud.subscriptionId` if omitted.
+
+The hub and spoke VNets must be
+[peered](https://learn.microsoft.com/en-us/azure/virtual-network/virtual-network-peering-overview)
+for network connectivity. Tyger only creates the DNS zone links; it does not set
+up VNet peering.
+
+### What Tyger creates
+
+When `cloud.privateNetworking` is `true`, `tyger cloud install` automatically
+creates private endpoints, private DNS zones, and the necessary managed
+identities and role assignments for all Tyger-managed resources.
+
+Tyger does not create private endpoints for resources it does not manage. If you
+are using private networking for these resources, you must set them up yourself
+before running `tyger cloud install`:
+
+- **Key Vault** — if your Key Vault does not allow public access, [create a
+  private
+  endpoint](https://learn.microsoft.com/en-us/azure/key-vault/general/private-link-service?tabs=portal)
+  for it in the cluster subnet.
+- **Azure Container Registry** — if you use a private container registry, follow
+  the
+  [instructions](https://learn.microsoft.com/en-us/azure/container-registry/container-registry-private-link)
+  to set up private endpoints in the cluster subnet.
+
+### Running commands
+
+You will need to run `tyger` commands, including the installation commands, from
+a machine that can resolve and reach the private endpoints. This is typically a
+virtual machine in the cluster VNet, or a machine connected to it via VNet
+peering, a VPN, or ExpressRoute.
 
 ## Multi-tenancy
 
