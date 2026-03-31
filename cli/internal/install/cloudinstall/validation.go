@@ -118,6 +118,24 @@ func (envConfig *CloudEnvironmentConfig) quickValidateCloudConfig(ctx context.Co
 		validationError(ctx, success, "The `cloud.resourceGroup` field must match the pattern %s", ResourceNameRegex)
 	}
 
+	if len(cloudConfig.AdditionalDnsVnetLinks) > 0 && !cloudConfig.PrivateNetworking {
+		validationError(ctx, success, "`cloud.additionalDnsVnetLinks` can only be used when `cloud.privateNetworking` is true")
+	}
+
+	for i, ref := range cloudConfig.AdditionalDnsVnetLinks {
+		if ref.ResourceGroup == "" {
+			validationError(ctx, success, "`cloud.additionalDnsVnetLinks[%d].resourceGroup` is required", i)
+		}
+		if ref.VNetName == "" {
+			validationError(ctx, success, "`cloud.additionalDnsVnetLinks[%d].vnetName` is required", i)
+		}
+		if ref.SubscriptionID != "" {
+			if _, err := uuid.Parse(ref.SubscriptionID); err != nil {
+				validationError(ctx, success, "`cloud.additionalDnsVnetLinks[%d].subscriptionId` must be a valid GUID", i)
+			}
+		}
+	}
+
 	quickValidateDatabaseServerConfig(ctx, success, cloudConfig)
 	quickValidateComputeConfig(ctx, success, cloudConfig)
 	quickValidateTlsConfig(ctx, success, cloudConfig.TlsCertificate)
