@@ -863,7 +863,7 @@ func (inst *Installer) onDeleteCluster(ctx context.Context, clusterConfig *Clust
 		}
 	}
 
-	if inst.Config.Cloud.PrivateNetworking {
+	if inst.Config.Cloud.PrivateNetworking && clusterConfig.ExistingSubnet != nil {
 
 		vnetClient, err := armnetwork.NewVirtualNetworksClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
 		if err != nil {
@@ -881,19 +881,34 @@ func (inst *Installer) onDeleteCluster(ctx context.Context, clusterConfig *Clust
 		}
 
 		if vnet != nil {
-
-			if err := removeRbacRoleAssignments(ctx, *clusterResponse.Identity.PrincipalID, *vnet.ID, inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
-				return fmt.Errorf("failed to remove RBAC role assignments on VNet: %w", err)
+			var clusterPrincipalID string
+			if clusterResponse.Identity != nil {
+				if clusterResponse.Identity.PrincipalID != nil {
+					clusterPrincipalID = *clusterResponse.Identity.PrincipalID
+				} else {
+					for _, uai := range clusterResponse.Identity.UserAssignedIdentities {
+						if uai.PrincipalID != nil {
+							clusterPrincipalID = *uai.PrincipalID
+							break
+						}
+					}
+				}
 			}
-			subnetIndex := slices.IndexFunc(vnet.Properties.Subnets, func(s *armnetwork.Subnet) bool {
-				return s.Name != nil && *s.Name == clusterConfig.ExistingSubnet.SubnetName
-			})
 
-			if subnetIndex != -1 {
-				subnet := vnet.Properties.Subnets[subnetIndex]
-				if subnet.Properties.NetworkSecurityGroup != nil && subnet.Properties.NetworkSecurityGroup.ID != nil {
-					if err := removeRbacRoleAssignments(ctx, *clusterResponse.Identity.PrincipalID, *subnet.Properties.NetworkSecurityGroup.ID, inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
-						return fmt.Errorf("failed to remove RBAC role assignments on subnet NSG: %w", err)
+			if clusterPrincipalID != "" {
+				if err := removeRbacRoleAssignments(ctx, clusterPrincipalID, *vnet.ID, inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
+					return fmt.Errorf("failed to remove RBAC role assignments on VNet: %w", err)
+				}
+				subnetIndex := slices.IndexFunc(vnet.Properties.Subnets, func(s *armnetwork.Subnet) bool {
+					return s.Name != nil && *s.Name == clusterConfig.ExistingSubnet.SubnetName
+				})
+
+				if subnetIndex != -1 {
+					subnet := vnet.Properties.Subnets[subnetIndex]
+					if subnet.Properties.NetworkSecurityGroup != nil && subnet.Properties.NetworkSecurityGroup.ID != nil {
+						if err := removeRbacRoleAssignments(ctx, clusterPrincipalID, *subnet.Properties.NetworkSecurityGroup.ID, inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
+							return fmt.Errorf("failed to remove RBAC role assignments on subnet NSG: %w", err)
+						}
 					}
 				}
 			}
