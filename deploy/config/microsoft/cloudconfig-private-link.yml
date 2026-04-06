@@ -46,7 +46,7 @@ cloud:
     clusters:
       - name: ${TYGER_ENVIRONMENT_NAME}
         apiHost: true
-        kubernetesVersion: "1.33"
+        kubernetesVersion: "1.34"
         sku: Standard
         # location: defaults to Standard
 
@@ -69,6 +69,12 @@ cloud:
         # The IP address assigned to the Kubernetes DNS service.
         # It must be within the service address range specified in serviceCidr.
         dnsServiceIp: 10.2.0.10
+
+        # The outbound (egress) routing method.
+        # Supported values: loadBalancer (default), managedNATGateway, userDefinedRouting.
+        # userDefinedRouting requires existingSubnet with a route table directing traffic to a firewall/NVA.
+        # outboundIpServiceTags can only be used with loadBalancer.
+        # outboundType: defaults to loadBalancer
 
         systemNodePool:
           name: system

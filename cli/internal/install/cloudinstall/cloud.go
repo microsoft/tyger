@@ -668,3 +668,10 @@ func getResourceGroupFromID(resourceID string) string {
 func Ptr[T any](t T) *T {
 	return &t
 }
+
+func ptrChanged[T comparable](a, b *T) bool {
+	if a == nil {
+		return b != nil
+	}
+	return b == nil || *a != *b
+}

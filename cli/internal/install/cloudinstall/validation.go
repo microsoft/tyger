@@ -186,6 +186,28 @@ func quickValidateComputeConfig(ctx context.Context, success *bool, cloudConfig 
 			armcontainerservice.PossibleManagedClusterSKUTierValues(),
 			fmt.Sprintf("The `sku` field must be one of %%v for cluster '%s'", cluster.Name))
 
+		supportedOutboundTypes := []armcontainerservice.OutboundType{
+			armcontainerservice.OutboundTypeLoadBalancer,
+			armcontainerservice.OutboundTypeManagedNATGateway,
+			armcontainerservice.OutboundTypeUserDefinedRouting,
+		}
+
+		cluster.OutboundType = armcontainerservice.OutboundType(validateOptionalEnumField(
+			ctx,
+			success,
+			cluster.OutboundType,
+			armcontainerservice.OutboundTypeLoadBalancer,
+			supportedOutboundTypes,
+			fmt.Sprintf("The `outboundType` field must be one of %%v for cluster '%s'", cluster.Name)))
+
+		if cluster.OutboundType == armcontainerservice.OutboundTypeUserDefinedRouting && cluster.ExistingSubnet == nil {
+			validationError(ctx, success, "Since `outboundType` is `userDefinedRouting`, `existingSubnet` must be specified on cluster '%s' (the subnet must have a route table directing traffic to the firewall/NVA)", cluster.Name)
+		}
+
+		if cluster.OutboundType != armcontainerservice.OutboundTypeLoadBalancer && len(cluster.OutboundIpServiceTags) > 0 {
+			validationError(ctx, success, "`outboundIpServiceTags` can only be used when `outboundType` is `loadBalancer` on cluster '%s'", cluster.Name)
+		}
+
 		if cloudConfig.PrivateNetworking && cluster.ExistingSubnet == nil {
 			validationError(ctx, success, "Since `cloud.privateNetworking` is enabled, `existingSubnet` must be specified on cluster '%s'", cluster.Name)
 		}

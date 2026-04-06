@@ -27,7 +27,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-const DefaultKubernetesVersion = "1.33"
+const DefaultKubernetesVersion = "1.34"
 const DefaultPodCidr = "10.244.0.0/16"
 const DefaultServiceCidr = "10.0.0.0/16"
 const DefaultDnsServiceIp = "10.0.0.10"
@@ -47,9 +47,13 @@ func (inst *Installer) getCluster(ctx context.Context, clusterConfig *ClusterCon
 }
 
 func (inst *Installer) createCluster(ctx context.Context, clusterConfig *ClusterConfig) (*armcontainerservice.ManagedCluster, error) {
-	outboundIpAddress, err := inst.createOutboundIpAddress(ctx, clusterConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create outbound IP address: %w", err)
+	var outboundIpAddress *armnetwork.PublicIPAddress
+	if clusterConfig.OutboundType == armcontainerservice.OutboundTypeLoadBalancer {
+		var err error
+		outboundIpAddress, err = inst.createOutboundIpAddress(ctx, clusterConfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create outbound IP address: %w", err)
+		}
 	}
 
 	var tags map[string]*string
@@ -130,7 +134,7 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 				},
 			},
 			NetworkProfile: &armcontainerservice.NetworkProfile{
-				LoadBalancerProfile: &armcontainerservice.ManagedClusterLoadBalancerProfile{},
+				OutboundType: Ptr(clusterConfig.OutboundType),
 			},
 		},
 		SKU: &armcontainerservice.ManagedClusterSKU{
@@ -156,9 +160,12 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 		}
 	}
 
-	if outboundIpAddress != nil {
-		cluster.Properties.NetworkProfile.LoadBalancerProfile.OutboundIPs = &armcontainerservice.ManagedClusterLoadBalancerProfileOutboundIPs{
-			PublicIPs: []*armcontainerservice.ResourceReference{{ID: outboundIpAddress.ID}},
+	if clusterConfig.OutboundType == armcontainerservice.OutboundTypeLoadBalancer {
+		cluster.Properties.NetworkProfile.LoadBalancerProfile = &armcontainerservice.ManagedClusterLoadBalancerProfile{}
+		if outboundIpAddress != nil {
+			cluster.Properties.NetworkProfile.LoadBalancerProfile.OutboundIPs = &armcontainerservice.ManagedClusterLoadBalancerProfileOutboundIPs{
+				PublicIPs: []*armcontainerservice.ResourceReference{{ID: outboundIpAddress.ID}},
+			}
 		}
 	}
 
@@ -637,18 +644,15 @@ func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCl
 	}
 
 	if cluster.Properties.APIServerAccessProfile != nil {
-		if (cluster.Properties.APIServerAccessProfile.EnablePrivateCluster == nil) != (existingCluster.Properties.APIServerAccessProfile.EnablePrivateCluster == nil) ||
-			(cluster.Properties.APIServerAccessProfile.EnablePrivateCluster != nil && *cluster.Properties.APIServerAccessProfile.EnablePrivateCluster != *existingCluster.Properties.APIServerAccessProfile.EnablePrivateCluster) {
+		if ptrChanged(cluster.Properties.APIServerAccessProfile.EnablePrivateCluster, existingCluster.Properties.APIServerAccessProfile.EnablePrivateCluster) {
 			return true, false
 		}
 
-		if (cluster.Properties.APIServerAccessProfile.PrivateDNSZone == nil) != (existingCluster.Properties.APIServerAccessProfile.PrivateDNSZone == nil) ||
-			(cluster.Properties.APIServerAccessProfile.PrivateDNSZone != nil && *cluster.Properties.APIServerAccessProfile.PrivateDNSZone != *existingCluster.Properties.APIServerAccessProfile.PrivateDNSZone) {
+		if ptrChanged(cluster.Properties.APIServerAccessProfile.PrivateDNSZone, existingCluster.Properties.APIServerAccessProfile.PrivateDNSZone) {
 			return true, false
 		}
 
-		if (cluster.Properties.APIServerAccessProfile.EnablePrivateClusterPublicFQDN == nil) != (existingCluster.Properties.APIServerAccessProfile.EnablePrivateClusterPublicFQDN == nil) ||
-			(cluster.Properties.APIServerAccessProfile.EnablePrivateClusterPublicFQDN != nil && *cluster.Properties.APIServerAccessProfile.EnablePrivateClusterPublicFQDN != *existingCluster.Properties.APIServerAccessProfile.EnablePrivateClusterPublicFQDN) {
+		if ptrChanged(cluster.Properties.APIServerAccessProfile.EnablePrivateClusterPublicFQDN, existingCluster.Properties.APIServerAccessProfile.EnablePrivateClusterPublicFQDN) {
 			return true, false
 		}
 	}
@@ -699,8 +703,7 @@ func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCl
 					}
 				}
 
-				if (np.VnetSubnetID == nil) != (existingNp.VnetSubnetID == nil) ||
-					(np.VnetSubnetID != nil && *np.VnetSubnetID != *existingNp.VnetSubnetID) {
+				if ptrChanged(np.VnetSubnetID, existingNp.VnetSubnetID) {
 					return true, false
 				}
 
@@ -746,35 +749,41 @@ func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCl
 		return true, false
 	}
 
-	if cluster.Properties.NetworkProfile.PodCidr != nil && (existingCluster.Properties.NetworkProfile.PodCidr == nil || *cluster.Properties.NetworkProfile.PodCidr != *existingCluster.Properties.NetworkProfile.PodCidr) {
+	if cluster.Properties.NetworkProfile.PodCidr != nil && ptrChanged(cluster.Properties.NetworkProfile.PodCidr, existingCluster.Properties.NetworkProfile.PodCidr) {
 		return true, false
 	}
 
-	if cluster.Properties.NetworkProfile.ServiceCidr != nil && (existingCluster.Properties.NetworkProfile.ServiceCidr == nil || *cluster.Properties.NetworkProfile.ServiceCidr != *existingCluster.Properties.NetworkProfile.ServiceCidr) {
+	if cluster.Properties.NetworkProfile.ServiceCidr != nil && ptrChanged(cluster.Properties.NetworkProfile.ServiceCidr, existingCluster.Properties.NetworkProfile.ServiceCidr) {
 		return true, false
 	}
 
-	if cluster.Properties.NetworkProfile.DNSServiceIP != nil && (existingCluster.Properties.NetworkProfile.DNSServiceIP == nil || *cluster.Properties.NetworkProfile.DNSServiceIP != *existingCluster.Properties.NetworkProfile.DNSServiceIP) {
+	if cluster.Properties.NetworkProfile.DNSServiceIP != nil && ptrChanged(cluster.Properties.NetworkProfile.DNSServiceIP, existingCluster.Properties.NetworkProfile.DNSServiceIP) {
 		return true, false
 	}
 
-	desiredOutputIpCount := 0
-	if cluster.Properties.NetworkProfile.LoadBalancerProfile.OutboundIPs != nil {
-		desiredOutputIpCount = len(cluster.Properties.NetworkProfile.LoadBalancerProfile.OutboundIPs.PublicIPs)
-	}
-
-	existingOutputIpCount := 0
-	if existingCluster.Properties.NetworkProfile.LoadBalancerProfile.OutboundIPs != nil {
-		existingOutputIpCount = len(existingCluster.Properties.NetworkProfile.LoadBalancerProfile.OutboundIPs.PublicIPs)
-	}
-
-	if desiredOutputIpCount != existingOutputIpCount ||
-		(desiredOutputIpCount > 0 &&
-			!slices.EqualFunc(
-				cluster.Properties.NetworkProfile.LoadBalancerProfile.OutboundIPs.PublicIPs,
-				existingCluster.Properties.NetworkProfile.LoadBalancerProfile.OutboundIPs.PublicIPs,
-				func(a, b *armcontainerservice.ResourceReference) bool { return *a.ID == *b.ID })) {
+	if cluster.Properties.NetworkProfile.OutboundType != nil && ptrChanged(cluster.Properties.NetworkProfile.OutboundType, existingCluster.Properties.NetworkProfile.OutboundType) {
 		return true, false
+	}
+
+	if cluster.Properties.NetworkProfile.LoadBalancerProfile != nil {
+		desiredOutputIpCount := 0
+		if cluster.Properties.NetworkProfile.LoadBalancerProfile.OutboundIPs != nil {
+			desiredOutputIpCount = len(cluster.Properties.NetworkProfile.LoadBalancerProfile.OutboundIPs.PublicIPs)
+		}
+
+		existingOutputIpCount := 0
+		if existingCluster.Properties.NetworkProfile.LoadBalancerProfile != nil && existingCluster.Properties.NetworkProfile.LoadBalancerProfile.OutboundIPs != nil {
+			existingOutputIpCount = len(existingCluster.Properties.NetworkProfile.LoadBalancerProfile.OutboundIPs.PublicIPs)
+		}
+
+		if desiredOutputIpCount != existingOutputIpCount ||
+			(desiredOutputIpCount > 0 &&
+				!slices.EqualFunc(
+					cluster.Properties.NetworkProfile.LoadBalancerProfile.OutboundIPs.PublicIPs,
+					existingCluster.Properties.NetworkProfile.LoadBalancerProfile.OutboundIPs.PublicIPs,
+					func(a, b *armcontainerservice.ResourceReference) bool { return *a.ID == *b.ID })) {
+			return true, false
+		}
 	}
 
 	return hasChanges, onlyScaleDown

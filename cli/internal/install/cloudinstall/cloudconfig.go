@@ -184,6 +184,7 @@ type ClusterConfig struct {
 	PodCidr               string                                    `yaml:"podCidr,omitempty"`
 	ServiceCidr           string                                    `yaml:"serviceCidr,omitempty"`
 	DnsServiceIp          string                                    `yaml:"dnsServiceIp,omitempty"`
+	OutboundType          armcontainerservice.OutboundType          `yaml:"outboundType,omitempty"`
 	InboundIpServiceTags  []IpServiceTag                            `yaml:"inboundIpServiceTags,omitempty"`
 	OutboundIpServiceTags []IpServiceTag                            `yaml:"outboundIpServiceTags,omitempty"`
 }
