@@ -71,7 +71,7 @@ cloud:
         dnsServiceIp: 10.2.0.10
 
         # The outbound (egress) routing method.
-        # Supported values: loadBalancer (default), managedNATGateway, userDefinedRouting.
+        # Supported values: loadBalancer (default), userDefinedRouting.
         # userDefinedRouting requires existingSubnet with a route table directing traffic to a firewall/NVA.
         # outboundIpServiceTags can only be used with loadBalancer.
         # outboundType: defaults to loadBalancer

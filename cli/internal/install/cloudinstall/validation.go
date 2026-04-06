@@ -188,7 +188,6 @@ func quickValidateComputeConfig(ctx context.Context, success *bool, cloudConfig 
 
 		supportedOutboundTypes := []armcontainerservice.OutboundType{
 			armcontainerservice.OutboundTypeLoadBalancer,
-			armcontainerservice.OutboundTypeManagedNATGateway,
 			armcontainerservice.OutboundTypeUserDefinedRouting,
 		}
 
