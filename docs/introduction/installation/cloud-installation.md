@@ -125,6 +125,12 @@ cloud:
         # It must be within the service address range specified in serviceCidr.
         # dnsServiceIp: defaults to 10.0.0.10
 
+        # The outbound (egress) routing method.
+        # Supported values: loadBalancer (default), managedNATGateway, userDefinedRouting.
+        # userDefinedRouting requires existingSubnet with a route table directing traffic to a firewall/NVA.
+        # outboundIpServiceTags can only be used with loadBalancer.
+        # outboundType: defaults to loadBalancer
+
         systemNodePool:
           name: system
           vmSize: Standard_DS2_v2
