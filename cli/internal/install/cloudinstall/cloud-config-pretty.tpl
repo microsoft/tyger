@@ -116,6 +116,12 @@ cloud:
         # It must be within the service address range specified in serviceCidr.
         {{ optionalField "dnsServiceIp" .DnsServiceIp (printf "defaults to %s" (DefaultDnsServiceIp)) }}
 
+        # The outbound (egress) routing method.
+        # Supported values: loadBalancer (default), userDefinedRouting.
+        # userDefinedRouting requires existingSubnet with a route table directing traffic to a firewall/NVA.
+        # outboundIpServiceTags can only be used with loadBalancer.
+        {{ optionalField "outboundType" (printf "%s" .OutboundType) "defaults to loadBalancer" }}
+
         systemNodePool:
           name: {{ .SystemNodePool.Name }}
           vmSize: {{ .SystemNodePool.VMSize }}
