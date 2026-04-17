@@ -178,7 +178,11 @@ public abstract class ResourceInformer<TResource, TListResource> : IDisposable
                 }
 
                 // rate limiting the reconnect loop
-                await _reconnectLimiter.AcquireAsync(cancellationToken: cancellationToken);
+                using var lease = await _reconnectLimiter.AcquireAsync(cancellationToken: cancellationToken);
+                if (!lease.IsAcquired)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(5), _timeProvider, cancellationToken);
+                }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -314,7 +318,7 @@ public abstract class ResourceInformer<TResource, TListResource> : IDisposable
         {
             if (error is KubernetesException kubernetesError)
             {
-                streamEndedError = kubernetesError;
+                Volatile.Write(ref streamEndedError, kubernetesError);
                 TryCancel(cts);
                 return;
             }
