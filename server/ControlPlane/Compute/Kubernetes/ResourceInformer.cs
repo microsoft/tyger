@@ -10,7 +10,7 @@ namespace Tyger.ControlPlane.Compute.Kubernetes;
 
 // Inspired by https://github.com/microsoft/reverse-proxy/blob/c9042d21927716f32e072fae4b634943de9e18cc/src/Kubernetes.Controller/Client/ResourceInformer.cs
 
-public abstract class ResourceInformer<TResource, TListResource>
+public abstract class ResourceInformer<TResource, TListResource> : IDisposable
     where TResource : class, IKubernetesObject<V1ObjectMeta>, new()
     where TListResource : class, IKubernetesObject<V1ListMeta>, IItems<TResource>, new()
 {
@@ -20,12 +20,12 @@ public abstract class ResourceInformer<TResource, TListResource>
 
     // If the server does not close within a short grace period after the
     // requested timeout, assume the stream is stuck and reconnect locally.
-    private static readonly TimeSpan WatchRequestTimeoutGracePeriod = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan s_watchRequestTimeoutGracePeriod = TimeSpan.FromSeconds(30);
 
     // An empty watch that lived for at least this long is treated as a normal
     // reconnect (for example server timeout / infra idle close), not as a
     // tight-loop failure.
-    private static readonly TimeSpan HealthyEmptyWatchDuration = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan s_healthyEmptyWatchDuration = TimeSpan.FromSeconds(30);
 
     // If WatchAsync returns this many times in a row without yielding any
     // events, force a full re-list. This defends against silent failure modes
@@ -48,6 +48,7 @@ public abstract class ResourceInformer<TResource, TListResource>
     private readonly ILogger _logger;
     private readonly TimeProvider _timeProvider;
     private readonly RateLimiter _reconnectLimiter;
+    private readonly bool _ownsReconnectLimiter;
 
     private enum WatchCompletion
     {
@@ -73,6 +74,7 @@ public abstract class ResourceInformer<TResource, TListResource>
         _updatesChannel = updatesChannel;
         _logger = logger;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _ownsReconnectLimiter = reconnectLimiter is null;
         _reconnectLimiter = reconnectLimiter ?? new TokenBucketRateLimiter(new()
         {
             ReplenishmentPeriod = TimeSpan.FromSeconds(5),
@@ -83,6 +85,16 @@ public abstract class ResourceInformer<TResource, TListResource>
     }
 
     protected IKubernetes Client { get; init; }
+
+    public void Dispose()
+    {
+        if (_ownsReconnectLimiter)
+        {
+            _reconnectLimiter.Dispose();
+        }
+
+        GC.SuppressFinalize(this);
+    }
 
     public async Task ExecuteAsync(CancellationToken cancellationToken)
     {
@@ -269,12 +281,12 @@ public abstract class ResourceInformer<TResource, TListResource>
             {
                 if (Interlocked.Exchange(ref requestLifetimeExceeded, 1) == 0)
                 {
-                    _logger.ResourceInformerWatchRequestExceededLifetime((WatchRequestTimeout + WatchRequestTimeoutGracePeriod).TotalSeconds);
+                    _logger.ResourceInformerWatchRequestExceededLifetime((WatchRequestTimeout + s_watchRequestTimeoutGracePeriod).TotalSeconds);
                     TryCancel(cts);
                 }
             },
             state: null,
-            dueTime: WatchRequestTimeout + WatchRequestTimeoutGracePeriod,
+            dueTime: WatchRequestTimeout + s_watchRequestTimeoutGracePeriod,
             period: Timeout.InfiniteTimeSpan);
 
         // The k8s client invokes this callback for two distinct kinds of
@@ -339,9 +351,10 @@ public abstract class ResourceInformer<TResource, TListResource>
             // reconnect.
         }
 
-        if (streamEndedError != null)
+        var terminalStreamError = Volatile.Read(ref streamEndedError);
+        if (terminalStreamError != null)
         {
-            throw streamEndedError;
+            throw terminalStreamError;
         }
 
         if (sawEvents)
@@ -350,7 +363,7 @@ public abstract class ResourceInformer<TResource, TListResource>
         }
 
         var watchDuration = _timeProvider.GetUtcNow() - watchStartedAt;
-        if (Volatile.Read(ref requestLifetimeExceeded) != 0 || watchDuration >= HealthyEmptyWatchDuration)
+        if (Volatile.Read(ref requestLifetimeExceeded) != 0 || watchDuration >= s_healthyEmptyWatchDuration)
         {
             return WatchCompletion.HealthyNoEventClosure;
         }

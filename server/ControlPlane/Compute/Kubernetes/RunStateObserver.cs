@@ -28,6 +28,7 @@ public class RunStateObserver : BackgroundService
     private readonly Dictionary<long, List<ChannelWriter<(RunObjects, WatchEventType, V1Pod)>>> _listeners = [];
     private readonly List<Channel<(WatchEventType, V1Pod)>> _partitionedPodUpdateChannels = [.. Enumerable.Range(0, PartitionCount).Select(_ => Channel.CreateBounded<(WatchEventType, V1Pod)>(ParitionChannelSize))];
     private Task? _podInformerTask;
+    private PodInformer? _podInformer;
     private readonly CancellationTokenSource _cancellationTokenSource = new();
     private readonly Channel<(WatchEventType eventType, V1Pod resource)> _podUpdatesChannel = Channel.CreateBounded<(WatchEventType, V1Pod)>(PartitionCount * ParitionChannelSize);
     private readonly Channel<(bool leaseHeld, int token)> _onLeaseOwnershipAcquiredChannel = Channel.CreateUnbounded<(bool, int)>();
@@ -51,6 +52,7 @@ public class RunStateObserver : BackgroundService
         var initialPodChannel = Channel.CreateBounded<V1Pod>(new BoundedChannelOptions(1024));
 
         var podInformer = new PodInformer(_kubernetesClient, _kubernetesOptions.Namespace, RunLabel, initialPodChannel.Writer, _podUpdatesChannel.Writer, _loggingFactory.CreateLogger<PodInformer>());
+        _podInformer = podInformer;
 
         _podInformerTask = podInformer.ExecuteAsync(_cancellationTokenSource.Token);
 
@@ -307,5 +309,12 @@ public class RunStateObserver : BackgroundService
         }
 
         return null;
+    }
+
+    public override void Dispose()
+    {
+        _podInformer?.Dispose();
+        base.Dispose();
+        GC.SuppressFinalize(this);
     }
 }
