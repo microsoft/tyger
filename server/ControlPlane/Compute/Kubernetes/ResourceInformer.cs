@@ -343,6 +343,7 @@ public abstract class ResourceInformer<TResource, TListResource> : IDisposable
             await foreach (var (watchEventType, item) in watchStream.WithCancellation(cts.Token))
             {
                 sawEvents = true;
+                Interlocked.Exchange(ref deserializeErrorCount, 0);
                 await OnEvent(watchEventType, item);
             }
         }

@@ -313,8 +313,10 @@ public class RunStateObserver : BackgroundService
 
     public override void Dispose()
     {
-        _podInformer?.Dispose();
         base.Dispose();
+        _cancellationTokenSource.Cancel();
+        _podInformer?.Dispose();
+        _cancellationTokenSource.Dispose();
         GC.SuppressFinalize(this);
     }
 }
