@@ -41,7 +41,7 @@ require (
 	github.com/hashicorp/go-cleanhttp v0.5.2
 	github.com/hashicorp/go-retryablehttp v0.7.8
 	github.com/ipinfo/go/v2 v2.11.0
-	github.com/jackc/pgx/v5 v5.7.5
+	github.com/jackc/pgx/v5 v5.9.0
 	github.com/mattn/go-ieproxy v0.0.12
 	github.com/mittwald/go-helm-client v0.12.18
 	github.com/pkg/errors v0.9.1
