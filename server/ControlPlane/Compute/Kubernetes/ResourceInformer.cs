@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-using System.Net.Sockets;
 using System.Threading.Channels;
 using System.Threading.RateLimiting;
 using k8s;
@@ -11,10 +10,35 @@ namespace Tyger.ControlPlane.Compute.Kubernetes;
 
 // Inspired by https://github.com/microsoft/reverse-proxy/blob/c9042d21927716f32e072fae4b634943de9e18cc/src/Kubernetes.Controller/Client/ResourceInformer.cs
 
-public abstract class ResourceInformer<TResource, TListResource>
+public abstract class ResourceInformer<TResource, TListResource> : IDisposable
     where TResource : class, IKubernetesObject<V1ObjectMeta>, new()
     where TListResource : class, IKubernetesObject<V1ListMeta>, IItems<TResource>, new()
 {
+    // Bound each watch request so the apiserver periodically closes even a
+    // completely idle but healthy stream and we get a chance to reconnect.
+    protected static readonly TimeSpan WatchRequestTimeout = TimeSpan.FromMinutes(5);
+
+    // If the server does not close within a short grace period after the
+    // requested timeout, assume the stream is stuck and reconnect locally.
+    private static readonly TimeSpan s_watchRequestTimeoutGracePeriod = TimeSpan.FromSeconds(30);
+
+    // An empty watch that lived for at least this long is treated as a normal
+    // reconnect (for example server timeout / infra idle close), not as a
+    // tight-loop failure.
+    private static readonly TimeSpan s_healthyEmptyWatchDuration = TimeSpan.FromSeconds(30);
+
+    // If WatchAsync returns this many times in a row without yielding any
+    // events, force a full re-list. This defends against silent failure modes
+    // where the server immediately closes the stream (e.g. an in-band Status
+    // event the enumerator absorbs) and the reconnect loop would otherwise
+    // spin forever observing nothing.
+    private const int EmptyWatchReListThreshold = 5;
+
+    // A single bad watch frame is harmless and just gets logged. If we see
+    // this many in a row within one watch, drop and reconnect rather than
+    // sit logging the same parse failure forever.
+    private const int MaxWatchDeserializeErrors = 10;
+
     private Dictionary<string, TResource> _cache = [];
     private string? _lastResourceVersion;
     private readonly string? _labelSelector;
@@ -22,6 +46,16 @@ public abstract class ResourceInformer<TResource, TListResource>
     private readonly ChannelWriter<(WatchEventType eventType, TResource resource)> _updatesChannel;
     private readonly string _namespace;
     private readonly ILogger _logger;
+    private readonly TimeProvider _timeProvider;
+    private readonly RateLimiter _reconnectLimiter;
+    private readonly bool _ownsReconnectLimiter;
+
+    private enum WatchCompletion
+    {
+        ObservedEvents,
+        HealthyNoEventClosure,
+        SuspiciousEmptyClosure,
+    }
 
     protected ResourceInformer(
         IKubernetes client,
@@ -29,7 +63,9 @@ public abstract class ResourceInformer<TResource, TListResource>
         string labelSelector,
         ChannelWriter<TResource> initialResourcesChannel,
         ChannelWriter<(WatchEventType eventType, TResource resource)> updatesChannel,
-        ILogger logger)
+        ILogger logger,
+        TimeProvider? timeProvider = null,
+        RateLimiter? reconnectLimiter = null)
     {
         Client = client;
         _namespace = @namespace;
@@ -37,15 +73,35 @@ public abstract class ResourceInformer<TResource, TListResource>
         _initialResourcesChannel = initialResourcesChannel;
         _updatesChannel = updatesChannel;
         _logger = logger;
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        _ownsReconnectLimiter = reconnectLimiter is null;
+        _reconnectLimiter = reconnectLimiter ?? new TokenBucketRateLimiter(new()
+        {
+            ReplenishmentPeriod = TimeSpan.FromSeconds(5),
+            TokensPerPeriod = 1,
+            QueueLimit = 1000,
+            TokenLimit = 3,
+        });
     }
 
     protected IKubernetes Client { get; init; }
 
+    public void Dispose()
+    {
+        if (_ownsReconnectLimiter)
+        {
+            _reconnectLimiter.Dispose();
+        }
+
+        GC.SuppressFinalize(this);
+    }
+
     public async Task ExecuteAsync(CancellationToken cancellationToken)
     {
-        var limiter = new TokenBucketRateLimiter(new() { ReplenishmentPeriod = TimeSpan.FromSeconds(5), TokensPerPeriod = 1, QueueLimit = 1000, TokenLimit = 3 });
         var shouldSync = true;
         var firstSync = true;
+        var consecutiveEmptyWatches = 0;
+
         while (true)
         {
             try
@@ -58,6 +114,7 @@ public abstract class ResourceInformer<TResource, TListResource>
                     {
                         await ListAsync(firstSync, cancellationToken);
                         shouldSync = false;
+                        consecutiveEmptyWatches = 0;
                     }
 
                     if (firstSync)
@@ -66,30 +123,66 @@ public abstract class ResourceInformer<TResource, TListResource>
                         firstSync = false;
                     }
 
-                    await WatchAsync(cancellationToken);
+                    switch (await WatchAsync(cancellationToken))
+                    {
+                        case WatchCompletion.ObservedEvents:
+                        case WatchCompletion.HealthyNoEventClosure:
+                            consecutiveEmptyWatches = 0;
+                            break;
+                        case WatchCompletion.SuspiciousEmptyClosure:
+                            if (++consecutiveEmptyWatches >= EmptyWatchReListThreshold)
+                            {
+                                _logger.ResourceInformerEmptyWatches(consecutiveEmptyWatches);
+                                _lastResourceVersion = null;
+                                shouldSync = true;
+                                consecutiveEmptyWatches = 0;
+                            }
+
+                            break;
+                    }
                 }
-                catch (IOException ex) when (ex.InnerException is SocketException)
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
-                    _logger.ErrorWatchingResources(ex);
+                    throw;
                 }
                 catch (KubernetesException ex)
                 {
                     _logger.ErrorWatchingResources(ex);
 
-                    // deal with this non-recoverable condition "too old resource version"
-                    // with a re-sync to listing everything again ensuring no subscribers miss updates
-                    if (ex is KubernetesException kubernetesError)
-                    {
-                        if (string.Equals(kubernetesError.Status.Reason, "Expired", StringComparison.Ordinal))
-                        {
-                            _lastResourceVersion = null;
-                            shouldSync = true;
-                        }
-                    }
+                    // Any in-band Status from the apiserver means the watch
+                    // is over and we cannot trust _lastResourceVersion to
+                    // still be valid (Reason == "Expired" is the canonical
+                    // case, but Gone, Forbidden, etc. are equally
+                    // unrecoverable from a watch standpoint). Re-list so no
+                    // subscribers miss updates.
+                    _lastResourceVersion = null;
+                    shouldSync = true;
+                }
+                catch (Exception ex)
+                {
+                    // Any other failure (IOException, HttpRequestException,
+                    // HttpIOException, HttpOperationException for non-2xx
+                    // start-of-watch responses, ObjectDisposedException on a
+                    // torn-down HttpClient, etc.) is treated as a transient
+                    // transport problem: log, fall through to the rate
+                    // limiter, and reconnect using the same
+                    // _lastResourceVersion. If the version is actually stale,
+                    // the next watch attempt will return a KubernetesException
+                    // (handled above) and trigger a re-list.
+                    //
+                    // Catching Exception here is deliberate: it prevents
+                    // unexpected failure modes from bypassing the rate
+                    // limiter and burning CPU in a tight reconnect loop, and
+                    // ensures the BackgroundService never terminates.
+                    _logger.ErrorWatchingResources(ex);
                 }
 
                 // rate limiting the reconnect loop
-                await limiter.AcquireAsync(cancellationToken: cancellationToken);
+                using var lease = await _reconnectLimiter.AcquireAsync(cancellationToken: cancellationToken);
+                if (!lease.IsAcquired)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(5), _timeProvider, cancellationToken);
+                }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -97,7 +190,20 @@ public abstract class ResourceInformer<TResource, TListResource>
             }
             catch (Exception error)
             {
+                // Last-resort safety net: nothing in the inner block should
+                // reach here (everything above is either handled or
+                // rethrown for cancellation). If something does, log and
+                // back off so we cannot spin even if the rate limiter
+                // itself is the thing failing.
                 _logger.ErrorWatchingResources(error);
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(5), _timeProvider, cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
             }
         }
     }
@@ -114,6 +220,7 @@ public abstract class ResourceInformer<TResource, TListResource>
         string? labelSelector,
         string? resourceVersion,
         string? continuationToken,
+        Action<Exception> onError,
         CancellationToken cancellationToken);
 
     private async Task ListAsync(bool firstSync, CancellationToken cancellationToken)
@@ -168,41 +275,115 @@ public abstract class ResourceInformer<TResource, TListResource>
         while (!string.IsNullOrEmpty(continueParameter));
     }
 
-    private async Task WatchAsync(CancellationToken cancellationToken)
+    private async Task<WatchCompletion> WatchAsync(CancellationToken cancellationToken)
     {
-        // completion source helps turn OnClose callback into something awaitable
-        var watcherCompletionSource = new TaskCompletionSource<int>();
-
-        var lastEventUtc = DateTime.UtcNow;
-
-        var cts = new CancellationTokenSource();
-        var combinedTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, cts.Token);
-
-        // force Reconnect if no events have arrived after a certain time
-        using var checkLastEventUtcTimer = new Timer(
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var watchStartedAt = _timeProvider.GetUtcNow();
+        var requestLifetimeExceeded = 0;
+        using var watchLifetimeTimer = _timeProvider.CreateTimer(
             _ =>
             {
-                var lastEvent = DateTime.UtcNow - lastEventUtc;
-                if (lastEvent > TimeSpan.FromMinutes(9.5))
+                if (Interlocked.Exchange(ref requestLifetimeExceeded, 1) == 0)
                 {
-                    lastEventUtc = DateTime.MaxValue;
-                    cts.Cancel();
+                    _logger.ResourceInformerWatchRequestExceededLifetime((WatchRequestTimeout + s_watchRequestTimeoutGracePeriod).TotalSeconds);
+                    TryCancel(cts);
                 }
             },
             state: null,
-            dueTime: TimeSpan.FromSeconds(45),
-            period: TimeSpan.FromSeconds(45));
+            dueTime: WatchRequestTimeout + s_watchRequestTimeoutGracePeriod,
+            period: Timeout.InfiniteTimeSpan);
+
+        // The k8s client invokes this callback for two distinct kinds of
+        // problems, neither of which throws out of the async enumerator:
+        //   1. Server-side errors delivered as in-band "Status" events
+        //      (e.g. Reason == "Expired" for too-old resourceVersion, or
+        //      any other Status the apiserver writes before closing the
+        //      stream). These mean the watch is over; we must surface
+        //      them so the outer loop can reconnect, and re-list when
+        //      the resourceVersion is no longer valid.
+        //   2. Per-line deserialization errors (JsonException, etc.). A
+        //      single bad line is harmless - the next ReadLineAsync may
+        //      well succeed - so we just log and keep enumerating. As a
+        //      circuit breaker, if they keep arriving we eventually drop
+        //      the connection and reconnect.
+        //
+        // Transport-level failures (IOException, HttpRequestException,
+        // socket resets, TLS errors, ObjectDisposedException, ...) do
+        // NOT come through this callback; they are thrown out of the
+        // underlying ReadLineAsync and propagate out of the await
+        // foreach below, where the outer ExecuteAsync handles them.
+        KubernetesException? streamEndedError = null;
+        var deserializeErrorCount = 0;
+        void OnWatchError(Exception error)
+        {
+            if (error is KubernetesException kubernetesError)
+            {
+                Volatile.Write(ref streamEndedError, kubernetesError);
+                TryCancel(cts);
+                return;
+            }
+
+            _logger.ErrorWatchingResources(error);
+
+            if (Interlocked.Increment(ref deserializeErrorCount) >= MaxWatchDeserializeErrors)
+            {
+                // Not fatal in itself, but we shouldn't sit in a loop
+                // logging the same parse failure forever. Drop the
+                // connection and let the outer loop reconnect.
+                TryCancel(cts);
+            }
+        }
 
         // begin watching where list left off
-        var watchStream = WatchResourceListAsync(_namespace, _labelSelector, _lastResourceVersion, null, combinedTokenSource.Token);
+        var watchStream = WatchResourceListAsync(_namespace, _labelSelector, _lastResourceVersion, null, OnWatchError, cts.Token);
 
-        await foreach (var (watchEventType, item) in watchStream)
+        var sawEvents = false;
+        try
         {
-            if (!watcherCompletionSource.Task.IsCompleted)
+            await foreach (var (watchEventType, item) in watchStream.WithCancellation(cts.Token))
             {
-                lastEventUtc = DateTime.UtcNow;
+                sawEvents = true;
+                Interlocked.Exchange(ref deserializeErrorCount, 0);
                 await OnEvent(watchEventType, item);
             }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // Cancelled either by the in-band Status handler above or by the
+            // deserialize-error circuit breaker. In both cases we want to
+            // fall through so the outer loop can react: rethrow the Status as
+            // a KubernetesException below (forcing a re-list), or simply
+            // reconnect.
+        }
+
+        var terminalStreamError = Volatile.Read(ref streamEndedError);
+        if (terminalStreamError != null)
+        {
+            throw terminalStreamError;
+        }
+
+        if (sawEvents)
+        {
+            return WatchCompletion.ObservedEvents;
+        }
+
+        var watchDuration = _timeProvider.GetUtcNow() - watchStartedAt;
+        if (Volatile.Read(ref requestLifetimeExceeded) != 0 || watchDuration >= s_healthyEmptyWatchDuration)
+        {
+            return WatchCompletion.HealthyNoEventClosure;
+        }
+
+        return WatchCompletion.SuspiciousEmptyClosure;
+    }
+
+    private static void TryCancel(CancellationTokenSource cancellationTokenSource)
+    {
+        try
+        {
+            cancellationTokenSource.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
         }
     }
 
@@ -255,14 +436,16 @@ public class PodInformer : ResourceInformer<V1Pod, V1PodList>
             cancellationToken: cancellationToken);
     }
 
-    protected override IAsyncEnumerable<(WatchEventType, V1Pod)> WatchResourceListAsync(string namespaceParameter, string? labelSelector, string? resourceVersion, string? continuationToken, CancellationToken cancellationToken)
+    protected override IAsyncEnumerable<(WatchEventType, V1Pod)> WatchResourceListAsync(string namespaceParameter, string? labelSelector, string? resourceVersion, string? continuationToken, Action<Exception> onError, CancellationToken cancellationToken)
     {
         return Client.CoreV1.WatchListNamespacedPodAsync(
             namespaceParameter,
             labelSelector: labelSelector,
             resourceVersion: resourceVersion,
             continueParameter: continuationToken,
+            timeoutSeconds: (int)WatchRequestTimeout.TotalSeconds,
             allowWatchBookmarks: true,
+            onError: onError,
             cancellationToken: cancellationToken);
     }
 }

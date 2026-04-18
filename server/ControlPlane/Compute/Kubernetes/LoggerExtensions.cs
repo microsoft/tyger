@@ -26,6 +26,12 @@ public static partial class LoggerExtensions
     [LoggerMessage(LogLevel.Error, "Error while watching resources.")]
     public static partial void ErrorWatchingResources(this ILogger logger, Exception exception);
 
+    [LoggerMessage(LogLevel.Warning, "Watch request exceeded {lifetimeSeconds:F0}s without closing; reconnecting.")]
+    public static partial void ResourceInformerWatchRequestExceededLifetime(this ILogger logger, double lifetimeSeconds);
+
+    [LoggerMessage(LogLevel.Warning, "Watch connection returned without events {count} times in a row; forcing a full re-list to recover.")]
+    public static partial void ResourceInformerEmptyWatches(this ILogger logger, int count);
+
     [LoggerMessage(LogLevel.Error, "Error listening for changes to run records.")]
     public static partial void ErrorListeningForRunCanges(this ILogger logger, Exception exception);
 
