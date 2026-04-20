@@ -27,6 +27,10 @@ func (inst *Installer) preflightCheck(ctx context.Context) error {
 		return err
 	}
 
+	if err := inst.checkNoLegacyPrivateLinkResourceGroups(ctx); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -244,4 +248,41 @@ func checkAccess(ctx context.Context, scope, permission string, roleAssignments 
 
 func permissionMatches(required, actual string) bool {
 	return wildcard.Match(actual, required)
+}
+
+// checkNoLegacyPrivateLinkResourceGroups checks whether any legacy dedicated
+// private-link resource groups (pattern "<rg>-privatelink-<subnetRG>-<vnet>")
+// still exist. If they do, the deployment is aborted because private-link
+// resources now live in the shared or per-organization resource groups.
+func (inst *Installer) checkNoLegacyPrivateLinkResourceGroups(ctx context.Context) error {
+	if !inst.Config.Cloud.PrivateNetworking {
+		return nil
+	}
+
+	rgClient, err := armresources.NewResourceGroupsClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create resource groups client: %w", err)
+	}
+
+	for _, cluster := range inst.Config.Cloud.Compute.Clusters {
+		if cluster.ExistingSubnet == nil {
+			continue
+		}
+
+		legacyRG := fmt.Sprintf("%s-privatelink-%s-%s",
+			inst.Config.Cloud.ResourceGroup,
+			cluster.ExistingSubnet.ResourceGroup,
+			cluster.ExistingSubnet.VNetName)
+
+		if _, err := rgClient.Get(ctx, legacyRG, nil); err == nil {
+			return fmt.Errorf(
+				"legacy private-link resource group '%s' still exists. "+
+					"Private-link resources are now placed in the shared and per-organization resource groups. "+
+					"To proceed, delete the legacy resource group (e.g. `az group delete -n %s`) and then re-deploy. "+
+					"Note: deleting this resource group will cause a temporary private network connectivity outage until the re-deployment completes",
+				legacyRG, legacyRG)
+		}
+	}
+
+	return nil
 }

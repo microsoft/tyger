@@ -190,12 +190,11 @@ type ClusterConfig struct {
 }
 
 type SubnetReference struct {
-	ResourceGroup            string `yaml:"resourceGroup"`
-	VNetName                 string `yaml:"vnetName"`
-	SubnetName               string `yaml:"subnetName"`
-	PrivateLinkResourceGroup string `yaml:"-"`
-	VNetResourceId           string `yaml:"-"`
-	SubnetResourceId         string `yaml:"-"`
+	ResourceGroup    string `yaml:"resourceGroup"`
+	VNetName         string `yaml:"vnetName"`
+	SubnetName       string `yaml:"subnetName"`
+	VNetResourceId   string `yaml:"-"`
+	SubnetResourceId string `yaml:"-"`
 }
 
 type NodePoolConfig struct {
