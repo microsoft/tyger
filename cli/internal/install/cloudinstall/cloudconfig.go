@@ -379,7 +379,7 @@ func RenderConfig(templateValues ConfigTemplateValues, writer io.Writer) error {
 							},
 							{
 								Name:     "gpunp",
-								VMSize:   "Standard_NC6s_v3",
+								VMSize:   "Standard_NC24ads_A100_v4",
 								MinCount: templateValues.GpuNodePoolMinCount,
 								MaxCount: 10,
 							}},
