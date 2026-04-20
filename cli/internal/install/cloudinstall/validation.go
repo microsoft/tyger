@@ -224,10 +224,6 @@ func quickValidateComputeConfig(ctx context.Context, success *bool, cloudConfig 
 				validationError(ctx, success, "Since `existingSubnet` is specified, `existingSubnet.subnetName` is required on cluster `%s`", cluster.Name)
 			}
 
-			if cloudConfig.PrivateNetworking {
-				cluster.ExistingSubnet.PrivateLinkResourceGroup = fmt.Sprintf("%s-privatelink-%s-%s", cloudConfig.ResourceGroup, cluster.ExistingSubnet.ResourceGroup, cluster.ExistingSubnet.VNetName)
-			}
-
 			cluster.ExistingSubnet.VNetResourceId = fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s", cloudConfig.SubscriptionID, cluster.ExistingSubnet.ResourceGroup, cluster.ExistingSubnet.VNetName)
 			cluster.ExistingSubnet.SubnetResourceId = fmt.Sprintf("%s/subnets/%s", cluster.ExistingSubnet.VNetResourceId, cluster.ExistingSubnet.SubnetName)
 		}

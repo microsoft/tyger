@@ -76,7 +76,7 @@ func (inst *Installer) CreateStorageAccount(ctx context.Context,
 
 	// Create private endpoint if private networking is enabled
 	if inst.Config.Cloud.PrivateNetworking {
-		if err := inst.createPrivateEndpointsForStorageAccount(ctx, &res.Account); err != nil {
+		if err := inst.createPrivateEndpointsForStorageAccount(ctx, resourceGroupName, &res.Account); err != nil {
 			return nil, fmt.Errorf("failed to create private endpoints for storage account '%s': %w", storageAccountConfig.Name, err)
 		}
 	}

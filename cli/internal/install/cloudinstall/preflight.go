@@ -11,6 +11,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/authorization/armauthorization/v2"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v7"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources/v3"
 	"github.com/IGLOU-EU/go-wildcard/v2"
 	"github.com/golang-jwt/jwt/v5"
@@ -24,6 +25,10 @@ func (inst *Installer) preflightCheck(ctx context.Context) error {
 	}
 
 	if err := inst.checkRbac(ctx); err != nil {
+		return err
+	}
+
+	if err := inst.checkNoLegacyPrivateLinkResourceGroups(ctx); err != nil {
 		return err
 	}
 
@@ -244,4 +249,62 @@ func checkAccess(ctx context.Context, scope, permission string, roleAssignments 
 
 func permissionMatches(required, actual string) bool {
 	return wildcard.Match(actual, required)
+}
+
+// checkNoLegacyPrivateLinkResourceGroups checks whether any legacy dedicated
+// private-link resource groups (pattern "<rg>-privatelink-<subnetRG>-<vnet>")
+// still exist. If they do, the deployment is aborted because private-link
+// resources now live in the shared or per-organization resource groups.
+func (inst *Installer) checkNoLegacyPrivateLinkResourceGroups(ctx context.Context) error {
+	if !inst.Config.Cloud.PrivateNetworking {
+		return nil
+	}
+
+	rgClient, err := armresources.NewResourceGroupsClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create resource groups client: %w", err)
+	}
+
+	for _, cluster := range inst.Config.Cloud.Compute.Clusters {
+		if cluster.ExistingSubnet == nil {
+			continue
+		}
+
+		legacyRG := fmt.Sprintf("%s-privatelink-%s-%s",
+			inst.Config.Cloud.ResourceGroup,
+			cluster.ExistingSubnet.ResourceGroup,
+			cluster.ExistingSubnet.VNetName)
+
+		if _, err := rgClient.Get(ctx, legacyRG, nil); err == nil {
+			var msg strings.Builder
+			msg.WriteString(fmt.Sprintf(
+				"legacy private-link resource group '%s' still exists. "+
+					"Private-link resources are now placed in the shared and per-organization resource groups. "+
+					"AKS does not allow changing the private DNS zone resource group on an existing cluster, "+
+					"so the clusters must be deleted and re-created.\n\n"+
+					"To proceed, run the following commands and then re-deploy:\n\n",
+				legacyRG))
+
+			aksClient, err := armcontainerservice.NewManagedClustersClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
+			if err != nil {
+				return fmt.Errorf("failed to create AKS client: %w", err)
+			}
+
+			for _, c := range inst.Config.Cloud.Compute.Clusters {
+				if _, err := aksClient.Get(ctx, inst.Config.Cloud.ResourceGroup, c.Name, nil); err == nil {
+					msg.WriteString(fmt.Sprintf("  az aks delete -n %s -g %s --subscription %s --yes\n",
+						c.Name, inst.Config.Cloud.ResourceGroup, inst.Config.Cloud.SubscriptionID))
+				}
+			}
+
+			msg.WriteString(fmt.Sprintf("\n  az group delete -n %s --subscription %s --yes\n",
+				legacyRG, inst.Config.Cloud.SubscriptionID))
+
+			msg.WriteString("\nNote: this will cause a service outage until the re-deployment completes.")
+
+			return fmt.Errorf("%s", msg.String())
+		}
+	}
+
+	return nil
 }

@@ -66,7 +66,7 @@ func (inst *Installer) assignDnsRecord(ctx context.Context, org *OrganizationCon
 					return fmt.Errorf("failed to create network interfaces client: %w", err)
 				}
 
-				nic, err := interfacesClient.Get(ctx, configSubnet.PrivateLinkResourceGroup, "traefik-pe-nic", nil)
+				nic, err := interfacesClient.Get(ctx, inst.Config.Cloud.ResourceGroup, "traefik-pe-nic", nil)
 				if err != nil {
 					return fmt.Errorf("failed to get network interface: %w", err)
 				}
@@ -74,7 +74,7 @@ func (inst *Installer) assignDnsRecord(ctx context.Context, org *OrganizationCon
 				ipAddress = *nic.Properties.IPConfigurations[0].Properties.PrivateIPAddress
 			}
 
-			return inst.createPrivateDnsZoneWithRecord(ctx, org.Api.DomainName, ipAddress, configSubnet)
+			return inst.createPrivateDnsZoneWithRecord(ctx, org.Cloud.ResourceGroup, org.Api.DomainName, ipAddress, configSubnet)
 		})
 	}
 

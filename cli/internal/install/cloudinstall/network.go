@@ -24,15 +24,15 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func (inst *Installer) createPrivateEndpointsForStorageAccount(ctx context.Context, targetResource *armstorage.Account) error {
+func (inst *Installer) createPrivateEndpointsForStorageAccount(ctx context.Context, resourceGroup string, targetResource *armstorage.Account) error {
 	return inst.forEachVnet(ctx, func(ctx context.Context, vnet *armnetwork.VirtualNetwork, subnet *armnetwork.Subnet, configSubnet *SubnetReference) error {
-		return inst.createPrivateEndpoints(ctx, fmt.Sprintf("storage-%s-pe", *targetResource.Name), *targetResource.ID, []*string{Ptr("blob")}, fmt.Sprintf("%s.privatelink.blob.core.windows.net", *targetResource.Name), vnet, subnet, configSubnet)
+		return inst.createPrivateEndpoints(ctx, resourceGroup, fmt.Sprintf("storage-%s-pe", *targetResource.Name), *targetResource.ID, []*string{Ptr("blob")}, fmt.Sprintf("%s.privatelink.blob.core.windows.net", *targetResource.Name), vnet, subnet, configSubnet)
 	})
 }
 
 func (inst *Installer) createPrivateEndpointsForPostgresFlexibleServer(ctx context.Context, targetResource *armpostgresqlflexibleservers.Server) error {
 	return inst.forEachVnet(ctx, func(ctx context.Context, vnet *armnetwork.VirtualNetwork, subnet *armnetwork.Subnet, configSubnet *SubnetReference) error {
-		return inst.createPrivateEndpoints(ctx, fmt.Sprintf("postgres-%s-pe", *targetResource.Name), *targetResource.ID, []*string{Ptr("postgresqlServer")}, fmt.Sprintf("%s.privatelink.postgres.database.azure.com", *targetResource.Name), vnet, subnet, configSubnet)
+		return inst.createPrivateEndpoints(ctx, inst.Config.Cloud.ResourceGroup, fmt.Sprintf("postgres-%s-pe", *targetResource.Name), *targetResource.ID, []*string{Ptr("postgresqlServer")}, fmt.Sprintf("%s.privatelink.postgres.database.azure.com", *targetResource.Name), vnet, subnet, configSubnet)
 	})
 }
 
@@ -53,11 +53,11 @@ func (inst *Installer) createPrivateEndpointsForTraefik(ctx context.Context, clu
 			return fmt.Errorf("failed to get private link service for Traefik: %w", err)
 		}
 
-		return inst.createPrivateEndpoints(ctx, "traefik-pe", *plService.ID, []*string{}, "", vnet, subnet, configSubnet)
+		return inst.createPrivateEndpoints(ctx, inst.Config.Cloud.ResourceGroup, "traefik-pe", *plService.ID, []*string{}, "", vnet, subnet, configSubnet)
 	})
 }
 
-func (inst *Installer) createPrivateEndpoints(ctx context.Context, privateEndpointName string, targetResourceId string, groupIds []*string, privateDnsZoneName string, vnet *armnetwork.VirtualNetwork, subnet *armnetwork.Subnet, configSubnet *SubnetReference) error {
+func (inst *Installer) createPrivateEndpoints(ctx context.Context, resourceGroup string, privateEndpointName string, targetResourceId string, groupIds []*string, privateDnsZoneName string, vnet *armnetwork.VirtualNetwork, subnet *armnetwork.Subnet, configSubnet *SubnetReference) error {
 	nicName := fmt.Sprintf("%s-nic", privateEndpointName)
 
 	privateEndpoint := armnetwork.PrivateEndpoint{
@@ -93,7 +93,7 @@ func (inst *Installer) createPrivateEndpoints(ctx context.Context, privateEndpoi
 		return fmt.Errorf("failed to create private endpoint client: %w", err)
 	}
 
-	poller, err := privateEndpointClient.BeginCreateOrUpdate(ctx, configSubnet.PrivateLinkResourceGroup, privateEndpointName, privateEndpoint, nil)
+	poller, err := privateEndpointClient.BeginCreateOrUpdate(ctx, resourceGroup, privateEndpointName, privateEndpoint, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create private endpoint: %w", err)
 	}
@@ -109,12 +109,12 @@ func (inst *Installer) createPrivateEndpoints(ctx context.Context, privateEndpoi
 			return fmt.Errorf("failed to create network interfaces client: %w", err)
 		}
 
-		nic, err := interfacesClient.Get(ctx, configSubnet.PrivateLinkResourceGroup, nicName, nil)
+		nic, err := interfacesClient.Get(ctx, resourceGroup, nicName, nil)
 		if err != nil {
 			return fmt.Errorf("failed to get network interface '%s': %w", nicName, err)
 		}
 
-		if err := inst.createPrivateDnsZoneWithRecord(ctx, privateDnsZoneName, *nic.Properties.IPConfigurations[0].Properties.PrivateIPAddress, configSubnet); err != nil {
+		if err := inst.createPrivateDnsZoneWithRecord(ctx, resourceGroup, privateDnsZoneName, *nic.Properties.IPConfigurations[0].Properties.PrivateIPAddress, configSubnet); err != nil {
 			return fmt.Errorf("failed to create private DNS zone: %w", err)
 		}
 	}
@@ -129,11 +129,11 @@ func (inst *Installer) createPrivateEndpoints(ctx context.Context, privateEndpoi
 func (inst *Installer) createAksPrivateDnsZone(ctx context.Context, location string, clusterName string, subnet *SubnetReference) (string, error) {
 	h := sha256.Sum256([]byte(inst.Config.Cloud.SubscriptionID + "/" + inst.Config.Cloud.ResourceGroup + "/" + clusterName))
 	zoneName := fmt.Sprintf("%s%s.privatelink.%s.azmk8s.io", inst.Config.EnvironmentName, hex.EncodeToString(h[:4]), location)
-	return inst.createPrivateDnsZone(ctx, zoneName, subnet)
+	return inst.createPrivateDnsZone(ctx, inst.Config.Cloud.ResourceGroup, zoneName, subnet)
 }
 
-func (inst *Installer) createPrivateDnsZoneWithRecord(ctx context.Context, domainName string, ipAddress string, subnet *SubnetReference) error {
-	_, err := inst.createPrivateDnsZone(ctx, domainName, subnet)
+func (inst *Installer) createPrivateDnsZoneWithRecord(ctx context.Context, resourceGroup string, domainName string, ipAddress string, subnet *SubnetReference) error {
+	_, err := inst.createPrivateDnsZone(ctx, resourceGroup, domainName, subnet)
 	if err != nil {
 		return err
 	}
@@ -143,7 +143,7 @@ func (inst *Installer) createPrivateDnsZoneWithRecord(ctx context.Context, domai
 		return fmt.Errorf("failed to create record sets client: %w", err)
 	}
 
-	_, err = recordSetsClient.CreateOrUpdate(ctx, subnet.PrivateLinkResourceGroup, domainName, armprivatedns.RecordTypeA, "@",
+	_, err = recordSetsClient.CreateOrUpdate(ctx, resourceGroup, domainName, armprivatedns.RecordTypeA, "@",
 		armprivatedns.RecordSet{Properties: &armprivatedns.RecordSetProperties{
 			ARecords: []*armprivatedns.ARecord{
 				{
@@ -162,7 +162,7 @@ func (inst *Installer) createPrivateDnsZoneWithRecord(ctx context.Context, domai
 
 // createPrivateDnsZone creates a private DNS zone, links it to the spoke VNet
 // and any additional VNets, removes stale links, and returns the zone's resource ID.
-func (inst *Installer) createPrivateDnsZone(ctx context.Context, zoneName string, subnet *SubnetReference) (string, error) {
+func (inst *Installer) createPrivateDnsZone(ctx context.Context, resourceGroup string, zoneName string, subnet *SubnetReference) (string, error) {
 	privateDNSZoneClient, err := armprivatedns.NewPrivateZonesClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create private DNS zone client: %w", err)
@@ -177,7 +177,7 @@ func (inst *Installer) createPrivateDnsZone(ctx context.Context, zoneName string
 
 	log.Ctx(ctx).Info().Msgf("Creating or updating private DNS zone '%s'", zoneName)
 
-	dnsZonePoller, err := privateDNSZoneClient.BeginCreateOrUpdate(ctx, subnet.PrivateLinkResourceGroup, zoneName, armprivatedns.PrivateZone{
+	dnsZonePoller, err := privateDNSZoneClient.BeginCreateOrUpdate(ctx, resourceGroup, zoneName, armprivatedns.PrivateZone{
 		Location: Ptr("global"),
 		Tags:     tags,
 	}, nil)
@@ -205,7 +205,7 @@ func (inst *Installer) createPrivateDnsZone(ctx context.Context, zoneName string
 		return "", fmt.Errorf("failed to create virtual network links client: %w", err)
 	}
 
-	linkPoller, err := virtualNetworkLinksClient.BeginCreateOrUpdate(ctx, subnet.PrivateLinkResourceGroup, zoneName, fmt.Sprintf("%s-%s", subnet.ResourceGroup, subnet.VNetName),
+	linkPoller, err := virtualNetworkLinksClient.BeginCreateOrUpdate(ctx, resourceGroup, zoneName, fmt.Sprintf("%s-%s", subnet.ResourceGroup, subnet.VNetName),
 		armprivatedns.VirtualNetworkLink{
 			Location: Ptr("global"),
 			Properties: &armprivatedns.VirtualNetworkLinkProperties{
@@ -256,7 +256,7 @@ func (inst *Installer) createPrivateDnsZone(ctx context.Context, zoneName string
 		log.Ctx(ctx).Info().Msgf("Creating or updating virtual network link '%s' for DNS zone '%s'", linkName, zoneName)
 
 		additionalLinkPoller, err := virtualNetworkLinksClient.BeginCreateOrUpdate(ctx,
-			subnet.PrivateLinkResourceGroup, zoneName, linkName,
+			resourceGroup, zoneName, linkName,
 			armprivatedns.VirtualNetworkLink{
 				Location: Ptr("global"),
 				Properties: &armprivatedns.VirtualNetworkLinkProperties{
@@ -277,7 +277,7 @@ func (inst *Installer) createPrivateDnsZone(ctx context.Context, zoneName string
 	}
 
 	// Remove stale VNet links whose destination VNet ID is not in the expected set
-	linkPager := virtualNetworkLinksClient.NewListPager(subnet.PrivateLinkResourceGroup, zoneName, nil)
+	linkPager := virtualNetworkLinksClient.NewListPager(resourceGroup, zoneName, nil)
 	for linkPager.More() {
 		page, err := linkPager.NextPage(ctx)
 		if err != nil {
@@ -287,7 +287,7 @@ func (inst *Installer) createPrivateDnsZone(ctx context.Context, zoneName string
 			if link.Properties != nil && link.Properties.VirtualNetwork != nil && link.Properties.VirtualNetwork.ID != nil {
 				if !expectedVnetIDs[strings.ToLower(*link.Properties.VirtualNetwork.ID)] {
 					log.Ctx(ctx).Info().Msgf("Removing stale virtual network link '%s' (VNet '%s') from DNS zone '%s'", *link.Name, *link.Properties.VirtualNetwork.ID, zoneName)
-					deletePoller, err := virtualNetworkLinksClient.BeginDelete(ctx, subnet.PrivateLinkResourceGroup, zoneName, *link.Name, nil)
+					deletePoller, err := virtualNetworkLinksClient.BeginDelete(ctx, resourceGroup, zoneName, *link.Name, nil)
 					if err != nil {
 						return "", fmt.Errorf("failed to delete stale virtual network link '%s': %w", *link.Name, err)
 					}
@@ -377,7 +377,7 @@ func (inst *Installer) deleteOrgPrivateLinkResources(ctx context.Context, org *O
 		// Delete per-org private DNS zones: first remove VNet links, then delete the zone
 		for _, zoneName := range dnsZoneNames {
 			// Delete all VNet links in this zone first
-			linkPager := virtualNetworkLinksClient.NewListPager(configSubnet.PrivateLinkResourceGroup, zoneName, nil)
+			linkPager := virtualNetworkLinksClient.NewListPager(org.Cloud.ResourceGroup, zoneName, nil)
 			for linkPager.More() {
 				page, err := linkPager.NextPage(ctx)
 				if err != nil {
@@ -388,7 +388,7 @@ func (inst *Installer) deleteOrgPrivateLinkResources(ctx context.Context, org *O
 				}
 				for _, link := range page.Value {
 					log.Ctx(ctx).Info().Msgf("Deleting virtual network link '%s' from DNS zone '%s'", *link.Name, zoneName)
-					linkPoller, err := virtualNetworkLinksClient.BeginDelete(ctx, configSubnet.PrivateLinkResourceGroup, zoneName, *link.Name, nil)
+					linkPoller, err := virtualNetworkLinksClient.BeginDelete(ctx, org.Cloud.ResourceGroup, zoneName, *link.Name, nil)
 					if err != nil {
 						if isNotFoundError(err) {
 							continue
@@ -401,10 +401,10 @@ func (inst *Installer) deleteOrgPrivateLinkResources(ctx context.Context, org *O
 				}
 			}
 
-			log.Ctx(ctx).Info().Msgf("Deleting private DNS zone '%s' from '%s'", zoneName, configSubnet.PrivateLinkResourceGroup)
+			log.Ctx(ctx).Info().Msgf("Deleting private DNS zone '%s' from '%s'", zoneName, org.Cloud.ResourceGroup)
 			// Retry zone deletion on 409 Conflict — Azure may not have fully propagated VNet link deletions yet
 			for attempt := 0; ; attempt++ {
-				poller, err := privateDnsZoneClient.BeginDelete(ctx, configSubnet.PrivateLinkResourceGroup, zoneName, nil)
+				poller, err := privateDnsZoneClient.BeginDelete(ctx, org.Cloud.ResourceGroup, zoneName, nil)
 				if err != nil {
 					if isNotFoundError(err) {
 						break
@@ -432,8 +432,8 @@ func (inst *Installer) deleteOrgPrivateLinkResources(ctx context.Context, org *O
 
 		for _, name := range storageAccountNames {
 			peName := fmt.Sprintf("storage-%s-pe", name)
-			log.Ctx(ctx).Info().Msgf("Deleting private endpoint '%s' from '%s'", peName, configSubnet.PrivateLinkResourceGroup)
-			pePoller, err := privateEndpointClient.BeginDelete(ctx, configSubnet.PrivateLinkResourceGroup, peName, nil)
+			log.Ctx(ctx).Info().Msgf("Deleting private endpoint '%s' from '%s'", peName, org.Cloud.ResourceGroup)
+			pePoller, err := privateEndpointClient.BeginDelete(ctx, org.Cloud.ResourceGroup, peName, nil)
 			if err != nil {
 				if isNotFoundError(err) {
 					continue
