@@ -11,6 +11,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/authorization/armauthorization/v2"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v7"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources/v3"
 	"github.com/IGLOU-EU/go-wildcard/v2"
 	"github.com/golang-jwt/jwt/v5"
@@ -275,12 +276,33 @@ func (inst *Installer) checkNoLegacyPrivateLinkResourceGroups(ctx context.Contex
 			cluster.ExistingSubnet.VNetName)
 
 		if _, err := rgClient.Get(ctx, legacyRG, nil); err == nil {
-			return fmt.Errorf(
+			var msg strings.Builder
+			msg.WriteString(fmt.Sprintf(
 				"legacy private-link resource group '%s' still exists. "+
 					"Private-link resources are now placed in the shared and per-organization resource groups. "+
-					"To proceed, delete the legacy resource group (e.g. `az group delete -n %s`) and then re-deploy. "+
-					"Note: deleting this resource group will cause a temporary private network connectivity outage until the re-deployment completes",
-				legacyRG, legacyRG)
+					"AKS does not allow changing the private DNS zone resource group on an existing cluster, "+
+					"so the clusters must be deleted and re-created.\n\n"+
+					"To proceed, run the following commands and then re-deploy:\n\n",
+				legacyRG))
+
+			aksClient, err := armcontainerservice.NewManagedClustersClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
+			if err != nil {
+				return fmt.Errorf("failed to create AKS client: %w", err)
+			}
+
+			for _, c := range inst.Config.Cloud.Compute.Clusters {
+				if _, err := aksClient.Get(ctx, inst.Config.Cloud.ResourceGroup, c.Name, nil); err == nil {
+					msg.WriteString(fmt.Sprintf("  az aks delete -n %s -g %s --subscription %s --yes\n",
+						c.Name, inst.Config.Cloud.ResourceGroup, inst.Config.Cloud.SubscriptionID))
+				}
+			}
+
+			msg.WriteString(fmt.Sprintf("\n  az group delete -n %s --subscription %s --yes\n",
+				legacyRG, inst.Config.Cloud.SubscriptionID))
+
+			msg.WriteString("\nNote: this will cause a service outage until the re-deployment completes.")
+
+			return fmt.Errorf("%s", msg.String())
 		}
 	}
 
