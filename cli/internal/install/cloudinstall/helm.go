@@ -25,6 +25,7 @@ import (
 	"github.com/microsoft/tyger/cli/internal/install"
 	helmclient "github.com/mittwald/go-helm-client"
 	"github.com/rs/zerolog/log"
+	"helm.sh/helm/v3/pkg/registry"
 	"helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/repo"
 	"helm.sh/helm/v3/pkg/storage/driver"
@@ -45,6 +46,54 @@ const (
 
 	AzureLinuxImage = "mcr.microsoft.com/azurelinux/base/core:3.0"
 )
+
+// mirrorAcrFqdn returns the mirror ACR login server FQDN resolved from Azure, or empty string if not set.
+func (inst *Installer) mirrorAcrFqdn() string {
+	return inst.Config.Cloud.GetMirrorAcrFqdn()
+}
+
+// anyOrgNeedsTygerMirror returns true if at least one organization will use
+// the default (mirrored) Tyger chart, i.e. does not override chartRef.
+func (inst *Installer) anyOrgNeedsTygerMirror() bool {
+	if inst.Config.Cloud.MirrorAcr == "" {
+		return false
+	}
+	for _, org := range inst.Config.Organizations {
+		if org.Api.Helm == nil || org.Api.Helm.Tyger == nil || org.Api.Helm.Tyger.ChartRef == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// acrLoginCustomizer returns a customizeSpec callback that logs in to the mirror ACR
+// so that the helm client can pull OCI charts from the private registry.
+// Returns a no-op callback if no mirror ACR is configured.
+func (inst *Installer) acrLoginCustomizer(ctx context.Context) func(*helmclient.ChartSpec, helmclient.Client) error {
+	mirrorFqdn := inst.mirrorAcrFqdn()
+
+	return func(cs *helmclient.ChartSpec, c helmclient.Client) error {
+		if mirrorFqdn == "" || !strings.HasPrefix(cs.ChartName, "oci://"+mirrorFqdn) {
+			return nil
+		}
+
+		hc, ok := c.(*helmclient.HelmClient)
+		if !ok {
+			return fmt.Errorf("unable to access helm registry client for ACR login")
+		}
+
+		refreshToken, err := inst.getAcrRefreshToken(ctx, mirrorFqdn)
+		if err != nil {
+			return fmt.Errorf("failed to get ACR refresh token for chart pull: %w", err)
+		}
+
+		if err := hc.ActionConfig.RegistryClient.Login(mirrorFqdn, registry.LoginOptBasicAuth("00000000-0000-0000-0000-000000000000", refreshToken)); err != nil {
+			return fmt.Errorf("failed to login to mirror ACR for chart pull: %w", err)
+		}
+
+		return nil
+	}
+}
 
 func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *install.Promise[*rest.Config], keyVaultClientManagedIdentityPromise *install.Promise[*armmsi.Identity]) (any, error) {
 	restConfig, err := restConfigPromise.Await()
@@ -76,18 +125,20 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 		serviceAnnotations["service.beta.kubernetes.io/azure-pip-ip-tags"] = strings.Join(pairs, ",")
 	}
 
+	traefikChart := GetTraefikChart()
+	traefikImages := GetTraefikImages()
 	traefikConfig := HelmChartConfig{
-		RepoName:    "traefik",
+		RepoName:    traefikChart.SourceRepoName,
 		Namespace:   TraefikNamespace,
 		ReleaseName: "traefik",
-		RepoUrl:     "https://helm.traefik.io/traefik",
-		ChartRef:    "traefik/traefik",
-		Version:     "24.0.0",
+		RepoUrl:     traefikChart.SourceRepoUrl,
+		ChartRef:    traefikChart.SourceChartRef,
+		Version:     traefikChart.Version,
 		Values: map[string]any{
 			"image": map[string]any{
-				"registry":   "mcr.microsoft.com",
-				"repository": "oss/traefik/traefik",
-				"tag":        "v2.10.7",
+				"registry":   traefikImages[0].SourceRegistry,
+				"repository": traefikImages[0].SourceRepo,
+				"tag":        traefikImages[0].Tag,
 			},
 			"logs": map[string]any{
 				"general": map[string]any{
@@ -120,6 +171,9 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 			"azure.workload.identity/client-id": *kvClientIdentity.Properties.ClientID,
 		}
 
+		sidecar := getConfigReloaderSidecar()
+		ApplyTraefikSidecarMirrorOverride(inst.mirrorAcrFqdn(), &sidecar)
+
 		traefikConfig.Values["deployment"] = map[string]any{
 			"additionalVolumes": []any{
 				map[string]any{
@@ -138,7 +192,7 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 				},
 			},
 			"additionalContainers": []any{
-				getConfigReloaderSidecar(),
+				sidecar,
 			},
 		}
 
@@ -164,6 +218,16 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 	if inst.Config.Cloud.Compute.Helm != nil && inst.Config.Cloud.Compute.Helm.Traefik != nil {
 		overrides = inst.Config.Cloud.Compute.Helm.Traefik
 	}
+
+	// Merge user overrides first, then apply mirror overrides so that the mirror ACR
+	// takes precedence over any image/chart references from the config file.
+	if overrides != nil {
+		if err := mergo.Merge(&traefikConfig, overrides, mergo.WithOverride); err != nil {
+			return nil, fmt.Errorf("failed to merge helm config: %w", err)
+		}
+	}
+
+	ApplyTraefikMirrorOverrides(inst.mirrorAcrFqdn(), &traefikConfig)
 
 	// Check if there is an existing release to see if should be removed first.
 	helmOptions := helmclient.RestConfClientOptions{
@@ -201,7 +265,8 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 	}
 
 	startTime := time.Now().Add(-10 * time.Second)
-	if _, _, err := installHelmChart(ctx, restConfig, &traefikConfig, overrides, false); err != nil {
+	traefikManifest, _, err := installHelmChart(ctx, restConfig, &traefikConfig, nil, false, inst.acrLoginCustomizer(ctx))
+	if err != nil {
 		installErr := err
 
 		// List warning events in the namespace
@@ -222,6 +287,10 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 		}
 
 		return nil, fmt.Errorf("failed to install Traefik: %w", installErr)
+	}
+
+	if err := ValidateManifestMirrorImages(traefikManifest, inst.mirrorAcrFqdn()); err != nil {
+		return nil, fmt.Errorf("traefik mirror image validation failed: %w", err)
 	}
 
 	return nil, nil
@@ -273,34 +342,41 @@ func (inst *Installer) installCertManager(ctx context.Context, restConfigPromise
 
 	log.Ctx(ctx).Info().Msg("Installing cert-manager")
 
+	certManagerImages := GetCertManagerImages()
+	certManagerChart := GetCertManagerChart()
+
+	certManagerImageRepo := func(img MirrorableImage) string {
+		return fmt.Sprintf("%s/%s", img.SourceRegistry, img.SourceRepo)
+	}
+
 	certManagerConfig := HelmChartConfig{
 		Namespace:   "cert-manager",
 		ReleaseName: "cert-manager",
-		ChartRef:    "oci://mcr.microsoft.com/azurelinux/helm/cert-manager",
-		Version:     "1.12.12-12",
+		ChartRef:    certManagerChart.SourceChartRef,
+		Version:     certManagerChart.Version,
 		Values: map[string]any{
 			"cert-manager": map[string]any{
 				"installCRDs": true,
 				"image": map[string]any{
-					"repository": "mcr.microsoft.com/azurelinux/base/cert-manager-controller",
-					"tag":        "1.12.15-4.3.0.20251206",
+					"repository": certManagerImageRepo(certManagerImages[0]),
+					"tag":        certManagerImages[0].Tag,
 				},
 				"acmesolver": map[string]any{
 					"image": map[string]any{
-						"repository": "mcr.microsoft.com/azurelinux/base/cert-manager-acmesolver",
-						"tag":        "1.12.15-4.3.0.20251206",
+						"repository": certManagerImageRepo(certManagerImages[1]),
+						"tag":        certManagerImages[1].Tag,
 					},
 				},
 				"cainjector": map[string]any{
 					"image": map[string]any{
-						"repository": "mcr.microsoft.com/azurelinux/base/cert-manager-cainjector",
-						"tag":        "1.12.15-4.3.0.20251206",
+						"repository": certManagerImageRepo(certManagerImages[2]),
+						"tag":        certManagerImages[2].Tag,
 					},
 				},
 				"webhook": map[string]any{
 					"image": map[string]any{
-						"repository": "mcr.microsoft.com/azurelinux/base/cert-manager-webhook",
-						"tag":        "1.12.15-4.3.0.20251206",
+						"repository": certManagerImageRepo(certManagerImages[3]),
+						"tag":        certManagerImages[3].Tag,
 					},
 				},
 			},
@@ -312,8 +388,21 @@ func (inst *Installer) installCertManager(ctx context.Context, restConfigPromise
 		overrides = inst.Config.Cloud.Compute.Helm.CertManager
 	}
 
-	if _, _, err := installHelmChart(ctx, restConfig, &certManagerConfig, overrides, false); err != nil {
+	if overrides != nil {
+		if err := mergo.Merge(&certManagerConfig, overrides, mergo.WithOverride); err != nil {
+			return nil, fmt.Errorf("failed to merge helm config: %w", err)
+		}
+	}
+
+	ApplyCertManagerMirrorOverrides(inst.mirrorAcrFqdn(), &certManagerConfig)
+
+	certManagerManifest, _, err := installHelmChart(ctx, restConfig, &certManagerConfig, nil, false, inst.acrLoginCustomizer(ctx))
+	if err != nil {
 		return nil, fmt.Errorf("failed to install cert-manager: %w", err)
+	}
+
+	if err := ValidateManifestMirrorImages(certManagerManifest, inst.mirrorAcrFqdn()); err != nil {
+		return nil, fmt.Errorf("cert-manager mirror image validation failed: %w", err)
 	}
 
 	return nil, nil
@@ -327,16 +416,20 @@ func (inst *Installer) installNvidiaDevicePlugin(ctx context.Context, restConfig
 
 	log.Ctx(ctx).Info().Msg("Installing nvidia-device-plugin")
 
+	nvdpChart := GetNvidiaDevicePluginChart()
+	nvdpImages := GetNvidiaDevicePluginImages()
+
 	nvdpConfig := HelmChartConfig{
 		Namespace:   "nvidia-device-plugin",
 		ReleaseName: "nvidia-device-plugin",
-		RepoName:    "nvdp",
-		RepoUrl:     "https://nvidia.github.io/k8s-device-plugin",
-		ChartRef:    "nvdp/nvidia-device-plugin",
-		Version:     "0.17.0",
+		RepoName:    nvdpChart.SourceRepoName,
+		RepoUrl:     nvdpChart.SourceRepoUrl,
+		ChartRef:    nvdpChart.SourceChartRef,
+		Version:     nvdpChart.Version,
 		Values: map[string]any{
 			"image": map[string]any{
-				"repository": "mcr.microsoft.com/oss/v2/nvidia/k8s-device-plugin",
+				"repository": fmt.Sprintf("%s/%s", nvdpImages[0].SourceRegistry, nvdpImages[0].SourceRepo),
+				"tag":        nvdpImages[0].Tag,
 			},
 			"nodeSelector": map[string]any{
 				"kubernetes.azure.com/accelerator": "nvidia",
@@ -375,14 +468,33 @@ func (inst *Installer) installNvidiaDevicePlugin(ctx context.Context, restConfig
 		overrides = inst.Config.Cloud.Compute.Helm.NvidiaDevicePlugin
 	}
 
-	if _, _, err := installHelmChart(ctx, restConfig, &nvdpConfig, overrides, false); err != nil {
+	if overrides != nil {
+		if err := mergo.Merge(&nvdpConfig, overrides, mergo.WithOverride); err != nil {
+			return nil, fmt.Errorf("failed to merge helm config: %w", err)
+		}
+	}
+
+	ApplyNvidiaDevicePluginMirrorOverrides(inst.mirrorAcrFqdn(), &nvdpConfig)
+
+	nvdpManifest, _, err := installHelmChart(ctx, restConfig, &nvdpConfig, nil, false, inst.acrLoginCustomizer(ctx))
+	if err != nil {
 		return nil, fmt.Errorf("failed to install NVIDIA device plugin: %w", err)
+	}
+
+	if err := ValidateManifestMirrorImages(nvdpManifest, inst.mirrorAcrFqdn()); err != nil {
+		return nil, fmt.Errorf("nvidia-device-plugin mirror image validation failed: %w", err)
 	}
 
 	return nil, nil
 }
 
 func (inst *Installer) InstallTyger(ctx context.Context) error {
+	if inst.anyOrgNeedsTygerMirror() {
+		if err := inst.MirrorTygerArtifacts(ctx); err != nil {
+			return fmt.Errorf("failed to mirror Tyger artifacts: %w", err)
+		}
+	}
+
 	restConfig, err := inst.GetUserRESTConfig(ctx)
 	if err != nil {
 		return err
@@ -714,13 +826,32 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, org *Organizat
 		overrides = org.Api.Helm.Tyger
 	}
 
+	// Merge user overrides first, then apply mirror overrides so that the mirror ACR
+	// takes precedence over any image/chart references from the config file.
+	if overrides != nil {
+		if err := mergo.Merge(&helmConfig, overrides, mergo.WithOverride); err != nil {
+			return "", "", fmt.Errorf("failed to merge helm config: %w", err)
+		}
+	}
+
+	mirrorApplied := overrides == nil || overrides.ChartRef == ""
+	if mirrorApplied {
+		ApplyTygerMirrorOverrides(inst.mirrorAcrFqdn(), &helmConfig)
+	}
+
 	adjustSpec := func(cs *helmclient.ChartSpec, c helmclient.Client) error {
 		cs.CreateNamespace = false
 		return nil
 	}
 
-	if manifest, valuesYaml, err = installHelmChart(ctx, restConfig, &helmConfig, overrides, dryRun, adjustSpec); err != nil {
+	if manifest, valuesYaml, err = installHelmChart(ctx, restConfig, &helmConfig, nil, dryRun, adjustSpec, inst.acrLoginCustomizer(ctx)); err != nil {
 		return "", "", fmt.Errorf("failed to install Tyger Helm chart: %w", err)
+	}
+
+	if !dryRun && mirrorApplied {
+		if err := ValidateManifestMirrorImages(manifest, inst.mirrorAcrFqdn()); err != nil {
+			return "", "", fmt.Errorf("tyger mirror image validation failed: %w", err)
+		}
 	}
 
 	return manifest, valuesYaml, nil

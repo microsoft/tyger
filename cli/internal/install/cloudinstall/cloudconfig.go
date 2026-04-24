@@ -71,6 +71,7 @@ type CloudConfig struct {
 	ResourceTags           map[string]string     `yaml:"resourceTags"`
 	PrivateNetworking      bool                  `yaml:"privateNetworking"`
 	AdditionalDnsVnetLinks []VnetReference       `yaml:"additionalDnsVnetLinks"`
+	MirrorAcr              string                `yaml:"mirrorAcr"`
 	Compute                *ComputeConfig        `yaml:"compute"`
 	Database               *DatabaseServerConfig `yaml:"database"`
 	LogAnalyticsWorkspace  *NamedAzureResource   `yaml:"logAnalyticsWorkspace"`
@@ -79,6 +80,30 @@ type CloudConfig struct {
 
 	// Internal support for associating resources with a network security perimeter profile
 	NetworkSecurityPerimeter *NetworkSecurityPerimeterConfig `yaml:"networkSecurityPerimeter"`
+
+	mirrorAcrLoginServer string // cached login server FQDN resolved from Azure
+}
+
+// GetMirrorAcrFqdn returns the mirror ACR login server FQDN. The value is resolved
+// from the Azure resource and cached after the first call to SetMirrorAcrLoginServer.
+// Returns empty string if not set.
+func (c *CloudConfig) GetMirrorAcrFqdn() string {
+	return c.mirrorAcrLoginServer
+}
+
+// SetMirrorAcrLoginServer caches the login server FQDN resolved from Azure.
+func (c *CloudConfig) SetMirrorAcrLoginServer(loginServer string) {
+	c.mirrorAcrLoginServer = loginServer
+}
+
+// GetMirrorAcrName returns just the ACR name (without .azurecr.io suffix).
+// Returns empty string if not set.
+func (c *CloudConfig) GetMirrorAcrName() string {
+	if c.MirrorAcr == "" {
+		return ""
+	}
+	name, _, _ := strings.Cut(c.MirrorAcr, ".")
+	return name
 }
 
 type VnetReference struct {

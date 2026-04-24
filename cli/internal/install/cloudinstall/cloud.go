@@ -489,6 +489,10 @@ func (inst *Installer) createSharedPromises(ctx context.Context) install.Promise
 
 	getAdminCredsPromise := install.NewPromiseAfter(ctx, group, inst.getAdminRESTConfig, createApiHostClusterPromise)
 
+	mirrorPromise := install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
+		return nil, inst.MirrorSharedArtifacts(ctx)
+	})
+
 	install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
 		return inst.createClusterRBAC(ctx, getAdminCredsPromise)
 	})
@@ -504,6 +508,9 @@ func (inst *Installer) createSharedPromises(ctx context.Context) install.Promise
 			}
 		}
 
+		if _, err := mirrorPromise.Await(); err != nil {
+			return nil, install.ErrDependencyFailed
+		}
 		if _, err := inst.installTraefik(ctx, getAdminCredsPromise, traefikKeyVaultClientManagedIdentityPromise); err != nil {
 			return nil, fmt.Errorf("failed to install Traefik: %w", err)
 		}
@@ -521,13 +528,13 @@ func (inst *Installer) createSharedPromises(ctx context.Context) install.Promise
 		return nil, nil
 	})
 
-	install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
+	install.NewPromiseAfter(ctx, group, func(ctx context.Context) (any, error) {
 		return inst.installCertManager(ctx, getAdminCredsPromise)
-	})
+	}, mirrorPromise)
 
-	install.NewPromise(ctx, group, func(ctx context.Context) (any, error) {
+	install.NewPromiseAfter(ctx, group, func(ctx context.Context) (any, error) {
 		return inst.installNvidiaDevicePlugin(ctx, getAdminCredsPromise)
-	})
+	}, mirrorPromise)
 
 	return *group
 }
