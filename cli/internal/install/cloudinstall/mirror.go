@@ -128,23 +128,35 @@ func GetTraefikChart() MirrorableChart {
 	}
 }
 
+// CertManagerImageSet holds the cert-manager component images with named fields.
+type CertManagerImageSet struct {
+	Controller MirrorableImage
+	AcmeSolver MirrorableImage
+	CaInjector MirrorableImage
+	Webhook    MirrorableImage
+}
+
+// All returns all cert-manager images as a slice.
+func (s CertManagerImageSet) All() []MirrorableImage {
+	return []MirrorableImage{s.Controller, s.AcmeSolver, s.CaInjector, s.Webhook}
+}
+
+func certManagerImage(component string) MirrorableImage {
+	return MirrorableImage{
+		SourceRegistry: "mcr.microsoft.com",
+		SourceRepo:     "azurelinux/base/" + component,
+		Tag:            CertManagerImageTag,
+	}
+}
+
 // GetCertManagerImages returns the images used by the cert-manager chart.
-func GetCertManagerImages() []MirrorableImage {
-	components := []string{
-		"cert-manager-controller",
-		"cert-manager-acmesolver",
-		"cert-manager-cainjector",
-		"cert-manager-webhook",
+func GetCertManagerImages() CertManagerImageSet {
+	return CertManagerImageSet{
+		Controller: certManagerImage("cert-manager-controller"),
+		AcmeSolver: certManagerImage("cert-manager-acmesolver"),
+		CaInjector: certManagerImage("cert-manager-cainjector"),
+		Webhook:    certManagerImage("cert-manager-webhook"),
 	}
-	images := make([]MirrorableImage, len(components))
-	for i, component := range components {
-		images[i] = MirrorableImage{
-			SourceRegistry: "mcr.microsoft.com",
-			SourceRepo:     "azurelinux/base/" + component,
-			Tag:            CertManagerImageTag,
-		}
-	}
-	return images
 }
 
 // GetCertManagerChart returns the chart descriptor for cert-manager.
@@ -205,7 +217,7 @@ func GetTygerChart() MirrorableChart {
 func GetAllMirrorableImages() []MirrorableImage {
 	var all []MirrorableImage
 	all = append(all, GetTraefikImages()...)
-	all = append(all, GetCertManagerImages()...)
+	all = append(all, GetCertManagerImages().All()...)
 	all = append(all, GetNvidiaDevicePluginImages()...)
 	all = append(all, GetTygerImages()...)
 	return all
@@ -215,7 +227,7 @@ func GetAllMirrorableImages() []MirrorableImage {
 func GetSharedMirrorableImages() []MirrorableImage {
 	var all []MirrorableImage
 	all = append(all, GetTraefikImages()...)
-	all = append(all, GetCertManagerImages()...)
+	all = append(all, GetCertManagerImages().All()...)
 	all = append(all, GetNvidiaDevicePluginImages()...)
 	return all
 }
@@ -685,30 +697,26 @@ func ApplyCertManagerMirrorOverrides(mirrorAcrFqdn string, helmConfig *HelmChart
 		return
 	}
 
-	// controller (index 0)
 	if imageMap, ok := certManagerValues["image"].(map[string]any); ok {
-		imageMap["repository"] = fmt.Sprintf("%s/%s", mirrorAcrFqdn, images[0].TargetRepo())
-		imageMap["tag"] = images[0].Tag
+		imageMap["repository"] = fmt.Sprintf("%s/%s", mirrorAcrFqdn, images.Controller.TargetRepo())
+		imageMap["tag"] = images.Controller.Tag
 	}
-	// acmesolver (index 1)
 	if compMap, ok := certManagerValues["acmesolver"].(map[string]any); ok {
 		if imageMap, ok := compMap["image"].(map[string]any); ok {
-			imageMap["repository"] = fmt.Sprintf("%s/%s", mirrorAcrFqdn, images[1].TargetRepo())
-			imageMap["tag"] = images[1].Tag
+			imageMap["repository"] = fmt.Sprintf("%s/%s", mirrorAcrFqdn, images.AcmeSolver.TargetRepo())
+			imageMap["tag"] = images.AcmeSolver.Tag
 		}
 	}
-	// cainjector (index 2)
 	if compMap, ok := certManagerValues["cainjector"].(map[string]any); ok {
 		if imageMap, ok := compMap["image"].(map[string]any); ok {
-			imageMap["repository"] = fmt.Sprintf("%s/%s", mirrorAcrFqdn, images[2].TargetRepo())
-			imageMap["tag"] = images[2].Tag
+			imageMap["repository"] = fmt.Sprintf("%s/%s", mirrorAcrFqdn, images.CaInjector.TargetRepo())
+			imageMap["tag"] = images.CaInjector.Tag
 		}
 	}
-	// webhook (index 3)
 	if compMap, ok := certManagerValues["webhook"].(map[string]any); ok {
 		if imageMap, ok := compMap["image"].(map[string]any); ok {
-			imageMap["repository"] = fmt.Sprintf("%s/%s", mirrorAcrFqdn, images[3].TargetRepo())
-			imageMap["tag"] = images[3].Tag
+			imageMap["repository"] = fmt.Sprintf("%s/%s", mirrorAcrFqdn, images.Webhook.TargetRepo())
+			imageMap["tag"] = images.Webhook.Tag
 		}
 	}
 }

@@ -358,25 +358,25 @@ func (inst *Installer) installCertManager(ctx context.Context, restConfigPromise
 			"cert-manager": map[string]any{
 				"installCRDs": true,
 				"image": map[string]any{
-					"repository": certManagerImageRepo(certManagerImages[0]),
-					"tag":        certManagerImages[0].Tag,
+					"repository": certManagerImageRepo(certManagerImages.Controller),
+					"tag":        certManagerImages.Controller.Tag,
 				},
 				"acmesolver": map[string]any{
 					"image": map[string]any{
-						"repository": certManagerImageRepo(certManagerImages[1]),
-						"tag":        certManagerImages[1].Tag,
+						"repository": certManagerImageRepo(certManagerImages.AcmeSolver),
+						"tag":        certManagerImages.AcmeSolver.Tag,
 					},
 				},
 				"cainjector": map[string]any{
 					"image": map[string]any{
-						"repository": certManagerImageRepo(certManagerImages[2]),
-						"tag":        certManagerImages[2].Tag,
+						"repository": certManagerImageRepo(certManagerImages.CaInjector),
+						"tag":        certManagerImages.CaInjector.Tag,
 					},
 				},
 				"webhook": map[string]any{
 					"image": map[string]any{
-						"repository": certManagerImageRepo(certManagerImages[3]),
-						"tag":        certManagerImages[3].Tag,
+						"repository": certManagerImageRepo(certManagerImages.Webhook),
+						"tag":        certManagerImages.Webhook.Tag,
 					},
 				},
 			},
