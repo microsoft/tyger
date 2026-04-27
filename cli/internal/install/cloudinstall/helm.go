@@ -285,7 +285,7 @@ func (inst *Installer) installCertManager(ctx context.Context, restConfigPromise
 
 	log.Ctx(ctx).Info().Msg("Installing cert-manager")
 
-	imageTag := MirrorableTag("1.12.15-4.3.0.20251206")
+	imageTag := MirrorableTag("1.12.15-6.3.0.20260401")
 	certManagerConfig := HelmChartConfig{
 		Namespace:   "cert-manager",
 		ReleaseName: "cert-manager",
@@ -346,7 +346,7 @@ func (inst *Installer) installNvidiaDevicePlugin(ctx context.Context, restConfig
 
 	log.Ctx(ctx).Info().Msg("Installing nvidia-device-plugin")
 
-	chartVersion := "0.17.0"
+	chartVersion := "0.19.1-1"
 	nvdpConfig := HelmChartConfig{
 		Namespace:   "nvidia-device-plugin",
 		ReleaseName: "nvidia-device-plugin",
