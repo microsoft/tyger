@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"text/template"
 
@@ -79,6 +80,8 @@ type CloudConfig struct {
 
 	// Internal support for associating resources with a network security perimeter profile
 	NetworkSecurityPerimeter *NetworkSecurityPerimeterConfig `yaml:"networkSecurityPerimeter"`
+
+	ContainerRegistryMirror string `yaml:"containerRegistryMirror"`
 }
 
 type VnetReference struct {
@@ -95,6 +98,15 @@ type ComputeConfig struct {
 	ContainerRegistryProxy     string            `yaml:"containerRegistryProxy"` // undocumented and for internal use only
 	DnsLabel                   string            `yaml:"dnsLabel"`
 	Helm                       *SharedHelmConfig `yaml:"helm"`
+}
+
+func (c *CloudConfig) containerRegistriesForClusterAccess() []string {
+	registries := c.Compute.PrivateContainerRegistries
+	if registryMirror := c.GetContainerRegistryMirrorName(); registryMirror != "" && !slices.Contains(registries, registryMirror) {
+		registries = slices.Clone(registries)
+		registries = append(registries, registryMirror)
+	}
+	return registries
 }
 
 func (c *ComputeConfig) GetManagementPrincipalIds() []string {

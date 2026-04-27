@@ -6,6 +6,7 @@ package cloudinstall
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -170,4 +171,50 @@ func followPodLogs(ctx context.Context, clientset kubernetes.Interface, namespac
 
 		time.Sleep(1 * time.Second)
 	}
+}
+
+// One-shot fetch of all current logs for every pod matching the given label
+// selector. Unlike followPodsLogsUntilContextCanceled this does not stream
+// or watch; it is intended for after-the-fact log inspection when the
+// pre-install watcher missed pods (e.g. helm rollback bumped the revision).
+func fetchPodLogsByLabel(ctx context.Context, clientset kubernetes.Interface, namespace, labelSelector string) (map[string][]byte, error) {
+	pods, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
+	if err != nil {
+		return nil, err
+	}
+
+	return fetchPodLogs(ctx, pods.Items, func(ctx context.Context, podName string) ([]byte, error) {
+		return readPodLogs(ctx, clientset, namespace, podName)
+	})
+}
+
+func fetchPodLogs(ctx context.Context, pods []v1.Pod, readPodLogs func(context.Context, string) ([]byte, error)) (map[string][]byte, error) {
+	out := make(map[string][]byte, len(pods))
+	var errs []error
+	for _, pod := range pods {
+		logs, err := readPodLogs(ctx, pod.Name)
+		if logs != nil {
+			out[pod.Name] = logs
+		}
+		if err != nil {
+			errs = append(errs, fmt.Errorf("pod %q: %w", pod.Name, err))
+		}
+	}
+	return out, errors.Join(errs...)
+}
+
+func readPodLogs(ctx context.Context, clientset kubernetes.Interface, namespace, podName string) ([]byte, error) {
+	stream, err := clientset.CoreV1().Pods(namespace).GetLogs(podName, &v1.PodLogOptions{}).Stream(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get logs: %w", err)
+	}
+
+	defer stream.Close()
+
+	logs, readErr := io.ReadAll(stream)
+	if readErr != nil {
+		return logs, fmt.Errorf("failed to read logs: %w", readErr)
+	}
+
+	return logs, nil
 }

@@ -4,14 +4,18 @@
 package cloudinstall
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net/http"
 	"os"
+	"reflect"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"dario.cat/mergo"
@@ -46,6 +50,12 @@ const (
 	AzureLinuxImage = "mcr.microsoft.com/azurelinux/base/core:3.0"
 )
 
+type MirrorableRegistry string
+type MirrorableQualifiedRepository string
+type MirrorableRepository string
+type MirrorableImageReference string
+type MirrorableTag string
+
 func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *install.Promise[*rest.Config], keyVaultClientManagedIdentityPromise *install.Promise[*armmsi.Identity]) (any, error) {
 	restConfig, err := restConfigPromise.Await()
 	if err != nil {
@@ -77,17 +87,17 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 	}
 
 	traefikConfig := HelmChartConfig{
-		RepoName:    "traefik",
 		Namespace:   TraefikNamespace,
 		ReleaseName: "traefik",
+		RepoName:    "traefik",
 		RepoUrl:     "https://helm.traefik.io/traefik",
 		ChartRef:    "traefik/traefik",
 		Version:     "24.0.0",
 		Values: map[string]any{
 			"image": map[string]any{
-				"registry":   "mcr.microsoft.com",
-				"repository": "oss/traefik/traefik",
-				"tag":        "v2.10.7",
+				"registry":   MirrorableRegistry("mcr.microsoft.com"),
+				"repository": MirrorableRepository("oss/traefik/traefik"),
+				"tag":        MirrorableTag("v2.10.7"),
 			},
 			"logs": map[string]any{
 				"general": map[string]any{
@@ -201,7 +211,7 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 	}
 
 	startTime := time.Now().Add(-10 * time.Second)
-	if _, _, err := installHelmChart(ctx, restConfig, &traefikConfig, overrides, false); err != nil {
+	if _, _, err := inst.installHelmChart(ctx, restConfig, &traefikConfig, overrides, false); err != nil {
 		installErr := err
 
 		// List warning events in the namespace
@@ -229,7 +239,10 @@ func (inst *Installer) installTraefik(ctx context.Context, restConfigPromise *in
 
 // This is a sidecar for the Traefik pod that writes a "dynamic" configuration file containing TLS certificate paths.
 // Whenever it detects that the cert has changed, it touches the configuration file to trigger Traefik to reload it.
-func getConfigReloaderSidecar() corev1.Container {
+//
+// Returned as a map so that the image reference can flow through mirror rewriting
+// (see applyMirrorRewrites) when the user has opted into ACR mirroring.
+func getConfigReloaderSidecar() map[string]any {
 	script := `
 crt_hash=$(sha256sum /certs/tls.crt 2> /dev/null)
 echo '{"tls": {"certificates": [{"certFile":"/certs/tls.crt","keyFile":"/certs/tls.key"}]}}' > /config/dynamic-config.yml;
@@ -245,24 +258,23 @@ while true; do
 done
 `
 
-	configReloaderSidecar := corev1.Container{
-		Name:    "config-reloader",
-		Image:   AzureLinuxImage,
-		Command: []string{"bash", "-c", script},
-		VolumeMounts: []corev1.VolumeMount{
-			{
-				Name:      "traefik-dynamic",
-				MountPath: "/config",
-				ReadOnly:  false,
+	return map[string]any{
+		"name":    "config-reloader",
+		"image":   MirrorableImageReference(AzureLinuxImage),
+		"command": []any{"bash", "-c", script},
+		"volumeMounts": []any{
+			map[string]any{
+				"name":      "traefik-dynamic",
+				"mountPath": "/config",
+				"readOnly":  false,
 			},
-			{
-				Name:      "kv-certs",
-				MountPath: "/certs",
-				ReadOnly:  true,
+			map[string]any{
+				"name":      "kv-certs",
+				"mountPath": "/certs",
+				"readOnly":  true,
 			},
 		},
 	}
-	return configReloaderSidecar
 }
 
 func (inst *Installer) installCertManager(ctx context.Context, restConfigPromise *install.Promise[*rest.Config]) (any, error) {
@@ -273,6 +285,7 @@ func (inst *Installer) installCertManager(ctx context.Context, restConfigPromise
 
 	log.Ctx(ctx).Info().Msg("Installing cert-manager")
 
+	imageTag := MirrorableTag("1.12.15-4.3.0.20251206")
 	certManagerConfig := HelmChartConfig{
 		Namespace:   "cert-manager",
 		ReleaseName: "cert-manager",
@@ -282,25 +295,31 @@ func (inst *Installer) installCertManager(ctx context.Context, restConfigPromise
 			"cert-manager": map[string]any{
 				"installCRDs": true,
 				"image": map[string]any{
-					"repository": "mcr.microsoft.com/azurelinux/base/cert-manager-controller",
-					"tag":        "1.12.15-4.3.0.20251206",
+					"repository": MirrorableQualifiedRepository("mcr.microsoft.com/azurelinux/base/cert-manager-controller"),
+					"tag":        imageTag,
 				},
 				"acmesolver": map[string]any{
 					"image": map[string]any{
-						"repository": "mcr.microsoft.com/azurelinux/base/cert-manager-acmesolver",
-						"tag":        "1.12.15-4.3.0.20251206",
+						"repository": MirrorableQualifiedRepository("mcr.microsoft.com/azurelinux/base/cert-manager-acmesolver"),
+						"tag":        imageTag,
 					},
 				},
 				"cainjector": map[string]any{
 					"image": map[string]any{
-						"repository": "mcr.microsoft.com/azurelinux/base/cert-manager-cainjector",
-						"tag":        "1.12.15-4.3.0.20251206",
+						"repository": MirrorableQualifiedRepository("mcr.microsoft.com/azurelinux/base/cert-manager-cainjector"),
+						"tag":        imageTag,
 					},
 				},
 				"webhook": map[string]any{
 					"image": map[string]any{
-						"repository": "mcr.microsoft.com/azurelinux/base/cert-manager-webhook",
-						"tag":        "1.12.15-4.3.0.20251206",
+						"repository": MirrorableQualifiedRepository("mcr.microsoft.com/azurelinux/base/cert-manager-webhook"),
+						"tag":        imageTag,
+					},
+				},
+				"startupapicheck": map[string]any{
+					"image": map[string]any{
+						"repository": MirrorableQualifiedRepository("mcr.microsoft.com/azurelinux/base/cert-manager-cmctl"),
+						"tag":        imageTag,
 					},
 				},
 			},
@@ -312,7 +331,7 @@ func (inst *Installer) installCertManager(ctx context.Context, restConfigPromise
 		overrides = inst.Config.Cloud.Compute.Helm.CertManager
 	}
 
-	if _, _, err := installHelmChart(ctx, restConfig, &certManagerConfig, overrides, false); err != nil {
+	if _, _, err := inst.installHelmChart(ctx, restConfig, &certManagerConfig, overrides, false); err != nil {
 		return nil, fmt.Errorf("failed to install cert-manager: %w", err)
 	}
 
@@ -327,16 +346,18 @@ func (inst *Installer) installNvidiaDevicePlugin(ctx context.Context, restConfig
 
 	log.Ctx(ctx).Info().Msg("Installing nvidia-device-plugin")
 
+	chartVersion := "0.17.0"
 	nvdpConfig := HelmChartConfig{
 		Namespace:   "nvidia-device-plugin",
 		ReleaseName: "nvidia-device-plugin",
 		RepoName:    "nvdp",
 		RepoUrl:     "https://nvidia.github.io/k8s-device-plugin",
 		ChartRef:    "nvdp/nvidia-device-plugin",
-		Version:     "0.17.0",
+		Version:     chartVersion,
 		Values: map[string]any{
 			"image": map[string]any{
-				"repository": "mcr.microsoft.com/oss/v2/nvidia/k8s-device-plugin",
+				"repository": MirrorableQualifiedRepository("mcr.microsoft.com/oss/v2/nvidia/k8s-device-plugin"),
+				"tag":        MirrorableTag("v" + chartVersion),
 			},
 			"nodeSelector": map[string]any{
 				"kubernetes.azure.com/accelerator": "nvidia",
@@ -375,7 +396,7 @@ func (inst *Installer) installNvidiaDevicePlugin(ctx context.Context, restConfig
 		overrides = inst.Config.Cloud.Compute.Helm.NvidiaDevicePlugin
 	}
 
-	if _, _, err := installHelmChart(ctx, restConfig, &nvdpConfig, overrides, false); err != nil {
+	if _, _, err := inst.installHelmChart(ctx, restConfig, &nvdpConfig, overrides, false); err != nil {
 		return nil, fmt.Errorf("failed to install NVIDIA device plugin: %w", err)
 	}
 
@@ -486,6 +507,20 @@ func (inst *Installer) InstallTyger(ctx context.Context) error {
 		}
 
 		found := false
+		// If the helm install hit transient errors and was retried, helm
+		// rolled back and re-installed, bumping the revision past the
+		// pre-install +1 we used as the log-watcher's selector. In that case
+		// logsMap will be empty. Fall back to a one-shot fetch of pod logs
+		// by the actual current release revision.
+		if currentRevision, revErr := inst.GetTygerInstallationRevision(ctx, org); revErr == nil && currentRevision != revision+1 {
+			refreshed, fetchErr := fetchPodLogsByLabel(ctx, clientset, org.Cloud.KubernetesNamespace, fmt.Sprintf("tyger-helm-revision=%d", currentRevision))
+			if fetchErr != nil {
+				log.Ctx(ctx).Warn().Err(fetchErr).Msg("Failed to fetch all Tyger server logs")
+			}
+			if fetchErr == nil || len(refreshed) > 0 {
+				logsMap = refreshed
+			}
+		}
 		for _, logs := range logsMap {
 			if found {
 				break
@@ -648,10 +683,10 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, org *Organizat
 		ChartRef:    fmt.Sprintf("oci://%s%shelm/tyger", install.ContainerRegistry, install.GetNormalizedContainerRegistryDirectory()),
 		Version:     install.ContainerImageTag,
 		Values: map[string]any{
-			"image":              fmt.Sprintf("%s%styger-server:%s", install.ContainerRegistry, install.GetNormalizedContainerRegistryDirectory(), install.ContainerImageTag),
-			"bufferSidecarImage": fmt.Sprintf("%s%sbuffer-sidecar:%s", install.ContainerRegistry, install.GetNormalizedContainerRegistryDirectory(), install.ContainerImageTag),
-			"bufferCopierImage":  fmt.Sprintf("%s%sbuffer-copier:%s", install.ContainerRegistry, install.GetNormalizedContainerRegistryDirectory(), install.ContainerImageTag),
-			"workerWaiterImage":  fmt.Sprintf("%s%sworker-waiter:%s", install.ContainerRegistry, install.GetNormalizedContainerRegistryDirectory(), install.ContainerImageTag),
+			"image":              MirrorableImageReference(fmt.Sprintf("%s%styger-server:%s", install.ContainerRegistry, install.GetNormalizedContainerRegistryDirectory(), install.ContainerImageTag)),
+			"bufferSidecarImage": MirrorableImageReference(fmt.Sprintf("%s%sbuffer-sidecar:%s", install.ContainerRegistry, install.GetNormalizedContainerRegistryDirectory(), install.ContainerImageTag)),
+			"bufferCopierImage":  MirrorableImageReference(fmt.Sprintf("%s%sbuffer-copier:%s", install.ContainerRegistry, install.GetNormalizedContainerRegistryDirectory(), install.ContainerImageTag)),
+			"workerWaiterImage":  MirrorableImageReference(fmt.Sprintf("%s%sworker-waiter:%s", install.ContainerRegistry, install.GetNormalizedContainerRegistryDirectory(), install.ContainerImageTag)),
 			"hostname":           org.Api.DomainName,
 			"location":           inst.Config.Cloud.DefaultLocation,
 			"identity": map[string]any{
@@ -705,7 +740,7 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, org *Organizat
 	if org.Api.AccessControl.MiseImage != "" {
 		helmConfig.Values["accessControl"].(map[string]any)["mise"] = map[string]any{
 			"enabled": true,
-			"image":   org.Api.AccessControl.MiseImage,
+			"image":   MirrorableImageReference(org.Api.AccessControl.MiseImage),
 		}
 	}
 
@@ -719,7 +754,7 @@ func (inst *Installer) InstallTygerHelmChart(ctx context.Context, org *Organizat
 		return nil
 	}
 
-	if manifest, valuesYaml, err = installHelmChart(ctx, restConfig, &helmConfig, overrides, dryRun, adjustSpec); err != nil {
+	if manifest, valuesYaml, err = inst.installHelmChart(ctx, restConfig, &helmConfig, overrides, dryRun, adjustSpec); err != nil {
 		return "", "", fmt.Errorf("failed to install Tyger Helm chart: %w", err)
 	}
 
@@ -761,7 +796,7 @@ func getMigrationRunnerJobDefinitionFromManifest(manifest string) (*batchv1.Job,
 	return nil, errors.New("failed to find migration worker job in Tyger Helm release")
 }
 
-func installHelmChart(
+func (inst *Installer) installHelmChart(
 	ctx context.Context,
 	restConfig *rest.Config,
 	helmChartConfig,
@@ -784,7 +819,7 @@ func installHelmChart(
 		return "", "", fmt.Errorf("failed to create helm client: %w", err)
 	}
 
-	chartSpec, err := GetChartSpec(helmChartConfig, helmClient, overrideHelmChartConfig, customizeSpec...)
+	chartSpec, err := inst.GetChartSpec(ctx, helmChartConfig, helmClient, overrideHelmChartConfig, customizeSpec...)
 	if err != nil {
 		return "", "", err
 	}
@@ -794,12 +829,31 @@ func installHelmChart(
 		if err != nil {
 			return "", "", fmt.Errorf("failed to template chart: %w", err)
 		}
+		if err := inst.validateMirroredManifest(ctx, string(manifest)); err != nil {
+			return "", "", err
+		}
 		return string(manifest), chartSpec.ValuesYaml, nil
+	}
+
+	// When mirroring is enabled, verify the final rendered manifest during the
+	// real Helm install/upgrade. This catches images that were not wrapped in a
+	// Mirrorable* type and so would have escaped the rewrite pass.
+	var installOptions *helmclient.GenericHelmOptions
+	if registryMirror, err := inst.GetResolvedContainerRegistryMirror(ctx); err != nil {
+		return "", "", err
+	} else if registryMirror != nil {
+		installOptions = &helmclient.GenericHelmOptions{
+			PostRenderer: mirrorValidationPostRenderer{
+				validate: func(manifest string) error {
+					return inst.validateMirroredManifest(ctx, manifest)
+				},
+			},
+		}
 	}
 
 	for i := 0; ; i++ {
 		var release *release.Release
-		release, err = helmClient.InstallOrUpgradeChart(ctx, &chartSpec, nil)
+		release, err = helmClient.InstallOrUpgradeChart(ctx, &chartSpec, installOptions)
 		if err == nil || i == 30 {
 			if err == nil && i > 0 {
 				log.Ctx(ctx).Info().Msg("Transient Helm error resolved")
@@ -821,22 +875,57 @@ func installHelmChart(
 	return manifest, chartSpec.ValuesYaml, err
 }
 
-func GetChartSpec(
+type mirrorValidationPostRenderer struct {
+	validate func(string) error
+}
+
+func (r mirrorValidationPostRenderer) Run(renderedManifests *bytes.Buffer) (*bytes.Buffer, error) {
+	if err := r.validate(renderedManifests.String()); err != nil {
+		return nil, err
+	}
+	return renderedManifests, nil
+}
+
+// Resolves the helm chart spec for the given config. When the user has opted
+// into ACR mirroring (cloud.containerRegistryMirror), this method also performs the
+// necessary ACR copies in parallel and rewrites every Mirrorable* image and
+// chart reference in the config to point at the mirror ACR. Mirroring is
+// performed lazily and cached, so each artifact is copied at most once per
+// installer run even when multiple organizations share the same images.
+//
+// User overrides supplied via the config file are applied BEFORE mirror
+// rewriting. Override values on built-in mirrorable image paths keep the
+// Mirrorable* marker and are mirrored; arbitrary user-added values remain
+// plain strings and are not mirrored by this pass.
+func (inst *Installer) GetChartSpec(
+	ctx context.Context,
 	helmChartConfig *HelmChartConfig,
 	helmClient helmclient.Client,
 	overrideHelmChartConfig *HelmChartConfig,
 	customizeSpec ...func(*helmclient.ChartSpec, helmclient.Client) error,
 ) (helmclient.ChartSpec, error) {
-	if helmChartConfig.RepoUrl != "" {
-		err := helmClient.AddOrUpdateChartRepo(repo.Entry{Name: helmChartConfig.RepoName, URL: helmChartConfig.RepoUrl})
-		if err != nil {
-			return helmclient.ChartSpec{}, fmt.Errorf("failed to add helm repo: %w", err)
+	// Apply user overrides first. Before merging, copy the Mirrorable* marker
+	// types from default values onto matching user override paths so overridden
+	// image values are still declaratively mirrorable. Arbitrary user-added
+	// values remain plain strings and are not mirrored by this pass.
+	originalChartRef := helmChartConfig.ChartRef
+	if overrideHelmChartConfig != nil {
+		overrideHelmChartConfig = cloneHelmChartConfig(overrideHelmChartConfig)
+		preserveMirrorableValueTypes(helmChartConfig.Values, overrideHelmChartConfig.Values)
+		if err := mergo.Merge(helmChartConfig, overrideHelmChartConfig, mergo.WithOverride); err != nil {
+			return helmclient.ChartSpec{}, fmt.Errorf("failed to merge helm config: %w", err)
 		}
 	}
 
-	if overrideHelmChartConfig != nil {
-		if err := mergo.Merge(helmChartConfig, overrideHelmChartConfig, mergo.WithOverride); err != nil {
-			return helmclient.ChartSpec{}, fmt.Errorf("failed to merge helm config: %w", err)
+	// Mirror every artifact still carrying a Mirrorable* marker (or, when
+	// mirroring is disabled, simply unwrap typed values during YAML marshaling).
+	if err := inst.applyMirrorRewrites(ctx, helmChartConfig, originalChartRef); err != nil {
+		return helmclient.ChartSpec{}, err
+	}
+
+	if helmChartConfig.RepoUrl != "" {
+		if err := helmClient.AddOrUpdateChartRepo(repo.Entry{Name: helmChartConfig.RepoName, URL: helmChartConfig.RepoUrl}); err != nil {
+			return helmclient.ChartSpec{}, fmt.Errorf("failed to add helm repo: %w", err)
 		}
 	}
 
@@ -868,6 +957,19 @@ func GetChartSpec(
 		UpgradeCRDs:     true,
 		Timeout:         5 * time.Minute,
 		ValuesYaml:      string(values),
+	}
+
+	// When pulling an OCI chart from an Azure Container Registry, log helm's
+	// registry client in to it using our Azure credential. Helm's registry
+	// client reads only its own credentials file (not docker's), so without
+	// this it would 401 on any private ACR. Best-effort: an ACR may be
+	// configured for anonymous pulls, in which case the caller may not have
+	// permission to obtain a refresh token; fall through and let the pull
+	// itself succeed anonymously.
+	if acrFqdn, ok := acrHostFromOciRef(chartSpec.ChartName); ok {
+		if err := inst.loginHelmClientToAcr(ctx, helmClient, acrFqdn); err != nil {
+			log.Ctx(ctx).Debug().Err(err).Str("registry", acrFqdn).Msg("Unable to authenticate helm registry client to ACR; proceeding (registry may allow anonymous pulls)")
+		}
 	}
 
 	for _, f := range customizeSpec {
@@ -1017,4 +1119,540 @@ func (inst *Installer) uninstallTygerSingleOrg(ctx context.Context, restConfig *
 	}
 
 	return nil
+}
+
+// --- ACR mirroring of helm charts and image references ---
+
+// Repository prefix used for every mirrored artifact in the user's private
+// ACR. All sources are placed under this prefix so they don't collide with
+// anything else in the registry.
+const MirrorRepoPrefix = "tyger"
+
+// Returns the final path segment of a chart reference (e.g. "traefik" for
+// "traefik/traefik" or "cert-manager" for "oci://.../helm/cert-manager").
+func chartName(chartRef string) string {
+	ref := strings.TrimPrefix(chartRef, "oci://")
+	parts := strings.Split(ref, "/")
+	return parts[len(parts)-1]
+}
+
+// Returns the repository path (without registry FQDN) where a chart with the
+// given source ref is mirrored in the ACR.
+func mirrorChartTargetRepo(chartRef string) string {
+	if registryHost, repoPath, ok := parseOciArtifactRef(chartRef); ok {
+		return sourceImage{Registry: registryHost, Repository: repoPath}.mirrorRepository()
+	}
+	return fmt.Sprintf("%s/helm/%s", MirrorRepoPrefix, chartName(chartRef))
+}
+
+// Returns the OCI URL of a mirrored chart.
+func mirrorChartTargetRef(chartRef, registryMirrorFqdn string) string {
+	return fmt.Sprintf("oci://%s/%s", registryMirrorFqdn, mirrorChartTargetRepo(chartRef))
+}
+
+func parseOciArtifactRef(ref string) (registryHost, repoPath string, ok bool) {
+	after, ok := strings.CutPrefix(ref, "oci://")
+	if !ok {
+		return "", "", false
+	}
+	slash := strings.Index(after, "/")
+	if slash <= 0 || slash == len(after)-1 {
+		return "", "", false
+	}
+	return after[:slash], after[slash+1:], true
+}
+
+// Returns the short name (without the .azurecr.io suffix) of the configured
+// mirror ACR, or empty string if mirroring is disabled.
+func (c *CloudConfig) GetContainerRegistryMirrorName() string {
+	if c.ContainerRegistryMirror == "" {
+		return ""
+	}
+	name, _, _ := strings.Cut(c.ContainerRegistryMirror, ".")
+	return name
+}
+
+// Holds the installer-scoped, lazily-populated state for ACR mirroring: a
+// one-time resolution of the mirror ACR's properties, and per-artifact
+// promises that ensure each image/chart is copied at most once even when
+// multiple organizations are installed in parallel.
+type mirroringState struct {
+	mu            sync.Mutex
+	resolveOnce   sync.Once
+	resolved      *ResolvedAcr
+	resolveErr    error
+	imagePromises map[string]*install.Promise[any]
+	chartPromises map[string]*install.Promise[string]
+}
+
+// Returns the resolved mirror ACR properties, looking them up the first time
+// it is called and caching the result for subsequent calls. Returns
+// (nil, nil) when mirroring is disabled.
+func (inst *Installer) GetResolvedContainerRegistryMirror(ctx context.Context) (*ResolvedAcr, error) {
+	if inst.Config.Cloud.ContainerRegistryMirror == "" {
+		return nil, nil
+	}
+
+	inst.acrMirroringState.resolveOnce.Do(func() {
+		inst.acrMirroringState.resolved, inst.acrMirroringState.resolveErr = inst.resolveAcr(ctx, inst.Config.Cloud.GetContainerRegistryMirrorName())
+	})
+
+	return inst.acrMirroringState.resolved, inst.acrMirroringState.resolveErr
+}
+
+// Imports the image (sourceRegistry/sourceRepo with given tag-or-digest) into
+// the configured mirror ACR. The result is cached by source ref via a
+// Promise, so concurrent callers share the same in-flight import.
+func (inst *Installer) ensureImageMirrored(ctx context.Context, sourceRegistry, sourceRepo, tagOrDigest string) error {
+	registryMirror, err := inst.GetResolvedContainerRegistryMirror(ctx)
+	if err != nil {
+		return err
+	}
+
+	img := sourceImage{Registry: sourceRegistry, Repository: sourceRepo, Tag: tagOrDigest}
+	key := img.sourceReference()
+
+	inst.acrMirroringState.mu.Lock()
+	if inst.acrMirroringState.imagePromises == nil {
+		inst.acrMirroringState.imagePromises = map[string]*install.Promise[any]{}
+	}
+	p, ok := inst.acrMirroringState.imagePromises[key]
+	if !ok {
+		p = install.NewPromise(ctx, &install.PromiseGroup{}, func(ctx context.Context) (any, error) {
+			log.Ctx(ctx).Info().Msgf("Mirroring image %s to ACR '%s'", key, registryMirror.Name)
+			paths := importPaths(img.Repository, img.Tag, img.mirrorRepository())
+			return nil, inst.importImageToAcr(ctx, registryMirror, sourceRegistry, paths)
+		})
+		inst.acrMirroringState.imagePromises[key] = p
+	}
+	inst.acrMirroringState.mu.Unlock()
+
+	return p.AwaitErr()
+}
+
+// Imports the given source chart into the mirror ACR and returns the OCI URL
+// of the mirrored chart. Cached by source ref via a Promise. repoUrl is
+// required for traditional (non-OCI) helm repos and ignored for OCI charts.
+func (inst *Installer) ensureChartMirrored(ctx context.Context, chartRef, version, repoUrl string) (string, error) {
+	registryMirror, err := inst.GetResolvedContainerRegistryMirror(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	key := fmt.Sprintf("%s@%s|%s", chartRef, version, repoUrl)
+
+	inst.acrMirroringState.mu.Lock()
+	if inst.acrMirroringState.chartPromises == nil {
+		inst.acrMirroringState.chartPromises = map[string]*install.Promise[string]{}
+	}
+	p, ok := inst.acrMirroringState.chartPromises[key]
+	if !ok {
+		p = install.NewPromise(ctx, &install.PromiseGroup{}, func(ctx context.Context) (string, error) {
+			log.Ctx(ctx).Info().Msgf("Mirroring chart %s:%s to ACR '%s'", chartRef, version, registryMirror.Name)
+			targetRepoPath := mirrorChartTargetRepo(chartRef)
+			if registryHost, repoPath, ok := parseOciArtifactRef(chartRef); ok {
+				if err := inst.importImageToAcr(ctx, registryMirror, registryHost, acrImportPaths{
+					SourceImage: fmt.Sprintf("%s:%s", repoPath, version),
+					TargetTag:   fmt.Sprintf("%s:%s", targetRepoPath, version),
+				}); err != nil {
+					return "", err
+				}
+			} else if strings.HasPrefix(chartRef, "oci://") {
+				return "", fmt.Errorf("invalid OCI chart reference %q", chartRef)
+			} else {
+				if err := inst.pullAndPushHelmChart(ctx, registryMirror, chartName(chartRef), version, repoUrl, targetRepoPath); err != nil {
+					return "", err
+				}
+			}
+			return mirrorChartTargetRef(chartRef, registryMirror.LoginServer), nil
+		})
+		inst.acrMirroringState.chartPromises[key] = p
+	}
+	inst.acrMirroringState.mu.Unlock()
+
+	return p.Await()
+}
+
+// Builds the source-image and target strings for an ARM ImportImage call from
+// a (sourceRepo, tagOrDigest) source and a targetRepo.
+func importPaths(sourceRepo, tagOrDigest, targetRepo string) acrImportPaths {
+	if strings.HasPrefix(tagOrDigest, "sha256:") {
+		return acrImportPaths{
+			SourceImage:               fmt.Sprintf("%s@%s", sourceRepo, tagOrDigest),
+			TargetRepositoryForDigest: targetRepo,
+		}
+	}
+	return acrImportPaths{
+		SourceImage: fmt.Sprintf("%s:%s", sourceRepo, tagOrDigest),
+		TargetTag:   fmt.Sprintf("%s:%s", targetRepo, tagOrDigest),
+	}
+}
+
+// Mirrors all baked-in image and chart references in the chart config to the
+// user's private ACR (in parallel) and rewrites the corresponding values in
+// place. After this call helmChartConfig.ChartRef points at the mirrored
+// chart (when applicable) and every detected Mirrorable* image reference is
+// replaced with a mirror-pointing string.
+//
+// originalChartRef is the chart's pre-override default: if c.ChartRef is
+// unchanged from originalChartRef, the chart itself is mirrored from the
+// post-merge chart source; otherwise the user supplied a chart override and
+// the chart is left as-is.
+//
+// When mirroring is disabled this method is a no-op: the Mirrorable* typed
+// values are left as-is and yaml.Marshal serializes them as plain strings
+// (they are all named string types).
+func (inst *Installer) applyMirrorRewrites(ctx context.Context, c *HelmChartConfig, originalChartRef string) error {
+	registryMirror, err := inst.GetResolvedContainerRegistryMirror(ctx)
+	if err != nil {
+		return err
+	}
+	if registryMirror == nil {
+		return nil
+	}
+	mirrorFqdn := registryMirror.LoginServer
+
+	// Phase 1: walk the values tree, rewriting Mirrorable* typed values to
+	// mirror-pointing strings and collecting the set of images to import.
+	images := rewriteMirrorableValues(c.Values, mirrorFqdn)
+
+	// Phase 2: kick off the chart mirror (if applicable) and all image
+	// mirrors concurrently, then await them all.
+	group := install.PromiseGroup{}
+
+	mirrorChart := shouldMirrorChart(c, originalChartRef)
+	var mirroredChartRef string
+	if mirrorChart {
+		chartRef, version, repoUrl := c.ChartRef, c.Version, c.RepoUrl
+		install.NewPromise(ctx, &group, func(ctx context.Context) (any, error) {
+			targetRef, err := inst.ensureChartMirrored(ctx, chartRef, version, repoUrl)
+			if err != nil {
+				return nil, fmt.Errorf("failed to mirror chart %s: %w", chartRef, err)
+			}
+			mirroredChartRef = targetRef
+			return nil, nil
+		})
+	}
+
+	for _, img := range images {
+		img := img
+		install.NewPromise(ctx, &group, func(ctx context.Context) (any, error) {
+			if err := inst.ensureImageMirrored(ctx, img.Registry, img.Repository, img.Tag); err != nil {
+				return nil, fmt.Errorf("failed to mirror image %s: %w", img.sourceReference(), err)
+			}
+			return nil, nil
+		})
+	}
+
+	var errs []error
+	for _, p := range group {
+		if err := p.AwaitErr(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
+	if mirrorChart {
+		c.ChartRef = mirroredChartRef
+		c.RepoName = ""
+		c.RepoUrl = ""
+	}
+
+	return nil
+}
+
+// Identifies an image referenced by a helm chart's values that must be
+// mirrored: source registry, repository, and tag-or-digest.
+type sourceImage struct {
+	Registry   string
+	Repository string
+	Tag        string
+}
+
+func (img sourceImage) mirrorRepository() string {
+	return fmt.Sprintf("%s/%s/%s", MirrorRepoPrefix, img.Registry, img.Repository)
+}
+
+func (img sourceImage) mirrorQualifiedRepository(mirrorFqdn string) string {
+	return fmt.Sprintf("%s/%s", mirrorFqdn, img.mirrorRepository())
+}
+
+func (img sourceImage) mirrorReference(mirrorFqdn string) string {
+	return fmt.Sprintf("%s%s%s", img.mirrorQualifiedRepository(mirrorFqdn), img.referenceSeparator(), img.Tag)
+}
+
+func (img sourceImage) sourceReference() string {
+	return fmt.Sprintf("%s/%s%s%s", img.Registry, img.Repository, img.referenceSeparator(), img.Tag)
+}
+
+func (img sourceImage) referenceSeparator() string {
+	if strings.HasPrefix(img.Tag, "sha256:") {
+		return "@"
+	}
+	return ":"
+}
+
+func shouldMirrorChart(c *HelmChartConfig, originalChartRef string) bool {
+	return originalChartRef != "" && c.ChartRef == originalChartRef
+}
+
+func cloneHelmChartConfig(c *HelmChartConfig) *HelmChartConfig {
+	if c == nil {
+		return nil
+	}
+	clone := *c
+	clone.Values = cloneValueMap(c.Values)
+	return &clone
+}
+
+func cloneValueMap(values map[string]any) map[string]any {
+	if values == nil {
+		return nil
+	}
+	clone := make(map[string]any, len(values))
+	for k, v := range values {
+		clone[k] = cloneValue(v)
+	}
+	return clone
+}
+
+func cloneValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return cloneValueMap(typed)
+	case []any:
+		clone := make([]any, len(typed))
+		for i, item := range typed {
+			clone[i] = cloneValue(item)
+		}
+		return clone
+	default:
+		return value
+	}
+}
+
+func preserveMirrorableValueTypes(defaults, overrides map[string]any) {
+	if defaults == nil || overrides == nil {
+		return
+	}
+
+	for key, overrideValue := range overrides {
+		defaultValue, ok := defaults[key]
+		if !ok {
+			continue
+		}
+		overrides[key] = preserveMirrorableValueType(defaultValue, overrideValue)
+	}
+}
+
+func preserveMirrorableValueType(defaultValue, overrideValue any) any {
+	if overrideString, ok := getStringValue(overrideValue); ok {
+		switch defaultValue.(type) {
+		case MirrorableRegistry:
+			return MirrorableRegistry(overrideString)
+		case MirrorableQualifiedRepository:
+			return MirrorableQualifiedRepository(overrideString)
+		case MirrorableRepository:
+			return MirrorableRepository(overrideString)
+		case MirrorableImageReference:
+			return MirrorableImageReference(overrideString)
+		case MirrorableTag:
+			return MirrorableTag(overrideString)
+		}
+	}
+
+	switch defaultTyped := defaultValue.(type) {
+	case map[string]any:
+		if overrideTyped, ok := overrideValue.(map[string]any); ok {
+			preserveMirrorableValueTypes(defaultTyped, overrideTyped)
+			return overrideTyped
+		}
+	case []any:
+		if overrideTyped, ok := overrideValue.([]any); ok {
+			for i := 0; i < len(defaultTyped) && i < len(overrideTyped); i++ {
+				overrideTyped[i] = preserveMirrorableValueType(defaultTyped[i], overrideTyped[i])
+			}
+			return overrideTyped
+		}
+	}
+
+	return overrideValue
+}
+
+func getStringValue(value any) (string, bool) {
+	reflected := reflect.ValueOf(value)
+	if !reflected.IsValid() || reflected.Kind() != reflect.String {
+		return "", false
+	}
+	return reflected.String(), true
+}
+
+// Walks values, replaces every Mirrorable* typed value with its
+// mirror-pointing string equivalent, and returns the set of source images
+// discovered.
+//
+// Within any single map[string]any, the following groupings are recognized:
+//   - { MirrorableQualifiedRepository, MirrorableTag } — repository contains the registry
+//   - { MirrorableRegistry, MirrorableRepository, MirrorableTag } — registry/repo split
+//   - any leaf MirrorableImageReference — full "registry/repo:tag" reference
+//
+// Mirrorable* values that are not part of an identifiable image group (only a
+// tag, or a lone repository) are left as their underlying string and not
+// reported as images.
+func rewriteMirrorableValues(values map[string]any, mirrorFqdn string) []sourceImage {
+	var images []sourceImage
+	var walk func(map[string]any)
+	walk = func(values map[string]any) {
+		if values == nil {
+			return
+		}
+
+		var (
+			regKey, repoKey, qrepoKey, tagKey string
+			regVal, repoVal, qrepoVal, tagVal string
+		)
+		for k, v := range values {
+			switch t := v.(type) {
+			case MirrorableRegistry:
+				regKey, regVal = k, string(t)
+			case MirrorableRepository:
+				repoKey, repoVal = k, string(t)
+			case MirrorableQualifiedRepository:
+				qrepoKey, qrepoVal = k, string(t)
+			case MirrorableTag:
+				tagKey, tagVal = k, string(t)
+			case MirrorableImageReference:
+				srcRegistry, srcRepo, tag, ok := parseFullImageRef(string(t))
+				if !ok {
+					continue
+				}
+				img := sourceImage{Registry: srcRegistry, Repository: srcRepo, Tag: tag}
+				images = append(images, img)
+				values[k] = img.mirrorReference(mirrorFqdn)
+			case map[string]any:
+				walk(t)
+			case []any:
+				for _, item := range t {
+					if mm, ok := item.(map[string]any); ok {
+						walk(mm)
+					}
+				}
+			}
+		}
+
+		switch {
+		case qrepoKey != "" && tagKey != "":
+			slash := strings.Index(qrepoVal, "/")
+			if slash > 0 {
+				img := sourceImage{Registry: qrepoVal[:slash], Repository: qrepoVal[slash+1:], Tag: tagVal}
+				images = append(images, img)
+				values[qrepoKey] = img.mirrorQualifiedRepository(mirrorFqdn)
+				values[tagKey] = tagVal
+			}
+		case regKey != "" && repoKey != "" && tagKey != "":
+			img := sourceImage{Registry: regVal, Repository: repoVal, Tag: tagVal}
+			images = append(images, img)
+			values[regKey] = mirrorFqdn
+			values[repoKey] = img.mirrorRepository()
+			values[tagKey] = tagVal
+		}
+	}
+	walk(values)
+	return images
+}
+
+// Parses a "registry/repo:tag" or "registry/repo@digest" reference.
+func parseFullImageRef(ref string) (registry, repo, tag string, ok bool) {
+	slash := strings.Index(ref, "/")
+	if slash <= 0 {
+		return "", "", "", false
+	}
+	registry = ref[:slash]
+	rest := ref[slash+1:]
+	if before, after, ok := strings.Cut(rest, "@"); ok {
+		return registry, before, after, true
+	}
+	if colon := strings.LastIndex(rest, ":"); colon >= 0 {
+		return registry, rest[:colon], rest[colon+1:], true
+	}
+	return "", "", "", false
+}
+
+// Verifies that every container image referenced by the rendered helm
+// manifest points at the configured mirror ACR. Returns nil when mirroring
+// is disabled. Used to catch images that escaped the Mirrorable* rewrite
+// pass (e.g. images baked into the chart templates that we forgot to wrap).
+func (inst *Installer) validateMirroredManifest(ctx context.Context, manifest string) error {
+	registryMirror, err := inst.GetResolvedContainerRegistryMirror(ctx)
+	if err != nil {
+		return err
+	}
+	if registryMirror == nil {
+		return nil
+	}
+
+	images, err := extractManifestImages(manifest)
+	if err != nil {
+		return fmt.Errorf("failed to parse rendered helm manifest: %w", err)
+	}
+	expectedPrefix := registryMirror.LoginServer + "/"
+	var unmirrored []string
+	for _, img := range images {
+		if !strings.HasPrefix(img, expectedPrefix) {
+			unmirrored = append(unmirrored, img)
+		}
+	}
+	if len(unmirrored) > 0 {
+		sort.Strings(unmirrored)
+		return fmt.Errorf("the rendered helm manifest references %d image(s) that do not point at the mirror ACR %q: %s",
+			len(unmirrored), registryMirror.LoginServer, strings.Join(unmirrored, ", "))
+	}
+	return nil
+}
+
+// Extracts the set of container image references from a multi-document
+// kubernetes YAML manifest. Looks for any "image:" string field anywhere in
+// the documents.
+func extractManifestImages(manifest string) ([]string, error) {
+	seen := map[string]struct{}{}
+	var collect func(any)
+	collect = func(node any) {
+		switch n := node.(type) {
+		case map[string]any:
+			for k, v := range n {
+				if k == "image" {
+					if s, ok := v.(string); ok && s != "" {
+						seen[s] = struct{}{}
+						continue
+					}
+				}
+				collect(v)
+			}
+		case []any:
+			for _, item := range n {
+				collect(item)
+			}
+		}
+	}
+
+	dec := goccyyaml.NewDecoder(strings.NewReader(manifest))
+	for {
+		var obj any
+		if err := dec.Decode(&obj); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return nil, fmt.Errorf("failed to decode rendered helm manifest: %w", err)
+		}
+		collect(obj)
+	}
+
+	out := make([]string, 0, len(seen))
+	for img := range seen {
+		out = append(out, img)
+	}
+	sort.Strings(out)
+	return out, nil
 }
