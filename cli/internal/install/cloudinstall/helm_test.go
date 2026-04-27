@@ -320,7 +320,8 @@ spec:
         - name: c
           image: other.example.com/foo:3.0
 `
-	images := extractManifestImages(manifest)
+	images, err := extractManifestImages(manifest)
+	require.NoError(t, err)
 	assert.Equal(t, []string{
 		"other.example.com/foo:3.0",
 		"registry.example.com/lib/app:2.0",
@@ -341,8 +342,25 @@ spec:
     repository: foo
     tag: bar
 `
-	images := extractManifestImages(manifest)
+	images, err := extractManifestImages(manifest)
+	require.NoError(t, err)
 	assert.Empty(t, images)
+}
+
+func TestExtractManifestImages_ReturnsDecodeError(t *testing.T) {
+	manifest := `apiVersion: v1
+kind: Pod
+spec:
+  containers:
+    - name: app
+      image: registry.example.com/lib/app:2.0
+  invalid: [
+`
+
+	images, err := extractManifestImages(manifest)
+
+	require.Error(t, err)
+	assert.Nil(t, images)
 }
 
 func TestParseFullImageRef(t *testing.T) {

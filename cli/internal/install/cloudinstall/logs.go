@@ -6,6 +6,7 @@ package cloudinstall
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -181,16 +182,39 @@ func fetchPodLogsByLabel(ctx context.Context, clientset kubernetes.Interface, na
 	if err != nil {
 		return nil, err
 	}
-	out := make(map[string][]byte, len(pods.Items))
-	for _, pod := range pods.Items {
-		stream, err := clientset.CoreV1().Pods(namespace).GetLogs(pod.Name, &v1.PodLogOptions{}).Stream(ctx)
-		if err != nil {
-			continue
+
+	return fetchPodLogs(ctx, pods.Items, func(ctx context.Context, podName string) ([]byte, error) {
+		return readPodLogs(ctx, clientset, namespace, podName)
+	})
+}
+
+func fetchPodLogs(ctx context.Context, pods []v1.Pod, readPodLogs func(context.Context, string) ([]byte, error)) (map[string][]byte, error) {
+	out := make(map[string][]byte, len(pods))
+	var errs []error
+	for _, pod := range pods {
+		logs, err := readPodLogs(ctx, pod.Name)
+		if logs != nil {
+			out[pod.Name] = logs
 		}
-		buf := &bytes.Buffer{}
-		_, _ = io.Copy(buf, stream)
-		stream.Close()
-		out[pod.Name] = buf.Bytes()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("pod %q: %w", pod.Name, err))
+		}
 	}
-	return out, nil
+	return out, errors.Join(errs...)
+}
+
+func readPodLogs(ctx context.Context, clientset kubernetes.Interface, namespace, podName string) ([]byte, error) {
+	stream, err := clientset.CoreV1().Pods(namespace).GetLogs(podName, &v1.PodLogOptions{}).Stream(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get logs: %w", err)
+	}
+
+	defer stream.Close()
+
+	logs, readErr := io.ReadAll(stream)
+	if readErr != nil {
+		return logs, fmt.Errorf("failed to read logs: %w", readErr)
+	}
+
+	return logs, nil
 }

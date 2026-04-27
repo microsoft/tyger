@@ -31,6 +31,7 @@ const DefaultKubernetesVersion = "1.34"
 const DefaultPodCidr = "10.244.0.0/16"
 const DefaultServiceCidr = "10.0.0.0/16"
 const DefaultDnsServiceIp = "10.0.0.10"
+const extensionManagerAddonProfileName = "extensionManager"
 
 func (inst *Installer) getCluster(ctx context.Context, clusterConfig *ClusterConfig) (*armcontainerservice.ManagedCluster, error) {
 	clustersClient, err := armcontainerservice.NewManagedClustersClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
@@ -136,9 +137,6 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 			NetworkProfile: &armcontainerservice.NetworkProfile{
 				OutboundType: Ptr(clusterConfig.OutboundType),
 			},
-			AddonProfiles: map[string]*armcontainerservice.ManagedClusterAddonProfile{
-				"extensionManager": {},
-			},
 		},
 		SKU: &armcontainerservice.ManagedClusterSKU{
 			Name: Ptr(armcontainerservice.ManagedClusterSKUNameBase),
@@ -183,6 +181,9 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 			return nil, fmt.Errorf("failed to get Log Analytics workspace: %w", err)
 		}
 
+		if cluster.Properties.AddonProfiles == nil {
+			cluster.Properties.AddonProfiles = make(map[string]*armcontainerservice.ManagedClusterAddonProfile)
+		}
 		cluster.Properties.AddonProfiles["omsagent"] = &armcontainerservice.ManagedClusterAddonProfile{
 			Enabled: Ptr(true),
 			Config: map[string]*string{
@@ -192,6 +193,9 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 	}
 
 	if inst.Config.Cloud.TlsCertificate != nil && inst.Config.Cloud.TlsCertificate.KeyVault != nil {
+		if cluster.Properties.AddonProfiles == nil {
+			cluster.Properties.AddonProfiles = make(map[string]*armcontainerservice.ManagedClusterAddonProfile)
+		}
 		cluster.Properties.AddonProfiles["azureKeyvaultSecretsProvider"] = &armcontainerservice.ManagedClusterAddonProfile{
 			Enabled: Ptr(true),
 			Config: map[string]*string{
@@ -744,18 +748,24 @@ func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCl
 		}
 	}
 
-	if len(cluster.Properties.AddonProfiles) != len(existingCluster.Properties.AddonProfiles) {
-		logChange("addon profile count changed (%d -> %d)", len(existingCluster.Properties.AddonProfiles), len(cluster.Properties.AddonProfiles))
+	// Ignore extensionManager addon profile since it cannot be modified.
+	desiredAddonProfileCount := modifiableAddonProfileCount(cluster.Properties.AddonProfiles)
+	existingAddonProfileCount := modifiableAddonProfileCount(existingCluster.Properties.AddonProfiles)
+	if desiredAddonProfileCount != existingAddonProfileCount {
+		logChange("addon profile count changed (%d -> %d)", existingAddonProfileCount, desiredAddonProfileCount)
 		return true, false
 	}
 
 	for k, v := range cluster.Properties.AddonProfiles {
+		if k == extensionManagerAddonProfileName {
+			continue
+		}
 		existingV, ok := existingCluster.Properties.AddonProfiles[k]
 		if !ok {
 			logChange("addon profile %q added", k)
 			return true, false
 		}
-		if *v.Enabled != *existingV.Enabled {
+		if v.Enabled != nil && *v.Enabled != *existingV.Enabled {
 			logChange("addon profile %q enabled changed (%t -> %t)", k, *existingV.Enabled, *v.Enabled)
 			return true, false
 		}
@@ -829,6 +839,14 @@ func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCl
 	}
 
 	return hasChanges, onlyScaleDown
+}
+
+func modifiableAddonProfileCount(profiles map[string]*armcontainerservice.ManagedClusterAddonProfile) int {
+	count := len(profiles)
+	if _, ok := profiles[extensionManagerAddonProfileName]; ok {
+		count--
+	}
+	return count
 }
 
 func getClusterDnsPrefix(environmentName, clusterName, subId string) string {

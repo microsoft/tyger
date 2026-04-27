@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net/http"
 	"os"
@@ -512,7 +513,11 @@ func (inst *Installer) InstallTyger(ctx context.Context) error {
 		// logsMap will be empty. Fall back to a one-shot fetch of pod logs
 		// by the actual current release revision.
 		if currentRevision, revErr := inst.GetTygerInstallationRevision(ctx, org); revErr == nil && currentRevision != revision+1 {
-			if refreshed, fetchErr := fetchPodLogsByLabel(ctx, clientset, org.Cloud.KubernetesNamespace, fmt.Sprintf("tyger-helm-revision=%d", currentRevision)); fetchErr == nil {
+			refreshed, fetchErr := fetchPodLogsByLabel(ctx, clientset, org.Cloud.KubernetesNamespace, fmt.Sprintf("tyger-helm-revision=%d", currentRevision))
+			if fetchErr != nil {
+				log.Ctx(ctx).Warn().Err(fetchErr).Msg("Failed to fetch all Tyger server logs")
+			}
+			if fetchErr == nil || len(refreshed) > 0 {
 				logsMap = refreshed
 			}
 		}
@@ -1588,7 +1593,10 @@ func (inst *Installer) validateMirroredManifest(ctx context.Context, manifest st
 		return nil
 	}
 
-	images := extractManifestImages(manifest)
+	images, err := extractManifestImages(manifest)
+	if err != nil {
+		return fmt.Errorf("failed to parse rendered helm manifest: %w", err)
+	}
 	expectedPrefix := registryMirror.LoginServer + "/"
 	var unmirrored []string
 	for _, img := range images {
@@ -1607,7 +1615,7 @@ func (inst *Installer) validateMirroredManifest(ctx context.Context, manifest st
 // Extracts the set of container image references from a multi-document
 // kubernetes YAML manifest. Looks for any "image:" string field anywhere in
 // the documents.
-func extractManifestImages(manifest string) []string {
+func extractManifestImages(manifest string) ([]string, error) {
 	seen := map[string]struct{}{}
 	var collect func(any)
 	collect = func(node any) {
@@ -1633,7 +1641,10 @@ func extractManifestImages(manifest string) []string {
 	for {
 		var obj any
 		if err := dec.Decode(&obj); err != nil {
-			break
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return nil, fmt.Errorf("failed to decode rendered helm manifest: %w", err)
 		}
 		collect(obj)
 	}
@@ -1643,5 +1654,5 @@ func extractManifestImages(manifest string) []string {
 		out = append(out, img)
 	}
 	sort.Strings(out)
-	return out
+	return out, nil
 }

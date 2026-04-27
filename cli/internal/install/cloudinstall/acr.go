@@ -15,6 +15,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerregistry/armcontainerregistry"
+	"github.com/microsoft/tyger/cli/internal/client"
 	helmclient "github.com/mittwald/go-helm-client"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
@@ -252,7 +253,7 @@ func (inst *Installer) getAcrRefreshToken(ctx context.Context, acrFqdn string) (
 	}
 
 	exchangeURL := fmt.Sprintf("https://%s/oauth2/exchange", acrFqdn)
-	return exchangeAcrRefreshToken(ctx, http.DefaultClient, exchangeURL, acrFqdn, inst.Config.Cloud.TenantID, aadToken.Token)
+	return exchangeAcrRefreshToken(ctx, client.DefaultRetryableClient.HTTPClient, exchangeURL, acrFqdn, inst.Config.Cloud.TenantID, aadToken.Token)
 }
 
 type httpDoer interface {
