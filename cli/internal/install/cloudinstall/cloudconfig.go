@@ -81,7 +81,7 @@ type CloudConfig struct {
 	// Internal support for associating resources with a network security perimeter profile
 	NetworkSecurityPerimeter *NetworkSecurityPerimeterConfig `yaml:"networkSecurityPerimeter"`
 
-	MirrorAcr string `yaml:"mirrorAcr"`
+	ContainerRegistryMirror string `yaml:"containerRegistryMirror"`
 }
 
 type VnetReference struct {
@@ -102,9 +102,9 @@ type ComputeConfig struct {
 
 func (c *CloudConfig) containerRegistriesForClusterAccess() []string {
 	registries := c.Compute.PrivateContainerRegistries
-	if mirrorAcr := c.GetMirrorAcrName(); mirrorAcr != "" && !slices.Contains(registries, mirrorAcr) {
+	if registryMirror := c.GetContainerRegistryMirrorName(); registryMirror != "" && !slices.Contains(registries, registryMirror) {
 		registries = slices.Clone(registries)
-		registries = append(registries, mirrorAcr)
+		registries = append(registries, registryMirror)
 	}
 	return registries
 }

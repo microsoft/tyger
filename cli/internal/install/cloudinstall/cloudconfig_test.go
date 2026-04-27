@@ -91,16 +91,16 @@ func TestContainerRegistriesForClusterAccess(t *testing.T) {
 		{
 			name: "adds mirror registry",
 			config: &CloudConfig{
-				MirrorAcr: "mirror.azurecr.io",
-				Compute:   &ComputeConfig{PrivateContainerRegistries: []string{"private"}},
+				ContainerRegistryMirror: "mirror.azurecr.io",
+				Compute:                 &ComputeConfig{PrivateContainerRegistries: []string{"private"}},
 			},
 			expected: []string{"private", "mirror"},
 		},
 		{
 			name: "does not duplicate mirror registry",
 			config: &CloudConfig{
-				MirrorAcr: "mirror.azurecr.io",
-				Compute:   &ComputeConfig{PrivateContainerRegistries: []string{"private", "mirror"}},
+				ContainerRegistryMirror: "mirror.azurecr.io",
+				Compute:                 &ComputeConfig{PrivateContainerRegistries: []string{"private", "mirror"}},
 			},
 			expected: []string{"private", "mirror"},
 		},

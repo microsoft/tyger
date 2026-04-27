@@ -184,7 +184,7 @@ func (inst *Installer) checkRbac(ctx context.Context) error {
 		"Microsoft.ContainerRegistry/registries/write",
 		"Microsoft.ContainerRegistry/registries/importImage/action",
 	}
-	mirrorAcr := inst.Config.Cloud.GetMirrorAcrName()
+	registryMirror := inst.Config.Cloud.GetContainerRegistryMirrorName()
 	for _, acr := range inst.Config.Cloud.containerRegistriesForClusterAccess() {
 		id, err := getContainerRegistryId(ctx, acr, inst.Config.Cloud.SubscriptionID, inst.Credential)
 		if err != nil {
@@ -197,7 +197,7 @@ func (inst *Installer) checkRbac(ctx context.Context) error {
 			}
 		}
 
-		if acr == mirrorAcr {
+		if acr == registryMirror {
 			for _, a := range mirrorRegistryRequiredActions {
 				if err := checkAccess(ctx, id, a, roleAssignments, roleDefs); err != nil {
 					hasErr = true

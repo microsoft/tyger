@@ -834,9 +834,9 @@ func (inst *Installer) installHelmChart(
 	// real Helm install/upgrade. This catches images that were not wrapped in a
 	// Mirrorable* type and so would have escaped the rewrite pass.
 	var installOptions *helmclient.GenericHelmOptions
-	if mirrorAcr, err := inst.GetResolvedMirrorAcr(ctx); err != nil {
+	if registryMirror, err := inst.GetResolvedContainerRegistryMirror(ctx); err != nil {
 		return "", "", err
-	} else if mirrorAcr != nil {
+	} else if registryMirror != nil {
 		installOptions = &helmclient.GenericHelmOptions{
 			PostRenderer: mirrorValidationPostRenderer{
 				validate: func(manifest string) error {
@@ -882,7 +882,7 @@ func (r mirrorValidationPostRenderer) Run(renderedManifests *bytes.Buffer) (*byt
 }
 
 // Resolves the helm chart spec for the given config. When the user has opted
-// into ACR mirroring (cloud.mirrorAcr), this method also performs the
+// into ACR mirroring (cloud.containerRegistryMirror), this method also performs the
 // necessary ACR copies in parallel and rewrites every Mirrorable* image and
 // chart reference in the config to point at the mirror ACR. Mirroring is
 // performed lazily and cached, so each artifact is copied at most once per
@@ -1136,17 +1136,17 @@ func mirrorChartTargetRepo(chartRef string) string {
 }
 
 // Returns the OCI URL of a mirrored chart.
-func mirrorChartTargetRef(chartRef, mirrorAcrFqdn string) string {
-	return fmt.Sprintf("oci://%s/%s", mirrorAcrFqdn, mirrorChartTargetRepo(chartRef))
+func mirrorChartTargetRef(chartRef, registryMirrorFqdn string) string {
+	return fmt.Sprintf("oci://%s/%s", registryMirrorFqdn, mirrorChartTargetRepo(chartRef))
 }
 
 // Returns the short name (without the .azurecr.io suffix) of the configured
 // mirror ACR, or empty string if mirroring is disabled.
-func (c *CloudConfig) GetMirrorAcrName() string {
-	if c.MirrorAcr == "" {
+func (c *CloudConfig) GetContainerRegistryMirrorName() string {
+	if c.ContainerRegistryMirror == "" {
 		return ""
 	}
-	name, _, _ := strings.Cut(c.MirrorAcr, ".")
+	name, _, _ := strings.Cut(c.ContainerRegistryMirror, ".")
 	return name
 }
 
@@ -1166,13 +1166,13 @@ type mirroringState struct {
 // Returns the resolved mirror ACR properties, looking them up the first time
 // it is called and caching the result for subsequent calls. Returns
 // (nil, nil) when mirroring is disabled.
-func (inst *Installer) GetResolvedMirrorAcr(ctx context.Context) (*ResolvedAcr, error) {
-	if inst.Config.Cloud.MirrorAcr == "" {
+func (inst *Installer) GetResolvedContainerRegistryMirror(ctx context.Context) (*ResolvedAcr, error) {
+	if inst.Config.Cloud.ContainerRegistryMirror == "" {
 		return nil, nil
 	}
 
 	inst.acrMirroringState.resolveOnce.Do(func() {
-		inst.acrMirroringState.resolved, inst.acrMirroringState.resolveErr = inst.resolveAcr(ctx, inst.Config.Cloud.GetMirrorAcrName())
+		inst.acrMirroringState.resolved, inst.acrMirroringState.resolveErr = inst.resolveAcr(ctx, inst.Config.Cloud.GetContainerRegistryMirrorName())
 	})
 
 	return inst.acrMirroringState.resolved, inst.acrMirroringState.resolveErr
@@ -1182,7 +1182,7 @@ func (inst *Installer) GetResolvedMirrorAcr(ctx context.Context) (*ResolvedAcr, 
 // the configured mirror ACR. The result is cached by source ref via a
 // Promise, so concurrent callers share the same in-flight import.
 func (inst *Installer) ensureImageMirrored(ctx context.Context, sourceRegistry, sourceRepo, tagOrDigest string) error {
-	mirrorAcr, err := inst.GetResolvedMirrorAcr(ctx)
+	registryMirror, err := inst.GetResolvedContainerRegistryMirror(ctx)
 	if err != nil {
 		return err
 	}
@@ -1196,9 +1196,9 @@ func (inst *Installer) ensureImageMirrored(ctx context.Context, sourceRegistry, 
 	p, ok := inst.acrMirroringState.imagePromises[key]
 	if !ok {
 		p = install.NewPromise(ctx, &install.PromiseGroup{}, func(ctx context.Context) (any, error) {
-			log.Ctx(ctx).Info().Msgf("Mirroring image %s to ACR '%s'", key, mirrorAcr.Name)
+			log.Ctx(ctx).Info().Msgf("Mirroring image %s to ACR '%s'", key, registryMirror.Name)
 			paths := importPaths(sourceRepo, tagOrDigest, MirrorRepoPrefix+"/"+sourceRepo)
-			return nil, inst.importImageToAcr(ctx, mirrorAcr, sourceRegistry, paths)
+			return nil, inst.importImageToAcr(ctx, registryMirror, sourceRegistry, paths)
 		})
 		inst.acrMirroringState.imagePromises[key] = p
 	}
@@ -1211,7 +1211,7 @@ func (inst *Installer) ensureImageMirrored(ctx context.Context, sourceRegistry, 
 // of the mirrored chart. Cached by source ref via a Promise. repoUrl is
 // required for traditional (non-OCI) helm repos and ignored for OCI charts.
 func (inst *Installer) ensureChartMirrored(ctx context.Context, chartRef, version, repoUrl string) (string, error) {
-	mirrorAcr, err := inst.GetResolvedMirrorAcr(ctx)
+	registryMirror, err := inst.GetResolvedContainerRegistryMirror(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -1225,7 +1225,7 @@ func (inst *Installer) ensureChartMirrored(ctx context.Context, chartRef, versio
 	p, ok := inst.acrMirroringState.chartPromises[key]
 	if !ok {
 		p = install.NewPromise(ctx, &install.PromiseGroup{}, func(ctx context.Context) (string, error) {
-			log.Ctx(ctx).Info().Msgf("Mirroring chart %s:%s to ACR '%s'", chartRef, version, mirrorAcr.Name)
+			log.Ctx(ctx).Info().Msgf("Mirroring chart %s:%s to ACR '%s'", chartRef, version, registryMirror.Name)
 			targetRepoPath := mirrorChartTargetRepo(chartRef)
 			if after, ok := strings.CutPrefix(chartRef, "oci://"); ok {
 				ref := after
@@ -1235,18 +1235,18 @@ func (inst *Installer) ensureChartMirrored(ctx context.Context, chartRef, versio
 				}
 				registryHost := ref[:slash]
 				repoPath := ref[slash+1:]
-				if err := inst.importImageToAcr(ctx, mirrorAcr, registryHost, acrImportPaths{
+				if err := inst.importImageToAcr(ctx, registryMirror, registryHost, acrImportPaths{
 					SourceImage: fmt.Sprintf("%s:%s", repoPath, version),
 					TargetTag:   fmt.Sprintf("%s:%s", targetRepoPath, version),
 				}); err != nil {
 					return "", err
 				}
 			} else {
-				if err := inst.pullAndPushHelmChart(ctx, mirrorAcr, chartName(chartRef), version, repoUrl, targetRepoPath); err != nil {
+				if err := inst.pullAndPushHelmChart(ctx, registryMirror, chartName(chartRef), version, repoUrl, targetRepoPath); err != nil {
 					return "", err
 				}
 			}
-			return mirrorChartTargetRef(chartRef, mirrorAcr.LoginServer), nil
+			return mirrorChartTargetRef(chartRef, registryMirror.LoginServer), nil
 		})
 		inst.acrMirroringState.chartPromises[key] = p
 	}
@@ -1293,14 +1293,14 @@ func sourceRefString(registry, repo, tagOrDigest string) string {
 // values are left as-is and yaml.Marshal serializes them as plain strings
 // (they are all named string types).
 func (inst *Installer) applyMirrorRewrites(ctx context.Context, c *HelmChartConfig, originalChartRef string) error {
-	mirrorAcr, err := inst.GetResolvedMirrorAcr(ctx)
+	registryMirror, err := inst.GetResolvedContainerRegistryMirror(ctx)
 	if err != nil {
 		return err
 	}
-	if mirrorAcr == nil {
+	if registryMirror == nil {
 		return nil
 	}
-	mirrorFqdn := mirrorAcr.LoginServer
+	mirrorFqdn := registryMirror.LoginServer
 
 	// Phase 1: walk the values tree, rewriting Mirrorable* typed values to
 	// mirror-pointing strings and collecting the set of images to import.
@@ -1550,16 +1550,16 @@ func parseFullImageRef(ref string) (registry, repo, tag string, ok bool) {
 // is disabled. Used to catch images that escaped the Mirrorable* rewrite
 // pass (e.g. images baked into the chart templates that we forgot to wrap).
 func (inst *Installer) validateMirroredManifest(ctx context.Context, manifest string) error {
-	mirrorAcr, err := inst.GetResolvedMirrorAcr(ctx)
+	registryMirror, err := inst.GetResolvedContainerRegistryMirror(ctx)
 	if err != nil {
 		return err
 	}
-	if mirrorAcr == nil {
+	if registryMirror == nil {
 		return nil
 	}
 
 	images := extractManifestImages(manifest)
-	expectedPrefix := mirrorAcr.LoginServer + "/"
+	expectedPrefix := registryMirror.LoginServer + "/"
 	var unmirrored []string
 	for _, img := range images {
 		if !strings.HasPrefix(img, expectedPrefix) {
@@ -1569,7 +1569,7 @@ func (inst *Installer) validateMirroredManifest(ctx context.Context, manifest st
 	if len(unmirrored) > 0 {
 		sort.Strings(unmirrored)
 		return fmt.Errorf("the rendered helm manifest references %d image(s) that do not point at the mirror ACR %q: %s",
-			len(unmirrored), mirrorAcr.LoginServer, strings.Join(unmirrored, ", "))
+			len(unmirrored), registryMirror.LoginServer, strings.Join(unmirrored, ", "))
 	}
 	return nil
 }
