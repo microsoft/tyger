@@ -504,6 +504,16 @@ func (inst *Installer) InstallTyger(ctx context.Context) error {
 		}
 
 		found := false
+		// If the helm install hit transient errors and was retried, helm
+		// rolled back and re-installed, bumping the revision past the
+		// pre-install +1 we used as the log-watcher's selector. In that case
+		// logsMap will be empty. Fall back to a one-shot fetch of pod logs
+		// by the actual current release revision.
+		if currentRevision, revErr := inst.GetTygerInstallationRevision(ctx, org); revErr == nil && currentRevision != revision+1 {
+			if refreshed, fetchErr := fetchPodLogsByLabel(ctx, clientset, org.Cloud.KubernetesNamespace, fmt.Sprintf("tyger-helm-revision=%d", currentRevision)); fetchErr == nil {
+				logsMap = refreshed
+			}
+		}
 		for _, logs := range logsMap {
 			if found {
 				break

@@ -171,3 +171,26 @@ func followPodLogs(ctx context.Context, clientset kubernetes.Interface, namespac
 		time.Sleep(1 * time.Second)
 	}
 }
+
+// One-shot fetch of all current logs for every pod matching the given label
+// selector. Unlike followPodsLogsUntilContextCanceled this does not stream
+// or watch; it is intended for after-the-fact log inspection when the
+// pre-install watcher missed pods (e.g. helm rollback bumped the revision).
+func fetchPodLogsByLabel(ctx context.Context, clientset kubernetes.Interface, namespace, labelSelector string) (map[string][]byte, error) {
+	pods, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string][]byte, len(pods.Items))
+	for _, pod := range pods.Items {
+		stream, err := clientset.CoreV1().Pods(namespace).GetLogs(pod.Name, &v1.PodLogOptions{}).Stream(ctx)
+		if err != nil {
+			continue
+		}
+		buf := &bytes.Buffer{}
+		_, _ = io.Copy(buf, stream)
+		stream.Close()
+		out[pod.Name] = buf.Bytes()
+	}
+	return out, nil
+}
