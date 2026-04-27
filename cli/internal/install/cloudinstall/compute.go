@@ -137,9 +137,7 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 				OutboundType: Ptr(clusterConfig.OutboundType),
 			},
 			AddonProfiles: map[string]*armcontainerservice.ManagedClusterAddonProfile{
-				"extensionManager": {
-					Enabled: Ptr(true),
-				},
+				"extensionManager": {},
 			},
 		},
 		SKU: &armcontainerservice.ManagedClusterSKU{
