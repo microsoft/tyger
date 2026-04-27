@@ -79,6 +79,8 @@ type CloudConfig struct {
 
 	// Internal support for associating resources with a network security perimeter profile
 	NetworkSecurityPerimeter *NetworkSecurityPerimeterConfig `yaml:"networkSecurityPerimeter"`
+
+	MirrorAcr string `yaml:"mirrorAcr"`
 }
 
 type VnetReference struct {

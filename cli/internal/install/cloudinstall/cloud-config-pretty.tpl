@@ -24,6 +24,13 @@ cloud:
   # will not be accessible from the public internet.
   privateNetworking: {{ .PrivateNetworking }}
 
+  # Optional: an existing private Azure Container Registry to mirror all container images
+  # and helm charts to. When set, every artifact required by Tyger and its dependencies
+  # is imported into this registry on demand and the helm values are rewritten to pull
+  # from it instead of the public sources. Useful when policy forbids pulling from public
+  # registries. Can be a short name (e.g. "myacr") or a fully-qualified name (e.g. "myacr.azurecr.io").
+  {{ optionalField "mirrorAcr" .MirrorAcr "" }}
+
   # Optional: additional VNets to link private DNS zones to.
   # Use this to link DNS zones to a hub VNet in a hub-and-spoke topology,
   # so that a DNS resolver in the hub can resolve Tyger's private endpoints.

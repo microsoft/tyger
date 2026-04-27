@@ -136,6 +136,11 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 			NetworkProfile: &armcontainerservice.NetworkProfile{
 				OutboundType: Ptr(clusterConfig.OutboundType),
 			},
+			AddonProfiles: map[string]*armcontainerservice.ManagedClusterAddonProfile{
+				"extensionManager": {
+					Enabled: Ptr(true),
+				},
+			},
 		},
 		SKU: &armcontainerservice.ManagedClusterSKU{
 			Name: Ptr(armcontainerservice.ManagedClusterSKUNameBase),
@@ -180,9 +185,6 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 			return nil, fmt.Errorf("failed to get Log Analytics workspace: %w", err)
 		}
 
-		if cluster.Properties.AddonProfiles == nil {
-			cluster.Properties.AddonProfiles = make(map[string]*armcontainerservice.ManagedClusterAddonProfile)
-		}
 		cluster.Properties.AddonProfiles["omsagent"] = &armcontainerservice.ManagedClusterAddonProfile{
 			Enabled: Ptr(true),
 			Config: map[string]*string{
@@ -192,9 +194,6 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 	}
 
 	if inst.Config.Cloud.TlsCertificate != nil && inst.Config.Cloud.TlsCertificate.KeyVault != nil {
-		if cluster.Properties.AddonProfiles == nil {
-			cluster.Properties.AddonProfiles = make(map[string]*armcontainerservice.ManagedClusterAddonProfile)
-		}
 		cluster.Properties.AddonProfiles["azureKeyvaultSecretsProvider"] = &armcontainerservice.ManagedClusterAddonProfile{
 			Enabled: Ptr(true),
 			Config: map[string]*string{
@@ -490,7 +489,12 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 		}
 	}
 
-	for _, containerRegistry := range inst.Config.Cloud.Compute.PrivateContainerRegistries {
+	registriesToAttach := slices.Clone(inst.Config.Cloud.Compute.PrivateContainerRegistries)
+	if mirrorAcr := inst.Config.Cloud.GetMirrorAcrName(); mirrorAcr != "" && !slices.Contains(registriesToAttach, mirrorAcr) {
+		registriesToAttach = append(registriesToAttach, mirrorAcr)
+	}
+
+	for _, containerRegistry := range registriesToAttach {
 		log.Ctx(ctx).Info().Msgf("Attaching ACR '%s' to cluster '%s'", containerRegistry, clusterConfig.Name)
 		containerRegistryId, err := getContainerRegistryId(ctx, containerRegistry, inst.Config.Cloud.SubscriptionID, inst.Credential)
 		if err != nil {
@@ -600,59 +604,80 @@ func (inst *Installer) createOutboundIpAddress(ctx context.Context, cluster *Clu
 }
 
 func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCluster) (hasChanges bool, onlyScaleDown bool) {
+	clusterName := ""
+	if existingCluster.Name != nil {
+		clusterName = *existingCluster.Name
+	}
+	logChange := func(format string, args ...any) {
+		log.Debug().Msgf("Cluster '%s' needs updating: "+format, append([]any{clusterName}, args...)...)
+	}
+
 	if *existingCluster.Properties.ProvisioningState != "Succeeded" {
+		logChange("provisioning state is %q, not 'Succeeded'", *existingCluster.Properties.ProvisioningState)
 		return true, false
 	}
 
 	onlyScaleDown = true
 	if *cluster.Properties.KubernetesVersion != *existingCluster.Properties.KubernetesVersion {
+		logChange("kubernetesVersion changed (%s -> %s)", *existingCluster.Properties.KubernetesVersion, *cluster.Properties.KubernetesVersion)
 		return true, false
 	}
 
 	if existingCluster.Properties.AutoUpgradeProfile == nil || existingCluster.Properties.AutoUpgradeProfile.NodeOSUpgradeChannel == nil || *cluster.Properties.AutoUpgradeProfile.NodeOSUpgradeChannel != *existingCluster.Properties.AutoUpgradeProfile.NodeOSUpgradeChannel {
+		logChange("autoUpgradeProfile.nodeOSUpgradeChannel changed")
 		return true, false
 	}
 
 	if existingCluster.Properties.AutoUpgradeProfile.UpgradeChannel == nil || *cluster.Properties.AutoUpgradeProfile.UpgradeChannel != *existingCluster.Properties.AutoUpgradeProfile.UpgradeChannel {
+		logChange("autoUpgradeProfile.upgradeChannel changed")
 		return true, false
 	}
 
 	if len(cluster.Tags) != len(existingCluster.Tags) {
+		logChange("tag count changed (%d -> %d)", len(existingCluster.Tags), len(cluster.Tags))
 		return true, false
 	}
 
 	for k, v := range cluster.Tags {
 		existingV, ok := existingCluster.Tags[k]
 		if !ok {
+			logChange("tag %q added", k)
 			return true, false
 		}
 		if *v != *existingV {
+			logChange("tag %q changed (%q -> %q)", k, *existingV, *v)
 			return true, false
 		}
 	}
 
 	if *cluster.SKU.Tier != *existingCluster.SKU.Tier {
+		logChange("SKU tier changed (%s -> %s)", *existingCluster.SKU.Tier, *cluster.SKU.Tier)
 		return true, false
 	}
 
 	if len(cluster.Properties.AgentPoolProfiles) != len(existingCluster.Properties.AgentPoolProfiles) {
+		logChange("agent pool profile count changed (%d -> %d)", len(existingCluster.Properties.AgentPoolProfiles), len(cluster.Properties.AgentPoolProfiles))
 		return true, false
 	}
 
 	if (cluster.Properties.APIServerAccessProfile == nil) != (existingCluster.Properties.APIServerAccessProfile == nil) {
+		logChange("apiServerAccessProfile presence changed")
 		return true, false
 	}
 
 	if cluster.Properties.APIServerAccessProfile != nil {
 		if ptrChanged(cluster.Properties.APIServerAccessProfile.EnablePrivateCluster, existingCluster.Properties.APIServerAccessProfile.EnablePrivateCluster) {
+			logChange("apiServerAccessProfile.enablePrivateCluster changed")
 			return true, false
 		}
 
 		if ptrChanged(cluster.Properties.APIServerAccessProfile.PrivateDNSZone, existingCluster.Properties.APIServerAccessProfile.PrivateDNSZone) {
+			logChange("apiServerAccessProfile.privateDNSZone changed")
 			return true, false
 		}
 
 		if ptrChanged(cluster.Properties.APIServerAccessProfile.EnablePrivateClusterPublicFQDN, existingCluster.Properties.APIServerAccessProfile.EnablePrivateClusterPublicFQDN) {
+			logChange("apiServerAccessProfile.enablePrivateClusterPublicFQDN changed")
 			return true, false
 		}
 	}
@@ -663,18 +688,22 @@ func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCl
 			if *np.Name == *existingNp.Name {
 				found = true
 				if *np.VMSize != *existingNp.VMSize {
+					logChange("node pool %q vmSize changed (%s -> %s)", *np.Name, *existingNp.VMSize, *np.VMSize)
 					return true, false
 				}
 				if existingNp.EnableAutoScaling == nil || *np.EnableAutoScaling != *existingNp.EnableAutoScaling {
+					logChange("node pool %q enableAutoScaling changed", *np.Name)
 					return true, false
 				} else {
 					if *np.MinCount != *existingNp.MinCount {
+						logChange("node pool %q minCount changed (%d -> %d)", *np.Name, *existingNp.MinCount, *np.MinCount)
 						hasChanges = true
 						if *np.MinCount > *existingNp.MinCount {
 							onlyScaleDown = false
 						}
 					}
 					if *np.MaxCount != *existingNp.MaxCount {
+						logChange("node pool %q maxCount changed (%d -> %d)", *np.Name, *existingNp.MaxCount, *np.MaxCount)
 						hasChanges = true
 						if *np.MaxCount > *existingNp.MaxCount {
 							onlyScaleDown = false
@@ -682,28 +711,34 @@ func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCl
 					}
 				}
 				if *np.OrchestratorVersion != *existingNp.OrchestratorVersion {
+					logChange("node pool %q orchestratorVersion changed (%s -> %s)", *np.Name, *existingNp.OrchestratorVersion, *np.OrchestratorVersion)
 					return true, false
 				}
 
 				if *np.OSSKU != *existingNp.OSSKU {
+					logChange("node pool %q osSKU changed (%s -> %s)", *np.Name, *existingNp.OSSKU, *np.OSSKU)
 					return true, false
 				}
 
 				if len(np.Tags) != len(existingNp.Tags) {
+					logChange("node pool %q tag count changed (%d -> %d)", *np.Name, len(existingNp.Tags), len(np.Tags))
 					return true, false
 				}
 
 				for k, v := range np.Tags {
 					existingV, ok := existingNp.Tags[k]
 					if !ok {
+						logChange("node pool %q tag %q added", *np.Name, k)
 						return true, false
 					}
 					if *v != *existingV {
+						logChange("node pool %q tag %q changed (%q -> %q)", *np.Name, k, *existingV, *v)
 						return true, false
 					}
 				}
 
 				if ptrChanged(np.VnetSubnetID, existingNp.VnetSubnetID) {
+					logChange("node pool %q vnetSubnetID changed", *np.Name)
 					return true, false
 				}
 
@@ -711,57 +746,70 @@ func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCl
 			}
 		}
 		if !found {
+			logChange("node pool %q not found in existing cluster", *np.Name)
 			return true, false
 		}
 	}
 
 	if len(cluster.Properties.AddonProfiles) != len(existingCluster.Properties.AddonProfiles) {
+		logChange("addon profile count changed (%d -> %d)", len(existingCluster.Properties.AddonProfiles), len(cluster.Properties.AddonProfiles))
 		return true, false
 	}
 
 	for k, v := range cluster.Properties.AddonProfiles {
 		existingV, ok := existingCluster.Properties.AddonProfiles[k]
 		if !ok {
+			logChange("addon profile %q added", k)
 			return true, false
 		}
 		if *v.Enabled != *existingV.Enabled {
+			logChange("addon profile %q enabled changed (%t -> %t)", k, *existingV.Enabled, *v.Enabled)
 			return true, false
 		}
 		if len(v.Config) != len(existingV.Config) {
+			logChange("addon profile %q config count changed (%d -> %d)", k, len(existingV.Config), len(v.Config))
 			return true, false
 		}
 		for k2, v2 := range v.Config {
 			existingV2, ok := existingV.Config[k2]
 			if !ok {
+				logChange("addon profile %q config key %q added", k, k2)
 				return true, false
 			}
 			if *v2 != *existingV2 {
+				logChange("addon profile %q config key %q changed (%q -> %q)", k, k2, *existingV2, *v2)
 				return true, false
 			}
 		}
 	}
 
 	if existingCluster.Properties.OidcIssuerProfile == nil || existingCluster.Properties.OidcIssuerProfile.Enabled == nil || !*existingCluster.Properties.OidcIssuerProfile.Enabled {
+		logChange("oidcIssuerProfile is not enabled")
 		return true, false
 	}
 
 	if existingCluster.Properties.SecurityProfile == nil || existingCluster.Properties.SecurityProfile.WorkloadIdentity == nil || !*existingCluster.Properties.SecurityProfile.WorkloadIdentity.Enabled {
+		logChange("securityProfile.workloadIdentity is not enabled")
 		return true, false
 	}
 
 	if cluster.Properties.NetworkProfile.PodCidr != nil && ptrChanged(cluster.Properties.NetworkProfile.PodCidr, existingCluster.Properties.NetworkProfile.PodCidr) {
+		logChange("networkProfile.podCidr changed")
 		return true, false
 	}
 
 	if cluster.Properties.NetworkProfile.ServiceCidr != nil && ptrChanged(cluster.Properties.NetworkProfile.ServiceCidr, existingCluster.Properties.NetworkProfile.ServiceCidr) {
+		logChange("networkProfile.serviceCidr changed")
 		return true, false
 	}
 
 	if cluster.Properties.NetworkProfile.DNSServiceIP != nil && ptrChanged(cluster.Properties.NetworkProfile.DNSServiceIP, existingCluster.Properties.NetworkProfile.DNSServiceIP) {
+		logChange("networkProfile.dnsServiceIP changed")
 		return true, false
 	}
 
 	if cluster.Properties.NetworkProfile.OutboundType != nil && ptrChanged(cluster.Properties.NetworkProfile.OutboundType, existingCluster.Properties.NetworkProfile.OutboundType) {
+		logChange("networkProfile.outboundType changed")
 		return true, false
 	}
 
@@ -782,6 +830,7 @@ func clusterNeedsUpdating(cluster, existingCluster armcontainerservice.ManagedCl
 					cluster.Properties.NetworkProfile.LoadBalancerProfile.OutboundIPs.PublicIPs,
 					existingCluster.Properties.NetworkProfile.LoadBalancerProfile.OutboundIPs.PublicIPs,
 					func(a, b *armcontainerservice.ResourceReference) bool { return *a.ID == *b.ID })) {
+			logChange("networkProfile.loadBalancerProfile.outboundIPs changed")
 			return true, false
 		}
 	}

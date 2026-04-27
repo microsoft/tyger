@@ -14,6 +14,8 @@ type Installer struct {
 	Credential azcore.TokenCredential
 
 	cachedRESTConfig *rest.Config
+
+	acrMirroringState mirroringState
 }
 
 func (inst *Installer) GetConfig() install.ValidatableConfig {
