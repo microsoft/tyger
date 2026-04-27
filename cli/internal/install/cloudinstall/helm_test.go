@@ -40,6 +40,24 @@ func TestRewriteMirrorableValues_MirrorableImageReferenceWithDigest(t *testing.T
 		values["image"])
 }
 
+func TestImportPaths_Tag(t *testing.T) {
+	paths := importPaths("foo/bar", "1.2.3", "tyger/foo/bar")
+
+	assert.Equal(t, acrImportPaths{
+		SourceImage: "foo/bar:1.2.3",
+		TargetTag:   "tyger/foo/bar:1.2.3",
+	}, paths)
+}
+
+func TestImportPaths_Digest(t *testing.T) {
+	paths := importPaths("foo/bar", "sha256:deadbeef", "tyger/foo/bar")
+
+	assert.Equal(t, acrImportPaths{
+		SourceImage:               "foo/bar@sha256:deadbeef",
+		TargetRepositoryForDigest: "tyger/foo/bar",
+	}, paths)
+}
+
 func TestRewriteMirrorableValues_QualifiedRepositoryAndTag(t *testing.T) {
 	values := map[string]any{
 		"image": map[string]any{

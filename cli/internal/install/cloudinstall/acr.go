@@ -44,6 +44,18 @@ type ResolvedAcr struct {
 	ResourceGroup string
 }
 
+type acrImportPaths struct {
+	SourceImage string
+	// Exactly one target mode is set. ACR's ImportImage API accepts repo[:tag]
+	// values in TargetTags, so tagged sources can be copied directly to the
+	// mirrored tag. Digest-pinned sources are different: the rendered manifests
+	// keep using repo@sha256:..., but TargetTags cannot contain a digest. For
+	// those, request a manifest-only copy into the target repository so the same
+	// digest is addressable from the mirror without inventing a tag.
+	TargetTag                 string
+	TargetRepositoryForDigest string
+}
+
 // Looks up the login server FQDN and resource group of the named ACR.
 func (inst *Installer) resolveAcr(ctx context.Context, acrName string) (*ResolvedAcr, error) {
 	resourceID, err := getContainerRegistryId(ctx, acrName, inst.Config.Cloud.SubscriptionID, inst.Credential)
@@ -85,28 +97,38 @@ func (inst *Installer) resolveAcr(ctx context.Context, acrName string) (*Resolve
 }
 
 // Imports an image into target using the ARM ImportImage API.
-// sourceImage and targetTag are of the form "repo:tag" or "repo@sha256:digest".
-func (inst *Installer) importImageToAcr(ctx context.Context, target *ResolvedAcr, sourceRegistryHost, sourceImage, targetTag string) error {
+func (inst *Installer) importImageToAcr(ctx context.Context, target *ResolvedAcr, sourceRegistryHost string, paths acrImportPaths) error {
 	client, err := armcontainerregistry.NewRegistriesClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create container registry client: %w", err)
 	}
 
-	source, err := inst.makeImportSource(ctx, sourceRegistryHost, sourceImage)
+	source, err := inst.makeImportSource(ctx, sourceRegistryHost, paths.SourceImage)
 	if err != nil {
 		return err
 	}
 
-	poller, err := client.BeginImportImage(ctx, target.ResourceGroup, target.Name, armcontainerregistry.ImportImageParameters{
-		Source:     source,
-		TargetTags: []*string{Ptr(targetTag)},
-		Mode:       Ptr(armcontainerregistry.ImportModeForce),
-	}, nil)
+	parameters := armcontainerregistry.ImportImageParameters{
+		Source: source,
+		Mode:   Ptr(armcontainerregistry.ImportModeForce),
+	}
+	switch {
+	case paths.TargetTag != "" && paths.TargetRepositoryForDigest != "":
+		return fmt.Errorf("invalid ACR import target for %s: target tag and digest target repository are mutually exclusive", paths.SourceImage)
+	case paths.TargetTag != "":
+		parameters.TargetTags = []*string{Ptr(paths.TargetTag)}
+	case paths.TargetRepositoryForDigest != "":
+		parameters.UntaggedTargetRepositories = []*string{Ptr(paths.TargetRepositoryForDigest)}
+	default:
+		return fmt.Errorf("invalid ACR import target for %s: target tag or digest target repository is required", paths.SourceImage)
+	}
+
+	poller, err := client.BeginImportImage(ctx, target.ResourceGroup, target.Name, parameters, nil)
 	if err != nil {
-		return fmt.Errorf("failed to start import of %s/%s into '%s': %w", sourceRegistryHost, sourceImage, target.Name, err)
+		return fmt.Errorf("failed to start import of %s/%s into '%s': %w", sourceRegistryHost, paths.SourceImage, target.Name, err)
 	}
 	if _, err := poller.PollUntilDone(ctx, nil); err != nil {
-		return fmt.Errorf("failed to import %s/%s into '%s': %w", sourceRegistryHost, sourceImage, target.Name, err)
+		return fmt.Errorf("failed to import %s/%s into '%s': %w", sourceRegistryHost, paths.SourceImage, target.Name, err)
 	}
 
 	return nil

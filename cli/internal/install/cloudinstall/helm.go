@@ -1183,8 +1183,8 @@ func (inst *Installer) ensureImageMirrored(ctx context.Context, sourceRegistry, 
 	if !ok {
 		p = install.NewPromise(ctx, &install.PromiseGroup{}, func(ctx context.Context) (any, error) {
 			log.Ctx(ctx).Info().Msgf("Mirroring image %s to ACR '%s'", key, mirrorAcr.Name)
-			sourceImage, targetTag := importPaths(sourceRepo, tagOrDigest, MirrorRepoPrefix+"/"+sourceRepo)
-			return nil, inst.importImageToAcr(ctx, mirrorAcr, sourceRegistry, sourceImage, targetTag)
+			paths := importPaths(sourceRepo, tagOrDigest, MirrorRepoPrefix+"/"+sourceRepo)
+			return nil, inst.importImageToAcr(ctx, mirrorAcr, sourceRegistry, paths)
 		})
 		inst.acrMirroringState.imagePromises[key] = p
 	}
@@ -1221,9 +1221,10 @@ func (inst *Installer) ensureChartMirrored(ctx context.Context, chartRef, versio
 				}
 				registryHost := ref[:slash]
 				repoPath := ref[slash+1:]
-				if err := inst.importImageToAcr(ctx, mirrorAcr, registryHost,
-					fmt.Sprintf("%s:%s", repoPath, version),
-					fmt.Sprintf("%s:%s", targetRepoPath, version)); err != nil {
+				if err := inst.importImageToAcr(ctx, mirrorAcr, registryHost, acrImportPaths{
+					SourceImage: fmt.Sprintf("%s:%s", repoPath, version),
+					TargetTag:   fmt.Sprintf("%s:%s", targetRepoPath, version),
+				}); err != nil {
 					return "", err
 				}
 			} else {
@@ -1240,15 +1241,19 @@ func (inst *Installer) ensureChartMirrored(ctx context.Context, chartRef, versio
 	return p.Await()
 }
 
-// Builds the source-image and target-tag strings for an ARM ImportImage call
-// from a (sourceRepo, tagOrDigest) source and a targetRepo.
-func importPaths(sourceRepo, tagOrDigest, targetRepo string) (sourceImage, targetTag string) {
-	sep := ":"
+// Builds the source-image and target strings for an ARM ImportImage call from
+// a (sourceRepo, tagOrDigest) source and a targetRepo.
+func importPaths(sourceRepo, tagOrDigest, targetRepo string) acrImportPaths {
 	if strings.HasPrefix(tagOrDigest, "sha256:") {
-		sep = "@"
+		return acrImportPaths{
+			SourceImage:               fmt.Sprintf("%s@%s", sourceRepo, tagOrDigest),
+			TargetRepositoryForDigest: targetRepo,
+		}
 	}
-	return fmt.Sprintf("%s%s%s", sourceRepo, sep, tagOrDigest),
-		fmt.Sprintf("%s%s%s", targetRepo, sep, tagOrDigest)
+	return acrImportPaths{
+		SourceImage: fmt.Sprintf("%s:%s", sourceRepo, tagOrDigest),
+		TargetTag:   fmt.Sprintf("%s:%s", targetRepo, tagOrDigest),
+	}
 }
 
 func sourceRefString(registry, repo, tagOrDigest string) string {
