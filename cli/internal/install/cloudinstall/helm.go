@@ -4,12 +4,14 @@
 package cloudinstall
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"maps"
 	"net/http"
 	"os"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -828,25 +830,25 @@ func (inst *Installer) installHelmChart(
 		return string(manifest), chartSpec.ValuesYaml, nil
 	}
 
-	// When mirroring is enabled, render the chart up-front and verify that
-	// every container image references the mirror ACR. This catches images
-	// that were not wrapped in a Mirrorable* type and so would have escaped
-	// the rewrite pass.
+	// When mirroring is enabled, verify the final rendered manifest during the
+	// real Helm install/upgrade. This catches images that were not wrapped in a
+	// Mirrorable* type and so would have escaped the rewrite pass.
+	var installOptions *helmclient.GenericHelmOptions
 	if mirrorAcr, err := inst.GetResolvedMirrorAcr(ctx); err != nil {
 		return "", "", err
 	} else if mirrorAcr != nil {
-		rendered, err := helmClient.TemplateChart(&chartSpec, nil)
-		if err != nil {
-			return "", "", fmt.Errorf("failed to template chart for mirror validation: %w", err)
-		}
-		if err := inst.validateMirroredManifest(ctx, string(rendered)); err != nil {
-			return "", "", err
+		installOptions = &helmclient.GenericHelmOptions{
+			PostRenderer: mirrorValidationPostRenderer{
+				validate: func(manifest string) error {
+					return inst.validateMirroredManifest(ctx, manifest)
+				},
+			},
 		}
 	}
 
 	for i := 0; ; i++ {
 		var release *release.Release
-		release, err = helmClient.InstallOrUpgradeChart(ctx, &chartSpec, nil)
+		release, err = helmClient.InstallOrUpgradeChart(ctx, &chartSpec, installOptions)
 		if err == nil || i == 30 {
 			if err == nil && i > 0 {
 				log.Ctx(ctx).Info().Msg("Transient Helm error resolved")
@@ -868,6 +870,17 @@ func (inst *Installer) installHelmChart(
 	return manifest, chartSpec.ValuesYaml, err
 }
 
+type mirrorValidationPostRenderer struct {
+	validate func(string) error
+}
+
+func (r mirrorValidationPostRenderer) Run(renderedManifests *bytes.Buffer) (*bytes.Buffer, error) {
+	if err := r.validate(renderedManifests.String()); err != nil {
+		return nil, err
+	}
+	return renderedManifests, nil
+}
+
 // Resolves the helm chart spec for the given config. When the user has opted
 // into ACR mirroring (cloud.mirrorAcr), this method also performs the
 // necessary ACR copies in parallel and rewrites every Mirrorable* image and
@@ -884,21 +897,22 @@ func (inst *Installer) GetChartSpec(
 	overrideHelmChartConfig *HelmChartConfig,
 	customizeSpec ...func(*helmclient.ChartSpec, helmclient.Client) error,
 ) (helmclient.ChartSpec, error) {
-	// Apply user overrides first. After this, any Mirrorable* typed value the user
-	// did NOT override is still a typed value; values the user overrode are plain
-	// strings. The subsequent mirror pass therefore only mirrors images that were
-	// not customized by the user.
+	// Apply user overrides first. Before merging, copy the Mirrorable* marker
+	// types from default values onto matching user override paths so overridden
+	// image values are still declaratively mirrorable. Arbitrary user-added
+	// values remain plain strings and are not mirrored by this pass.
 	originalChartRef := helmChartConfig.ChartRef
-	originalRepoUrl := helmChartConfig.RepoUrl
 	if overrideHelmChartConfig != nil {
+		overrideHelmChartConfig = cloneHelmChartConfig(overrideHelmChartConfig)
+		preserveMirrorableValueTypes(helmChartConfig.Values, overrideHelmChartConfig.Values)
 		if err := mergo.Merge(helmChartConfig, overrideHelmChartConfig, mergo.WithOverride); err != nil {
 			return helmclient.ChartSpec{}, fmt.Errorf("failed to merge helm config: %w", err)
 		}
 	}
 
-	// Mirror baked-in artifacts that the user did not override (or, when mirroring
-	// is disabled, simply unwrap typed values).
-	if err := inst.applyMirrorRewrites(ctx, helmChartConfig, originalChartRef, originalRepoUrl); err != nil {
+	// Mirror every artifact still carrying a Mirrorable* marker (or, when
+	// mirroring is disabled, simply unwrap typed values during YAML marshaling).
+	if err := inst.applyMirrorRewrites(ctx, helmChartConfig, originalChartRef); err != nil {
 		return helmclient.ChartSpec{}, err
 	}
 
@@ -1202,7 +1216,7 @@ func (inst *Installer) ensureChartMirrored(ctx context.Context, chartRef, versio
 		return "", err
 	}
 
-	key := chartRef + "@" + version
+	key := fmt.Sprintf("%s@%s|%s", chartRef, version, repoUrl)
 
 	inst.acrMirroringState.mu.Lock()
 	if inst.acrMirroringState.chartPromises == nil {
@@ -1270,14 +1284,15 @@ func sourceRefString(registry, repo, tagOrDigest string) string {
 // chart (when applicable) and every detected Mirrorable* image reference is
 // replaced with a mirror-pointing string.
 //
-// originalChartRef / originalRepoUrl are the chart's pre-override defaults: if
-// c.ChartRef is unchanged from originalChartRef, the chart itself is mirrored;
-// otherwise the user supplied an override and the chart is left as-is.
+// originalChartRef is the chart's pre-override default: if c.ChartRef is
+// unchanged from originalChartRef, the chart itself is mirrored from the
+// post-merge chart source; otherwise the user supplied a chart override and
+// the chart is left as-is.
 //
 // When mirroring is disabled this method is a no-op: the Mirrorable* typed
 // values are left as-is and yaml.Marshal serializes them as plain strings
 // (they are all named string types).
-func (inst *Installer) applyMirrorRewrites(ctx context.Context, c *HelmChartConfig, originalChartRef, originalRepoUrl string) error {
+func (inst *Installer) applyMirrorRewrites(ctx context.Context, c *HelmChartConfig, originalChartRef string) error {
 	mirrorAcr, err := inst.GetResolvedMirrorAcr(ctx)
 	if err != nil {
 		return err
@@ -1295,13 +1310,11 @@ func (inst *Installer) applyMirrorRewrites(ctx context.Context, c *HelmChartConf
 	// mirrors concurrently, then await them all.
 	group := install.PromiseGroup{}
 
-	// Chart mirroring: only mirror when the user did not override ChartRef
-	// (i.e. it still equals the baked-in default).
-	mirrorChart := originalChartRef != "" && c.ChartRef == originalChartRef
+	mirrorChart := shouldMirrorChart(c, originalChartRef)
 	var chartPromise *install.Promise[string]
 	if mirrorChart {
 		chartPromise = install.NewPromise(ctx, &group, func(ctx context.Context) (string, error) {
-			return inst.ensureChartMirrored(ctx, originalChartRef, c.Version, originalRepoUrl)
+			return inst.ensureChartMirrored(ctx, c.ChartRef, c.Version, c.RepoUrl)
 		})
 	}
 
@@ -1341,6 +1354,101 @@ type sourceImage struct {
 	Registry   string
 	Repository string
 	Tag        string
+}
+
+func shouldMirrorChart(c *HelmChartConfig, originalChartRef string) bool {
+	return originalChartRef != "" && c.ChartRef == originalChartRef
+}
+
+func cloneHelmChartConfig(c *HelmChartConfig) *HelmChartConfig {
+	if c == nil {
+		return nil
+	}
+	clone := *c
+	clone.Values = cloneValueMap(c.Values)
+	return &clone
+}
+
+func cloneValueMap(values map[string]any) map[string]any {
+	if values == nil {
+		return nil
+	}
+	clone := make(map[string]any, len(values))
+	for k, v := range values {
+		clone[k] = cloneValue(v)
+	}
+	return clone
+}
+
+func cloneValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return cloneValueMap(typed)
+	case []any:
+		clone := make([]any, len(typed))
+		for i, item := range typed {
+			clone[i] = cloneValue(item)
+		}
+		return clone
+	default:
+		return value
+	}
+}
+
+func preserveMirrorableValueTypes(defaults, overrides map[string]any) {
+	if defaults == nil || overrides == nil {
+		return
+	}
+
+	for key, overrideValue := range overrides {
+		defaultValue, ok := defaults[key]
+		if !ok {
+			continue
+		}
+		overrides[key] = preserveMirrorableValueType(defaultValue, overrideValue)
+	}
+}
+
+func preserveMirrorableValueType(defaultValue, overrideValue any) any {
+	if overrideString, ok := getStringValue(overrideValue); ok {
+		switch defaultValue.(type) {
+		case MirrorableRegistry:
+			return MirrorableRegistry(overrideString)
+		case MirrorableQualifiedRepository:
+			return MirrorableQualifiedRepository(overrideString)
+		case MirrorableRepository:
+			return MirrorableRepository(overrideString)
+		case MirrorableImageReference:
+			return MirrorableImageReference(overrideString)
+		case MirrorableTag:
+			return MirrorableTag(overrideString)
+		}
+	}
+
+	switch defaultTyped := defaultValue.(type) {
+	case map[string]any:
+		if overrideTyped, ok := overrideValue.(map[string]any); ok {
+			preserveMirrorableValueTypes(defaultTyped, overrideTyped)
+			return overrideTyped
+		}
+	case []any:
+		if overrideTyped, ok := overrideValue.([]any); ok {
+			for i := 0; i < len(defaultTyped) && i < len(overrideTyped); i++ {
+				overrideTyped[i] = preserveMirrorableValueType(defaultTyped[i], overrideTyped[i])
+			}
+			return overrideTyped
+		}
+	}
+
+	return overrideValue
+}
+
+func getStringValue(value any) (string, bool) {
+	reflected := reflect.ValueOf(value)
+	if !reflected.IsValid() || reflected.Kind() != reflect.String {
+		return "", false
+	}
+	return reflected.String(), true
 }
 
 // Walks values, replaces every Mirrorable* typed value with its

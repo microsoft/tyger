@@ -4,9 +4,13 @@
 package cloudinstall
 
 import (
+	"bytes"
+	"errors"
 	"testing"
 
+	"dario.cat/mergo"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const testMirrorFqdn = "mymirror.azurecr.io"
@@ -56,6 +60,101 @@ func TestImportPaths_Digest(t *testing.T) {
 		SourceImage:               "foo/bar@sha256:deadbeef",
 		TargetRepositoryForDigest: "tyger/foo/bar",
 	}, paths)
+}
+
+func TestMirrorValidationPostRenderer_ReturnsOriginalManifest(t *testing.T) {
+	buffer := bytes.NewBufferString("rendered manifest")
+	var validatedManifest string
+	renderer := mirrorValidationPostRenderer{
+		validate: func(manifest string) error {
+			validatedManifest = manifest
+			return nil
+		},
+	}
+
+	result, err := renderer.Run(buffer)
+
+	require.NoError(t, err)
+	assert.Same(t, buffer, result)
+	assert.Equal(t, "rendered manifest", validatedManifest)
+}
+
+func TestMirrorValidationPostRenderer_ReturnsValidationError(t *testing.T) {
+	validationErr := errors.New("validation failed")
+	renderer := mirrorValidationPostRenderer{
+		validate: func(string) error {
+			return validationErr
+		},
+	}
+
+	result, err := renderer.Run(bytes.NewBufferString("rendered manifest"))
+
+	require.ErrorIs(t, err, validationErr)
+	assert.Nil(t, result)
+}
+
+func TestShouldMirrorChart_TrueWhenChartRefUnchanged(t *testing.T) {
+	config := &HelmChartConfig{
+		ChartRef: "traefik/traefik",
+		Version:  "24.0.0",
+		RepoUrl:  "https://custom.example/helm",
+	}
+
+	assert.True(t, shouldMirrorChart(config, "traefik/traefik"))
+}
+
+func TestShouldMirrorChart_FalseWhenChartRefOverridden(t *testing.T) {
+	config := &HelmChartConfig{
+		ChartRef: "custom/traefik",
+		Version:  "24.0.0",
+		RepoUrl:  "https://custom.example/helm",
+	}
+
+	assert.False(t, shouldMirrorChart(config, "traefik/traefik"))
+}
+
+func TestPreserveMirrorableValueTypes_OverriddenDefaultsAreMirrored(t *testing.T) {
+	defaults := &HelmChartConfig{Values: map[string]any{
+		"image": map[string]any{
+			"repository": MirrorableQualifiedRepository("mcr.microsoft.com/azurelinux/base/default"),
+			"tag":        MirrorableTag("1.0"),
+		},
+	}}
+	overrides := &HelmChartConfig{Values: map[string]any{
+		"image": map[string]any{
+			"repository": "ghcr.io/acme/custom",
+			"tag":        "2.0",
+		},
+	}}
+	overridesForMerge := cloneHelmChartConfig(overrides)
+	preserveMirrorableValueTypes(defaults.Values, overridesForMerge.Values)
+
+	require.NoError(t, mergo.Merge(defaults, overridesForMerge, mergo.WithOverride))
+	images := rewriteMirrorableValues(defaults.Values, testMirrorFqdn)
+
+	assert.Equal(t, []sourceImage{
+		{Registry: "ghcr.io", Repository: "acme/custom", Tag: "2.0"},
+	}, images)
+	image := defaults.Values["image"].(map[string]any)
+	assert.Equal(t, "mymirror.azurecr.io/tyger/acme/custom", image["repository"])
+	assert.Equal(t, "2.0", image["tag"])
+
+	originalOverrideImage := overrides.Values["image"].(map[string]any)
+	assert.IsType(t, "", originalOverrideImage["repository"])
+	assert.IsType(t, "", originalOverrideImage["tag"])
+}
+
+func TestPreserveMirrorableValueTypes_UserAddedValuesRemainPlain(t *testing.T) {
+	defaults := map[string]any{
+		"image": MirrorableImageReference("mcr.microsoft.com/foo/bar:1.0"),
+	}
+	overrides := map[string]any{
+		"extraImage": "example.com/extra/image:2.0",
+	}
+
+	preserveMirrorableValueTypes(defaults, overrides)
+
+	assert.IsType(t, "", overrides["extraImage"])
 }
 
 func TestRewriteMirrorableValues_QualifiedRepositoryAndTag(t *testing.T) {
