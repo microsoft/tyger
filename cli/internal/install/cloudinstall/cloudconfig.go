@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"text/template"
 
@@ -97,6 +98,15 @@ type ComputeConfig struct {
 	ContainerRegistryProxy     string            `yaml:"containerRegistryProxy"` // undocumented and for internal use only
 	DnsLabel                   string            `yaml:"dnsLabel"`
 	Helm                       *SharedHelmConfig `yaml:"helm"`
+}
+
+func (c *CloudConfig) containerRegistriesForClusterAccess() []string {
+	registries := c.Compute.PrivateContainerRegistries
+	if mirrorAcr := c.GetMirrorAcrName(); mirrorAcr != "" && !slices.Contains(registries, mirrorAcr) {
+		registries = slices.Clone(registries)
+		registries = append(registries, mirrorAcr)
+	}
+	return registries
 }
 
 func (c *ComputeConfig) GetManagementPrincipalIds() []string {

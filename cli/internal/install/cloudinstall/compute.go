@@ -489,12 +489,7 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 		}
 	}
 
-	registriesToAttach := slices.Clone(inst.Config.Cloud.Compute.PrivateContainerRegistries)
-	if mirrorAcr := inst.Config.Cloud.GetMirrorAcrName(); mirrorAcr != "" && !slices.Contains(registriesToAttach, mirrorAcr) {
-		registriesToAttach = append(registriesToAttach, mirrorAcr)
-	}
-
-	for _, containerRegistry := range registriesToAttach {
+	for _, containerRegistry := range inst.Config.Cloud.containerRegistriesForClusterAccess() {
 		log.Ctx(ctx).Info().Msgf("Attaching ACR '%s' to cluster '%s'", containerRegistry, clusterConfig.Name)
 		containerRegistryId, err := getContainerRegistryId(ctx, containerRegistry, inst.Config.Cloud.SubscriptionID, inst.Credential)
 		if err != nil {
@@ -897,7 +892,7 @@ func (inst *Installer) onDeleteCluster(ctx context.Context, clusterConfig *Clust
 
 	kubeletObjectId := *kubeletIdentity.ObjectID
 
-	for _, containerRegistry := range inst.Config.Cloud.Compute.PrivateContainerRegistries {
+	for _, containerRegistry := range inst.Config.Cloud.containerRegistriesForClusterAccess() {
 		log.Ctx(ctx).Info().Msgf("Detaching ACR '%s' from cluster '%s'", containerRegistry, clusterConfig.Name)
 		containerRegistryId, err := getContainerRegistryId(ctx, containerRegistry, inst.Config.Cloud.SubscriptionID, inst.Credential)
 		if err != nil {
