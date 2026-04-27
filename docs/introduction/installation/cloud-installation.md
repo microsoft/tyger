@@ -71,6 +71,13 @@ cloud:
   # will not be accessible from the public internet.
   privateNetworking: false
 
+  # Optional: an existing private Azure Container Registry to mirror all container images
+  # and Helm charts to. When set, every artifact required by Tyger and its dependencies
+  # is imported into this registry on demand and the Helm values are rewritten to pull
+  # from it instead of the public sources. Can be a short name (e.g. "myacr") or a
+  # fully-qualified name (e.g. "myacr.azurecr.io").
+  # containerRegistryMirror: myacr
+
   # Optional: additional VNets to link private DNS zones to.
   # Use this to link DNS zones to a hub VNet in a hub-and-spoke topology,
   # so that a DNS resolver in the hub can resolve Tyger's private endpoints.
@@ -523,8 +530,9 @@ before running `tyger cloud install`:
   private
   endpoint](https://learn.microsoft.com/en-us/azure/key-vault/general/private-link-service?tabs=portal)
   for it in the cluster subnet.
-- **Azure Container Registry** — if you use a private container registry, follow
-  the
+- **Azure Container Registry** — if you use a private container registry,
+  including `cloud.containerRegistryMirror` or
+  `cloud.compute.privateContainerRegistries`, follow the
   [instructions](https://learn.microsoft.com/en-us/azure/container-registry/container-registry-private-link)
   to set up private endpoints in the cluster subnet.
 
@@ -552,3 +560,23 @@ When an environment has multiple organization the commands under `tyger cloud`,
 `tyger api`, and `tyger identities` can be scoped to one or more organizations
 using the `--org` flag. Some commands can only be applied to a single
 organization.
+
+## Container registry mirror
+
+If your environment cannot pull container images or Helm charts directly from
+public registries, set `cloud.containerRegistryMirror` to an existing Azure
+Container Registry. The value can be either the registry's short name or its
+fully qualified login server:
+
+```yaml
+cloud:
+  containerRegistryMirror: myacr
+```
+
+When this field is set, Tyger imports configured Helm charts and the container
+images used by Tyger and its dependencies into that registry, then rewrites the
+Helm values so Kubernetes pulls from the mirror. `tyger cloud install` also
+grants the AKS kubelet identity `AcrPull` on the mirror registry, the same way
+it does for `cloud.compute.privateContainerRegistries`. After adding or changing
+`containerRegistryMirror`, run `tyger cloud install` before `tyger api install`
+so the cluster can pull from the mirror.
