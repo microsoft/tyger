@@ -44,8 +44,13 @@ func TestRewriteMirrorableValues_MirrorableImageReferenceWithDigest(t *testing.T
 		values["image"])
 }
 
-func TestMirrorImageTargetRepo(t *testing.T) {
-	assert.Equal(t, "tyger/mcr.microsoft.com/foo/bar", mirrorImageTargetRepo("mcr.microsoft.com", "foo/bar"))
+func TestSourceImageMirrorTarget(t *testing.T) {
+	img := sourceImage{Registry: "mcr.microsoft.com", Repository: "foo/bar", Tag: "1.2.3"}
+
+	assert.Equal(t, "tyger/mcr.microsoft.com/foo/bar", img.mirrorRepository())
+	assert.Equal(t, "mymirror.azurecr.io/tyger/mcr.microsoft.com/foo/bar", img.mirrorQualifiedRepository(testMirrorFqdn))
+	assert.Equal(t, "mymirror.azurecr.io/tyger/mcr.microsoft.com/foo/bar:1.2.3", img.mirrorReference(testMirrorFqdn))
+	assert.Equal(t, "mcr.microsoft.com/foo/bar:1.2.3", img.sourceReference())
 }
 
 func TestMirrorChartTargetRepo_OciChartIncludesSourceRegistry(t *testing.T) {

@@ -1133,7 +1133,7 @@ func chartName(chartRef string) string {
 // given source ref is mirrored in the ACR.
 func mirrorChartTargetRepo(chartRef string) string {
 	if registryHost, repoPath, ok := parseOciArtifactRef(chartRef); ok {
-		return mirrorImageTargetRepo(registryHost, repoPath)
+		return sourceImage{Registry: registryHost, Repository: repoPath}.mirrorRepository()
 	}
 	return fmt.Sprintf("%s/helm/%s", MirrorRepoPrefix, chartName(chartRef))
 }
@@ -1141,10 +1141,6 @@ func mirrorChartTargetRepo(chartRef string) string {
 // Returns the OCI URL of a mirrored chart.
 func mirrorChartTargetRef(chartRef, registryMirrorFqdn string) string {
 	return fmt.Sprintf("oci://%s/%s", registryMirrorFqdn, mirrorChartTargetRepo(chartRef))
-}
-
-func mirrorImageTargetRepo(sourceRegistry, sourceRepo string) string {
-	return fmt.Sprintf("%s/%s/%s", MirrorRepoPrefix, sourceRegistry, sourceRepo)
 }
 
 func parseOciArtifactRef(ref string) (registryHost, repoPath string, ok bool) {
@@ -1206,7 +1202,8 @@ func (inst *Installer) ensureImageMirrored(ctx context.Context, sourceRegistry, 
 		return err
 	}
 
-	key := sourceRefString(sourceRegistry, sourceRepo, tagOrDigest)
+	img := sourceImage{Registry: sourceRegistry, Repository: sourceRepo, Tag: tagOrDigest}
+	key := img.sourceReference()
 
 	inst.acrMirroringState.mu.Lock()
 	if inst.acrMirroringState.imagePromises == nil {
@@ -1216,7 +1213,7 @@ func (inst *Installer) ensureImageMirrored(ctx context.Context, sourceRegistry, 
 	if !ok {
 		p = install.NewPromise(ctx, &install.PromiseGroup{}, func(ctx context.Context) (any, error) {
 			log.Ctx(ctx).Info().Msgf("Mirroring image %s to ACR '%s'", key, registryMirror.Name)
-			paths := importPaths(sourceRepo, tagOrDigest, mirrorImageTargetRepo(sourceRegistry, sourceRepo))
+			paths := importPaths(img.Repository, img.Tag, img.mirrorRepository())
 			return nil, inst.importImageToAcr(ctx, registryMirror, sourceRegistry, paths)
 		})
 		inst.acrMirroringState.imagePromises[key] = p
@@ -1284,14 +1281,6 @@ func importPaths(sourceRepo, tagOrDigest, targetRepo string) acrImportPaths {
 	}
 }
 
-func sourceRefString(registry, repo, tagOrDigest string) string {
-	sep := ":"
-	if strings.HasPrefix(tagOrDigest, "sha256:") {
-		sep = "@"
-	}
-	return fmt.Sprintf("%s/%s%s%s", registry, repo, sep, tagOrDigest)
-}
-
 // Mirrors all baked-in image and chart references in the chart config to the
 // user's private ACR (in parallel) and rewrites the corresponding values in
 // place. After this call helmChartConfig.ChartRef points at the mirrored
@@ -1325,17 +1314,26 @@ func (inst *Installer) applyMirrorRewrites(ctx context.Context, c *HelmChartConf
 	group := install.PromiseGroup{}
 
 	mirrorChart := shouldMirrorChart(c, originalChartRef)
-	var chartPromise *install.Promise[string]
+	var mirroredChartRef string
 	if mirrorChart {
-		chartPromise = install.NewPromise(ctx, &group, func(ctx context.Context) (string, error) {
-			return inst.ensureChartMirrored(ctx, c.ChartRef, c.Version, c.RepoUrl)
+		chartRef, version, repoUrl := c.ChartRef, c.Version, c.RepoUrl
+		install.NewPromise(ctx, &group, func(ctx context.Context) (any, error) {
+			targetRef, err := inst.ensureChartMirrored(ctx, chartRef, version, repoUrl)
+			if err != nil {
+				return nil, fmt.Errorf("failed to mirror chart %s: %w", chartRef, err)
+			}
+			mirroredChartRef = targetRef
+			return nil, nil
 		})
 	}
 
 	for _, img := range images {
 		img := img
 		install.NewPromise(ctx, &group, func(ctx context.Context) (any, error) {
-			return nil, inst.ensureImageMirrored(ctx, img.Registry, img.Repository, img.Tag)
+			if err := inst.ensureImageMirrored(ctx, img.Registry, img.Repository, img.Tag); err != nil {
+				return nil, fmt.Errorf("failed to mirror image %s: %w", img.sourceReference(), err)
+			}
+			return nil, nil
 		})
 	}
 
@@ -1346,15 +1344,11 @@ func (inst *Installer) applyMirrorRewrites(ctx context.Context, c *HelmChartConf
 		}
 	}
 	if len(errs) > 0 {
-		return fmt.Errorf("mirroring failed: %v", errs)
+		return errors.Join(errs...)
 	}
 
 	if mirrorChart {
-		targetRef, err := chartPromise.Await()
-		if err != nil {
-			return fmt.Errorf("failed to mirror chart %s: %w", originalChartRef, err)
-		}
-		c.ChartRef = targetRef
+		c.ChartRef = mirroredChartRef
 		c.RepoName = ""
 		c.RepoUrl = ""
 	}
@@ -1368,6 +1362,29 @@ type sourceImage struct {
 	Registry   string
 	Repository string
 	Tag        string
+}
+
+func (img sourceImage) mirrorRepository() string {
+	return fmt.Sprintf("%s/%s/%s", MirrorRepoPrefix, img.Registry, img.Repository)
+}
+
+func (img sourceImage) mirrorQualifiedRepository(mirrorFqdn string) string {
+	return fmt.Sprintf("%s/%s", mirrorFqdn, img.mirrorRepository())
+}
+
+func (img sourceImage) mirrorReference(mirrorFqdn string) string {
+	return fmt.Sprintf("%s%s%s", img.mirrorQualifiedRepository(mirrorFqdn), img.referenceSeparator(), img.Tag)
+}
+
+func (img sourceImage) sourceReference() string {
+	return fmt.Sprintf("%s/%s%s%s", img.Registry, img.Repository, img.referenceSeparator(), img.Tag)
+}
+
+func (img sourceImage) referenceSeparator() string {
+	if strings.HasPrefix(img.Tag, "sha256:") {
+		return "@"
+	}
+	return ":"
 }
 
 func shouldMirrorChart(c *HelmChartConfig, originalChartRef string) bool {
@@ -1504,12 +1521,9 @@ func rewriteMirrorableValues(values map[string]any, mirrorFqdn string) []sourceI
 				if !ok {
 					continue
 				}
-				images = append(images, sourceImage{Registry: srcRegistry, Repository: srcRepo, Tag: tag})
-				sep := ":"
-				if strings.HasPrefix(tag, "sha256:") {
-					sep = "@"
-				}
-				values[k] = fmt.Sprintf("%s/%s%s%s", mirrorFqdn, mirrorImageTargetRepo(srcRegistry, srcRepo), sep, tag)
+				img := sourceImage{Registry: srcRegistry, Repository: srcRepo, Tag: tag}
+				images = append(images, img)
+				values[k] = img.mirrorReference(mirrorFqdn)
 			case map[string]any:
 				walk(t)
 			case []any:
@@ -1525,16 +1539,16 @@ func rewriteMirrorableValues(values map[string]any, mirrorFqdn string) []sourceI
 		case qrepoKey != "" && tagKey != "":
 			slash := strings.Index(qrepoVal, "/")
 			if slash > 0 {
-				srcRegistry := qrepoVal[:slash]
-				srcRepo := qrepoVal[slash+1:]
-				images = append(images, sourceImage{Registry: srcRegistry, Repository: srcRepo, Tag: tagVal})
-				values[qrepoKey] = fmt.Sprintf("%s/%s", mirrorFqdn, mirrorImageTargetRepo(srcRegistry, srcRepo))
+				img := sourceImage{Registry: qrepoVal[:slash], Repository: qrepoVal[slash+1:], Tag: tagVal}
+				images = append(images, img)
+				values[qrepoKey] = img.mirrorQualifiedRepository(mirrorFqdn)
 				values[tagKey] = tagVal
 			}
 		case regKey != "" && repoKey != "" && tagKey != "":
-			images = append(images, sourceImage{Registry: regVal, Repository: repoVal, Tag: tagVal})
+			img := sourceImage{Registry: regVal, Repository: repoVal, Tag: tagVal}
+			images = append(images, img)
 			values[regKey] = mirrorFqdn
-			values[repoKey] = mirrorImageTargetRepo(regVal, repoVal)
+			values[repoKey] = img.mirrorRepository()
 			values[tagKey] = tagVal
 		}
 	}
