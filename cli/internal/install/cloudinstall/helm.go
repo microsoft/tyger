@@ -889,7 +889,9 @@ func (r mirrorValidationPostRenderer) Run(renderedManifests *bytes.Buffer) (*byt
 // installer run even when multiple organizations share the same images.
 //
 // User overrides supplied via the config file are applied BEFORE mirror
-// rewriting, so anything the user explicitly sets wins and is not mirrored.
+// rewriting. Override values on built-in mirrorable image paths keep the
+// Mirrorable* marker and are mirrored; arbitrary user-added values remain
+// plain strings and are not mirrored by this pass.
 func (inst *Installer) GetChartSpec(
 	ctx context.Context,
 	helmChartConfig *HelmChartConfig,
