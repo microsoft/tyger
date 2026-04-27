@@ -25,7 +25,7 @@ func TestRewriteMirrorableValues_MirrorableImageReference(t *testing.T) {
 	assert.Equal(t, []sourceImage{
 		{Registry: "mcr.microsoft.com", Repository: "foo/bar", Tag: "1.2.3"},
 	}, images)
-	assert.Equal(t, "mymirror.azurecr.io/tyger/foo/bar:1.2.3", values["image"])
+	assert.Equal(t, "mymirror.azurecr.io/tyger/mcr.microsoft.com/foo/bar:1.2.3", values["image"])
 }
 
 func TestRewriteMirrorableValues_MirrorableImageReferenceWithDigest(t *testing.T) {
@@ -40,8 +40,22 @@ func TestRewriteMirrorableValues_MirrorableImageReferenceWithDigest(t *testing.T
 		{Registry: "mcr.microsoft.com", Repository: "foo/bar", Tag: "sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"},
 	}, images)
 	assert.Equal(t,
-		"mymirror.azurecr.io/tyger/foo/bar@sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+		"mymirror.azurecr.io/tyger/mcr.microsoft.com/foo/bar@sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
 		values["image"])
+}
+
+func TestMirrorImageTargetRepo(t *testing.T) {
+	assert.Equal(t, "tyger/mcr.microsoft.com/foo/bar", mirrorImageTargetRepo("mcr.microsoft.com", "foo/bar"))
+}
+
+func TestMirrorChartTargetRepo_OciChartIncludesSourceRegistry(t *testing.T) {
+	assert.Equal(t,
+		"tyger/mcr.microsoft.com/azurelinux/helm/cert-manager",
+		mirrorChartTargetRepo("oci://mcr.microsoft.com/azurelinux/helm/cert-manager"))
+}
+
+func TestMirrorChartTargetRepo_NonOciChartUsesHelmPrefix(t *testing.T) {
+	assert.Equal(t, "tyger/helm/traefik", mirrorChartTargetRepo("traefik/traefik"))
 }
 
 func TestImportPaths_Tag(t *testing.T) {
@@ -136,7 +150,7 @@ func TestPreserveMirrorableValueTypes_OverriddenDefaultsAreMirrored(t *testing.T
 		{Registry: "ghcr.io", Repository: "acme/custom", Tag: "2.0"},
 	}, images)
 	image := defaults.Values["image"].(map[string]any)
-	assert.Equal(t, "mymirror.azurecr.io/tyger/acme/custom", image["repository"])
+	assert.Equal(t, "mymirror.azurecr.io/tyger/ghcr.io/acme/custom", image["repository"])
 	assert.Equal(t, "2.0", image["tag"])
 
 	originalOverrideImage := overrides.Values["image"].(map[string]any)
@@ -171,7 +185,7 @@ func TestRewriteMirrorableValues_QualifiedRepositoryAndTag(t *testing.T) {
 		{Registry: "mcr.microsoft.com", Repository: "azurelinux/base/cert-manager-controller", Tag: "1.2.3"},
 	}, images)
 	img := values["image"].(map[string]any)
-	assert.Equal(t, "mymirror.azurecr.io/tyger/azurelinux/base/cert-manager-controller", img["repository"])
+	assert.Equal(t, "mymirror.azurecr.io/tyger/mcr.microsoft.com/azurelinux/base/cert-manager-controller", img["repository"])
 	assert.Equal(t, "1.2.3", img["tag"])
 }
 
@@ -191,7 +205,7 @@ func TestRewriteMirrorableValues_RegistryRepositoryTagSplit(t *testing.T) {
 	}, images)
 	img := values["image"].(map[string]any)
 	assert.Equal(t, "mymirror.azurecr.io", img["registry"])
-	assert.Equal(t, "tyger/oss/traefik/traefik", img["repository"])
+	assert.Equal(t, "tyger/mcr.microsoft.com/oss/traefik/traefik", img["repository"])
 	assert.Equal(t, "v2.10.7", img["tag"])
 }
 
@@ -237,7 +251,7 @@ func TestRewriteMirrorableValues_RecurseIntoSlicesOfMaps(t *testing.T) {
 		{Registry: "mcr.microsoft.com", Repository: "foo/bar", Tag: "1.0"},
 	}, images)
 	container := values["deployment"].(map[string]any)["additionalContainers"].([]any)[0].(map[string]any)
-	assert.Equal(t, "mymirror.azurecr.io/tyger/foo/bar:1.0", container["image"])
+	assert.Equal(t, "mymirror.azurecr.io/tyger/mcr.microsoft.com/foo/bar:1.0", container["image"])
 }
 
 func TestRewriteMirrorableValues_NoMirrorableValues(t *testing.T) {

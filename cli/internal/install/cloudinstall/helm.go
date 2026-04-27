@@ -1132,12 +1132,31 @@ func chartName(chartRef string) string {
 // Returns the repository path (without registry FQDN) where a chart with the
 // given source ref is mirrored in the ACR.
 func mirrorChartTargetRepo(chartRef string) string {
+	if registryHost, repoPath, ok := parseOciArtifactRef(chartRef); ok {
+		return mirrorImageTargetRepo(registryHost, repoPath)
+	}
 	return fmt.Sprintf("%s/helm/%s", MirrorRepoPrefix, chartName(chartRef))
 }
 
 // Returns the OCI URL of a mirrored chart.
 func mirrorChartTargetRef(chartRef, registryMirrorFqdn string) string {
 	return fmt.Sprintf("oci://%s/%s", registryMirrorFqdn, mirrorChartTargetRepo(chartRef))
+}
+
+func mirrorImageTargetRepo(sourceRegistry, sourceRepo string) string {
+	return fmt.Sprintf("%s/%s/%s", MirrorRepoPrefix, sourceRegistry, sourceRepo)
+}
+
+func parseOciArtifactRef(ref string) (registryHost, repoPath string, ok bool) {
+	after, ok := strings.CutPrefix(ref, "oci://")
+	if !ok {
+		return "", "", false
+	}
+	slash := strings.Index(after, "/")
+	if slash <= 0 || slash == len(after)-1 {
+		return "", "", false
+	}
+	return after[:slash], after[slash+1:], true
 }
 
 // Returns the short name (without the .azurecr.io suffix) of the configured
@@ -1197,7 +1216,7 @@ func (inst *Installer) ensureImageMirrored(ctx context.Context, sourceRegistry, 
 	if !ok {
 		p = install.NewPromise(ctx, &install.PromiseGroup{}, func(ctx context.Context) (any, error) {
 			log.Ctx(ctx).Info().Msgf("Mirroring image %s to ACR '%s'", key, registryMirror.Name)
-			paths := importPaths(sourceRepo, tagOrDigest, MirrorRepoPrefix+"/"+sourceRepo)
+			paths := importPaths(sourceRepo, tagOrDigest, mirrorImageTargetRepo(sourceRegistry, sourceRepo))
 			return nil, inst.importImageToAcr(ctx, registryMirror, sourceRegistry, paths)
 		})
 		inst.acrMirroringState.imagePromises[key] = p
@@ -1227,20 +1246,15 @@ func (inst *Installer) ensureChartMirrored(ctx context.Context, chartRef, versio
 		p = install.NewPromise(ctx, &install.PromiseGroup{}, func(ctx context.Context) (string, error) {
 			log.Ctx(ctx).Info().Msgf("Mirroring chart %s:%s to ACR '%s'", chartRef, version, registryMirror.Name)
 			targetRepoPath := mirrorChartTargetRepo(chartRef)
-			if after, ok := strings.CutPrefix(chartRef, "oci://"); ok {
-				ref := after
-				slash := strings.Index(ref, "/")
-				if slash < 0 {
-					return "", fmt.Errorf("invalid OCI chart reference %q", chartRef)
-				}
-				registryHost := ref[:slash]
-				repoPath := ref[slash+1:]
+			if registryHost, repoPath, ok := parseOciArtifactRef(chartRef); ok {
 				if err := inst.importImageToAcr(ctx, registryMirror, registryHost, acrImportPaths{
 					SourceImage: fmt.Sprintf("%s:%s", repoPath, version),
 					TargetTag:   fmt.Sprintf("%s:%s", targetRepoPath, version),
 				}); err != nil {
 					return "", err
 				}
+			} else if strings.HasPrefix(chartRef, "oci://") {
+				return "", fmt.Errorf("invalid OCI chart reference %q", chartRef)
 			} else {
 				if err := inst.pullAndPushHelmChart(ctx, registryMirror, chartName(chartRef), version, repoUrl, targetRepoPath); err != nil {
 					return "", err
@@ -1495,7 +1509,7 @@ func rewriteMirrorableValues(values map[string]any, mirrorFqdn string) []sourceI
 				if strings.HasPrefix(tag, "sha256:") {
 					sep = "@"
 				}
-				values[k] = fmt.Sprintf("%s/%s/%s%s%s", mirrorFqdn, MirrorRepoPrefix, srcRepo, sep, tag)
+				values[k] = fmt.Sprintf("%s/%s%s%s", mirrorFqdn, mirrorImageTargetRepo(srcRegistry, srcRepo), sep, tag)
 			case map[string]any:
 				walk(t)
 			case []any:
@@ -1514,13 +1528,13 @@ func rewriteMirrorableValues(values map[string]any, mirrorFqdn string) []sourceI
 				srcRegistry := qrepoVal[:slash]
 				srcRepo := qrepoVal[slash+1:]
 				images = append(images, sourceImage{Registry: srcRegistry, Repository: srcRepo, Tag: tagVal})
-				values[qrepoKey] = fmt.Sprintf("%s/%s/%s", mirrorFqdn, MirrorRepoPrefix, srcRepo)
+				values[qrepoKey] = fmt.Sprintf("%s/%s", mirrorFqdn, mirrorImageTargetRepo(srcRegistry, srcRepo))
 				values[tagKey] = tagVal
 			}
 		case regKey != "" && repoKey != "" && tagKey != "":
 			images = append(images, sourceImage{Registry: regVal, Repository: repoVal, Tag: tagVal})
 			values[regKey] = mirrorFqdn
-			values[repoKey] = fmt.Sprintf("%s/%s", MirrorRepoPrefix, repoVal)
+			values[repoKey] = mirrorImageTargetRepo(regVal, repoVal)
 			values[tagKey] = tagVal
 		}
 	}
