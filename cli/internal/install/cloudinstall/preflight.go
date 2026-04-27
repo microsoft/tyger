@@ -19,6 +19,15 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+const (
+	registryRoleAssignmentsWriteAction = "Microsoft.Authorization/roleAssignments/write"
+	registryReadAction                 = "Microsoft.ContainerRegistry/registries/read"
+	registryWriteAction                = "Microsoft.ContainerRegistry/registries/write"
+	registryImportImageAction          = "Microsoft.ContainerRegistry/registries/importImage/action"
+	registryPullAction                 = "Microsoft.ContainerRegistry/registries/pull/read"
+	registryPushAction                 = "Microsoft.ContainerRegistry/registries/push/write"
+)
+
 func (inst *Installer) preflightCheck(ctx context.Context) error {
 	if err := inst.checkRPsRegistered(ctx); err != nil {
 		return err
@@ -176,14 +185,6 @@ func (inst *Installer) checkRbac(ctx context.Context) error {
 	}
 
 	// Attached container registries
-	attachedRegistryRequiredActions := []string{
-		"Microsoft.Authorization/roleAssignments/write",
-	}
-	mirrorRegistryRequiredActions := []string{
-		"Microsoft.ContainerRegistry/registries/read",
-		"Microsoft.ContainerRegistry/registries/write",
-		"Microsoft.ContainerRegistry/registries/importImage/action",
-	}
 	registryMirror := inst.Config.Cloud.GetContainerRegistryMirrorName()
 	for _, acr := range inst.Config.Cloud.containerRegistriesForClusterAccess() {
 		id, err := getContainerRegistryId(ctx, acr, inst.Config.Cloud.SubscriptionID, inst.Credential)
@@ -191,15 +192,15 @@ func (inst *Installer) checkRbac(ctx context.Context) error {
 			return err
 		}
 
-		for _, a := range attachedRegistryRequiredActions {
-			if err := checkAccess(ctx, id, a, roleAssignments, roleDefs); err != nil {
+		for _, action := range attachedRegistryRequiredActions() {
+			if err := checkAccess(ctx, id, action, roleAssignments, roleDefs); err != nil {
 				hasErr = true
 			}
 		}
 
 		if acr == registryMirror {
-			for _, a := range mirrorRegistryRequiredActions {
-				if err := checkAccess(ctx, id, a, roleAssignments, roleDefs); err != nil {
+			for _, action := range mirrorRegistryRequiredActions() {
+				if err := checkAccess(ctx, id, action, roleAssignments, roleDefs); err != nil {
 					hasErr = true
 				}
 			}
@@ -228,6 +229,22 @@ func (inst *Installer) checkRbac(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func attachedRegistryRequiredActions() []string {
+	return []string{
+		registryRoleAssignmentsWriteAction,
+	}
+}
+
+func mirrorRegistryRequiredActions() []string {
+	return []string{
+		registryReadAction,
+		registryWriteAction,
+		registryImportImageAction,
+		registryPullAction,
+		registryPushAction,
+	}
 }
 
 // This is not meant to be a complete check and may result in false positives. For instance, we are ignoring conditions and deny assignments.

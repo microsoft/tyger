@@ -169,3 +169,13 @@ func TestCheckAccessInheritedWildcardWithNotAction(t *testing.T) {
 	}
 	assert.Error(t, checkAccess(context.Background(), scope, "Microsoft.Storage/storageAccounts/write", []armauthorization.RoleAssignment{roleAssignment}, map[string]armauthorization.RoleDefinition{*role.ID: role}))
 }
+
+func TestMirrorRegistryRequiredActions(t *testing.T) {
+	assert.ElementsMatch(t, []string{
+		"Microsoft.ContainerRegistry/registries/read",
+		"Microsoft.ContainerRegistry/registries/write",
+		"Microsoft.ContainerRegistry/registries/importImage/action",
+		"Microsoft.ContainerRegistry/registries/pull/read",
+		"Microsoft.ContainerRegistry/registries/push/write",
+	}, mirrorRegistryRequiredActions())
+}
