@@ -160,6 +160,55 @@ func TestRewriteMirrorableValues_NilValuesIsNoOp(t *testing.T) {
 	assert.Empty(t, images)
 }
 
+func TestExtractManifestImages(t *testing.T) {
+	manifest := `apiVersion: v1
+kind: Pod
+metadata:
+  name: a
+spec:
+  initContainers:
+    - name: init
+      image: registry.example.com/lib/init:1.0
+  containers:
+    - name: app
+      image: registry.example.com/lib/app:2.0
+    - name: side
+      image: registry.example.com/lib/app:2.0
+---
+apiVersion: apps/v1
+kind: Deployment
+spec:
+  template:
+    spec:
+      containers:
+        - name: c
+          image: other.example.com/foo:3.0
+`
+	images := extractManifestImages(manifest)
+	assert.Equal(t, []string{
+		"other.example.com/foo:3.0",
+		"registry.example.com/lib/app:2.0",
+		"registry.example.com/lib/init:1.0",
+	}, images)
+}
+
+func TestExtractManifestImages_IgnoresNonStringImageFields(t *testing.T) {
+	// "image:" with a sub-map (e.g. helm values shape embedded in a
+	// ConfigMap) should not be treated as a leaf image string.
+	manifest := `apiVersion: v1
+kind: ConfigMap
+data:
+  values: |
+    foo: bar
+spec:
+  image:
+    repository: foo
+    tag: bar
+`
+	images := extractManifestImages(manifest)
+	assert.Empty(t, images)
+}
+
 func TestParseFullImageRef(t *testing.T) {
 	cases := []struct {
 		name     string

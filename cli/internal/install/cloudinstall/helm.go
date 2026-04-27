@@ -282,6 +282,7 @@ func (inst *Installer) installCertManager(ctx context.Context, restConfigPromise
 
 	log.Ctx(ctx).Info().Msg("Installing cert-manager")
 
+	imageTag := MirrorableTag("1.12.15-4.3.0.20251206")
 	certManagerConfig := HelmChartConfig{
 		Namespace:   "cert-manager",
 		ReleaseName: "cert-manager",
@@ -292,24 +293,30 @@ func (inst *Installer) installCertManager(ctx context.Context, restConfigPromise
 				"installCRDs": true,
 				"image": map[string]any{
 					"repository": MirrorableQualifiedRepository("mcr.microsoft.com/azurelinux/base/cert-manager-controller"),
-					"tag":        MirrorableTag("1.12.15-4.3.0.20251206"),
+					"tag":        imageTag,
 				},
 				"acmesolver": map[string]any{
 					"image": map[string]any{
 						"repository": MirrorableQualifiedRepository("mcr.microsoft.com/azurelinux/base/cert-manager-acmesolver"),
-						"tag":        MirrorableTag("1.12.15-4.3.0.20251206"),
+						"tag":        imageTag,
 					},
 				},
 				"cainjector": map[string]any{
 					"image": map[string]any{
 						"repository": MirrorableQualifiedRepository("mcr.microsoft.com/azurelinux/base/cert-manager-cainjector"),
-						"tag":        MirrorableTag("1.12.15-4.3.0.20251206"),
+						"tag":        imageTag,
 					},
 				},
 				"webhook": map[string]any{
 					"image": map[string]any{
 						"repository": MirrorableQualifiedRepository("mcr.microsoft.com/azurelinux/base/cert-manager-webhook"),
-						"tag":        MirrorableTag("1.12.15-4.3.0.20251206"),
+						"tag":        imageTag,
+					},
+				},
+				"startupapicheck": map[string]any{
+					"image": map[string]any{
+						"repository": MirrorableQualifiedRepository("mcr.microsoft.com/azurelinux/base/cert-manager-cmctl"),
+						"tag":        imageTag,
 					},
 				},
 			},
@@ -805,7 +812,26 @@ func (inst *Installer) installHelmChart(
 		if err != nil {
 			return "", "", fmt.Errorf("failed to template chart: %w", err)
 		}
+		if err := inst.validateMirroredManifest(ctx, string(manifest)); err != nil {
+			return "", "", err
+		}
 		return string(manifest), chartSpec.ValuesYaml, nil
+	}
+
+	// When mirroring is enabled, render the chart up-front and verify that
+	// every container image references the mirror ACR. This catches images
+	// that were not wrapped in a Mirrorable* type and so would have escaped
+	// the rewrite pass.
+	if mirrorAcr, err := inst.GetResolvedMirrorAcr(ctx); err != nil {
+		return "", "", err
+	} else if mirrorAcr != nil {
+		rendered, err := helmClient.TemplateChart(&chartSpec, nil)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to template chart for mirror validation: %w", err)
+		}
+		if err := inst.validateMirroredManifest(ctx, string(rendered)); err != nil {
+			return "", "", err
+		}
 	}
 
 	for i := 0; ; i++ {
@@ -1394,4 +1420,75 @@ func parseFullImageRef(ref string) (registry, repo, tag string, ok bool) {
 		return registry, rest[:colon], rest[colon+1:], true
 	}
 	return "", "", "", false
+}
+
+// Verifies that every container image referenced by the rendered helm
+// manifest points at the configured mirror ACR. Returns nil when mirroring
+// is disabled. Used to catch images that escaped the Mirrorable* rewrite
+// pass (e.g. images baked into the chart templates that we forgot to wrap).
+func (inst *Installer) validateMirroredManifest(ctx context.Context, manifest string) error {
+	mirrorAcr, err := inst.GetResolvedMirrorAcr(ctx)
+	if err != nil {
+		return err
+	}
+	if mirrorAcr == nil {
+		return nil
+	}
+
+	images := extractManifestImages(manifest)
+	expectedPrefix := mirrorAcr.LoginServer + "/"
+	var unmirrored []string
+	for _, img := range images {
+		if !strings.HasPrefix(img, expectedPrefix) {
+			unmirrored = append(unmirrored, img)
+		}
+	}
+	if len(unmirrored) > 0 {
+		sort.Strings(unmirrored)
+		return fmt.Errorf("the rendered helm manifest references %d image(s) that do not point at the mirror ACR %q: %s",
+			len(unmirrored), mirrorAcr.LoginServer, strings.Join(unmirrored, ", "))
+	}
+	return nil
+}
+
+// Extracts the set of container image references from a multi-document
+// kubernetes YAML manifest. Looks for any "image:" string field anywhere in
+// the documents.
+func extractManifestImages(manifest string) []string {
+	seen := map[string]struct{}{}
+	var collect func(any)
+	collect = func(node any) {
+		switch n := node.(type) {
+		case map[string]any:
+			for k, v := range n {
+				if k == "image" {
+					if s, ok := v.(string); ok && s != "" {
+						seen[s] = struct{}{}
+						continue
+					}
+				}
+				collect(v)
+			}
+		case []any:
+			for _, item := range n {
+				collect(item)
+			}
+		}
+	}
+
+	dec := goccyyaml.NewDecoder(strings.NewReader(manifest))
+	for {
+		var obj any
+		if err := dec.Decode(&obj); err != nil {
+			break
+		}
+		collect(obj)
+	}
+
+	out := make([]string, 0, len(seen))
+	for img := range seen {
+		out = append(out, img)
+	}
+	sort.Strings(out)
+	return out
 }
