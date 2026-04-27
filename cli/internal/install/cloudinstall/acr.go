@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
@@ -251,22 +252,37 @@ func (inst *Installer) getAcrRefreshToken(ctx context.Context, acrFqdn string) (
 	}
 
 	exchangeURL := fmt.Sprintf("https://%s/oauth2/exchange", acrFqdn)
-	formData := fmt.Sprintf("grant_type=access_token&service=%s&access_token=%s", acrFqdn, aadToken.Token)
+	return exchangeAcrRefreshToken(ctx, http.DefaultClient, exchangeURL, acrFqdn, inst.Config.Cloud.TenantID, aadToken.Token)
+}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, exchangeURL, strings.NewReader(formData))
+type httpDoer interface {
+	Do(*http.Request) (*http.Response, error)
+}
+
+func exchangeAcrRefreshToken(ctx context.Context, client httpDoer, exchangeURL, acrFqdn, tenantID, aadAccessToken string) (string, error) {
+	formData := url.Values{}
+	formData.Set("grant_type", "access_token")
+	formData.Set("service", acrFqdn)
+	formData.Set("tenant", tenantID)
+	formData.Set("access_token", aadAccessToken)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, exchangeURL, strings.NewReader(formData.Encode()))
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to exchange ACR token: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return "", fmt.Errorf("ACR token exchange failed (status %d) and failed to read response body: %w", resp.StatusCode, err)
+		}
 		return "", fmt.Errorf("ACR token exchange failed (status %d): %s", resp.StatusCode, string(body))
 	}
 
@@ -275,6 +291,9 @@ func (inst *Installer) getAcrRefreshToken(ctx context.Context, acrFqdn string) (
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return "", fmt.Errorf("failed to decode ACR exchange response: %w", err)
+	}
+	if result.RefreshToken == "" {
+		return "", fmt.Errorf("ACR token exchange response did not include a refresh token")
 	}
 	return result.RefreshToken, nil
 }
