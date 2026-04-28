@@ -63,7 +63,8 @@ networks:
 	defer s.Cleanup()
 
 	s.CommandSucceeds("create")
-	s.CommandSucceeds("start", "--wait", "--wait-timeout", "60", "squid")
+	s.CommandSucceeds("start", "squid")
+	s.WaitForHealthy("squid")
 
 	bufferId := runTygerSucceeds(t, "buffer", "create")
 	NewTygerCmdBuilder("buffer", "write", bufferId).Stdin("Hello").RunSucceeds(t)
@@ -334,6 +335,32 @@ func (s *ComposeSession) Command(args ...string) (stdout string, stderr string, 
 	b := NewCmdBuilder("docker", append([]string{"compose"}, args...)...)
 	b.Dir(s.dir)
 	return b.Run()
+}
+
+func (s *ComposeSession) WaitForHealthy(service string) {
+	s.t.Helper()
+
+	containerId := s.CommandSucceeds("ps", "-q", service)
+	var lastStatus string
+	var lastStdErr string
+	var lastErr error
+
+	for attempt := 1; attempt <= 60; attempt++ {
+		lastStatus, lastStdErr, lastErr = runCommand("docker", "inspect", "--format", "{{.State.Health.Status}}", containerId)
+		if lastErr == nil && lastStatus == "healthy" {
+			return
+		}
+
+		if attempt < 60 {
+			time.Sleep(time.Second)
+		}
+	}
+
+	logs, _, _ := s.Command("logs", service)
+	if logs != "" {
+		s.t.Log(logs)
+	}
+	s.t.Fatalf("timed out waiting for %s to become healthy: status=%q error=%v\n%s", service, lastStatus, lastErr, lastStdErr)
 }
 
 func (s *ComposeSession) ShellExecSucceeds(service string, command string) string {
