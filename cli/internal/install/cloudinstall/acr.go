@@ -10,15 +10,12 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerregistry/armcontainerregistry"
 	"github.com/microsoft/tyger/cli/internal/client"
 	helmclient "github.com/mittwald/go-helm-client"
-	"helm.sh/helm/v3/pkg/action"
-	"helm.sh/helm/v3/pkg/cli"
 	helmregistry "helm.sh/helm/v3/pkg/registry"
 )
 
@@ -136,56 +133,6 @@ func (inst *Installer) importImageToAcr(ctx context.Context, target *ResolvedAcr
 	return nil
 }
 
-// Pulls a chart from a traditional helm repo and pushes it to target as an
-// OCI artifact at "<target>/<targetRepoPath>:<version>".
-func (inst *Installer) pullAndPushHelmChart(ctx context.Context, target *ResolvedAcr, chartName, version, repoUrl, targetRepoPath string) error {
-	registryClient, err := inst.newAcrHelmRegistryClient(ctx, target.LoginServer)
-	if err != nil {
-		return fmt.Errorf("failed to create registry client: %w", err)
-	}
-
-	pull := action.NewPullWithOpts(action.WithConfig(&action.Configuration{}))
-	pull.Settings = cli.New()
-	pull.Version = version
-	pull.RepoURL = repoUrl
-	pull.SetRegistryClient(registryClient)
-
-	tmpDir, err := os.MkdirTemp("", "tyger-acr-chart-*")
-	if err != nil {
-		return fmt.Errorf("failed to create temp dir: %w", err)
-	}
-	defer os.RemoveAll(tmpDir)
-	pull.DestDir = tmpDir
-
-	if _, err := pull.Run(chartName); err != nil {
-		return fmt.Errorf("failed to pull chart %s: %w", chartName, err)
-	}
-
-	entries, err := os.ReadDir(tmpDir)
-	if err != nil {
-		return fmt.Errorf("failed to read temp dir: %w", err)
-	}
-	var chartData []byte
-	for _, entry := range entries {
-		if strings.HasSuffix(entry.Name(), ".tgz") {
-			chartData, err = os.ReadFile(fmt.Sprintf("%s/%s", tmpDir, entry.Name()))
-			if err != nil {
-				return fmt.Errorf("failed to read chart file: %w", err)
-			}
-			break
-		}
-	}
-	if chartData == nil {
-		return fmt.Errorf("chart package not found after pulling %s", chartName)
-	}
-
-	targetRef := fmt.Sprintf("%s/%s:%s", target.LoginServer, targetRepoPath, version)
-	if _, err := registryClient.Push(chartData, targetRef); err != nil {
-		return fmt.Errorf("failed to push chart %s: %w", targetRef, err)
-	}
-	return nil
-}
-
 // Builds an ImportSource, using ResourceID for private ACRs (*.azurecr.io)
 // and RegistryURI for public registries.
 func (inst *Installer) makeImportSource(ctx context.Context, registryHost, sourceImage string) (*armcontainerregistry.ImportSource, error) {
@@ -204,24 +151,6 @@ func (inst *Installer) makeImportSource(ctx context.Context, registryHost, sourc
 		RegistryURI: Ptr(registryHost),
 		SourceImage: Ptr(sourceImage),
 	}, nil
-}
-
-// Creates a helm registry client logged in to the given ACR.
-func (inst *Installer) newAcrHelmRegistryClient(ctx context.Context, acrFqdn string) (*helmregistry.Client, error) {
-	refreshToken, err := inst.getAcrRefreshToken(ctx, acrFqdn)
-	if err != nil {
-		return nil, err
-	}
-
-	client, err := helmregistry.NewClient()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create helm registry client: %w", err)
-	}
-	if err := client.Login(acrFqdn,
-		helmregistry.LoginOptBasicAuth("00000000-0000-0000-0000-000000000000", refreshToken)); err != nil {
-		return nil, fmt.Errorf("failed to log in to ACR '%s': %w", acrFqdn, err)
-	}
-	return client, nil
 }
 
 // Logs the registry client embedded in a helmclient.Client in to the given

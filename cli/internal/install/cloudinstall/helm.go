@@ -905,10 +905,10 @@ func (r mirrorValidationPostRenderer) Run(renderedManifests *bytes.Buffer) (*byt
 
 // Resolves the helm chart spec for the given config. When the user has opted
 // into ACR mirroring (cloud.containerRegistryMirror), this method also performs
-// the necessary ACR copies in parallel and rewrites every Mirrorable* image and
-// chart reference in the config to point at the mirror ACR, unless this chart
-// is excluded from mirroring. Mirroring is performed lazily and cached, so each
-// artifact is copied at most once per installer run even when multiple
+// the necessary ACR copies in parallel and rewrites every Mirrorable* image
+// reference in the config to point at the mirror ACR, unless this chart is
+// excluded from mirroring. Mirroring is performed lazily and cached, so each
+// image is copied at most once per installer run even when multiple
 // organizations share the same images.
 //
 // User overrides supplied via the config file are applied BEFORE mirror
@@ -926,7 +926,6 @@ func (inst *Installer) GetChartSpec(
 	// types from default values onto matching user override paths so overridden
 	// image values are still declaratively mirrorable. Arbitrary user-added
 	// values remain plain strings and are not mirrored by this pass.
-	originalChartRef := helmChartConfig.ChartRef
 	if overrideHelmChartConfig != nil {
 		overrideHelmChartConfig = cloneHelmChartConfig(overrideHelmChartConfig)
 		preserveMirrorableValueTypes(helmChartConfig.Values, overrideHelmChartConfig.Values)
@@ -937,7 +936,7 @@ func (inst *Installer) GetChartSpec(
 
 	// Mirror every artifact still carrying a Mirrorable* marker (or, when
 	// mirroring is disabled, simply unwrap typed values during YAML marshaling).
-	if err := inst.applyMirrorRewrites(ctx, helmChartConfig, originalChartRef); err != nil {
+	if err := inst.applyMirrorRewrites(ctx, helmChartConfig); err != nil {
 		return helmclient.ChartSpec{}, err
 	}
 
@@ -1139,46 +1138,12 @@ func (inst *Installer) uninstallTygerSingleOrg(ctx context.Context, restConfig *
 	return nil
 }
 
-// --- ACR mirroring of helm charts and image references ---
+// --- ACR mirroring of image references ---
 
 // Repository prefix used for every mirrored artifact in the user's private
 // ACR. All sources are placed under this prefix so they don't collide with
 // anything else in the registry.
 const MirrorRepoPrefix = "tyger"
-
-// Returns the final path segment of a chart reference (e.g. "traefik" for
-// "traefik/traefik" or "cert-manager" for "oci://.../helm/cert-manager").
-func chartName(chartRef string) string {
-	ref := strings.TrimPrefix(chartRef, "oci://")
-	parts := strings.Split(ref, "/")
-	return parts[len(parts)-1]
-}
-
-// Returns the repository path (without registry FQDN) where a chart with the
-// given source ref is mirrored in the ACR.
-func mirrorChartTargetRepo(chartRef string) string {
-	if registryHost, repoPath, ok := parseOciArtifactRef(chartRef); ok {
-		return sourceImage{Registry: registryHost, Repository: repoPath}.mirrorRepository()
-	}
-	return fmt.Sprintf("%s/helm/%s", MirrorRepoPrefix, chartName(chartRef))
-}
-
-// Returns the OCI URL of a mirrored chart.
-func mirrorChartTargetRef(chartRef, registryMirrorFqdn string) string {
-	return fmt.Sprintf("oci://%s/%s", registryMirrorFqdn, mirrorChartTargetRepo(chartRef))
-}
-
-func parseOciArtifactRef(ref string) (registryHost, repoPath string, ok bool) {
-	after, ok := strings.CutPrefix(ref, "oci://")
-	if !ok {
-		return "", "", false
-	}
-	slash := strings.Index(after, "/")
-	if slash <= 0 || slash == len(after)-1 {
-		return "", "", false
-	}
-	return after[:slash], after[slash+1:], true
-}
 
 // Returns the short name (without the .azurecr.io suffix) of the configured
 // mirror ACR, or empty string if mirroring is disabled.
@@ -1191,8 +1156,8 @@ func (c *CloudConfig) GetContainerRegistryMirrorName() string {
 }
 
 // Holds the installer-scoped, lazily-populated state for ACR mirroring: a
-// one-time resolution of the mirror ACR's properties, and per-artifact
-// promises that ensure each image/chart is copied at most once even when
+// one-time resolution of the mirror ACR's properties, and per-image
+// promises that ensure each image is copied at most once even when
 // multiple organizations are installed in parallel.
 type mirroringState struct {
 	mu            sync.Mutex
@@ -1200,7 +1165,6 @@ type mirroringState struct {
 	resolved      *ResolvedAcr
 	resolveErr    error
 	imagePromises map[string]*install.Promise[any]
-	chartPromises map[string]*install.Promise[string]
 }
 
 // Returns the resolved mirror ACR properties, looking them up the first time
@@ -1248,49 +1212,6 @@ func (inst *Installer) ensureImageMirrored(ctx context.Context, sourceRegistry, 
 	return p.AwaitErr()
 }
 
-// Imports the given source chart into the mirror ACR and returns the OCI URL
-// of the mirrored chart. Cached by source ref via a Promise. repoUrl is
-// required for traditional (non-OCI) helm repos and ignored for OCI charts.
-func (inst *Installer) ensureChartMirrored(ctx context.Context, chartRef, version, repoUrl string) (string, error) {
-	registryMirror, err := inst.GetResolvedContainerRegistryMirror(ctx)
-	if err != nil {
-		return "", err
-	}
-
-	key := fmt.Sprintf("%s@%s|%s", chartRef, version, repoUrl)
-
-	inst.acrMirroringState.mu.Lock()
-	if inst.acrMirroringState.chartPromises == nil {
-		inst.acrMirroringState.chartPromises = map[string]*install.Promise[string]{}
-	}
-	p, ok := inst.acrMirroringState.chartPromises[key]
-	if !ok {
-		p = install.NewPromise(ctx, &install.PromiseGroup{}, func(ctx context.Context) (string, error) {
-			log.Ctx(ctx).Info().Msgf("Mirroring chart %s:%s to ACR '%s'", chartRef, version, registryMirror.Name)
-			targetRepoPath := mirrorChartTargetRepo(chartRef)
-			if registryHost, repoPath, ok := parseOciArtifactRef(chartRef); ok {
-				if err := inst.importImageToAcr(ctx, registryMirror, registryHost, acrImportPaths{
-					SourceImage: fmt.Sprintf("%s:%s", repoPath, version),
-					TargetTag:   fmt.Sprintf("%s:%s", targetRepoPath, version),
-				}); err != nil {
-					return "", err
-				}
-			} else if strings.HasPrefix(chartRef, "oci://") {
-				return "", fmt.Errorf("invalid OCI chart reference %q", chartRef)
-			} else {
-				if err := inst.pullAndPushHelmChart(ctx, registryMirror, chartName(chartRef), version, repoUrl, targetRepoPath); err != nil {
-					return "", err
-				}
-			}
-			return mirrorChartTargetRef(chartRef, registryMirror.LoginServer), nil
-		})
-		inst.acrMirroringState.chartPromises[key] = p
-	}
-	inst.acrMirroringState.mu.Unlock()
-
-	return p.Await()
-}
-
 // Builds the source-image and target strings for an ARM ImportImage call from
 // a (sourceRepo, tagOrDigest) source and a targetRepo.
 func importPaths(sourceRepo, tagOrDigest, targetRepo string) acrImportPaths {
@@ -1306,22 +1227,16 @@ func importPaths(sourceRepo, tagOrDigest, targetRepo string) acrImportPaths {
 	}
 }
 
-// Mirrors all baked-in image and chart references in the chart config to the
-// user's private ACR (in parallel) and rewrites the corresponding values in
-// place. After this call helmChartConfig.ChartRef points at the mirrored
-// chart (when applicable) and every detected Mirrorable* image reference is
-// replaced with a mirror-pointing string.
-//
-// originalChartRef is the chart's pre-override default: if c.ChartRef is
-// unchanged from originalChartRef, the chart itself is mirrored from the
-// post-merge chart source; otherwise the user supplied a chart override and
-// the chart is left as-is.
+// Mirrors all baked-in image references in the chart config to the user's
+// private ACR (in parallel) and rewrites the corresponding values in place.
+// After this call every detected Mirrorable* image reference is replaced with
+// a mirror-pointing string.
 //
 // When mirroring is disabled this method is a no-op: the Mirrorable* typed
 // values are left as-is and yaml.Marshal serializes them as plain strings
 // (they are all named string types). The same is true when this chart is
 // excluded from container registry mirroring.
-func (inst *Installer) applyMirrorRewrites(ctx context.Context, c *HelmChartConfig, originalChartRef string) error {
+func (inst *Installer) applyMirrorRewrites(ctx context.Context, c *HelmChartConfig) error {
 	if c.ExcludeFromContainerRegistryMirror {
 		return nil
 	}
@@ -1339,23 +1254,8 @@ func (inst *Installer) applyMirrorRewrites(ctx context.Context, c *HelmChartConf
 	// mirror-pointing strings and collecting the set of images to import.
 	images := rewriteMirrorableValues(c.Values, mirrorFqdn)
 
-	// Phase 2: kick off the chart mirror (if applicable) and all image
-	// mirrors concurrently, then await them all.
+	// Phase 2: kick off the image mirrors concurrently, then await them all.
 	group := install.PromiseGroup{}
-
-	mirrorChart := shouldMirrorChart(c, originalChartRef)
-	var mirroredChartRef string
-	if mirrorChart {
-		chartRef, version, repoUrl := c.ChartRef, c.Version, c.RepoUrl
-		install.NewPromise(ctx, &group, func(ctx context.Context) (any, error) {
-			targetRef, err := inst.ensureChartMirrored(ctx, chartRef, version, repoUrl)
-			if err != nil {
-				return nil, fmt.Errorf("failed to mirror chart %s: %w", chartRef, err)
-			}
-			mirroredChartRef = targetRef
-			return nil, nil
-		})
-	}
 
 	for _, img := range images {
 		img := img
@@ -1375,12 +1275,6 @@ func (inst *Installer) applyMirrorRewrites(ctx context.Context, c *HelmChartConf
 	}
 	if len(errs) > 0 {
 		return errors.Join(errs...)
-	}
-
-	if mirrorChart {
-		c.ChartRef = mirroredChartRef
-		c.RepoName = ""
-		c.RepoUrl = ""
 	}
 
 	return nil
@@ -1415,10 +1309,6 @@ func (img sourceImage) referenceSeparator() string {
 		return "@"
 	}
 	return ":"
-}
-
-func shouldMirrorChart(c *HelmChartConfig, originalChartRef string) bool {
-	return originalChartRef != "" && c.ChartRef == originalChartRef
 }
 
 func cloneHelmChartConfig(c *HelmChartConfig) *HelmChartConfig {

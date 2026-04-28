@@ -16,12 +16,12 @@ cloud:
   # will not be accessible from the public internet.
   privateNetworking: false
 
-  # Optional: an existing private Azure Container Registry to mirror all container images
-  # and helm charts to. When set, every artifact required by Tyger and its dependencies
-  # is imported into this registry on demand and the helm values are rewritten to pull
-  # from it instead of the public sources. Useful when policy forbids pulling from public
-  # registries. Can be a short name (e.g. "myacr") or a fully-qualified name (e.g. "myacr.azurecr.io").
-  # When containerRegistryMirror is set, individual Helm charts can be excluded with excludeFromContainerRegistryMirror.
+  # Optional: an existing private Azure Container Registry to mirror container images to.
+  # When set, container images required by Tyger and its dependencies are imported into
+  # this registry on demand and the Helm values are rewritten so Kubernetes pulls from it
+  # instead of the public sources. Useful when policy forbids cluster image pulls from
+  # public registries. Can be a short name (e.g. "myacr") or a fully-qualified name (e.g. "myacr.azurecr.io").
+  # When containerRegistryMirror is set, image values for individual Helm chart configs can be excluded with excludeFromContainerRegistryMirror.
   containerRegistryMirror: tygermirror
 
   # Optional: additional VNets to link private DNS zones to.
@@ -149,7 +149,7 @@ cloud:
     #     repoUrl: not set if using `chartRef`
     #     chartRef: e.g. oci://...
     #     version:
-    #     excludeFromContainerRegistryMirror: only applies when cloud.containerRegistryMirror is set; set to true to leave this chart and its images at their source registries
+    #     excludeFromContainerRegistryMirror: only applies when cloud.containerRegistryMirror is set; set to true to leave this chart's images at their source registries
     #     values:
     #   certManager:
     #   nvidiaDevicePlugin:

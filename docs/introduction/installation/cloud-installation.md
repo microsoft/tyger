@@ -71,11 +71,11 @@ cloud:
   # will not be accessible from the public internet.
   privateNetworking: false
 
-  # Optional: an existing private Azure Container Registry to mirror all container images
-  # and Helm charts to. When set, every artifact required by Tyger and its dependencies
-  # is imported into this registry on demand and the Helm values are rewritten to pull
-  # from it instead of the public sources. Can be a short name (e.g. "myacr") or a
-  # fully-qualified name (e.g. "myacr.azurecr.io").
+  # Optional: an existing private Azure Container Registry to mirror container images to.
+  # When set, container images required by Tyger and its dependencies are imported into
+  # this registry on demand and the Helm values are rewritten so Kubernetes pulls from it
+  # instead of the public sources. Can be a short name (e.g. "myacr") or a fully-qualified
+  # name (e.g. "myacr.azurecr.io").
   # containerRegistryMirror: myacr
 
   # Optional: additional VNets to link private DNS zones to.
@@ -192,7 +192,7 @@ cloud:
     #     repoUrl: not set if using `chartRef`
     #     chartRef: e.g. oci://...
     #     version:
-    #     excludeFromContainerRegistryMirror: only applies when cloud.containerRegistryMirror is set; set to true to leave this chart and its images at their source registries
+    #     excludeFromContainerRegistryMirror: only applies when cloud.containerRegistryMirror is set; set to true to leave this chart's images at their source registries
     #     values:
     #   certManager:
     #   nvidiaDevicePlugin:
@@ -295,7 +295,7 @@ organizations:
       #     repoUrl: not set if using `chartRef`
       #     chartRef: e.g. oci://...
       #     version:
-      #     excludeFromContainerRegistryMirror: only applies when cloud.containerRegistryMirror is set; set to true to leave this chart and its images at their source registries
+      #     excludeFromContainerRegistryMirror: only applies when cloud.containerRegistryMirror is set; set to true to leave this chart's images at their source registries
       #     values:
 ```
 
@@ -565,8 +565,8 @@ organization.
 
 ## Container registry mirror
 
-If your environment cannot pull container images or Helm charts directly from
-public registries, set `cloud.containerRegistryMirror` to an existing Azure
+If your cluster cannot pull container images directly from public registries,
+set `cloud.containerRegistryMirror` to an existing Azure
 Container Registry. The value can be either the registry's short name or its
 fully qualified login server:
 
@@ -575,17 +575,18 @@ cloud:
   containerRegistryMirror: myacr
 ```
 
-When this field is set, Tyger imports configured Helm charts and the container
-images used by Tyger and its dependencies into that registry, then rewrites the
-Helm values so Kubernetes pulls from the mirror. `tyger cloud install` also
-grants the AKS kubelet identity `AcrPull` on the mirror registry, the same way
-it does for `cloud.compute.privateContainerRegistries`. After adding or changing
-`containerRegistryMirror`, run `tyger cloud install` before `tyger api install`
-so the cluster can pull from the mirror.
+When this field is set, Tyger imports the container images used by Tyger and
+its dependencies into that registry, then rewrites the Helm values so Kubernetes
+pulls from the mirror. Helm chart packages are still resolved by the `tyger`
+client from their configured chart repositories before rendering. `tyger cloud
+install` also grants the AKS kubelet identity `AcrPull` on the mirror registry,
+the same way it does for `cloud.compute.privateContainerRegistries`. After
+adding or changing `containerRegistryMirror`, run `tyger cloud install` before
+`tyger api install` so the cluster can pull from the mirror.
 
 When `cloud.containerRegistryMirror` is set, you can set
 `excludeFromContainerRegistryMirror: true` on a Helm chart config to exclude
-that chart from mirroring. Tyger leaves that chart and the images in that
+that chart's image values from mirroring. Tyger leaves the images in that
 chart's values at their source registries, while other charts still use the
 mirror:
 

@@ -480,7 +480,7 @@ func renderHelm(config *HelmChartConfig) string {
 	fmt.Fprintf(w, "%s\n", templatefunctions.OptionalField("repoUrl", config.RepoUrl, "not set if using `chartRef`"))
 	fmt.Fprintf(w, "%s\n", templatefunctions.OptionalField("chartRef", config.ChartRef, "e.g. oci://..."))
 	fmt.Fprintf(w, "%s\n", templatefunctions.OptionalField("version", config.Version, ""))
-	fmt.Fprintf(w, "%s\n", templatefunctions.OptionalField("excludeFromContainerRegistryMirror", config.ExcludeFromContainerRegistryMirror, "only applies when cloud.containerRegistryMirror is set; set to true to leave this chart and its images at their source registries"))
+	fmt.Fprintf(w, "%s\n", templatefunctions.OptionalField("excludeFromContainerRegistryMirror", config.ExcludeFromContainerRegistryMirror, "only applies when cloud.containerRegistryMirror is set; set to true to leave this chart's images at their source registries"))
 	if len(config.Values) > 0 {
 		w.WriteString("values:\n")
 		w.WriteString(templatefunctions.Indent(2, templatefunctions.ToYaml(config.Values)))

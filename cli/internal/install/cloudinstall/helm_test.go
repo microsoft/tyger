@@ -61,16 +61,6 @@ func TestSourceImageMirrorTarget(t *testing.T) {
 	assert.Equal(t, "mcr.microsoft.com/foo/bar:1.2.3", img.sourceReference())
 }
 
-func TestMirrorChartTargetRepo_OciChartIncludesSourceRegistry(t *testing.T) {
-	assert.Equal(t,
-		"tyger/mcr.microsoft.com/azurelinux/helm/cert-manager",
-		mirrorChartTargetRepo("oci://mcr.microsoft.com/azurelinux/helm/cert-manager"))
-}
-
-func TestMirrorChartTargetRepo_NonOciChartUsesHelmPrefix(t *testing.T) {
-	assert.Equal(t, "tyger/helm/traefik", mirrorChartTargetRepo("traefik/traefik"))
-}
-
 func TestImportPaths_Tag(t *testing.T) {
 	paths := importPaths("foo/bar", "1.2.3", "tyger/foo/bar")
 
@@ -148,26 +138,6 @@ func TestShouldValidateMirroredManifest_TrueWhenMirrorConfigured(t *testing.T) {
 	assert.True(t, validate)
 }
 
-func TestShouldMirrorChart_TrueWhenChartRefUnchanged(t *testing.T) {
-	config := &HelmChartConfig{
-		ChartRef: "traefik/traefik",
-		Version:  "24.0.0",
-		RepoUrl:  "https://custom.example/helm",
-	}
-
-	assert.True(t, shouldMirrorChart(config, "traefik/traefik"))
-}
-
-func TestShouldMirrorChart_FalseWhenChartRefOverridden(t *testing.T) {
-	config := &HelmChartConfig{
-		ChartRef: "custom/traefik",
-		Version:  "24.0.0",
-		RepoUrl:  "https://custom.example/helm",
-	}
-
-	assert.False(t, shouldMirrorChart(config, "traefik/traefik"))
-}
-
 func TestApplyMirrorRewrites_ExcludedChartSkipsMirroring(t *testing.T) {
 	inst := &Installer{Config: &CloudEnvironmentConfig{Cloud: &CloudConfig{ContainerRegistryMirror: "missing.azurecr.io"}}}
 	config := &HelmChartConfig{
@@ -185,7 +155,7 @@ func TestApplyMirrorRewrites_ExcludedChartSkipsMirroring(t *testing.T) {
 		},
 	}
 
-	err := inst.applyMirrorRewrites(context.Background(), config, "traefik/traefik")
+	err := inst.applyMirrorRewrites(context.Background(), config)
 
 	require.NoError(t, err)
 	assert.Equal(t, "traefik", config.RepoName)
@@ -197,7 +167,24 @@ func TestApplyMirrorRewrites_ExcludedChartSkipsMirroring(t *testing.T) {
 	assert.Equal(t, MirrorableTag("v2.10.7"), img["tag"])
 	assert.Nil(t, inst.acrMirroringState.resolved)
 	assert.Nil(t, inst.acrMirroringState.imagePromises)
-	assert.Nil(t, inst.acrMirroringState.chartPromises)
+}
+
+func TestApplyMirrorRewrites_DoesNotRewriteChartReference(t *testing.T) {
+	inst := newTestInstallerWithResolvedMirror()
+	config := &HelmChartConfig{
+		RepoName: "traefik",
+		RepoUrl:  "https://helm.traefik.io/traefik",
+		ChartRef: "traefik/traefik",
+		Version:  "24.0.0",
+		Values:   map[string]any{},
+	}
+
+	err := inst.applyMirrorRewrites(context.Background(), config)
+
+	require.NoError(t, err)
+	assert.Equal(t, "traefik", config.RepoName)
+	assert.Equal(t, "https://helm.traefik.io/traefik", config.RepoUrl)
+	assert.Equal(t, "traefik/traefik", config.ChartRef)
 }
 
 func TestPreserveMirrorableValueTypes_OverriddenDefaultsAreMirrored(t *testing.T) {
