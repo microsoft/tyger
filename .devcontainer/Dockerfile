@@ -43,10 +43,10 @@ RUN umask 0002 \
     && VERSION=1.34.1 HELM=3.16.4 MINIKUBE=none bash install.sh \
     # DOTNET
     && cd /opt/features/src/dotnet \
-    && VERSION=10.0.103 bash install.sh \
+    && VERSION=10.0.203 bash install.sh \
     # GO
     && cd /opt/features/src/go \
-    && VERSION=1.25.5 bash install.sh \
+    && VERSION=1.26.2 bash install.sh \
     && chown -R "${USERNAME}" "${GOROOT}" "${GOPATH}" \
     # GitHub CLI
     && cd /opt/features/src/github-cli/ \
