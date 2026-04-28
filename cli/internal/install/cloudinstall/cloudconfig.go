@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"text/template"
 
@@ -79,6 +80,8 @@ type CloudConfig struct {
 
 	// Internal support for associating resources with a network security perimeter profile
 	NetworkSecurityPerimeter *NetworkSecurityPerimeterConfig `yaml:"networkSecurityPerimeter"`
+
+	ContainerRegistryMirror string `yaml:"containerRegistryMirror"`
 }
 
 type VnetReference struct {
@@ -95,6 +98,15 @@ type ComputeConfig struct {
 	ContainerRegistryProxy     string            `yaml:"containerRegistryProxy"` // undocumented and for internal use only
 	DnsLabel                   string            `yaml:"dnsLabel"`
 	Helm                       *SharedHelmConfig `yaml:"helm"`
+}
+
+func (c *CloudConfig) containerRegistriesForClusterAccess() []string {
+	registries := c.Compute.PrivateContainerRegistries
+	if registryMirror := c.GetContainerRegistryMirrorName(); registryMirror != "" && !slices.Contains(registries, registryMirror) {
+		registries = slices.Clone(registries)
+		registries = append(registries, registryMirror)
+	}
+	return registries
 }
 
 func (c *ComputeConfig) GetManagementPrincipalIds() []string {
@@ -313,13 +325,14 @@ type SharedHelmConfig struct {
 }
 
 type HelmChartConfig struct {
-	Namespace   string         `yaml:"namespace"`
-	ReleaseName string         `yaml:"releaseName"`
-	RepoName    string         `yaml:"repoName"`
-	RepoUrl     string         `yaml:"repoUrl"`
-	Version     string         `yaml:"version"`
-	ChartRef    string         `yaml:"chartRef"`
-	Values      map[string]any `yaml:"values"`
+	ExcludeFromContainerRegistryMirror bool           `yaml:"excludeFromContainerRegistryMirror"`
+	Namespace                          string         `yaml:"namespace"`
+	ReleaseName                        string         `yaml:"releaseName"`
+	RepoName                           string         `yaml:"repoName"`
+	RepoUrl                            string         `yaml:"repoUrl"`
+	Version                            string         `yaml:"version"`
+	ChartRef                           string         `yaml:"chartRef"`
+	Values                             map[string]any `yaml:"values"`
 }
 
 type BuffersConfig struct {
@@ -467,6 +480,7 @@ func renderHelm(config *HelmChartConfig) string {
 	fmt.Fprintf(w, "%s\n", templatefunctions.OptionalField("repoUrl", config.RepoUrl, "not set if using `chartRef`"))
 	fmt.Fprintf(w, "%s\n", templatefunctions.OptionalField("chartRef", config.ChartRef, "e.g. oci://..."))
 	fmt.Fprintf(w, "%s\n", templatefunctions.OptionalField("version", config.Version, ""))
+	fmt.Fprintf(w, "%s\n", templatefunctions.OptionalField("excludeFromContainerRegistryMirror", config.ExcludeFromContainerRegistryMirror, "only applies when cloud.containerRegistryMirror is set; set to true to leave this chart's images at their source registries"))
 	if len(config.Values) > 0 {
 		w.WriteString("values:\n")
 		w.WriteString(templatefunctions.Indent(2, templatefunctions.ToYaml(config.Values)))

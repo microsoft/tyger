@@ -319,6 +319,18 @@ func TestClusterNeedsUpdating(t *testing.T) {
 		assert.True(t, hasChanges)
 	})
 
+	t.Run("extension manager addon profile ignored", func(t *testing.T) {
+		desired := baseCluster()
+		existing := clone(desired)
+		existing.Properties.AddonProfiles = map[string]*armcontainerservice.ManagedClusterAddonProfile{
+			extensionManagerAddonProfileName: {Enabled: Ptr(true), Config: map[string]*string{}},
+		}
+
+		hasChanges, onlyScaleDown := clusterNeedsUpdating(desired, existing)
+		assert.False(t, hasChanges)
+		assert.True(t, onlyScaleDown)
+	})
+
 	t.Run("addon profile disabled", func(t *testing.T) {
 		desired := baseCluster()
 		desired.Properties.AddonProfiles = map[string]*armcontainerservice.ManagedClusterAddonProfile{

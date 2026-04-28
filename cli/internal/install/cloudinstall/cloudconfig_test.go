@@ -74,3 +74,51 @@ func TestRenderConfig(t *testing.T) {
 	require.Equal(t, values.OrganizationTenantId, config.Organizations[0].Api.AccessControl.TenantID)
 	require.Equal(t, values.OrganizationName, config.Organizations[0].Name)
 }
+
+func TestHelmChartConfigContainerRegistryMirrorExclusion(t *testing.T) {
+	var config HelmChartConfig
+	require.NoError(t, yaml.UnmarshalStrict([]byte("excludeFromContainerRegistryMirror: true\n"), &config))
+	require.True(t, config.ExcludeFromContainerRegistryMirror)
+
+	rendered := renderHelm(&config)
+	require.Contains(t, rendered, "excludeFromContainerRegistryMirror: true")
+	require.Contains(t, renderHelm(nil), "# excludeFromContainerRegistryMirror: only applies when cloud.containerRegistryMirror is set; set to true to leave this chart's images at their source registries")
+}
+
+func TestContainerRegistriesForClusterAccess(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   *CloudConfig
+		expected []string
+	}{
+		{
+			name: "private registries only",
+			config: &CloudConfig{
+				Compute: &ComputeConfig{PrivateContainerRegistries: []string{"private1", "private2"}},
+			},
+			expected: []string{"private1", "private2"},
+		},
+		{
+			name: "adds mirror registry",
+			config: &CloudConfig{
+				ContainerRegistryMirror: "mirror.azurecr.io",
+				Compute:                 &ComputeConfig{PrivateContainerRegistries: []string{"private"}},
+			},
+			expected: []string{"private", "mirror"},
+		},
+		{
+			name: "does not duplicate mirror registry",
+			config: &CloudConfig{
+				ContainerRegistryMirror: "mirror.azurecr.io",
+				Compute:                 &ComputeConfig{PrivateContainerRegistries: []string{"private", "mirror"}},
+			},
+			expected: []string{"private", "mirror"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.expected, tt.config.containerRegistriesForClusterAccess())
+		})
+	}
+}

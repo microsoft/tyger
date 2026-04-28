@@ -31,6 +31,11 @@ name: http-proxy-test
 services:
   squid:
     image: ubuntu/squid
+    healthcheck:
+      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/3128"]
+      interval: 1s
+      timeout: 1s
+      retries: 30
 
   tyger-proxy:
     image:  mcr.microsoft.com/devcontainers/base:ubuntu
@@ -59,6 +64,7 @@ networks:
 
 	s.CommandSucceeds("create")
 	s.CommandSucceeds("start", "squid")
+	s.WaitForHealthy("squid")
 
 	bufferId := runTygerSucceeds(t, "buffer", "create")
 	NewTygerCmdBuilder("buffer", "write", bufferId).Stdin("Hello").RunSucceeds(t)
@@ -139,7 +145,7 @@ networks:
 
 	// Connect to it from the client container
 	s.CommandSucceeds("start", "client")
-	s.ShellExecSucceeds("client", fmt.Sprintf("curl --fail --retry 5 http://tyger-proxy:6888/metadata > /dev/stderr && tyger login http://tyger-proxy:6888 && tyger buffer read --log-level trace %s > /dev/null", bufferId))
+	s.ShellExecSucceeds("client", fmt.Sprintf("curl --fail --retry 5 --retry-connrefused --retry-delay 1 http://tyger-proxy:6888/metadata > /dev/stderr && tyger login http://tyger-proxy:6888 && tyger buffer read --log-level trace %s > /dev/null", bufferId))
 
 	// Now repeat without TLS certificate validation
 
@@ -161,7 +167,7 @@ networks:
 	s.ShellExecSucceeds("tyger-proxy", "pgrep tyger-proxy | xargs kill && tyger-proxy start -f /creds.yml")
 
 	// Then connect to it from the client, which should use the CA certificates that the proxy publishes in its metadata
-	s.ShellExecSucceeds("client", fmt.Sprintf("curl --fail --retry 5 http://tyger-proxy:6888/metadata && tyger login http://tyger-proxy:6888 && tyger buffer read %s > /dev/null", bufferId))
+	s.ShellExecSucceeds("client", fmt.Sprintf("curl --fail --retry 5 --retry-connrefused --retry-delay 1 http://tyger-proxy:6888/metadata && tyger login http://tyger-proxy:6888 && tyger buffer read %s > /dev/null", bufferId))
 }
 
 func TestTygerProxyOverSsh(t *testing.T) {
@@ -329,6 +335,32 @@ func (s *ComposeSession) Command(args ...string) (stdout string, stderr string, 
 	b := NewCmdBuilder("docker", append([]string{"compose"}, args...)...)
 	b.Dir(s.dir)
 	return b.Run()
+}
+
+func (s *ComposeSession) WaitForHealthy(service string) {
+	s.t.Helper()
+
+	containerId := s.CommandSucceeds("ps", "-q", service)
+	var lastStatus string
+	var lastStdErr string
+	var lastErr error
+
+	for attempt := 1; attempt <= 60; attempt++ {
+		lastStatus, lastStdErr, lastErr = runCommand("docker", "inspect", "--format", "{{.State.Health.Status}}", containerId)
+		if lastErr == nil && lastStatus == "healthy" {
+			return
+		}
+
+		if attempt < 60 {
+			time.Sleep(time.Second)
+		}
+	}
+
+	logs, _, _ := s.Command("logs", service)
+	if logs != "" {
+		s.t.Log(logs)
+	}
+	s.t.Fatalf("timed out waiting for %s to become healthy: status=%q error=%v\n%s", service, lastStatus, lastErr, lastStdErr)
 }
 
 func (s *ComposeSession) ShellExecSucceeds(service string, command string) string {
