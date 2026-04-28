@@ -75,6 +75,16 @@ func TestRenderConfig(t *testing.T) {
 	require.Equal(t, values.OrganizationName, config.Organizations[0].Name)
 }
 
+func TestHelmChartConfigContainerRegistryMirrorExclusion(t *testing.T) {
+	var config HelmChartConfig
+	require.NoError(t, yaml.UnmarshalStrict([]byte("excludeFromContainerRegistryMirror: true\n"), &config))
+	require.True(t, config.ExcludeFromContainerRegistryMirror)
+
+	rendered := renderHelm(&config)
+	require.Contains(t, rendered, "excludeFromContainerRegistryMirror: true")
+	require.Contains(t, renderHelm(nil), "# excludeFromContainerRegistryMirror: only applies when cloud.containerRegistryMirror is set; set to true to leave this chart and its images at their source registries")
+}
+
 func TestContainerRegistriesForClusterAccess(t *testing.T) {
 	tests := []struct {
 		name     string

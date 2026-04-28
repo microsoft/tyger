@@ -29,6 +29,7 @@ cloud:
   # is imported into this registry on demand and the helm values are rewritten to pull
   # from it instead of the public sources. Useful when policy forbids pulling from public
   # registries. Can be a short name (e.g. "myacr") or a fully-qualified name (e.g. "myacr.azurecr.io").
+  # When containerRegistryMirror is set, individual Helm charts can be excluded with excludeFromContainerRegistryMirror.
   {{ optionalField "containerRegistryMirror" .ContainerRegistryMirror "" }}
 
   # Optional: additional VNets to link private DNS zones to.

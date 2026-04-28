@@ -192,6 +192,7 @@ cloud:
     #     repoUrl: not set if using `chartRef`
     #     chartRef: e.g. oci://...
     #     version:
+    #     excludeFromContainerRegistryMirror: only applies when cloud.containerRegistryMirror is set; set to true to leave this chart and its images at their source registries
     #     values:
     #   certManager:
     #   nvidiaDevicePlugin:
@@ -294,6 +295,7 @@ organizations:
       #     repoUrl: not set if using `chartRef`
       #     chartRef: e.g. oci://...
       #     version:
+      #     excludeFromContainerRegistryMirror: only applies when cloud.containerRegistryMirror is set; set to true to leave this chart and its images at their source registries
       #     values:
 ```
 
@@ -580,3 +582,18 @@ grants the AKS kubelet identity `AcrPull` on the mirror registry, the same way
 it does for `cloud.compute.privateContainerRegistries`. After adding or changing
 `containerRegistryMirror`, run `tyger cloud install` before `tyger api install`
 so the cluster can pull from the mirror.
+
+When `cloud.containerRegistryMirror` is set, you can set
+`excludeFromContainerRegistryMirror: true` on a Helm chart config to exclude
+that chart from mirroring. Tyger leaves that chart and the images in that
+chart's values at their source registries, while other charts still use the
+mirror:
+
+```yaml
+cloud:
+  containerRegistryMirror: myacr
+  compute:
+    helm:
+      traefik:
+        excludeFromContainerRegistryMirror: true
+```

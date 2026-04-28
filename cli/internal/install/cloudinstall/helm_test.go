@@ -5,6 +5,7 @@ package cloudinstall
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"testing"
 
@@ -14,6 +15,13 @@ import (
 )
 
 const testMirrorFqdn = "mymirror.azurecr.io"
+
+func newTestInstallerWithResolvedMirror() *Installer {
+	inst := &Installer{Config: &CloudEnvironmentConfig{Cloud: &CloudConfig{ContainerRegistryMirror: "mymirror"}}}
+	inst.acrMirroringState.resolved = &ResolvedAcr{Name: "mymirror", LoginServer: testMirrorFqdn}
+	inst.acrMirroringState.resolveOnce.Do(func() {})
+	return inst
+}
 
 func TestRewriteMirrorableValues_MirrorableImageReference(t *testing.T) {
 	values := map[string]any{
@@ -112,6 +120,34 @@ func TestMirrorValidationPostRenderer_ReturnsValidationError(t *testing.T) {
 	assert.Nil(t, result)
 }
 
+func TestShouldValidateMirroredManifest_FalseWhenChartExcluded(t *testing.T) {
+	inst := &Installer{Config: &CloudEnvironmentConfig{Cloud: &CloudConfig{ContainerRegistryMirror: "missing.azurecr.io"}}}
+
+	validate, err := inst.shouldValidateMirroredManifest(context.Background(), &HelmChartConfig{ExcludeFromContainerRegistryMirror: true})
+
+	require.NoError(t, err)
+	assert.False(t, validate)
+	assert.Nil(t, inst.acrMirroringState.resolved)
+}
+
+func TestShouldValidateMirroredManifest_FalseWhenMirrorDisabled(t *testing.T) {
+	inst := &Installer{Config: &CloudEnvironmentConfig{Cloud: &CloudConfig{}}}
+
+	validate, err := inst.shouldValidateMirroredManifest(context.Background(), &HelmChartConfig{})
+
+	require.NoError(t, err)
+	assert.False(t, validate)
+}
+
+func TestShouldValidateMirroredManifest_TrueWhenMirrorConfigured(t *testing.T) {
+	inst := newTestInstallerWithResolvedMirror()
+
+	validate, err := inst.shouldValidateMirroredManifest(context.Background(), &HelmChartConfig{})
+
+	require.NoError(t, err)
+	assert.True(t, validate)
+}
+
 func TestShouldMirrorChart_TrueWhenChartRefUnchanged(t *testing.T) {
 	config := &HelmChartConfig{
 		ChartRef: "traefik/traefik",
@@ -130,6 +166,38 @@ func TestShouldMirrorChart_FalseWhenChartRefOverridden(t *testing.T) {
 	}
 
 	assert.False(t, shouldMirrorChart(config, "traefik/traefik"))
+}
+
+func TestApplyMirrorRewrites_ExcludedChartSkipsMirroring(t *testing.T) {
+	inst := &Installer{Config: &CloudEnvironmentConfig{Cloud: &CloudConfig{ContainerRegistryMirror: "missing.azurecr.io"}}}
+	config := &HelmChartConfig{
+		ExcludeFromContainerRegistryMirror: true,
+		RepoName:                           "traefik",
+		RepoUrl:                            "https://helm.traefik.io/traefik",
+		ChartRef:                           "traefik/traefik",
+		Version:                            "24.0.0",
+		Values: map[string]any{
+			"image": map[string]any{
+				"registry":   MirrorableRegistry("mcr.microsoft.com"),
+				"repository": MirrorableRepository("oss/traefik/traefik"),
+				"tag":        MirrorableTag("v2.10.7"),
+			},
+		},
+	}
+
+	err := inst.applyMirrorRewrites(context.Background(), config, "traefik/traefik")
+
+	require.NoError(t, err)
+	assert.Equal(t, "traefik", config.RepoName)
+	assert.Equal(t, "https://helm.traefik.io/traefik", config.RepoUrl)
+	assert.Equal(t, "traefik/traefik", config.ChartRef)
+	img := config.Values["image"].(map[string]any)
+	assert.Equal(t, MirrorableRegistry("mcr.microsoft.com"), img["registry"])
+	assert.Equal(t, MirrorableRepository("oss/traefik/traefik"), img["repository"])
+	assert.Equal(t, MirrorableTag("v2.10.7"), img["tag"])
+	assert.Nil(t, inst.acrMirroringState.resolved)
+	assert.Nil(t, inst.acrMirroringState.imagePromises)
+	assert.Nil(t, inst.acrMirroringState.chartPromises)
 }
 
 func TestPreserveMirrorableValueTypes_OverriddenDefaultsAreMirrored(t *testing.T) {

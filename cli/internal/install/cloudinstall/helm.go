@@ -823,25 +823,30 @@ func (inst *Installer) installHelmChart(
 	if err != nil {
 		return "", "", err
 	}
+	validateMirroredManifest, err := inst.shouldValidateMirroredManifest(ctx, helmChartConfig)
+	if err != nil {
+		return "", "", err
+	}
 
 	if dryRun {
 		manifest, err := helmClient.TemplateChart(&chartSpec, nil)
 		if err != nil {
 			return "", "", fmt.Errorf("failed to template chart: %w", err)
 		}
-		if err := inst.validateMirroredManifest(ctx, string(manifest)); err != nil {
-			return "", "", err
+		if validateMirroredManifest {
+			if err := inst.validateMirroredManifest(ctx, string(manifest)); err != nil {
+				return "", "", err
+			}
 		}
 		return string(manifest), chartSpec.ValuesYaml, nil
 	}
 
-	// When mirroring is enabled, verify the final rendered manifest during the
-	// real Helm install/upgrade. This catches images that were not wrapped in a
-	// Mirrorable* type and so would have escaped the rewrite pass.
+	// When mirroring is enabled for this chart, verify the final rendered
+	// manifest during the real Helm install/upgrade. This catches images that
+	// were not wrapped in a Mirrorable* type and so would have escaped the
+	// rewrite pass.
 	var installOptions *helmclient.GenericHelmOptions
-	if registryMirror, err := inst.GetResolvedContainerRegistryMirror(ctx); err != nil {
-		return "", "", err
-	} else if registryMirror != nil {
+	if validateMirroredManifest {
 		installOptions = &helmclient.GenericHelmOptions{
 			PostRenderer: mirrorValidationPostRenderer{
 				validate: func(manifest string) error {
@@ -875,6 +880,18 @@ func (inst *Installer) installHelmChart(
 	return manifest, chartSpec.ValuesYaml, err
 }
 
+func (inst *Installer) shouldValidateMirroredManifest(ctx context.Context, c *HelmChartConfig) (bool, error) {
+	if c.ExcludeFromContainerRegistryMirror {
+		return false, nil
+	}
+
+	registryMirror, err := inst.GetResolvedContainerRegistryMirror(ctx)
+	if err != nil {
+		return false, err
+	}
+	return registryMirror != nil, nil
+}
+
 type mirrorValidationPostRenderer struct {
 	validate func(string) error
 }
@@ -887,11 +904,12 @@ func (r mirrorValidationPostRenderer) Run(renderedManifests *bytes.Buffer) (*byt
 }
 
 // Resolves the helm chart spec for the given config. When the user has opted
-// into ACR mirroring (cloud.containerRegistryMirror), this method also performs the
-// necessary ACR copies in parallel and rewrites every Mirrorable* image and
-// chart reference in the config to point at the mirror ACR. Mirroring is
-// performed lazily and cached, so each artifact is copied at most once per
-// installer run even when multiple organizations share the same images.
+// into ACR mirroring (cloud.containerRegistryMirror), this method also performs
+// the necessary ACR copies in parallel and rewrites every Mirrorable* image and
+// chart reference in the config to point at the mirror ACR, unless this chart
+// is excluded from mirroring. Mirroring is performed lazily and cached, so each
+// artifact is copied at most once per installer run even when multiple
+// organizations share the same images.
 //
 // User overrides supplied via the config file are applied BEFORE mirror
 // rewriting. Override values on built-in mirrorable image paths keep the
@@ -1301,8 +1319,13 @@ func importPaths(sourceRepo, tagOrDigest, targetRepo string) acrImportPaths {
 //
 // When mirroring is disabled this method is a no-op: the Mirrorable* typed
 // values are left as-is and yaml.Marshal serializes them as plain strings
-// (they are all named string types).
+// (they are all named string types). The same is true when this chart is
+// excluded from container registry mirroring.
 func (inst *Installer) applyMirrorRewrites(ctx context.Context, c *HelmChartConfig, originalChartRef string) error {
+	if c.ExcludeFromContainerRegistryMirror {
+		return nil
+	}
+
 	registryMirror, err := inst.GetResolvedContainerRegistryMirror(ctx)
 	if err != nil {
 		return err

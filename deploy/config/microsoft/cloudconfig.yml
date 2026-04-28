@@ -21,7 +21,8 @@ cloud:
   # is imported into this registry on demand and the helm values are rewritten to pull
   # from it instead of the public sources. Useful when policy forbids pulling from public
   # registries. Can be a short name (e.g. "myacr") or a fully-qualified name (e.g. "myacr.azurecr.io").
-  # containerRegistryMirror:
+  # When containerRegistryMirror is set, individual Helm charts can be excluded with excludeFromContainerRegistryMirror.
+  containerRegistryMirror: tygermirror
 
   # Optional: additional VNets to link private DNS zones to.
   # Use this to link DNS zones to a hub VNet in a hub-and-spoke topology,
@@ -148,6 +149,7 @@ cloud:
     #     repoUrl: not set if using `chartRef`
     #     chartRef: e.g. oci://...
     #     version:
+    #     excludeFromContainerRegistryMirror: only applies when cloud.containerRegistryMirror is set; set to true to leave this chart and its images at their source registries
     #     values:
     #   certManager:
     #   nvidiaDevicePlugin:
@@ -275,6 +277,7 @@ organizations:
           # repoUrl: not set if using `chartRef`
           chartRef: ${TYGER_HELM_CHART_DIR}
           # version:
+          excludeFromContainerRegistryMirror: true
           values:
             bufferCopierImage: ${BUFFER_COPIER_IMAGE}
             bufferSidecarImage: ${BUFFER_SIDECAR_IMAGE}
@@ -375,6 +378,7 @@ organizations:
           # repoUrl: not set if using `chartRef`
           chartRef: ${TYGER_HELM_CHART_DIR}
           # version:
+          excludeFromContainerRegistryMirror: true
           values:
             bufferCopierImage: ${BUFFER_COPIER_IMAGE}
             bufferSidecarImage: ${BUFFER_SIDECAR_IMAGE}
