@@ -346,18 +346,17 @@ func (inst *Installer) installNvidiaDevicePlugin(ctx context.Context, restConfig
 
 	log.Ctx(ctx).Info().Msg("Installing nvidia-device-plugin")
 
-	chartVersion := "0.19.1-1"
 	nvdpConfig := HelmChartConfig{
 		Namespace:   "nvidia-device-plugin",
 		ReleaseName: "nvidia-device-plugin",
 		RepoName:    "nvdp",
 		RepoUrl:     "https://nvidia.github.io/k8s-device-plugin",
 		ChartRef:    "nvdp/nvidia-device-plugin",
-		Version:     chartVersion,
+		Version:     "0.19.1",
 		Values: map[string]any{
 			"image": map[string]any{
 				"repository": MirrorableQualifiedRepository("mcr.microsoft.com/oss/v2/nvidia/k8s-device-plugin"),
-				"tag":        MirrorableTag("v" + chartVersion),
+				"tag":        MirrorableTag("v0.19.1-1"),
 			},
 			"nodeSelector": map[string]any{
 				"kubernetes.azure.com/accelerator": "nvidia",

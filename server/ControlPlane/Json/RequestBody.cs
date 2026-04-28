@@ -13,19 +13,10 @@ public static class RequestBody
         TValue? value;
         try
         {
-            value = await request.ReadFromJsonAsync<TValue>(cancellationToken);
-            if (value == null)
-            {
-                throw new ValidationException("null is not a valid input value");
-            }
-
+            value = await request.ReadFromJsonAsync<TValue>(cancellationToken) ?? throw new ValidationException("null is not a valid input value");
             if (!allowEmpty)
             {
-                value = Normalizer.NormalizeEmptyToNull(value);
-                if (value == null)
-                {
-                    throw new ValidationException("An empty object is not a valid input value");
-                }
+                value = Normalizer.NormalizeEmptyToNull(value) ?? throw new ValidationException("An empty object is not a valid input value");
             }
 
             Validator.ValidateObject(value, new ValidationContext(value), validateAllProperties: true);
