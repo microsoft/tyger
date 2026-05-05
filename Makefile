@@ -79,8 +79,12 @@ _docker-build:
 	container_registry_spec='${CONTAINER_REGISTRY_SPEC}'
 	registry=$$(echo "$${container_registry_spec}" | jq -r '.fqdn')
 	directory=$$(echo "$${container_registry_spec}" | jq -r '.directory // ""')
+	only_list_artifacts_arg=""
+	if [[ "${DOCKER_BUILD_ONLY_LIST_ARTIFACTS}" == "true" ]]; then
+		only_list_artifacts_arg="--only-list-artifacts"
+	fi
 
-	scripts/build-images.sh $$target_arg ${DOCKER_BUILD_ARCH_FLAGS} ${DOCKER_BUILD_PUSH_FLAGS} --tag "$$tag" --registry "$${registry}" --registry-directory "$${directory}"
+	scripts/build-images.sh $$target_arg ${DOCKER_BUILD_ARCH_FLAGS} ${DOCKER_BUILD_PUSH_FLAGS} $${only_list_artifacts_arg} --tag "$$tag" --registry "$${registry}" --registry-directory "$${directory}"
 
 docker-build-test: login-acr
 	$(MAKE) _docker-build DOCKER_BUILD_TARGET=test
@@ -99,7 +103,12 @@ docker-build: docker-build-test docker-build-server docker-build-client
 publish-official-images:
 	container_registry_spec=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -c '.officialPushContainerRegistry')
 	export EXPLICIT_IMAGE_TAG="$$(git describe --tags)"
-	$(MAKE) DOCKER_BUILD_ARCH_FLAGS="--arch amd64 --arch arm64" CONTAINER_REGISTRY_SPEC="$${container_registry_spec}" docker-build-server docker-build-client docker-build-helm
+	$(MAKE) DOCKER_BUILD_ARCH_FLAGS="--arch amd64 --arch arm64" DOCKER_BUILD_PUSH_FLAGS="--push --push-force" CONTAINER_REGISTRY_SPEC="$${container_registry_spec}" docker-build-server docker-build-client docker-build-helm
+
+list-official-artifacts:
+	container_registry_spec=$$(echo '${DEVELOPER_CONFIG_JSON}' | jq -c '.officialPullContainerRegistry')
+	export EXPLICIT_IMAGE_TAG="$${EXPLICIT_IMAGE_TAG:-$$(git describe --tags)}"
+	$(MAKE) DOCKER_BUILD_ONLY_LIST_ARTIFACTS="true" DOCKER_BUILD_ARCH_FLAGS="--arch amd64 --arch arm64" DOCKER_BUILD_PUSH_FLAGS="" CONTAINER_REGISTRY_SPEC="$${container_registry_spec}" docker-build-server docker-build-client docker-build-helm
 
 publish-ghcr:
 	container_registry_spec="{\"fqdn\": \"ghcr.io\", \"directory\": \"/$${GITHUB_REPOSITORY}\"}"
