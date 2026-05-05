@@ -86,7 +86,7 @@ func (inst *Installer) createPrivateEndpoints(ctx context.Context, resourceGroup
 		privateEndpoint.Tags[k] = &v
 	}
 
-	log.Ctx(ctx).Info().Msgf("Creating or updating private endpoint '%s' for storage account '%s' for subnet '%s' in vnet '%s'", privateEndpointName, path.Base(targetResourceId), configSubnet.SubnetName, configSubnet.VNetName)
+	log.Ctx(ctx).Info().Msgf("Creating or updating private endpoint '%s' for resource '%s' for subnet '%s' in vnet '%s'", privateEndpointName, path.Base(targetResourceId), configSubnet.SubnetName, configSubnet.VNetName)
 
 	privateEndpointClient, err := armnetwork.NewPrivateEndpointsClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
 	if err != nil {
@@ -276,7 +276,9 @@ func (inst *Installer) createPrivateDnsZone(ctx context.Context, resourceGroup s
 		}
 	}
 
-	// Remove stale VNet links whose destination VNet ID is not in the expected set
+	// Remove stale VNet links whose destination VNet ID is not in the expected set, but
+	// only if this tool created the link (identified by the environment tag) to avoid
+	// interfering with links created by other tools or manual processes.
 	linkPager := virtualNetworkLinksClient.NewListPager(resourceGroup, zoneName, nil)
 	for linkPager.More() {
 		page, err := linkPager.NextPage(ctx)
@@ -284,6 +286,15 @@ func (inst *Installer) createPrivateDnsZone(ctx context.Context, resourceGroup s
 			return "", fmt.Errorf("failed to list virtual network links for zone '%s': %w", zoneName, err)
 		}
 		for _, link := range page.Value {
+			if link == nil || link.Tags == nil {
+				continue
+			}
+
+			environmentTag, ok := link.Tags[TagKey]
+			if !ok || environmentTag == nil || *environmentTag != inst.Config.EnvironmentName {
+				continue
+			}
+
 			if link.Properties != nil && link.Properties.VirtualNetwork != nil && link.Properties.VirtualNetwork.ID != nil {
 				if !expectedVnetIDs[strings.ToLower(*link.Properties.VirtualNetwork.ID)] {
 					log.Ctx(ctx).Info().Msgf("Removing stale virtual network link '%s' (VNet '%s') from DNS zone '%s'", *link.Name, *link.Properties.VirtualNetwork.ID, zoneName)
