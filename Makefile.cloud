@@ -64,6 +64,10 @@ set-context:
 	done
 
 login-acr:
+	if [[ "${DOCKER_BUILD_ONLY_LIST_ARTIFACTS}" == "true" ]]; then
+		exit 0
+	fi
+
 	registry=$$(echo '${CONTAINER_REGISTRY_SPEC}' | jq -r '.fqdn')
 	if [[ "$${registry}" =~ \.azurecr\.io$$ ]]; then
 		if ! ./scripts/check-docker-login.sh "$${registry}"; then

@@ -32,7 +32,7 @@ jobs:
       - name: Log in to Azure
         uses: ./.github/actions/login-azure
 
-      - uses: actions/setup-go@v4
+      - uses: actions/setup-go@v6
         with:
           go-version-file: cli/go.mod
           cache-dependency-path: cli/go.sum

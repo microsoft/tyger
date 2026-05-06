@@ -1,0 +1,86 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+
+      - name: Get container registry
+        run: |
+          set -euo pipefail
+          developer_config_json=$(scripts/get-config.sh --dev -o json | jq -c)
+          official_pull_container_registry=$(jq -r '.officialPullContainerRegistry.fqdn' <<<"$developer_config_json")
+          echo "GORELEASER_CONTAINER_REGISTRY=$official_pull_container_registry" >> "$GITHUB_ENV"
+          official_pull_container_registry_directory=$(jq -r '.officialPullContainerRegistry.directory // ""' <<<"$developer_config_json")
+          echo "GORELEASER_CONTAINER_REGISTRY_DIRECTORY=$official_pull_container_registry_directory" >> "$GITHUB_ENV"
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          version: v1.21.2
+          workdir: cli
+          args: release --clean
+
+      - name: Verify official artifacts published
+        timeout-minutes: 35
+        run: |
+          set -euo pipefail
+
+          mapfile -t artifact_refs < <(EXPLICIT_IMAGE_TAG="$GITHUB_REF_NAME" make -s list-official-artifacts)
+          if (( ${#artifact_refs[@]} == 0 )); then
+            echo "ERROR: no official artifact references were generated."
+            exit 1
+          fi
+
+          max_attempts=31
+          retry_delay_seconds=60
+
+          for attempt in $(seq 1 "$max_attempts"); do
+            missing_artifacts=()
+
+            echo "Checking official artifact manifests (attempt ${attempt}/${max_attempts})..."
+
+            for artifact_ref in "${artifact_refs[@]}"; do
+              echo "Checking $artifact_ref"
+              if docker manifest inspect "$artifact_ref" >/dev/null 2>&1; then
+                echo "Found $artifact_ref"
+              else
+                echo "Missing $artifact_ref"
+                missing_artifacts+=("$artifact_ref")
+              fi
+            done
+
+            if (( ${#missing_artifacts[@]} == 0 )); then
+              echo "All official image and Helm chart manifests are available."
+              exit 0
+            fi
+
+            if (( attempt == max_attempts )); then
+              echo "ERROR: official artifacts were not available after 30 minutes."
+              exit 1
+            fi
+
+            echo "Official artifacts not ready. Attempt ${attempt}/${max_attempts}. ${#missing_artifacts[@]} missing artifact manifest(s). Retrying in 60 seconds."
+            sleep "$retry_delay_seconds"
+          done

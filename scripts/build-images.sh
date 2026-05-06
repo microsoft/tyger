@@ -22,6 +22,7 @@ Options:
   --arch amd64|arm64               The architecture to build for. Can be specified multiple times.
   --push                           Push runtime images (requires --tag or --use-git-hash-as-tag)
   --push-force                     Force runtime images, will overwrite images with same tag (requires --tag or --use-git-hash-as-tag)
+  --only-list-artifacts            Print artifact references that would be published and exit without building or pushing
   --tag <tag>                      Tag for runtime images
   --use-git-hash-as-tag            Use the current git hash as tag
   -h, --help                       Brings up this menu
@@ -78,6 +79,10 @@ while [[ $# -gt 0 ]]; do
     force=1
     shift
     ;;
+  --only-list-artifacts)
+    only_list_artifacts=1
+    shift
+    ;;
   --tag)
     image_tag="$2"
     shift 2
@@ -97,6 +102,11 @@ while [[ $# -gt 0 ]]; do
     ;;
   esac
 done
+
+if [[ -n "${only_list_artifacts:-}" && -n "${push:-}" ]]; then
+  echo "ERROR: --only-list-artifacts cannot be used with --push or --push-force"
+  exit 1
+fi
 
 # Ensure registry_dir starts with a /
 if [[ ! "$registry_dir" =~ ^/ ]]; then
@@ -126,6 +136,12 @@ function build_and_push_platform() {
   local image_tag_with_platform="${image_tag}-${platform}"
 
   full_image="${container_registry_fqdn}${registry_dir}${repo}:${image_tag_with_platform}"
+
+  if [[ -n "${only_list_artifacts:-}" ]]; then
+    echo "$full_image"
+    return 0
+  fi
+
   echo "Building image ${full_image}..."
 
   set +e
@@ -169,12 +185,20 @@ function build_and_push() {
     build_and_push_platform "${build_context}" "${dockerfile_path}" "${repo}" "arm64"
   fi
 
+  manifest_name="${container_registry_fqdn}${registry_dir}${repo}:${image_tag}"
+
+  if [[ -n "${only_list_artifacts:-}" ]]; then
+    if [[ -n "${amd64:-}" && -n "${arm64:-}" ]]; then
+      echo "$manifest_name"
+    fi
+    return 0
+  fi
+
   # if not pushing or not building for both platforms, skip  creating a manifest
   if [[ -z "${push:-}" || -z "${amd64:-}" || -z "${arm64:-}" ]]; then
     return 0
   fi
 
-  manifest_name="${container_registry_fqdn}${registry_dir}${repo}:${image_tag}"
   docker manifest create --amend "${manifest_name}" "${container_registry_fqdn}${registry_dir}${repo}:${image_tag}-amd64" "${container_registry_fqdn}${registry_dir}${repo}:${image_tag}-arm64" >/dev/null
 
   # Push manigest
@@ -217,6 +241,12 @@ if [[ -n "${client:-}" ]]; then
 fi
 
 if [[ -n "${helm:-}" ]]; then
+
+  helm_chart_ref="${container_registry_fqdn}${registry_dir}helm/tyger:${image_tag}"
+  if [[ -n "${only_list_artifacts:-}" ]]; then
+    echo "$helm_chart_ref"
+    exit 0
+  fi
 
   # If we are pushing to an Azure Container Registry, we need to do a special login
   if [[ "${container_registry_fqdn}" =~ \.azurecr\.io$ ]]; then
