@@ -281,36 +281,36 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 		cluster.Properties.APIServerAccessProfile.PrivateDNSZone = &aksPrivateDnsZoneId
 
 		if err := assignRbacRole(ctx, []string{*aksIdentity.Properties.PrincipalID}, false, aksPrivateDnsZoneId, "Private DNS Zone Contributor", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
-			return nil, fmt.Errorf("failed to assign Private DNS Zone Contributor role: %w", err)
+			return nil, fmt.Errorf("failed to assign Private DNS Zone Contributor role on '%s': %w", aksPrivateDnsZoneId, err)
 		}
 
 		if vnetId != nil {
 			if err := assignRbacRole(ctx, []string{*aksIdentity.Properties.PrincipalID}, false, *vnetId, "Network Contributor", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
-				return nil, fmt.Errorf("failed to assign Network Contributor role on VNet: %w", err)
+				return nil, fmt.Errorf("failed to assign Network Contributor role on VNet '%s': %w", *vnetId, err)
 			}
 		}
 
 		if vnetSubnetNsgId != nil {
 			if err := assignRbacRole(ctx, []string{*aksIdentity.Properties.PrincipalID}, false, *vnetSubnetNsgId, "Network Contributor", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
-				return nil, fmt.Errorf("failed to assign Network Contributor role on NSG: %w", err)
+				return nil, fmt.Errorf("failed to assign Network Contributor role on NSG '%s': %w", *vnetSubnetNsgId, err)
 			}
 		}
 
 		if vnetSubnetRouteTableId != nil {
 			if err := assignRbacRole(ctx, []string{*aksIdentity.Properties.PrincipalID}, false, *vnetSubnetRouteTableId, "Network Contributor", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
-				return nil, fmt.Errorf("failed to assign Network Contributor role on route table: %w", err)
+				return nil, fmt.Errorf("failed to assign Network Contributor role on route table '%s': %w", *vnetSubnetRouteTableId, err)
 			}
 		}
 
 		if vnetSubnetNatGatewayId != nil {
 			if err := assignRbacRole(ctx, []string{*aksIdentity.Properties.PrincipalID}, false, *vnetSubnetNatGatewayId, "Network Contributor", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
-				return nil, fmt.Errorf("failed to assign Network Contributor role on NAT gateway: %w", err)
+				return nil, fmt.Errorf("failed to assign Network Contributor role on NAT gateway '%s': %w", *vnetSubnetNatGatewayId, err)
 			}
 		}
 
 		if outboundIpAddress != nil {
 			if err := assignRbacRole(ctx, []string{*aksIdentity.Properties.PrincipalID}, false, *outboundIpAddress.ID, "Network Contributor", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
-				return nil, fmt.Errorf("failed to assign Network Contributor role on outbound IP: %w", err)
+				return nil, fmt.Errorf("failed to assign Network Contributor role on outbound IP '%s': %w", *outboundIpAddress.ID, err)
 			}
 		}
 	}
@@ -542,14 +542,14 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 	}
 
 	if err := assignRbacRole(ctx, inst.Config.Cloud.Compute.GetManagementPrincipalIds(), true, *createdCluster.ID, "Azure Kubernetes Service Cluster User Role", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
-		return nil, fmt.Errorf("failed to assign RBAC role on cluster: %w", err)
+		return nil, fmt.Errorf("failed to assign Azure Kubernetes Service Cluster User Role on cluster '%s': %w", *createdCluster.ID, err)
 	}
 
 	// When using private networking, RBAC roles were pre-assigned to the user-assigned identity.
 	// When not using private networking, assign roles to the system-assigned identity post-creation.
 	if !inst.Config.Cloud.PrivateNetworking && outboundIpAddress != nil {
 		if err := assignRbacRole(ctx, []string{*createdCluster.Identity.PrincipalID}, false, *outboundIpAddress.ID, "Network Contributor", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
-			return nil, fmt.Errorf("failed to assign RBAC role on outbound IP address: %w", err)
+			return nil, fmt.Errorf("failed to assign Network Contributor role on outbound IP '%s': %w", *outboundIpAddress.ID, err)
 		}
 	}
 
@@ -979,7 +979,7 @@ func (inst *Installer) onDeleteCluster(ctx context.Context, clusterConfig *Clust
 
 			if clusterPrincipalID != "" {
 				if err := removeRbacRoleAssignments(ctx, clusterPrincipalID, *vnet.ID, inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
-					return fmt.Errorf("failed to remove RBAC role assignments on VNet: %w", err)
+					return fmt.Errorf("failed to remove RBAC role assignments on VNet '%s': %w", *vnet.ID, err)
 				}
 				subnetIndex := slices.IndexFunc(vnet.Properties.Subnets, func(s *armnetwork.Subnet) bool {
 					return s.Name != nil && *s.Name == clusterConfig.ExistingSubnet.SubnetName
@@ -989,17 +989,17 @@ func (inst *Installer) onDeleteCluster(ctx context.Context, clusterConfig *Clust
 					subnet := vnet.Properties.Subnets[subnetIndex]
 					if subnet.Properties.NetworkSecurityGroup != nil && subnet.Properties.NetworkSecurityGroup.ID != nil {
 						if err := removeRbacRoleAssignments(ctx, clusterPrincipalID, *subnet.Properties.NetworkSecurityGroup.ID, inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
-							return fmt.Errorf("failed to remove RBAC role assignments on subnet NSG: %w", err)
+							return fmt.Errorf("failed to remove RBAC role assignments on subnet NSG '%s': %w", *subnet.Properties.NetworkSecurityGroup.ID, err)
 						}
 					}
 					if subnet.Properties.RouteTable != nil && subnet.Properties.RouteTable.ID != nil {
 						if err := removeRbacRoleAssignments(ctx, clusterPrincipalID, *subnet.Properties.RouteTable.ID, inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
-							return fmt.Errorf("failed to remove RBAC role assignments on subnet route table: %w", err)
+							return fmt.Errorf("failed to remove RBAC role assignments on subnet route table '%s': %w", *subnet.Properties.RouteTable.ID, err)
 						}
 					}
 					if subnet.Properties.NatGateway != nil && subnet.Properties.NatGateway.ID != nil {
 						if err := removeRbacRoleAssignments(ctx, clusterPrincipalID, *subnet.Properties.NatGateway.ID, inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
-							return fmt.Errorf("failed to remove RBAC role assignments on subnet NAT gateway: %w", err)
+							return fmt.Errorf("failed to remove RBAC role assignments on subnet NAT gateway '%s': %w", *subnet.Properties.NatGateway.ID, err)
 						}
 					}
 				}
