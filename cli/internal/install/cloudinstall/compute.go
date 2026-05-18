@@ -208,6 +208,7 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 	var vnetId *string
 	var vnetSubnetId *string
 	var vnetSubnetNsgId *string
+	var vnetSubnetRouteTableId *string
 	if clusterConfig.ExistingSubnet != nil {
 		vnetClient, err := armnetwork.NewVirtualNetworksClient(inst.Config.Cloud.SubscriptionID, inst.Credential, nil)
 		if err != nil {
@@ -239,6 +240,10 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 			vnetSubnetNsgId = subnet.Properties.NetworkSecurityGroup.ID
 		} else {
 			return nil, fmt.Errorf("subnet '%s' must have a network security group associated with it", clusterConfig.ExistingSubnet.SubnetName)
+		}
+
+		if subnet.Properties.RouteTable != nil && subnet.Properties.RouteTable.ID != nil {
+			vnetSubnetRouteTableId = subnet.Properties.RouteTable.ID
 		}
 	}
 
@@ -283,6 +288,12 @@ func (inst *Installer) createCluster(ctx context.Context, clusterConfig *Cluster
 		if vnetSubnetNsgId != nil {
 			if err := assignRbacRole(ctx, []string{*aksIdentity.Properties.PrincipalID}, false, *vnetSubnetNsgId, "Network Contributor", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
 				return nil, fmt.Errorf("failed to assign Network Contributor role on NSG: %w", err)
+			}
+		}
+
+		if vnetSubnetRouteTableId != nil {
+			if err := assignRbacRole(ctx, []string{*aksIdentity.Properties.PrincipalID}, false, *vnetSubnetRouteTableId, "Network Contributor", inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
+				return nil, fmt.Errorf("failed to assign Network Contributor role on route table: %w", err)
 			}
 		}
 
@@ -968,6 +979,11 @@ func (inst *Installer) onDeleteCluster(ctx context.Context, clusterConfig *Clust
 					if subnet.Properties.NetworkSecurityGroup != nil && subnet.Properties.NetworkSecurityGroup.ID != nil {
 						if err := removeRbacRoleAssignments(ctx, clusterPrincipalID, *subnet.Properties.NetworkSecurityGroup.ID, inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
 							return fmt.Errorf("failed to remove RBAC role assignments on subnet NSG: %w", err)
+						}
+					}
+					if subnet.Properties.RouteTable != nil && subnet.Properties.RouteTable.ID != nil {
+						if err := removeRbacRoleAssignments(ctx, clusterPrincipalID, *subnet.Properties.RouteTable.ID, inst.Config.Cloud.SubscriptionID, inst.Credential); err != nil {
+							return fmt.Errorf("failed to remove RBAC role assignments on subnet route table: %w", err)
 						}
 					}
 				}
