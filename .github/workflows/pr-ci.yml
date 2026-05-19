@@ -21,6 +21,66 @@ env:
   TYGER_AUTH_METHOD: "github"
 
 jobs:
+  # Determine whether the PR touches anything outside of docs/. When a PR only changes
+  # files under docs/, we skip the full build/test/deploy pipeline. We do this via
+  # per-job `if:` gates (rather than `paths-ignore` on the workflow trigger) so that
+  # the jobs still report as skipped and satisfy required status checks configured by
+  # job name in branch protection. The gating only applies to pull_request events;
+  # push and workflow_dispatch always run the full pipeline.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      non_docs: ${{ steps.filter.outputs.non_docs }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - id: filter
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            # On push / workflow_dispatch, always run the full pipeline.
+            echo "non_docs=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          base_sha="${{ github.event.pull_request.base.sha }}"
+          head_sha="${{ github.event.pull_request.head.sha }}"
+
+          # Make sure we have both commits available locally.
+          git fetch --no-tags --depth=1 origin "$base_sha" || true
+
+          changed=$(git diff --name-only "$base_sha" "$head_sha")
+          echo "Changed files:"
+          echo "$changed"
+
+          if echo "$changed" | grep -vE '^docs/' | grep -q .; then
+            echo "non_docs=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "non_docs=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-docs:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Build docs
+        run: |
+          set -euo pipefail
+          cd docs
+          npm install
+          npm run docs:build
+
   # If this is running a Dependabot PR or PR from a fork, it we won't have access to secrets
   # nor will be be able to obtain a federated token to access Azure resources.
   # Therefore, in those cases, we use hosted runners with managed identity to access Azure resources.
@@ -29,6 +89,9 @@ jobs:
   # Also, this repo is configured to require approvals for all workflowd external contributors, and we
   # should inspect the code in the PR before approving the run.
   test-azure-needs-hosted-runner:
+    needs:
+      - changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.non_docs == 'true'
     runs-on: ubuntu-latest
     outputs:
       AZURE_RUNS_ON_JSON: ${{ steps.set-vars.outputs.AZURE_RUNS_ON_JSON }}
@@ -50,7 +113,9 @@ jobs:
   unit-tests-and-format:
     runs-on: ubuntu-latest
     needs:
+      - changes
       - get-config
+    if: github.event_name != 'pull_request' || needs.changes.outputs.non_docs == 'true'
     defaults:
       run:
         shell: bash
@@ -117,17 +182,12 @@ jobs:
             exit 1
           fi
 
-      - name: Build docs
-        run: |
-          set -euo pipefail
-          cd docs
-          npm install
-          npm run docs:build
-
   build-images:
     needs:
+      - changes
       - test-azure-needs-hosted-runner
       - get-config
+    if: github.event_name != 'pull_request' || needs.changes.outputs.non_docs == 'true'
 
     runs-on: ${{ fromJson(needs.test-azure-needs-hosted-runner.outputs.AZURE_RUNS_ON_JSON)}}
 
@@ -149,6 +209,9 @@ jobs:
           make -j 4 docker-build
 
   get-config:
+    needs:
+      - changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.non_docs == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -217,7 +280,10 @@ jobs:
 
   publish-ghcr:
     runs-on: ubuntu-latest
-    needs: get-config
+    needs:
+      - changes
+      - get-config
+    if: github.event_name != 'pull_request' || needs.changes.outputs.non_docs == 'true'
     defaults:
       run:
         shell: bash
@@ -246,8 +312,10 @@ jobs:
   build-binaries:
     runs-on: ubuntu-latest
     needs:
+      - changes
       - get-config
       - publish-ghcr
+    if: github.event_name != 'pull_request' || needs.changes.outputs.non_docs == 'true'
     defaults:
       run:
         shell: bash
@@ -324,8 +392,10 @@ jobs:
 
   up:
     needs:
+      - changes
       - test-azure-needs-hosted-runner
       - get-config
+    if: github.event_name != 'pull_request' || needs.changes.outputs.non_docs == 'true'
     runs-on: ${{ fromJson(needs.test-azure-needs-hosted-runner.outputs.AZURE_RUNS_ON_JSON)}}
     defaults:
       run:
@@ -363,9 +433,11 @@ jobs:
 
   restore-scale-to-zero:
     needs:
+      - changes
       - test-azure-needs-hosted-runner
       - up
       - get-config
+    if: github.event_name != 'pull_request' || needs.changes.outputs.non_docs == 'true'
     runs-on: ${{ fromJson(needs.test-azure-needs-hosted-runner.outputs.AZURE_RUNS_ON_JSON)}}
     defaults:
       run:
@@ -394,9 +466,11 @@ jobs:
   integration-tests:
     name: integration-tests (${{ matrix.label }})
     needs:
+      - changes
       - test-azure-needs-hosted-runner
       - get-config
       - up
+    if: github.event_name != 'pull_request' || needs.changes.outputs.non_docs == 'true'
     runs-on: ${{ fromJson(needs.test-azure-needs-hosted-runner.outputs.AZURE_RUNS_ON_JSON)}}
     env:
       TYGER_MIN_NODE_COUNT: "1"
@@ -436,7 +510,9 @@ jobs:
 
   test-private-link-deployment:
     needs:
+      - changes
       - get-config
+    if: github.event_name != 'pull_request' || needs.changes.outputs.non_docs == 'true'
     runs-on: ["self-hosted", "1ES.Pool=tyger-gh-1es-westus2"]
     defaults:
       run:
@@ -496,7 +572,9 @@ jobs:
 
   ensure-private-link-endpoints-not-public:
     needs:
+      - changes
       - test-private-link-deployment
+    if: github.event_name != 'pull_request' || needs.changes.outputs.non_docs == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -548,10 +626,12 @@ jobs:
 
   windows-smoke-tests:
     needs:
+      - changes
       - test-azure-needs-hosted-runner
       - get-config
       - build-binaries
       - up
+    if: github.event_name != 'pull_request' || needs.changes.outputs.non_docs == 'true'
     runs-on: ${{ fromJson(needs.test-azure-needs-hosted-runner.outputs.AZURE_RUNS_ON_WINDOWS_JSON)}}
     steps:
       - name: Checkout
@@ -595,8 +675,9 @@ jobs:
 
   verify-binaries:
     # Do not install from the unapproved GHCR registry for the long-running CI environment
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && needs.changes.outputs.non_docs == 'true'
     needs:
+      - changes
       - test-azure-needs-hosted-runner
       - get-config
       - publish-ghcr
@@ -647,6 +728,9 @@ jobs:
           tyger api install -f <(./scripts/get-config.sh)
 
   verify-docker:
+    needs:
+      - changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.non_docs == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -675,7 +759,9 @@ jobs:
 
   codeql:
     runs-on: ubuntu-latest
-    if: github.repository == 'microsoft/tyger'
+    needs:
+      - changes
+    if: github.repository == 'microsoft/tyger' && (github.event_name != 'pull_request' || needs.changes.outputs.non_docs == 'true')
     defaults:
       run:
         shell: bash
