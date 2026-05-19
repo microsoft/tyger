@@ -327,6 +327,16 @@ the config file and running:
 tyger access-control apply -f config.yml
 ```
 
+::: info Note
+If you do not have permission to create app registrations in your Entra ID
+tenant, or if your organization will not allow running `tyger
+access-control apply` directly against the directory, see
+[Bootstrapping access control with an Entra ID
+admin](../../reference/access-control-bootstrap.md) for a one-time `az`-only
+bootstrap that an Entra admin can run on your behalf. After that bootstrap,
+the rest of this section applies as written.
+:::
+
 The part of the config file to edit is under the path `organizations[*].api.accessControl`.
 
 The first part of that section is parameters for authentication:
