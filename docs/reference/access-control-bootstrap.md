@@ -75,10 +75,10 @@ In both scripts, fill in:
 - `api_app_display_name` and `cli_app_display_name` — friendly names shown in
   the Entra admin portal.
 
-Both scripts are idempotent in the sense that re-running them after a
-successful bootstrap will produce errors for the already-existing resources
-but will not corrupt anything. The admin only needs to run their chosen
-script once.
+The admin only needs to run their chosen script once. If a step fails, the
+script halts immediately (so there is no risk of partial corruption); the
+admin can investigate, clean up any partially-created resources, and either
+re-run the script or complete the remaining steps manually.
 
 ### Script A — tenant-ID (or verified-domain) URI
 
@@ -94,9 +94,9 @@ owner_object_ids=(
   # "FILL-IN-OWNER-OBJECT-ID-2"
 )
 
-# Identifier URIs. The default `api://{tenantId}/...` form is accepted in any
-# tenant. If your tenant has a verified domain you may prefer something like
-# `api://tyger.contoso.com/tyger-server` instead.
+# Identifier URIs. The default `api://{tenantId}/...` form is human-readable
+# and is accepted by Entra by default. If your tenant has a verified domain
+# you may prefer `api://tyger.contoso.com/tyger-server` instead.
 tenant_id="$(az account show --query tenantId -o tsv)"
 api_app_uri="api://${tenant_id}/tyger-server"
 cli_app_uri="api://${tenant_id}/tyger-cli"
@@ -216,9 +216,9 @@ organization, at the path `organizations[*].api.accessControl`:
 ```yaml
 api:
   accessControl:
-    tenantId: 72f988bf-86f1-41af-91ab-2d7cd011db47   # reported by the admin
-    apiAppUri: api://72f988bf-…/tyger-server          # reported by the admin
-    cliAppUri: api://72f988bf-…/tyger-cli             # reported by the admin
+    tenantId: c546d652-e328-4c56-9cc3-030af6b7b194                       # reported by the admin
+    apiAppUri: api://c546d652-e328-4c56-9cc3-030af6b7b194/tyger-server    # reported by the admin
+    cliAppUri: api://c546d652-e328-4c56-9cc3-030af6b7b194/tyger-cli       # reported by the admin
 
     apiAppId: "" # `tyger access-control apply` will fill in this value
     cliAppId: "" # `tyger access-control apply` will fill in this value
