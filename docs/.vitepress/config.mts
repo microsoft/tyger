@@ -44,12 +44,16 @@ export default defineConfig({
         collapsed: true,
         items: [
           {
-            text: "Gadgetron examples",
-            link: "/reference/gadgetron/gadgetron",
+            text: "Bootstrapping access control",
+            link: "/reference/access-control-bootstrap",
           },
           {
             text: "Database management",
             link: "/reference/database-management",
+          },
+          {
+            text: "Gadgetron examples",
+            link: "/reference/gadgetron/gadgetron",
           },
           { text: "<code>tyger-proxy</code>", link: "/reference/tyger-proxy" },
         ],
