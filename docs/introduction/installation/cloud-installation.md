@@ -389,6 +389,12 @@ Kubernetes Service, storage accounts, etc.), run:
 tyger cloud install -f config.yml
 ```
 
+This step involves accessing some of the deployed Azure resources directly
+while configuring them. In situations where it is not possible for the installer 
+to determine your IP address, we recommend running the installation from the
+[Azure Cloud Shell](https://learn.microsoft.com/en-us/azure/cloud-shell/overview).
+
+We recommend storing the configuration file in a source code repository.
 If later on you need to make changes to your cloud resources, you can update the
 config file and run this command again.
 
