@@ -2454,6 +2454,21 @@ public class Repository
         }
     }
 
+    /// <summary>
+    /// Returns all runs that have reached a terminal status but have not yet
+    /// been marked as <c>final</c> by the finalizer. This is used as a
+    /// lease-acquisition fallback for runs whose <c>run_changed</c> notification
+    /// was missed (e.g. because the listening replica was down at the moment
+    /// the run transitioned).
+    ///
+    /// We deliberately do NOT filter on <c>resources_created = true</c>: a
+    /// Pending run that is canceled (for example by
+    /// <see cref="Compute.RunTimeoutEnforcer"/>) before its
+    /// Kubernetes resources were created still needs to be marked final so it
+    /// doesn't accumulate in the table. The Kubernetes deletion path in
+    /// <c>RunFinalizer</c> handles missing resources gracefully (404 responses
+    /// are ignored).
+    /// </summary>
     public async Task<List<Run>> GetFinalizableRuns(CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
@@ -2467,7 +2482,7 @@ public class Repository
                 CommandText = """
                     SELECT run
                     FROM runs
-                    WHERE final = false AND resources_created = true AND status IN ('Failed', 'Succeeded', 'Canceled')
+                    WHERE final = false AND status IN ('Failed', 'Succeeded', 'Canceled')
                     ORDER BY created_at ASC
                     """
             })
