@@ -524,10 +524,9 @@ public class Repository
             await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
             await using var tx = await conn.BeginTransactionAsync(cancellationToken);
             Run run;
-            bool resourcesCreated;
             int tagsVersion;
             await using (var readRun = new NpgsqlCommand($"""
-                SELECT run, resources_created, final, tags_version
+                SELECT run, final, tags_version
                 FROM runs
                 WHERE id = $1
                 FOR UPDATE
@@ -547,15 +546,14 @@ public class Repository
                 }
 
                 run = reader.GetFieldValue<Run>(0);
-                resourcesCreated = reader.GetBoolean(1);
-                var final = reader.GetBoolean(2);
+                var final = reader.GetBoolean(1);
 
                 if (final || run.Status.IsTerminal())
                 {
                     return run;
                 }
 
-                tagsVersion = reader.GetInt32(3);
+                tagsVersion = reader.GetInt32(2);
             }
 
             var now = DateTimeOffset.UtcNow;
@@ -2510,6 +2508,11 @@ public class Repository
     /// timeout. Pending runs (e.g. pods that are unschedulable due to
     /// insufficient capacity) never get a <c>StartTime</c>, so the kubelet's
     /// deadline never begins counting and the control plane must enforce it.
+    ///
+    /// Rows whose <c>timeoutSeconds</c> is missing or JSON null are treated as
+    /// if they had <see cref="Run.DefaultTimeoutSeconds"/>. This matches the
+    /// coercion applied at create time and ensures legacy rows written before
+    /// that coercion still get enforced.
     /// </summary>
     public async Task<List<long>> GetExpiredPendingRunIds(int limit, CancellationToken cancellationToken)
     {
@@ -2526,11 +2529,15 @@ public class Repository
                     FROM runs
                     WHERE final = false
                       AND status = 'Pending'
-                      AND created_at + ((run->>'timeoutSeconds')::int * interval '1 second') <= (now() AT TIME ZONE 'utc')
+                      AND created_at + (COALESCE((run->>'timeoutSeconds')::int, $2) * interval '1 second') <= (now() AT TIME ZONE 'utc')
                     ORDER BY created_at ASC
                     LIMIT $1
                     """,
-                Parameters = { new() { Value = limit, NpgsqlDbType = NpgsqlDbType.Integer } }
+                Parameters =
+                {
+                    new() { Value = limit, NpgsqlDbType = NpgsqlDbType.Integer },
+                    new() { Value = Run.DefaultTimeoutSeconds, NpgsqlDbType = NpgsqlDbType.Integer },
+                }
             })
             {
                 await command.PrepareAsync(cancellationToken);

@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using Tyger.ControlPlane.Database;
+using Tyger.ControlPlane.Model;
 using Tyger.ControlPlane.Runs;
 
 namespace Tyger.ControlPlane.Compute;
@@ -74,7 +75,14 @@ public class RunTimeoutEnforcer : BackgroundService
             {
                 try
                 {
-                    if (await _runUpdater.CancelRun(id, TimeoutStatusReason, cancellationToken) is not null)
+                    // CancelRun returns the run unchanged if it is already terminal/final,
+                    // so the loop may race with another cancellation path between the
+                    // GetExpiredPendingRunIds query and this call. Only log a successful
+                    // cancellation when the returned run actually reflects our update
+                    // (Canceled with our reason); otherwise some other path got there
+                    // first and there is nothing for us to report.
+                    var canceled = await _runUpdater.CancelRun(id, TimeoutStatusReason, cancellationToken);
+                    if (canceled is { Status: RunStatus.Canceled, StatusReason: TimeoutStatusReason })
                     {
                         _logger.CanceledExpiredRun(id);
                     }
