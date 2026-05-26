@@ -211,7 +211,7 @@ public static class Runs
                 return Responses.NotFound();
             }
 
-            if (await runUpdater.CancelRun(parsedRunId, context.RequestAborted) is not Run run)
+            if (await runUpdater.CancelRun(parsedRunId, "Canceled by user", context.RequestAborted) is not Run run)
             {
                 return Responses.NotFound();
             }
@@ -290,7 +290,7 @@ public interface IRunReader
 
 public interface IRunUpdater
 {
-    Task<Run?> CancelRun(long id, CancellationToken cancellationToken);
+    Task<Run?> CancelRun(long id, string statusReason, CancellationToken cancellationToken);
     Task<UpdateWithPreconditionResult<Run>> UpdateRunTags(RunUpdate runUpdate, string? eTagPrecondition, CancellationToken cancellationToken);
 }
 

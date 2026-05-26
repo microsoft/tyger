@@ -20,10 +20,10 @@ public class KubernetesRunUpdater : IRunUpdater
         _logger = logger;
     }
 
-    public async Task<Run?> CancelRun(long id, CancellationToken cancellationToken)
+    public async Task<Run?> CancelRun(long id, string statusReason, CancellationToken cancellationToken)
     {
         _logger.CancelingRun(id);
-        return await _repository.CancelRun(id, cancellationToken);
+        return await _repository.CancelRun(id, statusReason, cancellationToken);
     }
 
     public async Task<UpdateWithPreconditionResult<Run>> UpdateRunTags(RunUpdate runUpdate, string? eTagPrecondition, CancellationToken cancellationToken)

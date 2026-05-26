@@ -257,7 +257,15 @@ public class Repository
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
-            newRun = newRun.WithoutSystemProperties() with { Status = RunStatus.Pending };
+            newRun = newRun.WithoutSystemProperties() with
+            {
+                Status = RunStatus.Pending,
+                // Ensure the run always has a timeout persisted so RunTimeoutEnforcer
+                // can detect expired Pending runs. A client that omits the field gets
+                // the default from the Run record; a client that explicitly sends null
+                // is coerced here.
+                TimeoutSeconds = newRun.TimeoutSeconds ?? Run.DefaultTimeoutSeconds,
+            };
 
             await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
             await using var tx = await connection.BeginTransactionAsync(cancellationToken);
@@ -509,7 +517,7 @@ public class Repository
         }, cancellationToken);
     }
 
-    public async Task<Run?> CancelRun(long id, CancellationToken cancellationToken)
+    public async Task<Run?> CancelRun(long id, string statusReason, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
@@ -554,7 +562,7 @@ public class Repository
             var updatedRun = run with
             {
                 Status = RunStatus.Canceled,
-                StatusReason = "Canceled by user",
+                StatusReason = statusReason,
                 FinishedAt = new DateTimeOffset(now.Year, now.Month, now.Day, now.Hour, now.Minute, now.Second, now.Offset),
             };
 
@@ -2473,6 +2481,52 @@ public class Repository
             }
 
             return runs;
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Returns the IDs of runs that are still in the <c>Pending</c> state
+    /// whose timeout has elapsed, measured from the run's <c>created_at</c>
+    /// timestamp using the <c>timeoutSeconds</c> value stored in the run JSON.
+    /// At most <paramref name="limit"/> IDs are returned.
+    ///
+    /// Running runs are not included here: once a Kubernetes pod is admitted
+    /// by the kubelet, the pod's <c>activeDeadlineSeconds</c> enforces the
+    /// timeout. Pending runs (e.g. pods that are unschedulable due to
+    /// insufficient capacity) never get a <c>StartTime</c>, so the kubelet's
+    /// deadline never begins counting and the control plane must enforce it.
+    /// </summary>
+    public async Task<List<long>> GetExpiredPendingRunIds(int limit, CancellationToken cancellationToken)
+    {
+        return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
+        {
+            await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+
+            var ids = new List<long>();
+            using (var command = new NpgsqlCommand
+            {
+                Connection = connection,
+                CommandText = """
+                    SELECT id
+                    FROM runs
+                    WHERE final = false
+                      AND status = 'Pending'
+                      AND created_at + ((run->>'timeoutSeconds')::int * interval '1 second') <= (now() AT TIME ZONE 'utc')
+                    ORDER BY created_at ASC
+                    LIMIT $1
+                    """,
+                Parameters = { new() { Value = limit, NpgsqlDbType = NpgsqlDbType.Integer } }
+            })
+            {
+                await command.PrepareAsync(cancellationToken);
+                await using var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    ids.Add(reader.GetInt64(0));
+                }
+            }
+
+            return ids;
         }, cancellationToken);
     }
 

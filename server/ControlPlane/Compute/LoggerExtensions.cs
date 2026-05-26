@@ -52,4 +52,13 @@ public static partial class LoggerExtensions
 
     [LoggerMessage(LogLevel.Error, "Error during secret update")]
     public static partial void ErrorInRunSecretUpdater(this ILogger logger, Exception e);
+
+    [LoggerMessage(LogLevel.Information, "Canceled run {runId} because it exceeded its timeout")]
+    public static partial void CanceledExpiredRun(this ILogger logger, long runId);
+
+    [LoggerMessage(LogLevel.Error, "Error canceling expired run {runId}")]
+    public static partial void ErrorCancelingExpiredRun(this ILogger logger, Exception e, long runId);
+
+    [LoggerMessage(LogLevel.Error, "Error in run timeout enforcer")]
+    public static partial void ErrorInRunTimeoutEnforcer(this ILogger logger, Exception e);
 }
