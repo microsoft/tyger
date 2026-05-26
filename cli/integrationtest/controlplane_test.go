@@ -1889,7 +1889,7 @@ func TestCancelRun(t *testing.T) {
 func TestPendingRunIsCanceledWhenTimeoutExpires(t *testing.T) {
 	t.Parallel()
 	skipIfOnlyFastTests(t)
-	skipIfUsingDockerUrl(t)
+	skipIfUsingUnixSocket(t)
 	require := require.New(t)
 
 	// Request an absurd amount of CPU so the pod cannot be scheduled and the

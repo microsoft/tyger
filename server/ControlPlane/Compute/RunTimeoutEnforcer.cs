@@ -9,7 +9,7 @@ namespace Tyger.ControlPlane.Compute;
 
 /// <summary>
 /// Periodically scans the database for runs that are still in the
-/// <see cref="Model.RunStatus.Pending"/> state and whose
+/// <see cref="RunStatus.Pending"/> state and whose
 /// <c>timeoutSeconds</c> has elapsed (measured from <c>created_at</c>), and
 /// cancels them.
 ///
