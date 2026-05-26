@@ -1879,6 +1879,51 @@ func TestCancelRun(t *testing.T) {
 	require.Equal("Canceled by user", run.StatusReason)
 }
 
+// Verifies that a run that is stuck in the Pending state (because the pod is
+// unschedulable) is automatically canceled by the control plane once its
+// timeoutSeconds has elapsed. This guards against resource lock-up scenarios
+// (most importantly distributed runs whose worker StatefulSet would otherwise
+// hold capacity indefinitely), where Kubernetes's pod-level
+// activeDeadlineSeconds never starts counting because the kubelet never admits
+// the pod.
+func TestPendingRunIsCanceledWhenTimeoutExpires(t *testing.T) {
+	t.Parallel()
+	skipIfOnlyFastTests(t)
+	skipIfUsingDockerUrl(t)
+	require := require.New(t)
+
+	// Request an absurd amount of CPU so the pod cannot be scheduled and the
+	// run stays in the Pending state. timeoutSeconds is short so the
+	// RunTimeoutEnforcer cancels the run quickly.
+	runSpec := fmt.Sprintf(`
+job:
+  codespec:
+    image: %s
+    command: ["sleep", "1h"]
+    resources:
+      requests:
+        cpu: "10000"
+timeoutSeconds: 5`, BasicImage)
+
+	tempDir := t.TempDir()
+	runSpecPath := filepath.Join(tempDir, "runspec.yaml")
+	require.NoError(os.WriteFile(runSpecPath, []byte(runSpec), 0644))
+
+	runId := runTygerSucceeds(t, "run", "create", "--file", runSpecPath)
+	t.Logf("Run ID: %s", runId)
+
+	// The run should be Pending immediately after creation; the enforcer only
+	// targets Pending runs.
+	require.Equal(model.Pending, *getRun(t, runId).Status)
+
+	// The enforcer polls on a 60s cadence, so allow ample time for it to
+	// observe the expiration and cancel the run.
+	run := waitForRunCanceled(t, runId)
+
+	require.Equal(model.Canceled, *run.Status)
+	require.Contains(run.StatusReason, "timeout")
+}
+
 func TestCancelTerminatesOutputBuffers(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
