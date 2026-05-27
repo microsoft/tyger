@@ -13,6 +13,8 @@ public static class Compute
         builder.Services.AddSingleton<RunSecretUpdater>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<RunSecretUpdater>());
 
+        builder.Services.AddHostedService<RunTimeoutEnforcer>();
+
         var kubernetesSection = builder.Configuration.GetSection("compute:kubernetes");
         var dockerSection = builder.Configuration.GetSection("compute:docker");
         switch (kubernetesSection.Exists(), dockerSection.Exists())

@@ -257,7 +257,15 @@ public class Repository
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
-            newRun = newRun.WithoutSystemProperties() with { Status = RunStatus.Pending };
+            newRun = newRun.WithoutSystemProperties() with
+            {
+                Status = RunStatus.Pending,
+                // Ensure the run always has a timeout persisted so RunTimeoutEnforcer
+                // can detect expired Pending runs. A client that omits the field gets
+                // the default from the Run record; a client that explicitly sends null
+                // is coerced here.
+                TimeoutSeconds = newRun.TimeoutSeconds ?? Run.DefaultTimeoutSeconds,
+            };
 
             await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
             await using var tx = await connection.BeginTransactionAsync(cancellationToken);
@@ -509,17 +517,16 @@ public class Repository
         }, cancellationToken);
     }
 
-    public async Task<Run?> CancelRun(long id, CancellationToken cancellationToken)
+    public async Task<Run?> CancelRun(long id, string statusReason, CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
             await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
             await using var tx = await conn.BeginTransactionAsync(cancellationToken);
             Run run;
-            bool resourcesCreated;
             int tagsVersion;
             await using (var readRun = new NpgsqlCommand($"""
-                SELECT run, resources_created, final, tags_version
+                SELECT run, final, tags_version
                 FROM runs
                 WHERE id = $1
                 FOR UPDATE
@@ -539,22 +546,21 @@ public class Repository
                 }
 
                 run = reader.GetFieldValue<Run>(0);
-                resourcesCreated = reader.GetBoolean(1);
-                var final = reader.GetBoolean(2);
+                var final = reader.GetBoolean(1);
 
                 if (final || run.Status.IsTerminal())
                 {
                     return run;
                 }
 
-                tagsVersion = reader.GetInt32(3);
+                tagsVersion = reader.GetInt32(2);
             }
 
             var now = DateTimeOffset.UtcNow;
             var updatedRun = run with
             {
                 Status = RunStatus.Canceled,
-                StatusReason = "Canceled by user",
+                StatusReason = statusReason,
                 FinishedAt = new DateTimeOffset(now.Year, now.Month, now.Day, now.Hour, now.Minute, now.Second, now.Offset),
             };
 
@@ -2446,6 +2452,21 @@ public class Repository
         }
     }
 
+    /// <summary>
+    /// Returns all runs that have reached a terminal status but have not yet
+    /// been marked as <c>final</c> by the finalizer. This is used as a
+    /// lease-acquisition fallback for runs whose <c>run_changed</c> notification
+    /// was missed (e.g. because the listening replica was down at the moment
+    /// the run transitioned).
+    ///
+    /// We deliberately do NOT filter on <c>resources_created = true</c>: a
+    /// Pending run that is canceled (for example by
+    /// <see cref="Compute.RunTimeoutEnforcer"/>) before its
+    /// Kubernetes resources were created still needs to be marked final so it
+    /// doesn't accumulate in the table. The Kubernetes deletion path in
+    /// <c>RunFinalizer</c> handles missing resources gracefully (404 responses
+    /// are ignored).
+    /// </summary>
     public async Task<List<Run>> GetFinalizableRuns(CancellationToken cancellationToken)
     {
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
@@ -2459,7 +2480,7 @@ public class Repository
                 CommandText = """
                     SELECT run
                     FROM runs
-                    WHERE final = false AND resources_created = true AND status IN ('Failed', 'Succeeded', 'Canceled')
+                    WHERE final = false AND status IN ('Failed', 'Succeeded', 'Canceled')
                     ORDER BY created_at ASC
                     """
             })
@@ -2473,6 +2494,61 @@ public class Repository
             }
 
             return runs;
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Returns the IDs of runs that are still in the <c>Pending</c> state
+    /// whose timeout has elapsed, measured from the run's <c>created_at</c>
+    /// timestamp using the <c>timeoutSeconds</c> value stored in the run JSON.
+    /// At most <paramref name="limit"/> IDs are returned.
+    ///
+    /// Running runs are not included here: once a Kubernetes pod is admitted
+    /// by the kubelet, the pod's <c>activeDeadlineSeconds</c> enforces the
+    /// timeout. Pending runs (e.g. pods that are unschedulable due to
+    /// insufficient capacity) never get a <c>StartTime</c>, so the kubelet's
+    /// deadline never begins counting and the control plane must enforce it.
+    ///
+    /// Rows whose <c>timeoutSeconds</c> is missing or JSON null are treated as
+    /// if they had <see cref="Run.DefaultTimeoutSeconds"/>. This matches the
+    /// coercion applied at create time and ensures legacy rows written before
+    /// that coercion still get enforced.
+    /// </summary>
+    public async Task<List<long>> GetExpiredPendingRunIds(int limit, CancellationToken cancellationToken)
+    {
+        return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
+        {
+            await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+
+            var ids = new List<long>();
+            using (var command = new NpgsqlCommand
+            {
+                Connection = connection,
+                CommandText = """
+                    SELECT id
+                    FROM runs
+                    WHERE final = false
+                      AND status = 'Pending'
+                      AND created_at + (COALESCE((run->>'timeoutSeconds')::int, $2) * interval '1 second') <= (now() AT TIME ZONE 'utc')
+                    ORDER BY created_at ASC
+                    LIMIT $1
+                    """,
+                Parameters =
+                {
+                    new() { Value = limit, NpgsqlDbType = NpgsqlDbType.Integer },
+                    new() { Value = Run.DefaultTimeoutSeconds, NpgsqlDbType = NpgsqlDbType.Integer },
+                }
+            })
+            {
+                await command.PrepareAsync(cancellationToken);
+                await using var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    ids.Add(reader.GetInt64(0));
+                }
+            }
+
+            return ids;
         }, cancellationToken);
     }
 

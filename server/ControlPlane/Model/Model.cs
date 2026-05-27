@@ -550,9 +550,15 @@ public partial record Run : ModelBase
     public RunCodeTarget? Worker { get; init; }
 
     /// <summary>
+    /// The default value applied to <see cref="TimeoutSeconds"/> when a client does
+    /// not supply one (or supplies an explicit null).
+    /// </summary>
+    public const int DefaultTimeoutSeconds = 12 * 60 * 60;
+
+    /// <summary>
     /// The maximum number of seconds to wait for the run to complete. If the run does not complete within this time, it will be canceled.
     /// </summary>
-    public int? TimeoutSeconds { get; init; } = (int)TimeSpan.FromHours(12).TotalSeconds;
+    public int? TimeoutSeconds { get; init; } = DefaultTimeoutSeconds;
 
     /// <summary>
     /// The name of target cluster.

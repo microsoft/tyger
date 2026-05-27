@@ -37,10 +37,10 @@ public class DockerRunUpdater : IRunUpdater
         _bufferProvider = bufferProvider;
     }
 
-    public async Task<Run?> CancelRun(long id, CancellationToken cancellationToken)
+    public async Task<Run?> CancelRun(long id, string statusReason, CancellationToken cancellationToken)
     {
         _logger.CancelingRun(id);
-        var updatedRun = await _repository.CancelRun(id, cancellationToken: cancellationToken);
+        var updatedRun = await _repository.CancelRun(id, statusReason, cancellationToken: cancellationToken);
         if (updatedRun is null)
         {
             return null;
