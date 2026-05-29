@@ -2,9 +2,9 @@
 
 Tyger is a REST API and CLI for **remote signal processing**. It accepts streaming
 input, runs containerized user code on Kubernetes (cloud) or Docker (local), and
-exposes the results via WORM data streams ("buffers"). It is deployed as two
-ASP.NET Core services (a control plane and a data plane) plus a set of Go-based
-CLIs and sidecars.
+exposes the results via WORM data streams ("buffers"). It is deployed an
+ASP.NET Core control-plane service (and a data plane service in local mode) plus
+a set of Go-based CLIs and sidecars.
 
 Always read the surrounding code before changing it, and prefer minimal,
 targeted edits that match the conventions described below.
