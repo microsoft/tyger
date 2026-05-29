@@ -1082,6 +1082,16 @@ func translateAzureCliCredentialError(err error, tenantId string) error {
 	case containsAny("aadsts50020", "aadsts500011", "aadsts90072"):
 		return fmt.Errorf("the Azure CLI is signed in to a different tenant than the Tyger server. Run `az login --tenant %s` against the Tyger tenant and retry: %w", tenantId, err)
 
+	// In Azure Cloud Shell the Azure CLI does not use a normal interactive /
+	// refresh-token flow. It acquires tokens through an MSI-style token endpoint
+	// (the "Cloud Shell credential") that acts on behalf of the signed-in user
+	// but can only issue tokens for a curated allow-list of audiences (ARM,
+	// Graph, Key Vault, ...). Custom application audiences like the Tyger API are
+	// rejected with "not a supported MSI token audience", and there is no way to
+	// make the Cloud Shell credential issue a token for the Tyger API.
+	case containsAny("not a supported msi token audience"):
+		return fmt.Errorf("the Azure CLI in this environment (for example, Azure Cloud Shell) acquires tokens through a credential that only supports a fixed set of audiences and cannot issue tokens for the Tyger API: %w", err)
+
 	// `az` fails locally (before reaching Microsoft Entra) when it isn't signed in,
 	// so there is no AADSTS code to match; fall back to the CLI's own prompt text.
 	case containsAny("az login"):
