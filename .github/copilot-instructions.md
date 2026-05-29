@@ -143,7 +143,7 @@ devcontainer's `gopls` is already configured with this tag.
 #### Data plane
 
 - [server/DataPlane/](../server/DataPlane/) is its own minimal ASP.NET Core
-  service (`tyger-data-plane`) that handles raw buffer I/O in docker mode. It
+  service (`tyger-data-plane`) that handles buffer storage in Docker mode. It
   shares `Tyger.Common` with the control plane and follows the same
   `builder.AddXxx()` / `app.UseXxx()` wiring (see
   [server/DataPlane/Program.cs](../server/DataPlane/Program.cs)), including its
