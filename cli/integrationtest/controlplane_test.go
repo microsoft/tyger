@@ -3028,11 +3028,10 @@ func TestForbiddenOperationsWithContributorRole(t *testing.T) {
 func TestLoginWithAzureCliErrors(t *testing.T) {
 	t.Parallel()
 
+	skipIfUsingUnixSocket(t)
+
 	c, err := controlplane.GetClientFromCache()
 	require.NoError(t, err)
-	if c.RawControlPlaneUrl == nil || c.RawControlPlaneUrl.Scheme != "https" {
-		t.Skip("Skipping test because the control plane is not a cloud (https) deployment")
-	}
 
 	config := getCloudConfig(t)
 	var legacyDomain, legacyTenant string
