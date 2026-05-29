@@ -3060,6 +3060,7 @@ func TestLoginWithAzureCliErrors(t *testing.T) {
 		// directory so the Azure CLI cannot be found.
 		tempCache := filepath.Join(t.TempDir(), "cache")
 		_, stdErr, err := newTygerCmdWithModifiedEnv(
+			t,
 			map[string]string{
 				"TYGER_CACHE_FILE": tempCache,
 				"PATH":             t.TempDir(),
@@ -3088,6 +3089,7 @@ func TestLoginWithAzureCliErrors(t *testing.T) {
 
 		tempCache := filepath.Join(t.TempDir(), "cache")
 		_, stdErr, err := newTygerCmdWithModifiedEnv(
+			t,
 			map[string]string{"TYGER_CACHE_FILE": tempCache},
 			"login", legacyUrl, "--az",
 		).Run()
@@ -3102,8 +3104,16 @@ func TestLoginWithAzureCliErrors(t *testing.T) {
 
 // newTygerCmdWithModifiedEnv builds a tyger command whose environment is a copy
 // of the current process environment with the given overrides applied.
-func newTygerCmdWithModifiedEnv(overrides map[string]string, args ...string) *CmdBuilder {
-	b := NewTygerCmdBuilder(args...)
+//
+// The `tyger` binary is resolved to an absolute path against the current
+// process's PATH before the overrides are applied, so callers can safely
+// override PATH (for example, to hide `az` from the child process) without also
+// hiding `tyger` itself.
+func newTygerCmdWithModifiedEnv(t *testing.T, overrides map[string]string, args ...string) *CmdBuilder {
+	tygerPath, err := exec.LookPath("tyger")
+	require.NoError(t, err, "unable to resolve the tyger executable on PATH")
+
+	b := NewCmdBuilder(tygerPath, args...)
 	applied := make(map[string]bool, len(overrides))
 	for _, entry := range os.Environ() {
 		key, value, _ := strings.Cut(entry, "=")
