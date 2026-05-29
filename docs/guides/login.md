@@ -70,6 +70,26 @@ You will need to follow GitHub
 [documentation](https://docs.github.com/en/actions/security-for-github-actions/security-hardening-your-deployments/configuring-openid-connect-in-azure)
 in order to ensure you can use this feature from your pipeline.
 
+## Log in using the Azure CLI
+
+If you are already signed in with the [Azure
+CLI](https://learn.microsoft.com/en-us/cli/azure/) (`az`), you can reuse that
+session to acquire a token for Tyger:
+
+```bash
+tyger login SERVER_URL --az
+```
+
+This requires that:
+
+- The Azure CLI is installed and you have run `az login` against the **same
+  tenant** as the Tyger server. If you are signed in to a different tenant, run
+  `az login --tenant TENANT_ID` using the Tyger server's tenant.
+- The operator has enabled Azure CLI login for the deployment by setting
+  `enableAzureCliLogin: true` in the access control configuration and running
+  `tyger access-control apply`. This pre-authorizes the Azure CLI application to
+  access the Tyger API so that no interactive consent prompt is required.
+
 ## Specifying trusted certificate authority certificates
 
 By default, `tyger` uses the operating system's trusted root CA certificates for
@@ -114,6 +134,12 @@ managedIdentityClientId: # Optionally specify the client ID of the managed ident
 
 # Whether to use GitHub Actions tokens with federated identity for authentication.
 github: false
+
+# Whether to use the Azure CLI ('az') to acquire access tokens.
+# Requires that the Azure CLI is installed, that you are signed in with 'az login' to the
+# same tenant as the Tyger server, and that the operator has set 'enableAzureCliLogin: true'
+# in the Tyger access control config.
+azureCli: false
 
 # If using managed identity or GitHub Actions, specify the client ID of the federated identity to authenticate as.
 targetFederatedIdentity: # Optionally specify a federated identity to authenticate as using the managed identity.

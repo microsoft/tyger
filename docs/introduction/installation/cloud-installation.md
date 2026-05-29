@@ -257,6 +257,11 @@ organizations:
         apiAppId: "" # `tyger access-control apply` will fill in this value
         cliAppId: "" # `tyger access-control apply` will fill in this value
 
+        # Pre-authorizes the Azure CLI Entra application so that users who are
+        # signed in with `az login` can authenticate to Tyger using `tyger login --az`.
+        # Users still need to be granted a role below in order to access Tyger.
+        enableAzureCliLogin: true
+
         # Principals in role assignments are specified in the following ways:
         #
         # For users, specify the object ID and/or the user principal name.

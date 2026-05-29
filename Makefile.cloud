@@ -187,6 +187,8 @@ _get-login-spec:
 	elif [[ "${TYGER_AUTH_METHOD}" == "github" ]]; then
 		auth_parameters="github: true
 		targetFederatedIdentity: '$${client_uri}'"
+	elif [[ "${TYGER_AUTH_METHOD}" == "az" ]]; then
+		auth_parameters="azureCli: true"
 	else
 		echo "Unknown authentication method: ${TYGER_AUTH_METHOD}"
 		exit 1
@@ -251,6 +253,8 @@ get-proxy-config:
 	elif [[ "${TYGER_AUTH_METHOD}" == "github" ]]; then
 		auth_parameters="github: true
 		targetFederatedIdentity: '$${client_uri}'"
+	elif [[ "${TYGER_AUTH_METHOD}" == "az" ]]; then
+		auth_parameters="azureCli: true"
 	else
 		echo "Unknown authentication method: ${TYGER_AUTH_METHOD}"
 		exit 1
