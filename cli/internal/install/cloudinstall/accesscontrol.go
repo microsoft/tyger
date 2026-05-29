@@ -25,6 +25,12 @@ const permissionScopeValue = "Read.Write"
 const tygerOwnerRoleValue = "owner"
 const tygerContributorRoleValue = "contributor"
 
+// The well-known Entra application ID of the Azure CLI (`az`).
+// Pre-authorizing this app on the Tyger API allows users who are signed in
+// with `az login` to acquire a token for Tyger via
+// `az account get-access-token --resource <apiAppUri>`.
+const azureCliAppId = "04b07795-8ddb-461a-bbee-02f9e1bf7b46"
+
 //go:embed access-control-pretty.tpl
 var prettyPrintRbacTemplate string
 
@@ -84,7 +90,7 @@ func ApplyAccessControlConfig(ctx context.Context, accessControlConfig *AccessCo
 }
 
 func installIdentities(ctx context.Context, accessControlConfig *AccessControlConfig, cred azcore.TokenCredential) error {
-	serverApp, err := createOrUpdateServerApp(ctx, accessControlConfig, cred)
+	serverApp, initialServerAppBytes, err := createOrUpdateServerApp(ctx, accessControlConfig, cred)
 	if err != nil {
 		return err
 	}
@@ -122,16 +128,27 @@ func installIdentities(ctx context.Context, accessControlConfig *AccessControlCo
 		}
 	}
 
-	if err := addCliAsPreAuthorizedApp(ctx, serverApp, cliApp, cred); err != nil {
+	// Apply the pre-authorized application changes to the in-memory server app, then
+	// reconcile the server app with a single update so the change detection (and its
+	// log message) accounts for these changes as well.
+	if err := addCliAsPreAuthorizedApp(ctx, serverApp, cliApp); err != nil {
 		return fmt.Errorf("failed to add CLI app as pre-authorized app: %w", err)
+	}
+
+	if err := syncAzureCliPreAuthorization(ctx, serverApp, accessControlConfig.EnableAzureCliLogin); err != nil {
+		return fmt.Errorf("failed to update Azure CLI pre-authorization: %w", err)
+	}
+
+	if err := updateServerAppIfChanged(ctx, serverApp, initialServerAppBytes, accessControlConfig.ApiAppUri, cred); err != nil {
+		return err
 	}
 
 	return nil
 }
 
-func createOrUpdateServerApp(ctx context.Context, accessControlConfig *AccessControlConfig, cred azcore.TokenCredential) (*aadApp, error) {
+func createOrUpdateServerApp(ctx context.Context, accessControlConfig *AccessControlConfig, cred azcore.TokenCredential) (*aadApp, []byte, error) {
 	if accessControlConfig.ApiAppId == "" && accessControlConfig.ApiAppUri == "" {
-		return nil, errors.New("`apiAppUri` must be set")
+		return nil, nil, errors.New("`apiAppUri` must be set")
 	}
 
 	app, err := GetAppByAppIdOrUri(ctx, cred, accessControlConfig.ApiAppId, accessControlConfig.ApiAppUri)
@@ -142,7 +159,7 @@ func createOrUpdateServerApp(ctx context.Context, accessControlConfig *AccessCon
 				Api:            &aadAppApi{},
 			}
 		} else {
-			return nil, fmt.Errorf("error getting existing server app: %w", err)
+			return nil, nil, fmt.Errorf("error getting existing server app: %w", err)
 		}
 	}
 
@@ -212,25 +229,39 @@ func createOrUpdateServerApp(ctx context.Context, accessControlConfig *AccessCon
 
 	if err == errNotFound {
 		log.Ctx(ctx).Info().Msgf("Creating app %s", accessControlConfig.ApiAppUri)
-		err = executeGraphCall(ctx, cred, http.MethodPost, "https://graph.microsoft.com/beta/applications", app, &app)
-	} else {
-		updatedAppBytes, _ := json.Marshal(app)
-		if string(initialAppBytes) == string(updatedAppBytes) {
-			log.Ctx(ctx).Info().Msgf("No changes detected for app %s, skipping update", accessControlConfig.ApiAppUri)
-		} else {
-			log.Ctx(ctx).Info().Msgf("Updating app %s", accessControlConfig.ApiAppUri)
-			err = executeGraphCall(ctx, cred, http.MethodPatch, fmt.Sprintf("https://graph.microsoft.com/beta/applications/%s", app.Id), app, nil)
+		if err := executeGraphCall(ctx, cred, http.MethodPost, "https://graph.microsoft.com/beta/applications", app, &app); err != nil {
+			return nil, nil, fmt.Errorf("failed to create app: %w", err)
 		}
+		// Use the just-created app as the baseline so that the subsequent reconcile only
+		// detects pre-authorized application changes.
+		initialAppBytes, _ = json.Marshal(app)
 	}
 
-	if err != nil {
-		return nil, fmt.Errorf("failed to create or update app: %w", err)
-	}
-
-	return app, nil
+	return app, initialAppBytes, nil
 }
 
-func addCliAsPreAuthorizedApp(ctx context.Context, serverApp, cliApp *aadApp, cred azcore.TokenCredential) error {
+// updateServerAppIfChanged patches the server app if it differs from the baseline captured
+// before any in-memory mutations (role/scope and pre-authorized application changes).
+func updateServerAppIfChanged(ctx context.Context, serverApp *aadApp, initialAppBytes []byte, apiAppUri string, cred azcore.TokenCredential) error {
+	updatedAppBytes, _ := json.Marshal(serverApp)
+	if string(initialAppBytes) == string(updatedAppBytes) {
+		log.Ctx(ctx).Info().Msgf("No changes detected for app %s, skipping update", apiAppUri)
+		return nil
+	}
+
+	log.Ctx(ctx).Info().Msgf("Updating app %s", apiAppUri)
+	if err := executeGraphCall(ctx, cred, http.MethodPatch, fmt.Sprintf("https://graph.microsoft.com/beta/applications/%s", serverApp.Id), serverApp, nil); err != nil {
+		return fmt.Errorf("failed to update app: %w", err)
+	}
+
+	return nil
+}
+
+func addCliAsPreAuthorizedApp(ctx context.Context, serverApp, cliApp *aadApp) error {
+	return addPreAuthorizedApp(ctx, serverApp, cliApp.AppId, "CLI")
+}
+
+func addPreAuthorizedApp(ctx context.Context, serverApp *aadApp, preAuthorizedAppId, logLabel string) error {
 	var scopeId string
 	if scopeIndex := slices.IndexFunc(serverApp.Api.Oauth2PermissionScopes, func(scope *aadAppAuth2PermissionScope) bool {
 		return scope.Value == permissionScopeValue
@@ -242,12 +273,12 @@ func addCliAsPreAuthorizedApp(ctx context.Context, serverApp, cliApp *aadApp, cr
 
 	var preauthorizedApp *aadAppPreAuthorizedApplication
 	if idx := slices.IndexFunc(serverApp.Api.PreAuthorizedApplications, func(app *aadAppPreAuthorizedApplication) bool {
-		return app.AppId == cliApp.AppId
+		return app.AppId == preAuthorizedAppId
 	}); idx != -1 {
 		preauthorizedApp = serverApp.Api.PreAuthorizedApplications[idx]
 	} else {
 		preauthorizedApp = &aadAppPreAuthorizedApplication{
-			AppId:         cliApp.AppId,
+			AppId:         preAuthorizedAppId,
 			PermissionIds: []string{},
 		}
 		serverApp.Api.PreAuthorizedApplications = append(serverApp.Api.PreAuthorizedApplications, preauthorizedApp)
@@ -255,14 +286,31 @@ func addCliAsPreAuthorizedApp(ctx context.Context, serverApp, cliApp *aadApp, cr
 
 	if slices.Index(preauthorizedApp.PermissionIds, scopeId) == -1 {
 		preauthorizedApp.PermissionIds = append(preauthorizedApp.PermissionIds, scopeId)
-		log.Ctx(ctx).Info().Msgf("Adding CLI app %s as pre-authorized app for server app %s", cliApp.AppId, serverApp.AppId)
-		err := executeGraphCall(ctx, cred, http.MethodPatch, fmt.Sprintf("https://graph.microsoft.com/beta/applications/%s", serverApp.Id), serverApp, nil)
-		if err != nil {
-			return fmt.Errorf("failed to add CLI app as pre-authorized app: %w", err)
-		}
+		log.Ctx(ctx).Info().Msgf("Adding %s app %s as pre-authorized app for server app %s", logLabel, preAuthorizedAppId, serverApp.AppId)
 	}
 
 	return nil
+}
+
+func removePreAuthorizedApp(ctx context.Context, serverApp *aadApp, preAuthorizedAppId, logLabel string) error {
+	idx := slices.IndexFunc(serverApp.Api.PreAuthorizedApplications, func(app *aadAppPreAuthorizedApplication) bool {
+		return app.AppId == preAuthorizedAppId
+	})
+	if idx == -1 {
+		return nil
+	}
+
+	serverApp.Api.PreAuthorizedApplications = slices.Delete(serverApp.Api.PreAuthorizedApplications, idx, idx+1)
+	log.Ctx(ctx).Info().Msgf("Removing %s app %s from pre-authorized apps for server app %s", logLabel, preAuthorizedAppId, serverApp.AppId)
+
+	return nil
+}
+
+func syncAzureCliPreAuthorization(ctx context.Context, serverApp *aadApp, enable bool) error {
+	if enable {
+		return addPreAuthorizedApp(ctx, serverApp, azureCliAppId, "Azure CLI")
+	}
+	return removePreAuthorizedApp(ctx, serverApp, azureCliAppId, "Azure CLI")
 }
 
 func createOrUpdateCliApp(ctx context.Context, accessControlConfig *AccessControlConfig, serverApp *aadApp, cred azcore.TokenCredential) (*aadApp, error) {

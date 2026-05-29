@@ -90,7 +90,8 @@ devcontainer's `gopls` is already configured with this tag.
   `tyger ...` against it. For very fast inner iteration you can instead run
   the control plane locally with `make set-localsettings && make run` and
   point `tyger login` at `http://localhost:5000` (cloud) or the local Unix
-  socket (docker).
+  socket (docker). In cloud mode `make login-local` does this for you; in
+  docker mode use `make login`.
 - **Changing the API contract** (anything that touches DTOs, route handlers,
   or the OpenAPI surface): update both the C# model in
   `server/ControlPlane/Model/` and the Go model in
@@ -139,6 +140,37 @@ devcontainer's `gopls` is already configured with this tag.
   `Buffers/LoggerExtensions.cs` etc.) — add new log entries there rather than
   calling `_logger.LogInformation("literal")` ad hoc.
 
+#### Data plane
+
+- [server/DataPlane/](../server/DataPlane/) is its own minimal ASP.NET Core
+  service (`tyger-data-plane`) that handles raw buffer I/O in docker mode. It
+  shares `Tyger.Common` with the control plane and follows the same
+  `builder.AddXxx()` / `app.UseXxx()` wiring (see
+  [server/DataPlane/Program.cs](../server/DataPlane/Program.cs)), including its
+  own `ConfigureVersionedRouteGroup` and `Tyger.DataPlane.Versioning`. It binds
+  to a Unix domain socket and is configured by `make set-data-plane-localsettings`
+  / run with `make run-data-plane`. Keep its surface small — buffer storage
+  logic lives in `DataPlaneStorageHandler.cs`.
+
+#### Database and migrations
+
+- Database access lives in [server/ControlPlane/Database/](../server/ControlPlane/Database/)
+  (`Repository.cs`, `Database.cs`). Schema changes are versioned, ordered
+  migrations under
+  [server/ControlPlane/Database/Migrations/](../server/ControlPlane/Database/Migrations/)
+  (`1.cs`, `2.cs`, ...). To add one: create the next `MigratorN` class
+  (subclass `Migrator`, implement `Apply`), then register it as a new entry in
+  the `DatabaseVersion` enum in `Migrations/DatabaseVersions.cs` with
+  `[Migrator(typeof(MigratorN))]` and a `[Description(...)]`.
+- Migrations are designed to run **without downtime** (additive, idempotent
+  SQL — e.g. `ADD COLUMN IF NOT EXISTS`); see
+  [docs/reference/database-management.md](../docs/reference/database-management.md).
+  They are applied via `tyger api migrations apply` (`make up` runs this in
+  cloud mode) and listed with `tyger api migrations list`. The
+  [cli/integrationtest/migrations_test.go](../cli/integrationtest/migrations_test.go)
+  end-to-end test exercises this path, so run
+  `make integration-test-no-up-fast-only` after touching migrations.
+
 ### Go (CLI)
 
 - Use the existing logger: `github.com/rs/zerolog/log`. Don't add `fmt.Println`
@@ -159,13 +191,50 @@ devcontainer's `gopls` is already configured with this tag.
   (`NewTygerCmdBuilder`, `runTyger`, `runCommandSucceeds`, etc.) instead of
   shelling out manually.
 
+#### HTTP client transport (tread carefully)
+
+The CLI talks to a Tyger endpoint over several connection types, all built in
+[cli/internal/client/](../cli/internal/client/). This is one of the subtler
+areas — understand the layering before changing it:
+
+- `client.NewClient` (in [client.go](../cli/internal/client/client.go)) wraps a
+  base `*http.Transport` in a stack of `http.RoundTripper`s (clock-skew check,
+  optional debug logging) on top of a `retryablehttp.Client`. Layers are
+  injected via `ClientOptions.CreateTransport` (`MakeRoundTripper`) and
+  `CreateDialer` (`MakeDialer`) rather than by rewriting `NewClient`. Use
+  `NewControlPlaneClient` / `NewDataPlaneClient` (the latter sets a longer
+  timeout) instead of calling `NewClient` directly.
+- The connection type is driven by the login URL scheme, surfaced by
+  `TygerClient.ConnectionType()`: `http`/`https` (TCP), `http+unix` (Unix
+  domain socket), `ssh`, and `docker`.
+- **Unix sockets:** requests use the `http+unix` scheme with the socket path
+  base32-encoded into the host (prefix `unix----`); `makeUnixDialer` /
+  `unixAwareTransport` ([unixtransport.go](../cli/internal/client/unixtransport.go))
+  decode it back to a `unix` dial. Don't put raw filesystem paths in the URL
+  host.
+- **SSH and Docker tunnels** are implemented as a `CommandTransport`
+  ([commandtransport.go](../cli/internal/client/commandtransport.go)) that
+  shells out to `ssh` / `docker`, writing the HTTP request to the process's
+  stdin and reading the response from stdout. It only intercepts `http+unix`
+  requests and otherwise delegates to `next`. URL parsing/formatting for these
+  lives in [sshurl.go](../cli/internal/client/sshurl.go) and
+  [dockerurl.go](../cli/internal/client/dockerurl.go); the transport is wired
+  up in [cli/internal/controlplane/login.go](../cli/internal/controlplane/login.go).
+- **Proxies:** `ParseProxy` accepts `none`, `auto`/`automatic`/`""`, or an
+  explicit URL, and `httpCheckProxyFunc` deliberately bypasses proxies for
+  plaintext `http` (the `tyger` → `tyger-proxy` path) unless it's a Unix socket.
+- **Redaction:** never log raw URLs or HTTP errors — use `RedactUrl` /
+  `RedactHttpError`, which strip query-string values (preserving only
+  non-sensitive keys like `api-version`).
+
 ### Shell scripts
 
 - All scripts begin with `#!/usr/bin/env bash` and `set -euo pipefail` (or
   `-ecuo pipefail` for the Makefile recipes). Keep that contract.
 - Prefer the helpers in [scripts/](../scripts/) over re-implementing config
-  lookup. `scripts/get-config.sh` is the only sanctioned way to render the
-  cloud/docker/dev configuration.
+  lookup. Use `make get-config` to render the cloud/docker/dev configuration;
+  fall back to `scripts/get-config.sh` directly only when you need its special
+  options.
 
 ## Deployment model — short version
 
@@ -232,8 +301,9 @@ Practical rules:
   (`controlplane.DefaultApiVersion`). Add new fields behind a new minor version
   and update the OpenAPI snapshot test.
 - **Don't manually edit `server/ControlPlane/appsettings.local.json`.** It is
-  regenerated by `make set-localsettings` from live Helm values; persistent
-  changes belong in `appsettings.json` or the chart.
+  regenerated by `make set-localsettings` (in cloud mode from live Helm values,
+  in docker mode from the rendered config); persistent changes belong in
+  `appsettings.json` or the chart.
 - **Don't disable analyzers or warnings as a quick fix.** The build treats
   warnings as errors on purpose; fix the underlying issue or scope a targeted
   suppression with a justifying comment.

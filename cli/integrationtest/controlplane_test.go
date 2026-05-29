@@ -3019,6 +3019,109 @@ func TestForbiddenOperationsWithContributorRole(t *testing.T) {
 	require.Contains(t, stdErr, "Forbidden")
 }
 
+// TestLoginWithAzureCliErrors exercises the error paths of `tyger login --az`.
+// It only runs against cloud (https) deployments, and only when the current
+// deployment is not the legacy organization (the legacy org is used as the
+// target for the failing login attempts). The legacy org lives in a different
+// tenant than the one the test client is signed in to and does not pre-authorize
+// the Azure CLI, which makes it a convenient target for these negative cases.
+func TestLoginWithAzureCliErrors(t *testing.T) {
+	t.Parallel()
+
+	c, err := controlplane.GetClientFromCache()
+	require.NoError(t, err)
+	if c.RawControlPlaneUrl == nil || c.RawControlPlaneUrl.Scheme != "https" {
+		t.Skip("Skipping test because the control plane is not a cloud (https) deployment")
+	}
+
+	config := getCloudConfig(t)
+	var legacyDomain, legacyTenant string
+	for _, org := range config.Organizations {
+		if org.Name == "legacy" {
+			if org.Api != nil {
+				legacyDomain = org.Api.DomainName
+				if org.Api.AccessControl != nil {
+					legacyTenant = org.Api.AccessControl.TenantID
+				}
+			}
+			break
+		}
+	}
+	if legacyDomain == "" {
+		t.Skip("Skipping test because the legacy organization is not configured")
+	}
+	if strings.EqualFold(c.RawControlPlaneUrl.Host, legacyDomain) {
+		t.Skip("Skipping test because the current deployment targets the legacy organization")
+	}
+
+	legacyUrl := "https://" + legacyDomain
+
+	t.Run("AzureCliNotInstalled", func(t *testing.T) {
+		// Hide `az` from the tyger process by pointing PATH at an empty
+		// directory so the Azure CLI cannot be found.
+		tempCache := filepath.Join(t.TempDir(), "cache")
+		_, stdErr, err := newTygerCmdWithModifiedEnv(
+			map[string]string{
+				"TYGER_CACHE_FILE": tempCache,
+				"PATH":             t.TempDir(),
+			},
+			"login", legacyUrl, "--az",
+		).Run()
+
+		require.Error(t, err)
+		require.Contains(t, stdErr, "aka.ms/azure-cli")
+	})
+
+	t.Run("WrongTenant", func(t *testing.T) {
+		if _, lookErr := exec.LookPath("az"); lookErr != nil {
+			t.Skip("Skipping because the Azure CLI is not installed")
+		}
+
+		// The wrong-tenant error only occurs when `az` is signed in to a tenant
+		// other than the legacy organization's tenant.
+		tenantOut, _, accountErr := runCommand("az", "account", "show", "--query", "tenantId", "-o", "tsv")
+		if accountErr != nil {
+			t.Skip("Skipping because the Azure CLI is not signed in")
+		}
+		if legacyTenant != "" && strings.EqualFold(strings.TrimSpace(tenantOut), legacyTenant) {
+			t.Skip("Skipping because the Azure CLI is signed in to the legacy organization's tenant")
+		}
+
+		tempCache := filepath.Join(t.TempDir(), "cache")
+		_, stdErr, err := newTygerCmdWithModifiedEnv(
+			map[string]string{"TYGER_CACHE_FILE": tempCache},
+			"login", legacyUrl, "--az",
+		).Run()
+
+		require.Error(t, err)
+		require.Contains(t, stdErr, "different tenant")
+		if legacyTenant != "" {
+			require.Contains(t, stdErr, legacyTenant)
+		}
+	})
+}
+
+// newTygerCmdWithModifiedEnv builds a tyger command whose environment is a copy
+// of the current process environment with the given overrides applied.
+func newTygerCmdWithModifiedEnv(overrides map[string]string, args ...string) *CmdBuilder {
+	b := NewTygerCmdBuilder(args...)
+	applied := make(map[string]bool, len(overrides))
+	for _, entry := range os.Environ() {
+		key, value, _ := strings.Cut(entry, "=")
+		if override, ok := overrides[key]; ok {
+			value = override
+			applied[key] = true
+		}
+		b.Env(key, value)
+	}
+	for key, value := range overrides {
+		if !applied[key] {
+			b.Env(key, value)
+		}
+	}
+	return b
+}
+
 func waitForRunStarted(t *testing.T, runId string) model.Run {
 	t.Helper()
 	return waitForRun(t, runId, true, false)

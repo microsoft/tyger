@@ -311,6 +311,7 @@ type AccessControlConfig struct {
 	CliAppUri                  string                    `yaml:"cliAppUri"`
 	CliAppId                   string                    `yaml:"cliAppId"`
 	ServiceManagementReference string                    `yaml:"serviceManagementReference,omitempty"`
+	EnableAzureCliLogin        bool                      `yaml:"enableAzureCliLogin,omitempty"`
 	RoleAssignments            *TygerRbacRoleAssignments `yaml:"roleAssignments"`
 }
 
@@ -425,9 +426,10 @@ func RenderConfig(templateValues ConfigTemplateValues, writer io.Writer) error {
 					TlsCertificateProvider: TlsCertificateProviderLetsEncrypt,
 					AccessControl: &OrganizationAccessControlConfig{
 						AccessControlConfig: AccessControlConfig{
-							TenantID:  templateValues.OrganizationTenantId,
-							ApiAppUri: "api://tyger-server",
-							CliAppUri: "api://tyger-cli",
+							TenantID:            templateValues.OrganizationTenantId,
+							ApiAppUri:           "api://tyger-server",
+							CliAppUri:           "api://tyger-cli",
+							EnableAzureCliLogin: true,
 							RoleAssignments: &TygerRbacRoleAssignments{
 								Owner: []TygerRbacRoleAssignment{
 									{
