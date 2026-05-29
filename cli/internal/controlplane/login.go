@@ -1077,9 +1077,8 @@ func translateAzureCliCredentialError(err error, tenantId string) error {
 		return fmt.Errorf("the Azure CLI is not pre-authorized to access the Tyger API. Ask an administrator to set `enableAzureCliLogin: true` in the access control config and run `tyger access-control apply`: %w", err)
 
 	// The signed-in identity belongs to / can only access a different tenant than
-	// the one that owns the Tyger API (AADSTS50020: user from another tenant,
-	// AADSTS500011: resource principal not found in tenant).
-	case containsAny("aadsts50020", "aadsts500011", "aadsts90072"):
+	// the one that owns the Tyger API
+	case containsAny("aadsts50020", "aadsts500011", "aadsts90072", "aadsts700016"):
 		return fmt.Errorf("the Azure CLI is signed in to a different tenant than the Tyger server. Run `az login --tenant %s` against the Tyger tenant and retry: %w", tenantId, err)
 
 	// In Azure Cloud Shell the Azure CLI does not use a normal interactive /
