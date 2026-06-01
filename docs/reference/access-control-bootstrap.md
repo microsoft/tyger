@@ -16,18 +16,21 @@ themselves for all subsequent changes.
 
 ## What this bootstrap does
 
-The script below performs the minimum set of steps that require Entra admin
+The scripts below perform the minimum set of steps that require Entra admin
 privileges:
 
 1. Creates the API app registration and its service principal.
 2. Creates the CLI app registration and its service principal.
-3. Adds the designated Tyger owners as **app owners** on both registrations.
+3. Adds the designated Tyger owners as **owners of both app registrations and
+   both service principals**, so they can later update the application objects
+   (define app roles, OAuth2 scopes, pre-authorized clients, redirect URIs,
+   etc.) and create app role assignments on the API SP (which is how
+   `tyger access-control apply` grants users the `owner` and `contributor`
+   Tyger roles).
 
-Once an account is listed as an app owner, it can update the application object
-(define app roles, OAuth2 scopes, pre-authorized clients, redirect URIs, etc.)
-and grant role assignments on the API app's service principal. Everything else
-that `tyger access-control apply` normally does is then performed by the Tyger
-owner under their own identity — no further Entra admin involvement is required.
+Everything else that `tyger access-control apply` normally does is then
+performed by the Tyger owner under their own identity — no further Entra admin
+involvement is required.
 
 ## Step 1 — Collect the Tyger owners' object IDs
 
@@ -111,10 +114,17 @@ api_app_id="$(az ad app create \
   --requested-access-token-version 2 \
   --query appId -o tsv)"
 
-az ad sp create --id "$api_app_id"
+api_sp_id="$(az ad sp create --id "$api_app_id" --query id -o tsv)"
 
 for owner_object_id in "${owner_object_ids[@]}"; do
+  # Owner of the app registration: lets the owner update the application
+  # object (define app roles, OAuth2 scopes, pre-authorized clients, etc.).
   az ad app owner add --id "$api_app_id" --owner-object-id "$owner_object_id"
+  # Owner of the service principal: lets the owner create app role
+  # assignments on the API SP (required by `tyger access-control apply`).
+  az rest --method POST \
+    --uri "https://graph.microsoft.com/v1.0/servicePrincipals/${api_sp_id}/owners/\$ref" \
+    --body "{\"@odata.id\": \"https://graph.microsoft.com/v1.0/directoryObjects/${owner_object_id}\"}"
 done
 
 # --- CLI app ---------------------------------------------------------------
@@ -124,10 +134,13 @@ cli_app_id="$(az ad app create \
   --requested-access-token-version 2 \
   --query appId -o tsv)"
 
-az ad sp create --id "$cli_app_id"
+cli_sp_id="$(az ad sp create --id "$cli_app_id" --query id -o tsv)"
 
 for owner_object_id in "${owner_object_ids[@]}"; do
   az ad app owner add --id "$cli_app_id" --owner-object-id "$owner_object_id"
+  az rest --method POST \
+    --uri "https://graph.microsoft.com/v1.0/servicePrincipals/${cli_sp_id}/owners/\$ref" \
+    --body "{\"@odata.id\": \"https://graph.microsoft.com/v1.0/directoryObjects/${owner_object_id}\"}"
 done
 
 echo
@@ -169,10 +182,17 @@ api_app_id="$(az ad app create \
 
 api_app_uri="api://${api_app_id}"
 az ad app update --id "$api_app_id" --identifier-uris "$api_app_uri"
-az ad sp create --id "$api_app_id"
+api_sp_id="$(az ad sp create --id "$api_app_id" --query id -o tsv)"
 
 for owner_object_id in "${owner_object_ids[@]}"; do
+  # Owner of the app registration: lets the owner update the application
+  # object (define app roles, OAuth2 scopes, pre-authorized clients, etc.).
   az ad app owner add --id "$api_app_id" --owner-object-id "$owner_object_id"
+  # Owner of the service principal: lets the owner create app role
+  # assignments on the API SP (required by `tyger access-control apply`).
+  az rest --method POST \
+    --uri "https://graph.microsoft.com/v1.0/servicePrincipals/${api_sp_id}/owners/\$ref" \
+    --body "{\"@odata.id\": \"https://graph.microsoft.com/v1.0/directoryObjects/${owner_object_id}\"}"
 done
 
 # --- CLI app ---------------------------------------------------------------
@@ -183,10 +203,13 @@ cli_app_id="$(az ad app create \
 
 cli_app_uri="api://${cli_app_id}"
 az ad app update --id "$cli_app_id" --identifier-uris "$cli_app_uri"
-az ad sp create --id "$cli_app_id"
+cli_sp_id="$(az ad sp create --id "$cli_app_id" --query id -o tsv)"
 
 for owner_object_id in "${owner_object_ids[@]}"; do
   az ad app owner add --id "$cli_app_id" --owner-object-id "$owner_object_id"
+  az rest --method POST \
+    --uri "https://graph.microsoft.com/v1.0/servicePrincipals/${cli_sp_id}/owners/\$ref" \
+    --body "{\"@odata.id\": \"https://graph.microsoft.com/v1.0/directoryObjects/${owner_object_id}\"}"
 done
 
 echo
@@ -267,10 +290,10 @@ From this point on, the Tyger owners can re-run `tyger access-control apply`
 themselves whenever role assignments need to change — no further Entra admin
 involvement is required.
 
-## What is *not* done by the bootstrap script
+## What is *not* done by the bootstrap scripts
 
-For transparency when reviewing the script with the Entra admin, note that the
-script intentionally does **not**:
+For transparency when reviewing the scripts with the Entra admin, note that
+they intentionally do **not**:
 
 - Define any app roles, OAuth2 permission scopes, pre-authorized clients, or
   redirect URIs. Those are configured later by the owner via
