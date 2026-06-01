@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -54,6 +55,7 @@ type LoginConfig struct {
 	ManagedIdentity         bool                          `json:"managedIdentity,omitempty"`
 	ManagedIdentityClientId string                        `json:"managedIdentityClientId,omitempty"`
 	GitHub                  bool                          `json:"github,omitempty"`
+	AzureCli                bool                          `json:"azureCli,omitempty"`
 	TargetFederatedIdentity string                        `json:"targetFederatedIdentity,omitempty"`
 	Proxy                   string                        `json:"proxy,omitempty"`
 	TlsCaCertificates       client.TlsCaCertificateSource `json:"tlsCaCertificates,omitempty"`
@@ -105,6 +107,7 @@ type serviceInfo struct {
 	ManagedIdentity         bool   `json:"managedIdentity,omitempty"`
 	ManagedIdentityClientId string `json:"managedIdentityClientId,omitempty"`
 	GitHub                  bool   `json:"github,omitempty"`
+	AzureCli                bool   `json:"azureCli,omitempty"`
 	TargetFederatedIdentity string `json:"targetFederatedIdentity,omitempty"`
 	CertPath                string `json:"certPath,omitempty"`
 	CertThumbprint          string `json:"certThumbprint,omitempty"`
@@ -178,6 +181,7 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, *mode
 		CertThumbprint:          options.CertificateThumbprint,
 		ManagedIdentity:         options.ManagedIdentity,
 		ManagedIdentityClientId: options.ManagedIdentityClientId,
+		AzureCli:                options.AzureCli,
 		TargetFederatedIdentity: options.TargetFederatedIdentity,
 		Proxy:                   options.Proxy,
 		TlsCaCertificates:       options.TlsCaCertificates,
@@ -352,6 +356,8 @@ func Login(ctx context.Context, options LoginConfig) (*client.TygerClient, *mode
 				authResult, si.Principal, err = si.performManagedIdentityLogin(ctx, options.ManagedIdentityClientId, options.TargetFederatedIdentity)
 			} else if options.GitHub {
 				authResult, si.Principal, err = si.performGitHubLogin(ctx, options.TargetFederatedIdentity)
+			} else if options.AzureCli {
+				authResult, si.Principal, err = si.performAzureCliLogin(ctx)
 			} else {
 				authResult, si.Principal, err = si.performUserLogin(ctx, options.UseDeviceCode)
 				if si.ClientId == "" {
@@ -506,6 +512,12 @@ func (c *serviceInfo) GetAccessToken(ctx context.Context) (string, error) {
 	} else if c.GitHub {
 		var err error
 		accessToken, _, err = c.performGitHubLogin(ctx, c.TargetFederatedIdentity)
+		if err != nil {
+			return "", err
+		}
+	} else if c.AzureCli {
+		var err error
+		accessToken, _, err = c.performAzureCliLogin(ctx)
 		if err != nil {
 			return "", err
 		}
@@ -956,6 +968,136 @@ func (si *serviceInfo) performGitHubLogin(ctx context.Context, targetFederatedId
 	}
 
 	return si.performFederatedIdentityLogin(ctx, response.Value, targetFederatedIdentity)
+}
+
+// performAzureCliLogin acquires an access token for the Tyger API by shelling
+// out to the Azure CLI (`az`). The Azure CLI's Entra application must be added
+// as a pre-authorized application on the Tyger API app (see
+// `enableAzureCliLogin` in the access control config) for this to succeed
+// without an interactive consent prompt.
+func (si *serviceInfo) performAzureCliLogin(ctx context.Context) (AccessToken, string, error) {
+	tenantId, err := tenantIdFromAuthority(si.Authority)
+	if err != nil {
+		return AccessToken{}, "", err
+	}
+
+	cred, err := azidentity.NewAzureCLICredential(&azidentity.AzureCLICredentialOptions{TenantID: tenantId})
+	if err != nil {
+		return AccessToken{}, "", translateAzureCliCredentialError(err, tenantId)
+	}
+
+	scope := fmt.Sprintf("%s/%s", si.Audience, servicePrincipalScope)
+	tok, err := cred.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{scope}, TenantID: tenantId})
+	if err != nil {
+		return AccessToken{}, "", translateAzureCliCredentialError(err, tenantId)
+	}
+
+	var principal string
+	claims := jwt.MapClaims{}
+	if _, _, parseErr := jwt.NewParser().ParseUnverified(tok.Token, claims); parseErr == nil {
+		// The Tyger API app may be configured to issue either v1.0 or v2.0 tokens,
+		// and the token may represent a user or an application (service principal /
+		// managed identity). Check the relevant claims for each combination, falling
+		// back to the object ID (always present) as a last resort:
+		//   - user:        preferred_username (v2) or upn (v1)
+		//   - application:  azp (v2) or appid (v1)
+		//   - fallback:     oid (object ID, present in both v1 and v2 tokens)
+		for _, claimName := range []string{"preferred_username", "upn", "azp", "appid", "oid"} {
+			if value, ok := claims[claimName].(string); ok && value != "" {
+				principal = value
+				break
+			}
+		}
+	}
+
+	return AccessToken(tok), principal, nil
+}
+
+// tenantIdFromAuthority extracts the tenant ID (the last non-empty path
+// segment) from an authority URL like "https://login.microsoftonline.com/<tenantId>".
+func tenantIdFromAuthority(authority string) (string, error) {
+	parsed, err := url.Parse(authority)
+	if err != nil {
+		return "", fmt.Errorf("invalid authority %q: %w", authority, err)
+	}
+
+	segments := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	for i := len(segments) - 1; i >= 0; i-- {
+		if segments[i] != "" {
+			return segments[i], nil
+		}
+	}
+	return "", fmt.Errorf("could not determine tenant ID from authority %q", authority)
+}
+
+// translateAzureCliCredentialError converts the opaque errors returned by the
+// Azure CLI credential into actionable guidance for the `--az` login flow.
+//
+// The azidentity SDK does not expose typed errors or error codes for the Azure
+// CLI credential: every failure is wrapped in an unexported
+// credentialUnavailableError whose message is the raw stderr from
+// `az account get-access-token`. The SDK explicitly documents that these error
+// message contents are "not contractual and can change over time", so the only
+// signals worth matching on are:
+//   - AADSTS error codes, which are stable, non-localized identifiers embedded
+//     in the underlying Microsoft Entra error text.
+//   - The SDK-normalized "Azure CLI not found on path" message, which it emits
+//     for a missing `az` binary (CLI exit code 127 / "'az' is not recognized").
+//
+// Anything we can't confidently classify falls through to a generic message
+// that wraps the original error so the raw `az` output remains visible.
+func translateAzureCliCredentialError(err error, tenantId string) error {
+	if err == nil {
+		return nil
+	}
+
+	lower := strings.ToLower(err.Error())
+	containsAny := func(substrings ...string) bool {
+		for _, s := range substrings {
+			// Match around word boundaries so that, for example, "aadsts50020"
+			// does not also match "aadsts500201".
+			pattern := `(?:^|\W)` + regexp.QuoteMeta(s) + `(?:$|\W)`
+			if matched, _ := regexp.MatchString(pattern, lower); matched {
+				return true
+			}
+		}
+		return false
+	}
+
+	switch {
+	// The `az` binary is missing. The SDK normalizes this (CLI exit code 127 or
+	// the Windows "'az' is not recognized" prefix) to "Azure CLI not found on path".
+	case containsAny("azure cli not found", "'az' is not recognized"):
+		return fmt.Errorf("the Azure CLI (`az`) was not found on PATH. Install it from https://aka.ms/azure-cli and run `az login` before retrying: %w", err)
+
+	// Consent has not been granted to the Azure CLI app for the Tyger API. When the
+	// Azure CLI app is pre-authorized this prompt is bypassed, so AADSTS65001 is the
+	// signal that pre-authorization is missing.
+	case containsAny("aadsts65001"):
+		return fmt.Errorf("the Azure CLI is not pre-authorized to access the Tyger API. Ask an administrator to set `enableAzureCliLogin: true` in the access control config and run `tyger access-control apply`: %w", err)
+
+	// The signed-in identity belongs to / can only access a different tenant than
+	// the one that owns the Tyger API
+	case containsAny("aadsts50020", "aadsts500011", "aadsts90072", "aadsts700016"):
+		return fmt.Errorf("the Azure CLI is signed in to a different tenant than the Tyger server. Run `az login --tenant %s` against the Tyger tenant and retry: %w", tenantId, err)
+
+	// In Azure Cloud Shell the Azure CLI does not use a normal interactive /
+	// refresh-token flow. It acquires tokens through an MSI-style token endpoint
+	// (the "Cloud Shell credential") that acts on behalf of the signed-in user
+	// but can only issue tokens for a curated allow-list of audiences (ARM,
+	// Graph, Key Vault, ...). Custom application audiences like the Tyger API are
+	// rejected with "not a supported MSI token audience", and there is no way to
+	// make the Cloud Shell credential issue a token for the Tyger API.
+	case containsAny("not a supported msi token audience"):
+		return fmt.Errorf("the Azure CLI in this environment (for example, Azure Cloud Shell) acquires tokens through a credential that only supports a fixed set of audiences and cannot issue tokens for the Tyger API: %w", err)
+
+	// `az` fails locally (before reaching Microsoft Entra) when it isn't signed in,
+	// so there is no AADSTS code to match; fall back to the CLI's own prompt text.
+	case containsAny("az login"):
+		return fmt.Errorf("the Azure CLI is not signed in. Run `az login --tenant %s` before retrying: %w", tenantId, err)
+	}
+
+	return fmt.Errorf("failed to acquire an access token via the Azure CLI: %w", err)
 }
 
 func (si *serviceInfo) performFederatedIdentityLogin(ctx context.Context, token string, targetFederatedIdentity string) (AccessToken, string, error) {

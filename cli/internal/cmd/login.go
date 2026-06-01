@@ -31,7 +31,7 @@ func NewLoginCommand() *cobra.Command {
 	local := false
 
 	loginCmd := &cobra.Command{
-		Use:   "login { SERVER_URL [--service-principal APPID --certificate CERTPATH] [--use-device-code] [--identity [--identity-client-id [CLIENT_ID]] --federated-identity CLIENT_ID] [--proxy PROXY] } | --file LOGIN_FILE.yaml | --local",
+		Use:   "login { SERVER_URL [--service-principal APPID --certificate CERTPATH] [--use-device-code] [--identity [--identity-client-id [CLIENT_ID]] --federated-identity CLIENT_ID] [--az] [--proxy PROXY] } | --file LOGIN_FILE.yaml | --local",
 		Short: "Login to a server",
 		Long: `Login to the Tyger server at the given URL.
 Subsequent commands will be performed against this server.`,
@@ -117,6 +117,10 @@ Subsequent commands will be performed against this server.`,
 					if options.TargetFederatedIdentity != "" {
 						return errors.New("targetFederatedIdentity can only be set when managedIdentity or github is used")
 					}
+
+					if options.AzureCli {
+						return errors.New("azureCli cannot be used when servicePrincipal is set")
+					}
 				} else if options.ManagedIdentity {
 					if options.UseDeviceCode {
 						return errors.New("useDeviceCode cannot be used when managedIdentity is set")
@@ -128,6 +132,10 @@ Subsequent commands will be performed against this server.`,
 
 					if options.CertificateThumbprint != "" {
 						return errors.New("certificateThumbprint cannot be set when managedIdentity is used")
+					}
+
+					if options.AzureCli {
+						return errors.New("azureCli cannot be used when managedIdentity is set")
 					}
 				} else if options.GitHub {
 					if options.TargetFederatedIdentity == "" {
@@ -144,6 +152,26 @@ Subsequent commands will be performed against this server.`,
 
 					if options.CertificateThumbprint != "" {
 						return errors.New("certificateThumbprint cannot be set when github is used")
+					}
+
+					if options.AzureCli {
+						return errors.New("azureCli cannot be used when github is set")
+					}
+				} else if options.AzureCli {
+					if options.UseDeviceCode {
+						return errors.New("useDeviceCode cannot be used when azureCli is set")
+					}
+
+					if options.CertificatePath != "" || options.CertificateThumbprint != "" {
+						return errors.New("certificatePath and certificateThumbprint cannot be set when azureCli is used")
+					}
+
+					if options.ManagedIdentityClientId != "" {
+						return errors.New("managedIdentityClientId can only be set when managedIdentity is used")
+					}
+
+					if options.TargetFederatedIdentity != "" {
+						return errors.New("targetFederatedIdentity can only be set when managedIdentity or github is used")
 					}
 				} else {
 					if options.CertificatePath != "" {
@@ -195,6 +223,9 @@ Subsequent commands will be performed against this server.`,
 					if options.TargetFederatedIdentity != "" {
 						return errors.New("--federated-identity can only be used with --identity or --github")
 					}
+					if options.AzureCli {
+						return errors.New("--az cannot be used with --service-principal")
+					}
 				} else if options.ManagedIdentity {
 					if options.UseDeviceCode {
 						return errors.New("--use-device-code cannot be used with --identity")
@@ -207,6 +238,9 @@ Subsequent commands will be performed against this server.`,
 					}
 					if options.CertificateThumbprint != "" {
 						return errors.New("--cert-thumbprint can only be used with --service-principal")
+					}
+					if options.AzureCli {
+						return errors.New("--az cannot be used with --identity")
 					}
 				} else if options.GitHub {
 					if options.TargetFederatedIdentity == "" {
@@ -223,6 +257,22 @@ Subsequent commands will be performed against this server.`,
 					}
 					if options.CertificateThumbprint != "" {
 						return errors.New("--cert-thumbprint can only be used with --service-principal")
+					}
+					if options.AzureCli {
+						return errors.New("--az cannot be used with --github")
+					}
+				} else if options.AzureCli {
+					if options.UseDeviceCode {
+						return errors.New("--use-device-code cannot be used with --az")
+					}
+					if options.CertificatePath != "" || options.CertificateThumbprint != "" {
+						return errors.New("--cert-file and --cert-thumbprint cannot be used with --az")
+					}
+					if options.ManagedIdentityClientId != "" {
+						return errors.New("--identity-client-id can only be used with --identity")
+					}
+					if options.TargetFederatedIdentity != "" {
+						return errors.New("--federated-identity can only be used with --identity or --github")
 					}
 				} else {
 					if options.CertificatePath != "" {
@@ -273,6 +323,12 @@ managedIdentityClientId: # Optionally specify the client ID of the managed ident
 # Whether to use GitHub Actions tokens with federated identity for authentication.
 github: false
 
+# Whether to use the Azure CLI ('az') to acquire access tokens.
+# Requires that the Azure CLI is installed, that you are signed in with 'az login' to the
+# same tenant as the Tyger server, and that the operator has set 'enableAzureCliLogin: true'
+# in the Tyger access control config.
+azureCli: false
+
 # If using managed identity or GitHub Actions, specify the client ID of the federated identity to authenticate as.
 targetFederatedIdentity: # Optionally specify a federated identity to authenticate as using the managed identity.
 
@@ -303,6 +359,8 @@ tlsCaCertificates:
 	loginCmd.Flags().StringVar(&options.ManagedIdentityClientId, "identity-client-id", "", "The client ID of the managed identity to use. If not specified, the system-assigned identity is used, or if not present, the single user-assigned identity.")
 
 	loginCmd.Flags().BoolVar(&options.GitHub, "github", false, "Use GitHub Actions tokens with federated identity for authentication. Requires --federated-identity to be set.")
+
+	loginCmd.Flags().BoolVar(&options.AzureCli, "az", false, "Use the Azure CLI ('az') to acquire access tokens. Requires 'az login' in the same tenant as the Tyger server and 'enableAzureCliLogin: true' in the access control config.")
 
 	loginCmd.Flags().StringVar(&options.TargetFederatedIdentity, "federated-identity", "", "Use federation to authenticate as this identity. Can only be used with --managed-identity or --github.")
 

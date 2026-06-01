@@ -146,6 +146,9 @@ func readProxyOptions(optionsFilePath string, options *tygerproxy.ProxyOptions) 
 		if options.GitHub {
 			return errors.New("github cannot be specified when using SSH or Unix socket connection")
 		}
+		if options.AzureCli {
+			return errors.New("azureCli cannot be specified when using SSH or Unix socket connection")
+		}
 		if options.ServicePrincipal != "" {
 			return errors.New("servicePrincipal cannot be specified when using SSH or Unix socket connection")
 		}
@@ -169,6 +172,9 @@ func readProxyOptions(optionsFilePath string, options *tygerproxy.ProxyOptions) 
 			if options.CertificateThumbprint != "" {
 				return errors.New("certificateThumbprint cannot be specified when using managed identity")
 			}
+			if options.AzureCli {
+				return errors.New("azureCli cannot be specified when using managed identity")
+			}
 		} else if options.GitHub {
 			if options.ServicePrincipal != "" {
 				return errors.New("servicePrincipal cannot be specified when using GitHub authentication")
@@ -179,9 +185,25 @@ func readProxyOptions(optionsFilePath string, options *tygerproxy.ProxyOptions) 
 			if options.CertificateThumbprint != "" {
 				return errors.New("certificateThumbprint cannot be specified when using GitHub authentication")
 			}
+			if options.AzureCli {
+				return errors.New("azureCli cannot be specified when using GitHub authentication")
+			}
+		} else if options.AzureCli {
+			if options.ServicePrincipal != "" {
+				return errors.New("servicePrincipal cannot be specified when using azureCli")
+			}
+			if options.CertificatePath != "" {
+				return errors.New("certificatePath cannot be specified when using azureCli")
+			}
+			if options.CertificateThumbprint != "" {
+				return errors.New("certificateThumbprint cannot be specified when using azureCli")
+			}
+			if options.TargetFederatedIdentity != "" {
+				return errors.New("targetFederatedIdentity cannot be specified when using azureCli")
+			}
 		} else {
 			if options.ServicePrincipal == "" {
-				return errors.New("if both managedIdentity and github are both not true, servicePrincipal must be specified in the options file")
+				return errors.New("one of managedIdentity, github, azureCli, or servicePrincipal must be specified in the options file")
 			}
 
 			if runtime.GOOS == "windows" {
