@@ -49,7 +49,7 @@ completion. Use `--wait` to make the command wait for all migrations to complete
 To get the logs from the application of a migration, run:
 
 ```bash
-tyger api migration log ID -f config.yml
+tyger api migration logs ID -f config.yml
 ```
 
 Migrations are designed to be idempotent. Retrying a migration should not cause

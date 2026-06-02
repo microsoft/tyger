@@ -238,7 +238,7 @@ organizations:
 
       # An optional array of managed identities that will be created in the resource group.
       # These identities are available to runs as workload identities. When updating this list
-      # both `tyger cloud install` and `tyger api installed` must be run.
+      # both `tyger cloud install` and `tyger api install` must be run.
       # identities:
       # - my-identity
 
@@ -355,8 +355,8 @@ apiAppId: "" # `tyger access-control apply` will fill in this value
 cliAppId: "" # `tyger access-control apply` will fill in this value
 ```
 
-Review the values for `tenantId`, `apiAppUri`, and `apiAppUri`. `apiAppId` and
-`cliAppId` will be updated with IDs when `tyger config apply` is run.
+Review the values for `tenantId`, `apiAppUri`, and `cliAppUri`. `apiAppId` and
+`cliAppId` will be updated with IDs when `tyger access-control apply` is run.
 
 The next section determines who can access to the Tyger API. There are two
 roles: owner and contributor. Owners can perform any operation. Contributors can

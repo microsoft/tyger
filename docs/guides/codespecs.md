@@ -35,10 +35,11 @@ buffers:
     - output
 image: quay.io/linuxserver.io/ffmpeg
 args:
+  - -i
   - $(INPUT_PIPE)
   - -vf
   - negate
-  - -f-
+  - -f
   - nut
   - -y
   - $(OUTPUT_PIPE)
@@ -110,10 +111,11 @@ command:
 # the reference in the input string will be unchanged. The $(VAR_NAME)
 # syntax can be escaped with a double $$, ie: $$(VAR_NAME).
 args:
+  - -i
   - $(INPUT_PIPE)
   - -vf
   - negate
-  - -f-
+  - -f
   - nut
   - -y
   - $(OUTPUT_PIPE)
@@ -208,7 +210,7 @@ specified, in which case they are treated as the `command` value.
 Retrieve a specific codespec version with:
 
 ```bash
-tyger codespec show NAME [-v|--version VERSION]
+tyger codespec show NAME [--version VERSION]
 ```
 
 Without `--version`, the latest version is returned.

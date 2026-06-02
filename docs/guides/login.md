@@ -37,7 +37,7 @@ system's certificate store.
 tyger login
     SERVER_URL
     --service-principal APPID
-    --certificate CERTPATH | --cert-thumbprint THUMBPRINT
+    --cert-file CERTPATH | --cert-thumbprint THUMBPRINT
     [--proxy PROXY]
 ```
 
@@ -94,7 +94,7 @@ This requires that:
 
 By default, `tyger` uses the operating system's trusted root CA certificates for
 TLS certificate validation. You can override this with the
-`--tls-ca-certificates` flag. The following values are supported:
+`--tls-certificates` flag. The following values are supported:
 
 - `os` to use the operating system's root CA certificates (the default)
 - `embedded` to use the CA certificates embedded in the `tyger` binary. These
