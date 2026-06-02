@@ -124,7 +124,7 @@ execute a codespec, reading and writing to buffers.
 
 A buffer is an abstraction over an Azure Blob storage container. Data streams
 are split into fixed-size blobs (files) with a sequential naming scheme and
-uploaded and downloaded in parallel. The result is a conceptually similar to a
+uploaded and downloaded in parallel. The result is conceptually similar to a
 queueing service, but simpler and optimized for a single writer that can produce
 gigabits or even tens of gigabits per second.
 
