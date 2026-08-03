@@ -10,7 +10,7 @@ officialPullContainerRegistry:
 keyVault: eminence
 pemCertSecret:
   name: tyger-test-client-cert
-  version: b663cfaf65b245879304c0419960e0f3
+  version: 8375c02b14304e35800ad4198b402090
 pkcs12CertSecret:
   name: tyger-test-client-cert-pkcs12
-  version: b4382870a79841119c9e27851302412c
+  version: 440f877c969d44af83d3ae7db7c6611d
