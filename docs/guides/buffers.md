@@ -26,13 +26,13 @@ buffer reading, buffer writing, and creating runs.
 
 In a cloud installation, you can use multiple storage accounts for buffer
 storage. If those accounts are in different cloud locations (regions), you can
-specify the location that that you would like the buffer to be crated in with
+specify the location that you would like the buffer to be created in with
 the `--location` parameter. The location is the lowercase name of the cloud
 location with spaces removed, such as `eastus` or `westus2`. If multiple storage
 accounts are in the same location, accounts are selected in a round-robin
 fashion.
 
-The available regions for a tyger installation can fetched with:
+The available regions for a Tyger installation can be fetched with:
 
 ```bash
 tyger buffer storage-account list
@@ -63,7 +63,7 @@ The `--flush-interval` parameter specifies the maximum time interval that data
 You can specify the block size with `--block-size`, for example,
 `--block-size 16M`. The default block size is 4MB.
 
-Instead of standard in, you can use `-i|--input` to read from a file or named
+Instead of standard input, you can use `-i|--input` to read from a file or named
 pipe.
 
 ## Reading from buffers
@@ -270,7 +270,7 @@ By default, active buffers do not have an expiration date and will never be auto
 This behavior is configured during Tyger installation via the `buffers.activeLifetime` field.
 If an active buffer expires, it will be automatically soft-deleted by Tyger.
 
-To set the TTL for a buffer manually, use the format `DD.HH:MM:SS`.
+To set the TTL for a buffer manually, use the format `D.HH:MM:SS`.
 
 ```bash
 tyger buffer set --ttl 2.12:00 $buffer_id --soft-deleted
@@ -360,7 +360,7 @@ If multiple storage accounts are configured for the source Tyger installation
 from a single storage account. The available storage accounts can be listed with
 the command `tyger buffer storage-account list`.
 
-To only export a subset of buffer, you can filter the buffers to be exported by
+To only export a subset of buffers, you can filter the buffers to be exported by
 tags.
 
 This command starts a special [run](./runs). Logs are displayed inline, but can also be
@@ -374,11 +374,11 @@ into the destination Tyger instance's database with the command:
 tyger buffer import [--storage-account STORAGE_ACCOUNT_NAME]
 ```
 
-This starts a run that scans though the instance's storage account and imports
+This starts a run that scans through the instance's storage account and imports
 new buffers. Note that existing buffers are not touched and their tags will not
 be updated.
 
 If multiple storage accounts are configured for the Tyger installation
 `--storage-account` must be provided. The import command will only import from a
-from a single storage account. The available storage accounts can be listed with
+single storage account. The available storage accounts can be listed with
 the command `tyger buffer storage-account list`.

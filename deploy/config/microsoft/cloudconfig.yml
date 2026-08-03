@@ -38,7 +38,7 @@ cloud:
     resourceGroup: eminence
     name: eminence
 
-  # Optionaly use a custom DNS zone
+  # Optionally use a custom DNS zone
   dnsZone:
     resourceGroup: eminence
     name: eminence.ms

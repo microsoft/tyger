@@ -9,7 +9,7 @@ environment.
 
 All runs in Tyger use a "job" codespec for primary execution. Distributed runs
 additionally employ workers for distributing workloads. These workers, defined
-by a separate codespec, typically listen on network ports so that the the job
+by a separate codespec, typically listen on network ports so that the job
 can communicate with them over the cluster's local network.
 
 ## Creating a worker codespec
@@ -82,5 +82,5 @@ JSON array of `hostname:port` strings.
 ## Example
 
 [Gadgetron
-examples](../reference/gadgetron/gadgetron.md#distributed-reconstruction) has an
-example that uses a disributed run.
+examples](../reference/gadgetron/gadgetron.md#distributed-reconstruction) include an
+example that uses a distributed run.

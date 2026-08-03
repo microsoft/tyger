@@ -6,7 +6,7 @@
 
 1. Install the `tyger` CLI.
 2. Create an installation config file.
-5. Install the Tyger API.
+3. Install the Tyger API.
 
 After installing the `tyger` CLI, you will use it for the subsequent steps.
 
@@ -81,12 +81,12 @@ signingKeys:
 ```
 
 All of the installation commands (`tyger api install`, `tyger api uninstall`,
-etc.) require you to give a path the the config file (`--file|-f PATH`).
+etc.) require you to give a path to the config file (`--file|-f PATH`).
 
 
 ## Install the Tyger API
 
-You are now ready to install the Tyger, API, which can be done by running:
+You are now ready to install the Tyger API, which can be done by running:
 
 ```bash
 tyger api install -f config.yml
@@ -97,7 +97,7 @@ If using Windows, you will need to run this command from a WSL prompt.
 :::
 
 If using the default `installationDirectory` (`/opt/tyger`), you will probably
-need to create it using ahead of time using `sudo`. For example:
+need to create it ahead of time using `sudo`. For example:
 
 ```bash
 uid=$(id -u)
@@ -116,7 +116,7 @@ If using the default installation directory, you can log in with the `tyger` CLI
 tyger login --local
 ```
 
-If using a different directory, you can log specifying the socket path:
+If using a different directory, you can log in by specifying the socket path:
 
 ```bash
 tyger login unix:///path/to/installation/dir/api.sock
@@ -146,7 +146,7 @@ tyger api logs -f config.yml [--data-plane] [--follow] [--tail LINES]
 Specify `--data-plane` to retrieve the data plane server's logs, otherwise the
 control-plane server's logs will be returned.
 
-`--follow` will stream new out new log lines as they are produced by the server.
+`--follow` will stream out new log lines as they are produced by the server.
 
 `--tail` starts from the last N log lines.
 
@@ -196,15 +196,15 @@ environment variable is set on the SSH host.
 Additional parameters can be passed in as query parameters (after the `?`).
 These are:
 
- - `cliPath`, to speciy that path to the `tyger` CLI on the host. This is only
-necessary if the localtion is not part of the `PATH` variable.
+ - `cliPath`, to specify the path to the `tyger` CLI on the host. This is only
+necessary if the location is not part of the `PATH` variable.
 - `option[sshConfigKey]`, to specify additional SSH
 [configuration options](https://www.man7.org/linux/man-pages/man5/ssh_config.5.html).
-For example, `ssh://myhost?option[StrictHostChecking]=no` results in a SSH command
-that looks like `ssh myhost -o StrictHostChecking=no`
+For example, `ssh://myhost?option[StrictHostKeyChecking]=no` results in an SSH command
+that looks like `ssh myhost -o StrictHostKeyChecking=no`
 
 For the best user experience with SSH, configure ~/.ssh/config as follows to
-allow reusing a SSH connection for multiple invocations of the `tyger` CLI:
+allow reusing an SSH connection for multiple invocations of the `tyger` CLI:
 
 ```
 ControlMaster     auto

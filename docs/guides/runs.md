@@ -16,13 +16,13 @@ When Tyger is running in a local Docker environment, container images used by
 runs need to be pulled in advance using `docker pull`. This is a security
 measure to prevent using Tyger to introduce untrusted container images onto the
 system. The Tyger CLI will pull the image for you if you pass in `--pull` to
-to `tyger run create` or `tyger run exec`.
+`tyger run create` or `tyger run exec`.
 
 :::
 
 ## Creating runs with `exec`
 
-`tyger run exec` is a the easiest way to create and execute a run. It allows
+`tyger run exec` is the easiest way to create and execute a run. It allows
 up to one buffer's contents to be provided through standard input and up to one
 buffer's output to be written to standard output.
 
@@ -56,7 +56,7 @@ echo "Paul" | tyger run exec --codespec hello > result.txt
 ```
 
 This will write status information to standard error and "Hello Paul" to
-results.txt.
+result.txt.
 
 You can also provide the run specification as a file:
 
@@ -113,7 +113,7 @@ tyger buffer read $output_id > result.txt
 ```
 
 Notice how we pass in buffers as arguments to the codespec's buffer parameters.
-Missing buffers arguments are automatically created and their IDs can be retrieved using
+Missing buffer arguments are automatically created and their IDs can be retrieved using
 `tyger run show`.
 
 ## `exec` and `create` options
@@ -168,7 +168,7 @@ cluster: mycluster
 
 # The run is given this amount of time to complete,
 # starting from when the run was created, not when it
-# when it started executing.
+# started executing.
 timeoutSeconds: 43200
 ```
 
@@ -217,7 +217,7 @@ To print the entire resource, specify `--full-resource`.
 ## Tagging runs
 
 Runs can be tagged with key-value metadata pairs just like
-[buffers](buffers.html#tagging-buffers).You can assign tags to a
+[buffers](buffers.html#tagging-buffers). You can assign tags to a
 run when creating it like this:
 
 ```bash
@@ -261,11 +261,11 @@ Runs are listed in descending order of creation time. If `--limit` is not
 specified, a maximum of 1000 runs are shown with a warning if the output had to
 be truncated.
 
-Use the `--since` to only include runs that were created after the given time.
+Use `--since` to only include runs that were created after the given time.
 
-Use the `--tag` parameter to restrict the results can contain **all** of the given tags.
+Use the `--tag` parameter to restrict the results to those that contain **all** of the given tags.
 
-Use the `--status` command to restrict the results that have **any** of the given statues.
+Use the `--status` parameter to restrict the results to those that have **any** of the given statuses.
 
 ::: info Tip
 
@@ -275,7 +275,7 @@ Use `tyger run list --limit 1` to fetch the most recent run.
 
 ## Displaying run counts
 
-You can fetch a summary of the counts of runs group by status using:
+You can fetch a summary of the counts of runs grouped by status using:
 
 ```bash
 tyger run counts [--since DATE/TIME] [--tag key=value [...]]
@@ -291,7 +291,7 @@ You can cancel a job with:
 tyger run cancel ID
 ```
 
-This an asynchronous command and the run may continue executing for some time
+This is an asynchronous command and the run may continue executing for some time
 before being terminated.
 
 ## Viewing logs
@@ -313,9 +313,9 @@ the run's containers.
 `--follow` streams logs to standard output as they are written until the
 run completes.
 
-`--since` only shows logs after a a given time.
+`--since` only shows logs after a given time.
 
-`--tail` only shows new last N log lines.
+`--tail` only shows the last N log lines.
 
 `--timestamps` prefixes each line with its timestamp.
 
