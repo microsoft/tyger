@@ -549,8 +549,8 @@
       },
       "Microsoft.OpenApi": {
         "type": "Transitive",
-        "resolved": "2.6.1",
-        "contentHash": "PsuxkZR3JXrfiMQUGkdb+U8sMgNqcEqmeBITnJswScWgxvQs73aagmaiww+TMgrAtPpIvveJb3nFICDkPfKXUQ=="
+        "resolved": "2.7.5",
+        "contentHash": "0FA67RSnRM4tcBKqiqVu/HPdZ9+QOKbmeRjxRUGTCjPU4C0bmUhd97Dso7Yild5P7nOV6GxJ2xrK0Kv/O9xp0w=="
       },
       "Microsoft.TestPlatform.ObjectModel": {
         "type": "Transitive",
@@ -761,7 +761,7 @@
           "Microsoft.AspNetCore.OpenApi": "[10.0.3, )",
           "Microsoft.Extensions.Http.Resilience": "[10.3.0, )",
           "Microsoft.IdentityModel.Protocols.OpenIdConnect": "[8.16.0, )",
-          "Microsoft.OpenApi": "[2.6.1, )",
+          "Microsoft.OpenApi": "[2.7.5, )",
           "Npgsql": "[10.0.1, )",
           "Polly.Core": "[8.6.5, )",
           "SimpleBase": "[5.6.0, )",
