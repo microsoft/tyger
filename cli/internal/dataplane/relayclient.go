@@ -56,6 +56,8 @@ func relayWrite(ctx context.Context, containerClient *ContainerClient, connectio
 		}
 
 		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+
 		if resp.StatusCode != http.StatusAccepted {
 			if resp.StatusCode == http.StatusMethodNotAllowed {
 				return fmt.Errorf("the buffer is an output buffer and cannot be read from")
