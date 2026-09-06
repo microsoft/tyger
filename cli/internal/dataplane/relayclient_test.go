@@ -5,10 +5,16 @@ package dataplane
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"testing"
 
+	"github.com/hashicorp/go-retryablehttp"
+	"github.com/microsoft/tyger/cli/internal/client"
 	"github.com/stretchr/testify/require"
 )
 
@@ -137,4 +143,89 @@ type simpleReader struct {
 // Hides io.ReaderFrom implementation
 type simpleWriter struct {
 	io.Writer
+}
+
+// trackingReadCloser wraps an io.ReadCloser to track whether Close was called.
+type trackingReadCloser struct {
+	io.ReadCloser
+	closed *bool
+}
+
+func (t *trackingReadCloser) Close() error {
+	*t.closed = true
+	return t.ReadCloser.Close()
+}
+
+// TestRelayWriteClosesResponseBody verifies that relayWrite closes the HTTP response body.
+func TestRelayWriteClosesResponseBody(t *testing.T) {
+	// Create a test server that returns a 202 Accepted response for PUT
+	// and 200 OK for HEAD (ping).
+	// We wrap the response body to track if Close is called.
+	var putBodyClosed bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodHead:
+			w.WriteHeader(http.StatusOK)
+		case http.MethodPut:
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte("OK"))
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}))
+	defer server.Close()
+
+	// Create a ContainerClient that points to our test server.
+	serverURL, _ := url.Parse(server.URL)
+	// We need to create a minimal ContainerClient with a custom HTTP client
+	// that uses our test server.
+	testClient := &ContainerClient{
+		innerClient: retryablehttp.NewClient(),
+		baseUrl:     serverURL,
+		currentAccessUrl: &url.URL{
+			Scheme: "http",
+			Host:   serverURL.Host,
+			Path:   "",
+		},
+		currentAccessUrlQuery: url.Values{},
+		getNewAccessUrl:       nil,
+	}
+
+	// Override the HTTP client to use a custom transport that tracks body closure.
+	// Only track the PUT response body (not the HEAD from ping).
+	putBodyClosed = false
+	testClient.innerClient.HTTPClient = &http.Client{
+		Transport: &trackingTransport{
+			base:   http.DefaultTransport,
+			closed: &putBodyClosed,
+			method: http.MethodPut,
+		},
+	}
+
+	ctx := context.Background()
+	err := relayWrite(ctx, testClient, client.TygerConnectionTypeTcp, bytes.NewReader([]byte("test data")))
+	require.NoError(t, err)
+	require.True(t, putBodyClosed, "PUT response body should be closed on success")
+}
+
+// trackingTransport wraps an http.RoundTripper to track response body closure.
+type trackingTransport struct {
+	base   http.RoundTripper
+	closed *bool
+	method string
+}
+
+func (t *trackingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.base.RoundTrip(req)
+	if err != nil {
+		return nil, err
+	}
+	// Only wrap the response body for the specified method (e.g., PUT).
+	if t.method == "" || req.Method == t.method {
+		resp.Body = &trackingReadCloser{
+			ReadCloser: resp.Body,
+			closed:     t.closed,
+		}
+	}
+	return resp, nil
 }
