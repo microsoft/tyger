@@ -18,7 +18,7 @@ tyger login SERVER_URL [--use-device-code] [--proxy PROXY]
 ```
 
 This launches a browser tab for interactive login. If this isn't
-possible, use `--use-device-code` to receive a device code and and manually open a
+possible, use `--use-device-code` to receive a device code and manually open a
 provided URL for authentication.
 
 The `--proxy` option allows specifying an HTTP proxy for all HTTP requests,
@@ -37,13 +37,13 @@ system's certificate store.
 tyger login
     SERVER_URL
     --service-principal APPID
-    --certificate CERTPATH | --cert-thumbprint THUMBPRINT
+    --cert-file CERTPATH | --cert-thumbprint THUMBPRINT
     [--proxy PROXY]
 ```
 
 ## Log in using a managed identity
 
-If you are running on an Azure VM, you can login to tyger using a managed identity with:
+If you are running on an Azure VM, you can log in to Tyger using a managed identity with:
 
 ```bash
 tyger login SERVER_URL --identity [--identity-client-id MI_ID] [--federated-identity TARGET_CLIENT_ID]
@@ -59,7 +59,7 @@ specify the client ID of the target identity with `--federated-identity`.
 ## Log in from GitHub Actions
 
 Similar to Azure managed identities, you can use [federated
-credentials](https://learn.microsoft.com/en-us/entra/workload-id/workload-identity-federation-create-trust?pivots=identity-wif-apps-methods-azp#github-actions∑)
+credentials](https://learn.microsoft.com/en-us/entra/workload-id/workload-identity-federation-create-trust?pivots=identity-wif-apps-methods-azp#github-actions)
 to log in from a GitHub Actions runner:
 
 ```bash
@@ -94,7 +94,7 @@ This requires that:
 
 By default, `tyger` uses the operating system's trusted root CA certificates for
 TLS certificate validation. You can override this with the
-`--tls-ca-certificates` flag. The following values are supported:
+`--tls-certificates` flag. The following values are supported:
 
 - `os` to use the operating system's root CA certificates (the default)
 - `embedded` to use the CA certificates embedded in the `tyger` binary. These
