@@ -437,6 +437,7 @@ jobs:
   test-private-link-deployment:
     needs:
       - get-config
+      - build-images
     runs-on: ["self-hosted", "1ES.Pool=tyger-gh-1es-westus2"]
     defaults:
       run:
