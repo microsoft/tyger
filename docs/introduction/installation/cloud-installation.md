@@ -92,7 +92,7 @@ cloud:
     # resourceGroup:
     # name:
 
-  # Optionaly use a custom DNS zone
+  # Optionally use a custom DNS zone
   # dnsZone:
     # resourceGroup:
     # name:
@@ -238,7 +238,7 @@ organizations:
 
       # An optional array of managed identities that will be created in the resource group.
       # These identities are available to runs as workload identities. When updating this list
-      # both `tyger cloud install` and `tyger api installed` must be run.
+      # both `tyger cloud install` and `tyger api install` must be run.
       # identities:
       # - my-identity
 
@@ -305,7 +305,7 @@ organizations:
 ```
 
 All of the installation commands (`tyger cloud install`, `tyger api install`,
-etc.) require you to give a path the the config file (`--file|-f PATH`).
+etc.) require you to give a path to the config file (`--file|-f PATH`).
 
 You can validate this configuration with:
 
@@ -355,12 +355,12 @@ apiAppId: "" # `tyger access-control apply` will fill in this value
 cliAppId: "" # `tyger access-control apply` will fill in this value
 ```
 
-Review the values for `tenantId`, `apiAppUri`, and `apiAppUri`. `apiAppId` and
-`cliAppId` will be updated with IDs when `tyger config apply` is run.
+Review the values for `tenantId`, `apiAppUri`, and `cliAppUri`. `apiAppId` and
+`cliAppId` will be updated with IDs when `tyger access-control apply` is run.
 
-The next section determines who can access to the Tyger API. There are two
+The next section determines who can access the Tyger API. There are two
 roles: owner and contributor. Owners can perform any operation. Contributors can
-perform all operation except deleting, exporting, and importing buffers.
+perform all operations except deleting, exporting, and importing buffers.
 
 ```yaml
 roleAssignments:
@@ -395,7 +395,7 @@ tyger cloud install -f config.yml
 ```
 
 This step involves accessing some of the deployed Azure resources directly
-while configuring them. In situations where it is not possible for the installer 
+while configuring them. In situations where it is not possible for the installer
 to determine your IP address, we recommend running the installation from the
 [Azure Cloud Shell](https://learn.microsoft.com/en-us/azure/cloud-shell/overview).
 
@@ -427,7 +427,7 @@ under `api.domainName`. For example:
 tyger login https://demo-tyger.westus2.cloudapp.azure.com
 ```
 
-This will take you through an interactive login flow similar to logging `az login`.
+This will take you through an interactive login flow similar to `az login`.
 
 Once logged in, you should be able to run any of the core commands, such as:
 
@@ -443,7 +443,7 @@ If ever the Tyger API fails unexpectedly, you can inspect server logs with
 tyger api logs -f config.yml [--follow] [--tail LINES]
 ```
 
-`--follow` will stream new out new log lines as they are produced by the server.
+`--follow` will stream out new log lines as they are produced by the server.
 
 `--tail` starts from the last N log lines.
 
@@ -579,7 +579,7 @@ In the configuration file, multiple organizations can be added under the
 to provide a custom Azure DNS zone resource (to control the records of a domain)
 and provide a TLS certificate in PEM format in an Azure Key Vault.
 
-When an environment has multiple organization the commands under `tyger cloud`,
+When an environment has multiple organizations, the commands under `tyger cloud`,
 `tyger api`, and `tyger identities` can be scoped to one or more organizations
 using the `--org` flag. Some commands can only be applied to a single
 organization.
