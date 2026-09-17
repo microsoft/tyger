@@ -448,7 +448,7 @@ jobs:
       run:
         shell: bash
     outputs:
-      TYGER_PRIVATE_LINK_URL: ${{ steps.capture-urls.outputs.TYGER_PRIVATE_LINK_URL }}1``
+      TYGER_PRIVATE_LINK_URL: ${{ steps.capture-urls.outputs.TYGER_PRIVATE_LINK_URL }}
       TYGER_PRIVATE_LINK_BUFFER_URL: ${{ steps.capture-urls.outputs.TYGER_PRIVATE_LINK_BUFFER_URL }}
     env:
       DO_NOT_BUILD_IMAGES: "true"
