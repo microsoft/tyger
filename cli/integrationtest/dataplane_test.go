@@ -131,13 +131,15 @@ func TestTrickleLatencyWithFlushInterval(t *testing.T) {
 		linesRead++
 	}
 
-	t.Log(writeStdErr.String())
+	writeErr := <-writeCommandErrChan
+	t.Logf("write command stderr:\n%s", writeStdErr.String())
+	assert.NoError(t, writeErr, "write command failed")
 
-	assert.NoError(t, <-writeCommandErrChan, "write command failed")
-
-	assert.Nil(t, readCommand.Wait(), "read command failed")
+	readErr := readCommand.Wait()
+	t.Logf("read command stderr:\n%s", readStdErr.String())
+	assert.NoError(t, readErr, "read command failed")
+	assert.NoError(t, scanner.Err(), "failed to scan read command output")
 	require.Equal(t, linesWritten, linesRead, "number of lines written and read do not match")
-	t.Log(readStdErr.String())
 }
 
 func TestAccessStringIsFile(t *testing.T) {
