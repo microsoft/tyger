@@ -18,7 +18,7 @@ targeted edits that match the conventions described below.
 | [server/DataPlane/](../server/DataPlane/) | `tyger-data-plane` — local buffer I/O endpoint (Docker mode) |
 | [server/Common/](../server/Common/) | Shared library (configuration, middleware, versioning, UDS) |
 | [server/ControlPlane.UnitTests/](../server/ControlPlane.UnitTests/) | xUnit tests for the control plane |
-| [cli/](../cli/) | Go module `github.com/microsoft/tyger/cli` (Go 1.26+) |
+| [cli/](../cli/) | Go module `github.com/microsoft/tyger/cli` (Go 1.27+) |
 | [cli/cmd/tyger/](../cli/cmd/tyger/) | The `tyger` CLI entry point (cobra) |
 | [cli/cmd/tyger-proxy/](../cli/cmd/tyger-proxy/) | Local HTTP/Unix-socket proxy to a remote Tyger API |
 | [cli/cmd/buffer-sidecar/](../cli/cmd/buffer-sidecar/) | Sidecar that bridges named pipes <-> buffer storage |

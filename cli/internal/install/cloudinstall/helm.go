@@ -29,9 +29,10 @@ import (
 	"github.com/microsoft/tyger/cli/internal/install"
 	helmclient "github.com/mittwald/go-helm-client"
 	"github.com/rs/zerolog/log"
-	"helm.sh/helm/v3/pkg/release"
-	"helm.sh/helm/v3/pkg/repo"
-	"helm.sh/helm/v3/pkg/storage/driver"
+	"helm.sh/helm/v4/pkg/kube"
+	release "helm.sh/helm/v4/pkg/release/v1"
+	"helm.sh/helm/v4/pkg/repo/v1"
+	"helm.sh/helm/v4/pkg/storage/driver"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -961,18 +962,19 @@ func (inst *Installer) GetChartSpec(
 	}
 
 	chartSpec := helmclient.ChartSpec{
-		Namespace:       helmChartConfig.Namespace,
-		ReleaseName:     helmChartConfig.ReleaseName,
-		ChartName:       helmChartConfig.ChartRef,
-		Version:         helmChartConfig.Version,
-		CreateNamespace: true,
-		Wait:            true,
-		WaitForJobs:     true,
-		Atomic:          atomic,
-		Force:           false,
-		UpgradeCRDs:     true,
-		Timeout:         5 * time.Minute,
-		ValuesYaml:      string(values),
+		Namespace:         helmChartConfig.Namespace,
+		ReleaseName:       helmChartConfig.ReleaseName,
+		ChartName:         helmChartConfig.ChartRef,
+		Version:           helmChartConfig.Version,
+		CreateNamespace:   true,
+		WaitStrategy:      kube.StatusWatcherStrategy,
+		WaitForJobs:       true,
+		RollbackOnFailure: atomic,
+		ForceReplace:      false,
+		UpgradeCRDs:       true,
+		Timeout:           5 * time.Minute,
+		ValuesYaml:        string(values),
+		ServerSideApply:   "auto",
 	}
 
 	// When pulling an OCI chart from an Azure Container Registry, log helm's

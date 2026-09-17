@@ -46,7 +46,7 @@ RUN umask 0002 \
     && VERSION=10.0.203 bash install.sh \
     # GO
     && cd /opt/features/src/go \
-    && VERSION=1.26.2 bash install.sh \
+    && VERSION=1.27.1 bash install.sh \
     && chown -R "${USERNAME}" "${GOROOT}" "${GOPATH}" \
     # GitHub CLI
     && cd /opt/features/src/github-cli/ \

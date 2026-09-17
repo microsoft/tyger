@@ -10,17 +10,41 @@ import (
 	"testing"
 
 	"dario.cat/mergo"
+	helmclient "github.com/mittwald/go-helm-client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	release "helm.sh/helm/v4/pkg/release/v1"
 )
 
 const testMirrorFqdn = "mymirror.azurecr.io"
+
+type testHelmClient struct {
+	helmclient.Client
+}
+
+func (testHelmClient) GetRelease(string) (*release.Release, error) {
+	return &release.Release{}, nil
+}
 
 func newTestInstallerWithResolvedMirror() *Installer {
 	inst := &Installer{Config: &CloudEnvironmentConfig{Cloud: &CloudConfig{ContainerRegistryMirror: "mymirror"}}}
 	inst.acrMirroringState.resolved = &ResolvedAcr{Name: "mymirror", LoginServer: testMirrorFqdn}
 	inst.acrMirroringState.resolveOnce.Do(func() {})
 	return inst
+}
+
+func TestGetChartSpec_DefaultsServerSideApplyToAuto(t *testing.T) {
+	inst := &Installer{Config: &CloudEnvironmentConfig{Cloud: &CloudConfig{}}}
+
+	chartSpec, err := inst.GetChartSpec(
+		context.Background(),
+		&HelmChartConfig{ReleaseName: "test", Values: map[string]any{}},
+		testHelmClient{},
+		nil,
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, "auto", chartSpec.ServerSideApply)
 }
 
 func TestRewriteMirrorableValues_MirrorableImageReference(t *testing.T) {

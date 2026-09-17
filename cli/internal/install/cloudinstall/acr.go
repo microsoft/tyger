@@ -16,7 +16,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerregistry/armcontainerregistry"
 	"github.com/microsoft/tyger/cli/internal/client"
 	helmclient "github.com/mittwald/go-helm-client"
-	helmregistry "helm.sh/helm/v3/pkg/registry"
+	helmregistry "helm.sh/helm/v4/pkg/registry"
 )
 
 // Returns the *.azurecr.io host of an OCI chart reference (e.g. for

@@ -88,9 +88,9 @@ func (inst *Installer) createDatabaseServer(ctx context.Context) (any, error) {
 		tags[dbServerInstanceTagKey] = Ptr(uuid.NewString())
 	}
 
-	geoRedundantBackup := armpostgresqlflexibleservers.GeoRedundantBackupEnumDisabled
+	geoRedundantBackup := armpostgresqlflexibleservers.GeographicallyRedundantBackupDisabled
 	if databaseConfig.BackupGeoRedundancy {
-		geoRedundantBackup = armpostgresqlflexibleservers.GeoRedundantBackupEnumEnabled
+		geoRedundantBackup = armpostgresqlflexibleservers.GeographicallyRedundantBackupEnabled
 	}
 
 	var publicNetworkAccess *armpostgresqlflexibleservers.ServerPublicNetworkAccessState
@@ -109,10 +109,10 @@ func (inst *Installer) createDatabaseServer(ctx context.Context) (any, error) {
 		},
 		Properties: &armpostgresqlflexibleservers.ServerProperties{
 			AuthConfig: &armpostgresqlflexibleservers.AuthConfig{
-				ActiveDirectoryAuth: Ptr(armpostgresqlflexibleservers.ActiveDirectoryAuthEnumEnabled),
-				PasswordAuth:        Ptr(armpostgresqlflexibleservers.PasswordAuthEnumDisabled),
+				ActiveDirectoryAuth: Ptr(armpostgresqlflexibleservers.MicrosoftEntraAuthEnabled),
+				PasswordAuth:        Ptr(armpostgresqlflexibleservers.PasswordBasedAuthDisabled),
 			},
-			Version: Ptr(armpostgresqlflexibleservers.ServerVersion(strconv.Itoa(*databaseConfig.PostgresMajorVersion))),
+			Version: Ptr(armpostgresqlflexibleservers.PostgresMajorVersion(strconv.Itoa(*databaseConfig.PostgresMajorVersion))),
 			Storage: &armpostgresqlflexibleservers.Storage{
 				AutoGrow:      Ptr(armpostgresqlflexibleservers.StorageAutoGrowEnabled),
 				StorageSizeGB: Ptr(int32(*databaseConfig.StorageSizeGB)),
@@ -123,9 +123,6 @@ func (inst *Installer) createDatabaseServer(ctx context.Context) (any, error) {
 			Backup: &armpostgresqlflexibleservers.Backup{
 				BackupRetentionDays: Ptr(int32(*databaseConfig.BackupRetentionDays)),
 				GeoRedundantBackup:  &geoRedundantBackup,
-			},
-			HighAvailability: &armpostgresqlflexibleservers.HighAvailability{
-				Mode: Ptr(armpostgresqlflexibleservers.HighAvailabilityModeDisabled),
 			},
 			CreateMode: Ptr(armpostgresqlflexibleservers.CreateModeCreate),
 		},
@@ -139,7 +136,7 @@ func (inst *Installer) createDatabaseServer(ctx context.Context) (any, error) {
 	if serverNeedsUpdate {
 		log.Ctx(ctx).Info().Msgf("Creating or updating PostgreSQL server '%s'", serverName)
 
-		poller, err := client.BeginCreate(ctx, inst.Config.Cloud.ResourceGroup, serverName, serverParameters, nil)
+		poller, err := client.BeginCreateOrUpdate(ctx, inst.Config.Cloud.ResourceGroup, serverName, serverParameters, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create PostgreSQL server: %w", err)
 		}
@@ -491,7 +488,7 @@ func createDatabaseServerAdmin(
 	serverName string,
 	cred azcore.TokenCredential,
 ) (err error) {
-	adminClient, err := armpostgresqlflexibleservers.NewAdministratorsClient(config.Cloud.SubscriptionID, cred, nil)
+	adminClient, err := armpostgresqlflexibleservers.NewAdministratorsMicrosoftEntraClient(config.Cloud.SubscriptionID, cred, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create PostgreSQL server admin client: %w", err)
 	}
@@ -501,8 +498,8 @@ func createDatabaseServerAdmin(
 		return fmt.Errorf("failed to get current principal information: %w", err)
 	}
 
-	currentUserAdmin := armpostgresqlflexibleservers.ActiveDirectoryAdministratorAdd{
-		Properties: &armpostgresqlflexibleservers.AdministratorPropertiesForAdd{
+	currentUserAdmin := armpostgresqlflexibleservers.AdministratorMicrosoftEntraAdd{
+		Properties: &armpostgresqlflexibleservers.AdministratorMicrosoftEntraPropertiesForAdd{
 			PrincipalName: &currentPrincipalDisplayName,
 			PrincipalType: &currentPrincipalType,
 			TenantID:      Ptr(config.Cloud.TenantID),
@@ -521,7 +518,7 @@ func createDatabaseServerAdmin(
 
 	log.Ctx(ctx).Info().Msgf("Creating PostgreSQL server admin '%s'", currentPrincipalDisplayName)
 
-	currentUserPoller, err := adminClient.BeginCreate(ctx, config.Cloud.ResourceGroup, serverName, currentPrincipalObjectId, currentUserAdmin, nil)
+	currentUserPoller, err := adminClient.BeginCreateOrUpdate(ctx, config.Cloud.ResourceGroup, serverName, currentPrincipalObjectId, currentUserAdmin, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create PostgreSQL server admin: %w", err)
 	}
