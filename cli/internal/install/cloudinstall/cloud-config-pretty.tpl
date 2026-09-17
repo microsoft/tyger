@@ -61,7 +61,7 @@ cloud:
     # name:
   {{- end }}
 
-  # Optionaly use a custom DNS zone
+  # Optionally use a custom DNS zone
   {{ if .DnsZone -}}
   dnsZone:
     resourceGroup: {{ .DnsZone.ResourceGroup }}
