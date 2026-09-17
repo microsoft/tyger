@@ -1,7 +1,7 @@
 # Working with codespecs
 
 Codespecs in Tyger define the code executed during a run. Named codespecs can be
-used by for multiple runs. While can also declare codespecs inline, this guide
+used for multiple runs. While you can also declare codespecs inline, this guide
 focuses on working with named codespecs.
 
 ## Creating a codespec
@@ -35,10 +35,11 @@ buffers:
     - output
 image: quay.io/linuxserver.io/ffmpeg
 args:
+  - -i
   - $(INPUT_PIPE)
   - -vf
   - negate
-  - -f-
+  - -f
   - nut
   - -y
   - $(OUTPUT_PIPE)
@@ -58,7 +59,7 @@ tyger codespec create -f negating.yml --env MY_ENV=MY_VALUE
 
 ## Using buffers
 
-The commands above specify two buffers one for input, one for output, named
+The commands above specify two buffers, one for input and one for output, named
 `input` and `output` respectively. For each buffer, tyger creates a named pipe
 for reading or writing buffer contents, depending on the declared
 directionality. The path to the named pipe is given in an environment variable
@@ -100,7 +101,7 @@ image: quay.io/linuxserver.io/ffmpeg
 # Entrypoint array. Not executed within a shell.
 # The container image's ENTRYPOINT is used if this is not provided.
 # Variable references $(VAR_NAME) are expanded using the container's
-# environment.The $(VAR_NAME) syntax can be escaped with a double $$, ie: $$(VAR_NAME).
+# environment. The $(VAR_NAME) syntax can be escaped with a double $$, ie: $$(VAR_NAME).
 command:
   - ffmpeg
 
@@ -110,10 +111,11 @@ command:
 # the reference in the input string will be unchanged. The $(VAR_NAME)
 # syntax can be escaped with a double $$, ie: $$(VAR_NAME).
 args:
+  - -i
   - $(INPUT_PIPE)
   - -vf
   - negate
-  - -f-
+  - -f
   - nut
   - -y
   - $(OUTPUT_PIPE)
@@ -131,7 +133,7 @@ env:
   MY_VAR: myValue
 
 # An optional workload identity to run as, allowing access to cloud resources.
-# This must be one of the identites given in the cloud configuration file under
+# This must be one of the identities given in the cloud configuration file under
 # cloud.compute.identities.
 identity: my-identity
 
@@ -208,14 +210,14 @@ specified, in which case they are treated as the `command` value.
 Retrieve a specific codespec version with:
 
 ```bash
-tyger codespec show NAME [-v|--version VERSION]
+tyger codespec show NAME [--version VERSION]
 ```
 
 Without `--version`, the latest version is returned.
 
 ## Listing codespecs
 
-List **latest version** of codespecs with:
+List the **latest version** of codespecs with:
 
 ```bash
 tyger codespec list [--prefix STRING] [--limit COUNT]

@@ -25,7 +25,7 @@ ENV NVM_SYMLINK_CURRENT="true"
 RUN umask 0002 \
     &&  git clone https://github.com/devcontainers/features.git /opt/features\
     && cd /opt/features \
-    && git checkout d3971c3960448afdf4f5f693eacf1cd36f804bda \
+    && git checkout e56a6802b0ed22991cfa72adc867e7e30e109911 \
     ## NODE
     && cd /opt/features/src/node \
     && VERSION=24.8.0 bash install.sh \

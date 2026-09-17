@@ -9,7 +9,7 @@ Tyger.
 
 While buffers are very powerful, there are cases when you don't want data to be
 persisted and/or you want low-latency communication between a data source and a
-run's container. For these scenario's you can use **ephemeral buffers**.
+run's container. For these scenarios you can use **ephemeral buffers**.
 
 When using ephemeral buffers, instead of data being sent to the data plane
 service (Azure Storage or the local data plane service), a sidecar container to
@@ -21,7 +21,7 @@ However, there are a few important differences between the two:
 - Ephemeral buffers can only be read once, and therefore are not WORM.
 - Ephemeral buffers are not created with `tyger buffer create`. Rather, they are
   created with, and are owned by, a run.
-- You can only read or write to an ephemeral buffer during while its associated
+- You can only read or write to an ephemeral buffer while its associated
   run is active.
 
 ## Using ephemeral buffers
