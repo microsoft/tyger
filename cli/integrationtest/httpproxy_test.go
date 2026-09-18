@@ -6,10 +6,18 @@
 package integrationtest
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,12 +28,129 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+// startAzureCliBridge lets the test container use the test runner's Azure CLI login
+// without installing az or copying its credential cache. The container's az shell
+// shim POSTs JSON arguments over a Unix socket; the test process runs its local az
+// and returns base64-encoded stdout/stderr and the exit code. Authentication runs
+// outside Squid because this test checks Tyger's proxy handling, not Azure CLI's.
+//
+// The private socket/shim directory lives in the shared workspace rather than /tmp
+// so TYGER_DOCKER_HOST_PATH_TRANSLATIONS can map it to a Docker-host bind-mount path
+// when the test runner itself is in a devcontainer.
+func startAzureCliBridge(t *testing.T, handler http.Handler) string {
+	t.Helper()
+
+	socketDir, err := os.MkdirTemp(".", ".az-bridge-")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, os.RemoveAll(socketDir)) })
+	socketDir, err = filepath.Abs(socketDir)
+	require.NoError(t, err)
+
+	const shim = `#!/usr/bin/env bash
+set -euo pipefail
+
+response=$(jq -cn --args '$ARGS.positional' -- "$@" |
+    curl --silent --show-error --fail --max-time 60 --noproxy '*' \
+        --unix-socket /az-bridge/az.sock \
+        --header 'Content-Type: application/json' \
+        --data-binary @- http://localhost/)
+
+jq -r '.stdout // ""' <<<"$response" | base64 --decode
+jq -r '.stderr // ""' <<<"$response" | base64 --decode >&2
+exit "$(jq -r '.exitCode' <<<"$response")"
+`
+	require.NoError(t, os.WriteFile(filepath.Join(socketDir, "az"), []byte(shim), 0700))
+
+	socketPath := filepath.Join(socketDir, "az.sock")
+	listener, err := net.Listen("unix", socketPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { listener.Close() })
+	server := &http.Server{Handler: handler, ReadTimeout: 5 * time.Second, WriteTimeout: time.Minute}
+	t.Cleanup(func() { require.NoError(t, server.Close()) })
+	go server.Serve(listener)
+
+	return translateDockerHostPath(t, socketDir)
+}
+
+func azureCliBridgeHandler(azPath string) http.Handler {
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		var args []string
+		if request.Method != http.MethodPost || request.URL.Path != "/" ||
+			json.NewDecoder(http.MaxBytesReader(response, request.Body, 16*1024)).Decode(&args) != nil {
+			http.Error(response, "invalid Azure CLI bridge request", http.StatusBadRequest)
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(request.Context(), 30*time.Second)
+		defer cancel()
+		command := exec.CommandContext(ctx, azPath, args...)
+		command.WaitDelay = time.Second
+		var stdout, stderr bytes.Buffer
+		command.Stdout = &stdout
+		command.Stderr = &stderr
+		exitCode := 0
+		if err := command.Run(); err != nil {
+			exitCode = 1
+			var exitError *exec.ExitError
+			if errors.As(err, &exitError) && exitError.ExitCode() >= 0 {
+				exitCode = exitError.ExitCode()
+			} else {
+				fmt.Fprintf(&stderr, "Azure CLI bridge: %v\n", err)
+			}
+		}
+		response.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(response).Encode(struct {
+			Stdout   []byte `json:"stdout"`
+			Stderr   []byte `json:"stderr"`
+			ExitCode int    `json:"exitCode"`
+		}{stdout.Bytes(), stderr.Bytes(), exitCode})
+	})
+}
+
+func translateDockerHostPath(t *testing.T, containerPath string) string {
+	t.Helper()
+
+	hostPath := containerPath
+	longestMatch := 0
+	for mapping := range strings.SplitSeq(os.Getenv("TYGER_DOCKER_HOST_PATH_TRANSLATIONS"), ":") {
+		if mapping == "" {
+			continue
+		}
+		source, destination, ok := strings.Cut(mapping, "=")
+		require.True(t, ok && source != "" && destination != "", "invalid Docker host path translation")
+		source = filepath.Clean(source)
+		relativePath, err := filepath.Rel(source, containerPath)
+		require.NoError(t, err)
+		if relativePath != ".." && !strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) && len(source) > longestMatch {
+			hostPath = filepath.Join(destination, relativePath)
+			longestMatch = len(source)
+		}
+	}
+	return hostPath
+}
+
 func TestHttpProxy(t *testing.T) {
 	t.Parallel()
 	skipIfOnlyFastTests(t)
 	skipIfUsingUnixSocket(t)
 
-	const composeFile = `
+	proxyConfigString := runCommandSucceeds(t, "make", "-s", "-C", "../..", "get-login-spec")
+	proxyConfig := controlplane.LoginConfig{}
+	require.NoError(t, yaml.Unmarshal([]byte(proxyConfigString), &proxyConfig))
+
+	proxyVolumes := []map[string]any{}
+	if proxyConfig.AzureCli {
+		azPath, err := exec.LookPath("az")
+		require.NoError(t, err)
+		hostSocketDir := startAzureCliBridge(t, azureCliBridgeHandler(azPath))
+		proxyVolumes = append(proxyVolumes, map[string]any{
+			"type": "bind", "source": hostSocketDir, "target": "/az-bridge", "read_only": true,
+		})
+	}
+	proxyVolumesJson, err := json.Marshal(proxyVolumes)
+	require.NoError(t, err)
+
+	composeFile := fmt.Sprintf(`
 name: http-proxy-test
 
 services:
@@ -38,7 +163,8 @@ services:
       retries: 30
 
   tyger-proxy:
-    image:  mcr.microsoft.com/devcontainers/base:ubuntu
+    image: mcr.microsoft.com/devcontainers/base:ubuntu
+    volumes: %s
     dns: 127.0.0.1 # DNS will not resolve anything outside of the docker network
     command: ["sleep", "infinity"]
     environment:
@@ -57,7 +183,7 @@ networks:
       driver: default
       config:
         - subnet: 192.168.250.0/24
-`
+  `, proxyVolumesJson)
 
 	s := NewComposeSession(t, composeFile)
 	defer s.Cleanup()
@@ -72,10 +198,6 @@ networks:
 	config := getCloudConfig(t)
 	tygerUrl := fmt.Sprintf("https://%s", getLamnaOrgConfig(config).Api.DomainName)
 
-	proxyConfigString := runCommandSucceeds(t, "make", "-s", "-C", "../..", "get-login-spec")
-
-	proxyConfig := controlplane.LoginConfig{}
-	require.NoError(t, yaml.Unmarshal([]byte(proxyConfigString), &proxyConfig))
 	sourceCertPath := proxyConfig.CertificatePath
 	if sourceCertPath != "" {
 		proxyConfig.CertificatePath = "/client_cert.pem"
@@ -99,6 +221,9 @@ networks:
 	}
 
 	s.CommandSucceeds("start", "tyger-proxy")
+	if proxyConfig.AzureCli {
+		s.ShellExecSucceeds("tyger-proxy", "ln -s /az-bridge/az /usr/local/bin/az")
+	}
 
 	squidProxy := "http://squid:3128"
 
