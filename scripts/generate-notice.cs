@@ -794,175 +794,175 @@ internal static class NoticeGenerator
 
     private static string Serialize(NoticeDocument document)
     {
-                int goDependencyCount = document.Dependencies.Count(dependency => dependency.Ecosystem == GoEcosystem);
-                int nuGetDependencyCount = document.Dependencies.Count(dependency => dependency.Ecosystem == NuGetEcosystem);
+        int goDependencyCount = document.Dependencies.Count(dependency => dependency.Ecosystem == GoEcosystem);
+        int nuGetDependencyCount = document.Dependencies.Count(dependency => dependency.Ecosystem == NuGetEcosystem);
 
-                var main = new XElement(s_xhtml + "main",
-                        new XElement(s_xhtml + "p",
-                                new XAttribute("class", "introduction"),
-                                "This repository incorporates material from the third-party dependencies listed below."),
-                        CreateStats(document.Dependencies.Count, goDependencyCount, nuGetDependencyCount));
+        var main = new XElement(s_xhtml + "main",
+                new XElement(s_xhtml + "p",
+                        new XAttribute("class", "introduction"),
+                        "This repository incorporates material from the third-party dependencies listed below."),
+                CreateStats(document.Dependencies.Count, goDependencyCount, nuGetDependencyCount));
 
-                foreach (IGrouping<string, NoticeDependency> group in document.Dependencies.GroupBy(dependency => dependency.Ecosystem))
-                {
-                        string heading = group.Key == GoEcosystem ? "Go modules" : "NuGet packages";
-                        var section = new XElement(s_xhtml + "section",
-                                new XAttribute("class", "ecosystem"),
-                                new XAttribute("data-ecosystem", group.Key),
+        foreach (IGrouping<string, NoticeDependency> group in document.Dependencies.GroupBy(dependency => dependency.Ecosystem))
+        {
+            string heading = group.Key == GoEcosystem ? "Go modules" : "NuGet packages";
+            var section = new XElement(s_xhtml + "section",
+                    new XAttribute("class", "ecosystem"),
+                    new XAttribute("data-ecosystem", group.Key),
+                    new XElement(s_xhtml + "div",
+                            new XAttribute("class", "ecosystem-heading"),
+                            new XElement(s_xhtml + "h2", heading),
+                            new XElement(s_xhtml + "span", new XAttribute("class", "count"), $"{group.Count()} dependencies")));
+
+            foreach (NoticeDependency dependency in group)
+            {
+                section.Add(CreateDependencyElement(dependency));
+            }
+
+            main.Add(section);
+        }
+
+        var html = new XElement(s_xhtml + "html",
+                new XAttribute(XNamespace.Xml + "lang", "en"),
+                new XAttribute("lang", "en"),
+                new XAttribute("data-schema-version", document.SchemaVersion),
+                new XElement(s_xhtml + "head",
+                        new XElement(s_xhtml + "meta", new XAttribute("charset", "utf-8")),
+                        new XElement(s_xhtml + "meta",
+                                new XAttribute("name", "viewport"),
+                                new XAttribute("content", "width=device-width, initial-scale=1")),
+                        new XElement(s_xhtml + "title", "Tyger third-party notices"),
+                        new XElement(s_xhtml + "style", new XAttribute("type", "text/css"), Styles)),
+                new XElement(s_xhtml + "body",
+                        new XElement(s_xhtml + "header",
                                 new XElement(s_xhtml + "div",
-                                        new XAttribute("class", "ecosystem-heading"),
-                                        new XElement(s_xhtml + "h2", heading),
-                                        new XElement(s_xhtml + "span", new XAttribute("class", "count"), $"{group.Count()} dependencies")));
+                                        new XAttribute("class", "header-content"),
+                                        new XElement(s_xhtml + "p", new XAttribute("class", "eyebrow"), "TYGER"),
+                                        new XElement(s_xhtml + "h1", "Third-party notices"),
+                                        new XElement(s_xhtml + "p", new XAttribute("class", "subtitle"), "Licenses and attribution for production dependencies"))),
+                        main,
+                        new XElement(s_xhtml + "footer",
+                                "Generated from the production dependency graph by ",
+                                new XElement(s_xhtml + "code", "scripts/generate-notice.cs"),
+                                ".")));
 
-                        foreach (NoticeDependency dependency in group)
-                        {
-                                section.Add(CreateDependencyElement(dependency));
-                        }
+        var xhtmlDocument = new XDocument(
+                new XDeclaration("1.0", "utf-8", null),
+                new XDocumentType("html", null, null, null),
+                new XComment(" Copyright (c) Microsoft Corporation. Licensed under the MIT License. "),
+                html);
 
-                        main.Add(section);
-                }
+        using var stream = new MemoryStream();
+        using (XmlWriter writer = XmlWriter.Create(stream, new XmlWriterSettings
+        {
+            Encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            Indent = true,
+            IndentChars = "  ",
+            NewLineChars = "\n",
+            NewLineHandling = NewLineHandling.None,
+        }))
+        {
+            xhtmlDocument.Save(writer);
+        }
 
-                var html = new XElement(s_xhtml + "html",
-                        new XAttribute(XNamespace.Xml + "lang", "en"),
-                        new XAttribute("lang", "en"),
-                        new XAttribute("data-schema-version", document.SchemaVersion),
-                        new XElement(s_xhtml + "head",
-                                new XElement(s_xhtml + "meta", new XAttribute("charset", "utf-8")),
-                                new XElement(s_xhtml + "meta",
-                                        new XAttribute("name", "viewport"),
-                                        new XAttribute("content", "width=device-width, initial-scale=1")),
-                                new XElement(s_xhtml + "title", "Tyger third-party notices"),
-                                new XElement(s_xhtml + "style", new XAttribute("type", "text/css"), Styles)),
-                        new XElement(s_xhtml + "body",
-                                new XElement(s_xhtml + "header",
-                                        new XElement(s_xhtml + "div",
-                                                new XAttribute("class", "header-content"),
-                                                new XElement(s_xhtml + "p", new XAttribute("class", "eyebrow"), "TYGER"),
-                                                new XElement(s_xhtml + "h1", "Third-party notices"),
-                                                new XElement(s_xhtml + "p", new XAttribute("class", "subtitle"), "Licenses and attribution for production dependencies"))),
-                                main,
-                                new XElement(s_xhtml + "footer",
-                                        "Generated from the production dependency graph by ",
-                                        new XElement(s_xhtml + "code", "scripts/generate-notice.cs"),
-                                        ".")));
-
-                var xhtmlDocument = new XDocument(
-                        new XDeclaration("1.0", "utf-8", null),
-                        new XDocumentType("html", null, null, null),
-                        new XComment(" Copyright (c) Microsoft Corporation. Licensed under the MIT License. "),
-                        html);
-
-                using var stream = new MemoryStream();
-                using (XmlWriter writer = XmlWriter.Create(stream, new XmlWriterSettings
-                {
-                        Encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
-                        Indent = true,
-                        IndentChars = "  ",
-                        NewLineChars = "\n",
-                        NewLineHandling = NewLineHandling.None,
-                }))
-                {
-                        xhtmlDocument.Save(writer);
-                }
-
-                string contents = Encoding.UTF8.GetString(stream.ToArray());
-                return contents.EndsWith('\n') ? contents : contents + '\n';
+        string contents = Encoding.UTF8.GetString(stream.ToArray());
+        return contents.EndsWith('\n') ? contents : contents + '\n';
     }
 
-        private static XElement CreateStats(int dependencyCount, int goDependencyCount, int nuGetDependencyCount) =>
-                new(s_xhtml + "dl",
-                        new XAttribute("class", "stats"),
-                        CreateStat(dependencyCount, "dependencies"),
-                        CreateStat(goDependencyCount, "Go modules"),
-                        CreateStat(nuGetDependencyCount, "NuGet packages"));
+    private static XElement CreateStats(int dependencyCount, int goDependencyCount, int nuGetDependencyCount) =>
+            new(s_xhtml + "dl",
+                    new XAttribute("class", "stats"),
+                    CreateStat(dependencyCount, "dependencies"),
+                    CreateStat(goDependencyCount, "Go modules"),
+                    CreateStat(nuGetDependencyCount, "NuGet packages"));
 
-        private static XElement CreateStat(int count, string label) =>
-                new(s_xhtml + "div",
-                        new XElement(s_xhtml + "dt", count),
-                        new XElement(s_xhtml + "dd", label));
+    private static XElement CreateStat(int count, string label) =>
+            new(s_xhtml + "div",
+                    new XElement(s_xhtml + "dt", count),
+                    new XElement(s_xhtml + "dd", label));
 
-        private static XElement CreateDependencyElement(NoticeDependency dependency)
+    private static XElement CreateDependencyElement(NoticeDependency dependency)
+    {
+        var content = new XElement(s_xhtml + "div",
+                new XAttribute("class", "dependency-content"),
+                new XElement(s_xhtml + "section",
+                        new XAttribute("class", "usage"),
+                        new XElement(s_xhtml + "h3", "Used by"),
+                        new XElement(s_xhtml + "ul",
+                                new XAttribute("class", "used-by"),
+                                dependency.UsedBy.Select(component => new XElement(s_xhtml + "li", component)))));
+
+        for (int index = 0; index < dependency.Notices.Count; index++)
         {
-                var content = new XElement(s_xhtml + "div",
-                        new XAttribute("class", "dependency-content"),
-                        new XElement(s_xhtml + "section",
-                                new XAttribute("class", "usage"),
-                                new XElement(s_xhtml + "h3", "Used by"),
-                                new XElement(s_xhtml + "ul",
-                                        new XAttribute("class", "used-by"),
-                                        dependency.UsedBy.Select(component => new XElement(s_xhtml + "li", component)))));
-
-                for (int index = 0; index < dependency.Notices.Count; index++)
-                {
-                        content.Add(CreateNoticeElement(dependency.Notices[index], index + 1, dependency.Notices.Count));
-                }
-
-                return new XElement(s_xhtml + "details",
-                        new XAttribute("class", "dependency"),
-                        new XAttribute("id", GetDependencyId(dependency)),
-                        new XAttribute("data-ecosystem", dependency.Ecosystem),
-                        new XAttribute("data-name", dependency.Name),
-                        new XAttribute("data-version", dependency.Version),
-                        new XElement(s_xhtml + "summary",
-                                new XElement(s_xhtml + "code", new XAttribute("class", "package-name"), dependency.Name),
-                                new XElement(s_xhtml + "span", new XAttribute("class", "version"), dependency.Version),
-                                new XElement(s_xhtml + "span", new XAttribute("class", "usage-count"), $"Used by {dependency.UsedBy.Count}")),
-                        content);
+            content.Add(CreateNoticeElement(dependency.Notices[index], index + 1, dependency.Notices.Count));
         }
 
-        private static XElement CreateNoticeElement(LegalNotice notice, int number, int total)
+        return new XElement(s_xhtml + "details",
+                new XAttribute("class", "dependency"),
+                new XAttribute("id", GetDependencyId(dependency)),
+                new XAttribute("data-ecosystem", dependency.Ecosystem),
+                new XAttribute("data-name", dependency.Name),
+                new XAttribute("data-version", dependency.Version),
+                new XElement(s_xhtml + "summary",
+                        new XElement(s_xhtml + "code", new XAttribute("class", "package-name"), dependency.Name),
+                        new XElement(s_xhtml + "span", new XAttribute("class", "version"), dependency.Version),
+                        new XElement(s_xhtml + "span", new XAttribute("class", "usage-count"), $"Used by {dependency.UsedBy.Count}")),
+                content);
+    }
+
+    private static XElement CreateNoticeElement(LegalNotice notice, int number, int total)
+    {
+        var section = new XElement(s_xhtml + "section",
+                new XAttribute("class", "notice"),
+                new XAttribute("data-source", notice.Source),
+                new XElement(s_xhtml + "div",
+                        new XAttribute("class", "notice-heading"),
+                        new XElement(s_xhtml + "h3", total == 1 ? "Legal notice" : $"Legal notice {number}"),
+                        new XElement(s_xhtml + "span", new XAttribute("class", "source-kind"), notice.Source)));
+
+        if (notice.Url is not null)
         {
-                var section = new XElement(s_xhtml + "section",
-                        new XAttribute("class", "notice"),
-                        new XAttribute("data-source", notice.Source),
-                        new XElement(s_xhtml + "div",
-                                new XAttribute("class", "notice-heading"),
-                                new XElement(s_xhtml + "h3", total == 1 ? "Legal notice" : $"Legal notice {number}"),
-                                new XElement(s_xhtml + "span", new XAttribute("class", "source-kind"), notice.Source)));
-
-                if (notice.Url is not null)
-                {
-                        section.Add(new XElement(s_xhtml + "p",
-                                new XAttribute("class", "provenance"),
-                                "Source: ",
-                                new XElement(s_xhtml + "a",
-                                        new XAttribute("class", "source-url"),
-                                        new XAttribute("href", notice.Url),
-                                        notice.Url)));
-                }
-
-                if (notice.Review is not null)
-                {
-                        section.Add(new XElement(s_xhtml + "p",
-                                new XAttribute("class", "review"),
-                                new XElement(s_xhtml + "strong", "Review: "),
-                                notice.Review));
-                }
-
-                if (notice.SourcePaths.Count > 0)
-                {
-                        section.Add(new XElement(s_xhtml + "div",
-                                new XAttribute("class", "source-paths-block"),
-                                new XElement(s_xhtml + "h4", "Source paths"),
-                                new XElement(s_xhtml + "ul",
-                                        new XAttribute("class", "source-paths"),
-                                        notice.SourcePaths.Select(sourcePath => new XElement(s_xhtml + "li", sourcePath)))));
-                }
-
-                section.Add(new XElement(s_xhtml + "pre",
-                        new XAttribute("class", "legal-text"),
-                        new XAttribute(XNamespace.Xml + "space", "preserve"),
-                        notice.Text));
-                return section;
+            section.Add(new XElement(s_xhtml + "p",
+                    new XAttribute("class", "provenance"),
+                    "Source: ",
+                    new XElement(s_xhtml + "a",
+                            new XAttribute("class", "source-url"),
+                            new XAttribute("href", notice.Url),
+                            notice.Url)));
         }
 
-        private static string GetDependencyId(NoticeDependency dependency)
+        if (notice.Review is not null)
         {
-                byte[] identity = Encoding.UTF8.GetBytes($"{dependency.Ecosystem}\0{dependency.Name}\0{dependency.Version}");
-                return $"dependency-{dependency.Ecosystem}-{Convert.ToHexStringLower(SHA256.HashData(identity))[..12]}";
+            section.Add(new XElement(s_xhtml + "p",
+                    new XAttribute("class", "review"),
+                    new XElement(s_xhtml + "strong", "Review: "),
+                    notice.Review));
         }
 
-        private const string Styles = """
+        if (notice.SourcePaths.Count > 0)
+        {
+            section.Add(new XElement(s_xhtml + "div",
+                    new XAttribute("class", "source-paths-block"),
+                    new XElement(s_xhtml + "h4", "Source paths"),
+                    new XElement(s_xhtml + "ul",
+                            new XAttribute("class", "source-paths"),
+                            notice.SourcePaths.Select(sourcePath => new XElement(s_xhtml + "li", sourcePath)))));
+        }
+
+        section.Add(new XElement(s_xhtml + "pre",
+                new XAttribute("class", "legal-text"),
+                new XAttribute(XNamespace.Xml + "space", "preserve"),
+                notice.Text));
+        return section;
+    }
+
+    private static string GetDependencyId(NoticeDependency dependency)
+    {
+        byte[] identity = Encoding.UTF8.GetBytes($"{dependency.Ecosystem}\0{dependency.Name}\0{dependency.Version}");
+        return $"dependency-{dependency.Ecosystem}-{Convert.ToHexStringLower(SHA256.HashData(identity))[..12]}";
+    }
+
+    private const string Styles = """
                 :root {
                     color-scheme: light;
                     font-family: Georgia, "Times New Roman", serif;
