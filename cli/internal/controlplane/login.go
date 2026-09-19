@@ -1041,8 +1041,8 @@ func tenantIdFromAuthority(authority string) (string, error) {
 // signals worth matching on are:
 //   - AADSTS error codes, which are stable, non-localized identifiers embedded
 //     in the underlying Microsoft Entra error text.
-//   - The SDK-normalized "Azure CLI not found on path" message, which it emits
-//     for a missing `az` binary (CLI exit code 127 / "'az' is not recognized").
+//   - The SDK-normalized missing-executable messages, which it emits for a
+//     missing `az` binary (CLI exit code 127 / "'az' is not recognized").
 //
 // Anything we can't confidently classify falls through to a generic message
 // that wraps the original error so the raw `az` output remains visible.
@@ -1065,9 +1065,9 @@ func translateAzureCliCredentialError(err error, tenantId string) error {
 	}
 
 	switch {
-	// The `az` binary is missing. The SDK normalizes this (CLI exit code 127 or
-	// the Windows "'az' is not recognized" prefix) to "Azure CLI not found on path".
-	case containsAny("azure cli not found", "'az' is not recognized"):
+	// The `az` binary is missing. Depending on the SDK version, this is normalized
+	// to either "Azure CLI not found on path" or "executable not found on path".
+	case containsAny("azure cli not found", "executable not found on path", "'az' is not recognized"):
 		return fmt.Errorf("the Azure CLI (`az`) was not found on PATH. Install it from https://aka.ms/azure-cli and run `az login` before retrying: %w", err)
 
 	// Consent has not been granted to the Azure CLI app for the Tyger API. When the

@@ -4,6 +4,7 @@
 package controlplane
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -35,6 +36,24 @@ func TestServerUrlValidation(t *testing.T) {
 		t.Run(tC, func(t *testing.T) {
 			_, err := NormalizeServerUrl(tC)
 			assert.NotNil(t, err)
+		})
+	}
+}
+
+func TestTranslateAzureCliCredentialErrorAzureCliNotFound(t *testing.T) {
+	testCases := map[string]string{
+		"current SDK": "AzureCLICredential: executable not found on path",
+		"legacy SDK":  "AzureCLICredential: Azure CLI not found on path",
+	}
+
+	for name, message := range testCases {
+		t.Run(name, func(t *testing.T) {
+			originalErr := errors.New(message)
+
+			translatedErr := translateAzureCliCredentialError(originalErr, "tenant-id")
+
+			assert.ErrorIs(t, translatedErr, originalErr)
+			assert.ErrorContains(t, translatedErr, "https://aka.ms/azure-cli")
 		})
 	}
 }

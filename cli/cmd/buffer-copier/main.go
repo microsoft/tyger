@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -120,9 +121,11 @@ type bufferIdAndTags struct {
 
 func createCredential() (azcore.TokenCredential, error) {
 	cred := make([]azcore.TokenCredential, 0)
-	cliCred, err := azidentity.NewAzureCLICredential(nil)
-	if err == nil {
-		cred = append(cred, cliCred)
+	if _, err := exec.LookPath("az"); err == nil {
+		cliCred, err := azidentity.NewAzureCLICredential(nil)
+		if err == nil {
+			cred = append(cred, cliCred)
+		}
 	}
 
 	workloadCred, err := azidentity.NewWorkloadIdentityCredential(nil)
