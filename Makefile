@@ -129,7 +129,7 @@ integration-test-no-up: integration-test-no-up-prereqs cli-ready
 	fi
 
 	pushd cli/integrationtest
-	go test -tags=integrationtest ${INTEGRATION_TEST_FLAGS}
+	go test -count=1 -tags=integrationtest ${INTEGRATION_TEST_FLAGS}
 
 integration-test-no-up-fast-only:
 	$(MAKE) integration-test-no-up INTEGRATION_TEST_FLAGS="-fast"
