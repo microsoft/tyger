@@ -1,4 +1,4 @@
-ARG DEVCONTAINER_BASE=mcr.microsoft.com/devcontainers/base:2.1.5-ubuntu24.04
+ARG DEVCONTAINER_BASE=mcr.microsoft.com/devcontainers/base:3.0.8-ubuntu24.04
 
 FROM ${DEVCONTAINER_BASE} AS devcontainer
 
@@ -25,22 +25,22 @@ ENV NVM_SYMLINK_CURRENT="true"
 RUN umask 0002 \
     &&  git clone https://github.com/devcontainers/features.git /opt/features\
     && cd /opt/features \
-    && git checkout e56a6802b0ed22991cfa72adc867e7e30e109911 \
+    && git checkout 47406487f9b4965e4f9865f20b86805b1e2d5c0f \
     ## NODE
     && cd /opt/features/src/node \
-    && VERSION=24.8.0 bash install.sh \
+    && VERSION=24.21.0 NPMVERSION=12.0.2 bash install.sh \
     # DOCKER
     && cd /opt/features/src/docker-outside-of-docker \
-    && MOBY=false VERSION=28.4.0 DOCKERDASHCOMPOSEVERSION=none bash install.sh \
+    && MOBY=false VERSION=29.8.1 DOCKERDASHCOMPOSEVERSION=none bash install.sh \
     # AZURE CLI
     && cd /opt/features/src/azure-cli \
-    && VERSION=2.77.0 bash install.sh \
+    && VERSION=2.90.0 bash install.sh \
     # POWERSHELL
     && cd /opt/features/src/powershell \
-    && VERSION=7.5.3 bash install.sh \
+    && VERSION=7.6.6 bash install.sh \
     # KUBECTL
     && cd /opt/features/src/kubectl-helm-minikube \
-    && VERSION=1.34.1 HELM=3.16.4 MINIKUBE=none bash install.sh \
+    && VERSION=1.35.8 HELM=4.3.0 MINIKUBE=none bash install.sh \
     # DOTNET
     && cd /opt/features/src/dotnet \
     && VERSION=10.0.401 bash install.sh \
@@ -50,7 +50,7 @@ RUN umask 0002 \
     && chown -R "${USERNAME}" "${GOROOT}" "${GOPATH}" \
     # GitHub CLI
     && cd /opt/features/src/github-cli/ \
-    && VERSION=2.79.0 bash install.sh \
+    && VERSION=2.101.0 bash install.sh \
     # cleanup
     && rm -rf /opt/features
 
