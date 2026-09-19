@@ -3,14 +3,18 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+// Generates NOTICE.md from the production dependency graphs of the shipped Go commands and .NET services.
+// Go legal files come from go-licenses, while NuGet notices come from ClearlyDefined. NOTICE.md also serves as a
+// cache: hidden metadata identifies each dependency and source file, and fenced blocks preserve the legal text.
+// Unchanged ecosystem/name/version entries are reused, --refresh recollects selected entries, and --check is
+// does not do any network requests.
+
 using System.Diagnostics;
 using System.Net;
 using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Xml;
 using System.Xml.Linq;
 
 return await NoticeGenerator.RunAsync(args);
@@ -22,7 +26,24 @@ internal static class NoticeGenerator
     private const string NuGetEcosystem = "nuget";
     private const string GoLicensesVersion = "v1.6.0";
     private const string Usage = "Usage: scripts/generate-notice.cs [--check] [--refresh <ecosystem:name@version>|all]";
-    private static readonly XNamespace s_xhtml = "http://www.w3.org/1999/xhtml";
+
+    private static readonly string[] s_licenseFileNames =
+    [
+        "LICENCE",
+        "LICENSE",
+        "LICENSES",
+        "UNLICENSE",
+    ];
+
+    private static readonly string[] s_otherLegalFileNames =
+    [
+        "COPYING",
+        "COPYRIGHT",
+        "NOTICE",
+        "PATENTS",
+        "THIRD-PARTY-NOTICES",
+        "THIRD_PARTY_NOTICES",
+    ];
 
     private static readonly IReadOnlyDictionary<string, string> s_goComponents = new Dictionary<string, string>(StringComparer.Ordinal)
     {
@@ -54,7 +75,7 @@ internal static class NoticeGenerator
             }
 
             string repositoryRoot = GetRepositoryRoot();
-            string noticePath = Path.Combine(repositoryRoot, "NOTICE.xhtml");
+            string noticePath = Path.Combine(repositoryRoot, "NOTICE.md");
             Dictionary<string, InventoryDependency> inventory = await BuildInventoryAsync(repositoryRoot);
             Dictionary<string, NoticeDependency> cachedDependencies = LoadCachedDependencies(noticePath);
             HashSet<string> refreshKeys = ResolveRefreshKeys(options.RefreshTargets, inventory);
@@ -91,7 +112,7 @@ internal static class NoticeGenerator
             {
                 foreach (InventoryDependency dependency in unresolvedGoDependencies.Concat(unresolvedNuGetDependencies))
                 {
-                    Console.Error.WriteLine($"NOTICE.xhtml has no cached legal text for {FormatIdentity(dependency)}.");
+                    Console.Error.WriteLine($"NOTICE.md has no cached legal text for {FormatIdentity(dependency)}.");
                 }
 
                 Console.Error.WriteLine("Run scripts/generate-notice.cs to resolve new or changed dependencies.");
@@ -108,7 +129,7 @@ internal static class NoticeGenerator
                     if (!goNotices.TryGetValue(key, out List<LegalNotice>? notices) || notices.Count == 0)
                     {
                         throw new InvalidOperationException(
-                            $"No legal text was found for {FormatIdentity(dependency)}. Add a reviewed manual entry to NOTICE.xhtml.");
+                            $"No legal text was found for {FormatIdentity(dependency)}. Add a reviewed manual entry to NOTICE.md.");
                     }
 
                     generatedDependencies.Add(CreateDependency(dependency, notices));
@@ -131,22 +152,24 @@ internal static class NoticeGenerator
             ValidateDocument(document, inventory);
 
             string expectedContents = Serialize(document);
-            _ = XDocument.Parse(expectedContents, LoadOptions.PreserveWhitespace);
+            NoticeDocument roundTrippedDocument = DeserializeNotice(expectedContents);
+            ValidateDocument(roundTrippedDocument, inventory);
+            ValidateRoundTrip(document, roundTrippedDocument);
             string? currentContents = File.Exists(noticePath) ? await File.ReadAllTextAsync(noticePath) : null;
             if (string.Equals(currentContents, expectedContents, StringComparison.Ordinal))
             {
-                Console.WriteLine("NOTICE.xhtml is up to date.");
+                Console.WriteLine("NOTICE.md is up to date.");
                 return 0;
             }
 
             if (options.Check)
             {
-                Console.Error.WriteLine("NOTICE.xhtml is out of date. Run scripts/generate-notice.cs.");
+                Console.Error.WriteLine("NOTICE.md is out of date. Run scripts/generate-notice.cs.");
                 return 1;
             }
 
             await WriteAtomicallyAsync(noticePath, expectedContents);
-            Console.WriteLine($"Wrote NOTICE.xhtml with {generatedDependencies.Count} dependencies.");
+            Console.WriteLine($"Wrote NOTICE.md with {generatedDependencies.Count} dependencies.");
             return 0;
         }
         catch (UsageException exception)
@@ -157,7 +180,7 @@ internal static class NoticeGenerator
         }
         catch (Exception exception)
         {
-            Console.Error.WriteLine($"Failed to generate NOTICE.xhtml: {exception.Message}");
+            Console.Error.WriteLine($"Failed to generate NOTICE.md: {exception.Message}");
             return 1;
         }
     }
@@ -332,7 +355,7 @@ internal static class NoticeGenerator
         if (document.SchemaVersion != SchemaVersion)
         {
             throw new InvalidOperationException(
-            $"NOTICE.xhtml uses schema version {document.SchemaVersion}; expected {SchemaVersion}.");
+            $"NOTICE.md uses schema version {document.SchemaVersion}; expected {SchemaVersion}.");
         }
 
         var result = new Dictionary<string, NoticeDependency>(StringComparer.Ordinal);
@@ -342,7 +365,7 @@ internal static class NoticeGenerator
             string key = GetKey(dependency.Ecosystem, dependency.Name, dependency.Version);
             if (!result.TryAdd(key, dependency))
             {
-                throw new InvalidOperationException($"NOTICE.xhtml contains duplicate dependency {FormatIdentity(dependency)}.");
+                throw new InvalidOperationException($"NOTICE.md contains duplicate dependency {FormatIdentity(dependency)}.");
             }
         }
 
@@ -351,78 +374,130 @@ internal static class NoticeGenerator
 
     private static NoticeDocument DeserializeNotice(string contents)
     {
-        using var stringReader = new StringReader(contents);
-        using XmlReader xmlReader = XmlReader.Create(stringReader, new XmlReaderSettings
+        string normalizedContents = NormalizeLineEndings(contents);
+        Match schemaMatch = Regex.Match(
+            normalizedContents,
+            "(?m)^<!-- tyger-notice-schema: (?<version>[0-9]+) -->$");
+        if (!schemaMatch.Success)
         {
-            DtdProcessing = DtdProcessing.Ignore,
-            XmlResolver = null,
-        });
-        XDocument xhtmlDocument = XDocument.Load(xmlReader, LoadOptions.PreserveWhitespace | LoadOptions.SetLineInfo);
-        XElement root = xhtmlDocument.Root
-            ?? throw new InvalidOperationException("NOTICE.xhtml has no document element.");
-        if (root.Name != s_xhtml + "html")
-        {
-            throw new InvalidOperationException("NOTICE.xhtml must use the XHTML namespace.");
+            throw new InvalidOperationException("NOTICE.md has no schema version marker.");
         }
 
         var document = new NoticeDocument
         {
-            SchemaVersion = int.Parse(GetRequiredAttribute(root, "data-schema-version"), System.Globalization.CultureInfo.InvariantCulture),
+            SchemaVersion = int.Parse(schemaMatch.Groups["version"].Value, System.Globalization.CultureInfo.InvariantCulture),
         };
+        string[] lines = normalizedContents.Split('\n');
+        NoticeDependency? currentDependency = null;
+        int currentNoticeIndex = 0;
 
-        XElement body = GetRequiredElement(root, "body");
-        XElement main = GetRequiredElement(body, "main");
-        foreach (XElement dependencyElement in main.Elements(s_xhtml + "section")
-            .Where(element => HasClass(element, "ecosystem"))
-            .SelectMany(element => element.Elements(s_xhtml + "details").Where(child => HasClass(child, "dependency"))))
+        for (int lineIndex = 0; lineIndex < lines.Length; lineIndex++)
         {
-            var dependency = new NoticeDependency
+            string line = lines[lineIndex];
+            if (line.StartsWith("<div ", StringComparison.Ordinal) &&
+                line.Contains("data-tyger-dependency=\"\"", StringComparison.Ordinal))
             {
-                Ecosystem = GetRequiredAttribute(dependencyElement, "data-ecosystem"),
-                Name = GetRequiredAttribute(dependencyElement, "data-name"),
-                Version = GetRequiredAttribute(dependencyElement, "data-version"),
-            };
+                EnsureAllNoticeTextsFound(currentDependency, currentNoticeIndex);
 
-            XElement dependencyContent = GetRequiredElement(dependencyElement, "div", "dependency-content");
-            XElement usage = GetRequiredElement(dependencyContent, "section", "usage");
-            XElement usedBy = GetRequiredElement(usage, "ul", "used-by");
-            dependency.UsedBy.AddRange(usedBy.Elements(s_xhtml + "li").Select(element => element.Value));
-
-            foreach (XElement noticeElement in dependencyContent.Elements(s_xhtml + "section")
-                .Where(element => HasClass(element, "notice")))
-            {
-                XElement? provenance = GetOptionalElement(noticeElement, "p", "provenance");
-                XElement? sourceLink = provenance is null ? null : GetRequiredElement(provenance, "a", "source-url");
-                XElement? review = GetOptionalElement(noticeElement, "p", "review");
-                XElement? sourcePathsBlock = GetOptionalElement(noticeElement, "div", "source-paths-block");
-                List<string> sourcePaths = sourcePathsBlock is null
-                    ? []
-                    : GetRequiredElement(sourcePathsBlock, "ul", "source-paths")
-                        .Elements(s_xhtml + "li")
-                        .Select(element => element.Value)
-                        .ToList();
-
-                string? reviewText = null;
-                if (review is not null)
+                int metadataEnd = lineIndex;
+                while (metadataEnd < lines.Length && lines[metadataEnd] != "</div>")
                 {
-                    XElement reviewLabel = GetRequiredElement(review, "strong");
-                    reviewText = string.Concat(reviewLabel.NodesAfterSelf().OfType<XText>().Select(text => text.Value)).Trim();
+                    metadataEnd++;
                 }
 
-                dependency.Notices.Add(new()
+                if (metadataEnd == lines.Length)
                 {
-                    Source = GetRequiredAttribute(noticeElement, "data-source"),
-                    Url = sourceLink is null ? null : GetRequiredAttribute(sourceLink, "href"),
-                    Review = reviewText,
-                    SourcePaths = sourcePaths,
-                    Text = GetRequiredElement(noticeElement, "pre", "legal-text").Value,
-                });
+                    throw new InvalidOperationException("NOTICE.md contains an unterminated dependency metadata block.");
+                }
+
+                currentDependency = ParseDependencyMetadata(string.Join('\n', lines[lineIndex..(metadataEnd + 1)]));
+                document.Dependencies.Add(currentDependency);
+                currentNoticeIndex = 0;
+                lineIndex = metadataEnd;
+                continue;
             }
 
-            document.Dependencies.Add(dependency);
+            Match fenceMatch = Regex.Match(line, "^(?<fence>`{3,})text$");
+            if (!fenceMatch.Success || currentDependency is null)
+            {
+                continue;
+            }
+
+            if (currentNoticeIndex >= currentDependency.Notices.Count)
+            {
+                throw new InvalidOperationException(
+                    $"NOTICE.md contains too many legal-text blocks for {FormatIdentity(currentDependency)}.");
+            }
+
+            string fence = fenceMatch.Groups["fence"].Value;
+            int legalTextEnd = lineIndex + 1;
+            while (legalTextEnd < lines.Length && lines[legalTextEnd] != fence)
+            {
+                legalTextEnd++;
+            }
+
+            if (legalTextEnd == lines.Length)
+            {
+                throw new InvalidOperationException(
+                    $"NOTICE.md contains an unterminated legal-text block for {FormatIdentity(currentDependency)}.");
+            }
+
+            currentDependency.Notices[currentNoticeIndex].Text = string.Join('\n', lines[(lineIndex + 1)..legalTextEnd]);
+            currentNoticeIndex++;
+            lineIndex = legalTextEnd;
         }
 
+        EnsureAllNoticeTextsFound(currentDependency, currentNoticeIndex);
         return document;
+    }
+
+    private static NoticeDependency ParseDependencyMetadata(string contents)
+    {
+        XElement metadata = XElement.Parse(contents, LoadOptions.PreserveWhitespace);
+        var dependency = new NoticeDependency
+        {
+            Ecosystem = GetRequiredAttribute(metadata, "data-ecosystem"),
+            Name = GetRequiredAttribute(metadata, "data-name"),
+            Version = GetRequiredAttribute(metadata, "data-version"),
+            UsedBy = [.. metadata.Elements("input")
+                .Where(element => element.Attribute("data-tyger-used-by") is not null)
+                .Select(element => GetRequiredAttribute(element, "value"))],
+        };
+
+        foreach (XElement noticeElement in metadata.Elements("input")
+            .Where(element => element.Attribute("data-tyger-notice") is not null))
+        {
+            int noticeIndex = int.Parse(
+                GetRequiredAttribute(noticeElement, "data-index"),
+                System.Globalization.CultureInfo.InvariantCulture);
+            if (noticeIndex != dependency.Notices.Count)
+            {
+                throw new InvalidOperationException(
+                    $"NOTICE.md has non-sequential notice metadata for {FormatIdentity(dependency)}.");
+            }
+
+            dependency.Notices.Add(new()
+            {
+                Source = GetRequiredAttribute(noticeElement, "data-source"),
+                Url = (string?)noticeElement.Attribute("data-url"),
+                Review = (string?)noticeElement.Attribute("data-review"),
+                SourcePaths = [.. metadata.Elements("input")
+                    .Where(element => element.Attribute("data-tyger-source-path") is not null &&
+                        (string?)element.Attribute("data-notice-index") == noticeIndex.ToString(System.Globalization.CultureInfo.InvariantCulture))
+                    .Select(element => GetRequiredAttribute(element, "value"))],
+            });
+        }
+
+        return dependency;
+    }
+
+    private static void EnsureAllNoticeTextsFound(NoticeDependency? dependency, int noticeCount)
+    {
+        if (dependency is not null && noticeCount != dependency.Notices.Count)
+        {
+            throw new InvalidOperationException(
+                $"NOTICE.md contains {noticeCount} legal-text blocks for {FormatIdentity(dependency)}; expected {dependency.Notices.Count}.");
+        }
     }
 
     private static string GetRequiredAttribute(XElement element, string name)
@@ -430,43 +505,11 @@ internal static class NoticeGenerator
         string? value = (string?)element.Attribute(name);
         if (string.IsNullOrEmpty(value))
         {
-            throw new InvalidOperationException($"NOTICE.xhtml element '{element.Name.LocalName}' is missing attribute '{name}'.");
+            throw new InvalidOperationException($"NOTICE.md metadata element '{element.Name.LocalName}' is missing attribute '{name}'.");
         }
 
         return value;
     }
-
-    private static XElement GetRequiredElement(XElement parent, string name, string? className = null)
-    {
-        List<XElement> matches = parent.Elements(s_xhtml + name)
-            .Where(element => className is null || HasClass(element, className))
-            .ToList();
-        if (matches.Count != 1)
-        {
-            string description = className is null ? name : $"{name}.{className}";
-            throw new InvalidOperationException(
-                $"NOTICE.xhtml element '{parent.Name.LocalName}' must contain exactly one '{description}' element.");
-        }
-
-        return matches[0];
-    }
-
-    private static XElement? GetOptionalElement(XElement parent, string name, string className)
-    {
-        List<XElement> matches = parent.Elements(s_xhtml + name)
-            .Where(element => HasClass(element, className))
-            .ToList();
-        if (matches.Count > 1)
-        {
-            throw new InvalidOperationException(
-                $"NOTICE.xhtml element '{parent.Name.LocalName}' must contain at most one '{name}.{className}' element.");
-        }
-
-        return matches.SingleOrDefault();
-    }
-
-    private static bool HasClass(XElement element, string className) =>
-        ((string?)element.Attribute("class"))?.Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains(className, StringComparer.Ordinal) == true;
 
     private static async Task<Dictionary<string, List<LegalNotice>>> CollectGoNoticesAsync(
         string repositoryRoot,
@@ -493,10 +536,9 @@ internal static class NoticeGenerator
                 Console.Error.Write(result.StandardError);
             }
 
-            List<InventoryDependency> goDependencies = inventory
+            List<InventoryDependency> goDependencies = [.. inventory
                 .Where(dependency => dependency.Ecosystem == GoEcosystem)
-                .OrderByDescending(dependency => dependency.Name.Length)
-                .ToList();
+                .OrderByDescending(dependency => dependency.Name.Length)];
             var notices = new Dictionary<string, List<LegalNotice>>(StringComparer.Ordinal);
 
             foreach (string filePath in Directory.EnumerateFiles(outputPath, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal))
@@ -583,7 +625,7 @@ internal static class NoticeGenerator
                 {
                     throw new InvalidOperationException(
                         $"ClearlyDefined returned no legal text for {FormatIdentity(dependency)}. " +
-                        "Add a reviewed manual entry to NOTICE.xhtml.");
+                        "Add a reviewed manual entry to NOTICE.md.");
                 }
 
                 return new()
@@ -721,25 +763,63 @@ internal static class NoticeGenerator
         }
     }
 
+    private static void ValidateRoundTrip(NoticeDocument expected, NoticeDocument actual)
+    {
+        if (expected.SchemaVersion != actual.SchemaVersion || expected.Dependencies.Count != actual.Dependencies.Count)
+        {
+            throw new InvalidOperationException("NOTICE.md did not round-trip through its parser.");
+        }
+
+        for (int dependencyIndex = 0; dependencyIndex < expected.Dependencies.Count; dependencyIndex++)
+        {
+            NoticeDependency expectedDependency = expected.Dependencies[dependencyIndex];
+            NoticeDependency actualDependency = actual.Dependencies[dependencyIndex];
+            if (expectedDependency.Ecosystem != actualDependency.Ecosystem ||
+                expectedDependency.Name != actualDependency.Name ||
+                expectedDependency.Version != actualDependency.Version ||
+                !expectedDependency.UsedBy.SequenceEqual(actualDependency.UsedBy, StringComparer.Ordinal) ||
+                expectedDependency.Notices.Count != actualDependency.Notices.Count)
+            {
+                throw new InvalidOperationException(
+                    $"NOTICE.md did not round-trip metadata for {FormatIdentity(expectedDependency)}.");
+            }
+
+            for (int noticeIndex = 0; noticeIndex < expectedDependency.Notices.Count; noticeIndex++)
+            {
+                LegalNotice expectedNotice = expectedDependency.Notices[noticeIndex];
+                LegalNotice actualNotice = actualDependency.Notices[noticeIndex];
+                if (expectedNotice.Source != actualNotice.Source ||
+                    expectedNotice.Url != actualNotice.Url ||
+                    expectedNotice.Review != actualNotice.Review ||
+                    !expectedNotice.SourcePaths.SequenceEqual(actualNotice.SourcePaths, StringComparer.Ordinal) ||
+                    expectedNotice.Text != actualNotice.Text)
+                {
+                    throw new InvalidOperationException(
+                        $"NOTICE.md did not round-trip legal notice {noticeIndex + 1} for {FormatIdentity(expectedDependency)}.");
+                }
+            }
+        }
+    }
+
     private static void ValidateNotices(NoticeDependency dependency)
     {
         if (string.IsNullOrWhiteSpace(dependency.Ecosystem) ||
             string.IsNullOrWhiteSpace(dependency.Name) ||
             string.IsNullOrWhiteSpace(dependency.Version))
         {
-            throw new InvalidOperationException("NOTICE.xhtml contains a dependency with an incomplete identity.");
+            throw new InvalidOperationException("NOTICE.md contains a dependency with an incomplete identity.");
         }
 
         if (dependency.Notices.Count == 0)
         {
-            throw new InvalidOperationException($"NOTICE.xhtml contains no legal text for {FormatIdentity(dependency)}.");
+            throw new InvalidOperationException($"NOTICE.md contains no legal text for {FormatIdentity(dependency)}.");
         }
 
         foreach (LegalNotice notice in dependency.Notices)
         {
             if (string.IsNullOrWhiteSpace(notice.Source) || string.IsNullOrWhiteSpace(notice.Text))
             {
-                throw new InvalidOperationException($"NOTICE.xhtml contains incomplete legal text for {FormatIdentity(dependency)}.");
+                throw new InvalidOperationException($"NOTICE.md contains incomplete legal text for {FormatIdentity(dependency)}.");
             }
 
             if (notice.Source == "manual" && string.IsNullOrWhiteSpace(notice.Review))
@@ -752,22 +832,25 @@ internal static class NoticeGenerator
 
     private static NoticeDependency CreateDependency(InventoryDependency dependency, IEnumerable<LegalNotice> notices)
     {
-        List<LegalNotice> sortedNotices = notices
-            .Select(CloneNotice)
-            .OrderBy(notice => notice.Source, StringComparer.Ordinal)
-            .ThenBy(notice => notice.Text, StringComparer.Ordinal)
-            .ToList();
-        foreach (LegalNotice notice in sortedNotices)
+        List<LegalNotice> clonedNotices = [.. notices.Select(CloneNotice)];
+        foreach (LegalNotice notice in clonedNotices)
         {
             notice.SourcePaths.Sort(StringComparer.Ordinal);
         }
+
+        List<LegalNotice> sortedNotices = [.. clonedNotices
+            .OrderBy(GetNoticePriority)
+            .ThenBy(notice => GetNoticeTopLevelDirectory(dependency.Name, notice), StringComparer.OrdinalIgnoreCase)
+            .ThenBy(GetNoticeSortPath, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(notice => notice.Source, StringComparer.Ordinal)
+            .ThenBy(notice => notice.Text, StringComparer.Ordinal)];
 
         return new()
         {
             Ecosystem = dependency.Ecosystem,
             Name = dependency.Name,
             Version = dependency.Version,
-            UsedBy = dependency.UsedBy.Order(StringComparer.Ordinal).ToList(),
+            UsedBy = [.. dependency.UsedBy.Order(StringComparer.Ordinal)],
             Notices = sortedNotices,
         };
     }
@@ -797,391 +880,335 @@ internal static class NoticeGenerator
         int goDependencyCount = document.Dependencies.Count(dependency => dependency.Ecosystem == GoEcosystem);
         int nuGetDependencyCount = document.Dependencies.Count(dependency => dependency.Ecosystem == NuGetEcosystem);
 
-        var main = new XElement(s_xhtml + "main",
-                new XElement(s_xhtml + "p",
-                        new XAttribute("class", "introduction"),
-                        "This repository incorporates material from the third-party dependencies listed below."),
-                CreateStats(document.Dependencies.Count, goDependencyCount, nuGetDependencyCount));
+        var builder = new StringBuilder();
+        builder.AppendLine("<!-- Copyright (c) Microsoft Corporation. Licensed under the MIT License. -->");
+        builder.AppendLine($"<!-- tyger-notice-schema: {document.SchemaVersion} -->");
+        builder.AppendLine();
+        builder.AppendLine("# Third-party notices");
+        builder.AppendLine();
+        builder.AppendLine("This repository incorporates material from the third-party dependencies listed below.");
+        builder.AppendLine();
+        builder.AppendLine($"**{document.Dependencies.Count} dependencies:** {goDependencyCount} Go modules and {nuGetDependencyCount} NuGet packages.");
 
         foreach (IGrouping<string, NoticeDependency> group in document.Dependencies.GroupBy(dependency => dependency.Ecosystem))
         {
             string heading = group.Key == GoEcosystem ? "Go modules" : "NuGet packages";
-            var section = new XElement(s_xhtml + "section",
-                    new XAttribute("class", "ecosystem"),
-                    new XAttribute("data-ecosystem", group.Key),
-                    new XElement(s_xhtml + "div",
-                            new XAttribute("class", "ecosystem-heading"),
-                            new XElement(s_xhtml + "h2", heading),
-                            new XElement(s_xhtml + "span", new XAttribute("class", "count"), $"{group.Count()} dependencies")));
+            builder.AppendLine();
+            builder.AppendLine($"## {heading}");
+            builder.AppendLine();
+            builder.AppendLine($"{group.Count()} dependencies");
 
             foreach (NoticeDependency dependency in group)
             {
-                section.Add(CreateDependencyElement(dependency));
+                builder.AppendLine();
+                builder.AppendLine(CreateDependencyMetadata(dependency).ToString());
+                builder.AppendLine();
+                builder.AppendLine("<details>");
+                builder.AppendLine($"<summary>{CreateCodeElement(dependency.Name)} {CreateCodeElement(dependency.Version)} · Used by {dependency.UsedBy.Count}</summary>");
+                builder.AppendLine();
+                builder.Append("**Used by:** ");
+                builder.AppendLine(string.Join(", ", dependency.UsedBy.Select(CreateCodeElement)));
+
+                List<(string Source, string? Url)> sources = [.. dependency.Notices
+                    .Select(notice => (notice.Source, notice.Url))
+                    .Distinct()];
+                bool showSourcePerNotice = sources.Count != 1;
+                if (!showSourcePerNotice)
+                {
+                    AppendNoticeSource(builder, sources[0].Source, sources[0].Url);
+                }
+
+                List<LegalNotice> licenseNotices = [.. dependency.Notices.Where(IsLicenseNotice)];
+                List<LegalNotice> otherLegalNotices = [.. dependency.Notices.Where(IsOtherLegalNotice)];
+                List<LegalNotice> primaryNotices = licenseNotices.Count > 0 ? licenseNotices : otherLegalNotices;
+                List<LegalNotice> collapsedLegalNotices = licenseNotices.Count > 0 ? otherLegalNotices : [];
+                List<LegalNotice> additionalNotices = [.. dependency.Notices.Where(notice => GetNoticePriority(notice) == 2)];
+
+                foreach (LegalNotice notice in primaryNotices)
+                {
+                    builder.AppendLine();
+                    builder.AppendLine($"### {GetNoticeLabel(dependency, notice)}");
+                    AppendNoticeContents(builder, notice, showSourcePerNotice);
+                }
+
+                if (collapsedLegalNotices.Count == 1)
+                {
+                    LegalNotice notice = collapsedLegalNotices[0];
+                    AppendNoticeDisclosure(
+                        builder,
+                        $"Other legal file: {GetNoticeLabel(dependency, notice)}",
+                        notice,
+                        showSourcePerNotice);
+                }
+                else if (collapsedLegalNotices.Count > 1)
+                {
+                    builder.AppendLine();
+                    builder.AppendLine("<details>");
+                    builder.AppendLine($"<summary>Other legal files ({collapsedLegalNotices.Count})</summary>");
+
+                    foreach (LegalNotice notice in collapsedLegalNotices)
+                    {
+                        AppendNoticeDisclosure(
+                            builder,
+                            GetNoticeLabel(dependency, notice),
+                            notice,
+                            showSourcePerNotice);
+                    }
+
+                    builder.AppendLine();
+                    builder.AppendLine("</details>");
+                }
+
+                AppendAdditionalNotices(builder, dependency, additionalNotices, showSourcePerNotice);
+
+                builder.AppendLine();
+                builder.AppendLine("</details>");
+            }
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("Generated from the production dependency graph by `scripts/generate-notice.cs`.");
+        return builder.ToString();
+    }
+
+    private static int GetNoticePriority(LegalNotice notice) =>
+        IsLicenseNotice(notice) ? 0 : IsOtherLegalNotice(notice) ? 1 : 2;
+
+    private static bool IsLicenseNotice(LegalNotice notice) =>
+        notice.SourcePaths.Count == 0 || notice.SourcePaths.Any(IsLicensePath);
+
+    private static bool IsOtherLegalNotice(LegalNotice notice) =>
+        !IsLicenseNotice(notice) && notice.SourcePaths.Any(sourcePath => HasNamedLegalFile(sourcePath, s_otherLegalFileNames));
+
+    private static bool IsLicensePath(string sourcePath)
+    {
+        string normalizedPath = sourcePath.Replace('\\', '/');
+        if (normalizedPath.StartsWith("LICENSES/", StringComparison.OrdinalIgnoreCase) ||
+            normalizedPath.Contains("/LICENSES/", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return HasNamedLegalFile(normalizedPath, s_licenseFileNames);
+    }
+
+    private static bool HasNamedLegalFile(string sourcePath, IEnumerable<string> legalFileNames)
+    {
+        string normalizedPath = sourcePath.Replace('\\', '/');
+        string fileName = normalizedPath[(normalizedPath.LastIndexOf('/') + 1)..];
+        return legalFileNames.Any(legalFileName =>
+            fileName.Equals(legalFileName, StringComparison.OrdinalIgnoreCase) ||
+            fileName.StartsWith(legalFileName + ".", StringComparison.OrdinalIgnoreCase) ||
+            fileName.StartsWith(legalFileName + "-", StringComparison.OrdinalIgnoreCase) ||
+            fileName.StartsWith(legalFileName + "_", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string GetNoticeSortPath(LegalNotice notice) =>
+        notice.SourcePaths.Count == 0 ? string.Empty : notice.SourcePaths[0];
+
+    private static string GetNoticeTopLevelDirectory(string dependencyName, LegalNotice notice)
+    {
+        if (notice.SourcePaths.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        string relativePath = GetRelativeSourcePath(dependencyName, notice.SourcePaths[0]);
+        int separatorIndex = relativePath.IndexOf('/');
+        return separatorIndex < 0 ? string.Empty : relativePath[..separatorIndex];
+    }
+
+    private static string GetNoticeLabel(NoticeDependency dependency, LegalNotice notice, string? directory = null)
+    {
+        if (notice.SourcePaths.Count == 0)
+        {
+            return "License and notices";
+        }
+
+        return string.Join(", ", notice.SourcePaths.Select(sourcePath =>
+        {
+            string displayPath = GetRelativeSourcePath(dependency.Name, sourcePath);
+            if (!string.IsNullOrEmpty(directory) && displayPath.StartsWith(directory + "/", StringComparison.OrdinalIgnoreCase))
+            {
+                displayPath = displayPath[(directory.Length + 1)..];
             }
 
-            main.Add(section);
-        }
-
-        var html = new XElement(s_xhtml + "html",
-                new XAttribute(XNamespace.Xml + "lang", "en"),
-                new XAttribute("lang", "en"),
-                new XAttribute("data-schema-version", document.SchemaVersion),
-                new XElement(s_xhtml + "head",
-                        new XElement(s_xhtml + "meta", new XAttribute("charset", "utf-8")),
-                        new XElement(s_xhtml + "meta",
-                                new XAttribute("name", "viewport"),
-                                new XAttribute("content", "width=device-width, initial-scale=1")),
-                        new XElement(s_xhtml + "title", "Tyger third-party notices"),
-                        new XElement(s_xhtml + "style", new XAttribute("type", "text/css"), Styles)),
-                new XElement(s_xhtml + "body",
-                        new XElement(s_xhtml + "header",
-                                new XElement(s_xhtml + "div",
-                                        new XAttribute("class", "header-content"),
-                                        new XElement(s_xhtml + "p", new XAttribute("class", "eyebrow"), "TYGER"),
-                                        new XElement(s_xhtml + "h1", "Third-party notices"),
-                                        new XElement(s_xhtml + "p", new XAttribute("class", "subtitle"), "Licenses and attribution for production dependencies"))),
-                        main,
-                        new XElement(s_xhtml + "footer",
-                                "Generated from the production dependency graph by ",
-                                new XElement(s_xhtml + "code", "scripts/generate-notice.cs"),
-                                ".")));
-
-        var xhtmlDocument = new XDocument(
-                new XDeclaration("1.0", "utf-8", null),
-                new XDocumentType("html", null, null, null),
-                new XComment(" Copyright (c) Microsoft Corporation. Licensed under the MIT License. "),
-                html);
-
-        using var stream = new MemoryStream();
-        using (XmlWriter writer = XmlWriter.Create(stream, new XmlWriterSettings
-        {
-            Encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
-            Indent = true,
-            IndentChars = "  ",
-            NewLineChars = "\n",
-            NewLineHandling = NewLineHandling.None,
-        }))
-        {
-            xhtmlDocument.Save(writer);
-        }
-
-        string contents = Encoding.UTF8.GetString(stream.ToArray());
-        return contents.EndsWith('\n') ? contents : contents + '\n';
+            return CreateCodeElement(displayPath);
+        }));
     }
 
-    private static XElement CreateStats(int dependencyCount, int goDependencyCount, int nuGetDependencyCount) =>
-            new(s_xhtml + "dl",
-                    new XAttribute("class", "stats"),
-                    CreateStat(dependencyCount, "dependencies"),
-                    CreateStat(goDependencyCount, "Go modules"),
-                    CreateStat(nuGetDependencyCount, "NuGet packages"));
-
-    private static XElement CreateStat(int count, string label) =>
-            new(s_xhtml + "div",
-                    new XElement(s_xhtml + "dt", count),
-                    new XElement(s_xhtml + "dd", label));
-
-    private static XElement CreateDependencyElement(NoticeDependency dependency)
+    private static string GetRelativeSourcePath(string dependencyName, string sourcePath)
     {
-        var content = new XElement(s_xhtml + "div",
-                new XAttribute("class", "dependency-content"),
-                new XElement(s_xhtml + "section",
-                        new XAttribute("class", "usage"),
-                        new XElement(s_xhtml + "h3", "Used by"),
-                        new XElement(s_xhtml + "ul",
-                                new XAttribute("class", "used-by"),
-                                dependency.UsedBy.Select(component => new XElement(s_xhtml + "li", component)))));
-
-        for (int index = 0; index < dependency.Notices.Count; index++)
-        {
-            content.Add(CreateNoticeElement(dependency.Notices[index], index + 1, dependency.Notices.Count));
-        }
-
-        return new XElement(s_xhtml + "details",
-                new XAttribute("class", "dependency"),
-                new XAttribute("id", GetDependencyId(dependency)),
-                new XAttribute("data-ecosystem", dependency.Ecosystem),
-                new XAttribute("data-name", dependency.Name),
-                new XAttribute("data-version", dependency.Version),
-                new XElement(s_xhtml + "summary",
-                        new XElement(s_xhtml + "code", new XAttribute("class", "package-name"), dependency.Name),
-                        new XElement(s_xhtml + "span", new XAttribute("class", "version"), dependency.Version),
-                        new XElement(s_xhtml + "span", new XAttribute("class", "usage-count"), $"Used by {dependency.UsedBy.Count}")),
-                content);
+        string dependencyPrefix = dependencyName.TrimEnd('/') + "/";
+        return sourcePath.StartsWith(dependencyPrefix, StringComparison.Ordinal)
+            ? sourcePath[dependencyPrefix.Length..]
+            : sourcePath;
     }
 
-    private static XElement CreateNoticeElement(LegalNotice notice, int number, int total)
+    private static void AppendAdditionalNotices(
+        StringBuilder builder,
+        NoticeDependency dependency,
+        IReadOnlyCollection<LegalNotice> notices,
+        bool showSourcePerNotice)
     {
-        var section = new XElement(s_xhtml + "section",
-                new XAttribute("class", "notice"),
-                new XAttribute("data-source", notice.Source),
-                new XElement(s_xhtml + "div",
-                        new XAttribute("class", "notice-heading"),
-                        new XElement(s_xhtml + "h3", total == 1 ? "Legal notice" : $"Legal notice {number}"),
-                        new XElement(s_xhtml + "span", new XAttribute("class", "source-kind"), notice.Source)));
-
-        if (notice.Url is not null)
+        if (notices.Count == 0)
         {
-            section.Add(new XElement(s_xhtml + "p",
-                    new XAttribute("class", "provenance"),
-                    "Source: ",
-                    new XElement(s_xhtml + "a",
-                            new XAttribute("class", "source-url"),
-                            new XAttribute("href", notice.Url),
-                            notice.Url)));
+            return;
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("<details>");
+        builder.AppendLine($"<summary>Additional files ({notices.Count})</summary>");
+        builder.AppendLine();
+        builder.AppendLine("<blockquote>");
+
+        foreach (IGrouping<string, LegalNotice> directoryGroup in notices.GroupBy(
+            notice => GetNoticeTopLevelDirectory(dependency.Name, notice),
+            StringComparer.OrdinalIgnoreCase))
+        {
+            List<LegalNotice> directoryNotices = [.. directoryGroup];
+            if (directoryNotices.Count == 1)
+            {
+                LegalNotice notice = directoryNotices[0];
+                AppendNoticeDisclosure(
+                    builder,
+                    GetNoticeLabel(dependency, notice),
+                    notice,
+                    showSourcePerNotice);
+                continue;
+            }
+
+            string directoryLabel = directoryGroup.Key.Length == 0
+                ? "Repository root"
+                : CreateCodeElement(directoryGroup.Key + "/");
+            builder.AppendLine();
+            builder.AppendLine("<details>");
+            builder.AppendLine($"<summary>{directoryLabel} ({directoryNotices.Count} files)</summary>");
+            builder.AppendLine();
+            builder.AppendLine("<blockquote>");
+
+            foreach (LegalNotice notice in directoryNotices)
+            {
+                AppendNoticeDisclosure(
+                    builder,
+                    GetNoticeLabel(dependency, notice, directoryGroup.Key),
+                    notice,
+                    showSourcePerNotice);
+            }
+
+            builder.AppendLine();
+            builder.AppendLine("</blockquote>");
+            builder.AppendLine();
+            builder.AppendLine("</details>");
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("</blockquote>");
+        builder.AppendLine();
+        builder.AppendLine("</details>");
+    }
+
+    private static void AppendNoticeDisclosure(
+        StringBuilder builder,
+        string label,
+        LegalNotice notice,
+        bool showSource)
+    {
+        builder.AppendLine();
+        builder.AppendLine("<details>");
+        builder.AppendLine($"<summary>{label}</summary>");
+        AppendNoticeContents(builder, notice, showSource);
+        builder.AppendLine();
+        builder.AppendLine("</details>");
+    }
+
+    private static void AppendNoticeContents(StringBuilder builder, LegalNotice notice, bool showSource)
+    {
+        if (showSource)
+        {
+            AppendNoticeSource(builder, notice.Source, notice.Url);
         }
 
         if (notice.Review is not null)
         {
-            section.Add(new XElement(s_xhtml + "p",
-                    new XAttribute("class", "review"),
-                    new XElement(s_xhtml + "strong", "Review: "),
-                    notice.Review));
+            builder.AppendLine();
+            builder.AppendLine($"**Review:** {WebUtility.HtmlEncode(notice.Review)}");
         }
 
-        if (notice.SourcePaths.Count > 0)
-        {
-            section.Add(new XElement(s_xhtml + "div",
-                    new XAttribute("class", "source-paths-block"),
-                    new XElement(s_xhtml + "h4", "Source paths"),
-                    new XElement(s_xhtml + "ul",
-                            new XAttribute("class", "source-paths"),
-                            notice.SourcePaths.Select(sourcePath => new XElement(s_xhtml + "li", sourcePath)))));
-        }
-
-        section.Add(new XElement(s_xhtml + "pre",
-                new XAttribute("class", "legal-text"),
-                new XAttribute(XNamespace.Xml + "space", "preserve"),
-                notice.Text));
-        return section;
+        string fence = GetMarkdownFence(notice.Text);
+        builder.AppendLine();
+        builder.AppendLine(fence + "text");
+        builder.AppendLine(notice.Text);
+        builder.AppendLine(fence);
     }
 
-    private static string GetDependencyId(NoticeDependency dependency)
+    private static void AppendNoticeSource(StringBuilder builder, string source, string? url)
     {
-        byte[] identity = Encoding.UTF8.GetBytes($"{dependency.Ecosystem}\0{dependency.Name}\0{dependency.Version}");
-        return $"dependency-{dependency.Ecosystem}-{Convert.ToHexStringLower(SHA256.HashData(identity))[..12]}";
+        builder.AppendLine();
+        builder.Append("**Source:** ");
+        builder.AppendLine(url is null ? CreateCodeElement(source) : CreateLinkElement(source, url));
     }
 
-    private const string Styles = """
-                :root {
-                    color-scheme: light;
-                    font-family: Georgia, "Times New Roman", serif;
-                    color: #172126;
-                    background: #e9eff0;
-                    letter-spacing: 0;
-                }
+    private static XElement CreateDependencyMetadata(NoticeDependency dependency)
+    {
+        var metadata = new XElement("div",
+            new XAttribute("data-tyger-dependency", string.Empty),
+            new XAttribute("hidden", string.Empty),
+            new XAttribute("data-ecosystem", dependency.Ecosystem),
+            new XAttribute("data-name", dependency.Name),
+            new XAttribute("data-version", dependency.Version));
 
-                * { box-sizing: border-box; }
+        foreach (string component in dependency.UsedBy)
+        {
+            metadata.Add(new XElement("input",
+                new XAttribute("type", "hidden"),
+                new XAttribute("data-tyger-used-by", string.Empty),
+                new XAttribute("value", component)));
+        }
 
-                body {
-                    min-width: 320px;
-                    margin: 0;
-                    background: #e9eff0;
-                }
+        for (int index = 0; index < dependency.Notices.Count; index++)
+        {
+            LegalNotice notice = dependency.Notices[index];
+            var noticeMetadata = new XElement("input",
+                new XAttribute("type", "hidden"),
+                new XAttribute("data-tyger-notice", string.Empty),
+                new XAttribute("data-index", index),
+                new XAttribute("data-source", notice.Source));
+            if (notice.Url is not null)
+            {
+                noticeMetadata.Add(new XAttribute("data-url", notice.Url));
+            }
 
-                header {
-                    color: #f8fbfa;
-                    background: #16383c;
-                    border-bottom: 5px solid #e76f51;
-                }
+            if (notice.Review is not null)
+            {
+                noticeMetadata.Add(new XAttribute("data-review", notice.Review));
+            }
 
-                .header-content, main, footer {
-                    width: min(100% - 2rem, 1120px);
-                    margin-inline: auto;
-                }
+            metadata.Add(noticeMetadata);
+            foreach (string sourcePath in notice.SourcePaths)
+            {
+                metadata.Add(new XElement("input",
+                    new XAttribute("type", "hidden"),
+                    new XAttribute("data-tyger-source-path", string.Empty),
+                    new XAttribute("data-notice-index", index),
+                    new XAttribute("value", sourcePath)));
+            }
+        }
 
-                .header-content { padding: 3rem 0 2.5rem; }
+        return metadata;
+    }
 
-                .eyebrow {
-                    margin: 0 0 0.75rem;
-                    color: #8ed5cb;
-                    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
-                    font-size: 0.78rem;
-                    font-weight: 700;
-                }
+    private static string CreateCodeElement(string value) =>
+        new XElement("code", value).ToString(SaveOptions.DisableFormatting);
 
-                h1 {
-                    margin: 0;
-                    font-size: 2.75rem;
-                    line-height: 1.05;
-                    letter-spacing: 0;
-                }
+    private static string CreateLinkElement(string text, string url) =>
+        new XElement("a", new XAttribute("href", url), text).ToString(SaveOptions.DisableFormatting);
 
-                .subtitle {
-                    max-width: 44rem;
-                    margin: 0.8rem 0 0;
-                    color: #cbdcda;
-                    font-size: 1.05rem;
-                }
-
-                main { padding: 2.25rem 0 4rem; }
-
-                .introduction {
-                    max-width: 48rem;
-                    margin: 0 0 1.5rem;
-                    font-size: 1.05rem;
-                    line-height: 1.65;
-                }
-
-                .stats {
-                    display: flex;
-                    flex-wrap: wrap;
-                    gap: 1rem 2.5rem;
-                    margin: 0 0 3rem;
-                    padding: 1.25rem 0;
-                    border-block: 1px solid #aebfc1;
-                }
-
-                .stats div { display: flex; align-items: baseline; gap: 0.5rem; }
-                .stats dt { color: #006d77; font-size: 1.65rem; font-weight: 700; }
-                .stats dd { margin: 0; color: #465b5f; }
-                .ecosystem + .ecosystem { margin-top: 3.5rem; }
-
-                .ecosystem-heading {
-                    display: flex;
-                    align-items: baseline;
-                    justify-content: space-between;
-                    gap: 1rem;
-                    margin-bottom: 1rem;
-                    border-bottom: 2px solid #16383c;
-                }
-
-                h2 { margin: 0 0 0.6rem; font-size: 1.65rem; letter-spacing: 0; }
-                .count { color: #52666a; font-size: 0.88rem; }
-
-                .dependency {
-                    margin-bottom: 0.65rem;
-                    overflow: hidden;
-                    background: #ffffff;
-                    border: 1px solid #bdcbcd;
-                    border-left: 4px solid #008c95;
-                    border-radius: 6px;
-                }
-
-                summary {
-                    display: grid;
-                    grid-template-columns: 0.75rem minmax(0, 1fr) auto auto;
-                    gap: 1rem;
-                    align-items: center;
-                    min-height: 3.25rem;
-                    padding: 0.75rem 1rem;
-                    cursor: pointer;
-                }
-
-                summary:hover { background: #f1f7f6; }
-
-                summary::before {
-                    width: 0.45rem;
-                    height: 0.45rem;
-                    content: "";
-                    border-right: 2px solid #006d77;
-                    border-bottom: 2px solid #006d77;
-                    transform: rotate(-45deg);
-                    transition: transform 120ms ease-out;
-                }
-
-                details[open] summary::before { transform: rotate(45deg); }
-
-                .package-name {
-                    min-width: 0;
-                    color: #143c41;
-                    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
-                    font-size: 0.88rem;
-                    font-weight: 700;
-                    overflow-wrap: anywhere;
-                }
-
-                .version, .usage-count, .source-kind {
-                    padding: 0.25rem 0.45rem;
-                    border-radius: 4px;
-                    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
-                    font-size: 0.72rem;
-                }
-
-                .version { color: #8a3f2d; background: #fff0eb; }
-                .usage-count { color: #40575a; background: #edf2f2; }
-
-                .dependency-content {
-                    padding: 0 1rem 1.25rem;
-                    border-top: 1px solid #d9e1e2;
-                }
-
-                h3 { margin: 1.25rem 0 0.65rem; font-size: 1rem; letter-spacing: 0; }
-                h4 { margin: 1rem 0 0.45rem; font-size: 0.88rem; letter-spacing: 0; }
-
-                .used-by, .source-paths {
-                    display: flex;
-                    flex-wrap: wrap;
-                    gap: 0.4rem;
-                    margin: 0;
-                    padding: 0;
-                    list-style: none;
-                }
-
-                .used-by li, .source-paths li {
-                    padding: 0.25rem 0.45rem;
-                    color: #31484b;
-                    background: #edf4f3;
-                    border: 1px solid #c7d8d6;
-                    border-radius: 4px;
-                    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
-                    font-size: 0.75rem;
-                    overflow-wrap: anywhere;
-                }
-
-                .notice + .notice { margin-top: 2rem; border-top: 1px solid #bdcbcd; }
-
-                .notice-heading {
-                    display: flex;
-                    align-items: center;
-                    justify-content: space-between;
-                    gap: 1rem;
-                }
-
-                .source-kind { color: #ffffff; background: #006d77; }
-                .provenance, .review { margin: 0.6rem 0; color: #3e5256; line-height: 1.5; }
-                a { color: #006d77; overflow-wrap: anywhere; }
-
-                .legal-text {
-                    max-height: 34rem;
-                    margin: 1rem 0 0;
-                    padding: 1rem;
-                    overflow: auto;
-                    color: #1c272a;
-                    background: #f7f8f5;
-                    border: 1px solid #d3d9d5;
-                    border-radius: 4px;
-                    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
-                    font-size: 0.78rem;
-                    line-height: 1.5;
-                    white-space: pre-wrap;
-                    overflow-wrap: anywhere;
-                }
-
-                footer {
-                    padding: 1.5rem 0 2.5rem;
-                    color: #52666a;
-                    border-top: 1px solid #aebfc1;
-                    font-size: 0.85rem;
-                }
-
-                @media (max-width: 700px) {
-                    .header-content { padding: 2.25rem 0 2rem; }
-                    h1 { font-size: 2.1rem; }
-                    summary { grid-template-columns: 0.75rem minmax(0, 1fr) auto; gap: 0.55rem; }
-                    .usage-count { grid-column: 2 / -1; justify-self: start; }
-                    .ecosystem-heading { align-items: flex-start; flex-direction: column; gap: 0; }
-                }
-
-                @media print {
-                    :root, body { background: #ffffff; }
-                    header { color: #172126; background: #ffffff; border-bottom-color: #172126; }
-                    .eyebrow, .subtitle { color: #172126; }
-                    .dependency { break-inside: avoid; }
-                      .dependency:not([open]) .dependency-content { display: block !important; }
-                    .legal-text { max-height: none; overflow: visible; }
-                }
-                """;
+    private static string GetMarkdownFence(string legalText)
+    {
+        int longestRun = Regex.Matches(legalText, "`+").Select(match => match.Length).DefaultIfEmpty().Max();
+        return new string('`', Math.Max(3, longestRun + 1));
+    }
 
     private static async Task WriteAtomicallyAsync(string path, string contents)
     {

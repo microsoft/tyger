@@ -98,7 +98,7 @@ jobs:
             exit 1
           fi
 
-      - name: Verify NOTICE.xhtml
+      - name: Verify NOTICE.md
         run: |
           set -euo pipefail
 
