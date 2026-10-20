@@ -21,6 +21,7 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
 
 WORKDIR /src
 
+COPY NuGet.Config .
 COPY server/Directory.Build.targets server/
 
 COPY server/Common/Tyger.Common.csproj server/Common/

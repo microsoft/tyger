@@ -8,7 +8,7 @@
 set -euo pipefail
 
 if ! command -v dotnet-symbol &> /dev/null; then
-    dotnet tool install dotnet-symbol --global
+    dotnet tool install dotnet-symbol --global --configfile "$(dirname "$0")/../NuGet.Config"
 fi
 
 dotnet_symbol_path=$(which dotnet-symbol)
