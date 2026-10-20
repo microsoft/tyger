@@ -21,6 +21,7 @@ ENV GOPATH="/go"
 ENV "PATH"="/usr/local/go/bin:/go/bin:${DOTNET_ROOT}:/home/${USERNAME}/.dotnet/tools:/usr/local/share/nvm/current/bin:${PATH}"
 ENV NVM_DIR="/usr/local/share/nvm"
 ENV NVM_SYMLINK_CURRENT="true"
+ENV NPM_CONFIG_REGISTRY="https://packagefeedproxy.microsoft.io/npm/"
 
 RUN umask 0002 \
     &&  git clone https://github.com/devcontainers/features.git /opt/features\
