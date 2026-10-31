@@ -35,7 +35,7 @@ require (
 	github.com/fatih/color v1.18.0
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/getkin/kin-openapi v0.149.0
-	github.com/go-chi/chi/v5 v5.2.4
+	github.com/go-chi/chi/v5 v5.4.0
 	github.com/goccy/go-yaml v1.18.0
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/google/uuid v1.6.0
