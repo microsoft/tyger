@@ -25,8 +25,6 @@ import (
 
 	"github.com/alecthomas/units"
 	"github.com/docker/cli/cli/connhelper"
-	dockerimage "github.com/docker/docker/api/types/image"
-	dockerclient "github.com/docker/docker/client"
 	"github.com/dustin/go-humanize"
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-cleanhttp"
@@ -36,6 +34,7 @@ import (
 	"github.com/microsoft/tyger/cli/internal/controlplane"
 	"github.com/microsoft/tyger/cli/internal/controlplane/model"
 	"github.com/microsoft/tyger/cli/internal/dataplane"
+	dockerclient "github.com/moby/moby/client"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -1044,21 +1043,20 @@ func pullImages(ctx context.Context, newRun model.Run) error {
 			httpClient.Transport.(*http.Transport).DialContext = connhelper.Dialer
 
 			dockerClientOpt = []dockerclient.Opt{
-				dockerclient.WithAPIVersionNegotiation(),
 				dockerclient.WithHost(sshParams.URL().String()),
 				dockerclient.WithDialContext(connhelper.Dialer),
 			}
 		} else {
-			dockerClientOpt = []dockerclient.Opt{dockerclient.WithAPIVersionNegotiation(), dockerclient.FromEnv}
+			dockerClientOpt = []dockerclient.Opt{dockerclient.FromEnv}
 		}
 
-		dockerCli, err := dockerclient.NewClientWithOpts(dockerClientOpt...)
+		dockerCli, err := dockerclient.New(dockerClientOpt...)
 		if err != nil {
 			return fmt.Errorf("failed to create Docker client: %w", err)
 		}
 
 		for _, imageName := range imagesToPull {
-			out, err := dockerCli.ImagePull(context.Background(), imageName, dockerimage.PullOptions{})
+			out, err := dockerCli.ImagePull(context.Background(), imageName, dockerclient.ImagePullOptions{})
 			if err != nil {
 				return fmt.Errorf("failed to pull image %s: %w", imageName, err)
 			}

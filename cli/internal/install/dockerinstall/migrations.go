@@ -12,10 +12,11 @@ import (
 	"io"
 	"strconv"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/docker/client"
+	"github.com/containerd/errdefs"
 	"github.com/microsoft/tyger/cli/internal/install"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
+	"github.com/moby/moby/client"
 	"github.com/rs/zerolog/log"
 )
 
@@ -155,16 +156,16 @@ func (inst *Installer) GetMigrationLogs(ctx context.Context, id int, destination
 	}
 
 	logsNotAvailableErr := fmt.Errorf("logs for migration %d are not available", id)
-	migrationContainer, err := inst.client.ContainerInspect(ctx, inst.resourceName(migrationRunnerContainerSuffix))
+	migrationContainer, err := inst.client.ContainerInspect(ctx, inst.resourceName(migrationRunnerContainerSuffix), client.ContainerInspectOptions{})
 	if err != nil {
-		if client.IsErrNotFound(err) {
+		if errdefs.IsNotFound(err) {
 			return logsNotAvailableErr
 		}
 
 		return err
 	}
 
-	rangeString := migrationContainer.Config.Labels[migrationRangeLabel]
+	rangeString := migrationContainer.Container.Config.Labels[migrationRangeLabel]
 	var start, end int
 	if _, err := fmt.Sscanf(rangeString, "%d-%d", &start, &end); err != nil {
 		return logsNotAvailableErr
@@ -327,7 +328,7 @@ func (inst *Installer) startMigrationRunner(ctx context.Context, containerName s
 		return fmt.Errorf("error creating migration runner container: %w", err)
 	}
 
-	if err := inst.client.ContainerStart(ctx, containerName, container.StartOptions{}); err != nil {
+	if _, err := inst.client.ContainerStart(ctx, containerName, client.ContainerStartOptions{}); err != nil {
 		return err
 	}
 

@@ -1,7 +1,11 @@
 {
   "devDependencies": {
-    "vite": "^7.3.6",
+    "vite": "^7.3.7",
     "vitepress": "^1.6.3"
+  },
+  "overrides": {
+    "esbuild@^0.27.0": "^0.28.1",
+    "vite@^5": "^6.4.4"
   },
   "scripts": {
     "docs:dev": "vitepress dev",

@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path"
@@ -22,17 +23,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/docker/api/types/network"
-	"github.com/docker/docker/api/types/volume"
-	"github.com/docker/docker/client"
-	"github.com/docker/docker/pkg/stdcopy"
-	"github.com/docker/go-connections/nat"
+	"github.com/containerd/errdefs"
 	tygerclient "github.com/microsoft/tyger/cli/internal/client"
 	"github.com/microsoft/tyger/cli/internal/install"
+	"github.com/moby/moby/api/pkg/stdcopy"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
+	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/client"
 	"github.com/psanford/memfs"
 	"github.com/rs/zerolog/log"
 	"k8s.io/apimachinery/pkg/util/version"
@@ -80,7 +78,7 @@ func (inst *Installer) GetConfig() install.ValidatableConfig {
 }
 
 func NewInstaller(config *DockerEnvironmentConfig) (*Installer, error) {
-	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	dockerClient, err := client.New(client.FromEnv)
 	if err != nil {
 		return nil, fmt.Errorf("error creating docker client: %w", err)
 	}
@@ -392,7 +390,11 @@ func (inst *Installer) createControlPlaneContainer(ctx context.Context, checkGpu
 		tw.AddFS(tarFs)
 		tw.Close()
 
-		return inst.client.CopyToContainer(ctx, containerName, "/app", buf, container.CopyToContainerOptions{})
+		_, err = inst.client.CopyToContainer(ctx, containerName, client.CopyToContainerOptions{
+			DestinationPath: "/app",
+			Content:         buf,
+		})
+		return err
 	}
 
 	if err := inst.createContainer(
@@ -451,11 +453,11 @@ func fileHash(path string) (string, error) {
 }
 
 func (inst *Installer) waitForContainerToComplete(ctx context.Context, containerName string) (int, error) {
-	statusCh, errCh := inst.client.ContainerWait(ctx, containerName, container.WaitConditionNotRunning)
+	wait := inst.client.ContainerWait(ctx, containerName, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
 	select {
-	case err := <-errCh:
+	case err := <-wait.Error:
 		return 0, err
-	case waitReponse := <-statusCh:
+	case waitReponse := <-wait.Result:
 		return int(waitReponse.StatusCode), nil
 	}
 }
@@ -466,7 +468,7 @@ func (inst *Installer) getContainerLogs(ctx context.Context, containerName strin
 		tail = strconv.Itoa(tailLines)
 	}
 
-	out, err := inst.client.ContainerLogs(ctx, containerName, container.LogsOptions{
+	out, err := inst.client.ContainerLogs(ctx, containerName, client.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 		Tail:       tail,
@@ -485,7 +487,7 @@ func (inst *Installer) getContainerLogs(ctx context.Context, containerName strin
 }
 
 func (inst *Installer) UninstallTyger(ctx context.Context, deleteData bool, preserveRunContainers bool) error {
-	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	dockerClient, err := client.New(client.FromEnv)
 	if err != nil {
 		return fmt.Errorf("error creating docker client: %w", err)
 	}
@@ -513,16 +515,16 @@ func (inst *Installer) UninstallTyger(ctx context.Context, deleteData bool, pres
 	if !preserveRunContainers {
 		runContainers, err := dockerClient.ContainerList(
 			ctx,
-			container.ListOptions{
+			client.ContainerListOptions{
 				All:     true,
-				Filters: filters.NewArgs(filters.Arg("label", "tyger-run")),
+				Filters: make(client.Filters).Add("label", "tyger-run"),
 			})
 
 		if err != nil {
 			return fmt.Errorf("error listing run containers: %w", err)
 		}
 
-		for _, runContainer := range runContainers {
+		for _, runContainer := range runContainers.Items {
 			if err := inst.removeContainer(ctx, runContainer.ID); err != nil {
 				return fmt.Errorf("error removing run container: %w", err)
 			}
@@ -546,15 +548,15 @@ func (inst *Installer) UninstallTyger(ctx context.Context, deleteData bool, pres
 	}
 
 	if deleteData {
-		if err := inst.client.VolumeRemove(ctx, inst.resourceName(databaseVolumeSuffix), true); err != nil {
+		if _, err := inst.client.VolumeRemove(ctx, inst.resourceName(databaseVolumeSuffix), client.VolumeRemoveOptions{Force: true}); err != nil {
 			return fmt.Errorf("error removing database volume: %w", err)
 		}
 
-		if err := inst.client.VolumeRemove(ctx, inst.resourceName(buffersVolumeSuffix), true); err != nil {
+		if _, err := inst.client.VolumeRemove(ctx, inst.resourceName(buffersVolumeSuffix), client.VolumeRemoveOptions{Force: true}); err != nil {
 			return fmt.Errorf("error removing buffers volume: %w", err)
 		}
 
-		if err := inst.client.VolumeRemove(ctx, inst.resourceName(runLogsVolumeSuffix), true); err != nil {
+		if _, err := inst.client.VolumeRemove(ctx, inst.resourceName(runLogsVolumeSuffix), client.VolumeRemoveOptions{Force: true}); err != nil {
 			return fmt.Errorf("error removing run logs volume: %w", err)
 		}
 	}
@@ -643,6 +645,7 @@ func (inst *Installer) createDataPlaneContainer(ctx context.Context) error {
 		secondaryPublicCertificatePath = fmt.Sprintf("/app/tyger-data-plane-public-secondary-%s.pem", secondaryPublicKeyHash)
 	}
 
+	dataPlanePort := network.MustParsePort("8080/tcp")
 	spec := containerSpec{
 		ContainerConfig: &container.Config{
 			Image: image,
@@ -665,8 +668,8 @@ func (inst *Installer) createDataPlaneContainer(ctx context.Context) error {
 				StartInterval: 2 * time.Second,
 				Interval:      10 * time.Second,
 			},
-			ExposedPorts: nat.PortSet{
-				"8080/tcp": struct{}{},
+			ExposedPorts: network.PortSet{
+				dataPlanePort: struct{}{},
 			},
 		},
 		HostConfig: &container.HostConfig{
@@ -682,10 +685,10 @@ func (inst *Installer) createDataPlaneContainer(ctx context.Context) error {
 					Target: fmt.Sprintf("%s/data-plane", inst.Config.InstallationPath),
 				},
 			},
-			PortBindings: nat.PortMap{
-				"8080/tcp": []nat.PortBinding{
+			PortBindings: network.PortMap{
+				dataPlanePort: []network.PortBinding{
 					{
-						HostIP:   "127.0.0.1",
+						HostIP:   netip.MustParseAddr("127.0.0.1"),
 						HostPort: strconv.Itoa(inst.Config.DataPlanePort),
 					},
 				},
@@ -720,7 +723,11 @@ func (inst *Installer) createDataPlaneContainer(ctx context.Context) error {
 		tw.AddFS(tarFs)
 		tw.Close()
 
-		return inst.client.CopyToContainer(ctx, containerName, "/app", buf, container.CopyToContainerOptions{})
+		_, err = inst.client.CopyToContainer(ctx, containerName, client.CopyToContainerOptions{
+			DestinationPath: "/app",
+			Content:         buf,
+		})
+		return err
 	}
 
 	if err := inst.createContainer(
@@ -787,16 +794,16 @@ func (inst *Installer) createContainer(
 	containerSpec.ContainerConfig.Labels[containerSpecHashLabel] = specHash
 
 	containerExists := true
-	existingContainer, err := inst.client.ContainerInspect(ctx, containerName)
+	existingContainer, err := inst.client.ContainerInspect(ctx, containerName, client.ContainerInspectOptions{})
 	if err != nil {
-		if !client.IsErrNotFound(err) {
+		if !errdefs.IsNotFound(err) {
 			return fmt.Errorf("error checking for container: %w", err)
 		}
 
 		containerExists = false
 	}
 
-	if containerExists && (existingContainer.Config.Labels[containerSpecHashLabel] != specHash || !existingContainer.State.Running) {
+	if containerExists && (existingContainer.Container.Config.Labels[containerSpecHashLabel] != specHash || !existingContainer.Container.State.Running) {
 		if err := inst.removeContainer(ctx, containerName); err != nil {
 			return fmt.Errorf("error removing existing container: %w", err)
 		}
@@ -813,7 +820,7 @@ func (inst *Installer) createContainer(
 		if containerSpec.ContainerConfig.Healthcheck != nil &&
 			(containerSpec.ContainerConfig.Healthcheck.StartInterval != 0 || containerSpec.ContainerConfig.Healthcheck.StartPeriod != 0) {
 			// these properties are not supported in older versions of the docker API
-			r, err := inst.client.Ping(ctx)
+			r, err := inst.client.Ping(ctx, client.PingOptions{})
 			if err != nil {
 				return fmt.Errorf("error pinging server: %w", err)
 			}
@@ -824,7 +831,12 @@ func (inst *Installer) createContainer(
 			}
 		}
 
-		resp, err := inst.client.ContainerCreate(ctx, containerSpec.ContainerConfig, containerSpec.HostConfig, containerSpec.NetworkingConfig, nil, containerName)
+		resp, err := inst.client.ContainerCreate(ctx, client.ContainerCreateOptions{
+			Config:           containerSpec.ContainerConfig,
+			HostConfig:       containerSpec.HostConfig,
+			NetworkingConfig: containerSpec.NetworkingConfig,
+			Name:             containerName,
+		})
 
 		if err != nil {
 			return fmt.Errorf("error creating container: %w", err)
@@ -836,7 +848,7 @@ func (inst *Installer) createContainer(
 			}
 		}
 
-		if err := inst.client.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+		if _, err := inst.client.ContainerStart(ctx, resp.ID, client.ContainerStartOptions{}); err != nil {
 			return fmt.Errorf("error starting container: %w", err)
 		}
 	}
@@ -845,17 +857,17 @@ func (inst *Installer) createContainer(
 		waitStartTime := time.Now()
 
 		for {
-			c, err := inst.client.ContainerInspect(ctx, containerName)
+			c, err := inst.client.ContainerInspect(ctx, containerName, client.ContainerInspectOptions{})
 			if err != nil {
 				return fmt.Errorf("error inspecting container: %w", err)
 			}
 
-			if c.State.Health.Status == "healthy" {
+			if c.Container.State.Health.Status == "healthy" {
 				break
 			}
 
 			if time.Since(waitStartTime) > 60*time.Second {
-				return fmt.Errorf("timed out waiting for container to become healthy. Current status: %s", c.State.Health.Status)
+				return fmt.Errorf("timed out waiting for container to become healthy. Current status: %s", c.Container.State.Health.Status)
 			}
 		}
 	}
@@ -865,34 +877,36 @@ func (inst *Installer) createContainer(
 
 func (inst *Installer) pullImage(ctx context.Context, containerImage string, always bool) error {
 	if !always {
-		_, _, err := inst.client.ImageInspectWithRaw(ctx, containerImage)
+		_, err := inst.client.ImageInspect(ctx, containerImage)
 		if err == nil {
 			return nil
 		}
 	}
 
-	reader, err := inst.client.ImagePull(ctx, containerImage, image.PullOptions{})
+	reader, err := inst.client.ImagePull(ctx, containerImage, client.ImagePullOptions{})
 	if err != nil {
 		return fmt.Errorf("error pulling image: %w", err)
 	}
 
 	defer reader.Close()
 	log.Ctx(ctx).Info().Msgf("Pulling image %s", containerImage)
-	io.Copy(io.Discard, reader)
+	if err := reader.Wait(ctx); err != nil {
+		return fmt.Errorf("error pulling image: %w", err)
+	}
 	log.Ctx(ctx).Info().Msgf("Done pulling image %s", containerImage)
 
 	return nil
 }
 
 func (inst *Installer) removeContainer(ctx context.Context, containerName string) error {
-	if err := inst.client.ContainerStop(ctx, containerName, container.StopOptions{}); err != nil {
-		if client.IsErrNotFound(err) {
+	if _, err := inst.client.ContainerStop(ctx, containerName, client.ContainerStopOptions{}); err != nil {
+		if errdefs.IsNotFound(err) {
 			return nil
 		}
 		return fmt.Errorf("error stopping container: %w", err)
 	}
 
-	if err := inst.client.ContainerRemove(ctx, containerName, container.RemoveOptions{
+	if _, err := inst.client.ContainerRemove(ctx, containerName, client.ContainerRemoveOptions{
 		Force: true,
 	}); err != nil {
 		return fmt.Errorf("error removing container: %w", err)
@@ -902,9 +916,9 @@ func (inst *Installer) removeContainer(ctx context.Context, containerName string
 }
 
 func (inst *Installer) ensureVolumeCreated(ctx context.Context, volumeName string) error {
-	if _, err := inst.client.VolumeInspect(ctx, volumeName); err != nil {
-		if client.IsErrNotFound(err) {
-			if _, err := inst.client.VolumeCreate(ctx, volume.CreateOptions{
+	if _, err := inst.client.VolumeInspect(ctx, volumeName, client.VolumeInspectOptions{}); err != nil {
+		if errdefs.IsNotFound(err) {
+			if _, err := inst.client.VolumeCreate(ctx, client.VolumeCreateOptions{
 				Name: volumeName,
 			}); err != nil {
 				return fmt.Errorf("error creating volume: %w", err)
@@ -918,12 +932,12 @@ func (inst *Installer) ensureVolumeCreated(ctx context.Context, volumeName strin
 }
 
 func (inst *Installer) checkGpuAvailability(ctx context.Context) (bool, error) {
-	info, err := inst.client.Info(ctx)
+	info, err := inst.client.Info(ctx, client.InfoOptions{})
 	if err != nil {
 		return false, fmt.Errorf("error getting docker info: %w", err)
 	}
 
-	if _, ok := info.Runtimes["nvidia"]; !ok {
+	if _, ok := info.Info.Runtimes["nvidia"]; !ok {
 		return false, nil
 	}
 
@@ -951,29 +965,29 @@ func (inst *Installer) checkGpuAvailability(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("error pulling image: %w", err)
 	}
 
-	resp, err := inst.client.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, "")
+	resp, err := inst.client.ContainerCreate(ctx, client.ContainerCreateOptions{Config: containerConfig, HostConfig: hostConfig})
 	if err != nil {
 		return false, fmt.Errorf("error creating container: %w", err)
 	}
 
 	defer func() {
-		if err := inst.client.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true}); err != nil {
+		if _, err := inst.client.ContainerRemove(ctx, resp.ID, client.ContainerRemoveOptions{Force: true}); err != nil {
 			panic(err)
 		}
 	}()
 
-	if err := inst.client.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+	if _, err := inst.client.ContainerStart(ctx, resp.ID, client.ContainerStartOptions{}); err != nil {
 		// this will return an error if the nvidia runtime is not available
 		log.Debug().Msgf("Error starting test container with GPU: %v", err)
 		return false, nil
 	}
 
 	// Wait for the container to finish
-	statusCh, errCh := inst.client.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
+	wait := inst.client.ContainerWait(ctx, resp.ID, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
 	select {
-	case err := <-errCh:
+	case err := <-wait.Error:
 		return false, err
-	case r := <-statusCh:
+	case r := <-wait.Result:
 		return r.StatusCode == 0, nil
 	}
 }
@@ -995,35 +1009,35 @@ func (inst *Installer) statDockerSocket(ctx context.Context) (userId int, groupI
 		return 0, 0, 0, fmt.Errorf("error pulling image: %w", err)
 	}
 
-	resp, err := inst.client.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, "")
+	resp, err := inst.client.ContainerCreate(ctx, client.ContainerCreateOptions{Config: containerConfig, HostConfig: hostConfig})
 	if err != nil {
 		return 0, 0, 0, err
 	}
 
 	defer func() {
-		if err := inst.client.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true}); err != nil {
+		if _, err := inst.client.ContainerRemove(ctx, resp.ID, client.ContainerRemoveOptions{Force: true}); err != nil {
 			panic(err)
 		}
 	}()
 
-	if err := inst.client.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+	if _, err := inst.client.ContainerStart(ctx, resp.ID, client.ContainerStartOptions{}); err != nil {
 		return 0, 0, 0, err
 	}
 
 	// Wait for the container to finish
-	statusCh, errCh := inst.client.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
+	wait := inst.client.ContainerWait(ctx, resp.ID, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
 	select {
-	case err := <-errCh:
+	case err := <-wait.Error:
 		if err != nil {
 			return 0, 0, 0, err
 		}
-	case r := <-statusCh:
+	case r := <-wait.Result:
 		if r.StatusCode != 0 {
 			return 0, 0, 0, fmt.Errorf("unable to stat docker socket: container exited with status %d", r.StatusCode)
 		}
 	}
 
-	out, err := inst.client.ContainerLogs(ctx, resp.ID, container.LogsOptions{
+	out, err := inst.client.ContainerLogs(ctx, resp.ID, client.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 	})
@@ -1050,14 +1064,14 @@ func (inst *Installer) statDockerSocket(ctx context.Context) (userId int, groupI
 
 func (inst *Installer) createNetwork(ctx context.Context) error {
 	networkName := inst.resourceName("network")
-	existingNetwork, err := inst.client.NetworkInspect(ctx, networkName, network.InspectOptions{})
-	if err != nil && !client.IsErrNotFound(err) {
+	existingNetwork, err := inst.client.NetworkInspect(ctx, networkName, client.NetworkInspectOptions{})
+	if err != nil && !errdefs.IsNotFound(err) {
 		return fmt.Errorf("error checking for network: %w", err)
 	}
 
-	existingNetworkExists := !client.IsErrNotFound(err)
+	existingNetworkExists := !errdefs.IsNotFound(err)
 
-	networkCreateOptions := network.CreateOptions{
+	networkCreateOptions := client.NetworkCreateOptions{
 		Driver: "bridge",
 	}
 
@@ -1066,8 +1080,13 @@ func (inst *Installer) createNetwork(ctx context.Context) error {
 			return nil
 		}
 	} else {
+		subnet, err := netip.ParsePrefix(inst.Config.Network.Subnet)
+		if err != nil {
+			return fmt.Errorf("error parsing network subnet: %w", err)
+		}
+
 		if existingNetworkExists {
-			if existingNetwork.IPAM.Config[0].Subnet == inst.Config.Network.Subnet {
+			if len(existingNetwork.Network.IPAM.Config) > 0 && existingNetwork.Network.IPAM.Config[0].Subnet == subnet {
 				return nil
 			}
 
@@ -1077,7 +1096,7 @@ func (inst *Installer) createNetwork(ctx context.Context) error {
 		networkCreateOptions.IPAM = &network.IPAM{
 			Config: []network.IPAMConfig{
 				{
-					Subnet: inst.Config.Network.Subnet,
+					Subnet: subnet,
 				},
 			},
 		}
@@ -1092,8 +1111,8 @@ func (inst *Installer) createNetwork(ctx context.Context) error {
 
 func (inst *Installer) removeNetwork(ctx context.Context) error {
 	networkName := inst.resourceName("network")
-	if err := inst.client.NetworkRemove(ctx, networkName); err != nil {
-		if client.IsErrNotFound(err) {
+	if _, err := inst.client.NetworkRemove(ctx, networkName, client.NetworkRemoveOptions{}); err != nil {
+		if errdefs.IsNotFound(err) {
 			return nil
 		}
 
