@@ -1,6 +1,9 @@
 # Docker installation
 
- To use tyger with Docker, you will need to have Docker installed on your local system.
+ To use tyger with Docker, you will need Docker Engine API 1.40 or newer
+ (Docker Engine 19.03 or newer) installed on your local system. Keep Docker
+ updated: updating the Tyger CLI does not patch vulnerabilities in the Docker
+ daemon.
 
  The steps for installing Tyger are:
 
