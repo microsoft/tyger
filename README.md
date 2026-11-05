@@ -49,14 +49,6 @@ This project has adopted the [Microsoft Open Source Code of Conduct](https://ope
 For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or
 contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.
 
-### Dependency updates
-
-[Dependabot](./.github/dependabot.yml) checks GitHub Actions, Go modules, npm,
-NuGet, and Docker base images weekly, grouping version updates by ecosystem
-with a seven-day cooldown. Dependency changes may require running
-`scripts/generate-notice.sh` and committing the regenerated notice metadata
-alongside any changes to `NOTICE.txt`.
-
 ## Trademarks
 
 This project may contain trademarks or logos for projects, products, or services. Authorized use of Microsoft
